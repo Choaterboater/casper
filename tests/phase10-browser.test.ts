@@ -246,6 +246,24 @@ browserTest("the page load looks at phone width: a too-wide page and a squashed 
   expect((await f.session.load(`${f.url}/`, new AbortController().signal)).phone).toEqual({ viewport: 390, pageWidth: 390, squashed: [] });
 }, 30_000);
 
+browserTest("a page check saves a desktop and a phone picture outside the project, private, and none unless asked", async () => {
+  const f = await fixture();
+  const plain = await f.session.load(`${f.url}/`, new AbortController().signal);
+  expect(plain.screenshots).toBeUndefined();
+  const load = await f.session.load(`${f.url}/`, new AbortController().signal, { screenshots: true });
+  if (!posixModes) { expect(load.screenshots).toBeUndefined(); return; }
+  const { desktop, phone } = load.screenshots!;
+  for (const file of [desktop!, phone!]) {
+    expect(file.startsWith(f.state)).toBe(true);
+    expect((await readFile(file)).subarray(1, 4).toString()).toBe("PNG");
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
+  }
+  expect(path.basename(desktop!)).toBe("page-1-desktop.png");
+  expect(path.basename(phone!)).toBe("page-1-phone.png");
+  // They are not the model's screenshots: its own count stays at 0.
+  expect(f.session.status().screenshots).toBe(0);
+}, 30_000);
+
 browserTest("the host-only page load reports console errors and the failed same-origin request", async () => {
   const f = await fixture();
   const load = await f.session.load(`${f.url}/`, new AbortController().signal);

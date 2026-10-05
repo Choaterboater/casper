@@ -14,6 +14,7 @@ import { newProjectQuestion } from "../src/new/pick";
 import { IGNORE_CHOICES, IGNORE_FILE_CHOICES } from "../src/security/format";
 import { INSTALL_CHOICES, OSV_UPDATE_QUESTION } from "../src/security/install";
 import { tasksChoices, type BackgroundTask } from "../src/app/background";
+import { SHOW_PAGES_CHOICES } from "../src/services/page-look";
 
 const running = (name: string): BackgroundTask => ({ kind: "dev server", name, status: "running", stop: async () => "" });
 
@@ -74,6 +75,7 @@ const firsts: Array<[string, string, string]> = [
   ["the work is in a project inside this folder", workFolderChoices("Documents", "sample-tools")[0]!.label, "Stay here"],
   ["this task has used $5.02", spendChoices("$10")[0]!.label, "Stop here"],
   // Both send the request; switching to another model is the deliberate one.
+  ["show the AI the page screenshots? (uses tokens)", SHOW_PAGES_CHOICES[0].label, "No"],
   ["this model can't see pictures", pictureChoices("fixture/eyes", 1)[0]!.label, "Send without it"],
   ["/tasks: stop something? (several running)", tasksChoices([running("api"), running("web")])[0]!.label, "Keep them"],
   ["/tasks: stop something? (one running)", tasksChoices([running("api")])[0]!.label, "Leave it running"],

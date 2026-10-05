@@ -107,6 +107,7 @@ import { artifactFilesystemSupported } from "./visualize/artifacts";
 import { describeVisualization } from "./visualize/tools";
 import { assembleTaskTools } from "./app/capabilities";
 import { attachImages } from "./app/images";
+import { lookPrompt, pageLook, SHOW_PAGES_CHOICES, SHOW_PAGES_QUESTION } from "./services/page-look";
 import { DEFAULT_WEB } from "./config/load";
 import { AGENT_DIR_ENV, casperAgentDir } from "./runtime/agent-store";
 import { loginValuesFrom, WebLookup, webProvider, type WebLookupOptions } from "./web/lookup";
@@ -1629,6 +1630,7 @@ export class CasperApp {
     let verification: VerificationReport | undefined;
     let autoChecks: ReturnType<typeof planAutoChecks> | undefined;
     let pageNotes: string[] | undefined;
+    let pagesShown: number | undefined;
     let workFolder: ChildProject | undefined;
     let receiptShown = false;
     const flatten = (changes: TreeChanges) => [...changes.added, ...changes.modified, ...changes.removed].sort();
@@ -1703,6 +1705,8 @@ export class CasperApp {
           this.events.ensureLineBreak();
           this.output.write(`… Casper checking: ${pending.join(", ")}\n`);
           verification = await this.runVerification(autoChecks.run, true, prompt, this.checkTask);
+          // A model that sees pictures may look at the changed pages once (showPages); its fixes are checked again.
+          ({ verification, shown: pagesShown } = await this.lookAtPages(session, prompt, autoChecks.run, verification, workspaceRoot));
           const changedCode = Boolean(before && afterModel && changesCode(diffSnapshots(before, afterModel)));
           if (verification.status === "pass" && !(proving && changedCode)) {
             proofSkipped = !verification.results.length && verification.pages && !verification.smoke?.checks.length
@@ -1776,7 +1780,7 @@ export class CasperApp {
         // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
         verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
         ...(autoChecks?.skipped && !verification?.smoke && !verification?.pages ? { autoSkipped: autoChecks.skipped } : {}),
-        ...(pageNotes?.length && !verification?.pages ? { pageNotes } : {}),
+        ...(pageNotes?.length && !verification?.pages ? { pageNotes } : {}), ...(pagesShown ? { pagesShown } : {}),
         ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(this.taskSpendStop ? { spendLimit: { ...this.taskSpendStop } } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
         ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...this.bigModelReceipt(),
         ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(this.sandbox ? { sandbox: sandboxReceipt(this.sandbox)! } : {}),
@@ -1984,12 +1988,53 @@ export class CasperApp {
     return { verification, proof };
   }
 
+  /**
+   * The page look: after a UI change whose checks pass, a model that sees pictures is shown the page screenshots once
+   * (showPages: ask once a session, on, off), so it can fix what loads but looks wrong. When it edits, the checks
+   * run again with the repairs left. Never a check itself. `shown` is how many pictures it was shown.
+   */
+  private async lookAtPages(session: RuntimeSession, request: string, checks: readonly CheckName[], verification: VerificationReport,
+    root: string): Promise<{ verification: VerificationReport; shown?: number }> {
+    const stopped = () => this.closing || Boolean(this.commandAbort?.signal.aborted) || this.taskRuntimeFailed || this.taskTurnLimit !== undefined || this.taskSpendStop !== undefined;
+    if (verification.status !== "pass" || !verification.pages?.pages.some((page) => page.screenshots) || stopped()) return { verification };
+    let sees: boolean | undefined;
+    try { sees = session.getStatus?.()?.images; } catch { sees = undefined; }
+    if (sees !== true || !await this.showPagesAllowed()) return { verification };
+    const look = await pageLook(verification.pages.pages);
+    if (!look || stopped()) return { verification };
+    this.events.ensureLineBreak();
+    this.output.write(`↻ look: the AI looks at ${look.images.length} screenshot${look.images.length === 1 ? "" : "s"} of ${look.shown.map((page) => terminalText(page.path)).join(", ")}\n`);
+    const before = await this.snapshotWorkspace(root);
+    await this.prepareCapabilities(request);
+    await this.promptRound(session, lookPrompt(request, look), request, look.images);
+    if (stopped()) return { verification, shown: look.images.length };
+    const after = before && await this.snapshotWorkspace(root);
+    const edited = !before || !after || [...Object.values(diffSnapshots(before, after))].some((paths) => paths.length);
+    if (!edited) return { verification, shown: look.images.length };
+    const max = this.projectContext!.repair.maxAttempts;
+    const again = await this.runVerification(checks, true, request, this.checkTask, Math.max(0, max - verification.repairAttempts));
+    return { verification: { ...again, repairAttempts: verification.repairAttempts + again.repairAttempts }, shown: look.images.length };
+  }
+
+  /** showPages: on or off as set; ask (the default) asks once a session, and only a person answers it (1 No). */
+  private async showPagesAllowed(): Promise<boolean> {
+    const setting = this.projectContext?.showPages ?? "ask";
+    if (setting !== "ask") return setting === "on";
+    if (this.showPagesAnswer !== undefined) return this.showPagesAnswer;
+    if (!this.interactive || !this.terminal.canAsk) return false;
+    this.events.ensureLineBreak();
+    const picked = await this.terminal.pick(SHOW_PAGES_QUESTION, [...SHOW_PAGES_CHOICES], this.commandAbort?.signal);
+    if (this.commandAbort?.signal.aborted) return false;
+    this.showPagesAnswer = picked === SHOW_PAGES_CHOICES[1].label;
+    return this.showPagesAnswer;
+  }
+
   /** A round after the task turn (review, proof repair) with its own ROUND_MAX_TURNS budget. A --max-turns
    * at or below it wins and stays the task's stop (taskTurnLimit, exit 2). The round's own budget ending it
    * is not the task's stop: Casper goes on with the checks and the proof. True when that budget ended it. */
-  private async promptRound(session: RuntimeSession, text: string, request: string): Promise<boolean> {
+  private async promptRound(session: RuntimeSession, text: string, request: string, images?: RuntimeImage[]): Promise<boolean> {
     const roundBudget = this.maxTurns === undefined || ROUND_MAX_TURNS < this.maxTurns;
-    await session.prompt(text, this.commandAbort?.signal, { request, maxTurns: roundBudget ? ROUND_MAX_TURNS : this.maxTurns });
+    await session.prompt(text, this.commandAbort?.signal, { request, maxTurns: roundBudget ? ROUND_MAX_TURNS : this.maxTurns, ...(images?.length ? { images } : {}) });
     if (!roundBudget || this.taskTurnLimit === undefined) return false;
     this.taskTurnLimit = undefined;
     return true;
@@ -2744,6 +2789,9 @@ export class CasperApp {
       return undefined;
     }
   }
+
+  /** This session's answer to "Show the AI the pages?" (showPages: ask); asked once. */
+  private showPagesAnswer?: boolean;
 
   /** Pictures pasted into the line being handled; runModelTask takes them. */
   private pastedImages?: Map<number, RuntimeImage>;

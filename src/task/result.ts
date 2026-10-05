@@ -101,6 +101,8 @@ export interface TaskResult {
   /** Why the task's changed pages were not opened, as plain receipt lines: the dev server can't start (a missing
    * install), or every changed page needs a value ("• /devices/[id] not opened: …"). Never a failure. */
   pageNotes?: string[];
+  /** How many page screenshots the AI was shown to check the look (showPages). Advice, never a check. */
+  pagesShown?: number;
   /** Whether /undo can put this task's files back, and why not. `left` names changed files Casper keeps no copy of. */
   undo?: { available: true; left?: Array<{ path: string; why: string }> } | { available: false; reason: string };
   /** Changes on other machines, read from the text of the AI's ssh and scp commands (never guessed beyond it). */
@@ -251,6 +253,7 @@ export function formatTaskResult(task: TaskResult): string {
   }
   if (report?.pages) lines.push(receiptLine("pages", `${report.pages.status}: ${report.pages.pages.map((page) => `${safe(page.path)} ${page.status}${page.httpStatus !== null ? ` (${page.httpStatus})` : ""}`).join("; ") || "none opened"}${report.pages.reason ? `. ${safe(report.pages.reason)}` : ""}`));
   else if (task.pageNotes?.length) lines.push(receiptLine("pages", task.pageNotes.map((note) => safe(note.replace(/^• /, ""))).join("; ")));
+  if (task.pagesShown) lines.push(receiptLine("look", pagesShownText(task.pagesShown)));
   if (task.bigModel) lines.push(receiptLine("big model", `${safe(task.bigModel.model)} for ${task.bigModel.attempts} ${task.bigModel.attempts === 1 ? "repair" : "repairs"}`));
   if (task.security) lines.push(receiptLine("security", securityText(task.security)));
   for (const remote of task.remoteChanges ?? []) lines.push(receiptLine(`on ${safe(remote.host)}`.slice(0, 12), remote.changes.length
@@ -329,6 +332,11 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
 /** The receipt as the terminal shows it after a task: one line when all is well ("✓ Verified · test passed ·
  * 3 files changed"), and each problem on its own short line under it. The full form stays in formatReceipt
  * (--json `text`, saved receipt summaries) and formatTaskResult (/receipt). */
+/** "The AI looked at 4 screenshots of the pages (advice, not a check)". */
+function pagesShownText(count: number): string {
+  return `The AI looked at ${count} screenshot${count === 1 ? "" : "s"} of the pages (advice, not a check)`;
+}
+
 export function formatShortReceipt(task: TaskResult, options: ReceiptOptions = {}): string {
   const { lines, undo, folds, short } = receiptParts(task, options);
   if (!lines.length) return undo.join("\n");
@@ -431,6 +439,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
   if (report?.pages) lines.push(...formatPageReport(report.pages).flatMap((line) => line.split("\n")).map(safe));
   else if (report?.pagesSkipped) lines.push(`• Pages not checked: ${report.pagesSkipped}`);
   for (const note of task.pageNotes ?? []) lines.push(safe(note));
+  if (task.pagesShown) lines.push(`• ${pagesShownText(task.pagesShown)}`);
   if (task.security) lines.push(`• Security tools: ${securityText(task.security)} (what the tools found; not proof the code has no problems)`);
   for (const remote of task.remoteChanges ?? []) lines.push(remote.changes.length
     ? `• Changed on ${safe(remote.host)} (from the commands Casper saw): ${remote.changes.map(safe).join("; ")}`

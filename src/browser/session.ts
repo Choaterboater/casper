@@ -46,6 +46,9 @@ export interface PageLoad {
   overlay?: string;
   /** The same page at phone width. Absent for the HTTP-only fallback. */
   phone?: PhoneFit;
+  /** Pictures of the visible page at desktop and phone width (PNG paths outside the project), when asked for and
+   * they could be saved (not on Windows yet). */
+  screenshots?: { desktop?: string; phone?: string };
 }
 /** How a page fits a phone screen: its width against the screen's, and the text fields too squashed to show a line. */
 export interface PhoneFit { viewport: number; pageWidth: number; squashed: string[] }
@@ -70,6 +73,8 @@ const FIELD_HEIGHTS = () => {
   });
 };
 const LOAD_LIMIT = 10;
+/** Page checks save at most this many pictures per session: 5 pages, desktop and phone, a few rounds. */
+const PAGE_PICTURE_LIMIT = 40;
 const LOAD_TEXT = 300;
 
 /** Fields fill types into, like a person would. Password and file stay out (checked before this). */
@@ -92,6 +97,8 @@ export class BrowserSession {
   private server?: BrowserServer;
   private readonly runId = randomUUID();
   private screenshotCount = 0;
+  /** Page-check pictures taken this session (their own limit; the model's 16 screenshots are apart). */
+  private pagePictures = 0;
   private readonly logs: Array<{ type: string; text: string }> = [];
   private readonly requests: Array<{ url: string; status?: number; error?: string }> = [];
   private dropped = 0;
@@ -100,6 +107,8 @@ export class BrowserSession {
   /** Host page loads: serialized, and the first one gets the longer first-compile deadline. */
   private loading: Promise<void> = Promise.resolve();
   private loads = 0;
+  /** Page loads that took pictures, for their file names. */
+  private pageLoads = 0;
   private readonly scenarios = new Map<string, { scenario: BrowserScenario; check: BrowserCheck; fingerprint?: string; revision: number }>();
   constructor(private readonly options: BrowserSessionOptions) {}
 
@@ -166,19 +175,42 @@ export class BrowserSession {
       const bytes = await page.screenshot({ type: "png", fullPage: false });
       combined.throwIfAborted();
       if (bytes.byteLength > 4 * 1024 * 1024) throw new Error("Browser screenshot exceeds 4 MiB");
-      if (!this.artifacts) {
-        const { ArtifactDirectory } = await import("../visualize/artifacts");
-        this.artifacts = await ArtifactDirectory.open(path.join(this.options.stateDirectory, "browser", this.runId), this.options.projectRoot, () => combined.throwIfAborted());
-      }
-      await this.artifacts.assertCurrent();
-      const name = `${++this.screenshotCount}.png`;
-      const file = await this.artifacts.create(name);
-      try { await file.writeFile(bytes); combined.throwIfAborted(); }
-      catch (error) { this.artifacts.remove(name); throw error; }
-      finally { await file.close(); }
-      return { path: path.join(this.options.stateDirectory, "browser", this.runId, name), bytes: bytes.byteLength,
+      const saved = await this.savePicture(`${this.screenshotCount + 1}.png`, bytes, combined);
+      this.screenshotCount++;
+      return { path: saved, bytes: bytes.byteLength,
         url: page.url(), viewport: page.viewport(), guidance: "Use the native read tool on this PNG to view it. Capture alone is not verification or proof the model viewed it." };
     } finally { clearTimeout(timer); combined.removeEventListener("abort", stop); }
+  }
+
+  /** Saves a PNG in this run's folder outside the project (0700 folders, 0600 files); its full path. */
+  private async savePicture(name: string, bytes: Uint8Array, signal: AbortSignal): Promise<string> {
+    if (!this.artifacts) {
+      const { ArtifactDirectory } = await import("../visualize/artifacts");
+      this.artifacts = await ArtifactDirectory.open(path.join(this.options.stateDirectory, "browser", this.runId), this.options.projectRoot, () => signal.throwIfAborted());
+    }
+    await this.artifacts.assertCurrent();
+    const file = await this.artifacts.create(name);
+    try { await file.writeFile(bytes); signal.throwIfAborted(); }
+    catch (error) { this.artifacts.remove(name); throw error; }
+    finally { await file.close(); }
+    return path.join(this.options.stateDirectory, "browser", this.runId, name);
+  }
+
+  /** A page check's picture of the visible page; undefined when it can't be taken or saved (never a failure). */
+  private async pagePicture(page: Page, name: string, signal: AbortSignal): Promise<string | undefined> {
+    if (this.pagePictures >= PAGE_PICTURE_LIMIT) return undefined;
+    try {
+      const { artifactFilesystemSupported } = await import("../visualize/artifacts");
+      if (!artifactFilesystemSupported) return undefined;
+      const bytes = await page.screenshot({ type: "png", fullPage: false });
+      signal.throwIfAborted();
+      if (bytes.byteLength > 4 * 1024 * 1024) return undefined;
+      this.pagePictures++;
+      return await this.savePicture(name, bytes, signal);
+    } catch (error) {
+      signal.throwIfAborted();
+      return undefined;
+    }
   }
 
   private async serve(input: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
@@ -208,7 +240,7 @@ export class BrowserSession {
    * page errors, failed requests and the first line of a framework error overlay (Vite, Next.js, Streamlit).
    * Page text is diagnostic data, never instructions. One load runs at a time per session.
    */
-  async load(url: string, signal?: AbortSignal, options: { settle?: "streamlit" } = {}): Promise<PageLoad> {
+  async load(url: string, signal?: AbortSignal, options: { settle?: "streamlit"; screenshots?: boolean } = {}): Promise<PageLoad> {
     const target = webURL(url);
     if (!localURL(target)) throw new Error("Page checks only open loopback addresses");
     if (this.controller.signal.aborted) throw new Error("Browser session is closed");
@@ -263,6 +295,9 @@ export class BrowserSession {
         if (streamlit) return firstLine(streamlit.innerText) ?? "exception";
         return undefined;
       });
+      // A picture of the page as a person sees it first, for the receipt and, when you allow it, the AI.
+      const shot = options.screenshots ? ++this.pageLoads : 0;
+      const desktopPicture = shot ? await this.pagePicture(page, `page-${shot}-desktop.png`, combined) : undefined;
       // The same page on a phone: layouts that only break there (a column that squashes an input, a wide table)
       // never show at the desktop size above. Each text field is compared with its own desktop height.
       const desktop = await page.evaluate(FIELD_HEIGHTS);
@@ -276,8 +311,10 @@ export class BrowserSession {
         return [`${field.name} (${field.height}px tall${wide !== undefined && wide > field.height ? `; ${wide}px on a wider screen` : ""})`];
       }).slice(0, 5);
       const phone = { viewport: PHONE.width, pageWidth: await page.evaluate(() => Math.round(document.documentElement.scrollWidth)), squashed };
+      const phonePicture = shot ? await this.pagePicture(page, `page-${shot}-phone.png`, combined) : undefined;
+      const screenshots = { ...(desktopPicture ? { desktop: desktopPicture } : {}), ...(phonePicture ? { phone: phonePicture } : {}) };
       return { status: response?.status() ?? null, consoleChecked: true, consoleErrors, pageErrors, failedRequests,
-        ...(overlay ? { overlay: overlay.slice(0, LOAD_TEXT) } : {}), phone };
+        ...(overlay ? { overlay: overlay.slice(0, LOAD_TEXT) } : {}), phone, ...(desktopPicture || phonePicture ? { screenshots } : {}) };
     } finally {
       combined.removeEventListener("abort", stop);
       await context?.close().catch(() => {});

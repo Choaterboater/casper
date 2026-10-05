@@ -184,6 +184,9 @@ After a forced SIGKILL of Casper or a power loss, cleanup may not happen.
   Symlinked artifact destinations are refused. Saved PNGs persist after close;
   remove that run directory manually when no longer needed. No automatic retention
   cleanup or secret detector is provided.
+- Page checks save their own pictures beside them (`page-<n>-desktop.png`,
+  `page-<n>-phone.png`, at most 40 per session); they don't count toward the
+  model's 16. See "Screenshots" in [VERIFICATION.md](VERIFICATION.md#page-checks).
 
 Use native `read` on a returned PNG path to deliver image content to a
 vision-capable model. Tests verify actual image content in the Pi provider request,

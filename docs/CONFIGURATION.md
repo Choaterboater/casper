@@ -447,6 +447,18 @@ command printed. The window title names the conversation from its first request
 display: detailed   # quiet, normal (default), or detailed
 ```
 
+## Showing the AI the pages
+
+After a UI change in a web project, the page check saves a desktop and a phone screenshot of each
+changed page (no tokens). `showPages` says whether a model that can see pictures is shown them once,
+so it can fix what loads but looks wrong (see [VERIFICATION.md](VERIFICATION.md#page-checks)). Each
+look uses tokens. `/settings` changes it by number; a project file can't set it.
+
+```yaml
+# ~/.casper/config.yaml or a profile's config.yaml
+showPages: ask   # ask (default: once a session, 1 No · 2 Yes, show the AI the pages), on, or off
+```
+
 ## Skills
 
 A skill is a Markdown file of instructions (a `SKILL.md`) that Casper adds to the model's prompt
