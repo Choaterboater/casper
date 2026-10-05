@@ -169,7 +169,8 @@ export class ReferenceLibrary {
             issue(`${source.id}: path no longer inside reference root: ${relative}`);
             return;
           }
-          const info = await lstat(target);
+          // Bigint: Windows file IDs exceed a number's exact range, and rounded ones make different files look like one.
+          const info = await lstat(target, { bigint: true });
           if (info.isSymbolicLink()) { issue(`${source.id}: skipped symlink ${relative}`); return; }
           // An excluded filename must not consume the identity of an eligible hardlink.
           if (info.isFile() && (!TEXT_EXTENSIONS.has(path.extname(relative).toLowerCase()) || /(?:^|\/)(?:package-lock\.json|yarn\.lock|bun\.lock|pnpm-lock\.yaml)$/.test(relative))) return;
@@ -193,8 +194,9 @@ export class ReferenceLibrary {
           }
           if (!info.isFile()) { issue(`${source.id}: skipped non-regular file ${relative}`); return; }
           const maxFile = source.maxFileBytes ?? MAX_FILE_BYTES;
-          if (info.size > maxFile) { issue(`${source.id}: file exceeds ${maxFile} bytes: ${relative}`); return; }
-          if (result.bytesRead + info.size > MAX_TOTAL_BYTES) { issue("Total read limit reached; narrow the configured paths."); stopped = true; return; }
+          const size = Number(info.size);
+          if (size > maxFile) { issue(`${source.id}: file exceeds ${maxFile} bytes: ${relative}`); return; }
+          if (result.bytesRead + size > MAX_TOTAL_BYTES) { issue("Total read limit reached; narrow the configured paths."); stopped = true; return; }
           const bytes = await readReferenceFile(target, Math.min(maxFile, MAX_TOTAL_BYTES - result.bytesRead));
           result.bytesRead += bytes.length;
           signal.throwIfAborted();
