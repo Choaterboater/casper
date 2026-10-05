@@ -90,7 +90,7 @@ import { SessionWorkspaceManager, type ReturnAction } from "./sessions/manager";
 import { runSlashCommand, type OutputWriter } from "./app/commands";
 import type { BackgroundTask } from "./app/background";
 import { detectHostTerminal } from "./tui/host-terminal";
-import { NEW_USAGE, parseNewArgs, UsageError } from "./cli-args";
+import { UsageError } from "./cli-args";
 import { checkEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent } from "./app/json-events";
 import { StepRail } from "./app/steps";
 import { CASPER_VERSION } from "./version";
@@ -102,9 +102,7 @@ import { SandboxStore } from "./sandbox/store";
 import { loginMissingAnswer, type LoginHost } from "./mcp/network/ask-login";
 import { loginFile, type NetworkProduct } from "./mcp/network/logins";
 import type { SetupHost } from "./mcp/network/setup";
-import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestions, newProjectInEmptyFolder, offerMissingFolder, opened, type NewProjectFlow } from "./app/new-project";
-import { listLines } from "./new/command";
-import { defaultNameFor } from "./new/templates";
+import { newProjectFromQuestions, opened } from "./app/new-project";
 import { runSettings } from "./app/settings";
 import { runPreview } from "./services/preview";
 import { editUserConfig } from "./config/user-write";
@@ -117,6 +115,7 @@ import { settleQueuedLines, submitDuringWork, cycleEffort } from "./app/during-w
 import { spendNote, spendGate } from "./app/spend-gate";
 import { prepareCapabilities, browserSession, serviceManager, stopDebugger, backgroundTasks, planPages, pageNotesFor, pageRun, smokeRun, pagePaths } from "./app/task-tools";
 import { ensureModel, retryModelFailure, bigModelReceipt, bigModelNotice, switchToBigModel, restoreModel, askBigModelRetry, type BigModelChoice, bigModelOf, imagesForModel, switchForPictures } from "./app/big-model";
+import { newProjectFlowWithAbort, openProjectFolder, openProjectCommand, newProjectCommand, offerNewProject, childProjectOfTask, runChildChecks, offerWorkFolder } from "./app/workspace";
 
 export type { OutputWriter } from "./app/commands";
 
@@ -187,9 +186,6 @@ export interface CasperAppOptions {
   terminalHost?: TerminalHost;
 }
 
-/** The last choice of the home-folder and folder-of-projects question. */
-const NEW_PROJECT_CHOICE = "New project";
-
 /** A Casper session. Its code lives here and in the src/app/ modules (approvals, ...), which take the app as their
  * first argument: members without `private` may be read and set by those modules, not only by embedders. */
 export class CasperApp {
@@ -243,12 +239,12 @@ export class CasperApp {
   readonly events: RuntimeEventView;
   readonly output: OutputWriter;
   private readonly input: Readable;
-  private runtime?: AgentRuntime;
-  private runtimeLoad?: Promise<AgentRuntime>;
-  private runtimeStart?: Promise<RuntimeSession>;
+  runtime?: AgentRuntime;
+  runtimeLoad?: Promise<AgentRuntime>;
+  runtimeStart?: Promise<RuntimeSession>;
   session?: RuntimeSession;
   /** A request typed at a startup question: the first request of the session. */
-  private queuedPrompt?: string;
+  queuedPrompt?: string;
   /** /pane on|off as saved; undefined until something was saved. */
   paneSetting?: PaneSetting;
   paneAsked = false;
@@ -259,7 +255,7 @@ export class CasperApp {
   displayChoice?: DisplayLevel;
   closing = false;
   private closeWork?: Promise<void>;
-  private unsubscribe?: () => void;
+  unsubscribe?: () => void;
   projectContext?: ProjectContext;
   skillRegistry?: SkillRegistry;
   private readonly reportedSkillWarnings = new Set<string>();
@@ -270,7 +266,7 @@ export class CasperApp {
   private readonly updateCheckAbort = new AbortController();
   readonly runModel?: string;
   private readonly runEffort?: string;
-  private runConversation?: CasperAppOptions["conversation"];
+  runConversation?: CasperAppOptions["conversation"];
   readonly maxTurns?: number;
   readonly onEvent?: (event: CasperEvent) => void;
   private readonly eventMapper = new RuntimeEventMapper();
@@ -305,8 +301,8 @@ export class CasperApp {
    * before-the-change baseline. `before` is the task's starting tree, compared only after a shell command. */
   private taskEdits?: { before?: Map<string, string>; edited: boolean; shell: boolean; turnEnded: boolean };
   readonly sessionHomeDir?: string;
-  private sessionWorkspace?: SessionWorkspaceManager;
-  private sessionWorkspaceStart?: Promise<SessionWorkspaceManager>;
+  sessionWorkspace?: SessionWorkspaceManager;
+  sessionWorkspaceStart?: Promise<SessionWorkspaceManager>;
   lastTaskRequest?: string;
   commandActive = false;
   /** What the session's earlier model tasks spent; the footer adds the current task to it. */
@@ -315,16 +311,16 @@ export class CasperApp {
   effortSteps = 0;
   effortCycle: Promise<void> = Promise.resolve();
   private workspaceTransition = false;
-  private workspaceNeedsRebind = false;
+  workspaceNeedsRebind = false;
   /** Project folders the user chose to stay out of at "The work is in ...": not asked again this session. */
-  private readonly stayedOutOf = new Set<string>();
+  readonly stayedOutOf = new Set<string>();
   /** Why the last workspace snapshot failed, for the task's receipt. */
   private snapshotFailure?: string;
   taskRuntimeFailed = false;
   /** The files from before the current task's change, while it runs: tells a failure the change caused from one already there. */
   private taskBaseline?: { baseline: ChangeBaseline; root: string };
   private cleanupError?: ProcessCleanupError;
-  private readonly blockOnCleanupFailure = () => {
+  readonly blockOnCleanupFailure = () => {
     this.cleanupError = new ProcessCleanupError();
     this.commandAbort?.abort(); this.verificationAbort?.abort(); this.checkTask?.abort();
     void this.session?.abort().catch(() => {});
@@ -356,7 +352,7 @@ export class CasperApp {
   observations = new TaskObservations();
   memoryWork?: Promise<void>;
   private readonly newProjectRequest?: CasperAppOptions["newProject"];
-  private readonly createProjectFn?: CasperAppOptions["createProject"];
+  readonly createProjectFn?: CasperAppOptions["createProject"];
   private readonly networkTools?: NetworkToolContext;
   readonly securitySeams?: Pick<SecurityReviewHost, "check" | "install">;
   readonly networkSeams?: CasperAppOptions["networkSeams"];
@@ -368,9 +364,9 @@ export class CasperApp {
   /** `casper new` on a terminal: the exit code when no project was opened (1 when nothing was created). */
   newProjectExitCode?: number;
   /** The build-request question is asked at most once per session. */
-  private newProjectOffered = false;
+  newProjectOffered = false;
   /** This task already showed its one question before work (the new-project question): no checklist panel. */
-  private beforeWorkAsked = false;
+  beforeWorkAsked = false;
   /** Receipts say the no-checks how-to once per session, and name a file undo can't put back once. */
   private checksHintShown = false;
   private readonly undoNamed = new Set<string>();
@@ -507,19 +503,8 @@ export class CasperApp {
     };
   }
 
-  /** The new-project questions go through Casper's own numbered question, on the rich or the plain terminal. */
-  private newProjectFlow(): NewProjectFlow {
-    return {
-      pick: (question, options, signal) => this.terminal.pick(question, options, signal),
-      write: (line) => { if (!this.closing) this.output.write(`${line}\n`); },
-      homeDir: this.sessionHomeDir ?? os.homedir(),
-      ...(this.createProjectFn ? { create: this.createProjectFn } : {}),
-      ...(this.commandAbort ? { signal: this.commandAbort.signal } : {}),
-    };
-  }
-
   /** Load all workspace metadata before publishing it. No connections or model startup. */
-  private async loadWorkspace(cwd: string) {
+  async loadWorkspace(cwd: string) {
     const project = await this.inspectProjectFn(cwd);
     const context = await this.loadProjectContextFn(project);
     const [registry, mcpConfiguration, lspConfiguration, referenceConfiguration] = await Promise.all([
@@ -649,91 +634,6 @@ export class CasperApp {
     return this.handlePrompt(prompt.trim());
   }
 
-  /** Interactive startup from the home directory, or from a folder that only holds projects (not a
-   * project itself and not inside a git repository), asks which project to open — a launch from ~
-   * silently made the whole home directory the workspace, and tasks then scanned all of it. A typed
-   * path is validated and must stay inside the launch folder; Esc/empty keeps it. Without a rich
-   * surface the question cannot render, so the launch folder is stated plainly. */
-  private async openProjectFolder(cwd: string): Promise<string> {
-    const home = this.sessionHomeDir ?? os.homedir();
-    const fromHome = path.resolve(cwd) === path.resolve(home);
-    let candidates: string[] | undefined;
-    if (!fromHome) {
-      if (await hasProjectSignals(cwd) || (await inspectProject(cwd)).isGit) return cwd;
-      candidates = await findProjectCandidates(cwd, { homeDir: home });
-      // An empty folder: one numbered question, on either terminal, offers to start a project right here.
-      // Piped input can't answer it, so a pipe gets the command instead.
-      // A resumed conversation already belongs to this folder: no question.
-      if (!candidates.length && !this.runConversation && await isEmptyFolder(cwd)) {
-        if (!this.terminal.canAsk) { this.output.write("[folder] This folder is empty. To start a new project in ~/Projects: casper new\n"); return cwd; }
-        const result = await this.newProjectFlowWithAbort((flow) => newProjectInEmptyFolder(flow, cwd, (text) => { this.queuedPrompt = text; }));
-        if (opened(result)) return result.dir;
-        // "Not now" means this folder: a later build request doesn't ask again.
-        this.newProjectOffered = true;
-        return cwd;
-      }
-      if (!candidates.length) return cwd;
-    }
-    if (!this.terminal.rich) {
-      // `casper <folder>` opens that folder, so the hint is one command, no cd and no restart.
-      this.output.write(fromHome ? `[folder] Opened in your home folder. To work in a project: casper ~/Projects/myapp\n`
-        : `[folder] This folder holds several projects. To work in one: casper ${terminalText(path.relative(cwd, candidates![0]!))}\n`);
-      this.output.write("[folder] To start a new project instead: casper new\n");
-      return cwd;
-    }
-    candidates ??= await findProjectCandidates(cwd, { homeDir: home });
-    const base = fromHome ? home : cwd;
-    const folderLabel = (folder: string) => fromHome
-      ? folder === home ? "~" : `~${folder.slice(home.length)}`
-      : folder === cwd ? "." : path.relative(cwd, folder);
-    // Messages name the folder: "staying in Documents", never "staying in .".
-    const folderName = fromHome ? "your home folder" : path.basename(cwd) || cwd;
-    const byLabel = new Map<string, string>(candidates.map(candidate => [folderLabel(candidate), candidate]));
-    const answer = await this.terminal.ask(
-      fromHome ? "Opened from your home folder. Work in which project?" : "This folder holds several projects. Work in which one?",
-      // The projects lead, so Enter opens the first; staying put is the last choice.
-      [
-        ...candidates.slice(0, 6).map(candidate => ({ label: folderLabel(candidate) })),
-        { label: folderLabel(cwd), description: fromHome ? "stay in the home folder" : ` stay in ${path.basename(cwd)}` },
-        { label: NEW_PROJECT_CHOICE, description: fromHome ? "start one in ~/Projects" : ` start one in ${path.basename(cwd)}` },
-      ],
-      false,
-    );
-    const choice = answer?.[0]?.trim();
-    if (!choice) return cwd; // Esc, empty, or the plain-line fallback keeps the launch folder.
-    if (choice === NEW_PROJECT_CHOICE) {
-      const result = await this.newProjectFlowWithAbort((flow) => newProjectFromQuestions(flow, {}, fromHome ? undefined : cwd, (text) => { this.queuedPrompt = text; }));
-      return opened(result) ? result.dir : cwd;
-    }
-    const resolved = byLabel.get(choice) ?? path.resolve(cwd, choice.replace(/^~(?=\/|$)/, home));
-    const relative = path.relative(path.resolve(base), path.resolve(resolved));
-    if (isOutside(relative)) {
-      this.output.write(`[folder] ${terminalText(choice)} is outside ${fromHome ? "your home directory" : "the folder you opened"}; staying in ${folderName}.\n`);
-      return cwd;
-    }
-    const info = await stat(resolved).catch(() => undefined);
-    if (!info) {
-      // A name that isn't there: offer to make it (Enter stays). From home it goes in ~/Projects, like /new.
-      const result = await this.newProjectFlowWithAbort((flow) => offerMissingFolder(flow, terminalText(choice), fromHome ? undefined : cwd,
-        folderName, fromHome ? "in ~/Projects" : "here"));
-      return opened(result) ? result.dir : cwd;
-    }
-    if (!info.isDirectory()) {
-      this.output.write(`[folder] ${terminalText(choice)} is not a folder; staying in ${folderName}.\n`);
-      return cwd;
-    }
-    return resolved;
-  }
-
-  /** Startup questions run before any command, so they get their own cancel (Ctrl+C, close). */
-  private async newProjectFlowWithAbort<T>(work: (flow: NewProjectFlow) => Promise<T>): Promise<T> {
-    const outer = { active: this.commandActive, abort: this.commandAbort };
-    this.commandActive = true;
-    this.commandAbort = outer.abort ?? new AbortController();
-    try { return await work(this.newProjectFlow()); }
-    finally { this.commandActive = outer.active; this.commandAbort = outer.abort; }
-  }
-
   async runInteractive(cwd = process.cwd()): Promise<void> {
     // Own the terminal before the banner so startup output is transcript, not
     // loose text a later redraw would drop.
@@ -742,7 +642,7 @@ export class CasperApp {
     let workspace = cwd;
     if (!this.projectContext && this.newProjectRequest) {
       // `casper new` on a terminal: the project first, then Casper opens there. Nothing built: no session.
-      const result = await this.newProjectFlowWithAbort((flow) => newProjectFromQuestions(flow, this.newProjectRequest!, undefined, (text) => { this.queuedPrompt = text; }));
+      const result = await newProjectFlowWithAbort(this, (flow) => newProjectFromQuestions(flow, this.newProjectRequest!, undefined, (text) => { this.queuedPrompt = text; }));
       if (!opened(result)) {
         if (!result && !this.closing) this.output.write("Nothing was created.\n");
         this.newProjectExitCode = result?.exitCode ?? 1;
@@ -751,7 +651,7 @@ export class CasperApp {
         return;
       }
       workspace = result.dir;
-    } else if (!this.projectContext) workspace = await this.openProjectFolder(cwd);
+    } else if (!this.projectContext) workspace = await openProjectFolder(this, cwd);
     if (!this.projectContext) {
       await this.start(workspace);
     }
@@ -1100,7 +1000,7 @@ export class CasperApp {
     if (/^\/details(?:\s|$)/.test(prompt)) return detailsCommand(this, prompt.slice(8).trim()).then(() => undefined);
     if (prompt.trim() === "/settings") return this.settingsCommand().then(() => undefined);
     if (/^\/preview(?:\s|$)/.test(prompt)) return this.previewCommand(prompt.slice(8).trim()).then(() => undefined);
-    if (/^\/new(?:\s|$)/.test(prompt)) return this.newProjectCommand(prompt.slice(4).trim()).then(() => undefined);
+    if (/^\/new(?:\s|$)/.test(prompt)) return newProjectCommand(this, prompt.slice(4).trim()).then(() => undefined);
     if (/^\/suggestions(?:\s|$)/.test(prompt)) {
       return this.suggestions.command(prompt.slice(12).trim(), this.projectContext).then((text) => { this.output.write(text); return undefined; });
     }
@@ -1130,92 +1030,9 @@ export class CasperApp {
     return undefined;
   }
 
-  /** The one project folder inside the open folder that holds every file this task changed, when the open folder
-   * is not a project itself (Documents, not a repository). */
-  private async childProjectOfTask(context: ProjectContext, changed: readonly string[]): Promise<ChildProject | undefined> {
-    const root = context.info.root;
-    if (!changed.length || context.info.isGit || await hasProjectSignals(root)) return undefined;
-    return childProjectOf(root, changed, this.sessionHomeDir ?? os.homedir()).catch(() => undefined);
-  }
-
-  /** That project's own detected checks (python -m unittest, pytest, bun test ...), run once in its folder, in the
-   * shell sandbox like every check, for this task's receipt. No repair: the conversation's folder is this one.
-   * Undefined when the child has no check for these files. */
-  private async runChildChecks(child: ChildProject, changed: readonly string[]): Promise<VerificationReport | undefined> {
-    const prefix = `${child.relative}/`;
-    const inside = changed.filter((file) => file.split(path.sep).join("/").startsWith(prefix)).map((file) => file.split(path.sep).join("/").slice(prefix.length));
-    const plan = planAutoChecks({ commands: child.model.commands, scopes: child.model.verificationScopes, changedPaths: inside });
-    if (!plan.run.length) return undefined;
-    const label = `checks from ${child.relative}`;
-    this.events.ensureLineBreak();
-    this.output.write(`… Casper checking: ${plan.run.join(", ")} (${terminalText(label)})\n`);
-    const registry = VerifierRegistry.forProject(child.model, this.projectContext!.verification.timeoutMs, this.blockOnCleanupFailure, this.networkOptions());
-    phase(this, "checks", "start");
-    try {
-      const results: VerificationResult[] = [];
-      await registry.run(plan.run, { ...(this.commandAbort ? { signal: this.commandAbort.signal } : {}),
-        onResult: (result) => { const labelled = { ...result, label }; results.push(labelled); this.writeCheckResult(labelled); } });
-      const status = results.some((result) => result.status === "fail") ? "fail" as const
-        : results.length && results.every((result) => result.status === "pass") ? "pass" as const : "incomplete" as const;
-      return { status, repairAttempts: 0, rounds: [results], results };
-    } finally { phase(this, "checks", "end"); }
-  }
-
   /** After the receipt: "The work is in ~/Documents/sample-tools. 1 Stay here · 2 Switch there". Enter stays. A run
    * that can't ask says the command to use. */
-  private async offerWorkFolder(child: ChildProject): Promise<void> {
-    const home = this.sessionHomeDir ?? os.homedir();
-    const display = terminalText(tildePath(child.dir, home));
-    if (!this.interactive || !this.terminal.canAsk) {
-      this.output.write(`[folder] The work is in ${display}. To work there: cd ${display} && casper\n`);
-      return;
-    }
-    // Asked once per folder: after "Stay here", later tasks in the same project don't ask again this session.
-    if (this.stayedOutOf.has(child.dir)) return;
-    const choices = workFolderChoices(terminalText(path.basename(this.activeWorkspaceRoot())), terminalText(child.relative));
-    const picked = await this.terminal.pick(`The work is in ${display}.`, choices, this.commandAbort?.signal);
-    if (this.closing) return;
-    if (picked?.trim() !== choices[1]!.label) { this.stayedOutOf.add(child.dir); return; }
-    await this.moveWorkspace(child.dir);
-  }
-
-  /** Moves Casper to another folder. Before the model starts it just opens it. After, the conversation here ends
-   * (it stays in /resume in this folder) and the next request starts a new one there. */
-  private async moveWorkspace(dir: string): Promise<void> {
-    if (!this.canMoveWorkspace()) {
-      if (this.subagents.isBusy) { this.output.write("[folder] Helpers are still working; nothing moved.\n"); return; }
-      await this.revokeWorkspaceCapabilities();
-      this.unsubscribe?.();
-      this.unsubscribe = undefined;
-      const runtime = this.runtime;
-      this.session = undefined;
-      this.runtimeStart = undefined;
-      this.runtimeLoad = undefined;
-      this.runtime = undefined;
-      this.sessionWorkspace = undefined;
-      this.runConversation = undefined;
-      await runtime?.dispose().catch(() => {});
-      await this.openWorkspaceBeforeRuntime(dir);
-      this.output.write("[folder] Your next request starts a new conversation there; the one here stays in /resume in the old folder.\n");
-      return;
-    }
-    await this.openWorkspaceBeforeRuntime(dir);
-  }
-
-  /** The workspace can move only before the model starts: the conversation's folder is fixed once it exists. */
-  private canMoveWorkspace(): boolean {
-    return !this.session && !this.runtimeStart && !this.sessionWorkspace && !this.sessionWorkspaceStart && !this.runConversation
-      && !this.runtimeTools.length;
-  }
-
-  /** Opens a new project's folder as the workspace before any model runtime exists, so the conversation starts there. */
-  private async openWorkspaceBeforeRuntime(dir: string): Promise<void> {
-    await this.revokeWorkspaceCapabilities();
-    const { context } = await this.loadWorkspace(dir);
-    this.workspaceNeedsRebind = false;
-    this.output.write(`[folder] Working in ${terminalText(tildePath(context.info.root, this.sessionHomeDir ?? os.homedir()))}\n`);
-    updateFooter(this);
-  }
+  private async offerWorkFolder(child: ChildProject): Promise<void> { return offerWorkFolder(this, child); }
 
   /**
    * `/project <name>`: a project folder inside this one (typed as a path, or the name of one Casper finds two
@@ -1223,34 +1040,7 @@ export class CasperApp {
    * 2 Make <name> here" (Enter stays). Once the conversation has started its folder is fixed, so Casper says the
    * command to use instead.
    */
-  async openProjectCommand(name: string): Promise<void> {
-    const root = this.activeWorkspaceRoot();
-    const home = this.sessionHomeDir ?? os.homedir();
-    const folder = path.basename(root) || root;
-    const typed = terminalText(name);
-    const inside = (dir: string) => { const relative = path.relative(root, dir); return relative !== "" && !isOutside(relative); };
-    const direct = path.resolve(root, name.replace(/^~(?=\/|$)/, home));
-    let target: string | undefined;
-    if (inside(direct) && (await stat(direct).catch(() => undefined))?.isDirectory()) target = direct;
-    else {
-      const wanted = name.toLowerCase().replace(/\/+$/, "");
-      target = (await findProjectCandidates(root, { homeDir: home })).find((dir) => inside(dir)
-        && (path.basename(dir).toLowerCase() === wanted || path.relative(root, dir).split(path.sep).join("/").toLowerCase() === wanted));
-    }
-    if (target && !this.canMoveWorkspace()) {
-      const display = terminalText(tildePath(target, home));
-      this.output.write(`[folder] This conversation stays in ${terminalText(folder)}. To work in ${terminalText(path.basename(target))}: cd ${display} && casper\n`);
-      return;
-    }
-    if (target) { await this.openWorkspaceBeforeRuntime(target); return; }
-    if (!this.canMoveWorkspace() || !this.interactive || !this.terminal.canAsk) {
-      this.output.write(`[folder] ${typed} isn't a folder in ${terminalText(folder)}. To start it as a new project: ${this.interactive ? "/new" : "casper new"} ${typed}\n`);
-      return;
-    }
-    const result = await offerMissingFolder(this.newProjectFlow(), typed, root, terminalText(folder));
-    if (this.closing || !opened(result) || this.commandAbort?.signal.aborted) return;
-    await this.openWorkspaceBeforeRuntime(result.dir);
-  }
+  async openProjectCommand(name: string): Promise<void> { return openProjectCommand(this, name); }
 
   /** Web lookups never ask: the checks in src/web/url.ts hold instead. Off only with your own setting (/settings). */
   private applyWeb(context: ProjectContext): void {
@@ -1299,63 +1089,6 @@ export class CasperApp {
   private async bannerChecks(context: ProjectContext): Promise<{ checks?: string }> {
     const plan = await this.checksPlan(context);
     return plan.mode === "off" || hasChecks(plan) ? { checks: describeChecksPlan(plan) } : {};
-  }
-
-  /** /new [name] | /new <template> <name> | /new --list: the same local build as `casper new`, no model. */
-  private async newProjectCommand(args: string): Promise<void> {
-    const words = args ? args.split(/\s+/) : [];
-    const usage = NEW_USAGE.replace(/casper new/g, "/new");
-    const command = parseNewArgs(words);
-    if (!command) { this.output.write(`${usage}\n`); return; }
-    if (command.help) {
-      this.output.write(`${usage}\nA lone kind word builds that kind and asks only the name. The kinds:\n${listLines().map((line) => `  ${line}`).join("\n")}\n`);
-      return;
-    }
-    if (command.list) { this.output.write(`${listLines().join("\n")}\n`); return; }
-    const canAsk = this.interactive && this.terminal.canAsk;
-    // A lone kind word where nobody can be asked the name: the kind's usual name, like casper new.
-    if (!canAsk && command.template && !command.name) command.name = defaultNameFor(command.template);
-    if (!canAsk && (!command.template || !command.name)) {
-      this.output.write(`/new needs a template and a name when Casper can't ask. ${usage}\n`);
-      return;
-    }
-    // A request typed at "What are you building?" runs next, in the new project when the conversation can move there.
-    let typed: string | undefined;
-    const result = await newProjectFromQuestions(this.newProjectFlow(), command, undefined, (text) => { typed = text; });
-    if (this.closing) return;
-    if (!result) { this.output.write("Nothing was created.\n"); return; }
-    if (!opened(result) || this.commandAbort?.signal.aborted) return;
-    if (this.canMoveWorkspace()) { await this.openWorkspaceBeforeRuntime(result.dir); if (typed) this.queuedPrompt = typed; return; }
-    this.output.write(`[folder] This conversation stays in ${terminalText(tildePath(this.activeWorkspaceRoot(), this.sessionHomeDir ?? os.homedir()))}. `
-      + `To work in it, run: casper ${terminalText(result.displayDir)}\n`);
-    // The conversation can't move there, so the typed request isn't run here: say so, never drop it silently.
-    if (typed) this.output.write(`[new] Your request didn't run here. Run casper ${terminalText(result.displayDir)} and type it there.\n`);
-  }
-
-  /**
-   * A build request outside a project, before the model starts: one numbered question, zero tokens.
-   * Yes (2) builds the project and opens it, so the conversation and its checks start there. Use this folder
-   * (1, Enter) or Esc changes nothing. One-shot and --json runs can't ask: they keep the folder and say so.
-   * "stop" when the project could not be built: nothing goes to the model.
-   */
-  private async offerNewProject(prompt: string): Promise<"stop" | undefined> {
-    if (this.newProjectOffered || !this.canMoveWorkspace()) return undefined;
-    const context = this.projectContext!;
-    if (context.info.isGit || await hasProjectSignals(context.info.root)) return undefined;
-    if (!this.interactive || !this.terminal.canAsk) {
-      const note = buildRequestNote(prompt);
-      if (note) { this.newProjectOffered = true; this.output.write(`${note}\n`); }
-      return undefined;
-    }
-    const answer = await askBuildRequest(this.newProjectFlow(), prompt);
-    if (!answer) return undefined;
-    this.newProjectOffered = true;
-    this.beforeWorkAsked = true;
-    if (this.closing || this.commandAbort?.signal.aborted) return "stop";
-    if ("keep" in answer) return undefined;
-    if ("stopped" in answer) { this.output.write("Nothing was sent to the model.\n"); return "stop"; }
-    await this.openWorkspaceBeforeRuntime(answer.result.dir);
-    return undefined;
   }
 
   /** A bundled flow, or the user's own trusted replacement. Warnings about a user flow are said once. */
@@ -1477,7 +1210,7 @@ export class CasperApp {
     prompt = attached.text;
     // A flow the user picked, or /plan, is already this task's one choice before work: no other panel.
     this.beforeWorkAsked = Boolean(options.flow || options.planFirst);
-    if (await this.offerNewProject(prompt) === "stop" || this.closing || this.commandAbort?.signal.aborted) return;
+    if (await offerNewProject(this, prompt) === "stop" || this.closing || this.commandAbort?.signal.aborted) return;
     await offerNetworkServer(this, prompt);
     if (this.closing || this.commandAbort?.signal.aborted) return;
     const previous = this.observations.spent();
@@ -1728,9 +1461,9 @@ export class CasperApp {
       }
       // The work landed in a project inside this folder (sample-tools in Documents): its own checks run for this receipt.
       if (!stopped && before && afterModel && !this.closing) {
-        workFolder = await this.childProjectOfTask(context, flatten(diffSnapshots(before, afterModel)));
+        workFolder = await childProjectOfTask(this, context, flatten(diffSnapshots(before, afterModel)));
         if (workFolder && !verification && this.checkTask && verificationMode === "auto") {
-          const child = await this.runChildChecks(workFolder, flatten(diffSnapshots(before, afterModel)));
+          const child = await runChildChecks(this, workFolder, flatten(diffSnapshots(before, afterModel)));
           if (child) {
             verification = child;
             autoChecks = undefined;
@@ -1813,7 +1546,7 @@ export class CasperApp {
       await this.recordTaskOutcome({ task: prompt, skills: selected.map(({ skill }) => skill.id),
         modelStatus: execution, verification });
       // Last, once this folder has the task's outcome: the offer may move Casper to the project the work is in.
-      if (workFolder && receiptShown && !this.closing) await this.offerWorkFolder(workFolder);
+      if (workFolder && receiptShown && !this.closing) await offerWorkFolder(this, workFolder);
     }
     return verification;
   }
@@ -2166,7 +1899,7 @@ export class CasperApp {
       ...(this.networkTools ? { network: this.networkTools } : {}) }, origin) };
   }
 
-  private networkOptions(): { network?: NetworkToolContext } {
+  networkOptions(): { network?: NetworkToolContext } {
     return this.networkTools ? { network: this.networkTools } : {};
   }
 
@@ -2404,7 +2137,7 @@ export class CasperApp {
     }
   }
 
-  private async revokeWorkspaceCapabilities(): Promise<void> {
+  async revokeWorkspaceCapabilities(): Promise<void> {
     this.workspaceNeedsRebind = true;
     if (this.runtimeTools.length && !this.session?.setTools) throw new Error("Runtime cannot revoke workspace capabilities");
     this.session?.setTools?.([]);
@@ -2496,7 +2229,7 @@ export class CasperApp {
 
   /** One inline result line per check; a failed check also boxes the tail of its output, since that is
    * what a person reads next. Passing checks stay quiet (their output remains in the evidence). */
-  private writeCheckResult(result: VerificationResult): void {
+  writeCheckResult(result: VerificationResult): void {
     this.onEvent?.(checkEvent(result, this.modelCheckCalls > 0 ? "casper_check" : "casper"));
     this.events.ensureLineBreak();
     // Each check Casper runs shows as it finishes; verbose output keeps the per-run evidence line
