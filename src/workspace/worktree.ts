@@ -414,7 +414,8 @@ export class GitWorktreeManager {
   }
 
   private async boundAdministration(relation: WorktreeRelation): Promise<string> {
-    const admin = (await git(relation.path, ["rev-parse", "--absolute-git-dir"])).trim();
+    // Git on Windows prints C:/... with forward slashes; resolve before comparing with Casper's own paths.
+    const admin = path.resolve((await git(relation.path, ["rev-parse", "--absolute-git-dir"])).trim());
     if (path.dirname(admin) !== path.join(this.commonDir, "worktrees")) throw new Error("Unexpected linked-worktree administration path");
     const [backlink, head, canonical] = await Promise.all([
       readFile(path.join(admin, "gitdir"), "utf8"),
