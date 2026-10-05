@@ -1270,7 +1270,7 @@ export class CasperApp {
     if (!opened(result) || this.commandAbort?.signal.aborted) return;
     if (this.canMoveWorkspace()) { await this.openWorkspaceBeforeRuntime(result.dir); if (typed) this.queuedPrompt = typed; return; }
     this.output.write(`[folder] This conversation stays in ${terminalText(tildePath(this.activeWorkspaceRoot(), this.sessionHomeDir ?? os.homedir()))}. `
-      + `Open the new project with: cd ${terminalText(result.displayDir)} && casper\n`);
+      + `To work in it, run: casper ${terminalText(result.displayDir)}\n`);
   }
 
   /**

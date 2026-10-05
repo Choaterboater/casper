@@ -91,7 +91,7 @@ posixOnly("My own: an empty folder with git, no template, no packages, no commit
   expect((await fakes.calls()).join("\n")).not.toMatch(/\b(uv|bun) (init|add)\b/);
   expect(formatNewProjectReceipt(result)).toEqual([
     "Ready: ~/Projects/lab-notes · empty folder · git started · no template",
-    "Next: tell Casper what to build, or run: cd ~/Projects/lab-notes && casper",
+    "Next: tell Casper what to build, or run: casper ~/Projects/lab-notes",
   ]);
 });
 

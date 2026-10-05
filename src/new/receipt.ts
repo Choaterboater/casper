@@ -25,14 +25,14 @@ export function formatNewProjectReceipt(result: NewProjectResult): string[] {
   if (result.status === "ready" && result.empty) {
     lines.push(`Ready: ${result.displayDir} · empty folder${result.notes.length ? "" : " · git started"} · no template`);
     lines.push(...result.notes);
-    lines.push(`Next: tell Casper what to build, or run: cd ${result.displayDir} && casper`);
+    lines.push(`Next: tell Casper what to build, or run: casper ${result.displayDir}`);
     return lines;
   }
   if (result.status === "ready") {
     const tested = result.checks.some((check) => check.name === "test") ? "tests passed" : "checks passed";
     lines.push(`Ready: ${result.displayDir} · ${tested} · first commit ${result.commit ?? "?"}${template ? ` (${template})` : ""}`);
     lines.push(checkLine(result.checks));
-    lines.push(`Next: tell Casper what to build, or run: cd ${result.displayDir} && casper`);
+    lines.push(`Next: tell Casper what to build, or run: casper ${result.displayDir}`);
     return lines;
   }
   if (result.status === "not_created") {
@@ -45,7 +45,7 @@ export function formatNewProjectReceipt(result: NewProjectResult): string[] {
   lines.push(...result.notes);
   if (result.kept.length) lines.push(`Kept the init tool's own ${result.kept.join(", ")}.`);
   if (result.checks.some((check) => check.status === "fail")) {
-    lines.push(`Next: cd ${result.displayDir} && casper, then ask Casper to fix the failing check.`);
+    lines.push(`Next: casper ${result.displayDir}, then ask Casper to fix the failing check.`);
   }
   return lines;
 }

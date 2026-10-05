@@ -15,7 +15,7 @@ project's own checks once, and makes a first commit with your own git identity.
 
 `/new [name]`, `/new <template> <name>` and `/new --list` do the same inside a session. Before the
 model starts, Casper opens the new project; after, it builds the project and tells you how to open
-it (`cd ~/Projects/<name> && casper`), because this conversation stays where it is.
+it (`casper ~/Projects/<name>`), because this conversation stays where it is.
 
 Every question works on the plain terminal too: type the number (Enter picks 1). A one-shot or
 `--json` run can't ask. It works in the folder it was started in and prints the command that

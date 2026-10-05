@@ -431,7 +431,7 @@ test("/new lists the templates, and once the model has started it builds but kee
     await h.until(() => h.prompts.length === 1);
     await h.until(settled);
     h.input.write("/new python-cli ping-tool\r");
-    await h.until(text => text.includes("Open the new project with: cd ~/Projects/ping-tool && casper"));
+    await h.until(text => text.includes("To work in it, run: casper ~/Projects/ping-tool"));
     expect(h.visible()).toContain(`[folder] This conversation stays in ${dirs.work}.`);
     expect(h.created.map(entry => entry.name)).toEqual(["ping-tool"]);
     expect(h.starts).toEqual([dirs.work]);
