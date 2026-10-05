@@ -65,7 +65,9 @@ test("an exit before readiness rejects with the log tail and exit details and le
 }, 20_000);
 
 test("a missed readiness deadline rejects with the log tail and leaves no process", async () => {
-  const f = await fixture({ SLOW_READY_MS: "60000" }, { timeoutMs: 600 });
+  // The deadline has to outlast the fixture's start, or there is no "booting" line yet: a fresh Bun process
+  // took past 600 ms in a full parallel suite.
+  const f = await fixture({ SLOW_READY_MS: "60000" }, { timeoutMs: 5000 });
   const failure = await f.managed.start(new AbortController().signal).catch((error: unknown) => error);
   expect(failure).toMatchObject({ reason: "timeout", tail: expect.stringContaining("booting") });
   const grandchild = await f.grandchild();
