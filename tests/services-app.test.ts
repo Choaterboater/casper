@@ -221,6 +221,8 @@ test("a workspace transition (/branch) stops the session's services", async () =
   const root = pid(f.text()), grandchild = await f.grandchild();
   await branching.runInteractive();
   expect(info.cwd).toContain(".casper/worktrees");
+  // You typed /branch: it doesn't ask again.
+  expect(f.text()).not.toContain("Create this exact session branch?");
   await gone(root); await gone(grandchild);
   expect(branching.services).toBeUndefined();
 }, 30_000);

@@ -30,7 +30,7 @@ def case(bun, repo, root, ending):
         s.until("│ idle")
         # Pretyped yes is a draft, not consent to the subsequent exact launch preview.
         s.send("/debug start example\nyes")
-        s.until("Launch this exact debugger target?")
+        s.until("Launch this debugger target?")
         # A box ignores keys for a moment after it opens; Enter then picks 1, No.
         time.sleep(0.5)
         s.send("\r")
@@ -40,8 +40,8 @@ def case(bun, repo, root, ending):
         s.send("\x01\x0b/debug start example\r")
         # Wait for a second actual question, not the old transcript line.
         deadline = time.monotonic() + 5
-        while b"Launch this exact debugger target?" not in s.raw[seen:] and time.monotonic() < deadline: s.pump(0.03)
-        assert b"Launch this exact debugger target?" in s.raw[seen:]
+        while b"Launch this debugger target?" not in s.raw[seen:] and time.monotonic() < deadline: s.pump(0.03)
+        assert b"Launch this debugger target?" in s.raw[seen:]
         time.sleep(0.5)
         s.send("2")
         s.until('"state":"stopped"')

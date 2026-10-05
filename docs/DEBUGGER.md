@@ -17,7 +17,7 @@ any adapter.
 
 One explicitly configured, human-started stdio DAP session per active workspace.
 `/debug` is local status/configuration listing, never an automatic adapter launch.
-`/debug start <target>` requires fresh exact approval showing the resolved adapter,
+`/debug start <target>` asks first (`1 No · 2 Yes, this once · 3 Yes, for this session`), showing the resolved adapter,
 arguments, debuggee, working directory and initial breakpoints. Project metadata is
 not execution permission. No adapter installation or personal account use.
 
@@ -51,7 +51,8 @@ the adapter is the `adapter` folder inside that directory.
 Commands:
 
 - `/debug` — targets and actual session state.
-- `/debug start <target>` — shows exactly what will run; type `yes` to start. The
+- `/debug start <target>` — shows exactly what will run, then `1 No · 2 Yes, this once ·
+  3 Yes, for this session` (3: the same launch doesn't ask again until Casper exits). The
   program stops at its first line (stop-on-entry).
 - `/debug breakpoints <relative path> <line,line|clear>` — replace that file's list.
 - `/debug threads` and `/debug stack <thread-id>` — bounded thread/stack inspection.

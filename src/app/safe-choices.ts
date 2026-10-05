@@ -102,6 +102,9 @@ export const MCP_ALLOW_KEEP_CHOICES = ["This session", "Remember"] as const;
 /** /references add <name>: only "2" runs the shown git commands. */
 export const REFERENCE_ADD_CHOICES = ["No", "Download"] as const;
 
+/** /mcp docs: "Add a docs-only copy (no passwords, no device access)?" Only "2" adds it. */
+export const DOCS_COPY_CHOICES = [NO, "Add it"] as const;
+
 /** /lab import <file>: only "2" adds the hosts to your lab list. */
 export const LAB_IMPORT_CHOICES = ["No", "Add them"] as const;
 

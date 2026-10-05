@@ -54,7 +54,7 @@ function sources(dir: string): string[] {
 }
 
 test("no box asks in other words: no typed yes, no 'this time', no 'Run it' or 'Remember' answers", () => {
-  const stale = [/Yes, this time/, /Just this time/, /"Run it"/, /"Allow for this session"/, /label: "Always for this project"/, /"Always for this project"/];
+  const stale = [/Type yes/, /Yes, this time/, /Just this time/, /"Run it"/, /"Allow for this session"/, /label: "Always for this project"/, /"Always for this project"/];
   const found: string[] = [];
   for (const file of sources(path.join(import.meta.dir, "../src"))) {
     const text = readFileSync(file, "utf8");

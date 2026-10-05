@@ -240,7 +240,7 @@ instead of writing secrets into these files.
 **What Casper never does.** It does not run commands to fetch secrets, set up OAuth
 logins, install servers or write credentials. It writes MCP configuration in one
 case only: `/mcp docs` adds a docs-only server to `~/.casper/mcp.json` after you
-type yes (see [Secrets and docs servers](#secrets-and-docs-servers)).
+pick `2 Add it` (see [Secrets and docs servers](#secrets-and-docs-servers)).
 
 ### Commands
 
@@ -816,8 +816,8 @@ server does**.
     `--env-file`) is not copied. rag.py may still read the repo's own `.env` file;
     it has no device tools either way.
   - It shows what it will add and asks
-    `Add a docs-only copy (no passwords, no device access)? Type yes: `.
-  - On yes it adds `<name>-docs` to `~/.casper/mcp.json`. It only adds: other
+    `Add a docs-only copy (no passwords, no device access)?` with `1 No · 2 Add it`.
+  - On 2 it adds `<name>-docs` to `~/.casper/mcp.json`. It only adds: other
     entries are kept, and an existing name is refused with
     `<name>-docs is already in ~/.casper/mcp.json. Nothing changed.`
   - Then run `/mcp reload` and `/mcp connect <name>-docs`. It needs your approval

@@ -53,7 +53,7 @@ Normal profile rules apply, including a project choosing one of your profiles. A
 `references.yaml` inside a project, or a `references` field in project settings, is
 **not** read as a source. A project can't point the search at a folder of its
 choice. Casper never downloads a source on its own; `/references add` (below)
-downloads a known spec repo only after you type yes.
+downloads a known spec repo only after you pick `2 Download`.
 
 **Reserved ID.** `casper-promoted` is reserved; you can't use it in these files.
 After a person promotes a `casper learn` draft with the `reference` choice, Casper

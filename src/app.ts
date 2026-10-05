@@ -31,6 +31,7 @@ import { formatReferenceResult, ReferenceLibrary } from "./references/library";
 import { formatSubagentReport, SubagentManager, type SubagentRole } from "./agents/manager";
 import { discoverLSPConfiguration, type LSPConfiguration } from "./lsp/config";
 import { LSPManager, type ConfirmRename } from "./lsp/manager";
+import { SessionYes } from "./app/session-yes";
 import { boundCapabilityResult, NotExecutedError } from "./capabilities/result";
 import { discoverMCPConfiguration, type MCPConfiguration } from "./mcp/config";
 import { MCPManager, type ServerQuestionHandler } from "./mcp/manager";
@@ -71,7 +72,7 @@ import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
 import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 import { longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } from "./verify/repair-loop";
-import { ALREADY_FAILING_CHOICES, modelFailedChoices, PLAN_CHOICES, YES_ONCE, YES_SESSION, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, spendChoices, unfinishedChoices, workFolderChoices } from "./app/safe-choices";
+import { ALREADY_FAILING_CHOICES, modelFailedChoices, NO, PLAN_CHOICES, YES_ONCE, YES_SESSION, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, spendChoices, unfinishedChoices, workFolderChoices } from "./app/safe-choices";
 import { DEFAULT_SPEND_LIMITS, formatCost, formatFooterSpend, formatLimit, formatTokens, SPEND_STOP_REASON, SpendGuard, requestSpendLimit } from "./task/spend";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
@@ -216,6 +217,8 @@ export class CasperApp {
   loginProvider?: RuntimeAuthProvider;
   /** The current task's stages for the footer. */
   private readonly steps = new StepRail();
+  /** Browser actions and debugger launches you said "Yes, for this session" to. */
+  readonly sessionYes = new SessionYes((preview, question, options, signal) => this.recordedApproval(preview, question, options, signal));
   private readonly runtimeFactory: () => AgentRuntime | Promise<AgentRuntime>;
   readonly subagents: SubagentManager;
   readonly inspectProjectFn: (cwd: string) => Promise<ProjectInfo>;
@@ -2486,7 +2489,8 @@ export class CasperApp {
     ].join("\n\n");
     const transition = await manager.branch(name, {
       getRuntime: () => this.runtimeForWorkspaceTransition(),
-      confirm: (preview, question) => this.confirmExact(preview, question),
+      // You typed /branch: no second box. A one-shot run still refuses (a branch is for a session).
+      confirm: async () => this.interactive,
       context,
     });
     if (!transition) {
@@ -2509,7 +2513,7 @@ export class CasperApp {
       if (name !== "main") throw new Error("Apply/discard is only valid when returning to main");
       transition = await manager.returnToMain(action as ReturnAction, {
         getRuntime: () => this.runtimeForWorkspaceTransition(),
-        confirm: (preview, question) => this.confirmExact(preview, question),
+        confirm: (preview, question) => this.confirmYes(preview, question),
         verify: async () => (await this.runVerification(
           CHECK_NAMES,
           false,
@@ -2519,7 +2523,8 @@ export class CasperApp {
     } else {
       transition = await manager.switch(name, {
         getRuntime: () => this.runtimeForWorkspaceTransition(),
-        confirm: (preview, question) => this.confirmExact(preview, question),
+        // You typed /switch: no second box. A one-shot run still refuses.
+        confirm: async () => this.interactive,
       });
     }
     if (!transition) {
@@ -2554,6 +2559,7 @@ export class CasperApp {
 
   private async rebindWorkspace(cwd: string): Promise<void> {
     await this.revokeWorkspaceCapabilities();
+    this.sessionYes.forget();
     const { context } = await this.loadWorkspace(cwd);
     if (this.closing) throw new Error("Casper is closing");
     this.runtimeTools = [];
@@ -2632,7 +2638,7 @@ export class CasperApp {
   browserSession(): BrowserSession {
     if (!this.browser || this.browser.status().state === "closed") this.browser = new BrowserSession({
       projectRoot: this.activeWorkspaceRoot(), stateDirectory: this.projectContext!.stateDirectory,
-      confirm: (request, signal) => this.confirmExact(`Browser action:\n${formatTerminalJSON(request)}\n`, "Allow this exact action? Type yes: ", signal),
+      confirm: (request, signal) => this.sessionYes.approve("browser", `Browser action:\n${formatTerminalJSON(request)}\n`, "Allow this browser action?", signal),
     });
     // Capture the instance: the field is cleared after explicit closes (revoke, /clear),
     // but the registered close must still close the session it was registered for.
@@ -2700,11 +2706,8 @@ export class CasperApp {
   }
 
 
-  private confirmRename: ConfirmRename = async (preview, signal) => {
-    const text = JSON.stringify(preview);
-    if (Buffer.byteLength(text) > 16_384) return false;
-    return this.confirmExact(`LSP rename confirmation (exact edits; zero-based UTF-16):\n${text}\n`, "Apply this exact rename? Type yes: ", signal);
-  };
+  /** A rename is a normal edit inside the project: no box, like the AI's other edits (undo covers it). */
+  private confirmRename: ConfirmRename = async () => true;
 
   /** One inline result line per check; a failed check also boxes the tail of its output, since that is
    * what a person reads next. Passing checks stay quiet (their output remains in the evidence). */
@@ -3022,11 +3025,17 @@ export class CasperApp {
     });
   }
 
-  async confirmExact(preview: string, question: string, signal?: AbortSignal): Promise<boolean> {
-    const approved = await this.approveBox(preview, question.replace(/\s*Type yes:\s*$/, ""), ["No", "Yes"], signal) === "Yes";
+  /** A yes/no approval box: 1 No · 2 Yes, this once. Nobody to ask is a No. */
+  async confirmYes(preview: string, question: string, signal?: AbortSignal): Promise<boolean> {
+    return await this.recordedApproval(preview, question, [{ label: NO }, { label: YES_ONCE }], signal) === YES_ONCE;
+  }
+
+  /** An approval box whose outcome the transcript records: allowed (any yes) or denied. */
+  private async recordedApproval(preview: string, question: string, options: Array<{ label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined> {
+    const answer = await this.approveChoice(preview, question, options, signal);
     // The answer itself is never echoed (it is a fresh keystroke, not a draft); record the outcome.
-    if (!this.closing && this.interactive) this.output.write(`[approval] ${approved ? "allowed" : "denied"}\n`);
-    return approved;
+    if (!this.closing && this.interactive) this.output.write(`[approval] ${answer === YES_SESSION ? "allowed for this session" : answer?.startsWith("Yes") ? "allowed" : "denied"}\n`);
+    return answer;
   }
 
   /** One approval box from the user (undefined when nobody could answer). The caller records it. */

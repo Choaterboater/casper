@@ -55,9 +55,10 @@ import type { SessionWorkspaceManager } from "../sessions/manager";
 import { formatProjectContext } from "../project/context";
 import { runSecurityReview, type SecurityAIReview, type SecurityReviewHost } from "./security-review";
 import { sandboxReport, sandboxStatusLine } from "./sandbox";
+import type { SessionYes } from "./session-yes";
 import { webStatusLine } from "../web/tools";
 import type { ShellSandbox } from "../sandbox/manager";
-import { allowKindsChoices, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES } from "./safe-choices";
+import { allowKindsChoices, DOCS_COPY_CHOICES, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES } from "./safe-choices";
 import { KIND_TEXT, RISKY_KINDS } from "../capabilities/kinds";
 
 /** Output sink for the app; lives here so the command host stays import-cycle-free. */
@@ -126,13 +127,16 @@ export interface CommandHost {
   acquireRuntime(): Promise<AgentRuntime>;
   ensureSessionWorkspace(): Promise<SessionWorkspaceManager>;
   stopDebugger(): Promise<void>;
-  confirmExact(preview: string, question: string, signal?: AbortSignal): Promise<boolean>;
   /** The host for /mcp setup network: the numbered approval box, the MCP manager, and the install seams. */
   networkSetupHost(): SetupHost;
   /** The host for /mcp login: the numbered approval box, the private prompt, and restarts through the MCP manager. */
   networkLoginHost(): LoginHost;
   /** One numbered answer from the user (never the model): the number picked, or undefined when nobody answered. */
   chooseAnswer(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined>;
+  /** A yes/no approval box (1 No · 2 Yes, this once); nobody to ask is a No. */
+  confirmYes(preview: string, question: string, signal?: AbortSignal): Promise<boolean>;
+  /** Boxes that also offer "Yes, for this session" (the debugger's launch). */
+  readonly sessionYes: SessionYes;
   /** One approval box from the user (never the model): the chosen label, or undefined when nobody answered. */
   approveChoice(preview: string, question: string, options: ReadonlyArray<string | { label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined>;
   git(args: string[]): Promise<string>;
@@ -557,7 +561,7 @@ async function handleReferencesCommand(host: CommandHost, prompt: string): Promi
       const signal = host.commandAbort?.signal;
       await runReferenceAdd(add[1], add[2], host.homeDir(), {
         print: (line) => { if (!host.closing) host.output.write(`${terminalText(line)}\n`); },
-        // Only the user's own typed 2 downloads anything; one-shot runs never do.
+        // Only the user's own 2 downloads anything; one-shot runs never do.
         choose: (preview, question, choices) => host.chooseAnswer(preview, question, choices, signal),
         runGit: (argv) => (host.runGit ?? defaultRunGit)(argv, signal),
         ...(host.reloadReferences ? { reload: () => host.reloadReferences!() } : {}),
@@ -595,7 +599,8 @@ async function handleDebugCommand(host: CommandHost, prompt: string): Promise<vo
       host.commandAbort?.signal.throwIfAborted();
       if (host.closing) return;
       host.debugSession = new DebugSession({ projectRoot: host.activeWorkspaceRoot(),
-        confirm: (preview, signal) => host.confirmExact(`Debugger execution confirmation:\n${preview}\nAdapter and debuggee execute code; not sandboxed. Debug values may contain secrets.\n`, "Launch this exact debugger target? Type yes: ", signal),
+        confirm: (preview, signal) => host.sessionYes.approve(`debug:${preview}`, `Debugger launch:\n${preview}\nThe adapter and the program run code, not sandboxed. Debug values may contain secrets.\n`,
+          "Launch this debugger target?", signal),
       });
       const debug = host.debugSession;
       host.lifecycle.add({ name: "debug", close: () => debug.close() });
@@ -685,7 +690,7 @@ async function approveProjectDefinition(host: CommandHost, kind: "mcp" | "lsp",
       + `${review.shadows ? `, replacing your definition in ${terminalText(review.shadows)}` : ""}. `
       + `--${kind} and non-interactive runs connect only user or profile definitions; review it with an interactive /${kind} connect ${name}`);
   }
-  const approved = await host.confirmExact(terminalText(review.preview), `Connect this project-defined ${label} server? Type yes: `, host.commandAbort?.signal);
+  const approved = await host.confirmYes(terminalText(review.preview), `Connect this project-defined ${label} server?`, host.commandAbort?.signal);
   if (!approved) host.output.write(`[${kind}] Connection not approved.\n`);
   return approved;
 }
@@ -873,7 +878,7 @@ async function handleMCPDocs(host: CommandHost): Promise<void> {
     "It only answers docs questions. Casper passes it no passwords.",
     "",
   ].join("\n");
-  if (!await host.confirmExact(preview, "Add a docs-only copy (no passwords, no device access)? Type yes: ", host.commandAbort?.signal)) {
+  if (await host.approveChoice(preview, "Add a docs-only copy (no passwords, no device access)?", DOCS_COPY_CHOICES, host.commandAbort?.signal) !== DOCS_COPY_CHOICES[1]) {
     host.output.write("Nothing added.\n");
     return;
   }

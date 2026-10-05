@@ -132,8 +132,9 @@ unchanged. Screenshots and model claims never count as assertion passes.
 Every interaction/server start declares `impact` and a reason. `local-test` is
 only for requested, synthetic, nonconsequential work in the trusted local project.
 Known consequential labels, nonlocal interactions and `consequential`/`uncertain`
-impact require a fresh exact human approval. One-shot/cooked input cannot grant
-that approval. Personal credential/payment/file inputs are refused. Approval is
+impact ask you first: `1 No · 2 Yes, this once · 3 Yes, for this session` (3: browser
+actions don't ask again until Casper exits or the workspace changes). One-shot/cooked input
+cannot grant that approval. Personal credential/payment/file inputs are refused. Approval is
 repeated on replay; denied actions are not executed and consequential actions are
 not automatically retried. An approval preview is rechecked before acting, but
 DOM checks and clicks are not an atomic transaction.

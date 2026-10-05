@@ -217,7 +217,7 @@ export class SessionWorkspaceManager {
     }
     const approved = await options.confirm(
       branchPreview(name, sourceWorkspace, plan),
-      "Create this exact session branch? Type yes: ",
+      "Create this session branch?",
     );
     if (!approved) return undefined;
 
@@ -289,7 +289,7 @@ export class SessionWorkspaceManager {
       `workspace: ${target.workspacePath}`,
       `conversation file: ${target.sessionFile}`,
       "",
-    ].join("\n"), "Switch to this exact session branch? Type yes: ");
+    ].join("\n"), "Switch to this session branch?");
     if (!approved) return undefined;
     if (target.worktree) {
       if (!this.worktrees) throw new Error("Git worktree support is unavailable");
@@ -321,7 +321,7 @@ export class SessionWorkspaceManager {
     const patch = await this.worktrees.capturePatch(branch.worktree);
     const approved = await options.confirm(
       patchPreview(branch, action, patch, verification),
-      `${action === "apply" ? "Apply" : "Discard"} this exact candidate and return to main? Type yes: `,
+      `${action === "apply" ? "Apply" : "Discard"} this candidate and return to main?`,
     );
     if (!approved) return undefined;
 
@@ -400,7 +400,7 @@ export class SessionWorkspaceManager {
       `main workspace: ${main.workspacePath}`,
       "Casper will switch the conversation to main without applying, discarding, or deleting anything. The experiment is marked cleanup pending; its worktree and Git branch are left for manual inspection.",
       "",
-    ].join("\n"), "Leave this experiment and switch to main? Type yes: ");
+    ].join("\n"), "Leave this experiment and switch to main?");
     if (!approved) return undefined;
     const runtime = await options.getRuntime();
     requireBranchingRuntime(runtime);

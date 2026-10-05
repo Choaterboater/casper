@@ -143,7 +143,7 @@ Type 1 or 2:</code></pre></div>
           <li>While writes are off, Casper pins <code>HPE_MCP_ACCESS_PROFILE=safe-read-only</code>, <code>HPE_MCP_READONLY=1</code>, <code>HPE_MCP_PRODUCT_ACCESS=read-only</code> and every <code>HPE_MCP_*_WRITES=0</code>. A pin beats your own value.</li>
           <li>It hides <code>invoke_tool</code>, <code>invoke_tools_batch</code> and write and delete tools. A read router is judged by the real tool: <code>invoke_read_tool</code> asking for <code>port_bounce</code> still asks you.</li>
           <li><code>/mcp</code> shows <code>read-only pins sent, not confirmed</code> until the server itself reports its write switches off through <code>access_check</code>.</li>
-          <li>Bonus: its docs tools (<code>lookup_api</code>, <code>search_docs</code>, <code>ask_docs</code>) are always offered to the AI, so it checks the docs before it guesses an API. <code>/mcp docs</code> can add a docs-only copy with no passwords and no device access, after you type yes.</li>
+          <li>Bonus: its docs tools (<code>lookup_api</code>, <code>search_docs</code>, <code>ask_docs</code>) are always offered to the AI, so it checks the docs before it guesses an API. <code>/mcp docs</code> can add a docs-only copy with no passwords and no device access, after you pick <code>2 Add it</code>.</li>
         </ul>
 
         <h3 id="setup-junos">junos-mcp-server</h3>
@@ -361,7 +361,7 @@ Type 1 or 2:
         </div>
         <aside class="callout tip">
           <strong class="callout-title">Learning Junos?</strong>
-          <p><code>/references add junos-yang</code> can download one release of the Junos YANG models (after you pick 2 Download). Then you and the AI can search them on your own disk, with no model call and no restart. <code>pycentral</code>, <code>pyaoscx</code>, <code>pyclearpass</code> and <code>mistapi</code> work the same way.</p>
+          <p><code>/references add junos-yang</code> can download one release of the Junos YANG models (after you pick <code>2 Download</code>). Then you and the AI can search them on your own disk, with no model call and no restart. <code>pycentral</code>, <code>pyaoscx</code>, <code>pyclearpass</code> and <code>mistapi</code> work the same way.</p>
         </aside>
       </section>
 

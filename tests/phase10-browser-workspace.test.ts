@@ -47,7 +47,7 @@ browserTest("a workspace transition closes an already-running browser before exp
       loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
       output: { write(text) {
         output += text;
-        if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write("2\n"));
+        if (/Type [\d, ]*\d or \d: $/.test(text)) queueMicrotask(() => input.write("2\n"));
         if (text === "> ") queueMicrotask(() => input.write(["/branch browser-rebind\n", "/browser\n", "/exit\n"][question++] ?? "/exit\n"));
       } },
     });
