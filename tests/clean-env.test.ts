@@ -47,7 +47,7 @@ test("the search path has one key, PATH, whatever case the host or the test uses
   expect(pathKeys(cleanEnv())).toEqual(["PATH"]);
   expect(cleanEnv().PATH).toBe(process.env.PATH);
   if (process.platform !== "win32") return; // names are case-sensitive elsewhere: Path and PATH are two variables
-  const set = cleanEnv({ Path: "C:\fixture-bin" });
+  const set = cleanEnv({ Path: "C:\\fixture-bin" });
   expect(pathKeys(set)).toEqual(["PATH"]);
-  expect(set.PATH).toBe("C:\fixture-bin");
+  expect(set.PATH).toBe("C:\\fixture-bin");
 });
