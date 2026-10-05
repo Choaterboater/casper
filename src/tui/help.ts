@@ -13,6 +13,7 @@ Type a request and press Enter. Esc stops work. Type / for every command.
   /diff, /undo, /redo    See the last task's changes, or put its files back
   /verify, /receipt      Run this project's checks (/verify add saves one Casper found); what the last task did
   /mcp, /lab             Tool servers (writes off until you turn them on); your lab devices
+  /mcp setup network     Set up Casper's server for Mist, Central and ClearPass; /mcp login adds a login
   /references            Search vendor specs you downloaded (/references add gets one)
   /resume, /clear        Pick up a saved conversation, or start a fresh one
   /settings              Turn web lookups, spend notes and other switches on or off by number
