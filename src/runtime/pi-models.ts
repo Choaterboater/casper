@@ -31,6 +31,23 @@ export const DEFAULT_MODELS: ReadonlyArray<{ provider: string; id: string }> = [
   { provider: "github-copilot", id: "gpt-5.4" },
 ];
 
+
+/** Names /login knows, and the key variable each provider reads (the common ones). */
+const SIGN_IN_NAMES: Record<string, string> = { openrouter: "OpenRouter", anthropic: "Anthropic", "openai-codex": "OpenAI Codex", "github-copilot": "GitHub Copilot" };
+const KEY_VARIABLES: Record<string, string> = {
+  openrouter: "OPENROUTER_API_KEY", anthropic: "ANTHROPIC_API_KEY", "github-copilot": "COPILOT_GITHUB_TOKEN", openai: "OPENAI_API_KEY",
+  deepseek: "DEEPSEEK_API_KEY", google: "GEMINI_API_KEY", groq: "GROQ_API_KEY", xai: "XAI_API_KEY", mistral: "MISTRAL_API_KEY",
+  cerebras: "CEREBRAS_API_KEY", together: "TOGETHER_API_KEY", fireworks: "FIREWORKS_API_KEY",
+};
+
+/** What to do when the model's provider has no sign-in: its real name, its /login and its key variable. */
+export function missingSignIn(provider: string): string {
+  const name = SIGN_IN_NAMES[provider];
+  const variable = KEY_VARIABLES[provider];
+  if (name) return `Not signed in to ${name}. Type /login ${provider}${variable ? `, or set ${variable}` : ""}.`;
+  return `No key for ${provider}. ${variable ? `Set ${variable}` : "Set its API key"}, or /model to choose another.`;
+}
+
 export class PiModels {
   private readonly selections = new WeakMap<AgentSession, Selection>();
   private readonly accounting = new WeakMap<AgentSession, NonNullable<RuntimeUsage["effortClassification"]>>();
@@ -234,10 +251,10 @@ export class PiModels {
     // Claude sign-in is per-token extra usage (see pi-auth), so only other subscription sign-ins count.
     const billing = !reference || auth !== "configured" ? undefined
       : reference.provider !== "anthropic" && this.catalog.isUsingSubscription(reference.provider) ? "subscription" : "per-token";
-    const blocked = !reference ? "No Casper model selected. Use /model to choose one."
+    const blocked = !reference ? "No Casper model selected. Use /model to choose one, or /login to sign in."
       : stale ? "Credential state needs local refresh. Restart Casper before using this provider; do not repeat login blindly."
       : !model ? `Model ${reference.provider}/${reference.id} is unavailable. Use /model to choose another; no fallback was selected.`
-      : auth === "missing" ? `Credentials missing for ${reference.provider}. Use /login for OpenAI Codex, configure another supported credential, or /model to choose another.` : undefined;
+      : auth === "missing" ? missingSignIn(reference.provider) : undefined;
     const prices = model?.cost ? [model.cost.input, model.cost.output].filter((price) => typeof price === "number" && Number.isFinite(price)) : [];
     const priced = prices.length ? prices.some((price) => price > 0) : undefined;
     return { provider: reference?.provider, model: reference?.id, thinkingLevel: model ? session.thinkingLevel : undefined,
@@ -367,7 +384,7 @@ export class PiModels {
       const effort = resolved?.effort ?? saved?.effort ?? (this.autoDefault(model) ? "auto" : undefined);
       if (effort && effort !== "auto" && !nearestEffort(effort, getSupportedThinkingLevels(model))) throw new Error(`Unknown effort ${effort} for ${model.provider}/${model.id}.`);
       if (this.staleAuth.has(model.provider)) throw new Error("Credential state needs local refresh. Restart Casper before selecting this provider.");
-      if (!this.catalog.hasConfiguredAuth(model.provider)) throw new Error(`Credentials missing for ${model.provider}. Use /login for OpenAI Codex or configure another supported credential; selection unchanged.`);
+      if (!this.catalog.hasConfiguredAuth(model.provider)) throw new Error(`${missingSignIn(model.provider)} Model unchanged.`);
       await session.setModel(model, { persist: false });
       // Pi commits the model before awaiting model_select extension handlers.
       // Retain that committed conversation state even if cancellation arrived

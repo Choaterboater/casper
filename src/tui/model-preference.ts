@@ -1,5 +1,6 @@
 import { lstat } from "node:fs/promises";
 import path from "node:path";
+import { isModelProviderKeyName } from "../platform/environment";
 import { openNoFollow } from "../platform/files";
 
 /** Advisory startup display only. Activation/validation remains owned by PiModels.
@@ -24,4 +25,20 @@ export async function modelPreference(home: string): Promise<string | undefined>
       return `default ${identity} · ${effort}`;
     } finally { await file.close(); }
   } catch { return undefined; }
+}
+
+/** Whether any sign-in exists: a provider in Casper's saved sign-ins, or a provider key in the environment.
+ * Advisory (the banner and footer only): it reads which providers are there, never a key. */
+export async function hasSignIn(agentDir: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+  // Only the variables Pi reads a provider key from: an unrelated STRIPE_API_KEY is not a sign-in.
+  if (Object.entries(env).some(([name, value]) => value && isModelProviderKeyName(name))) return true;
+  try {
+    const file = await openNoFollow(path.join(agentDir, "auth.json"));
+    try {
+      const stat = await file.stat();
+      if (!stat.isFile() || stat.size > 1024 * 1024) return stat.isFile();
+      const value: unknown = JSON.parse((await file.readFile("utf8")) || "{}");
+      return Boolean(value && typeof value === "object" && Object.keys(value).length);
+    } finally { await file.close(); }
+  } catch { return false; }
 }

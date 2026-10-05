@@ -55,7 +55,7 @@ posixOnly("creates ~/Projects/<name>, prints progress and the receipt, and exits
   expect(lines[0]).toBe("Starting ~/Projects/demo from template python-cli");
   expect(lines).toContain("  uv init …");
   expect(lines.find((line) => line.startsWith("Ready: ~/Projects/demo · tests passed · first commit "))).toBeDefined();
-  expect(lines.at(-1)).toBe("Next: tell Casper what to build, or run: cd ~/Projects/demo && casper");
+  expect(lines.at(-1)).toBe("Next: tell Casper what to build, or run: casper ~/Projects/demo");
 });
 
 posixOnly("creates ~/Projects when it is missing, and exits 1 when tests fail", async () => {

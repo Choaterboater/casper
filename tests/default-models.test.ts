@@ -36,7 +36,8 @@ test("with no model set, Casper picks the signed-in provider's default and saves
   const picked = await run({ openrouter: { type: "api_key", key: "synthetic" } }, `
     const before = session.getStatus(); const selection = await session.selectDefaultModel({ provider: "openrouter" });
     console.log(JSON.stringify({ before, selection, after: session.getStatus() }));`) as Record<string, any>;
-  expect(picked.before.blocked).toContain("No Casper model selected");
+  // /status shows this text in any terminal, so it names steps that work everywhere, not "type a request".
+  expect(picked.before.blocked).toBe("No Casper model selected. Use /model to choose one, or /login to sign in.");
   expect(picked.selection).toMatchObject({ selected: true, savedDefault: true });
   expect(picked.after).toMatchObject({ provider: "openrouter", model: "deepseek/deepseek-v4.1-flash", auth: "configured" });
   expect(picked.after.blocked).toBeUndefined();
@@ -86,9 +87,35 @@ test("a request with no model picks one for a signed-in provider and runs; scrip
   expect(picking.output()).toContain("[model] Casper picked openrouter/deepseek/deepseek-v4.1-flash for your signed-in provider and saved it as your default.");
   await picking.app.close();
 
-  const stuck = await appWith(() => ({ auth: "unknown", blocked: "No Casper model selected. Use /model to choose one." }), async () => undefined);
-  await expect(stuck.app.runOnce("explain this project", stuck.root)).rejects.toThrow("No Casper model selected");
-  expect(stuck.prompts()).toBe(0);
-  expect(stuck.output()).not.toContain("model run failed");
-  await stuck.app.close();
+  // Nothing signed in: a one-shot run says how to sign in, not "Use /model".
+  const keys = Object.entries(process.env).filter(([name]) => /_API_KEY$|_TOKEN$/.test(name));
+  for (const [name] of keys) delete process.env[name];
+  try {
+    const stuck = await appWith(() => ({ auth: "unknown", blocked: "No Casper model selected. Use /model to choose one." }), async () => undefined);
+    await expect(stuck.app.runOnce("explain this project", stuck.root)).rejects.toThrow("Not signed in yet. Run casper in a terminal and type /login.");
+    expect(stuck.prompts()).toBe(0);
+    expect(stuck.output()).not.toContain("model run failed");
+    await stuck.app.close();
+  } finally { for (const [name, value] of keys) process.env[name] = value; }
+
+  // A key is set but Casper has no default for that provider: a script is told --model or /model, not "type a request".
+  const saved = process.env.GROQ_API_KEY;
+  process.env.GROQ_API_KEY = "synthetic";
+  try {
+    const keyed = await appWith(() => ({ auth: "unknown", blocked: "No Casper model selected. Use /model to choose one, or /login to sign in." }), async () => undefined);
+    const error = await keyed.app.runOnce("explain this project", keyed.root).then(() => undefined, (caught: Error) => caught);
+    expect(error?.message).toBe("No Casper model selected. Pass --model <provider/model>, or run casper and type /model.");
+    expect(keyed.prompts()).toBe(0);
+    await keyed.app.close();
+  } finally { if (saved === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = saved; }
 });
+
+test("a missing sign-in names the real provider, its /login and its key variable", async () => {
+  const { missingSignIn } = await import("../src/runtime/pi-models");
+  expect(missingSignIn("openrouter")).toBe("Not signed in to OpenRouter. Type /login openrouter, or set OPENROUTER_API_KEY.");
+  expect(missingSignIn("anthropic")).toBe("Not signed in to Anthropic. Type /login anthropic, or set ANTHROPIC_API_KEY.");
+  expect(missingSignIn("openai-codex")).toBe("Not signed in to OpenAI Codex. Type /login openai-codex.");
+  expect(missingSignIn("deepseek")).toBe("No key for deepseek. Set DEEPSEEK_API_KEY, or /model to choose another.");
+  for (const provider of ["openrouter", "anthropic", "deepseek"]) expect(missingSignIn(provider)).not.toContain("OpenAI Codex or");
+});
+

@@ -46,7 +46,7 @@ async function scripted(answers: Array<string | undefined>) {
 test("the kinds come first, then which one, with Back first", async () => {
   const s = await scripted(["Network", "Aruba CX Ansible (show commands, lab only)", ""]);
   await newProjectFromQuestions(s.flow, {});
-  expect(s.asked[0]).toEqual({ question: "What are you building?", labels: ["Network", "MCP server", "Web app or dashboard", "Python tool", "My own"] });
+  expect(s.asked[0]).toEqual({ question: "What are you building?", labels: ["My own", "Network", "MCP server", "Web app or dashboard", "Python tool"] });
   expect(s.asked[1]!.question).toBe("Which network project?");
   expect(s.asked[1]!.labels).toEqual(["Back", "Mist Python scripts", "Aruba CX Ansible (show commands, lab only)", "Junos Ansible (show commands and rendered config, lab only)"]);
   expect(s.created.map((entry) => entry.template)).toEqual(["aoscx-ansible"]);
@@ -70,7 +70,7 @@ test("Enter at the second question is Back, and Esc after it builds nothing", as
 test("My own at a build request makes an empty project named from the request", async () => {
   const s = await scripted(["Other kind", "My own", ""]);
   const answer = await askBuildRequest(s.flow, "build a tool that lists Mist APs per site");
-  expect(s.asked[1]!.labels).toEqual(["Use this folder", "Network", "MCP server", "Web app or dashboard", "Python tool", "My own"]);
+  expect(s.asked[1]!.labels).toEqual(["Use this folder", "My own", "Network", "MCP server", "Web app or dashboard", "Python tool"]);
   expect(s.asked[2]!.question).toBe("Name it? (Enter for mist-aps)");
   expect(s.created.map(({ template, name }) => ({ template, name }))).toEqual([{ template: "empty", name: "mist-aps" }]);
   expect(answer).toHaveProperty("result");
@@ -91,7 +91,7 @@ posixOnly("My own: an empty folder with git, no template, no packages, no commit
   expect((await fakes.calls()).join("\n")).not.toMatch(/\b(uv|bun) (init|add)\b/);
   expect(formatNewProjectReceipt(result)).toEqual([
     "Ready: ~/Projects/lab-notes · empty folder · git started · no template",
-    "Next: tell Casper what to build, or run: cd ~/Projects/lab-notes && casper",
+    "Next: tell Casper what to build, or run: casper ~/Projects/lab-notes",
   ]);
 });
 
@@ -109,4 +109,37 @@ test("words at the name question become the next Enter choice", async () => {
   await newProjectFromQuestions(s.flow, {});
   expect(s.asked[2]!.question).toBe("Name it? (Enter for config-backup-tool)");
   expect(s.created.map(({ template, name }) => ({ template, name }))).toEqual([{ template: "empty", name: "config-backup-tool" }]);
+});
+
+test("a request typed at What are you building? builds the kind it reads as and keeps the words as the first request", async () => {
+  const s = await scripted(["build a react web app for my lab inventory", ""]);
+  const queued: string[] = [];
+  const result = await newProjectFromQuestions(s.flow, {}, undefined, (text) => queued.push(text));
+  expect(result?.status).toBe("ready");
+  expect(s.created.map(({ template }) => template)).toEqual(["web-app"]);
+  expect(queued).toEqual(["build a react web app for my lab inventory"]);
+});
+
+test("a request with no clear kind at What are you building? builds an empty project named from the words", async () => {
+  const s = await scripted(["a nightly backup of my switch configs", ""]);
+  const queued: string[] = [];
+  await newProjectFromQuestions(s.flow, {}, undefined, (text) => queued.push(text));
+  expect(s.asked[1]!.question).toMatch(/^Name it\? \(Enter for [a-z]/);
+  expect(s.created.map(({ template }) => template)).toEqual(["empty"]);
+  expect(s.created[0]!.name).not.toBe("my-project");
+  expect(queued).toEqual(["a nightly backup of my switch configs"]);
+});
+
+test("one or two words that aren't a choice are still not a request", async () => {
+  const s = await scripted(["blah thing"]);
+  const queued: string[] = [];
+  expect(await newProjectFromQuestions(s.flow, {}, undefined, (text) => queued.push(text))).toBeUndefined();
+  expect(queued).toEqual([]);
+  expect(s.created).toEqual([]);
+});
+
+test("Enter at What are you building? picks My own (anything you describe), not Network", async () => {
+  const s = await scripted(["", ""]);
+  await newProjectFromQuestions(s.flow, {});
+  expect(s.created.map(({ template }) => template)).toEqual(["empty"]);
 });

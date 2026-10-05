@@ -43,7 +43,7 @@ import { describeVisualization } from "../visualize/tools";
 import { renderProjectSummary } from "../tui/banner";
 import { LifecycleRegistry } from "./lifecycle";
 import type { VisualizationRouter } from "../visualize/router";
-import type { RuntimeAuthProvider, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
+import type { RuntimeAuthenticationResult, RuntimeAuthProvider, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
 import { describeChecksPlan, type ChecksPlan } from "../verify/mode";
 import { detectedMigrations, MIGRATIONS_CHECK } from "../verify/migrations-check";
 import { TOOL_CALL_LIMIT, type TaskObservations } from "../task/observations";
@@ -83,6 +83,8 @@ export interface CommandHost {
   checksPlan(context: ProjectContext): Promise<ChecksPlan>;
   /** The provider of the last successful /login, preferred when Casper picks a first model. */
   loginProvider?: RuntimeAuthProvider;
+  /** False until a sign-in exists (the footer says how to start). */
+  signedIn?: boolean;
   readonly observations: TaskObservations;
   readonly skillRegistry?: SkillRegistry;
   readonly projectContext?: ProjectContext;
@@ -194,6 +196,15 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       }
       if (!session.selectModel) throw new Error("This runtime does not support model selection.");
       const sessionOnly = /^--session(?:\s|$)/.test(argument);
+      // Nothing signed in: an empty picker helps no one, so /model opens sign-in (which then picks a model).
+      if (host.interactive && host.terminal.rich && !argument.replace(/^--session/, "").trim()) {
+        const available = await session.selectModel({ signal: host.commandAbort?.signal }).catch(() => undefined);
+        if (available?.models && !available.models.length) {
+          host.output.write("[model] Not signed in yet. Pick a way to sign in; Esc cancels.\n");
+          await runLogin(host);
+          return;
+        }
+      }
       const result = await session.selectModel({ query: (sessionOnly ? argument.slice(9).trim() : argument) || undefined,
         persist: !sessionOnly, signal: host.commandAbort?.signal,
         picker: host.interactive ? host.terminal.modelPickerHost() : undefined });
@@ -1101,10 +1112,20 @@ async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<v
     }
   }
 
+/** A failed sign-in in plain words: the reason Casper has (never provider text) and the next step. */
+export function loginFailureText(result: Extract<RuntimeAuthenticationResult, { status: "failed" }>): string {
+  const detail = result.detail ? terminalText(result.detail) : undefined;
+  if (result.reason === "destination") return `[login] Can't save the key${detail ? `: ${detail}` : ""}. Nothing was changed.\n`;
+  if (detail === "CASPER_TUI_WRITE_LOG is set") return "[login] Sign-in is off while CASPER_TUI_WRITE_LOG is set. Unset it, then type /login.\n";
+  return detail ? `[login] Sign-in failed: ${detail}. Nothing was saved. Type /login to try again.\n`
+    : "[login] Sign-in didn't finish. Nothing was saved. Type /login to try again.\n";
+}
+
 /** The sign-in flow behind /login, also opened by Casper itself when no model can run. After a saved
  * credential, a model is picked only when none is set yet (never replacing a choice). True when a
  * credential was saved and refreshed. */
-export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider): Promise<boolean> {
+/** `list`: Casper opened sign-in by itself, so the numbered list shows even for a provider with one way. */
+export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider, list = false): Promise<boolean> {
   const picker = host.interactive ? host.terminal.exclusiveHost() : undefined;
   if (!picker) { host.output.write(LOGIN_HELP); return false; }
   if (host.subagents.isBusy) throw new Error("Wait for active subagents before login.");
@@ -1112,11 +1133,12 @@ export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider
     const runtime = await host.acquireRuntime();
     host.commandAbort?.signal.throwIfAborted();
     if (!runtime.authenticate) { host.output.write("[login] This runtime does not support login.\n"); return false; }
-    const result = await runtime.authenticate({ provider,
+    const result = await runtime.authenticate({ provider, ...(list ? { list } : {}),
       terminalHost: picker, signal: host.commandAbort?.signal });
     if (result.status === "saved") {
       // Login never starts a conversation: with none open yet, the first request picks the model.
       host.loginProvider = provider;
+      host.signedIn = true;
       const picked = host.session ? await host.session.selectDefaultModel?.({ provider, signal: host.commandAbort?.signal }).catch(() => undefined) : undefined;
       if (picked?.selected) {
         host.output.write(`[login] Credential saved and verified; no model call was made. Casper picked ${picked.status.provider}/${picked.status.model} and saved it as your default. Use /model to choose another.\n`);
@@ -1128,10 +1150,8 @@ export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider
     if (result.status === "saved-needs-refresh") host.output.write("[login] Credential saved, but local auth needs refresh. Restart Casper; do not repeat login blindly.\n");
     else if ("effect" in result && result.effect === "unknown") host.output.write("[login] Login ended; credential save outcome unknown. Restart and inspect local auth before retrying.\n");
     else if (result.status === "cancelled") host.output.write("[login] Cancelled; no credential saved.\n");
-    else host.output.write(result.reason === "destination"
-      ? `[login] Unsafe credential destination${result.detail ? `: ${terminalText(result.detail)}` : ""}. Requires a private, owner-held regular file in a real directory; no permissions were repaired.\n`
-      : "[login] Login unavailable or failed. No credential saved. Disable CASPER_TUI_WRITE_LOG if set. Check provider eligibility and loopback callback availability; no automatic method fallback.\n");
-  } catch { host.output.write("[login] Login could not complete. No provider diagnostics are displayed.\n"); }
+    else host.output.write(loginFailureText(result));
+  } catch { host.output.write("[login] Sign-in didn't finish. Nothing was saved. Type /login to try again.\n"); }
   return false;
 }
 

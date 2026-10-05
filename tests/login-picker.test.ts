@@ -1,11 +1,13 @@
 import { expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import { withLoginDisplay } from "../src/tui/login";
+import { signInWays } from "../src/runtime/pi-auth";
+import { loginFailureText } from "../src/app/commands";
 import { withLoginSurface } from "./support/login-surface";
 
 const items = [{ id: "codex", label: "OpenAI Codex" }, { id: "copilot", label: "GitHub Copilot" }] as const;
 
-test("login picker accepts application arrows and batched navigation without carrying input into consent", async () => {
+test("login picker accepts application arrows and batched navigation without carrying input into the next screen", async () => {
   const input = new PassThrough();
   const controller = new AbortController();
   let screen = "";
@@ -13,27 +15,27 @@ test("login picker accepts application arrows and batched navigation without car
   let completed = false;
   const pending = withLoginSurface({ input, output: { write(text) { screen += text; } }, color: false, onEOF() {} }, io => withLoginDisplay(io, controller.signal, async display => {
     choice = await display.choose("Choose provider", items);
-    const consent = await display.consent("/synthetic/auth.json", choice ?? "none", "a device code", "Synthetic provider.");
+    const next = await display.choose("Next screen", items);
     completed = true;
-    return consent;
+    return next;
   }));
   try {
     await waitFor(() => screen.includes("Choose provider"));
     input.write("\x1bOB");
-    input.write("\rY");
-    await waitFor(() => screen.includes("Press Y"));
+    input.write("\r1");
+    await waitFor(() => screen.includes("Next screen"));
     expect(choice).toBe("copilot");
-    expect(completed).toBe(false);
-    input.write("\x1b[200~Y\x1b[201~");
-    input.write("YES");
     await Bun.sleep(30);
     expect(completed).toBe(false);
-    input.write("Y");
-    expect(await pending).toBe(true);
+    input.write("\x1b[200~1\x1b[201~");
+    await Bun.sleep(30);
+    expect(completed).toBe(false);
+    input.write("2");
+    expect(await pending).toBe("copilot");
   } finally { controller.abort(); await pending; input.destroy(); }
 });
 
-test("login picker handles fragmented and batched arrows, wraparound, encoded Enter and cancellation", async () => {
+test("login picker handles fragmented and batched arrows, wraparound and encoded Enter", async () => {
   const input = new PassThrough();
   const controller = new AbortController();
   let screen = "";
@@ -47,10 +49,10 @@ test("login picker handles fragmented and batched arrows, wraparound, encoded En
     expect(completed).toBe(false);
     input.write("\x1b");
     input.write("[B");
-    input.write("\x1b[B\x1b[B\x1b[A"); // Copilot -> Cancel -> Codex -> Cancel.
+    input.write("\x1b[B\x1b[B\x1b[A"); // Copilot -> Codex (wraps) -> Copilot -> Codex.
     input.write("\x1b[13u");
     await waitFor(() => completed);
-    expect(await pending).toBeUndefined();
+    expect(await pending).toBe("codex");
   } finally { controller.abort(); await pending; input.destroy(); }
 });
 
@@ -81,3 +83,48 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     await Bun.sleep(5);
   }
 }
+
+test("the sign-in list is numbered: a digit picks that row at once, and Esc cancels", async () => {
+  for (const [key, expected] of [["2", "copilot"], ["1", "codex"], ["\x1b", undefined]] as const) {
+    const input = new PassThrough();
+    const controller = new AbortController();
+    let screen = "";
+    const pending = withLoginSurface({ input, output: { write(text) { screen += text; } }, color: false, onEOF() {} }, io => withLoginDisplay(io, controller.signal,
+      display => display.choose("Sign in", items)));
+    try {
+      await waitFor(() => screen.includes("Sign in"));
+      const visible = Bun.stripANSI(screen);
+      expect(visible).toContain("1 OpenAI Codex");
+      expect(visible).toContain("2 GitHub Copilot");
+      expect(visible).toContain("Esc cancels");
+      expect(visible).not.toContain("Cancel\n");
+      input.write(key);
+      expect(await pending).toBe(expected);
+    } finally { controller.abort(); await pending; input.destroy(); }
+  }
+});
+
+test("one sign-in list: OpenRouter first, provider and method together; /login <provider> lists only its ways", () => {
+  const ways = signInWays();
+  expect(ways.map(({ provider, method }) => `${provider}:${method}`).slice(0, 4))
+    .toEqual(["openrouter:api_key", "openrouter:oauth", "anthropic:api_key", "anthropic:oauth"]);
+  expect(ways.map(({ provider }) => provider)).toContain("openai-codex");
+  expect(ways.map(({ provider }) => provider)).toContain("github-copilot");
+  for (const way of ways) expect(way.label).not.toMatch(/device code|oauth|loopback/i);
+  expect(signInWays("anthropic").map(({ method }) => method)).toEqual(["api_key", "oauth"]);
+  expect(signInWays("github-copilot")).toHaveLength(1);
+});
+
+test("a failed sign-in says the reason Casper has, in plain words, and the next step", () => {
+  const failed = (detail?: string, reason: "unavailable" | "provider" | "destination" = "provider") =>
+    loginFailureText({ status: "failed", effect: "none", reason, ...(detail ? { detail } : {}) });
+  expect(failed("timed out after 15 minutes")).toBe("[login] Sign-in failed: timed out after 15 minutes. Nothing was saved. Type /login to try again.\n");
+  expect(failed("couldn't reach OpenRouter")).toContain("couldn't reach OpenRouter");
+  expect(failed(undefined)).toBe("[login] Sign-in didn't finish. Nothing was saved. Type /login to try again.\n");
+  expect(failed("CASPER_TUI_WRITE_LOG is set", "unavailable")).toBe("[login] Sign-in is off while CASPER_TUI_WRITE_LOG is set. Unset it, then type /login.\n");
+  for (const text of [failed(undefined, "unavailable"), failed("x")]) {
+    expect(text).not.toMatch(/loopback|eligibility|CASPER_TUI_WRITE_LOG|fallback/);
+  }
+  expect(failed("\"~/.casper/agent/auth.json\" is a symbolic link; replace it with a regular file", "destination"))
+    .toBe("[login] Can't save the key: \"~/.casper/agent/auth.json\" is a symbolic link; replace it with a regular file. Nothing was changed.\n");
+});

@@ -21,13 +21,8 @@ Type a request and press Enter. Esc stops work. Type / for every command.
 Ctrl+T shows the last step in full. Ctrl+C twice on an empty line exits. Approvals always need a fresh yes from you.
 `;
 
-export const LOGIN_HELP = `Provider login requires an interactive Casper terminal.
-Run casper, then /login [openai-codex|github-copilot|anthropic|openrouter].
-Codex/Copilot use device-code login; Claude and OpenRouter offer API key or browser sign-in.
-Use TERM other than dumb and output not redirected.
-This guidance changes no credentials. Never paste passwords, tokens or API keys into chat.
-Login writes to Casper's credential store (~/.casper/agent) after consent; it does not select a model.
-Use /model afterward. Local credential availability is not a connection test.
+export const LOGIN_HELP = `Sign-in needs an interactive terminal. Run casper and type /login.
+Never paste keys or tokens into chat.
 `;
 
 export const FULL_HELP_TEXT = `Casper — your coding companion

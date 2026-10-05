@@ -6,7 +6,8 @@ import { Panel, panelColor } from "./presentation";
 interface LoginDisplay {
   signal: AbortSignal;
   choose<T extends string>(title: string, items: readonly { id: T; label: string }[]): Promise<T | undefined>;
-  consent(destination: string, provider: string, method: string, disclosure: string): Promise<boolean>;
+  /** A short muted note under every later screen: where the key is saved, and what the provider charges. */
+  setNote(text: string): void;
   privateInput(label: string, signal?: AbortSignal): Promise<string>;
   device(url: string, code: string): void;
   browser(url: string): void;
@@ -46,6 +47,7 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
   let singleKey = true;
   let selecting = false;
   let inputBytes = 0;
+  let note = "";
   const accent = (text: string) => panelColor(text, "accent", io.color);
   const muted = (text: string) => panelColor(text, "muted", io.color);
   const clearPanel = () => io.show();
@@ -78,19 +80,6 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
     // Never reuse keys or partial escape/paste state from the preceding step.
     await new Promise<void>((resolve) => setImmediate(resolve));
   };
-  const ask = async <V>(panel: Panel, accept: (key: string) => V | undefined): Promise<V | undefined> => {
-    await fresh();
-    if (signal.aborted) return undefined;
-    mount(panel);
-    return new Promise((resolve) => {
-      answer = (key) => {
-        const result = signal.aborted ? undefined : accept(key);
-        if (result === undefined && !signal.aborted) return;
-        answer = undefined; clearPanel(); resolve(result);
-      };
-      io.requestRender();
-    });
-  };
   signal.addEventListener("abort", cancel, { once: true });
   io.input.on("data", data); io.input.once("end", eof); io.input.once("close", eof);
   io.input.setRawMode?.(true); io.input.resume();
@@ -99,13 +88,13 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
       choose: async (title, items) => {
         await fresh();
         if (signal.aborted) return undefined;
-        const list = new SelectList([...items.map((item, index) => ({ value: String(index), label: terminalText(item.label) })),
-          { value: String(items.length), label: "Cancel" }], 8,
+        // Numbered rows: a digit picks its row at once, Enter picks the highlighted one (1 at first). Esc cancels.
+        const list = new SelectList(items.map((item, index) => ({ value: String(index), label: `${index + 1} ${terminalText(item.label)}` })), 9,
         { selectedPrefix: accent, selectedText: accent, description: muted, scrollInfo: muted, noMatch: text => panelColor(text, "warning", io.color) });
-        const panel = new Panel(`Login · ${terminalText(title)}`, io.color);
-        panel.addChild(new Text(muted("Up/Down: choose · Enter: continue"), 0, 1));
+        const panel = new Panel(terminalText(title), io.color);
         panel.addChild(list);
-        panel.addChild(new Text("Esc / Ctrl+C: cancel login", 0, 1));
+        if (note) panel.addChild(new Text(muted(terminalText(note)), 0, 0));
+        panel.addChild(new Text(muted(items.length > 1 ? `Type a number (1-${Math.min(items.length, 9)}), or Up/Down and Enter · Esc cancels` : "Enter continues · Esc cancels"), 0, 1));
         mount(panel);
         try {
           const choice = await new Promise<number | undefined>(resolve => {
@@ -119,6 +108,8 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
             selecting = true;
             answer = key => {
               if (signal.aborted) { finish(); return; }
+              const digit = /^[1-9]$/.test(key) ? Number(key) - 1 : -1;
+              if (digit >= 0 && digit < items.length) { finish(digit); return; }
               if (matchesKey(key, "up") || matchesKey(key, "down") || matchesKey(key, "enter")) {
                 list.handleInput(key);
                 if (selecting) io.requestRender();
@@ -129,16 +120,7 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
           return choice === undefined ? undefined : items[choice]?.id;
         } finally { clearPanel(); answer = undefined; selecting = false; }
       },
-      consent: async (destination, provider, method, disclosure) => {
-        const panel = new Panel("Review sign-in consent", io.color, "warning");
-        panel.addChild(new Text(`Sign in to ${terminalText(provider)} using ${terminalText(method)}?`, 0, 1));
-        panel.addChild(new Text(`${accent("Credential change")}\nOn success, save or replace only the ${terminalText(provider)} credential.\nDestination:\n${terminalText(destination)}`, 0, 0));
-        panel.addChild(new Text(`${accent("Shared access")}\nCasper's parent/child/learning runtimes share this store.`, 0, 1));
-        panel.addChild(new Text(`${accent("Account impact")}\n${terminalText(disclosure)}`, 0, 0));
-        panel.addChild(new Text(`${accent("Unchanged")}\nModel choices and defaults will not change.\n${method === "browser authorization" ? "Your browser opens automatically for sign-in." : "No browser opens automatically."}`, 0, 1));
-        panel.addChild(new Text("Press Y to consent\nEsc / Ctrl+C: cancel", 0, 0));
-        return (await ask(panel, key => key === "y" || key === "Y" ? true : undefined)) === true;
-      },
+      setNote: (text) => { note = text; },
       privateInput: async (label, promptSignal) => {
         await fresh();
         const inputSignal = AbortSignal.any([signal, ...(promptSignal ? [promptSignal] : [])]);
@@ -147,6 +129,7 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
         panel.addChild(new Text(terminalText(label), 0, 1));
         panel.addChild(new Text("1. Paste or type here. Input stays hidden.\n2. Press Enter separately to submit.", 0, 0));
         panel.addChild(new Text("Never enter keys, codes or redirect URLs in chat.\nEsc / Ctrl+C: cancel", 0, 1));
+        if (note) panel.addChild(new Text(muted(terminalText(note)), 0, 0));
         const status = new Text(muted("Private input: [empty]"), 0, 0);
         panel.addChild(status);
         mount(panel);
@@ -185,6 +168,7 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
         const panel = new Panel("Approve sign-in in your browser", io.color);
         panel.addChild(new Text("3. Complete the provider's authorization steps.\nWaiting for authorization.", 0, 1));
         panel.addChild(new Text("No browser opens automatically.\nDo not paste credentials here.\nEsc / Ctrl+C: cancel", 0, 0));
+        if (note) panel.addChild(new Text(muted(terminalText(note)), 0, 1));
         mount(panel);
       },
       browser: (url) => {
@@ -197,6 +181,7 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
           ? "2. Your browser is opening the sign-in page. Complete the provider's authorization steps.\nWaiting for browser authorization."
           : "2. Automatic launch is unavailable; open the URL above in your browser.\nWaiting for browser authorization.", 0, 1));
         panel.addChild(new Text("If the browser is on another machine, paste the final redirect URL in the private prompt.\nCodes and redirect URLs belong only in the private login prompt.\nEsc / Ctrl+C: cancel", 0, 0));
+        if (note) panel.addChild(new Text(muted(terminalText(note)), 0, 1));
         mount(panel);
       },
     });

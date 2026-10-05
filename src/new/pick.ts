@@ -95,8 +95,8 @@ const KIND_GROUPS: Array<Omit<KindGroup, "choices" | "ids"> & { templates: strin
   { label: "Python tool", description: "a command-line tool", question: "Which Python tool?", templates: ["python-cli"] },
 ];
 
-/** The last kind: no template, an empty folder with git, and Casper builds what you describe. */
-export const EMPTY_CHOICE = { label: "My own", description: "an empty folder, you tell Casper what to build" };
+/** The first kind: no template, an empty folder with git, and Casper builds what you describe. */
+export const EMPTY_CHOICE = { label: "My own", description: "anything: an empty folder, then tell Casper what to build" };
 
 /** "What are you building?": a short list of kinds, each with its ready templates. */
 export function templateMenu(templates: readonly TemplateManifest[] = listTemplates()): { question: string; groups: KindGroup[] } {

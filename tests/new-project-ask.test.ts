@@ -215,7 +215,7 @@ test("3 Other kind shows Use this folder, then the kinds, then the name question
     h.input.write("3");
     await h.until(text => text.includes("What are you building?"));
     expect(h.visible().slice(h.visible().lastIndexOf("What are you building?"))).toContain("1 Use this folder");
-    h.input.write("5");
+    h.input.write("6");
     await h.until(text => text.includes("Name it? (Enter for mist-aps)"));
     h.input.write("\r");
     await h.until(() => h.prompts.length === 1);
@@ -385,7 +385,7 @@ test("the home-folder question ends with New project, which asks the kind and th
     expect(h.visible()).toContain("3 New project");
     h.input.write("3");
     await h.until(text => text.includes("What are you building?"));
-    h.input.write("2");
+    h.input.write("3");
     await h.until(text => text.includes("Name it? (Enter for "));
     h.input.write("site-mcp\r");
     await h.until(text => text.includes("idle"));
@@ -431,10 +431,32 @@ test("/new lists the templates, and once the model has started it builds but kee
     await h.until(() => h.prompts.length === 1);
     await h.until(settled);
     h.input.write("/new python-cli ping-tool\r");
-    await h.until(text => text.includes("Open the new project with: cd ~/Projects/ping-tool && casper"));
+    await h.until(text => text.includes("To work in it, run: casper ~/Projects/ping-tool"));
     expect(h.visible()).toContain(`[folder] This conversation stays in ${dirs.work}.`);
     expect(h.created.map(entry => entry.name)).toEqual(["ping-tool"]);
     expect(h.starts).toEqual([dirs.work]);
+    await h.until(settled);
+  } finally { await finish(h, running); await dirs.cleanup(); }
+});
+
+test("/new after the model started never drops a typed request silently: it says it didn't run and how to run it", async () => {
+  const dirs = await setup("casper-new-slash-typed-");
+  const h = harness(dirs.home);
+  const running = h.app.runInteractive(dirs.work);
+  try {
+    await h.until(text => text.includes("idle"));
+    h.input.write("hello there\r");
+    await h.until(() => h.prompts.length === 1);
+    await h.until(settled);
+    h.input.write("/new\r");
+    await h.until(text => text.includes("What are you building?"));
+    h.input.write("a nightly backup of my switch configs\r");
+    await h.until(text => text.includes("Name it? (Enter for "));
+    h.input.write("\r");
+    await h.until(text => text.includes("To work in it, run: casper ~/Projects/"));
+    await h.until(text => text.includes("[new] Your request didn't run here."));
+    expect(h.visible()).toMatch(/\[new\] Your request didn't run here\. Run casper ~\/Projects\/[a-z0-9-]+ and type it there\./);
+    expect(h.prompts.length).toBe(1);
     await h.until(settled);
   } finally { await finish(h, running); await dirs.cleanup(); }
 });

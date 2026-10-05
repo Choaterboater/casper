@@ -158,11 +158,11 @@ change your real accounts, saved settings or installed `casper`.
    and cursor come back. Repeat with `NO_COLOR=1`. Check the plain mode with
    `TERM=dumb` or with output sent to a file.
 3. In the real CLI (`bun src/cli.ts`, with the temporary home), try `/help`, `/status`
-   and `/login`. Move the provider highlight with the arrows, pick Cancel, open it
-   again and try Escape and Ctrl+C. Enter may open the next screen for a provider, but
-   **do not give consent, paste a real secret or finish a login**. Check that the
+   and `/login`. Move the highlight with the arrows, press Escape, open it
+   again and try Ctrl+C. Enter may open the next screen for a provider, but
+   **do not paste a real secret or finish a login**. Check that the
    prompt still works after you cancel, and that the shell works normally after exit.
-   Linux PTY tests cover the later private-input and consent screens; Windows still
+   Linux PTY tests cover the later private-input screens; Windows still
    needs its own proof for those.
 4. Keep screenshots (with private data removed) and exact steps for any problem with
    layout, selection, keyboard input or cleanup. This check is about how the screen

@@ -82,7 +82,10 @@ persistent footer, with no alternate-screen takeover. Casper owns the terminal
 before it prints the startup banner, so the banner, model status and diagnostics
 are transcript lines like everything else. A model is not started just to paint
 the footer. A saved default is shown as an advisory startup snapshot; after
-runtime initialization the footer uses the active conversation's model.
+runtime initialization the footer uses the active conversation's model. Before any
+sign-in, the banner and footer say `not signed in · type a request to sign in`, and `/model`
+opens sign-in instead of an empty picker. Where sign-in can't open (a plain or piped terminal,
+a one-shot run) they say `not signed in · run casper in a terminal and type /login` instead.
 
 On a rich terminal at least 58 columns wide the transcript opens with the
 wordmark — the Casper ghost (bold white) beside a block-letter `CASPER` (accent)
@@ -287,23 +290,37 @@ unreported failed-request cost is unknown, not zero.
 
 ### Provider login
 
-`/login` offers Codex and GitHub Copilot device-code login, Anthropic/Claude and
-OpenRouter API-key or browser sign-in. `/login <provider-id>` skips only the
-provider chooser. Every method requires fresh consent to provider-scoped
-credential replacement in Casper's store (`~/.casper/agent/auth.json`); login does not select a model. Browser sign-in opens the system
+`/login` shows one numbered list of providers and ways to sign in, OpenRouter first:
+1 OpenRouter · paste an API key, 2 OpenRouter · sign in with your browser, 3-4 the same for
+Anthropic (Claude), then OpenAI Codex and GitHub Copilot. OpenAI Codex opens your browser on
+a desktop; over SSH or on Linux with no display it shows a code to enter at openai.com
+instead (some accounts must turn that on first). GitHub Copilot always uses a code. Press a number, or Up/Down and
+Enter (Enter alone picks 1); Esc cancels. `/login <provider-id>` lists only that provider's
+ways, and opens the only one straight away. When Casper opens sign-in by itself (a request
+with nothing signed in, or a model whose sign-in is missing), the list shows even for a provider
+with one way, so you see what is about to start. Picking a row is your go-ahead, as in Claude Code
+and Codex: no confirm screen follows. The list says where the key goes (`Saved in
+~/.casper/agent/auth.json, only on this computer.`), and the next screen says what the provider
+charges. Only that provider's saved sign-in is replaced. Browser sign-in opens the system
 browser automatically; offline mode (CASPER_OFFLINE=1) suppresses the launch and keeps the URL
 printed for manual opening.
 Typed API keys are verified with the provider before they are stored; a rejected
 key is never saved, and a key that cannot be verified (network or provider error)
 can be retried, saved explicitly, or cancelled. Keys and callback codes/URLs use a
 separate hidden prompt (live character count, contents never rendered), never chat/history.
-Escape/Ctrl-C cancel; EOF and shutdown drain the login lifecycle.
+Escape/Ctrl-C cancel; EOF and shutdown drain the login lifecycle. A failed sign-in says the reason
+Casper has in plain words (timed out, couldn't reach the provider, the provider refused it) and
+never the provider's own text. A model whose provider has no sign-in names that provider, its
+`/login` and its key variable (for example `OPENROUTER_API_KEY`); a one-shot run or a plain
+terminal with nothing signed in says `Not signed in yet. Run casper in a terminal and type /login.`
+A one-shot run with a key set but no model Casper can pick says
+`No Casper model selected. Pass --model <provider/model>, or run casper and type /model.`
 
-Provider and method choices reuse Pi's selection list: Up/Down moves the visible
-highlight in place, Enter confirms that item, and Cancel exits without contacting
+The list reuses Pi's selection list: a digit picks its row at once, Up/Down moves the
+visible highlight in place, Enter confirms that item, and Esc exits without contacting
 the provider. Navigation accepts Pi's decoded arrow/Enter sequences, including
 fragmented or batched terminal input. Trailing keys cannot answer the next prompt;
-pasted text cannot grant consent or submit a private credential.
+pasted text cannot pick a row or submit a private credential.
 All login panels render through the host surface; terminal-control bytes never
 pass through the untrusted-text sanitizer or get appended as transcript text.
 
