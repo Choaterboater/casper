@@ -5,7 +5,6 @@ import "./runtime/engine-setup";
 import os from "node:os";
 import path from "node:path";
 import { stat } from "node:fs/promises";
-import { CasperApp } from "./app";
 import { agentStoreWarnings, importLegacyEngineState, useCasperAgentStore } from "./runtime/agent-store";
 import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
 import { taskExitCode } from "./task/result";
@@ -276,6 +275,8 @@ export async function runCli(): Promise<void> {
   const prompt = newProject ? "" : options.promptFromStdin ? await stdinPrompt() : options.rest.join(" ").trim();
   // --json: stdout carries only JSON Lines; the banner, transcript and receipt a person reads go to stderr.
   const emit = options.json ? (event: CasperEvent) => { process.stdout.write(formatJsonEvent(event)); } : undefined;
+  // Loaded only now: --help, --version and usage errors never need the app.
+  const { CasperApp } = await import("./app");
   const app = new CasperApp({ verificationMode: verificationFlag(options), verbose: options.verbose, ...(options.noSandbox ? { noSandbox: true } : {}),
     model: options.model, effort: options.effort, maxTurns: options.maxTurns, startupWarnings,
     // A session says when a newer Casper is out; --json output is for scripts and never does.
