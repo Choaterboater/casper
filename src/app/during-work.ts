@@ -9,6 +9,7 @@ import { runsDuringWork } from "../tui/commands";
 import { opened } from "./new-project";
 import { updateFooter } from "./footer";
 import { backgroundTasks } from "./task-tools";
+import { handleSlashCommand } from "./command-loop";
 
 /** After a task: lines the AI never read join the queue. A stopped task runs nothing more: its queued lines go
  * back into the prompt (the rich terminal) for you to send or clear. */
@@ -44,7 +45,7 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
       void app.taskUndo.diff("list", undefined, true).catch(failed);
       return true;
     }
-    void app.handleSlashCommand(line).catch(failed);
+    void handleSlashCommand(app, line).catch(failed);
     return true;
   }
   if (line.startsWith("/")) return `${terminalText(line.split(/\s+/)[0]!)} waits until this task ends${plain ? "; type it again then" : " · draft kept"}`;

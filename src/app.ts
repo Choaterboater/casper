@@ -55,7 +55,7 @@ import { ChangeBaseline } from "./verify/proof";
 import type { NetworkToolContext } from "./verify/registry";
 import type { NextItem } from "./tui/next-row";
 import { TaskUndo } from "./app/undo";
-import { SuggestionController, SUGGESTION_COMMAND } from "./app/suggestions";
+import { SuggestionController } from "./app/suggestions";
 import type { Flow } from "./flows/catalog";
 import { planToolGate } from "./flows/plan";
 import type { SecurityAIReview, SecurityReviewHost } from "./app/security-review";
@@ -72,7 +72,7 @@ import { loginValuesFrom, WebLookup, webProvider, type WebLookupOptions } from "
 import { systemPromptAppend } from "./app/prompt";
 import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager } from "./sessions/manager";
-import { runSlashCommand, type OutputWriter } from "./app/commands";
+import type { OutputWriter } from "./app/commands";
 import type { BackgroundTask } from "./app/background";
 import { detectHostTerminal } from "./tui/host-terminal";
 import { UsageError } from "./cli-args";
@@ -95,15 +95,16 @@ import { explainModelError } from "./runtime/model-errors";
 import { tildePath, type NewProjectOptions, type NewProjectResult } from "./new/scaffold";
 import { chooseAnswer, approveChoice, confirmCapability, confirmKind, answerServerQuestion, editGateReason, confirmYes, recordedApproval } from "./app/approvals";
 import { networkSetupHost, networkLoginHost, networkLoginFile, revertWrites, reportImports } from "./app/network-host";
-import { updateFooter, displayLevel, loadPaneSetting, askPaneOnce, paneCommand, detailsCommand, expandLastStep } from "./app/footer";
-import { settleQueuedLines, submitDuringWork, cycleEffort } from "./app/during-work";
+import { updateFooter, displayLevel, expandLastStep } from "./app/footer";
+import { submitDuringWork, cycleEffort } from "./app/during-work";
 import { spendNote, spendGate } from "./app/spend-gate";
 import { prepareCapabilities, browserSession, serviceManager, stopDebugger, backgroundTasks, planPages, pageNotesFor, pageRun, smokeRun, pagePaths } from "./app/task-tools";
 import { ensureModel, retryModelFailure, bigModelReceipt, bigModelNotice, switchToBigModel, restoreModel, askBigModelRetry, type BigModelChoice, bigModelOf, imagesForModel, switchForPictures } from "./app/big-model";
 import { newProjectFlowWithAbort, openProjectFolder, openProjectCommand, newProjectCommand, offerNewProject, childProjectOfTask, runChildChecks, offerWorkFolder } from "./app/workspace";
 import { ensureSessionWorkspace, handleBranchCommand, handleSwitchCommand, rebindWorkspace } from "./app/session-branches";
 import { runVerification, checksPlan, saveFoundCheck } from "./app/verification";
-import { runModelTask, runSuggestion, PAGES_ONLY_PROOF, PAGES_ANSWER_ONLY_PROOF, proofSkipReason } from "./app/task-run";
+import { PAGES_ONLY_PROOF, PAGES_ANSWER_ONLY_PROOF, proofSkipReason } from "./app/task-run";
+import { runInteractive, handlePrompt, handleSlashCommand, cancelCurrent, writePrompt } from "./app/command-loop";
 
 export type { OutputWriter } from "./app/commands";
 
@@ -221,7 +222,7 @@ export class CasperApp {
   /** beforeChanges gate state for the current task; a recorded ask attempt satisfies it. */
   editGateActive = false;
   asksThisTask = 0;
-  private cancelBeforeCommand = false;
+  cancelBeforeCommand = false;
   commandAbort?: AbortController;
   /** Transcript-flow renderer for runtime events; owns the open tool/progress line state. */
   readonly events: RuntimeEventView;
@@ -298,7 +299,7 @@ export class CasperApp {
   /** Shift+Tab steps already accepted. The prompt loop drains this before a request starts. */
   effortSteps = 0;
   effortCycle: Promise<void> = Promise.resolve();
-  private workspaceTransition = false;
+  workspaceTransition = false;
   workspaceNeedsRebind = false;
   /** Project folders the user chose to stay out of at "The work is in ...": not asked again this session. */
   readonly stayedOutOf = new Set<string>();
@@ -307,7 +308,7 @@ export class CasperApp {
   taskRuntimeFailed = false;
   /** The files from before the current task's change, while it runs: tells a failure the change caused from one already there. */
   taskBaseline?: { baseline: ChangeBaseline; root: string };
-  private cleanupError?: ProcessCleanupError;
+  cleanupError?: ProcessCleanupError;
   readonly blockOnCleanupFailure = () => {
     this.cleanupError = new ProcessCleanupError();
     this.commandAbort?.abort(); this.verificationAbort?.abort(); this.checkTask?.abort();
@@ -319,7 +320,7 @@ export class CasperApp {
   taskRuntimeCancelled = false;
   lastTaskResult?: TaskResult;
   /** Tokens the AI security review spent in this command (no task to carry them). */
-  private commandSpent?: TaskUsage;
+  commandSpent?: TaskUsage;
   /** Undo, redo, /diff and saved receipts: a copy before and after each task. */
   readonly taskUndo = ((app: CasperApp) => new TaskUndo({
     output: { write: (text) => app.output.write(text) },
@@ -339,7 +340,7 @@ export class CasperApp {
   readonly nextSteps: Array<(task: TaskResult) => { undo?: NextItem; diff?: NextItem; more?: NextItem[] } | undefined> = [];
   observations = new TaskObservations();
   memoryWork?: Promise<void>;
-  private readonly newProjectRequest?: CasperAppOptions["newProject"];
+  readonly newProjectRequest?: CasperAppOptions["newProject"];
   readonly createProjectFn?: CasperAppOptions["createProject"];
   readonly networkTools?: NetworkToolContext;
   readonly securitySeams?: Pick<SecurityReviewHost, "check" | "install">;
@@ -426,7 +427,7 @@ export class CasperApp {
     const detected = options.output === undefined ? detectHostTerminal() : undefined;
     const host = options.terminalHost ?? (detected && (detected.tmux || detected.iterm) ? { host: detected } : undefined);
     this.terminal = new InteractiveTerminal(this.input, options.output ?? process.stdout,
-      () => this.cancelCurrent(), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); }, host);
+      () => cancelCurrent(this), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); }, host);
     this.terminal.setEffortCycle(() => cycleEffort(this));
     this.terminal.setBusySubmit((line, plain) => submitDuringWork(this, line, plain));
     // ctrl+o: MCP writes off everywhere, at once, even while work runs.
@@ -598,94 +599,17 @@ export class CasperApp {
       await this.start(cwd);
     }
 
-    this.writePrompt(/^\s*\/login(?:\s|$)/.test(prompt) ? "/login" : prompt);
-    return this.handlePrompt(prompt.trim());
+    writePrompt(this, /^\s*\/login(?:\s|$)/.test(prompt) ? "/login" : prompt);
+    return handlePrompt(this, prompt.trim());
   }
 
-  async runInteractive(cwd = process.cwd()): Promise<void> {
-    // Own the terminal before the banner so startup output is transcript, not
-    // loose text a later redraw would drop.
-    this.interactive = true;
-    this.terminal.start();
-    let workspace = cwd;
-    if (!this.projectContext && this.newProjectRequest) {
-      // `casper new` on a terminal: the project first, then Casper opens there. Nothing built: no session.
-      const result = await newProjectFlowWithAbort(this, (flow) => newProjectFromQuestions(flow, this.newProjectRequest!, undefined, (text) => { this.queuedPrompt = text; }));
-      if (!opened(result)) {
-        if (!result && !this.closing) this.output.write("Nothing was created.\n");
-        this.newProjectExitCode = result?.exitCode ?? 1;
-        this.terminal.close();
-        this.interactive = false;
-        return;
-      }
-      workspace = result.dir;
-    } else if (!this.projectContext) workspace = await openProjectFolder(this, cwd);
-    if (!this.projectContext) {
-      await this.start(workspace);
-    }
-
-    this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
-    await this.checkSignIn();
-    await loadPaneSetting(this);
-    updateFooter(this);
-    while (!this.closing) {
-      this.cancelBeforeCommand = false;
-      updateFooter(this);
-      // A request typed at the empty-folder question runs first, as if typed at the prompt.
-      const queued = this.queuedPrompt ?? this.queuedLines.shift();
-      this.queuedPrompt = undefined;
-      // A queued line is a request of its own: the last receipt's row no longer applies.
-      if (queued) { this.terminal.offerNext(undefined); this.events.writePrompt(queued); }
-      const line = queued ?? await this.terminal.readCommand();
-      if (line === undefined) break;
-      if (this.cancelBeforeCommand) {
-        this.output.write("[cancel] Stopped before it started; nothing ran.\n");
-        continue;
-      }
-      const prompt = line.trim();
-
-      if (!prompt) {
-        continue;
-      }
-
-      if (prompt === "/quit" || prompt === "/exit") {
-        break;
-      }
-
-      try {
-        if (!prompt.startsWith("/")) await askPaneOnce(this);
-        await this.handlePrompt(prompt);
-      }
-      catch (error) {
-        if (this.closing) break;
-        this.events.ensureLineBreak();
-        const message = error instanceof Error ? error.message : String(error);
-        if (!this.commandAbort?.signal.aborted && this.events.lastError !== message) this.events.showError(message);
-      }
-      settleQueuedLines(this);
-    }
-    this.terminal.close();
-    this.interactive = false;
-  }
+  async runInteractive(cwd = process.cwd()): Promise<void> { return runInteractive(this, cwd); }
 
   /** OS SIGINT and terminal Ctrl-C share cancellation, without disposing the session. */
   interrupt(): boolean {
     if (!this.interactive) return false;
     this.terminal.interrupt();
     return true;
-  }
-
-  private cancelCurrent(): void {
-    if (!this.commandActive) { this.cancelBeforeCommand = true; return; }
-    if (this.commandAbort?.signal.aborted) return;
-    this.commandAbort?.abort();
-    this.taskRuntimeCancelled = true;
-    void this.lifecycle.close("debug").catch(() => {});
-    void this.lifecycle.close("browser").catch(() => {});
-    this.verificationAbort?.abort(); this.checkTask?.abort(); this.visualizationAbort?.abort();
-    void this.session?.abort().catch(() => {});
-    this.terminal.endAssistant();
-    this.output.write("[cancel] Stopping. Changes made so far stay as they are.\n");
   }
 
   /** A session (never a one-shot run) says when a newer Casper is out, from the last check, then checks again in the
@@ -871,107 +795,8 @@ export class CasperApp {
     }
   }
 
-  private async handlePrompt(prompt: string): Promise<VerificationReport | undefined> {
-    if (this.closing) return;
-    if (this.commandActive) throw new Error("Another command is active; wait for active subagents or workspace transition");
-    // Keep local status/help and cleanup available, but never forget an uncertain
-    // tree just because its originating command or model tool has finished.
-    if (!/^\/(?:help(?: \S.*)?|status|project|permissions|mcp|lsp|browser|debug|services|tasks|exit|quit|browser close|debug stop)$/.test(prompt)
-      && !/^\/(?:mcp|lsp) disconnect\s/.test(prompt) && !/^\/(?:services|tasks) stop\s/.test(prompt) && !/^\/services logs\s/.test(prompt)) {
-      if (this.cleanupError) throw this.cleanupError;
-      this.browser?.assertCleanup(); this.mcp?.assertCleanup(); this.lsp?.assertCleanup(); this.services?.assertCleanup();
-    }
-    const transition = /^\/(?:branch|switch)(?:\s|$)/.test(prompt);
-    if (transition && this.subagents.isBusy) throw new Error("Wait for active subagents before changing workspaces");
-    // /receipt, /undo, /redo and /diff read the last task; every other command starts without it.
-    if (!/^\/(?:receipt|undo|redo|diff)(?:\s|$)/.test(prompt)) this.lastTaskResult = undefined;
-    this.taskRuntimeFailed = false;
-    this.taskTurnLimit = undefined;
-    this.taskSpendStop = undefined;
-    this.events.clearError();
-    this.taskRuntimeCancelled = false;
-    this.commandActive = true;
-    this.commandAbort = new AbortController();
-    this.commandSpent = undefined;
-    updateFooter(this);
-    this.workspaceTransition = transition;
-    let command = prompt.startsWith("/");
-    try {
-      // A Shift+Tab that arrived with this submit still applies; new presses see commandActive and wait.
-      while (this.effortSteps > 0) await this.effortCycle;
-      if (this.closing) return;
-      if (this.workspaceNeedsRebind) await rebindWorkspace(this, this.activeWorkspaceRoot());
-      // Whatever follows a receipt either picks one of its suggestions or leaves them (they fade when ignored).
-      // Nothing on offer: no extra wait, so a close that arrives with this line still finds the command running.
-      if (this.suggestions.pending) await this.suggestions.settle(prompt, this.projectContext);
-      else this.suggestions.forgetChoice();
-      // Pictures pasted into this line (Ctrl+V) go with it, or with nothing when it is a command.
-      this.pastedImages = this.terminal.takePastedImages();
-      // A picture file dropped into an empty prompt starts the line with "/": that is a request, not a command.
-      // Commands go straight on (no wait, so a close that arrives with the line still finds the command running).
-      if (command && leadingImagePath(prompt) !== undefined) command = !await startsWithImageFile(prompt, { cwd: this.activeWorkspaceRoot() });
-      return await (command ? this.handleSlashCommand(prompt) : runModelTask(this, prompt));
-    } catch (error) {
-      if (error instanceof ProcessCleanupError) this.cleanupError = error;
-      throw error;
-    } finally {
-      try {
-        await this.checkTask?.close();
-        if (!command) await this.browser?.close();
-        const opener = this.taskPageOpener;
-        this.taskPageOpener = undefined;
-        await opener?.close().catch(() => {});
-      } catch (error) {
-        if (error instanceof ProcessCleanupError) this.cleanupError = error;
-        throw error;
-      } finally {
-        // With the task's checks: the service tool must not record into them from a later, non-task prompt.
-        this.checkTask = undefined;
-        this.smokeTask = undefined;
-        this.pageTask = undefined;
-        this.taskEdits = undefined;
-        this.commandActive = false;
-        this.workspaceTransition = false;
-        updateFooter(this);
-      }
-    }
-  }
-
   /** Local command dispatch moved to app/commands.ts; the app is the command host. */
-  handleSlashCommand(prompt: string): Promise<VerificationReport | undefined> {
-    if (/^\/pane(?:\s|$)/.test(prompt)) return paneCommand(this, prompt.slice(5).trim()).then(() => undefined);
-    if (/^\/details(?:\s|$)/.test(prompt)) return detailsCommand(this, prompt.slice(8).trim()).then(() => undefined);
-    if (prompt.trim() === "/settings") return this.settingsCommand().then(() => undefined);
-    if (/^\/preview(?:\s|$)/.test(prompt)) return this.previewCommand(prompt.slice(8).trim()).then(() => undefined);
-    if (/^\/new(?:\s|$)/.test(prompt)) return newProjectCommand(this, prompt.slice(4).trim()).then(() => undefined);
-    if (/^\/suggestions(?:\s|$)/.test(prompt)) {
-      return this.suggestions.command(prompt.slice(12).trim(), this.projectContext).then((text) => { this.output.write(text); return undefined; });
-    }
-    if (prompt.startsWith(`${SUGGESTION_COMMAND} `) || prompt === SUGGESTION_COMMAND) return runSuggestion(this, prompt.slice(SUGGESTION_COMMAND.length).trim());
-    const undoCommand = /^\/(undo|redo|diff|receipt)(?:\s+(.*))?$/.exec(prompt);
-    if (undoCommand) return this.undoCommand(undoCommand[1] as "undo" | "redo" | "diff" | "receipt", (undoCommand[2] ?? "").trim());
-    if (/^\/plan(?:\s|$)/.test(prompt)) {
-      const request = prompt.slice(5).trim();
-      if (!request) { this.output.write("Usage: /plan <request>. The model plans first; nothing is built until you choose Build.\n"); return Promise.resolve(undefined); }
-      return runModelTask(this, request, { planFirst: true });
-    }
-    return runSlashCommand(this, prompt);
-  }
-
-  /** /undo, /redo, /diff and /receipt. With no task in this folder yet, /diff shows git's view and /receipt the
-   * session's last task, as before. */
-  private async undoCommand(command: "undo" | "redo" | "diff" | "receipt", argument: string): Promise<undefined> {
-    const signal = this.commandAbort?.signal;
-    if (command === "undo" || command === "redo") {
-      await this.taskUndo[command](argument, signal);
-      // A one-shot run's receipt (--json) names the files undo or redo changed; nothing checked them.
-      if (!this.interactive && this.taskUndo.lastRestored.length) this.lastTaskResult = { execution: "completed", changedPaths: [...this.taskUndo.lastRestored] };
-    }
-    else if (command === "diff") { if (!(await this.taskUndo.diff(argument, signal))) await runSlashCommand(this, "/diff"); }
-    else if (!argument && this.lastTaskResult) await runSlashCommand(this, "/receipt");
-    else if (!(await this.taskUndo.receipt(argument))) await runSlashCommand(this, "/receipt");
-    return undefined;
-  }
+  handleSlashCommand(prompt: string): Promise<VerificationReport | undefined> { return handleSlashCommand(this, prompt); }
 
   /** After the receipt: "The work is in ~/Documents/sample-tools. 1 Stay here · 2 Switch there". Enter stays. A run
    * that can't ask says the command to use. */
@@ -986,46 +811,13 @@ export class CasperApp {
   async openProjectCommand(name: string): Promise<void> { return openProjectCommand(this, name); }
 
   /** Web lookups never ask: the checks in src/web/url.ts hold instead. Off only with your own setting (/settings). */
-  private applyWeb(context: ProjectContext): void {
+  applyWeb(context: ProjectContext): void {
     this.web?.close();
     const web = context.web ?? DEFAULT_WEB;
     const loginFile = path.join(casperAgentDir(), "auth.json");
     this.web = web.enabled ? new WebLookup({ provider: webProvider(web, loginFile), loginValues: loginValuesFrom(loginFile), ...this.webSeams }) : undefined;
     const lookup = this.web;
     if (lookup) this.lifecycle.add({ name: "web", close: async () => lookup.close() });
-  }
-
-  /** /settings: the off switches by number; a change is written to ~/.casper/config.yaml and applies from now on. */
-  private settingsCommand(): Promise<void> {
-    return runSettings({
-      output: this.output, homeDir: () => this.homeDir(), canAsk: this.interactive && this.terminal.canAsk,
-      context: async () => this.projectContext,
-      reload: async () => {
-        const before = this.projectContext;
-        if (!before) return;
-        try { this.projectContext = await this.loadProjectContextFn(before.info); } catch { return; }
-        this.applyWeb(this.projectContext);
-        // A new default for the work shown replaces this session's /details choice.
-        if (this.projectContext.display !== before.display) this.displayChoice = undefined;
-      },
-      ask: async (question, options, signal) => (await this.terminal.ask(question, options, false, signal))?.[0],
-    }, this.commandAbort?.signal);
-  }
-
-  /** /preview [stop]: the web app on your network, and a public link only after a numbered yes. No model call. */
-  private async previewCommand(args: string): Promise<void> {
-    const context = this.projectContext;
-    return runPreview({
-      output: this.output, canAsk: this.interactive && this.terminal.canAsk,
-      ask: async (question, options, signal) => (await this.terminal.ask(question, options, false, signal))?.[0],
-      manager: () => this.serviceManager(),
-      webService: async () => {
-        const found = context ? await detectWebService(this.activeWorkspaceRoot(), { frameworks: context.model.frameworks,
-          packageManager: context.model.packageManager, services: context.services ?? {} }).catch(() => undefined) : undefined;
-        if (isDetectedWebService(found)) return { spec: found.spec, label: redactPreview(terminalText(found.label)).slice(0, 120) };
-        return { reason: found?.reason ? `Can't start the web app: ${found.reason}` : "Casper found no web app here to preview. Ask Casper to build one, or to start yours." };
-      },
-    }, args, this.commandAbort?.signal);
   }
 
   /** The banner's checks line; none when there is nothing to check yet and checking is on (/status still says it). */
@@ -1088,7 +880,7 @@ export class CasperApp {
   async savedModel(): Promise<string | undefined> { return modelPreference(this.sessionHomeDir ?? os.homedir()); }
 
   /** Whether any sign-in exists yet, for the banner and footer only. */
-  private async checkSignIn(): Promise<void> {
+  async checkSignIn(): Promise<void> {
     const agentDir = this.sessionHomeDir ? path.join(this.sessionHomeDir, ".casper", "agent")
       : process.env[AGENT_DIR_ENV] && process.env[AGENT_DIR_ENV] !== "undefined" ? process.env[AGENT_DIR_ENV]! : casperAgentDir();
     this.signedIn = await hasSignIn(agentDir);
@@ -1220,10 +1012,6 @@ export class CasperApp {
     if (!warnings.length) return;
     for (const warning of warnings) this.reportedSkillWarnings.add(warning);
     this.output.write(`[skills] ${warnings.length} new warning${warnings.length === 1 ? "" : "s"}; use /skills diagnostics\n`);
-  }
-
-  private writePrompt(prompt: string): void {
-    this.events.writePrompt(prompt);
   }
 
   updateFooter(): void { updateFooter(this); }
