@@ -3,11 +3,8 @@ import type { DebugSession } from "./debug/session";
 import { promisify } from "node:util";
 import os from "node:os";
 import { resolveEntry } from "./sandbox/policy";
-import { riskyBaseline, riskyLinesIn } from "./network/risky-receipt";
 import type { LabSettings } from "./network/spec";
 import path from "node:path";
-import { realpathSync } from "node:fs";
-import { stat } from "node:fs/promises";
 import { hasSignIn, modelPreference } from "./tui/model-preference";
 import { BrowserSession } from "./browser/session";
 import { ServiceManager } from "./services/manager";
@@ -44,7 +41,7 @@ import { answerClaimsBrowserPass, formatShortReceipt, undoPathsShown, formatTask
 import { TaskObservations } from "./task/observations";
 import { LifecycleRegistry } from "./app/lifecycle";
 import { helperActivityLine, RuntimeEventView } from "./app/events";
-import { diffSnapshots, snapshotFailureReason, snapshotTree, type TreeChanges } from "./task/changes";
+import { snapshotFailureReason, snapshotTree } from "./task/changes";
 import { renderBanner, wordmarkHeader } from "./tui/banner";
 import type { CheckName, VerificationReport } from "./verify/evidence";
 import { ProcessCleanupError } from "./platform/processes";
@@ -54,23 +51,15 @@ import { longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } fr
 import { ALREADY_FAILING_CHOICES, modelFailedChoices, NO, pictureChoices, PLAN_CHOICES, YES_ONCE, YES_SESSION, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, spendChoices, unfinishedChoices, workFolderChoices } from "./app/safe-choices";
 import { DEFAULT_SPEND_LIMITS, formatCost, formatFooterSpend, formatLimit, formatTokens, SPEND_STOP_REASON, SpendGuard, requestSpendLimit } from "./task/spend";
 import { VerificationTask } from "./verify/task";
-import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
-import { independentAcceptance } from "./verify/acceptance";
-import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "./task/review";
-import { extractChecklist, formatChecklistPrompt, normalizeCases } from "./task/checklist";
-import { isOutside } from "./platform/inside";
-import { autoDetectedChecks } from "./verify/migrations-check";
+import { ChangeBaseline } from "./verify/proof";
 import type { NetworkToolContext } from "./verify/registry";
-import { buildNextRow, type NextItem } from "./tui/next-row";
+import type { NextItem } from "./tui/next-row";
 import { TaskUndo } from "./app/undo";
 import { SuggestionController, SUGGESTION_COMMAND } from "./app/suggestions";
-import { findFlow, formatFlowPrompt, loadFlowCatalog, type Flow, type FlowRule } from "./flows/catalog";
-import { beforeWorkPanel, readBeforeWorkAnswer, suggestBeforeWork } from "./flows/suggest";
-import { extractPlan, parsePlanLines, planEditorHeading, planEditorLines, planToolGate, type ParsedPlan } from "./flows/plan";
-import { PROJECT_YAML, saveProjectCommand } from "./project/config-write";
+import type { Flow } from "./flows/catalog";
+import { planToolGate } from "./flows/plan";
 import type { SecurityAIReview, SecurityReviewHost } from "./app/security-review";
-import type { TaskClassification } from "./task/classify";
-import { describeChecksPlan, hasChecks, planAutoChecks, resolveVerificationMode, type ChecksPlan, type VerificationMode } from "./verify/mode";
+import { describeChecksPlan, hasChecks, resolveVerificationMode, type ChecksPlan, type VerificationMode } from "./verify/mode";
 import { MermaidProvider } from "./visualize/mermaid";
 import { MindMeshProvider } from "./visualize/mindmesh";
 import { VisualizationRouter } from "./visualize/router";
@@ -92,7 +81,7 @@ import { StepRail } from "./app/steps";
 import { CASPER_VERSION } from "./version";
 import type { Install } from "./update/command";
 import { refreshUpdateCheck, updateChecksOff, updateNotice } from "./update/notice";
-import { createSessionSandbox, outsideWritesReceipt, runtimeShell, sandboxReceipt, sandboxStartupNotes, sandboxStatusLine, type RunAllowances, type SandboxHost } from "./app/sandbox";
+import { createSessionSandbox, runtimeShell, sandboxReceipt, sandboxStartupNotes, sandboxStatusLine, type RunAllowances, type SandboxHost } from "./app/sandbox";
 import { useSandbox, currentSandbox, type ShellSandbox, type ShellSandboxOptions } from "./sandbox/manager";
 import { SandboxStore } from "./sandbox/store";
 import { loginMissingAnswer, type LoginHost } from "./mcp/network/ask-login";
@@ -105,15 +94,16 @@ import { editUserConfig } from "./config/user-write";
 import { explainModelError } from "./runtime/model-errors";
 import { tildePath, type NewProjectOptions, type NewProjectResult } from "./new/scaffold";
 import { chooseAnswer, approveChoice, confirmCapability, confirmKind, answerServerQuestion, editGateReason, confirmYes, recordedApproval } from "./app/approvals";
-import { networkSetupHost, offerNetworkServer, networkLoginHost, networkLoginFile, revertWrites, reportImports } from "./app/network-host";
-import { updateFooter, nameConversation, phase, clearSteps, displayLevel, loadPaneSetting, askPaneOnce, paneCommand, detailsCommand, expandLastStep } from "./app/footer";
+import { networkSetupHost, networkLoginHost, networkLoginFile, revertWrites, reportImports } from "./app/network-host";
+import { updateFooter, displayLevel, loadPaneSetting, askPaneOnce, paneCommand, detailsCommand, expandLastStep } from "./app/footer";
 import { settleQueuedLines, submitDuringWork, cycleEffort } from "./app/during-work";
 import { spendNote, spendGate } from "./app/spend-gate";
 import { prepareCapabilities, browserSession, serviceManager, stopDebugger, backgroundTasks, planPages, pageNotesFor, pageRun, smokeRun, pagePaths } from "./app/task-tools";
 import { ensureModel, retryModelFailure, bigModelReceipt, bigModelNotice, switchToBigModel, restoreModel, askBigModelRetry, type BigModelChoice, bigModelOf, imagesForModel, switchForPictures } from "./app/big-model";
 import { newProjectFlowWithAbort, openProjectFolder, openProjectCommand, newProjectCommand, offerNewProject, childProjectOfTask, runChildChecks, offerWorkFolder } from "./app/workspace";
 import { ensureSessionWorkspace, handleBranchCommand, handleSwitchCommand, rebindWorkspace } from "./app/session-branches";
-import { runVerification, writeCheckResult, taskNetworkOptions, checksPlan, saveFoundCheck, projectAfterSetup } from "./app/verification";
+import { runVerification, checksPlan, saveFoundCheck } from "./app/verification";
+import { runModelTask, runSuggestion, PAGES_ONLY_PROOF, PAGES_ANSWER_ONLY_PROOF, proofSkipReason } from "./app/task-run";
 
 export type { OutputWriter } from "./app/commands";
 
@@ -270,7 +260,7 @@ export class CasperApp {
   private readonly eventMapper = new RuntimeEventMapper();
   /** The text of the response being streamed, and of the last response that had text. */
   private responseText = "";
-  private lastAnswer = "";
+  lastAnswer = "";
   /** casper_check calls in flight: their results were requested by the model, not by Casper. */
   modelCheckCalls = 0;
   /** Turns after which --max-turns stopped the current task's model request. */
@@ -297,7 +287,7 @@ export class CasperApp {
   readonly pageNotice: DevServerNotice = { shown: false };
   /** What may have changed this task's code since it started: a check the model records after that has no
    * before-the-change baseline. `before` is the task's starting tree, compared only after a shell command. */
-  private taskEdits?: { before?: Map<string, string>; edited: boolean; shell: boolean; turnEnded: boolean };
+  taskEdits?: { before?: Map<string, string>; edited: boolean; shell: boolean; turnEnded: boolean };
   readonly sessionHomeDir?: string;
   sessionWorkspace?: SessionWorkspaceManager;
   sessionWorkspaceStart?: Promise<SessionWorkspaceManager>;
@@ -313,7 +303,7 @@ export class CasperApp {
   /** Project folders the user chose to stay out of at "The work is in ...": not asked again this session. */
   readonly stayedOutOf = new Set<string>();
   /** Why the last workspace snapshot failed, for the task's receipt. */
-  private snapshotFailure?: string;
+  snapshotFailure?: string;
   taskRuntimeFailed = false;
   /** The files from before the current task's change, while it runs: tells a failure the change caused from one already there. */
   taskBaseline?: { baseline: ChangeBaseline; root: string };
@@ -327,7 +317,7 @@ export class CasperApp {
   /** False when no sign-in exists (no saved provider, no provider key): the banner and footer say how to start. */
   signedIn?: boolean;
   taskRuntimeCancelled = false;
-  private lastTaskResult?: TaskResult;
+  lastTaskResult?: TaskResult;
   /** Tokens the AI security review spent in this command (no task to carry them). */
   private commandSpent?: TaskUsage;
   /** Undo, redo, /diff and saved receipts: a copy before and after each task. */
@@ -366,8 +356,8 @@ export class CasperApp {
   /** This task already showed its one question before work (the new-project question): no checklist panel. */
   beforeWorkAsked = false;
   /** Receipts say the no-checks how-to once per session, and name a file undo can't put back once. */
-  private checksHintShown = false;
-  private readonly undoNamed = new Set<string>();
+  checksHintShown = false;
+  readonly undoNamed = new Set<string>();
   /** The next repair runs on this model (the big model), then Casper switches back. */
   repairOnBigModel?: BigModelChoice;
   /** The user said yes to one more try on the big model at the repair limit. */
@@ -381,9 +371,9 @@ export class CasperApp {
   /** Suggested next steps on the receipt's row, their fading, and /suggestions. Other parts register rules here. */
   readonly suggestions = new SuggestionController((text) => { if (!this.closing) this.output.write(text); }, () => this.homeDir());
   /** A plan turn is running: every tool but reading is refused (see src/flows/plan.ts). */
-  private planning = false;
+  planning = false;
   /** Flow warnings (a user's flow that could not be used) are said once. */
-  private readonly flowWarnings = new Set<string>();
+  readonly flowWarnings = new Set<string>();
   /** The session's shell sandbox (src/sandbox): every shell path runs in it when it can run here. */
   sandbox?: ShellSandbox;
   shell?: RuntimeShell & { close(): Promise<void> };
@@ -592,26 +582,6 @@ export class CasperApp {
     return project;
   }
 
-  /** Next commands in a receipt are slash commands in a session, casper invocations otherwise. */
-  receiptSurface(): "interactive" | "one-shot" {
-    return this.interactive ? "interactive" : "one-shot";
-  }
-
-  /** A one-shot run in another folder (`--cd`): its undo command names that folder. */
-  private receiptFolder(root: string): { folder?: string } {
-    if (this.interactive) return {};
-    // The working folder is always a real path; the project may be named through a link (macOS's /var).
-    let real = root;
-    try { real = realpathSync(root); } catch { /* gone: compare as named */ }
-    const inside = [root, real].some((base) => {
-      const relative = path.relative(base, process.cwd());
-      return relative === "" || !isOutside(relative);
-    });
-    if (inside) return {};
-    // cmd and Windows PowerShell never expand ~, so on Windows the command names the folder in full.
-    return { folder: process.platform === "win32" ? root : tildePath(root, this.sessionHomeDir ?? os.homedir()) };
-  }
-
   /** Last normal coding/chat request; local commands other than /receipt clear it. Not acceptance evidence. */
   /** Whether the session's shell sandbox holds its commands and checks, for a receipt with no task. */
   sandboxReceipt(): TaskResult["sandbox"] | undefined { return sandboxReceipt(this.sandbox); }
@@ -696,31 +666,6 @@ export class CasperApp {
     }
     this.terminal.close();
     this.interactive = false;
-  }
-
-  /** The row under the receipt: numbered, plain, and never waited on. A source that throws offers nothing. */
-  private async offerNextSteps(task: TaskResult, request?: string, classification?: TaskClassification): Promise<void> {
-    let undo: NextItem | undefined, diff: NextItem | undefined;
-    const more: NextItem[] = [];
-    for (const source of this.nextSteps) {
-      let offered;
-      try { offered = source(task); } catch { continue; }
-      undo ??= offered?.undo; diff ??= offered?.diff;
-      more.push(...offered?.more ?? []);
-    }
-    // Suggested flows follow the other steps; nothing about them waits or asks.
-    let hint: string | undefined;
-    if (request !== undefined && classification && this.projectContext) {
-      const suggested = await this.suggestions.items({ context: this.projectContext, task, request, classification,
-        interactive: this.interactive, taken: more.length }).catch(() => ({ items: [] as NextItem[], hint: undefined }));
-      more.push(...suggested.items);
-      hint = suggested.hint;
-    }
-    if (this.closing) return;
-    // Undo and Show diff of this task, unless a source offered its own.
-    const own = this.taskUndo.nextItems(task);
-    undo ??= own.undo; diff ??= own.diff;
-    this.terminal.offerNext(buildNextRow({ undo, diff, more, ...(hint ? { hint } : {}) }));
   }
 
   /** OS SIGINT and terminal Ctrl-C share cancellation, without disposing the session. */
@@ -965,7 +910,7 @@ export class CasperApp {
       // A picture file dropped into an empty prompt starts the line with "/": that is a request, not a command.
       // Commands go straight on (no wait, so a close that arrives with the line still finds the command running).
       if (command && leadingImagePath(prompt) !== undefined) command = !await startsWithImageFile(prompt, { cwd: this.activeWorkspaceRoot() });
-      return await (command ? this.handleSlashCommand(prompt) : this.runModelTask(prompt));
+      return await (command ? this.handleSlashCommand(prompt) : runModelTask(this, prompt));
     } catch (error) {
       if (error instanceof ProcessCleanupError) this.cleanupError = error;
       throw error;
@@ -1002,13 +947,13 @@ export class CasperApp {
     if (/^\/suggestions(?:\s|$)/.test(prompt)) {
       return this.suggestions.command(prompt.slice(12).trim(), this.projectContext).then((text) => { this.output.write(text); return undefined; });
     }
-    if (prompt.startsWith(`${SUGGESTION_COMMAND} `) || prompt === SUGGESTION_COMMAND) return this.runSuggestion(prompt.slice(SUGGESTION_COMMAND.length).trim());
+    if (prompt.startsWith(`${SUGGESTION_COMMAND} `) || prompt === SUGGESTION_COMMAND) return runSuggestion(this, prompt.slice(SUGGESTION_COMMAND.length).trim());
     const undoCommand = /^\/(undo|redo|diff|receipt)(?:\s+(.*))?$/.exec(prompt);
     if (undoCommand) return this.undoCommand(undoCommand[1] as "undo" | "redo" | "diff" | "receipt", (undoCommand[2] ?? "").trim());
     if (/^\/plan(?:\s|$)/.test(prompt)) {
       const request = prompt.slice(5).trim();
       if (!request) { this.output.write("Usage: /plan <request>. The model plans first; nothing is built until you choose Build.\n"); return Promise.resolve(undefined); }
-      return this.runModelTask(request, { planFirst: true });
+      return runModelTask(this, request, { planFirst: true });
     }
     return runSlashCommand(this, prompt);
   }
@@ -1087,694 +1032,6 @@ export class CasperApp {
   private async bannerChecks(context: ProjectContext): Promise<{ checks?: string }> {
     const plan = await checksPlan(this, context);
     return plan.mode === "off" || hasChecks(plan) ? { checks: describeChecksPlan(plan) } : {};
-  }
-
-  /** A bundled flow, or the user's own trusted replacement. Warnings about a user flow are said once. */
-  private async flow(rule: FlowRule): Promise<Flow | undefined> {
-    const catalog = await loadFlowCatalog(this.skillRegistry).catch(() => undefined);
-    for (const warning of catalog?.warnings ?? []) {
-      if (this.flowWarnings.has(warning)) continue;
-      this.flowWarnings.add(warning);
-      this.output.write(`${terminalText(warning)}\n`);
-    }
-    return catalog ? findFlow(catalog, rule) : undefined;
-  }
-
-  /** `/suggestion <id>`: the key under a receipt that picked a suggestion. Only one on offer right then runs. */
-  private async runSuggestion(id: string): Promise<VerificationReport | undefined> {
-    const picked = this.suggestions.take(id);
-    if (!picked) {
-      this.output.write("[suggestions] That suggestion is not on offer now. Suggestions are picked by their number right after a receipt.\n");
-      return undefined;
-    }
-    const { action } = picked.choice;
-    if (action.kind === "remember-command") {
-      const context = this.projectContext!;
-      try {
-        const written = await saveProjectCommand(context.info.root, action.name, action.command);
-        // The write is undoable: its own receipt holds the file's text before and after.
-        const saved = await this.taskUndo.recordSetting(context.info.root, `Remember ${action.command} as this project's ${action.name} command`,
-          { file: PROJECT_YAML, line: written.line, before: written.before, after: written.after }).catch(() => undefined);
-        this.output.write(`[project] Saved ${terminalText(written.line)} in ${PROJECT_YAML}${saved ? `. /undo ${saved} takes it back` : ""}\n`);
-        if (saved && this.interactive) this.terminal.offerNext(buildNextRow({ undo: { label: "Undo", command: `/undo ${saved}` } }));
-        // The next task checks with it.
-        try { this.projectContext = await this.loadProjectContextFn(context.info); }
-        catch (error) { this.output.write(`[project] ${PROJECT_YAML} could not be read again (${terminalText(error instanceof Error ? error.message : String(error))}); restart Casper to use it.\n`); }
-      } catch (error) {
-        this.output.write(`[project] Not saved: ${terminalText(error instanceof Error ? error.message : String(error))}\n`);
-      }
-      return undefined;
-    }
-    if (action.kind === "save-check") { await saveFoundCheck(this, action.name); return undefined; }
-    if (action.kind === "run") {
-      const text = await action.run();
-      if (text && !this.closing) this.output.write(`${terminalText(text)}\n`);
-      return undefined;
-    }
-    const flow = await this.flow(action.flow);
-    if (!flow) { this.output.write(`[suggestions] The ${action.flow} flow could not be loaded.\n`); return undefined; }
-    const request = action.flow === "prove-fix"
-      ? `Add a test that proves this bug stays fixed: the test must fail without the fix and pass with it. The fix was for: ${picked.request}`
-      : picked.request;
-    return this.runModelTask(request, { flow });
-  }
-
-  /**
-   * The plan turn of plan first. The model reads and answers with "Plan:" steps and "Tests:" cases; every tool but
-   * reading is refused meanwhile. The user edits the plan (rich terminal), then both terminals ask Stop or Build; a run
-   * that cannot ask stops after showing the plan. "stop" when nothing is to be built.
-   */
-  private async runPlanTurn(session: RuntimeSession, request: string, cases: readonly string[] | undefined, root: string):
-    Promise<{ plan: ParsedPlan; changed?: string[] } | "stop"> {
-    const signal = this.commandAbort?.signal;
-    const flow = await this.flow("plan-first");
-    if (!flow) { this.output.write("[plan] The plan-first flow could not be loaded; nothing was built.\n"); return "stop"; }
-    this.events.ensureLineBreak();
-    this.output.write("… Casper planning first: the model reads and writes a plan; Casper blocks the file changes it can see until you choose Build\n");
-    const before = await this.snapshotWorkspace(root, signal);
-    this.lastAnswer = "";
-    this.planning = true;
-    try {
-      await session.prompt([
-        formatFlowPrompt(flow, request),
-        ...(cases?.length ? [`Cases the user listed (put each under Tests:):\n${cases.map((item) => `- ${item}`).join("\n")}`] : []),
-      ].join("\n\n"), signal, { request, maxTurns: this.maxTurns });
-    } finally { this.planning = false; }
-    if (this.closing || signal?.aborted || this.taskRuntimeCancelled) return "stop";
-    // Casper blocks what it can see; anything that changed anyway is named, never hidden.
-    const after = before && !this.closing ? await this.snapshotWorkspace(root) : undefined;
-    const diff = before && after ? diffSnapshots(before, after) : undefined;
-    const changed = diff ? [...diff.added, ...diff.modified, ...diff.removed].sort() : undefined;
-    if (changed?.length) this.output.write(`• Changed while planning: ${changed.map((file) => terminalText(file)).join(", ")}\n`);
-    if (this.taskRuntimeFailed) { this.output.write("[plan] The model failed while planning; nothing was built.\n"); return "stop"; }
-    const parsed = extractPlan(this.lastAnswer);
-    if (!parsed.steps.length) {
-      this.output.write("[plan] The answer had no numbered Plan: steps, so nothing was built. Ask again, or send the request without /plan.\n");
-      return "stop";
-    }
-    let plan: ParsedPlan = { steps: parsed.steps, tests: parsed.tests.length ? parsed.tests : normalizeCases([...(cases ?? [])]) };
-    const { heading, hint } = planEditorHeading(plan);
-    this.events.ensureLineBreak();
-    let edited = false;
-    if (this.interactive && this.terminal.rich) {
-      const lines = await this.terminal.editLines(heading, hint, planEditorLines(plan), signal);
-      if (this.closing || signal?.aborted) return "stop";
-      const kept = lines ? parsePlanLines(lines) : undefined;
-      if (!kept?.steps.length) { this.output.write("[plan] Stopped without building.\n"); return "stop"; }
-      edited = planEditorLines(kept).join("\n") !== planEditorLines(plan).join("\n");
-      plan = kept;
-    } else {
-      this.output.write(`${heading}\n${planEditorLines(plan).map((line) => `  ${terminalText(line)}`).join("\n")}\n`);
-      if (!this.interactive || !this.terminal.canAsk) {
-        this.output.write("[plan] This run can't ask you to build, so Casper stopped after the plan. Nothing was built.\n");
-        return "stop";
-      }
-    }
-    // Both terminals ask after the plan, Stop first, so Enter (also the editor's Enter) never starts a build that
-    // uses tokens.
-    const answer = await this.terminal.pick(PLAN_QUESTION, PLAN_CHOICES.map((choice) => ({ ...choice })), signal);
-    if (answer !== "Build" || this.closing || signal?.aborted) { this.output.write("[plan] Stopped without building.\n"); return "stop"; }
-    this.output.write(`Casper plan (${plan.steps.length} ${plan.steps.length === 1 ? "step" : "steps"}, ${plan.tests.length} ${plan.tests.length === 1 ? "case" : "cases"}${edited ? ", edited by you" : ""}):\n`
-      + `${plan.steps.map((step, index) => `  ${index + 1}. ${terminalText(step)}\n`).join("")}${plan.tests.map((item) => `  - ${terminalText(item)}\n`).join("")}`);
-    return { plan, ...(changed?.length ? { changed } : {}) };
-  }
-
-  private async runModelTask(prompt: string, options: { flow?: Flow; planFirst?: boolean } = {}): Promise<VerificationReport | undefined> {
-    if (this.closing) return;
-    // Pictures with the request: pasted ones and dropped image files are [image N] from here on (app/images.ts).
-    const attached = await attachImages(prompt, { cwd: this.activeWorkspaceRoot(), pasted: this.pastedImages });
-    this.pastedImages = undefined;
-    for (const note of attached.notes) this.output.write(`[image] ${terminalText(note)}\n`);
-    prompt = attached.text;
-    // A flow the user picked, or /plan, is already this task's one choice before work: no other panel.
-    this.beforeWorkAsked = Boolean(options.flow || options.planFirst);
-    if (await offerNewProject(this, prompt) === "stop" || this.closing || this.commandAbort?.signal.aborted) return;
-    await offerNetworkServer(this, prompt);
-    if (this.closing || this.commandAbort?.signal.aborted) return;
-    const previous = this.observations.spent();
-    this.spentBefore = { tokens: this.spentBefore.tokens + previous.tokens, cost: this.spentBefore.cost + previous.cost };
-    this.observations = new TaskObservations();
-    // A limit said in the request ("keep it under $2") is this task's pause, whatever the config says.
-    const said = requestSpendLimit(prompt);
-    const limits = this.projectContext?.spend ?? DEFAULT_SPEND_LIMITS;
-    this.spendGuard = new SpendGuard(said === undefined ? limits : { ...limits, pauseAt: said, ...(limits.noteAt !== undefined && limits.noteAt >= said ? { noteAt: undefined } : {}) });
-    this.bigModelUse = undefined;
-    this.taskChangeServers = new Set();
-    let context = this.projectContext!;
-    const classification = classifyTask(prompt);
-    // beforeChanges policy: under-specified implement/configure work must see one recorded
-    // ask attempt before the first edit. Interactive sessions only — one-shot cannot ask,
-    // so denying edits there would only deadlock the task.
-    this.asksThisTask = 0;
-    // A new request gets a fresh delegation budget (the budget belongs to the parent task).
-    this.delegateToolForTask = undefined;
-    this.editGateActive = this.interactive && this.terminal.rich
-      && context.policy.behavior.askQuestions === "beforeChanges"
-      && (classification.intent === "implement" || classification.intent === "configure")
-      && underSpecifiedTarget(prompt);
-    // Debug values and active debuggees do not silently become model-task context.
-    await stopDebugger(this);
-    // A finished task's immutable evidence belongs to its receipt, not the next prompt.
-    if (this.browser?.status().state === "closed") this.browser = undefined;
-    this.lastTaskRequest = prompt;
-    const selected = await this.skillRegistry!.loadForTask(prompt, context.model, classification);
-    this.reportSkillWarnings();
-    if (selected.length) {
-      this.output.write(` skills selected: ${selected.map(({ skill }) => skill.name).join(", ")}\n`);
-    }
-    const skillContext = formatSelectedSkills(selected);
-    let memoryContext = "";
-    try {
-      memoryContext = await new ProjectMemory(context.stateDirectory).context();
-    } catch {
-      // Facts are optional guidance. Keep explicit memory operations fail-closed,
-      // and never echo possibly sensitive file contents or paths from read errors.
-      if (!this.closing) this.output.write("[memory] Facts unavailable (invalid or unreadable state); continuing without them. Preserve and inspect memory.jsonl before manual repair.\n");
-    }
-    if (this.closing || this.commandAbort?.signal.aborted) return;
-    const flag = this.verificationFlag;
-    const configured = context.verification.mode;
-    const verificationMode = (await checksPlan(this, context)).mode;
-    if (verificationMode !== "off") this.checkTask = new VerificationTask(
-      VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure, taskNetworkOptions(this)), this.activeWorkspaceRoot(),
-      (result) => writeCheckResult(this, result),
-    );
-    // Smoke checks are verification: they run only when Casper checks this task.
-    const edits: NonNullable<CasperApp["taskEdits"]> = { edited: false, shell: false, turnEnded: false };
-    this.taskEdits = edits;
-    this.smokeTask = verificationMode !== "off" ? new SmokeChecks(context.smoke ?? [], () => serviceManager(this), () => this.changedSinceTaskStart(edits)) : undefined;
-    await prepareCapabilities(this, prompt);
-    if (this.closing || this.commandAbort?.signal.aborted) return;
-    const session = await this.ensureRuntime();
-    if (this.closing || this.commandAbort?.signal.aborted) return;
-    if (!await ensureModel(this, session)) return;
-    // The question comes now; a switch it picks happens only for the build turn, which is the turn that sees them.
-    let { images, switchTo } = attached.images.length ? await imagesForModel(this, session, attached.images) : { images: [], switchTo: undefined };
-    if (this.closing || this.commandAbort?.signal.aborted) return;
-    nameConversation(this, session, prompt);
-    updateFooter(this);
-    bigModelNotice(this, session);
-    clearSteps(this);
-    const workspaceRoot = this.activeWorkspaceRoot();
-    // Receipts describe the tree, not tool names: a read-only shell run is not a write. Undo's own copy is made
-    // alongside, with the conversation's position (the plan turn and repairs are part of the task).
-    this.snapshotFailure = undefined;
-    const [before, undoStart] = await Promise.all([this.snapshotWorkspace(workspaceRoot, this.commandAbort?.signal),
-      this.taskUndo.begin(workspaceRoot, session, this.commandAbort?.signal)]);
-    edits.before = before;
-    // The risky lines already in the project's config files, so the receipt lists only the ones this task adds.
-    const riskyBefore = before ? await riskyBaseline(workspaceRoot, [...before.keys()]).catch(() => undefined) : undefined;
-    let thrownError: string | undefined;
-    // verification.checklist: the cases the request states, listed before the model starts, so it tests each one.
-    // Unset, it is on for interactive code changes and off otherwise: questions, docs, refactors and one-shot runs.
-    // At most one question before work: after the new-project question there is no checklist panel.
-    const checklistOn = !this.beforeWorkAsked && (context.verification.checklist
-      ?? (this.interactive && ["implement", "fix", "test"].includes(classification.intent)));
-    const complete = checklistOn ? session.complete?.bind(session) : undefined;
-    // Plan first: suggested for a build request with several asks, as one numbered choice folded into the
-    // checklist panel, so there is still one panel before work. /plan chooses it directly.
-    const planOffer = !this.beforeWorkAsked && this.terminal.canAsk ? suggestBeforeWork(prompt, classification, { interactive: this.interactive }) : undefined;
-    const planState = planOffer ? await this.suggestions.state(context) : undefined;
-    let planFirst = options.planFirst === true;
-    let checklist: string[] | undefined;
-    if (planOffer && planState?.visible(planOffer.id)) {
-      const listed = complete ? await this.makeChecklist(complete, prompt, { edit: false }) : undefined;
-      if (this.closing || this.commandAbort?.signal.aborted) return;
-      const panel = beforeWorkPanel(planOffer, listed ?? []);
-      // Editing needs the rich editor; the plain terminal offers the other two.
-      if (!this.terminal.rich) panel.options = panel.options.filter((option) => option.choice !== "edit");
-      this.events.ensureLineBreak();
-      const picked = await this.terminal.pick(panel.question, panel.options.map(({ label, description }) => ({ label, description })), this.commandAbort?.signal);
-      if (this.closing || this.commandAbort?.signal.aborted) return;
-      const answer = readBeforeWorkAnswer(panel, picked === undefined ? undefined : [picked]);
-      if (answer.kind === "plan-first") { planFirst = true; await planState.recordChosen(planOffer.id).catch(() => {}); }
-      else await planState.recordIgnored([planOffer.id]).catch(() => {});
-      if (answer.kind === "edit") checklist = await this.makeChecklist(complete!, prompt, { cases: listed });
-      else {
-        const cases = normalizeCases([...(listed ?? []), ...(answer.kind === "typed" ? [answer.text] : [])]);
-        checklist = cases.length ? cases : undefined;
-      }
-      if (this.closing || this.commandAbort?.signal.aborted) return;
-    } else if (!planFirst) checklist = complete ? await this.makeChecklist(complete, prompt) : undefined;
-    if (this.closing || this.commandAbort?.signal.aborted) return;
-    // The plan turn: the model reads and writes a plan and the cases to test; the user edits it, then builds.
-    let planBlock = "";
-    let changedWhilePlanning: string[] | undefined;
-    if (planFirst) {
-      const planned = await this.runPlanTurn(session, prompt, checklist, workspaceRoot);
-      if (planned === "stop" || this.closing || this.commandAbort?.signal.aborted) return;
-      changedWhilePlanning = planned.changed;
-      checklist = planned.plan.tests.length ? planned.plan.tests : undefined;
-      planBlock = `Casper plan (the user read and accepted it). Follow these steps in order:\n${planned.plan.steps.map((step, index) => `${index + 1}. ${step}`).join("\n")}`;
-    }
-    // A code change in auto mode is reviewed and proven: the tests must fail without it. Only requests
-    // that are clearly not behavior changes are exempt; the keyword intent is too coarse to decide more
-    // ("add X; you may add new test files" reads as intent "test"), so the work itself decides later.
-    // The workspace as it is now is what "without the change" means.
-    const testCommand = context.model.commands.test?.trim();
-    const proving = verificationMode === "auto" && Boolean(testCommand) && before !== undefined
-      && !["refactor", "document", "inspect", "visualize", "configure"].includes(classification.intent);
-    let baseline: ChangeBaseline | undefined;
-    let baselineUnavailable: string | undefined;
-    if (proving) {
-      try { baseline = await ChangeBaseline.capture(workspaceRoot, { signal: this.commandAbort?.signal }); this.taskBaseline = { baseline, root: workspaceRoot }; }
-      catch (error) {
-        if (this.commandAbort?.signal.aborted) return;
-        baselineUnavailable = `Casper could not copy the workspace to compare: ${error instanceof Error ? error.message : String(error)}`;
-      }
-    }
-    let proof: ChangeProof | undefined;
-    let proofSkipped: string | undefined;
-    let review: RequirementsReview | undefined;
-    let acceptance: TaskResult["acceptance"];
-    let afterModel: Map<string, string> | undefined;
-    let verification: VerificationReport | undefined;
-    let autoChecks: ReturnType<typeof planAutoChecks> | undefined;
-    let pageNotes: string[] | undefined;
-    let pagesShown: number | undefined;
-    let workFolder: ChildProject | undefined;
-    let receiptShown = false;
-    const flatten = (changes: TreeChanges) => [...changes.added, ...changes.modified, ...changes.removed].sort();
-    // Automatic effort's classifier is a model call outside the conversation, so the task's usage
-    // totals cannot include it: any classification (or an unreadable count) makes them unknown.
-    const classifications = () => { try { return session.getUsage?.().effortClassification?.requests ?? 0; } catch { return undefined; } };
-    const classifiedBefore = classifications();
-    let visionBack: string | undefined;
-    try {
-      phase(this, "task", "start");
-      try {
-        if (switchTo) {
-          visionBack = await switchForPictures(this, session, switchTo);
-          if (!visionBack) images = [];
-          if (this.closing || this.commandAbort?.signal.aborted) return;
-        }
-        await session.prompt([
-          memoryContext,
-          skillContext,
-          formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving,
-            reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
-          planBlock,
-          checklist ? formatChecklistPrompt(checklist) : "",
-          // A flow the user picked from the row: guidance for this one request.
-          options.flow ? formatFlowPrompt(options.flow, prompt) : "",
-        ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt, maxTurns: this.maxTurns, ...(images.length ? { images } : {}) });
-        await retryModelFailure(this, session, prompt);
-      } finally {
-        // A switch to a model that sees pictures was for this request's own turn; checks and repairs run on yours.
-        if (visionBack && !this.closing) await restoreModel(this, session, visionBack);
-      }
-      phase(this, "task", "end");
-      // Repair, review and proof rounds follow the change.
-      edits.turnEnded = true;
-      afterModel = before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
-      // A project the model just set up (package.json, pyproject.toml, Package.swift...) gets its checks now,
-      // not on the next task: the checks known at the start were those of the folder before the change.
-      if (verificationMode !== "off" && before && afterModel && !this.closing) {
-        const refreshed = await projectAfterSetup(this, context, flatten(diffSnapshots(before, afterModel)));
-        if (refreshed) {
-          context = refreshed;
-          // The same task keeps what the model's casper_check already recorded this turn; repair rounds rebuild
-          // the model's tools (prepareCapabilities), so its casper_check offers the new checks.
-          this.checkTask?.useRegistry(VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure, taskNetworkOptions(this)));
-        }
-      }
-      // A request cut short by --max-turns is unfinished work: checking it would only start repairs.
-      const cancelled = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeCancelled || this.checkTask?.signal.aborted || this.taskTurnLimit !== undefined || this.taskSpendStop !== undefined;
-      const stopped = cancelled || this.taskRuntimeFailed;
-      // The model errored after editing: its edits are kept, so check them (no repair: the model just failed).
-      if (!cancelled && this.taskRuntimeFailed && this.checkTask && verificationMode === "auto") {
-        const edited = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
-        const failedChecks = edited?.length ? planAutoChecks({ selected: context.verification.checks, commands: context.model.commands,
-          scopes: context.model.verificationScopes, named: context.model.namedChecks, detected: autoDetectedChecks(context.model), changedPaths: edited }).run : [];
-        if (failedChecks.length) {
-          this.events.ensureLineBreak();
-          this.output.write(`… Casper checking the edits the model made before it failed: ${failedChecks.join(", ")}\n`);
-          verification = await runVerification(this, failedChecks, false, prompt, this.checkTask);
-        }
-      }
-      if (!stopped && this.checkTask && verificationMode === "auto") {
-        const changedByModel = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
-        autoChecks = planAutoChecks({
-          selected: context.verification.checks, commands: context.model.commands, scopes: context.model.verificationScopes,
-          named: context.model.namedChecks, detected: autoDetectedChecks(context.model), changedPaths: changedByModel,
-        });
-        // Configured smoke checks run after a change; checks the model recorded always run.
-        const smokeDue = Boolean(this.smokeTask?.recordedCount || (this.smokeTask?.size && autoChecks.skipped !== "no-changes"));
-        // Pages are opened when the project facts say so (a web project, changed files that reach a page), never the prompt.
-        // A removed page is not opened: only files that exist now can reach a page.
-        const pagePlan = before && afterModel ? await planPages(this, context, pagePaths(diffSnapshots(before, afterModel))) : undefined;
-        const pagesDue = Boolean(before && pagePlan && "service" in pagePlan && pagePlan.pages.open.length);
-        this.pageTask = pagesDue ? { context, root: workspaceRoot, before: before! } : undefined;
-        pageNotes = pagesDue ? undefined : pageNotesFor(this, pagePlan);
-        // Fresh passes the model already recorded are reused, not rerun (VerificationTask).
-        if (autoChecks.run.length || this.checkTask.checks.length || smokeDue || pagesDue) {
-          const pending = [...new Set([...autoChecks.run, ...this.checkTask.checks]), ...(smokeDue ? ["smoke"] : []), ...(pagesDue ? ["pages"] : [])];
-          this.events.ensureLineBreak();
-          this.output.write(`… Casper checking: ${pending.join(", ")}\n`);
-          verification = await runVerification(this, autoChecks.run, true, prompt, this.checkTask);
-          // A model that sees pictures may look at the changed pages once (showPages); its fixes are checked again.
-          ({ verification, shown: pagesShown } = await this.lookAtPages(session, prompt, autoChecks.run, verification, workspaceRoot));
-          const changedCode = Boolean(before && afterModel && changesCode(diffSnapshots(before, afterModel)));
-          if (verification.status === "pass" && !(proving && changedCode)) {
-            proofSkipped = !verification.results.length && verification.pages && !verification.smoke?.checks.length
-              ? verification.pages.pages.every((page) => page.consoleChecked) ? PAGES_ONLY_PROOF : PAGES_ANSWER_ONLY_PROOF
-              : proofSkipReason({ intent: classification.intent, testCommand, snapshot: before !== undefined, changedCode,
-                testsAddedNow: !testCommand && Boolean(context.model.commands.test?.trim()) });
-          }
-          if (proving && verification.status === "pass" && changedCode) {
-            const initialReview = parseChecklist(this.lastAnswer);
-            ({ verification, proof, review } = await this.finishChange({ baseline, baselineUnavailable, before: before!, root: workspaceRoot,
-              command: testCommand!, request: prompt, checks: autoChecks.run, verification, session, initialReview }));
-          }
-          // Not tied to the proof: any code change whose checks pass (server tasks and configure requests too).
-          const acceptanceMode = context.verification.acceptance;
-          if ((acceptanceMode === true || acceptanceMode === "warn") && testCommand && changedCode && verification.status === "pass" && proof?.status !== "unproven"
-            && !this.closing && !this.commandAbort?.signal.aborted && !this.taskRuntimeFailed && this.taskTurnLimit === undefined && this.taskSpendStop === undefined) {
-            acceptance = await this.acceptChange({ session, before: before!, root: workspaceRoot, command: testCommand, request: prompt,
-              mode: acceptanceMode === "warn" ? "warn" : "verdict" });
-          }
-        }
-      } else if (!stopped && this.checkTask && (this.checkTask.checks.length || this.smokeTask?.recordedCount)) {
-        verification = await runVerification(this, this.checkTask.checks, true, prompt, this.checkTask);
-      }
-      // The work landed in a project inside this folder (sample-tools in Documents): its own checks run for this receipt.
-      if (!stopped && before && afterModel && !this.closing) {
-        workFolder = await childProjectOfTask(this, context, flatten(diffSnapshots(before, afterModel)));
-        if (workFolder && !verification && this.checkTask && verificationMode === "auto") {
-          const child = await runChildChecks(this, workFolder, flatten(diffSnapshots(before, afterModel)));
-          if (child) {
-            verification = child;
-            autoChecks = undefined;
-            if (child.status === "pass") proofSkipped = `the checks ran in ${workFolder.relative}; Casper did not compare the tests with and without the change`;
-          }
-        }
-      }
-    } catch (error) {
-      this.taskRuntimeFailed = true;
-      thrownError = error instanceof Error ? error.message : String(error);
-      throw error;
-    } finally {
-      this.taskBaseline = undefined;
-      await baseline?.dispose();
-      const execution = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeCancelled || this.checkTask?.signal.aborted ? "cancelled" : this.taskRuntimeFailed ? "failed" : "completed";
-      // Keep already-executed evidence on terminal error/cancellation, but never
-      // launch another command or repair prompt after the task has stopped.
-      if (!verification && this.checkTask?.checks.length) verification = {
-        status: "blocked", reason: `Task ${execution}; no further checks or repair.`, repairAttempts: 0,
-        results: await this.checkTask.refresh(), rounds: this.checkTask.rounds,
-      };
-      // The model turn and the verification/repair round are measured separately so check
-      // scripts and repair edits are never attributed to the request itself.
-      afterModel ??= before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
-      const afterChecks = verification && afterModel && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : afterModel;
-      const changedPaths = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
-      const changedDuringChecks = afterModel && afterChecks && afterChecks !== afterModel ? flatten(diffSnapshots(afterModel, afterChecks)) : [];
-      const classifiedAfter = classifications();
-      if (classifiedBefore === undefined || classifiedAfter !== classifiedBefore) this.observations.recordUntrackedModelUse();
-      const observations = this.observations.snapshot(changedPaths, changedDuringChecks);
-      const browser = !this.closing && this.browser ? await this.browser.report() : undefined;
-      const outsideWrites = outsideWritesReceipt(this.sandbox);
-      // Dangerous lines in the config files this task changed (reload, shutdown …): a report, never a pass or a fail.
-      const riskyLines = changedPaths && !this.closing ? await riskyLinesIn(workspaceRoot, changedPaths, riskyBefore).catch(() => []) : [];
-      const services = !this.closing && this.services && !this.services.closed
-        ? this.services.status().map(({ name, origin, state }) => ({ name, ...(origin ? { origin } : {}), state })) : [];
-      const snapshotFailure = !changedPaths && this.snapshotFailure ? { reason: this.snapshotFailure,
-        edited: observations.observedEdits.map((file) => { const relative = path.relative(workspaceRoot, path.resolve(workspaceRoot, file));
-          return relative && !isOutside(relative) ? relative.split(path.sep).join("/") : file; }) } : undefined;
-      const modelError = execution === "failed" ? explainModelError(this.events.lastError ?? thrownError ?? "")?.cause : undefined;
-      this.lastTaskResult = { execution, ...(modelError ? { modelError } : {}), verification, ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && answerClaimsBrowserPass(this.lastAnswer) ? { browserClaimed: true } : {}) } : {}),
-        ...(services.length ? { services } : {}), ...(riskyLines.length ? { riskyLines: [...riskyLines], ...(riskyLines.more ? { riskyMore: riskyLines.more } : {}) } : {}),
-        // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
-        verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
-        ...(autoChecks?.skipped && !verification?.smoke && !verification?.pages ? { autoSkipped: autoChecks.skipped } : {}),
-        ...(pageNotes?.length && !verification?.pages ? { pageNotes } : {}), ...(pagesShown ? { pagesShown } : {}),
-        ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(this.taskSpendStop ? { spendLimit: { ...this.taskSpendStop } } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
-        ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...bigModelReceipt(this),
-        ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(this.sandbox ? { sandbox: sandboxReceipt(this.sandbox)! } : {}),
-        ...outsideWrites };
-      // The receipt is next: the steps fold and the Working box goes, even for a tool that ended late.
-      this.events.reset();
-      if (!this.closing) {
-        this.terminal.endAssistant();
-        this.events.ensureLineBreak();
-        // A question that changed nothing and ran no tests gets no receipt, like a general one.
-        const answeredOnly = changedPaths?.length === 0 && !this.lastTaskResult.testRunner;
-        // A stop at --max-turns or at the spend limit is always said on a receipt.
-        if ((classification.intent !== "general" && !answeredOnly) || execution !== "completed" || this.taskTurnLimit !== undefined || this.taskSpendStop !== undefined || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
-          || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand) {
-          // The second copy and the saved receipt; the change summary lists only this task's files.
-          const { stat } = await this.taskUndo.finish(undoStart, { request: prompt, task: this.lastTaskResult, session, servers: [...this.taskChangeServers] });
-          const task = this.lastTaskResult;
-          // The short receipt gets the colored result edge on the rich terminal; --verbose's full form stays plain.
-          const receipt = this.verbose ? formatTaskResult(task) : formatShortReceipt(task, { surface: this.receiptSurface(), ...this.receiptFolder(workspaceRoot),
-            ...(this.checksHintShown ? { checksHintShown: true as const } : {}), undoNamed: this.undoNamed });
-          if (this.verbose) this.output.write(`${receipt}\n`); else this.terminal.writeResult(`${receipt}\n`);
-          if (!this.verbose) {
-            if (task.autoSkipped === "no-checks" && !task.verification && !task.observedChecks?.length && task.execution === "completed") this.checksHintShown = true;
-            // Only the files the receipt printed: ones past its limit are named on a later one.
-            for (const shown of undoPathsShown(task, this.undoNamed)) this.undoNamed.add(shown);
-          }
-          // The per-file table stays behind Diff and --verbose; the receipt already says how many files changed.
-          if (this.verbose && stat.trim()) this.output.write(stat.endsWith("\n") ? stat : `${stat}\n`);
-          if (this.interactive) await this.offerNextSteps(this.lastTaskResult, prompt, classification);
-          receiptShown = true;
-        }
-      }
-      clearSteps(this);
-      await this.recordTaskOutcome({ task: prompt, skills: selected.map(({ skill }) => skill.id),
-        modelStatus: execution, verification });
-      // Last, once this folder has the task's outcome: the offer may move Casper to the project the work is in.
-      if (workFolder && receiptShown && !this.closing) await offerWorkFolder(this, workFolder);
-    }
-    return verification;
-  }
-
-  /** verification.checklist: one separate model call lists the cases the request states and the task prompt asks
-   * for one test per case. Nothing is printed before work unless the call failed or the list was cut; the user
-   * edits the cases only by choosing to on the plan-first panel. Its usage joins the task's. A failed call is one
-   * line on the transcript and the task goes on without a checklist. */
-  private async makeChecklist(complete: NonNullable<RuntimeSession["complete"]>, request: string,
-    options: { edit?: false; cases?: string[] } = {}): Promise<string[] | undefined> {
-    let result: { cases: string[]; dropped: number } | { error: string };
-    if (options.cases) result = { cases: options.cases, dropped: 0 };
-    else {
-      phase(this, "checklist", "start");
-      try {
-        const made = await extractChecklist({ complete, request, signal: this.commandAbort?.signal });
-        this.observations.recordModelCall(made.usage);
-        result = made;
-      } catch (error) {
-        // The call may have reached the provider: its usage is unknown.
-        this.observations.recordUntrackedModelUse();
-        result = { error: `the checklist call failed: ${error instanceof Error ? error.message : String(error)}` };
-      } finally { phase(this, "checklist", "end"); }
-    }
-    if (this.closing || this.commandAbort?.signal.aborted) return undefined;
-    if ("error" in result) {
-      this.events.ensureLineBreak();
-      this.output.write(`• Checklist not made: ${lineText(result.error)}\n`);
-      this.steps.skip("checklist"); this.terminal.setSteps(this.steps.text());
-      return undefined;
-    }
-    // Nothing testable in the request (a question, say): no checklist, and no line about it.
-    if (!result.cases.length) {
-      this.steps.skip("checklist"); this.terminal.setSteps(this.steps.text());
-      return undefined;
-    }
-    // Listed for the plan-first panel, which offers editing them.
-    if (options.edit === false) return result.cases;
-    // Made quietly: the cases are not printed before work. The receipt names one only when it is not met, and
-    // /receipt lists them all. A list cut short still says so.
-    if (!options.cases) {
-      if (result.dropped) { this.events.ensureLineBreak(); this.output.write(`• Checklist kept ${result.cases.length} cases; ${result.dropped} more ${result.dropped === 1 ? "was" : "were"} left out\n`); }
-      return result.cases;
-    }
-    // "Edit the cases first" on the plan-first panel: the user corrects the list before the model sees it.
-    // Enter keeps the editor's lines, Esc (or deleting every line) starts without one, Ctrl+C cancels the task.
-    const count = (n: number) => `${n} ${n === 1 ? "case" : "cases"}`;
-    this.events.ensureLineBreak();
-    const answer = await this.terminal.editLines(`Casper checklist: ${count(result.cases.length)} from your request. The model writes one test per case.`,
-      "Enter starts with these · edit, add or delete lines · Esc starts without a checklist", result.cases, this.commandAbort?.signal);
-    if (this.closing || this.commandAbort?.signal.aborted) return undefined;
-    const kept = answer ? normalizeCases(answer) : [];
-    if (!kept.length) {
-      this.output.write("[checklist] skipped; the task starts without one\n");
-      this.steps.skip("checklist"); this.terminal.setSteps(this.steps.text());
-      return undefined;
-    }
-    return kept;
-  }
-
-  /** verification.acceptance: tests written from the request alone by a separate model call, run once
-   * against the change and removed. Signal only: no repair, nothing kept; its usage joins the task's. */
-  private async acceptChange(input: { session: RuntimeSession; before: Map<string, string>; root: string; command: string; request: string;
-    mode: NonNullable<TaskResult["acceptance"]>["mode"] }): Promise<TaskResult["acceptance"]> {
-    const { mode } = input;
-    const complete = input.session.complete?.bind(input.session);
-    if (!complete) return { status: "error", reason: "this runtime cannot make a separate model call", mode };
-    const now = await this.snapshotWorkspace(input.root);
-    if (!now) return { status: "error", reason: "Casper could not compare the workspace", mode };
-    this.events.ensureLineBreak();
-    this.output.write("… Casper checking the change against tests written from the request alone\n");
-    phase(this, "acceptance", "start");
-    try {
-      const { usage, ...result } = await independentAcceptance({ complete, request: input.request, root: input.root, changes: diffSnapshots(input.before, now),
-        files: now, testCommand: input.command, timeoutMs: this.projectContext!.verification.timeoutMs, signal: this.commandAbort?.signal });
-      this.observations.recordModelCall(usage);
-      return { ...result, mode };
-    } catch (error) {
-      if (this.commandAbort?.signal.aborted) throw error;
-      // The call may have reached the provider: its usage is unknown.
-      this.observations.recordUntrackedModelUse();
-      return { status: "error", reason: `the acceptance check failed: ${error instanceof Error ? error.message : String(error)}`, mode };
-    } finally { phase(this, "acceptance", "end"); }
-  }
-
-  /** After the checks pass on a fix or feature: with verification.review: true, one requirements-review
-   * round (the model checks every stated requirement, fixes gaps and reports them) and the checks again;
-   * then the proof. */
-  private async finishChange(input: {
-    baseline?: ChangeBaseline; baselineUnavailable?: string; before: Map<string, string>; root: string; command: string;
-    request: string; checks: readonly CheckName[]; verification: VerificationReport; session: RuntimeSession;
-    initialReview?: { done: string[]; open: string[] };
-  }): Promise<{ verification: VerificationReport; proof?: ChangeProof; review?: RequirementsReview }> {
-    const context = this.projectContext!;
-    const stopped = () => this.closing || Boolean(this.commandAbort?.signal.aborted) || this.taskRuntimeFailed || this.taskTurnLimit !== undefined || this.taskSpendStop !== undefined;
-    const max = context.repair.maxAttempts;
-    let verification = input.verification;
-    // The review is opt-in (verification.review: true): pinned benchmarks showed no first-time-right gain
-    // for 40% of the wall time. With it on, the first turn is not asked for a checklist; with it off
-    // (the default), the first turn asks for one and only the first answer's own, if any, is kept.
-    const initialReview = input.initialReview;
-    if (context.verification.review !== true) {
-      if (verification.status !== "pass" || stopped()) return { verification, review: initialReview };
-      phase(this, "proof", "start");
-      const result = await this.proveChange({ ...input, verification });
-      phase(this, "proof", "end");
-      return { ...result, review: initialReview };
-    }
-    this.events.ensureLineBreak();
-    phase(this, "review", "start");
-    this.output.write("↻ review: checking the work against every requirement\n");
-    this.lastAnswer = "";
-    const unreviewed = await this.snapshotWorkspace(input.root);
-    await prepareCapabilities(this, input.request);
-    const cutOff = await this.promptRound(input.session, requirementsReviewPrompt(input.request), input.request);
-    if (stopped()) return { verification };
-    if (cutOff) this.output.write(`↻ review: stopped at its ${ROUND_MAX_TURNS}-turn budget\n`);
-    const review: RequirementsReview = { ...(parseReview(this.lastAnswer) ?? { missing: true as const }), ...(cutOff ? { incomplete: true as const } : {}) };
-    // Checks rerun only when the review edited (or the tree cannot be compared); failures get the remaining repairs.
-    const after = unreviewed && await this.snapshotWorkspace(input.root);
-    const edited = !unreviewed || !after || [...Object.values(diffSnapshots(unreviewed, after))].some((paths) => paths.length);
-    if (edited) {
-      const reviewed = await runVerification(this, input.checks, true, input.request, this.checkTask, Math.max(0, max - verification.repairAttempts));
-      verification = { ...reviewed, repairAttempts: verification.repairAttempts + reviewed.repairAttempts };
-    }
-    phase(this, "review", "end");
-    if (verification.status !== "pass" || stopped()) return { verification, review };
-    phase(this, "proof", "start");
-    const result = await this.proveChange({ ...input, verification });
-    phase(this, "proof", "end");
-    return { ...result, review };
-  }
-
-  /** Compare the tests with and without the change. An unproven change gets one repair round,
-   * within the repair budget, to add a test that fails without it; checks and comparison rerun. */
-  private async proveChange(input: {
-    baseline?: ChangeBaseline; baselineUnavailable?: string; before: Map<string, string>; root: string; command: string;
-    request: string; checks: readonly CheckName[]; verification: VerificationReport; session: RuntimeSession;
-  }): Promise<{ verification: VerificationReport; proof?: ChangeProof }> {
-    const context = this.projectContext!;
-    const compare = async (): Promise<ChangeProof | undefined> => {
-      const now = await this.snapshotWorkspace(input.root);
-      if (!now) return { status: "unavailable", check: "test", reason: "Casper could not compare the workspace" };
-      const changes = diffSnapshots(input.before, now);
-      if (!input.baseline) {
-        return changes.added.length || changes.modified.length || changes.removed.length
-          ? { status: "unavailable", check: "test", reason: input.baselineUnavailable ?? "Casper could not copy the workspace" } : undefined;
-      }
-      this.events.ensureLineBreak();
-      this.output.write("… Casper checking that the tests fail without the change\n");
-      return input.baseline.prove({ root: input.root, changes, check: "test", command: input.command,
-        timeoutMs: context.verification.timeoutMs, signal: this.commandAbort?.signal, onCleanupFailure: this.blockOnCleanupFailure });
-    };
-    let verification = input.verification;
-    let proof = await compare();
-    const stopped = () => this.closing || Boolean(this.commandAbort?.signal.aborted) || this.taskRuntimeFailed || this.taskTurnLimit !== undefined || this.taskSpendStop !== undefined;
-    const max = context.repair.maxAttempts;
-    if (proof?.status !== "unproven" || verification.repairAttempts >= max || stopped()) return { verification, proof };
-    const attempt = verification.repairAttempts + 1;
-    this.output.write(`↻ repair ${attempt}/${max}: add a test that fails without the change\n`);
-    await prepareCapabilities(this, input.request);
-    // A round cut off by its own budget needs no mark: the checks and the comparison below decide.
-    await this.promptRound(input.session, proofRepairPrompt(input.request, proof), input.request);
-    if (stopped()) return { verification: { ...verification, repairAttempts: attempt }, proof };
-    const again = await runVerification(this, input.checks, true, input.request, this.checkTask, max - attempt);
-    verification = { ...again, repairAttempts: attempt + again.repairAttempts };
-    if (verification.status === "pass" && !stopped()) proof = await compare();
-    return { verification, proof };
-  }
-
-  /**
-   * The page look: after a UI change whose checks pass, a model that sees pictures is shown the page screenshots once
-   * (showPages: ask once a session, on, off), so it can fix what loads but looks wrong. When it edits, the checks
-   * run again with the repairs left. Never a check itself. `shown` is how many pictures it was shown.
-   */
-  private async lookAtPages(session: RuntimeSession, request: string, checks: readonly CheckName[], verification: VerificationReport,
-    root: string): Promise<{ verification: VerificationReport; shown?: number }> {
-    const stopped = () => this.closing || Boolean(this.commandAbort?.signal.aborted) || this.taskRuntimeFailed || this.taskTurnLimit !== undefined || this.taskSpendStop !== undefined;
-    if (verification.status !== "pass" || !verification.pages?.pages.some((page) => page.screenshots) || stopped()) return { verification };
-    let sees: boolean | undefined;
-    try { sees = session.getStatus?.()?.images; } catch { sees = undefined; }
-    if (sees !== true || !await this.showPagesAllowed()) return { verification };
-    const look = await pageLook(verification.pages.pages);
-    if (!look || stopped()) return { verification };
-    this.events.ensureLineBreak();
-    this.output.write(`↻ look: the AI looks at ${look.images.length} screenshot${look.images.length === 1 ? "" : "s"} of ${look.shown.map((page) => terminalText(page.path)).join(", ")}\n`);
-    const before = await this.snapshotWorkspace(root);
-    await prepareCapabilities(this, request);
-    await this.promptRound(session, lookPrompt(request, look), request, look.images);
-    if (stopped()) return { verification, shown: look.images.length };
-    const after = before && await this.snapshotWorkspace(root);
-    const edited = !before || !after || [...Object.values(diffSnapshots(before, after))].some((paths) => paths.length);
-    if (!edited) return { verification, shown: look.images.length };
-    const max = this.projectContext!.repair.maxAttempts;
-    const again = await runVerification(this, checks, true, request, this.checkTask, Math.max(0, max - verification.repairAttempts));
-    return { verification: { ...again, repairAttempts: verification.repairAttempts + again.repairAttempts }, shown: look.images.length };
-  }
-
-  /** showPages: on or off as set; ask (the default) asks once a session, and only a person answers it (1 No). */
-  private async showPagesAllowed(): Promise<boolean> {
-    const setting = this.projectContext?.showPages ?? "ask";
-    if (setting !== "ask") return setting === "on";
-    if (this.showPagesAnswer !== undefined) return this.showPagesAnswer;
-    if (!this.interactive || !this.terminal.canAsk) return false;
-    this.events.ensureLineBreak();
-    const picked = await this.terminal.pick(SHOW_PAGES_QUESTION, [...SHOW_PAGES_CHOICES], this.commandAbort?.signal);
-    if (this.commandAbort?.signal.aborted) return false;
-    this.showPagesAnswer = picked === SHOW_PAGES_CHOICES[1].label;
-    return this.showPagesAnswer;
-  }
-
-  /** A round after the task turn (review, proof repair) with its own ROUND_MAX_TURNS budget. A --max-turns
-   * at or below it wins and stays the task's stop (taskTurnLimit, exit 2). The round's own budget ending it
-   * is not the task's stop: Casper goes on with the checks and the proof. True when that budget ended it. */
-  private async promptRound(session: RuntimeSession, text: string, request: string, images?: RuntimeImage[]): Promise<boolean> {
-    const roundBudget = this.maxTurns === undefined || ROUND_MAX_TURNS < this.maxTurns;
-    await session.prompt(text, this.commandAbort?.signal, { request, maxTurns: roundBudget ? ROUND_MAX_TURNS : this.maxTurns, ...(images?.length ? { images } : {}) });
-    if (!roundBudget || this.taskTurnLimit === undefined) return false;
-    this.taskTurnLimit = undefined;
-    return true;
-  }
-
-  private async recordTaskOutcome(input: { task: string; skills: string[]; modelStatus: TaskOutcome["modelStatus"]; verification?: VerificationReport }): Promise<void> {
-    // Shutdown is not a completed task. Never launch a late persistence operation.
-    if (this.closing) return;
-    this.memoryWork = new ProjectMemory(this.projectContext!.stateDirectory).recordOutcome(input).then(() => {}, () => {
-      this.output.write("[memory] Task outcome was not recorded (invalid, locked, full, or unavailable state); no acceptance inferred.\n");
-    });
-    try { await this.memoryWork; }
-    finally { this.memoryWork = undefined; }
   }
 
   async runVerification(
@@ -1870,10 +1127,10 @@ export class CasperApp {
   }
 
   /** This session's answer to "Show the AI the pages?" (showPages: ask); asked once. */
-  private showPagesAnswer?: boolean;
+  showPagesAnswer?: boolean;
 
   /** Pictures pasted into the line being handled; runModelTask takes them. */
-  private pastedImages?: Map<number, RuntimeImage>;
+  pastedImages?: Map<number, RuntimeImage>;
 
   /** Looked up once: the answer decides whether the browser tool is there from the first turn. */
   browserInstalled?: Promise<boolean>;
@@ -1958,7 +1215,7 @@ export class CasperApp {
   /** A yes/no approval box: 1 No · 2 Yes, this once. Nobody to ask is a No. */
   async confirmYes(preview: string, question: string, signal?: AbortSignal): Promise<boolean> { return confirmYes(this, preview, question, signal); }
 
-  private reportSkillWarnings(): void {
+  reportSkillWarnings(): void {
     const warnings = this.skillRegistry!.diagnostics.filter((warning) => !this.reportedSkillWarnings.has(warning));
     if (!warnings.length) return;
     for (const warning of warnings) this.reportedSkillWarnings.add(warning);
@@ -1971,15 +1228,6 @@ export class CasperApp {
 
   updateFooter(): void { updateFooter(this); }
 
-  /** Whether the task's code may differ from its start. A shell command's effect is unknown, so the tree is
-   * compared to the start; an uncomparable tree counts as changed. */
-  private async changedSinceTaskStart(edits: NonNullable<CasperApp["taskEdits"]>): Promise<boolean> {
-    if (edits.edited || edits.turnEnded) return true;
-    if (!edits.shell) return false;
-    const now = edits.before && await this.snapshotWorkspace(this.activeWorkspaceRoot());
-    return !now || Object.values(diffSnapshots(edits.before!, now)).some((paths) => paths.length > 0);
-  }
-
   private observeEdit(path: string): void {
     if (this.taskEdits) this.taskEdits.edited = true;
     this.browser?.invalidate();
@@ -1989,18 +1237,4 @@ export class CasperApp {
   }
 }
 
-/** Why a change whose checks passed was not compared with and without it, in plain words for the receipt. */
-/** The verdict's reason when only page checks passed: they show the pages load, not that the change works. */
-export const PAGES_ONLY_PROOF = "pages load, but no test fails without the change";
-/** The same without Chrome: a page that answers over HTTP may still fail once its scripts run. */
-export const PAGES_ANSWER_ONLY_PROOF = "pages answer, but their console was not checked and no test fails without the change";
-
-export function proofSkipReason(options: { intent: string; testCommand?: string; snapshot: boolean; changedCode: boolean; testsAddedNow?: boolean }): string {
-  if (options.intent === "refactor") return "a refactor should not change behavior, so no test is expected to fail without it";
-  if (["document", "inspect", "visualize", "configure"].includes(options.intent)) return `Casper does not compare ${options.intent} requests with and without the change`;
-  if (!options.testCommand && options.testsAddedNow) return "the tests came with this change, so there is no version without it to compare with";
-  if (!options.testCommand) return 'there are no tests yet to compare with; say "add tests"';
-  if (!options.snapshot) return "Casper could not record the workspace before the change";
-  if (!options.changedCode) return "only non-code files changed";
-  return "Casper did not compare the tests with and without the change";
-}
+export { PAGES_ANSWER_ONLY_PROOF, PAGES_ONLY_PROOF, proofSkipReason } from "./app/task-run";

@@ -26,6 +26,7 @@ import { exactPick } from "./approvals";
 import { phase, clearSteps } from "./footer";
 import { prepareCapabilities, pageRun, smokeRun } from "./task-tools";
 import { bigModelReceipt, switchToBigModel, restoreModel, askBigModelRetry, bigModelOf } from "./big-model";
+import { receiptSurface } from "./task-run";
 
 export async function runVerification(app: CasperApp, checks: readonly CheckName[],
   repair: boolean,
@@ -117,7 +118,7 @@ export async function runVerification(app: CasperApp, checks: readonly CheckName
     if (app.verbose) app.output.write(`${formatVerificationReport(report)}\n`);
     else if (!task) app.output.write(`${formatReceipt({ execution: "completed", verification: report, ...bigModelReceipt(app),
       ...(app.sandbox ? { sandbox: sandboxReceipt(app.sandbox)! } : {}) },
-      { surface: app.receiptSurface() })}\n`);
+      { surface: receiptSurface(app) })}\n`);
     return report;
   } finally {
     phase(app, "checks", "end");
