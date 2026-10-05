@@ -83,7 +83,11 @@ test("protocol errors, unsupported adapters and cancellation drain startup witho
     const f = await fixture(async () => true, mode);
     const controller = new AbortController();
     const work = f.session.run({ action: "start", target: "example" }, controller.signal);
-    if (mode === "hang") setTimeout(() => controller.abort(), 100);
+    if (mode === "hang") {
+      // Cancel once the adapter runs: a fixed 100 ms could come before a slow runner started it (no adapter-started).
+      for (let wait = 0; wait < 600 && !await Bun.file(path.join(f.root, "adapter-started")).exists(); wait++) await Bun.sleep(25);
+      controller.abort();
+    }
     await expect(work).rejects.toThrow();
     await f.session.close();
     const pid = Number(await readFile(path.join(f.root, "adapter-started"), "utf8"));
