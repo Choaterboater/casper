@@ -2,7 +2,6 @@ import { execFile } from "node:child_process";
 import type { DebugSession } from "./debug/session";
 import { promisify } from "node:util";
 import os from "node:os";
-import { resolveEntry } from "./sandbox/policy";
 import type { LabSettings } from "./network/spec";
 import path from "node:path";
 import { hasSignIn, modelPreference } from "./tui/model-preference";
@@ -59,7 +58,7 @@ import { SuggestionController } from "./app/suggestions";
 import type { Flow } from "./flows/catalog";
 import { planToolGate } from "./flows/plan";
 import type { SecurityAIReview, SecurityReviewHost } from "./app/security-review";
-import { describeChecksPlan, hasChecks, resolveVerificationMode, type ChecksPlan, type VerificationMode } from "./verify/mode";
+import { resolveVerificationMode, type ChecksPlan, type VerificationMode } from "./verify/mode";
 import { MermaidProvider } from "./visualize/mermaid";
 import { MindMeshProvider } from "./visualize/mindmesh";
 import { VisualizationRouter } from "./visualize/router";
@@ -68,7 +67,7 @@ import { attachImages, leadingImagePath, startsWithImageFile } from "./app/image
 import { lookPrompt, pageLook, SHOW_PAGES_CHOICES, SHOW_PAGES_QUESTION } from "./services/page-look";
 import { DEFAULT_WEB } from "./config/load";
 import { AGENT_DIR_ENV, casperAgentDir } from "./runtime/agent-store";
-import { loginValuesFrom, WebLookup, webProvider, type WebLookupOptions } from "./web/lookup";
+import { WebLookup, type WebLookupOptions } from "./web/lookup";
 import { systemPromptAppend } from "./app/prompt";
 import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager } from "./sessions/manager";
@@ -80,12 +79,10 @@ import { RuntimeEventMapper, sessionStartEvent, type CasperEvent } from "./app/j
 import { StepRail } from "./app/steps";
 import { CASPER_VERSION } from "./version";
 import type { Install } from "./update/command";
-import { refreshUpdateCheck, updateChecksOff, updateNotice } from "./update/notice";
-import { createSessionSandbox, runtimeShell, sandboxReceipt, sandboxStartupNotes, sandboxStatusLine, type RunAllowances, type SandboxHost } from "./app/sandbox";
-import { useSandbox, currentSandbox, type ShellSandbox, type ShellSandboxOptions } from "./sandbox/manager";
-import { SandboxStore } from "./sandbox/store";
-import { loginMissingAnswer, type LoginHost } from "./mcp/network/ask-login";
-import { loginFile, type NetworkProduct } from "./mcp/network/logins";
+import { sandboxReceipt, sandboxStartupNotes, sandboxStatusLine, type RunAllowances } from "./app/sandbox";
+import type { ShellSandbox, ShellSandboxOptions } from "./sandbox/manager";
+import type { LoginHost } from "./mcp/network/ask-login";
+import type { NetworkProduct } from "./mcp/network/logins";
 import type { SetupHost } from "./mcp/network/setup";
 import { newProjectFromQuestions, opened } from "./app/new-project";
 import { runSettings } from "./app/settings";
@@ -105,6 +102,7 @@ import { ensureSessionWorkspace, handleBranchCommand, handleSwitchCommand, rebin
 import { runVerification, checksPlan, saveFoundCheck } from "./app/verification";
 import { PAGES_ONLY_PROOF, PAGES_ANSWER_ONLY_PROOF, proofSkipReason } from "./app/task-run";
 import { runInteractive, handlePrompt, handleSlashCommand, cancelCurrent, writePrompt } from "./app/command-loop";
+import { loadWorkspace, reloadReferences, projectPrivatePaths, reportSkillWarnings, bannerChecks, reportNewerCasper } from "./app/wiring";
 
 export type { OutputWriter } from "./app/commands";
 
@@ -188,10 +186,10 @@ export class CasperApp {
   readonly subagents: SubagentManager;
   readonly inspectProjectFn: (cwd: string) => Promise<ProjectInfo>;
   readonly loadProjectContextFn: (project: ProjectInfo) => Promise<ProjectContext>;
-  private readonly loadSkillRegistryFn: (context: ProjectContext) => Promise<SkillRegistry>;
-  private readonly loadMCPConfigurationFn: (context: ProjectContext) => Promise<MCPConfiguration>;
-  private readonly loadLSPConfigurationFn: (context: ProjectContext) => Promise<LSPConfiguration>;
-  private readonly loadReferenceConfigurationFn: (context: ProjectContext) => Promise<ReferenceConfiguration>;
+  readonly loadSkillRegistryFn: (context: ProjectContext) => Promise<SkillRegistry>;
+  readonly loadMCPConfigurationFn: (context: ProjectContext) => Promise<MCPConfiguration>;
+  readonly loadLSPConfigurationFn: (context: ProjectContext) => Promise<LSPConfiguration>;
+  readonly loadReferenceConfigurationFn: (context: ProjectContext) => Promise<ReferenceConfiguration>;
   browser?: BrowserSession;
   /** Managed services live for the session, not the task (docs/SERVICES.md). */
   services?: ServiceManager;
@@ -201,7 +199,7 @@ export class CasperApp {
   visualization?: VisualizationRouter;
   visualizationAbort?: AbortController;
   visualizationWork?: Promise<void>;
-  private readonly visualizationProviders: VisualizationProvider[];
+  readonly visualizationProviders: VisualizationProvider[];
   mcp?: MCPManager;
   mcpConsent?: ConsentStore;
   /** Re-reads MCP configuration from disk for /mcp reload; set with the loaded workspace. */
@@ -247,12 +245,12 @@ export class CasperApp {
   unsubscribe?: () => void;
   projectContext?: ProjectContext;
   skillRegistry?: SkillRegistry;
-  private readonly reportedSkillWarnings = new Set<string>();
+  readonly reportedSkillWarnings = new Set<string>();
   readonly verificationFlag?: VerificationMode;
   readonly verbose: boolean;
   private readonly startupWarnings: readonly string[];
-  private readonly updateCheck?: { install: Install; currentVersion: string };
-  private readonly updateCheckAbort = new AbortController();
+  readonly updateCheck?: { install: Install; currentVersion: string };
+  readonly updateCheckAbort = new AbortController();
   readonly runModel?: string;
   private readonly runEffort?: string;
   runConversation?: CasperAppOptions["conversation"];
@@ -378,12 +376,12 @@ export class CasperApp {
   /** The session's shell sandbox (src/sandbox): every shell path runs in it when it can run here. */
   sandbox?: ShellSandbox;
   shell?: RuntimeShell & { close(): Promise<void> };
-  private readonly noSandbox: boolean;
-  private readonly allow?: RunAllowances;
-  private readonly sandboxSeams?: Partial<ShellSandboxOptions>;
+  readonly noSandbox: boolean;
+  readonly allow?: RunAllowances;
+  readonly sandboxSeams?: Partial<ShellSandboxOptions>;
   /** web_search and web_fetch for this workspace; unset when web: off. */
   web?: WebLookup;
-  private readonly webSeams?: Partial<WebLookupOptions>;
+  readonly webSeams?: Partial<WebLookupOptions>;
 
   constructor(options: CasperAppOptions = {}) {
     const freshPiRuntime = async () => {
@@ -405,7 +403,7 @@ export class CasperApp {
     // configs only; .env, credential files and secret env values are always hidden).
     scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles, networkLoginFile: networkLoginFile(this) }),
     cache: () => this.projectContext?.cache,
-    privatePaths: () => this.projectPrivatePaths(),
+    privatePaths: () => projectPrivatePaths(this),
     // Inside tmux or iTerm2 each helper's steps show in the view-only steps pane; nowhere else.
     onActivity: (activity) => this.terminal.logHelper(helperActivityLine(activity, this.projectContext ? this.activeWorkspaceRoot() : undefined)),
     });
@@ -481,80 +479,10 @@ export class CasperApp {
     this.webSeams = options.webSeams;
   }
 
-  /** What the sandbox asks through: Casper's own numbered question, only while someone can answer it. */
-  private sandboxHost(): SandboxHost {
-    return {
-      canAsk: () => this.interactive && this.terminal.canAsk && !this.closing,
-      pick: (question, options, signal) => this.terminal.pick(question, options, signal ?? this.commandAbort?.signal),
-      write: (text) => { if (!this.closing) this.output.write(text); },
-      planning: () => this.planning,
-      labHosts: () => this.projectContext?.lab?.hosts ?? [],
-    };
-  }
-
-  /** Load all workspace metadata before publishing it. No connections or model startup. */
-  async loadWorkspace(cwd: string) {
-    const project = await this.inspectProjectFn(cwd);
-    const context = await this.loadProjectContextFn(project);
-    const [registry, mcpConfiguration, lspConfiguration, referenceConfiguration] = await Promise.all([
-      this.loadSkillRegistryFn(context),
-      this.loadMCPConfigurationFn(context),
-      this.loadLSPConfigurationFn(context),
-      this.loadReferenceConfigurationFn(context),
-    ]);
-    if (this.closing) throw new Error("Casper is closing");
-    this.references = new ReferenceLibrary(referenceConfiguration);
-    this.projectContext = context;
-    // The shell sandbox for this session: the AI's bash, checks, services, dev servers and Casper's tool runs.
-    // A workspace switch replaces it: the old one stops first (the sandbox runtime is one per process).
-    await this.lifecycle.close("sandbox").catch(() => {});
-    const host = this.sandboxHost();
-    const sandbox = this.sandbox = createSessionSandbox(host, context, { root: () => this.activeWorkspaceRoot(), home: this.sessionHomeDir ?? os.homedir(),
-      noSandbox: this.noSandbox, ...(this.allow ? { allow: this.allow } : {}), ...(this.sandboxSeams ? { seams: this.sandboxSeams } : {}) });
-    this.shell = runtimeShell(host, sandbox, new SandboxStore(context.stateDirectory));
-    useSandbox(sandbox);
-    this.lifecycle.add({ name: "sandbox", close: async () => {
-      if (currentSandbox() === sandbox) useSandbox(undefined);
-      await this.shell?.close(); await sandbox.close();
-    } });
-    this.skillRegistry = registry;
-    // Remembered approval (keyed hashes only). A damaged or missing file means Casper asks again.
-    const consent = new ConsentStore(this.sessionHomeDir ?? os.homedir());
-    await consent.load().catch(() => {});
-    this.mcpConsent = consent;
-    this.mcp = new MCPManager(mcpConfiguration, {
-      consent,
-      // Casper's network server starts with the logins saved in ~/.casper/network-logins.json.
-      homeDir: this.sessionHomeDir ?? os.homedir(),
-      elicit: (question, signal) => answerServerQuestion(this, question, signal),
-      onNote: (text) => { if (!this.closing) this.output.write(`${text}\n`); },
-    });
-    // Re-reads the same layered files the manager was built from; the manager diffs them.
-    this.reloadMCPConfiguration = () => this.loadMCPConfigurationFn(context);
-    this.lsp = new LSPManager(context.info.root, lspConfiguration);
-    this.visualization = new VisualizationRouter({ providers: this.visualizationProviders, settings: context.visualize, workspaceRoot: context.info.root });
-    // Every server starts with writes off; only the user turns them on (/mcp writes <name>).
-    this.broker = new CapabilityBroker(this.mcp, (call, signal) => confirmCapability(this, call, signal), { writesGate: true, scrubber: this.scrubber,
-      onSessionCovered: (server, tool) => { if (!this.closing) this.output.write(`[approval] allowed (this session): ${terminalText(server)} · ${terminalText(tool)}\n`); },
-      confirmKind: (ask, signal) => confirmKind(this, ask, signal),
-      onAllowAll: (server, tool) => {
-        this.taskChangeServers.add(server);
-        if (!this.closing) this.output.write(`[approval] allowed (allow all): ${terminalText(server)} · ${terminalText(tool)}\n`);
-      },
-      onAllowAllStart: () => updateFooter(this),
-      // A product with no login: the person is asked (never the AI); the AI gets one line back.
-      onLoginMissing: (server, product, _signal, trouble) => loginMissingAnswer(networkLoginHost(this), server, product, trouble) });
-    this.lifecycle.add({ name: "references", close: () => this.references!.close() });
-    this.applyWeb(context);
-    this.lifecycle.add({ name: "mcp", close: () => this.broker!.close() });
-    this.lifecycle.add({ name: "lsp", close: () => this.lsp!.close() });
-    return { project, context, registry, mcp: this.mcp, visualization: this.visualization, lspConfiguration, referenceConfiguration };
-  }
-
   async start(cwd = process.cwd()): Promise<ProjectInfo> {
     if (this.closing) throw new Error("Casper is closing");
     if (this.projectContext) return this.projectContext.info;
-    const { project, context, mcp, visualization, lspConfiguration, referenceConfiguration } = await this.loadWorkspace(cwd);
+    const { project, context, mcp, visualization, lspConfiguration, referenceConfiguration } = await loadWorkspace(this, cwd);
     if (this.closing) throw new Error("Casper is closing");
     // The wordmark is for a person at a rich terminal; one-shot and piped output keep the text banner.
     // The header picks art or text per width, so a later resize never wraps the art.
@@ -563,7 +491,7 @@ export class CasperApp {
     // The shell line is always there in a session; a one-shot run shows it only when nothing holds its commands.
     const shell = this.sandbox && (this.interactive || !this.sandbox.on) ? sandboxStatusLine(this.sandbox) : undefined;
     this.output.write(renderBanner(context, { wordmark, interactive: this.interactive, ...(shell ? { shell } : {}),
-      ...(this.interactive ? await this.bannerChecks(context) : {}) }));
+      ...(this.interactive ? await bannerChecks(this, context) : {}) }));
     for (const note of sandboxStartupNotes(context.info.root)) this.output.write(`${note}\n`);
     // A returning user's saved default is known before the runtime starts; say so, not "not initialized".
     if (!this.session) this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
@@ -573,10 +501,10 @@ export class CasperApp {
     this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.(), shown, this.signedIn, this.interactive && this.terminal.rich)}\n`);
     for (const warning of [...this.startupWarnings, ...context.warnings ?? []]) this.output.write(`[config] ${terminalText(warning)}\n`);
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
-    this.reportSkillWarnings();
+    reportSkillWarnings(this);
     for (const diagnostic of mcp.diagnostics) this.output.write(`[mcp] ${terminalText(diagnostic)}\n`);
     if (this.interactive) await reportImports(this);
-    if (this.interactive) await this.reportNewerCasper(context);
+    if (this.interactive) await reportNewerCasper(this, context);
     for (const diagnostic of lspConfiguration.diagnostics) this.output.write(`[lsp] ${diagnostic}\n`);
     for (const diagnostic of visualization.diagnostics) this.output.write(`[visualize] ${diagnostic}\n`);
     if (this.interactive) this.output.write("\n");
@@ -610,16 +538,6 @@ export class CasperApp {
     if (!this.interactive) return false;
     this.terminal.interrupt();
     return true;
-  }
-
-  /** A session (never a one-shot run) says when a newer Casper is out, from the last check, then checks again in the
-   * background at most once a day. Off with `updates: false`, CASPER_NO_UPDATE_CHECK=1 or CI. */
-  private async reportNewerCasper(context: ProjectContext): Promise<void> {
-    if (!this.updateCheck || context.updates === false || updateChecksOff(process.env)) return;
-    const options = { ...this.updateCheck, stateDir: path.join(this.sessionHomeDir ?? os.homedir(), ".casper"), signal: this.updateCheckAbort.signal };
-    const line = await updateNotice(options).catch(() => undefined);
-    if (line) this.output.write(`[update] ${line}\n`);
-    void refreshUpdateCheck(options);
   }
 
   close(): Promise<void> {
@@ -703,7 +621,7 @@ export class CasperApp {
           ...(this.shell ? { shell: this.shell } : {}),
           ...(context.cache ? { cache: context.cache } : {}),
           // The project's sandbox.denyRead (GreenCLI lists its data and log folders there): the file tools refuse them too.
-          privatePaths: this.projectPrivatePaths(),
+          privatePaths: projectPrivatePaths(this),
         });
         const resumeNotice = await (await ensureSessionWorkspace(this)).resumeActive(this.session);
         if (resumeNotice) this.output.write(`[sessions] ${resumeNotice}\n`);
@@ -809,22 +727,6 @@ export class CasperApp {
    * command to use instead.
    */
   async openProjectCommand(name: string): Promise<void> { return openProjectCommand(this, name); }
-
-  /** Web lookups never ask: the checks in src/web/url.ts hold instead. Off only with your own setting (/settings). */
-  applyWeb(context: ProjectContext): void {
-    this.web?.close();
-    const web = context.web ?? DEFAULT_WEB;
-    const loginFile = path.join(casperAgentDir(), "auth.json");
-    this.web = web.enabled ? new WebLookup({ provider: webProvider(web, loginFile), loginValues: loginValuesFrom(loginFile), ...this.webSeams }) : undefined;
-    const lookup = this.web;
-    if (lookup) this.lifecycle.add({ name: "web", close: async () => lookup.close() });
-  }
-
-  /** The banner's checks line; none when there is nothing to check yet and checking is on (/status still says it). */
-  private async bannerChecks(context: ProjectContext): Promise<{ checks?: string }> {
-    const plan = await checksPlan(this, context);
-    return plan.mode === "off" || hasChecks(plan) ? { checks: describeChecksPlan(plan) } : {};
-  }
 
   async runVerification(
     checks: readonly CheckName[],
@@ -952,13 +854,6 @@ export class CasperApp {
   /** Approvals and server questions are shown one at a time, so two boxes never race for one answer. */
   approvalQueue: Promise<unknown> = Promise.resolve();
 
-  /** The project's sandbox.denyRead as absolute paths, resolved like the shell sandbox does (from the session's folder). */
-  private projectPrivatePaths(): string[] {
-    if (!this.projectContext) return [];
-    const root = this.activeWorkspaceRoot();
-    return (this.projectContext.sandbox?.project.denyRead ?? []).map((entry) => resolveEntry(entry, root, this.sessionHomeDir ?? os.homedir()));
-  }
-
   /** The broker's per-server allowances, for /mcp allow (the user's own command). */
   get allowances(): CapabilityBroker | undefined { return this.broker; }
 
@@ -982,14 +877,7 @@ export class CasperApp {
 
   /** After /references add: the reference files read again; the next task's search tool uses them, and the old
    * library (and any tool that captured it) is closed. */
-  async reloadReferences(): Promise<void> {
-    if (!this.projectContext || this.closing) return;
-    const configuration = await this.loadReferenceConfigurationFn(this.projectContext);
-    if (this.closing) return;
-    const old = this.references;
-    this.references = new ReferenceLibrary(configuration);
-    await old?.close();
-  }
+  async reloadReferences(): Promise<void> { return reloadReferences(this); }
 
   /**
    * The network server's login host: the question in the numbered approval box and the values in the private prompt (only the
@@ -1006,13 +894,6 @@ export class CasperApp {
 
   /** A yes/no approval box: 1 No · 2 Yes, this once. Nobody to ask is a No. */
   async confirmYes(preview: string, question: string, signal?: AbortSignal): Promise<boolean> { return confirmYes(this, preview, question, signal); }
-
-  reportSkillWarnings(): void {
-    const warnings = this.skillRegistry!.diagnostics.filter((warning) => !this.reportedSkillWarnings.has(warning));
-    if (!warnings.length) return;
-    for (const warning of warnings) this.reportedSkillWarnings.add(warning);
-    this.output.write(`[skills] ${warnings.length} new warning${warnings.length === 1 ? "" : "s"}; use /skills diagnostics\n`);
-  }
 
   updateFooter(): void { updateFooter(this); }
 

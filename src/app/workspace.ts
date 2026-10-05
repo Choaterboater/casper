@@ -22,6 +22,7 @@ import { tildePath } from "../new/scaffold";
 import { updateFooter, phase } from "./footer";
 import { revokeWorkspaceCapabilities } from "./session-branches";
 import { writeCheckResult, networkOptions } from "./verification";
+import { loadWorkspace } from "./wiring";
 
 /** The last choice of the home-folder and folder-of-projects question. */
 const NEW_PROJECT_CHOICE = "New project";
@@ -189,7 +190,7 @@ export function canMoveWorkspace(app: CasperApp): boolean {
 /** Opens a new project's folder as the workspace before any model runtime exists, so the conversation starts there. */
 export async function openWorkspaceBeforeRuntime(app: CasperApp, dir: string): Promise<void> {
   await revokeWorkspaceCapabilities(app);
-  const { context } = await app.loadWorkspace(dir);
+  const { context } = await loadWorkspace(app, dir);
   app.workspaceNeedsRebind = false;
   app.output.write(`[folder] Working in ${terminalText(tildePath(context.info.root, app.sessionHomeDir ?? os.homedir()))}\n`);
   updateFooter(app);

@@ -20,6 +20,7 @@ import { settleQueuedLines } from "./during-work";
 import { newProjectFlowWithAbort, openProjectFolder, newProjectCommand } from "./workspace";
 import { rebindWorkspace } from "./session-branches";
 import { runModelTask, runSuggestion } from "./task-run";
+import { applyWeb } from "./wiring";
 
 export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promise<void> {
   // Own the terminal before the banner so startup output is transcript, not
@@ -198,7 +199,7 @@ export function settingsCommand(app: CasperApp): Promise<void> {
       const before = app.projectContext;
       if (!before) return;
       try { app.projectContext = await app.loadProjectContextFn(before.info); } catch { return; }
-      app.applyWeb(app.projectContext);
+      applyWeb(app, app.projectContext);
       // A new default for the work shown replaces this session's /details choice.
       if (app.projectContext.display !== before.display) app.displayChoice = undefined;
     },

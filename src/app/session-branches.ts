@@ -9,6 +9,7 @@ import { SessionWorkspaceManager, type ReturnAction } from "../sessions/manager"
 import { confirmYes } from "./approvals";
 import { stopDebugger } from "./task-tools";
 import { runVerification } from "./verification";
+import { loadWorkspace } from "./wiring";
 
 export async function ensureSessionWorkspace(app: CasperApp): Promise<SessionWorkspaceManager> {
   if (app.sessionWorkspace) return app.sessionWorkspace;
@@ -111,7 +112,7 @@ export async function runtimeForWorkspaceTransition(app: CasperApp): Promise<Run
 export async function rebindWorkspace(app: CasperApp, cwd: string): Promise<void> {
   await revokeWorkspaceCapabilities(app);
   app.sessionYes.forget();
-  const { context } = await app.loadWorkspace(cwd);
+  const { context } = await loadWorkspace(app, cwd);
   if (app.closing) throw new Error("Casper is closing");
   app.runtimeTools = [];
   app.session?.setTools?.([]);

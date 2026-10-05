@@ -48,6 +48,7 @@ import { attachImages } from "./images";
 import { lookPrompt, pageLook, SHOW_PAGES_CHOICES, SHOW_PAGES_QUESTION } from "../services/page-look";
 import { offerNewProject, childProjectOfTask, runChildChecks, offerWorkFolder } from "./workspace";
 import { runVerification, writeCheckResult, taskNetworkOptions, checksPlan, saveFoundCheck, projectAfterSetup } from "./verification";
+import { reportSkillWarnings } from "./wiring";
 
 export async function runModelTask(app: CasperApp, prompt: string, options: { flow?: Flow; planFirst?: boolean } = {}): Promise<VerificationReport | undefined> {
   if (app.closing) return;
@@ -88,7 +89,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   if (app.browser?.status().state === "closed") app.browser = undefined;
   app.lastTaskRequest = prompt;
   const selected = await app.skillRegistry!.loadForTask(prompt, context.model, classification);
-  app.reportSkillWarnings();
+  reportSkillWarnings(app);
   if (selected.length) {
     app.output.write(` skills selected: ${selected.map(({ skill }) => skill.name).join(", ")}\n`);
   }
