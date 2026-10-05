@@ -384,10 +384,15 @@ function readsTree(words: string[]): boolean {
 }
 
 /** Whether one glob part matches one path part: * and ? stay inside the part, [..] is a set, and (as in the shell)
- * a leading dot is matched only by a dot. */
+ * a leading dot is matched only by a dot. Windows names ignore case, so its globs do too. */
 function globMatches(pattern: string, name: string): boolean {
   if (name.startsWith(".") && !pattern.startsWith(".")) return false;
-  try { return new RegExp(`^${pattern.replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]")}$`).test(name); } catch { return false; }
+  try { return new RegExp(`^${pattern.replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]")}$`, process.platform === "win32" ? "i" : "").test(name); } catch { return false; }
+}
+
+/** The parts of an absolute path. Windows paths may use \ or / between parts. */
+function pathParts(absolute: string): string[] {
+  return absolute.split(path.sep === "\\" ? /[\\/]/ : "/").filter(Boolean);
 }
 
 /**
@@ -430,10 +435,10 @@ function privateWord(command: string, context: PathContext, home: string): strin
         continue;
       }
       // A glob: part by part, does it reach a private place (or, for a tree reader, a folder that holds one)?
-      const parts = absolute.split("/").filter(Boolean);
+      const parts = pathParts(absolute);
       for (const place of places) {
         for (const entry of place.paths) {
-          const want = entry.split("/").filter(Boolean);
+          const want = pathParts(entry);
           const reaches = parts.length >= want.length ? want.every((part, index) => globMatches(parts[index]!, part))
             : tree && parts.every((part, index) => globMatches(part, want[index]!));
           if (reaches) return place.shown;
