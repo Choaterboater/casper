@@ -1,11 +1,14 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import type { PageReport } from "../src/services/page-checks";
 import type { VerificationResult } from "../src/verify/evidence";
 import { VerifierRegistry } from "../src/verify/registry";
 import { verifyAndRepair, withHostChecks } from "../src/verify/repair-loop";
 
-const cwd = os.tmpdir();
+// Its own empty folder: the shared temp folder fills with other test files during a parallel run.
+const cwd = mkdtempSync(path.join(os.tmpdir(), "casper-repair-hooks-"));
 const result = (name: string, fields: Partial<VerificationResult> = {}): VerificationResult => ({ name, status: "pass", cwd, exitCode: 0, signal: null,
   stdout: "", stderr: "", truncated: false, durationMs: 1, ...fields });
 
