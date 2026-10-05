@@ -18,6 +18,9 @@ import { posixOnly } from "./support/platform";
  * private, protected, system and git places are refused without a question.
  */
 
+// The shell sandbox runs only on macOS and Linux, and its refusal lines name POSIX paths, so the shell route
+// (posixOnly below) can't ask on Windows. The write and edit tool route asks there too and runs everywhere.
+
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
@@ -60,7 +63,7 @@ async function session(answers: Array<string | undefined>, options: { canAsk?: b
 
 const FOLDER = "~/apps/SomeApp";
 
-test("a shell write outside the project asks once, No first; allowed for the session, the next command may write there", async () => {
+posixOnly("a shell write outside the project asks once, No first; allowed for the session, the next command may write there", async () => {
   const s = await session(["Yes, for this session"], { refuse: (command) => command.startsWith("touch")
     ? [`deny(1) file-write-create ${path.join(s.app, "config.json")}`] : [] });
   const run = await s.shell.wrap("touch config.json", s.project);
@@ -84,7 +87,7 @@ test("a shell write outside the project asks once, No first; allowed for the ses
   await s.sandbox.close(); await next.sandbox.close();
 });
 
-test("Yes, this once lets the next shell command write the folder, then it asks again", async () => {
+posixOnly("Yes, this once lets the next shell command write the folder, then it asks again", async () => {
   const s = await session(["Yes, this once", "No"], { refuse: (command) => command.startsWith("touch")
     ? [`deny(1) file-write-create ${path.join(s.app, "config.json")}`] : [] });
   const run = await s.shell.wrap("touch config.json", s.project);
@@ -110,7 +113,7 @@ test("Yes, this once lets the AI's write tool write that file once; the next wri
   await s.sandbox.close();
 });
 
-test("No (or Enter) keeps the shell write blocked and tells the AI not to work around it", async () => {
+posixOnly("No (or Enter) keeps the shell write blocked and tells the AI not to work around it", async () => {
   for (const answer of ["No", undefined]) {
     const s = await session([answer], { refuse: () => [`deny(1) file-write-create ${path.join(s.app, "config.json")}`] });
     const run = await s.shell.wrap("touch config.json", s.project);
@@ -124,7 +127,7 @@ test("No (or Enter) keeps the shell write blocked and tells the AI not to work a
   }
 });
 
-test("a run that can't ask refuses the shell write at once with the allowWrite fix", async () => {
+posixOnly("a run that can't ask refuses the shell write at once with the allowWrite fix", async () => {
   const s = await session([], { canAsk: false, refuse: () => [`deny(1) file-write-create ${path.join(s.app, "config.json")}`] });
   const run = await s.shell.wrap("touch config.json", s.project);
   expect(await s.shell.refused!(run.id!, "")).toContain(writeCantAsk(FOLDER));
@@ -224,7 +227,7 @@ posixOnly("a link in temp to a folder outside still asks about where the write l
   await sandbox.close();
 });
 
-test("one shell command refused for two folders asks one question about both", async () => {
+posixOnly("one shell command refused for two folders asks one question about both", async () => {
   const both = `${FOLDER} and ~/apps/Other`;
   const s = await session(["Yes, for this session"], { refuse: () => [
     `deny(1) file-write-create ${path.join(s.app, "config.json")}`, `deny(1) file-write-create ${path.join(s.home, "apps", "Other", "b.json")}`] });

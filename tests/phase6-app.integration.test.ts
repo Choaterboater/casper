@@ -5,6 +5,7 @@ import path from "node:path";
 import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
+import { artifactFilesystemSupported } from "../src/visualize/artifacts";
 import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 
 const cleanup: (() => Promise<unknown>)[] = [];
@@ -98,18 +99,24 @@ test("acceptance: 'map out the authentication flow' yields a visual, saves artif
   expect(result.data.primary.provider).toBe("mermaid");
   expect(result.data.primary.content).toContain('title: "Authentication flow"');
   expect(result.data.primary.content).toContain("-->|verify()|");
-  expect(result.data.artifacts.map((artifact: { provider: string }) => artifact.provider)).toEqual(["mermaid", "mindmesh"]);
-  expect(result.data.notes).toEqual(["Visualization is read-only; it does not authorize code changes."]);
-
   const outputDir = path.join(home, ".casper", "visualizations", "project");
-  for (const artifact of result.data.artifacts as Array<{ path: string; bytes: number }>) {
-    expect(path.dirname(artifact.path)).toBe(await realpath(outputDir));
-    expect(Buffer.byteLength(await readFile(artifact.path, "utf8"))).toBe(artifact.bytes);
+  if (artifactFilesystemSupported) {
+    expect(result.data.artifacts.map((artifact: { provider: string }) => artifact.provider)).toEqual(["mermaid", "mindmesh"]);
+    expect(result.data.notes).toEqual(["Visualization is read-only; it does not authorize code changes."]);
+    for (const artifact of result.data.artifacts as Array<{ path: string; bytes: number }>) {
+      expect(path.dirname(artifact.path)).toBe(await realpath(outputDir));
+      expect(Buffer.byteLength(await readFile(artifact.path, "utf8"))).toBe(artifact.bytes);
+    }
+    const mindmesh = JSON.parse(await readFile(result.data.artifacts[1].path, "utf8"));
+    expect(mindmesh.schemaVersion).toBe(6);
+    expect(mindmesh.title).toBe("Authentication flow");
+    expect(Object.keys(mindmesh.nodes)).toHaveLength(3);
+  } else {
+    // Artifact files need macOS or Linux (src/visualize/artifacts.ts): the diagram stays in-conversation and says why.
+    expect(result.data.artifacts).toEqual([]);
+    expect(result.data.notes[0]).toContain("require macOS or Linux");
+    await expect(readdir(outputDir)).rejects.toThrow(/ENOENT/);
   }
-  const mindmesh = JSON.parse(await readFile(result.data.artifacts[1].path, "utf8"));
-  expect(mindmesh.schemaVersion).toBe(6);
-  expect(mindmesh.title).toBe("Authentication flow");
-  expect(Object.keys(mindmesh.nodes)).toHaveLength(3);
 
   // The code workspace is byte-identical, including no stray .casper artifacts.
   expect(await snapshot(project)).toEqual(before);
@@ -154,7 +161,9 @@ test("/visualize is local and read-only; /visualize repo renders a dependency gr
   expect(runtime.prompts).toHaveLength(0);
   expect(runtime.options).toBeUndefined();
   expect(await snapshot(project)).toEqual(before);
-  expect(await readdir(path.join(home, ".casper", "visualizations", "project"))).toHaveLength(1);
+  // Artifact files need macOS or Linux (src/visualize/artifacts.ts); elsewhere none are written.
+  if (artifactFilesystemSupported) expect(await readdir(path.join(home, ".casper", "visualizations", "project"))).toHaveLength(1);
+  else await expect(readdir(path.join(home, ".casper", "visualizations", "project"))).rejects.toThrow(/ENOENT/);
 
   await expect(app.runOnce("/visualize repo auth extra")).rejects.toThrow("Usage: /visualize | /visualize repo [directory]");
   await expect(app.runOnce("/visualize bogus")).rejects.toThrow("Usage: /visualize");

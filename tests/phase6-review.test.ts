@@ -9,7 +9,13 @@ import { MindMeshProvider } from "../src/visualize/mindmesh";
 import { buildRepoGraph } from "../src/visualize/repo";
 import { VisualizationRouter, resolveVisualizationSettings } from "../src/visualize/router";
 import { parseVisualizationGraph, spanningTree } from "../src/visualize/types";
+import { artifactFilesystemSupported } from "../src/visualize/artifacts";
 import { needsSymlinks } from "./support/platform";
+
+// Artifact files are written only on macOS and Linux (see src/visualize/artifacts.ts); elsewhere the diagram stays
+// in-conversation, so these directory and file checks have nothing to check there.
+const needsArtifactFiles = test.skipIf(!artifactFilesystemSupported);
+const needsArtifactLinks = artifactFilesystemSupported ? needsSymlinks : test.skip;
 
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await fs.rm(root, { recursive: true, force: true }); });
@@ -52,7 +58,7 @@ test("review: global relative artifact path resolves under user home", async () 
   const { root } = await fixture();
   expect(resolveVisualizationSettings({ homeDir: root, projectName: "x", layers: [{ source: "global", document: { visualize: { outputDir: "diagrams" } } }] }).outputDir).toBe(path.join(root, "diagrams"));
 });
-needsSymlinks("review: canonical workspace destinations rejected before creating directories", async () => {
+needsArtifactLinks("review: canonical workspace destinations rejected before creating directories", async () => {
   const { root, workspace } = await fixture();
   const alias = path.join(root, "alias"); await fs.symlink(workspace, alias);
   for (const outputDir of [workspace, path.join(workspace, "new/deep"), path.join(alias, "new/deep")]) {
@@ -74,7 +80,7 @@ test("review: cancellation in final provider prevents persistence, including inl
   expect(await fs.readdir(workspace)).toEqual([]);
   expect(await fs.stat(out).catch(() => null)).toBeNull();
 });
-test("review: cancellation during directory setup prevents files", async () => {
+needsArtifactFiles("review: cancellation during directory setup prevents files", async () => {
   const { workspace, out } = await fixture();
   const controller = new AbortController();
   const original = fs.open;
@@ -117,7 +123,7 @@ test("review: long multibyte repository paths yield deterministic validated IR",
   }
 });
 
-needsSymlinks("review follow-up: replacing the artifact directory with a workspace symlink cannot redirect writes", async () => {
+needsArtifactLinks("review follow-up: replacing the artifact directory with a workspace symlink cannot redirect writes", async () => {
   const { root, workspace, out } = await fixture(); await fs.mkdir(out);
   const retained = path.join(root, "original-output");
   const actualOut = await fs.realpath(out);
@@ -141,7 +147,7 @@ needsSymlinks("review follow-up: replacing the artifact directory with a workspa
   } finally { opened.mockRestore(); resolved.mockRestore(); }
 });
 
-needsSymlinks("review final: a swapped ancestor cannot redirect creation of missing output directories", async () => {
+needsArtifactLinks("review final: a swapped ancestor cannot redirect creation of missing output directories", async () => {
   const { root, workspace, out } = await fixture(); await fs.mkdir(out);
   const actualOut = await fs.realpath(out); const retained = path.join(root, "retained");
   const resolve = fs.realpath; let swapped = false;
@@ -160,7 +166,7 @@ needsSymlinks("review final: a swapped ancestor cannot redirect creation of miss
   } finally { mock.mockRestore(); }
 });
 
-test("review: cancellation after open or write cleans only this render's artifacts", async () => {
+needsArtifactFiles("review: cancellation after open or write cleans only this render's artifacts", async () => {
   for (const boundary of ["open", "write"] as const) {
     const { workspace, out } = await fixture();
     await fs.mkdir(out);

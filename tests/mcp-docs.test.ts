@@ -5,6 +5,7 @@ import path from "node:path";
 import type { MCPServerDefinition } from "../src/mcp/config";
 import { addUserServer, docsOnlyDefinition, docsPinned, isDocsServer } from "../src/mcp/docs";
 import { matchPreset } from "../src/mcp/presets";
+import { posixModes } from "./support/platform";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -46,7 +47,7 @@ test("the ~/.casper/mcp.json writer keeps existing entries, refuses a used name 
   cleanup.push(() => rm(home, { recursive: true, force: true }));
   const entry = docsOnlyDefinition(router)!;
   const file = await addUserServer(home, "hpe-docs", entry);
-  expect((await stat(file)).mode & 0o777).toBe(0o600);
+  if (posixModes) expect((await stat(file)).mode & 0o777).toBe(0o600);
   await expect(addUserServer(home, "hpe-docs", entry)).rejects.toThrow("hpe-docs is already in ~/.casper/mcp.json. Nothing changed.");
   const before = JSON.parse(await readFile(file, "utf8"));
   before.mcpServers.lab = { command: "lab" };

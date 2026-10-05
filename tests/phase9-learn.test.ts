@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { notLocalSource } from "../src/learn/candidates";
 import { SkillRegistry } from "../src/skills/registry";
 import { classifyTask } from "../src/task/classify";
 import { needsFifos, needsSymlinks, posixModes, posixOnly } from "./support/platform";
@@ -48,7 +49,8 @@ async function fixture(respond?: (payload: Payload, index: number) => Response |
   await writeFile(path.join(agent, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture", retry: { enabled: false } }));
   await mkdir(path.join(home, ".casper"), { recursive: true });
   await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
-  const env = cleanEnv({ HOME: home, CASPER_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_TELEMETRY: "0" });
+  // Windows resolves the home directory from USERPROFILE, not HOME.
+  const env = cleanEnv({ HOME: home, USERPROFILE: home, CASPER_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_TELEMETRY: "0" });
   function spawn(args: string[]) {
     return Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), ...args], { cwd, env, stdout: "pipe", stderr: "pipe" });
   }
@@ -69,7 +71,8 @@ async function snapshot(root: string): Promise<Record<string, string>> {
     .filter((entry) => entry.isFile())
     .map((entry) => path.join(entry.parentPath, entry.name))
     .sort();
-  for (const absolute of entries) files[path.relative(root, absolute)] = (await readFile(absolute)).toString("base64");
+  // Keys use "/" on every platform so the checks below read the same on Windows.
+  for (const absolute of entries) files[path.relative(root, absolute).split(path.sep).join("/")] = (await readFile(absolute)).toString("base64");
   return files;
 }
 
@@ -668,4 +671,18 @@ test("a full draft store refuses further generation rather than pruning earlier 
   expect(result.stderr).toContain("store is full");
   expect(await readFile(file, "utf8")).toBe(full);
   expect(f.payloads).toHaveLength(1);
+});
+
+test("a Windows drive path is a local folder, while URLs, remotes and options are still refused", () => {
+  for (const repo of ["C:\\x\\repo", "c:/x/repo", "D:\\"]) {
+    expect({ repo, refused: notLocalSource(repo, "win32") }).toEqual({ repo, refused: false });
+  }
+  for (const platform of ["win32", "linux", "darwin"] as const) {
+    for (const repo of ["https://example.com/repo", "git@example.com:repo", "--help", "file:///x", "ssh://host/repo", "C:relative"]) {
+      expect({ platform, repo, refused: notLocalSource(repo, platform) }).toEqual({ platform, repo, refused: true });
+    }
+  }
+  // Off Windows, "C:/x" is not a drive path, so it stays refused as before.
+  expect(notLocalSource("C:/x/repo", "linux")).toBe(true);
+  expect(notLocalSource("/home/user/repo", "linux")).toBe(false);
 });

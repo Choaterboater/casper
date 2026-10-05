@@ -66,6 +66,6 @@ test("review regression: failed destination context loading revokes old capabili
     expect(output.match(/Invalid Casper configuration/g)).toHaveLength(2);
     expect(prompts).toBe(0);
     expect(tools).toEqual([]);
-    expect(info.cwd).toContain(".casper/worktrees");
+    expect(info.cwd).toContain(path.join(".casper", "worktrees"));
   } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
 }, 15_000);

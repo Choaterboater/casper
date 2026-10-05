@@ -20,9 +20,15 @@ const symlinksSupported = await hostProbe("casper-symlink-probe-", async (root) 
   return true;
 });
 
-/** FIFO fixtures need a working `mkfifo`. */
-const fifosSupported = await hostProbe("casper-fifo-probe-", (root) =>
-  Bun.spawnSync(["mkfifo", path.join(root, "probe")], { stdout: "ignore", stderr: "ignore" }).exitCode === 0);
+/**
+ * FIFO fixtures need a `mkfifo` that makes a real FIFO. Git Bash's `mkfifo` on Windows exits 0
+ * but leaves a file that Bun does not see as a FIFO, so the probe checks the result too.
+ */
+const fifosSupported = await hostProbe("casper-fifo-probe-", async (root) => {
+  const probe = path.join(root, "probe");
+  if (Bun.spawnSync(["mkfifo", probe], { stdout: "ignore", stderr: "ignore" }).exitCode !== 0) return false;
+  return (await stat(probe)).isFIFO();
+});
 
 /**
  * Mode bits are a POSIX guarantee, and this probe measures both halves of it: the mode is

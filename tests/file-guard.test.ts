@@ -131,6 +131,12 @@ test("a shell command that reaches ~/.ssh by .., cd, ~user, quotes, a glob or a 
     "ssh -G build-server", "ssh -vG build-server", "bash -c 'cat ../.ssh/config'"]) {
     expect([command, privatePathCommand(command, documents)]).toEqual([command, expect.stringMatching(/^Not run: this command reads ~\/\.ssh/)]);
   }
+  // Windows names ignore case, so ~/.SS* reaches ~/.ssh there, the same way ~/.SSH/config does.
+  if (process.platform === "win32") {
+    for (const command of ["cat ~/.SS*/config", "cat ~/.S?H/config"]) {
+      expect([command, privatePathCommand(command, documents)]).toEqual([command, expect.stringMatching(/^Not run: this command reads ~\/\.ssh/)]);
+    }
+  }
   // Ordinary work next to it passes: the folder's own files, a sibling, a listing of home, ssh itself.
   for (const command of ["cat ../Projects/readme.md", "ls ..", "ls ~", "grep -r TODO .", "find ~ -name '*.md'", "cat ~/.config/*.toml",
     "cd sample-tools && python3 -m unittest discover -s tests", "ssh -v build-server uptime", "cat ~/.ssh.bak.md", "cat ~/*/config"]) {
