@@ -17,7 +17,7 @@ import { APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, AP
 import type { MCPTool } from "../mcp/manager";
 import { isSecretKey as isScrubbedKey, scrubText } from "../secrets/scrub";
 import { redactPreview, terminalText } from "../tui/format";
-import { asksEveryTime, KIND_TEXT, type ChangeKind } from "./kinds";
+import { asksEveryTime, KIND_TEXT, namesLinkCheck, type ChangeKind } from "./kinds";
 import { nameLabel, strictest, type CapabilitySafety } from "./labels";
 
 export type CallMode = "execute" | "preview" | "may-execute";
@@ -128,7 +128,9 @@ function kindLabel(kind: ChangeKind | undefined): CapabilitySafety[] {
 
 /** The label the call is judged by: the tool's own, the real tools' names, and "not read" for an unclear router. */
 export function planLabel(plan: ApprovalPlan): CapabilitySafety {
+  // A link check (cable test, ping) the server hasn't named a kind for yet still asks: it can take a port's link down.
   return strictest(plan.label, ...plan.routed.map((call) => nameLabel(call.name)), ...plan.routed.flatMap((call) => kindLabel(call.kind)),
+    ...plan.routed.filter((call) => call.kind === undefined && namesLinkCheck(call.name)).map(() => "diagnostic" as const),
     ...(plan.routerUnclear ? ["external-action" as const] : []));
 }
 

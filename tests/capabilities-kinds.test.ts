@@ -135,6 +135,16 @@ test("a troubleshoot kind from find_tool makes a routed read call ask (diagnosti
   expect(planLabel(withHitKinds(routedPlan("invoke_read_tool", "mist_site_settings"), new Map([["mist_site_settings", "config"]])))).toBe("write");
 });
 
+test("a routed check named for a link test (cable, ping, iperf) asks even before find_tool named it; plain reads don't", async () => {
+  const { planLabel } = await import("../src/capabilities/approval");
+  for (const name of ["cable_test", "mist_cable_test_from_switch", "central_initiate_cx_cable_test_v1", "cx_ping", "gateway_iperf"]) {
+    expect([name, planLabel(routedPlan("invoke_read_tool", name))]).toEqual([name, "diagnostic"]);
+  }
+  for (const name of ["mist_list_sites", "list_test_results", "cx_show_vlans"]) {
+    expect([name, planLabel(routedPlan("invoke_read_tool", name))]).toEqual([name, "read"]);
+  }
+});
+
 // --- In the broker, with the network server's stand-in ---------------------------------------------------------
 
 const fakeServer = path.join(import.meta.dir, "fixtures/fake-network-mcp.ts");
