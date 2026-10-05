@@ -519,7 +519,7 @@ export class PiRuntime implements AgentRuntime {
   private authWork?: Promise<RuntimeAuthenticationResult>;
   private readOnly = false;
   private starting = false;
-  /** The session's home folder: model defaults and ~ in tool paths resolve against it. */
+  /** The session's home folder, where model defaults are kept. */
   private readonly home: string;
 
   constructor(options: { homeDir?: string } = {}) { this.home = options.homeDir ?? os.homedir(); }
@@ -582,7 +582,8 @@ export class PiRuntime implements AgentRuntime {
 
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
       readOnly?.signal.throwIfAborted();
-      const pathContext = { root: cwd, home: this.home, agentDir, ...(options.privatePaths?.length ? { denyRead: options.privatePaths } : {}) };
+      // ~ in tool paths stays the real home: Pi's own file tools expand it with os.homedir(), and the checks must agree.
+      const pathContext = { root: cwd, home: os.homedir(), agentDir, ...(options.privatePaths?.length ? { denyRead: options.privatePaths } : {}) };
       const extensionFactory = (pi: ExtensionAPI) => {
         // Runs after the runtime's own attribution, so Casper's identity replaces Pi's. With
         // CASPER_TELEMETRY=0 there is none to add, and the runtime's is off too (agent-store.ts).
