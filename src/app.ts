@@ -2442,7 +2442,7 @@ export class CasperApp {
 
   /**
    * Pictures for the model in use. One that can see them gets them. One that can't: a numbered question when a model
-   * you set up can (1 Switch to it for this request · 2 Send without them), else one line and the request goes
+   * you set up can (1 Send without them · 2 Switch to it for this request), else one line and the request goes
    * without them. `back` is the model to return to after the request's turn.
    */
   private async imagesForModel(session: RuntimeSession, images: RuntimeImage[]): Promise<{ images: RuntimeImage[]; back?: string }> {
