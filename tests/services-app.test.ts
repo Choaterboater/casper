@@ -6,6 +6,7 @@ import { PassThrough } from "node:stream";
 import { stringify } from "yaml";
 import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
+import { asksBeforeShell, ShellSandbox } from "../src/sandbox/manager";
 import { SkillRegistry } from "../src/skills/registry";
 import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { COMMANDS } from "../src/tui/commands";
@@ -41,7 +42,7 @@ class ScriptedRuntime implements AgentRuntime {
   async dispose() {}
 }
 
-async function fixture(env: Record<string, string> = {}, options: { input?: PassThrough; declare?: boolean } = {}) {
+async function fixture(env: Record<string, string> = {}, options: { input?: PassThrough; declare?: boolean; noSandbox?: boolean } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-services-app-")));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const home = path.join(root, "home"), project = path.join(root, "project");
@@ -55,6 +56,7 @@ async function fixture(env: Record<string, string> = {}, options: { input?: Pass
   const output: string[] = [];
   const app = new CasperApp({ runtimeFactory: () => runtime, output: { write: text => { output.push(text); } }, sessionHomeDir: home,
     ...(options.input ? { input: options.input } : {}),
+    ...(options.noSandbox ? { noSandbox: true } : {}),
     loadProjectContext: info => loadProjectContext(info, { homeDir: home }),
     loadSkillRegistry: context => SkillRegistry.discover({ homeDir: home, projectRoot: context.info.root }),
     loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
@@ -220,7 +222,7 @@ test("a workspace transition (/branch) stops the session's services", async () =
   await branching.runOnce("/services start api", f.project);
   const root = pid(f.text()), grandchild = await f.grandchild();
   await branching.runInteractive();
-  expect(info.cwd).toContain(".casper/worktrees");
+  expect(info.cwd).toContain(path.join(".casper", "worktrees"));
   // You typed /branch: it doesn't ask again.
   expect(f.text()).not.toContain("Create this exact session branch?");
   await gone(root); await gone(grandchild);
@@ -266,7 +268,8 @@ test("the service tool is offered for declared services; elsewhere only for serv
   await declared.app.runOnce("fix the parser", declared.project);
   expect(seen).toEqual([true]);
 
-  const f = await fixture({}, { declare: false });
+  // Where no sandbox runs (Windows), the AI's service start asks first, and runOnce can't ask: allow it as --no-sandbox does.
+  const f = await fixture({}, { declare: false, noSandbox: asksBeforeShell(ShellSandbox.detect({})) });
   seen = [];
   let pid = 0;
   f.runtime.action = async () => {

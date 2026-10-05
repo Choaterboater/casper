@@ -225,6 +225,8 @@ test("the dev server Casper found and started for its page check never hands the
   const vite = path.join(f.project, "node_modules/.bin/vite");
   await writeFile(vite, `#!${process.execPath}\nconst args = process.argv.slice(2);\nBun.serve({ hostname: "127.0.0.1", port: Number(args[args.indexOf("--port") + 1]), fetch: () => new Response("<html>ok</html>", { headers: { "content-type": "text/html" } }) });\n`);
   await chmod(vite, 0o755);
+  // npm on Windows runs scripts with cmd.exe, which finds node_modules/.bin/vite.cmd, not a shebang file.
+  await writeFile(`${vite}.cmd`, `@"${process.execPath}" "%~dp0vite" %*\n`);
   const toolsAtPrompt: string[][] = [];
   f.runtime.turns.push(async runtime => { toolsAtPrompt.push(runtime.tools.map(tool => tool.name)); await runtime.write(path.join(f.project, "src/App.tsx"), "export default 1;\n"); });
   await f.app.runOnce("Make the sidebar collapse on small screens");
