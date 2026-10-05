@@ -56,9 +56,10 @@ import type { SessionWorkspaceManager } from "../sessions/manager";
 import { formatProjectContext } from "../project/context";
 import { runSecurityReview, type SecurityAIReview, type SecurityReviewHost } from "./security-review";
 import { sandboxReport, sandboxStatusLine } from "./sandbox";
+import type { SessionYes } from "./session-yes";
 import { webStatusLine } from "../web/tools";
 import type { ShellSandbox } from "../sandbox/manager";
-import { allowKindsChoices, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, numberedLines } from "./safe-choices";
+import { allowKindsChoices, DOCS_COPY_CHOICES, SKILL_TRUST_CHOICES, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES } from "./safe-choices";
 import { KIND_TEXT, RISKY_KINDS } from "../capabilities/kinds";
 
 /** Output sink for the app; lives here so the command host stays import-cycle-free. */
@@ -129,13 +130,18 @@ export interface CommandHost {
   acquireRuntime(): Promise<AgentRuntime>;
   ensureSessionWorkspace(): Promise<SessionWorkspaceManager>;
   stopDebugger(): Promise<void>;
-  confirmExact(preview: string, question: string, signal?: AbortSignal): Promise<boolean>;
-  /** The host for /mcp setup network: the exact channel, the MCP manager, and the install seams. */
+  /** The host for /mcp setup network: the numbered approval box, the MCP manager, and the install seams. */
   networkSetupHost(): SetupHost;
-  /** The host for /mcp login: the exact channel, the private prompt, and restarts through the MCP manager. */
+  /** The host for /mcp login: the numbered approval box, the private prompt, and restarts through the MCP manager. */
   networkLoginHost(): LoginHost;
-  /** One exact typed answer from the user (never the model), or undefined when nobody answered. */
+  /** One numbered answer from the user (never the model): the number picked, or undefined when nobody answered. */
   chooseAnswer(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined>;
+  /** A yes/no approval box (1 No · 2 Yes, this once); nobody to ask is a No. */
+  confirmYes(preview: string, question: string, signal?: AbortSignal): Promise<boolean>;
+  /** Boxes that also offer "Yes, for this session" (the debugger's launch). */
+  readonly sessionYes: SessionYes;
+  /** One approval box from the user (never the model): the chosen label, or undefined when nobody answered. */
+  approveChoice(preview: string, question: string, options: ReadonlyArray<string | { label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined>;
   git(args: string[]): Promise<string>;
   runVerification(checks: readonly CheckName[], repair: boolean, request?: string, task?: VerificationTask): Promise<VerificationReport>;
   activeWorkspaceRoot(): string;
@@ -266,12 +272,12 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       const forget = /^\/sandbox\s+forget\s+(\S+)\s*$/.exec(prompt);
       if (forget) {
         const found = await sandbox.forget(forget[1]!);
-        host.output.write(found ? `Forgot ${terminalText(forget[1]!)}: shell commands ask before reaching it again.\n` : `${terminalText(forget[1]!)} was not remembered for this project.\n`);
+        host.output.write(found ? `Forgot ${terminalText(forget[1]!)}: shell commands and ssh ask before reaching it again.\n` : `${terminalText(forget[1]!)} was not remembered for this project.\n`);
         return;
       }
       if (prompt.trim() !== "/sandbox") throw new Error("Use /sandbox or /sandbox forget <host>.");
       await sandbox.loadRemembered();
-      host.output.write(sandboxReport(sandbox, host.activeWorkspaceRoot()));
+      host.output.write(sandboxReport(sandbox, host.activeWorkspaceRoot(), await sandbox.store?.reachHosts() ?? []));
       return;
     }
     if (prompt === "/context" || prompt === "/usage") {
@@ -604,7 +610,7 @@ async function handleReferencesCommand(host: CommandHost, prompt: string): Promi
       const signal = host.commandAbort?.signal;
       await runReferenceAdd(add[1], add[2], host.homeDir(), {
         print: (line) => { if (!host.closing) host.output.write(`${terminalText(line)}\n`); },
-        // Only the user's own typed 2 downloads anything; one-shot runs never do.
+        // Only the user's own 2 downloads anything; one-shot runs never do.
         choose: (preview, question, choices) => host.chooseAnswer(preview, question, choices, signal),
         runGit: (argv) => (host.runGit ?? defaultRunGit)(argv, signal),
         ...(host.reloadReferences ? { reload: () => host.reloadReferences!() } : {}),
@@ -642,7 +648,8 @@ async function handleDebugCommand(host: CommandHost, prompt: string): Promise<vo
       host.commandAbort?.signal.throwIfAborted();
       if (host.closing) return;
       host.debugSession = new DebugSession({ projectRoot: host.activeWorkspaceRoot(),
-        confirm: (preview, signal) => host.confirmExact(`Debugger execution confirmation:\n${preview}\nAdapter and debuggee execute code; not sandboxed. Debug values may contain secrets.\n`, "Launch this exact debugger target? Type yes: ", signal),
+        confirm: (preview, signal) => host.sessionYes.approve(`debug:${preview}`, `Debugger launch:\n${preview}\nThe adapter and the program run code, not sandboxed. Debug values may contain secrets.\n`,
+          "Launch this debugger target?", signal),
       });
       const debug = host.debugSession;
       host.lifecycle.add({ name: "debug", close: () => debug.close() });
@@ -732,7 +739,7 @@ async function approveProjectDefinition(host: CommandHost, kind: "mcp" | "lsp",
       + `${review.shadows ? `, replacing your definition in ${terminalText(review.shadows)}` : ""}. `
       + `--${kind} and non-interactive runs connect only user or profile definitions; review it with an interactive /${kind} connect ${name}`);
   }
-  const approved = await host.confirmExact(terminalText(review.preview), `Connect this project-defined ${label} server? Type yes: `, host.commandAbort?.signal);
+  const approved = await host.confirmYes(terminalText(review.preview), `Connect this project-defined ${label} server?`, host.commandAbort?.signal);
   if (!approved) host.output.write(`[${kind}] Connection not approved.\n`);
   return approved;
 }
@@ -920,7 +927,7 @@ async function handleMCPDocs(host: CommandHost): Promise<void> {
     "It only answers docs questions. Casper passes it no passwords.",
     "",
   ].join("\n");
-  if (!await host.confirmExact(preview, "Add a docs-only copy (no passwords, no device access)? Type yes: ", host.commandAbort?.signal)) {
+  if (await host.approveChoice(preview, "Add a docs-only copy (no passwords, no device access)?", DOCS_COPY_CHOICES, host.commandAbort?.signal) !== DOCS_COPY_CHOICES[1]) {
     host.output.write("Nothing added.\n");
     return;
   }
@@ -939,17 +946,16 @@ function approvalLines(status: MCPStatus): string[] {
   return [];
 }
 
-/** After you connect your own or an imported server, offer to remember it (writes stay off). Just this time is 1,
+/** After you connect your own or an imported server, offer to remember it (writes stay off). No is 1,
  * so a habitual 1 never remembers a server. */
 async function offerRemember(host: CommandHost, name: string): Promise<void> {
   const status = host.mcp!.status().find((entry) => entry.name === name);
   if (!host.interactive || !status || status.scope === "project" || status.consent === "remembered") return;
   const block = host.mcp!.rememberBlock(name);
   if (block) { host.output.write(`[mcp] ${terminalText(block)}\n`); return; }
-  const answer = await host.chooseAnswer(
-    `Remember this server? Next time it connects on its own, with writes off. Every change still asks you.\n${numberedLines(MCP_REMEMBER_CHOICES)}`,
-    "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
-  if (answer !== "2") { host.output.write(`[mcp] Not remembered. ${name} is connected for this session only.\n`); return; }
+  const answer = await host.approveChoice("Next time it connects on its own, with writes off. Every change still asks you.\n",
+    `Remember ${terminalText(name)}?`, MCP_REMEMBER_CHOICES, host.commandAbort?.signal);
+  if (answer !== MCP_REMEMBER_CHOICES[1]) { host.output.write(`[mcp] Not remembered. ${name} is connected for this session only.\n`); return; }
   const result = await host.mcp!.remember(name);
   host.output.write(result.remembered
     ? `[mcp] Remembered ${name}. It connects on its own next time, with writes off. /mcp forget ${name} undoes this.\n`
@@ -981,9 +987,8 @@ async function handleMCPWrites(host: CommandHost, name: string): Promise<void> {
   if (status.writes === "on") { host.output.write(`[mcp] Writes are already on for ${name}. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} turns them off.\n`); return; }
   if (status.access === "login: read-only (checked)") { host.output.write(`[mcp] ${READ_ONLY_LOGIN_ENABLE_TEXT}\n`); return; }
   const policy = mcp.policy(name);
-  const answer = await host.chooseAnswer(`${terminalText(writesTitle(name, policy.match))}\n${numberedLines(MCP_WRITES_CHOICES)}`,
-    "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
-  if (answer !== "2") { host.output.write(`[mcp] Writes stay off for ${name}.\n`); return; }
+  const answer = await host.approveChoice("", terminalText(writesTitle(name, policy.match)), MCP_WRITES_CHOICES, host.commandAbort?.signal);
+  if (answer !== MCP_WRITES_CHOICES[1]) { host.output.write(`[mcp] Writes stay off for ${name}.\n`); return; }
   await mcp.setWrites(name, true);
   host.output.write(`[mcp] Writes on for ${name}. Each change still asks you. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} turns writes off.\n`);
   const note = ownSettingsNote(mcp.definition(name), policy.match);
@@ -1019,12 +1024,11 @@ async function handleMCPAllow(host: CommandHost, name: string, off: boolean): Pr
   const now = [...remembered.map((kind) => `${KIND_TEXT[kind]} (remembered)`), ...session.map((kind) => `${KIND_TEXT[kind]} (this session)`)];
   if (allowances.allowAllOn(name)) now.push("everything, no asking (this session)");
   const labels = allowKindsChoices();
-  const digits = labels.map((_, index) => String(index + 1));
-  const answer = await host.chooseAnswer([
+  const answer = await host.approveChoice([
     `${terminalText(product)} change kinds. Firmware changes, deletes and admin changes are off by default; every change still asks you.`,
     `  Allowed now: ${now.length ? now.join(", ") : "none"}`,
-  ].join("\n") + `\n${numberedLines(labels)}`, `Type ${digits.slice(0, -1).join(", ")} or ${digits.at(-1)}: `, digits, host.commandAbort?.signal);
-  const picked = Number(answer ?? "1") - 1;
+  ].join("\n") + "\n", `Which change kinds may ${terminalText(product)} make?`, labels, host.commandAbort?.signal);
+  const picked = answer === undefined ? 0 : labels.indexOf(answer);
   if (picked < 1) { host.output.write(`[mcp] ${name} keeps the defaults.\n`); return; }
   if (picked === labels.length - 1) {
     allowances.startAllowAll(name);
@@ -1036,11 +1040,11 @@ async function handleMCPAllow(host: CommandHost, name: string, off: boolean): Pr
   const words = kinds.length > 1 ? "All change kinds" : KIND_TEXT[kinds[0]!];
   // Project servers and unpinned runners can't be remembered: this session only, without asking.
   const block = mcp.rememberBlock(name);
-  const keep = block ? undefined : await host.chooseAnswer(`${numberedLines(MCP_ALLOW_KEEP_CHOICES)}`, "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
+  const keep = block ? undefined : await host.approveChoice("", "For how long?", MCP_ALLOW_KEEP_CHOICES, host.commandAbort?.signal);
   // Cancelled (ctrl+c, closing): nothing is allowed.
   if (!block && keep === undefined) { host.output.write(`[mcp] ${name} keeps the defaults.\n`); return; }
   for (const kind of kinds) allowances.allowKind(name, kind);
-  if (keep === "2") {
+  if (keep === MCP_ALLOW_KEEP_CHOICES[1]) {
     const result = await mcp.rememberKinds(name, kinds);
     if (result.remembered) {
       host.output.write(`[mcp] ${words} allowed on ${name}, remembered. /mcp allow ${name} off undoes this.\n`);
@@ -1060,12 +1064,23 @@ async function handleLabCommand(host: CommandHost, prompt: string): Promise<void
   const profile = host.projectContext?.labProfile;
   const place = labConfigPlace(profile);
   const match = /^\/lab\s+import\s+(.+?)\s*$/.exec(prompt);
+  const store = host.sandbox?.store;
   if (prompt.trim() === "/lab") {
+    const ssh = current.length && store ? (await store.labReach()
+      ? "ssh and scp to them don't ask first (/lab ssh off turns that off).\n" : "ssh and scp to them ask first (/lab ssh on stops that).\n") : "";
     host.output.write(`Lab devices: ${current.length ? current.map(terminalText).join(", ") : "none"}${current.length ? ` (from ${place})` : ""}\n`
-      + "They only mark devices as lab: any device can be checked, after your answer. /lab import <file> adds more.\n");
+      + "They only mark devices as lab: any device can be checked, after your answer. /lab import <file> adds more.\n" + ssh);
     return;
   }
-  if (!match) throw new Error("Use /lab or /lab import <file>.");
+  const ssh = /^\/lab\s+ssh\s+(on|off)\s*$/.exec(prompt);
+  if (ssh) {
+    if (!store) throw new Error("The shell sandbox starts with the project.");
+    // Only you type this; kept for this project in ~/.casper.
+    await store.setLabReach(ssh[1] === "on");
+    host.output.write(ssh[1] === "on" ? "[lab] ssh and scp to lab devices don't ask first.\n" : "[lab] ssh and scp to lab devices ask first again.\n");
+    return;
+  }
+  if (!match) throw new Error("Use /lab, /lab import <file> or /lab ssh on|off.");
   if (!host.interactive) throw new Error("/lab import asks you first; run it in an interactive session.");
   const given = match[1]!.replace(/^["']|["']$/g, "");
   const file = given === "~" || given.startsWith("~/") ? path.join(host.homeDir(), given.slice(2)) : path.resolve(host.activeWorkspaceRoot(), given);
@@ -1082,9 +1097,8 @@ async function handleLabCommand(host: CommandHost, prompt: string): Promise<void
   if (!fresh.length) { host.output.write(`[lab] All ${hosts.length} are already in your lab list.\n`); return; }
   const shown = fresh.slice(0, 20).map(terminalText).join(", ") + (fresh.length > 20 ? ` and ${fresh.length - 20} more` : "");
   const devices = `${fresh.length} ${fresh.length === 1 ? "device" : "devices"}`;
-  const answer = await host.chooseAnswer(`Add ${devices} to your lab list (${place})? ${shown}\n${numberedLines(LAB_IMPORT_CHOICES)}`,
-    "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
-  if (answer !== "2") { host.output.write("[lab] Nothing added.\n"); return; }
+  const answer = await host.approveChoice("", `Add ${devices} to your lab list (${place})? ${shown}`, LAB_IMPORT_CHOICES, host.commandAbort?.signal);
+  if (answer !== LAB_IMPORT_CHOICES[1]) { host.output.write("[lab] Nothing added.\n"); return; }
   const result = await addLabHosts(host.homeDir(), fresh, profile);
   host.setLab?.({ hosts: [...current, ...result.added] });
   const added = `${result.added.length} ${result.added.length === 1 ? "device" : "devices"}`;
@@ -1131,17 +1145,28 @@ async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<v
           `SHA256: ${inspected.sha256}`,
           inspected.skill.source === "bundled"
             ? `Bundled with Casper and trusted. /skills block ${id} stops it; /settings turns them all off.`
-            : `After reviewing: /skills trust ${id} ${inspected.sha256}`,
+            : `After reviewing: /skills trust ${id}${host.interactive ? "" : ` ${inspected.sha256}`}`,
           "",
         ].join("\n"));
       } else if (action === "trust" && id && sha256 && !extra.length) {
         await registry.trust(id, sha256);
         host.output.write(`Trusted reviewed content for ${id}.\n`);
+      } else if (action === "trust" && id && !sha256 && host.interactive) {
+        // Shows exactly what you trust, then 1 No · 2 Trust it: the fingerprint of what was shown, not a copied one.
+        const inspected = await registry.inspect(id);
+        const name = inspected.skill.id.replace(/@[a-f0-9]+$/, "");
+        const preview = [`Skill: ${inspected.skill.id}`, `File: ${inspected.skill.filePath}`, inspected.body, `SHA256: ${inspected.sha256}`, ""].join("\n");
+        if (await host.approveChoice(terminalText(preview), `Trust ${terminalText(name)} as shown?`, SKILL_TRUST_CHOICES, host.commandAbort?.signal) !== SKILL_TRUST_CHOICES[1]) {
+          host.output.write("[skills] Not trusted.\n");
+          return;
+        }
+        await registry.trust(id, inspected.sha256);
+        host.output.write(`Trusted reviewed content for ${inspected.skill.id}.\n`);
       } else if (action === "block" && id && !sha256) {
         await registry.block(id);
         host.output.write(`Blocked ${id} for future prompts.\n`);
       } else {
-        host.output.write("Usage: /skills | /skills inspect <id> | /skills trust <id> <sha256> | /skills block <id>\n");
+        host.output.write("Usage: /skills | /skills inspect <id> | /skills trust <id> | /skills block <id>\n");
       }
     } catch (error) {
       host.output.write(`[skills] ${error instanceof Error ? error.message : String(error)}\n`);
@@ -1205,7 +1230,7 @@ async function undoCopiesLine(stateDirectory: string, home: string): Promise<str
 export function permissionsText(sandbox: ShellSandbox | undefined): string {
   const shell = sandbox?.on
     ? "Shell commands and checks run in a sandbox: they can write only in this project, temp and package caches (other folders ask), can't read your private folders, and reach only listed hosts (others ask). They don't see your AI provider keys. MCP servers, language servers, the debugger and the browser are not in the sandbox."
-    : `Shell commands and checks are not sandboxed here (${sandbox?.failure ?? sandbox?.state.reason ?? "no sandbox"}): they run with your permissions, files and network, without your AI provider keys.${sandbox?.asksFirst ? " Casper asks before each shell command the AI runs." : ""}`;
+    : `Shell commands and checks are not sandboxed here (${sandbox?.failure ?? sandbox?.state.reason ?? "no sandbox"}): they run with your permissions, files and network, without your AI provider keys.${sandbox?.asksFirst ? " Casper asks before each shell command the AI runs, except plain reads like ls or git status." : ""}`;
   return [
     shell,
     `The AI's file tools (read, edit, write, grep, find, ls) stay out of private places and git's own files and never follow a link out of the project. ${sandbox && !sandbox.asksOutsideWrites

@@ -45,16 +45,22 @@ the operating system, not a list of words:
 - **Network.** The AI's shell and checks reach only listed hosts: `registry.npmjs.org`, `*.npmjs.org`,
   `registry.yarnpkg.com`, `pypi.org`, `files.pythonhosted.org`, `github.com`, `*.githubusercontent.com`,
   `bun.sh`, this machine (`localhost`), the hosts in your own `sandbox.allowedDomains`, and the ones you
-  said "Always" to for this project. Another host reached through the sandbox's proxy (web requests,
-  package tools, git) asks `A shell command wants to reach api.mist.com.` with
-  `1 No · 2 Allow for this session · 3 Always for this project`. Enter keeps it blocked. A run that
-  can't ask (one-shot, `--json`, piped) blocks it and says `[sandbox] Blocked api.mist.com (this run can't ask).`
+  said "Yes, always" to for this project. Another host reached through the sandbox's proxy (web requests,
+  package tools, git) asks `A shell command wants to reach api.mist.com. Allow it?` with
+  `1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project` (2 allows that one
+  connection). Enter keeps it blocked. A run that
+  can't ask (one-shot, `--json`, piped) blocks it and says `[sandbox] Blocked api.mist.com (this run can't ask).
+  To allow it for one run: --allow-host api.mist.com.` The same goes for writes (`--allow-write <folder>`)
+  and ssh (`--allow-reach <host>`): each allows just that one thing, for that run only.
   A program that connects straight to an address without the proxy (`nc`, `telnet`, `socat`, and `ssh`
   on macOS) can't reach other machines from inside the sandbox; Casper says so when it sees one.
 - **Other machines (ssh, scp, sftp, rsync, nc, telnet, socat).** From v0.2.19, before the AI's shell runs
   one of these to another machine, Casper asks `Reach 198.51.100.20 (build-server)?  ssh build-server uptime` with
-  `1 No · 2 Yes, this time · 3 Yes, for this session`, whether the sandbox is on, off or can't run. Casper
-  reads `~/.ssh/config` itself to name the real address; the AI never sees that file. Enter runs nothing.
+  `1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project`, whether the sandbox
+  is on, off or can't run. `4` keeps the machine's address in `~/.casper/projects/<project>/sandbox.json`
+  (never in the repo; `/sandbox` lists it, `/sandbox forget <address>` takes it back). A device on your lab
+  list doesn't ask at all (`/lab ssh off` makes it ask again); a machine the command names as `$HOST` always
+  asks. Casper reads `~/.ssh/config` itself to name the real address; the AI never sees that file. Enter runs nothing.
   A run that can't ask refuses it: `[shell] Not run: the AI's command reaches 198.51.100.20 (build-server), and
   this run can't ask you. Nothing was sent.` After your yes, a plain `ssh` or `scp` command (no pipe,
   redirect, port forward or option that runs a program here) runs outside the sandbox with your own keys,
@@ -85,7 +91,17 @@ the operating system, not a list of words:
 | `--no-sandbox`, or `sandbox: off` in `~/.casper/config.yaml` | Off, your choice | Nothing asks; the receipt says `Shell commands and checks were not sandboxed (--no-sandbox)` |
 
 With no sandbox, each command the AI's shell (and the service tool's own start command) wants to run
-asks `Run this command?  npm test` with `1 No · 2 Yes, this once · 3 Yes, and don't ask again for this exact command here`.
+asks `Run this command?  npm test` with `1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for
+this project`. 3 and 4 cover every command starting with the same prefix (`npm test`, `git commit`, `npm run build`);
+a tool alone (`git`, `npm`, `make`, `docker`), a line with more than one command, a redirect, a `VAR=value` start, an
+option before the subcommand (`git -C sub commit`) or an interpreter under any name or inside another tool (`python3.12`,
+`py`, `node.exe`, `powershell.exe`, `bash`, `awk`, `sed`, `sudo`, `npx`, `curl`, `tar`, `yarn node`, `uv run python`)
+gets no prefix and is kept as the exact command. 4 keeps it in `~/.casper`. Commands that only read files in the
+project don't ask at all: a short list of programs (`ls`, `cat`, `head`, `grep`, `rg`, `find`, `wc`, `sort` and the
+like) and git subcommands (`git status`, `diff`, `log`, `show`, `grep`, `blame` ...), each with the options it may
+have. Any other option (`git grep -O`, `git -c`, `--ext-diff`, `rg --pre`, `find -exec`, `sort --compress-program`),
+a `VAR=value` start, `$` or `~`, a glob, a redirect, a file outside the project or private (`.env`, keys, `~/.ssh`,
+`~/.casper`, your `sandbox.denyRead`), a link that leads to one, or a search of a folder that holds one asks as usual.
 Enter runs nothing. A run that can't ask refuses it:
 `Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.`
 Your project's own checks, services and dev servers then run with your permissions, as before
@@ -108,19 +124,19 @@ Each row names the test that fails without it.
 | What | How it shows | Test |
 | --- | --- | --- |
 | Shell commands and checks can't write outside the project, temp and package caches, unless you allow a folder for this session (Casper asks; Enter keeps it blocked). | the command fails; the receipt says `blocked by the sandbox (wanted to write …)` | `tests/sandbox-live.test.ts` › “a command can write the project but nothing outside it”; `tests/sandbox-live.test.ts` › “a refused write is named: blocked by the sandbox (wanted to write ...)” |
-| A write outside the project, by the AI's shell or its `edit` and `write`, asks `1 No · 2 Allow <folder> for this session` (Enter writes nothing); one shell command asks once for all its folders. Nothing is kept past the session, and a run that can't ask refuses. An allowed folder's git files stay read-only. When the folder is `~` or holds a private place, `edit` and `write` ask about the file alone. `/`, system folders, git's own folders and private or protected places are refused without a question. Temp, package caches and your `sandbox.allowWrite` don't ask; a link from them to elsewhere still does. With the sandbox off, `edit` and `write` don't ask. | `The AI wants to write to ~/Library/Application Support/SomeApp.`; the receipt says `Wrote outside the project: … (you allowed it; no undo copy)`, or `Allowed writes outside the project: …` for a shell command | `tests/sandbox-writes.test.ts` › “a shell write outside the project asks once, No first; allowed for the session, the next command may write there”; `tests/sandbox-writes.test.ts` › “private, protected, system and git places, ~ itself, reads and hosts get the plain refusal, never a question”; `tests/secrets-pi.integration.test.ts` › “an edit or write outside the project waits for the session's question; No writes nothing, inside writes never ask” |
+| A write outside the project, by the AI's shell or its `edit` and `write`, asks `The AI wants to write to <folder>. Allow it?` with `1 No · 2 Yes, this once · 3 Yes, for this session` (Enter writes nothing); one shell command asks once for all its folders. Nothing is kept past the session, and a run that can't ask refuses. An allowed folder's git files stay read-only. When the folder is `~` or holds a private place, `edit` and `write` ask about the file alone. `/`, system folders, git's own folders and private or protected places are refused without a question. Temp, package caches and your `sandbox.allowWrite` don't ask; a link from them to elsewhere still does. With the sandbox off, `edit` and `write` don't ask. | `The AI wants to write to ~/Library/Application Support/SomeApp. Allow it?`; the receipt says `Wrote outside the project: … (you allowed it; no undo copy)`, or `Allowed writes outside the project: …` for a shell command | `tests/sandbox-writes.test.ts` › “a shell write outside the project asks once, No first; allowed for the session, the next command may write there”; `tests/sandbox-writes.test.ts` › “private, protected, system and git places, ~ itself, reads and hosts get the plain refusal, never a question”; `tests/secrets-pi.integration.test.ts` › “an edit or write outside the project waits for the session's question; No writes nothing, inside writes never ask” |
 | Shell commands and checks can't read private places or Casper's approvals. | the file is not there for them | `tests/sandbox-live.test.ts` › “private places and Casper's approvals can't be read”; `tests/sandbox-policy.test.ts` › “the policy hides every private place, writes only the project, temp and caches, and keeps git's own files read-only” |
 | The AI's shell can't change your security approvals, lab "Always" answers or remembered hosts in `~/.casper`. | the write fails | `tests/sandbox-live.test.ts` › “the AI's shell can't change your approvals or lab answers in ~/.casper” |
 | Shell commands can't write git hooks or `core.hooksPath` in `.git/config`. | the write fails | `tests/sandbox-live.test.ts` › “git's own files stay read-only: no hook, no core.hooksPath” |
 | Shell commands can't change a submodule's git settings, hooks or `.git` file. | the write fails | `tests/sandbox-live.test.ts` › “a submodule's git settings, hooks and .git file can't be changed, in any network mode” |
 | A host that is not listed asks first (Enter keeps it blocked); a run that can't ask blocks it and says so. | `A shell command wants to reach api.mist.com.` | `tests/sandbox-asks.test.ts` › “a host that is not listed asks with three numbered choices, No first”; `tests/sandbox-live.test.ts` › “a host that is not listed is blocked when nobody can answer, and says so once” |
-| "Always for this project" is kept in `~/.casper`, private, never in the repo. | `/sandbox` lists it | `tests/sandbox-asks.test.ts` › “Always for this project is kept in Casper's own folder, never in the repo, and the next request doesn't ask” |
+| "Yes, always for this project" is kept in `~/.casper`, private, never in the repo. | `/sandbox` lists it | `tests/sandbox-asks.test.ts` › “Yes, always for this project is kept in Casper's own folder, never in the repo, and the next request doesn't ask”; `tests/sandbox-asks.test.ts` › “Yes, always for this project keeps the machine in Casper's own folder: the next session doesn't ask; /sandbox forget undoes it” |
 | Checks, network and security tools, services, dev servers, `uv` and `bun` in `casper new` and the AI's bash all run in the sandbox. | `shell     sandboxed · writes: this project, temp, package caches · hosts: 11 listed (/sandbox)` | `tests/sandbox-wiring.test.ts` › “a check runs in the sandbox, with the project's network rules”; `tests/sandbox-wiring.test.ts` › “network checks and security tools run with no network; a lab run is never wrapped”; `tests/sandbox-wiring.test.ts` › “a service or dev server runs in the sandbox with the machine's own network, so the host can reach it”; `tests/sandbox-wiring.test.ts` › “casper new runs uv and bun in the sandbox with the new folder writable; git runs as it is”; `tests/sandbox-app.test.ts` › “with the sandbox on, /status and /sandbox say what it holds, and the AI's bash is wrapped” |
 | Tools with no network get none at all (Linux); dev servers keep the machine's network and their files are held. | the request fails | `tests/sandbox-live.test.ts` › “no network at all for a tool run with network none; files still held”; `tests/sandbox-live.test.ts` › “a dev server's command (network host) is reached from the host, files still held” |
 | While planning, the project is read-only to the shell, so a repository's own `git diff` program can't change it. | the write fails | `tests/sandbox-live.test.ts` › “during a plan turn the project is read-only too, so a repo's git diff program can't change it”; `tests/sandbox-asks.test.ts` › “while planning, the AI's shell gets a read-only project” |
 | A check the sandbox stopped says so, in the receipt and to the AI, and is never sent for repair. | `✗ test — blocked by the sandbox (wanted to write …)` | `tests/sandbox-wiring.test.ts` › “a check the sandbox refused says so in the receipt, is never sent for repair, and the same line reaches the AI”; `tests/sandbox-wiring.test.ts` › “the AI's bash: the sandbox wraps it, and a refusal is added to what the AI reads” |
 | When the sandbox could not start, it says so; the AI's command that found it asks too, and the check or tool run goes ahead not sandboxed, as the receipt says. | `[sandbox] The sandbox could not start` | `tests/sandbox-asks.test.ts` › “the AI's first command after the sandbox fails to start asks too, and a one-shot run refuses it”; `tests/sandbox-wiring.test.ts` › “when the sandbox fails to start on a check or a tool run, that run still goes ahead, not sandboxed, and the receipt says so” |
-| With no sandbox, the AI's shell asks before each command (Enter runs nothing); a run that can't ask refuses with the `--no-sandbox` hint. | `Run this command?  npm test` | `tests/sandbox-asks.test.ts` › “a run that can't ask refuses the command with the --no-sandbox hint, and never waits”; `tests/sandbox-app.test.ts` › “with no sandbox here, the banner says so and gives the fix” |
+| With no sandbox, the AI's shell asks before each command that isn't a plain read (`ls`, `git status` and the like don't ask; Enter runs nothing); a run that can't ask refuses with the `--no-sandbox` hint. | `Run this command?  npm test` | `tests/sandbox-asks.test.ts` › “a run that can't ask refuses the command with the --no-sandbox hint, and never waits”; `tests/no-sandbox-commands.test.ts` › “with no sandbox, ls and git status run without a box, even where nobody can ask”; `tests/sandbox-app.test.ts` › “with no sandbox here, the banner says so and gives the fix” |
 | `--no-sandbox` is reported on the receipt and in the JSON (`sandbox.held: false`). | `• Shell commands and checks were not sandboxed (--no-sandbox)` | `tests/sandbox-app.test.ts` › “--no-sandbox: the one-shot banner, the receipt and the JSON say shell commands were not sandboxed”; `tests/sandbox-wiring.test.ts` › “with --no-sandbox nothing is wrapped, and the receipt and JSON say so” |
 | A project can only add denies; a repo's `.pi/sandbox.json` is ignored. | `[sandbox] Ignored .pi/sandbox.json: a project can't loosen the sandbox.` | `tests/sandbox-policy.test.ts` › “your own settings add hosts and write folders; a project's settings only add denies”; `tests/sandbox-policy.test.ts` › “a project can't turn the sandbox off; you can”; `tests/sandbox-app.test.ts` › “a repo's .pi/sandbox.json is ignored, and Casper says so” |
 | The compiled Casper carries the seccomp helper (Linux), written to `~/.casper/bin` after a hash check. | — | `tests/release-compile.test.ts` › “the compiled binary carries the sandbox and its seccomp helper, written to ~/.casper/bin after a hash check” |
@@ -174,7 +190,7 @@ Each row names the test that fails without it.
   page they serve can call any address. On macOS they reach only listed hosts.
 - **On Linux the sandbox has its own `localhost`.** A command that goes straight to `localhost` reaches
   the sandbox, not a dev server Casper started; the service tool's `request` reaches those.
-- **Windows, and Linux without bubblewrap**, have no sandbox: the AI's shell asks before each command,
+- **Windows, and Linux without bubblewrap**, have no sandbox: the AI's shell asks before each command that changes something (reads like `ls` don't),
   and your project's checks, services and dev servers run with your permissions and network. Use
   `--no-verify` in a repository you don't trust.
 - **The model provider sees what the AI reads.** Code, file contents and command output go to the

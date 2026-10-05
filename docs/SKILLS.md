@@ -90,8 +90,8 @@ loading off, bundled ones included. `/status` shows `skills    6 indexed (6 bund
 Put a `SKILL.md` in its own folder:
 
 - `~/.casper/skills/<name>/SKILL.md`: yours, trusted.
-- `<project>/.casper/skills/<name>/SKILL.md`: the project's, used only after `/skills inspect` and
-  `/skills trust <id> <sha256>`.
+- `<project>/.casper/skills/<name>/SKILL.md`: the project's, used only after `/skills trust <id>`
+  shows it and you pick `2 Trust it` (scripts can still pass the hash: `/skills trust <id> <sha256>`).
 
 ```markdown
 ---

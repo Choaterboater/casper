@@ -26,7 +26,7 @@ async function fixture(commands: string[] = []) {
     loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
     output: { write(text) {
       output += text;
-      if (text.includes("Type yes:")) setImmediate(() => input.write("yes\n"));
+      if (/Type [\d, ]*\d or \d: $/.test(text)) setImmediate(() => input.write("2\n"));
       if (text === "> " && commands.length) setImmediate(() => input.write(commands.shift()! + "\n"));
     } },
   });
@@ -59,7 +59,7 @@ test("debugger listing is lazy and one-shot launch cannot grant execution consen
 test("interactive debugger commands use fresh approval, no model and close owned processes", async () => {
   const f = await fixture(["/debug start example", "/debug threads", "/debug stack 1", "/debug stop", "/exit"]);
   await f.app.runInteractive(f.project);
-  expect(f.output()).toContain("Debugger execution confirmation");
+  expect(f.output()).toContain("Debugger launch:");
   expect(f.output()).toContain('"state":"stopped"');
   expect(f.output()).toContain('"name":"fixture"');
   expect(f.output()).toContain('"state":"closed"');

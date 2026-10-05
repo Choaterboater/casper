@@ -275,7 +275,7 @@ test("the plain terminal asks Build this plan? with numbers: Enter stops and bui
       const f = await fixture(true);
       try {
         f.input.write(`/plan ${REQUEST}\n`);
-        await f.screen.until((output) => output.includes("Build this plan?") && output.trimEnd().endsWith("(Enter for 1):"));
+        await f.screen.until((output) => output.includes("Build this plan?") && /Type [\d, ]*\d or \d:$/.test(output.trimEnd()));
         expect(f.screen.output).toContain("Casper plan: 2 steps, 2 cases to test.");
         expect(f.screen.output).toContain("  1 Stop · nothing is built");
         expect(f.screen.output).toContain("  2 Build · the model builds these steps and tests these cases (uses tokens)");

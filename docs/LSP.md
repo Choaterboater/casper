@@ -3,7 +3,7 @@
 **What this is:** a *language server* (LSP) is a helper program, the same kind
 your code editor uses, that knows a programming language. Through it the model
 can see compile errors, jump to where a name is defined, find every place a name
-is used, and rename a name across files (you approve each rename). **When you'd use it:** on a
+is used, and rename a name across files (a rename is a normal edit: no box, and undo covers it). **When you'd use it:** on a
 TypeScript or Python project (or any language with a server) where you want
 errors caught right after each edit.
 
@@ -77,7 +77,7 @@ TypeScript Language Server 6.0.0 publishes unversioned diagnostics and may suppr
 
 ## Rename safety
 
-Rename is a language-server operation, not search-and-replace. Casper first snapshots all regular files matching this server's configured extensions, synchronizes them, requests the language-aware edit, validates every target and range, and displays the complete exact edit plan. Interactive users must type `yes`. One-shot mode denies rename. There is no model-supplied approval flag.
+Rename is a language-server operation, not search-and-replace. Casper first snapshots all regular files matching this server's configured extensions, synchronizes them, requests the language-aware edit, validates every target and range, and applies it as a normal edit inside the project, with no box, in a session or a one-shot run, like the AI's other edits.
 
 Before mutation, Casper rescans workspace membership and rechecks every original snapshot and connection identity. Disconnect cancels approval, pending lock acquisition, and remaining writes for that exact connection. In Pi, rename participates in the native per-file mutation queues, using deterministic lock ordering. The approval callback receives a detached copy. Symlinks escaping the root, protected directories (`.git`, `.casper`, `node_modules`), nonregular files, hardlinks, unsupported edit extensions, resource create/delete/rename operations, overlapping edits, and stale versions are rejected. Directory symlinks are not scanned. Rename targets must belong to the captured workspace.
 

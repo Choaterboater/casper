@@ -96,3 +96,19 @@ test("review: when the profile has its own lab list (it wins), /lab import adds 
   expect(await readFile(path.join(dir, ".casper/profiles/default/config.yaml"), "utf8")).toContain("- lab-r2");
   await expect(readFile(path.join(dir, ".casper/config.yaml"), "utf8")).rejects.toThrow();
 });
+
+test("/lab says ssh to lab devices doesn't ask; /lab ssh off makes it ask again, and stays off next session", async () => {
+  const dir = await home();
+  const project = path.join(dir, "project");
+  await mkdir(path.join(project, ".casper"), { recursive: true });
+  await mkdir(path.join(dir, ".casper"), { recursive: true });
+  await writeFile(path.join(dir, ".casper/config.yaml"), "lab:\n  hosts:\n    - lab-r1\n");
+  const first = await session(dir, project, ["/lab", "/lab ssh off", "/lab"], []);
+  expect(first).toContain("ssh and scp to them don't ask first (/lab ssh off turns that off).");
+  expect(first).toContain("[lab] ssh and scp to lab devices ask first again.");
+  expect(first).toContain("ssh and scp to them ask first (/lab ssh on stops that).");
+  const next = await session(dir, project, ["/lab", "/lab ssh on", "/lab ssh maybe"], []);
+  expect(next).toContain("ssh and scp to them ask first (/lab ssh on stops that).");
+  expect(next).toContain("[lab] ssh and scp to lab devices don't ask first.");
+  expect(next).toContain("Use /lab, /lab import <file> or /lab ssh on|off.");
+});

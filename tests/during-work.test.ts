@@ -80,10 +80,11 @@ test("an approval that arrives while a picker is open closes the picker and asks
       yielded.signal.addEventListener("abort", () => resolve("yielded"));
     }));
     await Bun.sleep(20);
-    const answer = s.choose("Reach example.com?\n", "Type yes: ", ["yes"]);
+    const answer = s.approve("Reach example.com?\n", "Allow it?", [{ label: "No" }, { label: "Yes, this once" }]);
     expect(await picked).toBe("yielded");
-    input.write("yes\r");
-    expect(await answer).toBe("yes");
+    await Bun.sleep(20);
+    input.write("2");
+    expect(await answer).toBe("Yes, this once");
   } finally { s.close(); input.destroy(); }
 });
 

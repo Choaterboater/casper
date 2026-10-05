@@ -83,9 +83,9 @@ test("with no sandbox here, the banner says so and gives the fix", async () => {
   const f = await fixture({ sandboxSeams: { engine: fakeEngine(), problem: () => "bubblewrap and socat are missing: sudo apt install bubblewrap socat", platform: "linux" } });
   try {
     await f.app.runOnce("/status", f.project);
-    expect(f.text()).toContain(" shell     not sandboxed (bubblewrap and socat are missing: sudo apt install bubblewrap socat) · Casper asks before each AI shell command\n");
+    expect(f.text()).toContain(" shell     not sandboxed (bubblewrap and socat are missing: sudo apt install bubblewrap socat) · Casper asks before AI shell commands that change things\n");
     await f.app.runOnce("/permissions", f.project);
-    expect(f.text()).toContain("Casper asks before each shell command the AI runs.");
+    expect(f.text()).toContain("Casper asks before each shell command the AI runs, except plain reads like ls or git status.");
   } finally { await f.app.close(); }
 });
 

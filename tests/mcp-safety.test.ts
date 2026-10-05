@@ -6,6 +6,7 @@ import { MCPManager, type MCPManagerOptions, type ServerQuestion, type ServerQue
 import type { MCPServerDefinition } from "../src/mcp/config";
 import { CapabilityBroker, type ApprovalAnswer, type ConfirmCapability, type ConfirmKind } from "../src/capabilities/broker";
 import { formatApproval } from "../src/capabilities/approval";
+import { numberPrompt } from "../src/tui/terminal";
 
 const cleanup: (() => Promise<unknown> | unknown)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -48,7 +49,8 @@ function answering(...answers: ApprovalAnswer[]) {
   const boxes: string[] = [];
   const confirm: ConfirmCapability = async (call) => {
     const box = formatApproval(call.plan, call.lastPreview, call.tool ? { tool: call.tool } : {});
-    boxes.push(box.preview + box.question);
+    // As the plain terminal shows it: the box, its numbered choices, then the prompt.
+    boxes.push(`${box.preview}${box.labels.map((label, index) => `  ${index + 1} ${label}\n`).join("")}${numberPrompt(box.labels.length)}`);
     return answers.shift() ?? false;
   };
   return { confirm, boxes };
@@ -145,7 +147,7 @@ test("p runs the preview first, then asks again with its result", async () => {
   expect(JSON.stringify(result)).toContain("applied");
   const sent = toolCalls(await calls(file)).map((entry) => (entry.arguments as Record<string, unknown>).dry_run);
   expect(sent).toEqual([true, undefined]);
-  expect(boxes[0]).toContain("  2 Preview first\n");
+  expect(boxes[0]).toContain("  4 Preview first\n");
   expect(boxes[0]).toContain("No preview yet.");
   expect(boxes[1]).toContain("Last preview (just now):");
   expect(boxes[1]).not.toContain("hunter2hunter");
@@ -389,7 +391,7 @@ test("ctrl+o ends a session answer for good: turning writes back on doesn't brin
 // --- Risky change kinds (firmware, delete, admin): off by default --------------------------------
 
 /** A kind box that answers from a list and keeps the kinds it was asked about. */
-function kindAnswers(...answers: boolean[]) {
+function kindAnswers(...answers: Array<boolean | "once">) {
   const asked: string[] = [];
   const confirmKind: ConfirmKind = async (ask) => { asked.push(`${ask.server}:${ask.kind}:${ask.realTool}`); return answers.shift() ?? false; };
   return { confirmKind, asked };
@@ -403,6 +405,18 @@ test("a risky kind asks to allow the kind first; no there means the change box n
   expect(asked).toEqual(["network:admin:invite_user"]);
   expect(boxes).toHaveLength(0);
   expect(toolCalls(await calls(file))).toEqual([]);
+});
+
+test("Yes, this once at the kind box allows the kind for that change only: the next one asks about the kind again", async () => {
+  const { confirm, boxes } = answering("yes", "yes");
+  const { confirmKind, asked } = kindAnswers("once", "once");
+  const { broker, file, id } = await setup({ confirm, confirmKind, writesGate: true });
+  await broker.invoke(id("invite_user"), { email: "a@example.com" });
+  expect(broker.kindAllowed("network", "admin")).toBe(false);
+  await broker.invoke(id("invite_user"), { email: "b@example.com" });
+  expect(asked).toHaveLength(2);
+  expect(boxes).toHaveLength(2);
+  expect(toolCalls(await calls(file))).toHaveLength(2);
 });
 
 test("allowing the kind shows the change box next; the same kind later skips the kind box; ctrl+o ends it", async () => {

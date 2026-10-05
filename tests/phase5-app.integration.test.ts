@@ -47,7 +47,7 @@ class ToolRuntime implements AgentRuntime {
   async dispose() {}
 }
 
-test("LSP local commands stay lazy; one-shot rename denied; disconnect removes tool", async () => {
+test("LSP local commands stay lazy; a one-shot rename is a normal edit; disconnect removes tool", async () => {
   const { home, project } = await fixture();
   const runtime = new ToolRuntime();
   const app = new CasperApp({ runtimeFactory: () => runtime, output: { write: () => {} },
@@ -61,9 +61,8 @@ test("LSP local commands stay lazy; one-shot rename denied; disconnect removes t
   await app.runOnce("/lsp connect fixture");
   expect(runtime.starts).toBe(0);
   await app.runOnce("Rename old to new");
-  expect(runtime.result?.isError).toBe(true);
-  expect(runtime.result?.text).toContain("not approved");
-  expect(await readFile(path.join(project, "a.ts"), "utf8")).toBe("old();");
+  expect(runtime.result?.isError).not.toBe(true);
+  expect(await readFile(path.join(project, "a.ts"), "utf8")).toBe("new();");
   await writeFile(path.join(project, "a.ts"), "BROKEN");
   expect(await runtime.options!.afterFileEdit!("a.ts")).toContain("fixture error");
   await app.runOnce("/lsp disconnect fixture");
@@ -71,7 +70,7 @@ test("LSP local commands stay lazy; one-shot rename denied; disconnect removes t
   expect(runtime.tools.some((tool) => tool.name === "lsp")).toBe(false);
 });
 
-test("interactive rename displays exact edits and requires yes", async () => {
+test("an interactive rename is a normal edit: no box, the files change", async () => {
   const { home, project } = await fixture();
   const input = new PassThrough();
   const runtime = new ToolRuntime();
@@ -85,14 +84,14 @@ test("interactive rename displays exact edits and requires yes", async () => {
     output: { write: (text) => {
       output += text;
       if (text === "> ") queueMicrotask(() => input.write(prompts++ === 0 ? "Rename old\n" : "/exit\n"));
-      if (text.includes("Type yes:")) queueMicrotask(() => input.write("yes\n"));
+      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write("2\n"));
     } },
   });
   cleanup.push(() => app.close());
   await app.runOnce("/lsp connect fixture", project);
   await app.runInteractive();
-  expect(output).toContain("LSP rename confirmation");
-  expect(output).toContain('"newText":"new"');
+  expect(output).not.toContain("rename confirmation");
+  expect(output).not.toMatch(/Type [\d, ]*\d or \d: /);
   expect(runtime.result?.isError).not.toBe(true);
   expect(await readFile(path.join(project, "a.ts"), "utf8")).toBe("new();");
 });
@@ -131,11 +130,11 @@ test("real CLI/Pi tool surface appends LSP diagnostics to native writes before t
   expect(payloads[0].tools.filter((tool) => tool.function.name === "lsp")).toHaveLength(1);
   expect(JSON.stringify(payloads[2].messages)).toContain("LSP diagnostics after edit");
   expect(JSON.stringify(payloads[2].messages)).toContain("fixture error");
-  expect(JSON.stringify(payloads.at(-1)!.messages)).toContain("Rename not approved");
-  expect(await readFile(path.join(project, "a.ts"), "utf8")).toBe("old();");
+  // A rename is a normal edit: it applies without a box, in a one-shot run too.
+  expect(JSON.stringify(payloads.at(-1)!.messages)).not.toContain("Rename not approved");
+  expect(await readFile(path.join(project, "a.ts"), "utf8")).toBe("new();");
 
-  // Repeat through the actual interactive CLI to exercise Pi's mutation queues
-  // and exact human confirmation, not just an injected runtime seam.
+  // Repeat through the actual interactive CLI to exercise Pi's mutation queues, not just an injected runtime seam.
   payloads.splice(0);
   const interactive = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), "--lsp", "fixture"], {
     cwd: project, env: cleanEnv({ HOME: home, CASPER_AGENT_DIR: agentDir, PI_CODING_AGENT_DIR: agentDir, CASPER_OFFLINE: "1", PI_TELEMETRY: "0" }), stdin: "pipe", stdout: "pipe", stderr: "pipe",
@@ -143,7 +142,6 @@ test("real CLI/Pi tool surface appends LSP diagnostics to native writes before t
   const interactiveTimer = setTimeout(() => interactive.kill(), 20_000);
   let transcript = "";
   let prompted = false;
-  let approved = false;
   let exited = false;
   const outputWork = (async () => {
     const reader = interactive.stdout.getReader();
@@ -153,15 +151,12 @@ test("real CLI/Pi tool surface appends LSP diagnostics to native writes before t
       if (chunk.done) break;
       transcript += decoder.decode(chunk.value, { stream: true });
       if (!prompted && transcript.endsWith("> ")) { prompted = true; interactive.stdin.write("Inspect and modify a.ts\n"); }
-      if (!approved && transcript.includes("Apply this exact rename? Type yes:")) { approved = true; interactive.stdin.write("yes\n"); }
       if (!exited && transcript.includes("LSP_WORKFLOW_COMPLETE") && transcript.endsWith("> ")) { exited = true; interactive.stdin.write("/exit\n"); }
     }
   })();
   const [, interactiveError, interactiveExit] = await Promise.all([outputWork, new Response(interactive.stderr).text(), interactive.exited]);
   clearTimeout(interactiveTimer);
   expect({ exit: interactiveExit, stderr: interactiveError }).toEqual({ exit: 0, stderr: "" });
-  expect(approved).toBe(true);
-  expect(transcript).toContain('"newText":"new"');
   expect(await readFile(path.join(project, "a.ts"), "utf8")).toBe("new();");
   expect(JSON.stringify(payloads.at(-1)!.messages)).toContain('changed');
 }, 50_000);

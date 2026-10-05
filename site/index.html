@@ -171,7 +171,7 @@ Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
 
       <section aria-labelledby="safety">
         <h2 id="safety">Good to know</h2>
-        <p>On Linux and macOS the AI's shell and Casper's checks run in a <strong>sandbox</strong>: they write only the project, can't read <code>~/.ssh</code>, and reach only listed hosts. Windows has no sandbox yet; there the AI's shell asks before each command. Checks still run your project's own commands without asking. Use it in projects you trust, or start with <code>--no-verify</code>. Your code and chat may go to the model provider you picked. The <a href="faq.html">FAQ</a> has more.</p>
+        <p>On Linux and macOS the AI's shell and Casper's checks run in a <strong>sandbox</strong>: they write only the project, can't read <code>~/.ssh</code>, and reach only listed hosts. Windows has no sandbox yet; there the AI's shell asks before each command that changes something (reads like <code>ls</code> don't). Checks still run your project's own commands without asking. Use it in projects you trust, or start with <code>--no-verify</code>. Your code and chat may go to the model provider you picked. The <a href="faq.html">FAQ</a> has more.</p>
       </section>
 
       <section aria-labelledby="next">

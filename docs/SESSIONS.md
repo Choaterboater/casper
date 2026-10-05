@@ -39,14 +39,14 @@ Copies the current conversation and records the project context. If the policy
 says to isolate experiments (the default) and the project is a Git repo, it also
 creates a clean worktree from the main folder's current commit.
 
-Casper shows the session, Git branch, commit and folder, and you must type `yes`.
-In one-shot mode (`casper "<prompt>"`) it refuses, because there is no one to
+You typed the command, so Casper doesn't ask again: it makes the branch and says
+where it is. In one-shot mode (`casper "<prompt>"`) it refuses, because there is no one to
 answer.
 
 ### `/switch <branch>`
 
-Resumes that branch's conversation and moves Casper to its folder. You must type
-`yes`. Before it moves, Casper disconnects MCP and language-server connections
+Resumes that branch's conversation and moves Casper to its folder, with no second
+question (you typed the command). Before it moves, Casper disconnects MCP and language-server connections
 and removes their tools. It then reads the project context of the new folder,
 and you have to approve connections again. If Casper cannot load the new
 folder's settings, it blocks further commands until it can.
@@ -66,9 +66,9 @@ An experiment in its own worktree cannot use plain `/switch main`. Pick one:
 
 - **`apply`**: Casper runs the configured checks in the experiment folder, then
   captures the full diff. It shows the files, a size summary, the content and a
-  SHA-256 fingerprint of the patch. You type `yes`. Casper applies that exact
+  SHA-256 fingerprint of the patch, then asks `1 No · 2 Yes, this once`. Casper applies that exact
   patch to main **without committing**, then cleans up the worktree and branch.
-- **`discard`**: Casper captures and shows the full diff. You type `yes`. Casper
+- **`discard`**: Casper captures and shows the full diff, then asks `1 No · 2 Yes, this once`. Casper
   cleans up the worktree and branch and does not apply anything.
 
 If a check fails or is blocked, `apply` stops before asking you. Checks that are
@@ -77,7 +77,7 @@ change after you approve, the experiment stays open.
 
 If the experiment's worktree was deleted, or its branch changed (for example a
 detached HEAD), Casper cannot capture a reviewed diff, so `apply` and `discard`
-refuse. Plain `/switch main` is then allowed after you type `yes`. It only
+refuse. Plain `/switch main` is then allowed. It only
 switches the conversation and deletes nothing. `/tree` marks the experiment
 `cleanup pending` so you can check its worktree and `casper/<name>` branch by
 hand.
@@ -155,7 +155,7 @@ run `/branch` and the policy says to isolate.
   `git switch -f` or `--discard-changes`, or `git clean` (except `-n`). Each of
   these can set aside or throw away your uncommitted work. This is a check of
   the command text, not a sandbox; a script or alias can get past it.
-- Approval for branch, switch and worktree steps lasts only for this Casper
+- Approval for applying or discarding an experiment lasts only for this Casper
   process. Files in the project cannot answer an approval prompt.
 - A worktree keeps file changes apart; it is not a security boundary. Since
   v0.2.17 the shell sandbox holds shell commands to the folder you are in, and

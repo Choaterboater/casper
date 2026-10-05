@@ -27,11 +27,10 @@ async function fixture(casper?: unknown) {
 
 interface SessionOptions {
   answers?: string[];
-  yes?: string[];
   model?: (tools: RuntimeTool[]) => Promise<void>;
   runGit?: (argv: string[]) => Promise<{ code: number | null }>;
 }
-/** An interactive session on the plain terminal; `yes` answers each "Type yes:" in order (default yes). */
+/** An interactive session on the plain terminal; `answers` answer each numbered box in order (default 1, No). */
 async function session(home: string, project: string, commands: string[], options: SessionOptions = {}) {
   const runtime: AgentRuntime = {
     async start(start: RuntimeStartOptions) {
@@ -48,7 +47,6 @@ async function session(home: string, project: string, commands: string[], option
   let output = "";
   const pending = [...commands];
   const answers = [...options.answers ?? []];
-  const yes = [...options.yes ?? []];
   const app = new CasperApp({
     runtimeFactory: () => runtime, input, sessionHomeDir: home,
     scrubber: new Scrubber({ env: { PATH: path.join(home, "no-such-bin") } }),
@@ -60,7 +58,6 @@ async function session(home: string, project: string, commands: string[], option
       output += text;
       if (text === "> ") queueMicrotask(() => input.write(`${pending.shift() ?? "/exit"}\n`));
       if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write(`${answers.shift() ?? "1"}\n`));
-      if (text.endsWith("Type yes: ")) queueMicrotask(() => input.write(`${yes.shift() ?? "yes"}\n`));
     } },
   });
   cleanup.push(() => app.close());
@@ -109,7 +106,7 @@ test("/references add lists the spec repos; 1 No downloads nothing; 2 Download r
 
   const declined = await session(home, project, ["/references add pycentral"], { runGit, answers: ["1"] });
   expect(declined.output).toContain("Will run: git -c core.hooksPath=/dev/null clone --depth 1 --filter=blob:none --sparse https://github.com/aruba/pycentral.git ~/.casper/reference-repos/pycentral");
-  expect(declined.output).toContain("Download pycentral?\n  1 No\n  2 Download\nType 1 or 2: ");
+  expect(declined.output).toContain("Download pycentral?");
   expect(declined.output).not.toContain("Type yes");
   expect(declined.output).toContain("Nothing downloaded.");
   expect(runs).toEqual([]);
@@ -142,15 +139,15 @@ test("/mcp docs lists the docs server and adds a docs-only copy with no credenti
     hpe: { command: process.execPath, args: [network, router], cwd: repo,
       env: { FIXTURE_MODE: "hpe-docs", PYTHONPATH: `${repo}/src`, CREDS_PATH: `${repo}/creds.yaml`, HPE_MCP_TOOLSETS: "central,rag", MIST_API_TOKEN: "tok-123456" } },
   } });
-  const declined = await session(home, project, ["/mcp connect hpe", "/mcp docs"], { yes: ["no"] });
+  const declined = await session(home, project, ["/mcp connect hpe", "/mcp docs"], { answers: ["1", "1"] });
   expect(declined.output).toContain("Docs servers: hpe (lookup_api, search_docs, ask_docs). No docs-only server yet.");
   expect(declined.output).toContain("Will add hpe-docs to ~/.casper/mcp.json:");
   expect(declined.output).toContain("  env: PYTHONPATH (no credentials, no device settings)");
-  expect(declined.output).toContain("Add a docs-only copy (no passwords, no device access)? Type yes: ");
+  expect(declined.output).toContain("Add a docs-only copy (no passwords, no device access)?\n");
   expect(declined.output).toContain("Nothing added.");
   expect(declined.output).not.toContain("tok-123456");
 
-  const added = await session(home, project, ["/mcp docs"]);
+  const added = await session(home, project, ["/mcp docs"], { answers: ["2"] });
   expect(added.output).toContain("Added hpe-docs to ~/.casper/mcp.json. Run /mcp reload, then /mcp connect hpe-docs.");
   const file = JSON.parse(await readFile(path.join(home, ".casper/mcp.json"), "utf8"));
   expect(Object.keys(file.mcpServers)).toEqual(["hpe", "hpe-docs"]);
@@ -201,6 +198,6 @@ test("/mcp docs does not copy a router started with extra settings, and says why
   const { output } = await session(home, project, ["/mcp docs"]);
   expect(output).toContain("No docs-only server yet.");
   expect(output).toContain("A router started with extra settings (like --env-file) is not copied");
-  expect(output).not.toContain("Type yes");
+  expect(output).not.toContain("Add a docs-only copy");
   expect(Object.keys(JSON.parse(await readFile(path.join(home, ".casper/mcp.json"), "utf8")).mcpServers)).toEqual(["hpe"]);
 });

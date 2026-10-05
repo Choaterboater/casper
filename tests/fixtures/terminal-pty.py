@@ -143,12 +143,14 @@ def connect_with_writes(s):
     """Connect the fixture, decline remembering it, and turn its writes on (they start off)."""
     s.send("/mcp connect fixture\n")
     s.until("340 tools")
-    s.until("Remember this server?")
-    s.send("1\n")  # 1 Just this time
+    s.until("Remember fixture?")
+    time.sleep(0.5)  # A box ignores keys for a moment after it opens.
+    s.send("1")  # 1 No: one key, no Enter
     s.until("fixture is connected for this session only")
     s.send("/mcp writes fixture\n")
     s.until("fixture writes are off.")
-    s.send("2\n")  # 2 Enable for this server
+    time.sleep(0.5)
+    s.send("2")  # 2 Enable for this server
     s.until("Writes on for fixture. Each change still asks you.")
     s.until("WRITES: fixture · ctrl+o")
 
@@ -223,17 +225,19 @@ def exercise(bun, repo, root, no_color):
         s.send("2")  # "Yes, this once", typed before the box exists.
         s.pump()
         s.release("approval-deny")
-        s.until_new("Type 1, 2, 3 or 4:")
-        assert not s.screen.text().rstrip().endswith("Type 1, 2, 3 or 4: 2"), s.screen.text()
-        s.send("\n")  # Empty fresh answer denies, despite the old '2' draft.
+        s.until_new("Press 1-4")
+        assert "Approval result" not in s.screen.text()[-400:], s.screen.text()
+        time.sleep(0.5)
+        s.send("\n")  # Enter picks 1, No, despite the old '2' draft.
         s.until("Approval result: denied")
         s.until("❯ 2")
         assert s.requests()[-1] == "approval-deny"
         s.send("\x01\x0bapproval-allow\n")
         s.pump()
         s.release("approval-allow")
-        s.until_new("Type 1, 2, 3 or 4:")
-        s.send("2\n")
+        s.until_new("Press 1-4")
+        time.sleep(0.5)
+        s.send("2")  # One key answers the box.
         s.until("Approval result: allowed")
         # Typed before the task ends, the next request would only be kept as a draft. The WRITES badge pushes
         # "idle" past 80 columns, so wait for the idle glyph that leads the footer.
@@ -241,7 +245,7 @@ def exercise(bun, repo, root, no_color):
         s.send("approval-cancel\n")
         s.pump()
         s.release("approval-cancel")
-        s.until_new("Type 1, 2, 3 or 4:")
+        s.until_new("Press 1-4")
         s.send("\x03")
         s.until("Stopped — cancelled")
         approval_lines = (s.root / "approvals.jsonl").read_text().splitlines()
@@ -254,6 +258,9 @@ def exercise(bun, repo, root, no_color):
         s.until("[mcp] Writes off for fixture. Every change asks you again.")
         s.pump(0.3)
         assert "WRITES" not in s.screen.text().splitlines()[-1], s.screen.text()[-500:]
+        # The cancelled task may still be closing: wait for the idle footer before the next command.
+        deadline = time.monotonic() + 5
+        while not s.screen.text().rstrip().endswith("idle") and time.monotonic() < deadline: s.pump(0.05)
         s.send("/login\n")
         s.until("This runtime does not support login")
         assert not any(request.startswith("/") for request in s.requests())
@@ -280,7 +287,7 @@ def exercise_eof(bun, repo, root):
         s.send("approval-eof\n")
         s.pump()
         s.release("approval-eof")
-        s.until_new("Type 1, 2, 3 or 4:")
+        s.until_new("Press 1-4")
         s.send("\x04")
         deadline = time.monotonic() + 5
         while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)

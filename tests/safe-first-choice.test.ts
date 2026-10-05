@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  ADD_LOGIN_CHOICES, REPLACE_LOGIN_CHOICES, ALREADY_FAILING_CHOICES, forgetLoginChoices, APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, allowKindsChoices, kindAllowChoices, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, NETWORK_SETUP_CHOICES, NETWORK_SETUP_UV_CHOICES, NETWORK_UPDATE_CHOICES, REFERENCE_ADD_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
+  ADD_LOGIN_CHOICES, DOCS_COPY_CHOICES, SKILL_TRUST_CHOICES, REPLACE_LOGIN_CHOICES, ALREADY_FAILING_CHOICES, forgetLoginChoices, APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, allowKindsChoices, kindAllowChoices, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, NETWORK_SETUP_CHOICES, NETWORK_SETUP_UV_CHOICES, NETWORK_UPDATE_CHOICES, REFERENCE_ADD_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
   REPAIR_LIMIT_STOP, spendChoices, undoChangedChoices, missingFolderChoices, workFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES, writeChoices,
 } from "../src/app/safe-choices";
 import { planEditorHeading } from "../src/flows/plan";
@@ -34,7 +34,7 @@ const firsts: Array<[string, string, string]> = [
   ["could not start", unfinishedChoices(0, 60_000)[0]!.label, "Stop"],
   ["repair limit", REPAIR_LIMIT_STOP.label, "Stop here"],
   ["Use it as your big model?", REMEMBER_BIG_MODEL_CHOICES[0].label, "No"],
-  ["Remember this server?", MCP_REMEMBER_CHOICES[0], "Just this time"],
+  ["Remember this server?", MCP_REMEMBER_CHOICES[0], "No"],
   ["/mcp writes", MCP_WRITES_CHOICES[0], "Keep writes off"],
   ["security tools install", INSTALL_CHOICES[0], "Stop"],
   ["MCP change", APPROVE_CHOICES[0], "No"],
@@ -50,13 +50,15 @@ const firsts: Array<[string, string, string]> = [
   ["network login", ADD_LOGIN_CHOICES[0], "Not now"],
   ["network login that stopped working", REPLACE_LOGIN_CHOICES[0], "Not now"],
   ["forget a network login", forgetLoginChoices("Mist")[0]!, "Keep the Mist login"],
+  ["/mcp docs: add a docs-only copy", DOCS_COPY_CHOICES[0], "No"],
+  ["/skills trust", SKILL_TRUST_CHOICES[0], "No"],
   ["/mcp allow: keep it", MCP_ALLOW_KEEP_CHOICES[0], "This session"],
   ["advisory download", OSV_UPDATE_QUESTION.choices[0]!, "Stop"],
   ["new ignore", IGNORE_CHOICES[0], "Leave it flagged"],
   ["changed ignore file", IGNORE_FILE_CHOICES[0], "Keep the default"],
   ["build request", newProjectQuestion({ template: "mist-python", name: "mist-aps", kind: "Mist Python project" }, "~/Projects").choices[0]!, "Use this folder"],
-  ["lab check (ansible)", labAskFor("aoscx-check", "ansible-check", [{ name: "sw1", address: "10.0.0.1" }]).choices[0]!, "Skip"],
-  ["lab check (junos commit)", labAskFor("junos-commit", "junos-commit", [{ name: "r1", address: "10.0.0.2" }]).choices[0]!, "Skip"],
+  ["lab check (ansible)", labAskFor("aoscx-check", "ansible-check", [{ name: "sw1", address: "10.0.0.1" }]).choices[0]!, "No"],
+  ["lab check (junos commit)", labAskFor("junos-commit", "junos-commit", [{ name: "r1", address: "10.0.0.2" }]).choices[0]!, "No"],
   ["lab failure", labFailureAsk("junos-commit").choices[0]!, "Stop"],
   ["undo with a file changed since", undoChangedChoices("Undo", 2)[0]!.label, "Cancel"],
   ["redo with a file changed since", undoChangedChoices("Redo", 1)[0]!.label, "Cancel"],
@@ -87,20 +89,20 @@ test("the risky choices still exist, as a deliberate 2 or later", () => {
   expect(modelFailedChoices("fixture/big").map((choice) => choice.label)).toEqual(["Stop", "Retry", "Retry with your big model"]);
   expect(unfinishedChoices(600_000, 2_400_000).map((choice) => choice.label)).toEqual(["Stop", "Retry", "Fix it anyway", "Allow more time", "Allow more time from now on"]);
   expect(unfinishedChoices(600_000, 2_400_000)[0]!.choice).toBeUndefined();
-  expect([...MCP_REMEMBER_CHOICES]).toEqual(["Just this time", "Remember"]);
+  expect([...MCP_REMEMBER_CHOICES]).toEqual(["No", "Yes"]);
   expect([...MCP_WRITES_CHOICES]).toEqual(["Keep writes off", "Enable for this server"]);
   expect([...APPROVE_CHOICES]).toEqual(["No", "Yes, this once", "Yes, for this session"]);
-  expect([...APPROVE_PREVIEW_CHOICES]).toEqual(["No", "Preview first", "Yes, this once", "Yes, for this session"]);
+  expect([...APPROVE_PREVIEW_CHOICES]).toEqual(["No", "Yes, this once", "Yes, for this session", "Preview first"]);
   expect([...APPROVE_ONCE_CHOICES]).toEqual(["No", "Yes, this once"]);
-  expect([...APPROVE_ONCE_PREVIEW_CHOICES]).toEqual(["No", "Preview first", "Yes, this once"]);
+  expect([...APPROVE_ONCE_PREVIEW_CHOICES]).toEqual(["No", "Yes, this once", "Preview first"]);
   expect([...NETWORK_SETUP_CHOICES]).toEqual(["Not now", "Set it up"]);
   expect([...NETWORK_UPDATE_CHOICES]).toEqual(["Not now", "Update it"]);
   expect([...INSTALL_CHOICES]).toEqual(["Stop", "Run what's installed", "Install them"]);
   expect(OSV_UPDATE_QUESTION.choices).toEqual(["Stop", "Download it"]);
   expect(undoChangedChoices("Undo", 2).map((choice) => choice.label)).toEqual(["Cancel", "Undo the other 2 files"]);
   expect(AI_REVIEW_CHOICES.map((choice) => choice.label)).toEqual(["Stop here", "Run the AI review"]);
-  expect(writeChoices("~/apps/x").map((choice) => choice.label)).toEqual(["No", "Allow ~/apps/x for this session"]);
-  expect(REACH_CHOICES.map((choice) => choice.label)).toEqual(["No", "Yes, this time", "Yes, for this session"]);
+  expect(writeChoices("~/apps/x").map((choice) => choice.label)).toEqual(["No", "Yes, this once", "Yes, for this session"]);
+  expect(REACH_CHOICES.map((choice) => choice.label)).toEqual(["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"]);
   expect(missingFolderChoices("Documents", "sample-tools").map((choice) => choice.label)).toEqual(["Stay in Documents", "Make sample-tools here"]);
   expect(workFolderChoices("Documents", "sample-tools").map((choice) => choice.label)).toEqual(["Stay here", "Switch there"]);
   expect(tasksChoices([running("api"), running("web")]).map((choice) => choice.label)).toEqual(["Keep them", "Stop 1", "Stop 2", "Stop all"]);

@@ -51,6 +51,9 @@ Usage:
   casper --verify ...  Casper runs the checks after this run's edits, with bounded repair (auto)
   casper --no-verify   No Casper checks during tasks for this run (off)
   casper --no-sandbox ...  Shell commands and checks run with your own permissions for this run (the receipt says so)
+  casper --allow-host <host> ...  Shell commands may reach this host for this run, without asking (repeat for more)
+  casper --allow-write <folder> ...  Shell commands and the AI's edits may write this folder for this run
+  casper --allow-reach <host> ...  The AI's ssh and scp may reach this machine for this run, without asking
   casper --verbose ... Detailed evidence receipts and per-check lines
   casper --json <prompt>  JSON Lines events on stdout (see docs/SCRIPTING.md); other output to stderr
   casper --json - < f     Read the prompt from stdin (kept out of the process list)
@@ -94,7 +97,7 @@ Local commands:
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
   /permissions                      What each tool may do and when Casper asks you
   /sandbox                          What the shell sandbox holds: write folders, private folders, hosts
-  /sandbox forget <host>            Forget a host you allowed for this project (Always)
+  /sandbox forget <host>            Forget a host or machine you allowed for this project (Yes, always)
   /lab                              Your lab devices: lab checks and the lab list use them
   /lab import <file>                Add devices to your lab list from a file (GreenCLI's lab export, or one host per line); asks first
   /login [provider]                 Codex, Copilot, Anthropic or OpenRouter (Casper's credential store)
@@ -119,7 +122,7 @@ Local commands:
   /skills                           List skills and whether you trust them
   /skills diagnostics               Show why a skill was skipped or warned about
   /skills inspect <id>              Show a skill and its fingerprint (sha256)
-  /skills trust <id> <sha256>       Trust that exact skill text
+  /skills trust <id>                Show a skill, then 1 No · 2 Trust it (exactly what was shown)
   /skills block <id>                Never use this skill
   /mcp                              Show MCP status, secrets hidden (no connection)
   /mcp setup network                Set up Casper's network server (Mist, Central, ClearPass): 1 Not now · 2 Set it up

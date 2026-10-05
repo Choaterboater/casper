@@ -350,3 +350,14 @@ test("casper <folder> opens that folder; a path that is not a folder exits 64", 
   expect(quoted.code).not.toBe(64);
   expect(quoted.stderr).not.toContain("Not a folder");
 }, 30_000); // seven CLI starts in a row
+
+test("--allow-host, --allow-write and --allow-reach allow one host, folder or machine for this run, and may repeat", () => {
+  const options = parseCliArgs(["--allow-host", "api.mist.com", "--allow-host=pypi.org", "--allow-write", "../shared", "--allow-reach", "10.0.0.5", "fix it"]);
+  expect(options.allowHosts).toEqual(["api.mist.com", "pypi.org"]);
+  expect(options.allowWrites).toEqual(["../shared"]);
+  expect(options.allowReach).toEqual(["10.0.0.5"]);
+  expect(options.rest).toEqual(["fix it"]);
+  expect(() => parseCliArgs(["--allow-host"])).toThrow("--allow-host needs a host: --allow-host <host>");
+  expect(() => parseCliArgs(["--allow-write", "--verify", "x"])).toThrow("--allow-write needs a folder: --allow-write <folder>");
+  expect(() => parseCliArgs(["--allow-reach", "a b"])).toThrow("--allow-reach needs a machine: --allow-reach <host>");
+});

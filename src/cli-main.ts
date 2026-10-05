@@ -231,6 +231,8 @@ export async function runCli(): Promise<void> {
     // A slash command (`casper /undo`) is not a path.
     } else if (looksLikePath(word) && !/^\/[A-Za-z][\w-]*$/.test(word)) throw new UsageError(`Not a folder: ${word}`);
   }
+  // --allow-write folders are named from where you typed the command, before --cd moves.
+  const launchedFrom = process.cwd();
   if (options.cd) {
     const folder = path.resolve(options.cd);
     if (!(await stat(folder).then((entry) => entry.isDirectory(), () => false))) throw new UsageError(`--cd: not a folder: ${options.cd}`);
@@ -278,7 +280,12 @@ export async function runCli(): Promise<void> {
   const emit = options.json ? (event: CasperEvent) => { process.stdout.write(formatJsonEvent(event)); } : undefined;
   // Loaded only now: --help, --version and usage errors never need the app.
   const { CasperApp } = await import("./app");
+  // --allow-write folders: ~ is your home folder; others are named from where you typed the command.
+  const home = os.homedir();
+  const allow = { hosts: options.allowHosts ?? [], reach: options.allowReach ?? [],
+    writes: (options.allowWrites ?? []).map((folder) => folder === "~" ? home : folder.startsWith("~/") ? path.join(home, folder.slice(2)) : path.resolve(launchedFrom, folder)) };
   const app = new CasperApp({ verificationMode: verificationFlag(options), verbose: options.verbose, ...(options.noSandbox ? { noSandbox: true } : {}),
+    ...(allow.hosts.length || allow.reach.length || allow.writes.length ? { allow } : {}),
     model: options.model, effort: options.effort, maxTurns: options.maxTurns, startupWarnings,
     // A session says when a newer Casper is out; --json output is for scripts and never does.
     ...(options.json ? {} : { updateCheck: { install: currentInstall(), currentVersion: CASPER_VERSION } }),

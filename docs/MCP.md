@@ -48,8 +48,9 @@ read-only. Only you can approve a call or turn writes on; the AI can't. See
 2. Start Casper and type `/mcp` to see it. It shows `disconnected` until you connect it.
 3. Type `/mcp connect junos`. Casper asks if it should remember the server.
 4. Ask your question, for example "show the BGP summary on my lab router". Each
-   command still asks you first, unless it is a plain `show` command and you typed
-   `/mcp junos-show junos on`.
+   command still asks you first. For a plain `show` command the box offers
+   `3 Yes, show commands on junos for this session`: later show commands run without a
+   box; anything else still asks.
 
 Already set up servers in Claude Code or VS Code? Casper finds them; see the next
 section.
@@ -240,7 +241,7 @@ instead of writing secrets into these files.
 **What Casper never does.** It does not run commands to fetch secrets, set up OAuth
 logins, install servers or write credentials. It writes MCP configuration in one
 case only: `/mcp docs` adds a docs-only server to `~/.casper/mcp.json` after you
-type yes (see [Secrets and docs servers](#secrets-and-docs-servers)).
+pick `2 Add it` (see [Secrets and docs servers](#secrets-and-docs-servers)).
 
 ### Commands
 
@@ -308,14 +309,14 @@ ignored.
 After an interactive `/mcp connect` of your own or an imported server, Casper asks:
 
 ```text
-Remember this server? Next time it connects on its own, with writes off. Every change still asks you.
-  1 Just this time
-  2 Remember
-Type 1 or 2:
+Next time it connects on its own, with writes off. Every change still asks you.
+Remember lab?
+  1 No
+  2 Yes
 ```
 
-`1` (or Enter, or anything other than `2`) connects it for this session only. (Before
-v0.2.16, `1` was Remember; the order changed so Enter is always the safe choice.)
+`1` (or Enter, or Esc) connects it for this session only. (Before v0.2.16, `1` was
+Remember; the order changed so Enter is always the safe choice.)
 
 - **What is stored.** `2` stores a keyed hash (a fingerprint that can't be turned
   back into the values) of the definition: name, start folder, command, arguments,
@@ -386,8 +387,10 @@ How pins work:
 - A plain show command starts with the literal word `show` (no short forms), has
   no `;`, line break or redirection, and uses only the pipes `match`, `except`,
   `count`, `display`, `no-more`, `last`, `find` and `trim` (`| save` is refused).
-- Show commands still ask, unless you type `/mcp junos-show <name> on` for that
-  server in this session (`[mcp] Plain show commands on <name> run without asking.`).
+- Show commands still ask, with `1 No · 2 Yes, this once · 3 Yes, show commands on
+  <name> for this session`. 3, like typing `/mcp junos-show <name> on`, lets plain show
+  commands on that server run without a box until the session ends
+  (`/mcp junos-show <name> off` ends it sooner). Commits and other commands still ask.
   PFE commands always ask.
 - The approval box for `load_and_commit_config` says
   `Note: load_and_commit_config commits right away. No preview and no auto-rollback.`
@@ -495,13 +498,15 @@ The first such call asks about the kind before the change box:
 ```text
 Firmware changes are off by default on Mist.
   Runs: trigger device upgrade
+Allow firmware changes on Mist?
   1 No
-  2 Allow firmware changes for this session
-Type 1 or 2:
+  2 Yes, this once
+  3 Yes, for this session
+Type 1, 2 or 3:
 ```
 
-`2` allows that kind on that server until the session ends, ctrl+o, `/mcp writes off`
-or a disconnect; the change box still asks about each call, with no "for this session"
+`2` allows that kind for this one change. `3` allows it on that server until the session
+ends, ctrl+o, `/mcp writes off` or a disconnect; the change box still asks about each call, with no "for this session"
 answer (risky and disruptive kinds ask every time). `1` runs nothing.
 One-shot runs refuse: `Not executed (Firmware changes are off by default on <server>,
 and this run cannot ask)`.
@@ -512,6 +517,7 @@ config file):
 ```text
 Mist change kinds. Firmware changes, deletes and admin changes are off by default; every change still asks you.
   Allowed now: none
+Which change kinds may Mist make?
   1 Keep the defaults
   2 Allow firmware changes
   3 Allow deletes
@@ -674,11 +680,12 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
   Hidden: wpa_passphrase. The server still gets the real value.
   This makes the change.
   MCP · mist · set_ssid  [write]
-    1 No
+  Make this change?
+  → 1 No
     2 Yes, this once
     3 Yes, for this session
     4 Yes to everything on Mist this session (no more asking, even reboots, deletes or an AI-set confirm)
-  Type 1, 2, 3 or 4:
+  Press 1-4 or Up/Down + Enter · Esc is No
   ```
 
   - The first line names the product (from the preset, else the server) and the real
@@ -706,20 +713,22 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
   - `Yes to everything on <product> this session` (always last) runs it, and no later
     call on that server asks at all: not reboots, not deletes or other risky kinds, not
     a call where the AI set `confirm`. It asks once more (`1 No · 2 Yes to everything`),
-    so a digit typed from habit never grants it. Only you can pick it; the AI can't. It is never
+    so a key pressed from habit never grants it. Only you can pick it; the AI can't. It is never
     remembered, the footer shows `ALLOW ALL: <servers> · ctrl+o`, and ctrl+o,
     `/mcp writes off`, a disconnect or the end of the session ends it. Each call it
     covers is logged as `[approval] allowed (allow all): <server> · <tool>`. A read-only
     login, a hidden tool or a preset's rule still refuses.
-  - `Preview first` (listed second when the tool's own schema has a preview switch) runs
+  - `Preview first` (listed after the yes answers when the tool's own schema has a preview switch, so 2 and 3 mean
+    the same in every change box) runs
     the same call with the switch on (and confirm off), then shows the box again with
     `Last preview (just now)`. It is never offered through a router: Casper can't see
     the real tool's schema, and a server that ignores an unknown `dry_run` would make
     the change. After three previews the box comes once more without it.
-  - Only a digit typed after the box appeared counts: anything typed before it is
-    discarded (`[input] Discarded 1 line(s) entered before this approval appeared.`),
-    and a terminal that can't show the box (TERM=dumb, or output redirected while input
-    is a terminal) is refused.
+  - One key answers it, like every Casper box. Only a key pressed after the box appeared
+    counts: a draft is set aside, keys in the first moment after it opens are ignored,
+    lines typed ahead on the plain terminal are discarded (`[input] Discarded 1 line(s)
+    entered before this question appeared.`), and a terminal that can't show the box
+    (TERM=dumb, or output redirected while input is a terminal) is refused.
   - The transcript records `[approval] allowed`, `allowed for this session`, `allowed
     (this session)`, `allowed (allow all)`, `denied` or `preview first`.
 - **Server questions reach only you.** Some servers ask before a risky action (MCP
@@ -810,8 +819,8 @@ server does**.
     `--env-file`) is not copied. rag.py may still read the repo's own `.env` file;
     it has no device tools either way.
   - It shows what it will add and asks
-    `Add a docs-only copy (no passwords, no device access)? Type yes: `.
-  - On yes it adds `<name>-docs` to `~/.casper/mcp.json`. It only adds: other
+    `Add a docs-only copy (no passwords, no device access)?` with `1 No · 2 Add it`.
+  - On 2 it adds `<name>-docs` to `~/.casper/mcp.json`. It only adds: other
     entries are kept, and an existing name is refused with
     `<name>-docs is already in ~/.casper/mcp.json. Nothing changed.`
   - Then run `/mcp reload` and `/mcp connect <name>-docs`. It needs your approval

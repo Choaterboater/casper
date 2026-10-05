@@ -225,11 +225,11 @@ test("a file you changed after the task: Enter at the question keeps everything;
   try {
     await s.send("fix the greeting in notes.py and add a.py");
     await writeFile(path.join(place.project, "notes.py"), "print('mine')\n");
-    const asked = await s.send("/undo", /Type 1-2 \(Enter for 1\): $/);
+    const asked = await s.send("/undo", /Type 1 or 2: $/);
     expect(asked).toContain("notes.py changed after task 1.\n  1 Cancel · nothing is changed\n  2 Undo the other 1 file · the files you changed since stay as they are\n");
     expect(await s.send("")).toContain("Nothing was changed.");
     expect(await readdir(place.project)).toContain("a.py");
-    await s.send("/undo", /Type 1-2 \(Enter for 1\): $/);
+    await s.send("/undo", /Type 1 or 2: $/);
     const partial = await s.send("2");
     expect(partial).toContain("✓ Undone — 1 file is back as it was before task 1: a.py\n• Left as you changed them: notes.py");
     expect(await readFile(path.join(place.project, "notes.py"), "utf8")).toBe("print('mine')\n");
@@ -457,7 +457,7 @@ test("an undo that put nothing back (you saved the file while Casper asked) can 
   try {
     await s.send("fix the greeting in notes.py and add a.py");
     await writeFile(path.join(place.project, "notes.py"), "print('mine')\n");
-    await s.send("/undo", /Type 1-2 \(Enter for 1\): $/);
+    await s.send("/undo", /Type 1 or 2: $/);
     await writeFile(path.join(place.project, "a.py"), "a = 2\n");
     const answered = await s.send("2");
     expect(answered).toContain("• Nothing was put back for task 1.");
@@ -478,7 +478,7 @@ test("a redo that put nothing back leaves the task undone, so redo can be tried 
     await s.send("fix the greeting in notes.py and add a.py");
     await s.send("/undo 1");
     await writeFile(path.join(place.project, "notes.py"), "print('mine')\n");
-    await s.send("/redo 1", /Type 1-2 \(Enter for 1\): $/);
+    await s.send("/redo 1", /Type 1 or 2: $/);
     await writeFile(path.join(place.project, "a.py"), "a = 9\n");
     expect(await s.send("2")).toContain("• Nothing was put back for task 1.");
     await rm(path.join(place.project, "a.py"));

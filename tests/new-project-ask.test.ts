@@ -276,7 +276,7 @@ test("the plain terminal answers the same question with a typed number", async (
   try {
     await h.until(text => text.includes("> "));
     h.input.write(`${REQUEST}\n`);
-    await h.until(text => text.includes("Type 1-3 (Enter for 1): "));
+    await h.until(text => text.includes("Type 1, 2 or 3: "));
     expect(h.visible()).toContain("Build this as a new Mist Python project in ~/Projects/mist-aps?\n  1 Use this folder\n  2 Yes\n  3 Other kind\n");
     expect(h.starts).toEqual([]);
     h.input.write("2\n");
@@ -359,7 +359,7 @@ test("in an empty folder, Enter (1 Not now) on the plain terminal builds nothing
   const running = h.app.runInteractive(empty);
   try {
     await h.until(text => text.includes("This folder is empty. Start a new project here?"));
-    await h.until(text => text.includes("Type 1-"));
+    await h.until(text => /Type 1(, \d)* or \d: /.test(text));
     expect(h.visible()).toContain("  1 Not now · just work in this folder\n");
     h.input.write("\n");
     await h.until(text => text.endsWith("> "));
@@ -514,7 +514,7 @@ test("typed no or yes answers the build question and is never a project name", a
   try {
     await yes.until(text => text.includes("> "));
     yes.input.write(`${REQUEST}\n`);
-    await yes.until(text => text.includes("Type 1-3 (Enter for 1): "));
+    await yes.until(text => text.includes("Type 1, 2 or 3: "));
     yes.input.write("y\n");
     await yes.until(() => yes.prompts.length === 1);
     expect(yes.created.map(entry => entry.name)).toEqual(["mist-aps"]);
@@ -529,9 +529,9 @@ test("a number that isn't a choice asks again instead of becoming a name", async
   try {
     await h.until(text => text.includes("> "));
     h.input.write(`${REQUEST}\n`);
-    await h.until(text => text.includes("Type 1-3 (Enter for 1): "));
+    await h.until(text => text.includes("Type 1, 2 or 3: "));
     h.input.write("4\n");
-    await h.until(text => text.includes("[new] Pick a number from 1 to 3.") && text.endsWith("Type 1-3 (Enter for 1): "));
+    await h.until(text => text.includes("[new] Pick a number from 1 to 3.") && text.endsWith("Type 1, 2 or 3: "));
     expect(h.visible()).not.toContain("Names use lowercase");
     h.input.write("1\n");
     await h.until(() => h.prompts.length === 1);

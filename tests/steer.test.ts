@@ -107,13 +107,13 @@ test("a queued line never answers an approval box, and Esc puts queued lines bac
     await app.until(() => state.prompts.length === 1);
     app.input.write("yes\r");
     await app.until(text => text.includes("queued · runs when this task ends"));
-    const terminal = (app.app as unknown as { terminal: { confirm(preview: string, question: string): Promise<boolean> } }).terminal;
+    const terminal = (app.app as unknown as { terminal: { approve(preview: string, question: string, options: { label: string }[]): Promise<string | undefined> } }).terminal;
     let settled = false;
-    const approval = terminal.confirm("Reach example.com?\n", "Type yes: ").then(answer => { settled = true; return answer; });
+    const approval = terminal.approve("Reach example.com?\n", "Allow it?", [{ label: "No" }, { label: "Yes, this once" }]).then(answer => { settled = true; return answer; });
     await Bun.sleep(200);
     expect(settled).toBe(false);
     app.input.write("\x1b");
-    expect(await approval).toBe(false);
+    expect(await approval).toBeUndefined();
     // Esc on the running task: the task stops and the queued line comes back as the draft, not as a request.
     app.input.write("\x1b");
     state.gates[0]!.resolve();
