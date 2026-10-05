@@ -12,16 +12,21 @@ interface LoginDisplay {
   browser(url: string): void;
 }
 
+/** The program and arguments that open `url` in the system browser. On Windows not `cmd /c start`: cmd reads the
+ * "&" between a sign-in address's query parts as "run another command" and the browser gets only the first part. */
+export function browserCommand(url: string, platform: NodeJS.Platform = process.platform): string[] {
+  if (platform === "darwin") return ["open", url];
+  if (platform === "win32") return [`${process.env.SystemRoot ?? "C:\\Windows"}\\System32\\rundll32.exe`, "url.dll,FileProtocolHandler", url];
+  return ["xdg-open", url];
+}
+
 /** Open the system browser for a validated authorization URL. Suppressed in offline mode
  * (CASPER_OFFLINE=1), where the URL stays printed for manual opening. The URL itself was already
  * validated (https + known provider origin) before display. */
 function launchBrowser(url: string): boolean {
   if (process.env.CASPER_OFFLINE === "1") return false;
   try {
-    const command = process.platform === "darwin" ? "open"
-      : process.platform === "win32" ? "cmd" : "xdg-open";
-    const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
-    const child = Bun.spawn([command, ...args], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+    const child = Bun.spawn(browserCommand(url), { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
     child.unref();
     return true;
   } catch { return false; }
