@@ -247,7 +247,8 @@ the given port and on `HOST=::1` (and not on IPv4 there), and that a `POST /note
 body is still arriving when SIGTERM is sent gets its 201 before the process exits 0 within
 2 s. Every server it spawns is killed by PID after each test, including when the test
 failed; the check's process group is drained as for every check. It needs IPv6 loopback
-and POSIX signals (a Windows grader cannot deliver a catchable SIGTERM).
+and POSIX signals: a Windows grader cannot deliver a catchable SIGTERM, so the file probes for one
+and skips the shutdown case where it can't (the other cases still grade).
 The prompt states the same contract to both harnesses. Casper also has the fixture's
 `services.api` and `GET /notes` smoke check, which on the start cannot become ready (the
 server ignores the assigned port) and so is incomplete until `PORT` is honored; its readiness

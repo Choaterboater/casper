@@ -26,6 +26,29 @@ async function freePort(host: string): Promise<number> {
   return port;
 }
 
+/** True when a SIGTERM sent from here reaches a handler in a Bun child. On Windows it does not:
+ * Bun's `kill("SIGTERM")` ends the process at once, so graceful shutdown can't be observed there. */
+async function sigtermReachesHandler(): Promise<boolean> {
+  const child = Bun.spawn([process.execPath, "-e",
+    "process.once('SIGTERM', () => { console.log('caught'); process.exit(0); }); console.log('ready'); setInterval(() => {}, 1000);"],
+  { stdout: "pipe", stderr: "ignore" });
+  const timer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+  const reader = child.stdout.getReader();
+  const decoder = new TextDecoder();
+  let output = "";
+  let signalled = false;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    output += decoder.decode(value, { stream: true });
+    if (!signalled && output.includes("ready")) { signalled = true; child.kill("SIGTERM"); }
+  }
+  clearTimeout(timer);
+  await child.exited;
+  return output.includes("caught");
+}
+const catchableSigterm = await sigtermReachesHandler();
+
 const connects = (host: string, port: number) => new Promise<boolean>((resolve) => {
   const socket = net.connect({ host, port });
   socket.once("connect", () => { socket.destroy(); resolve(true); });
@@ -93,7 +116,7 @@ test("the server listens on the HOST it is given, including IPv6 loopback", asyn
   expect(ipv4).toBeNull();
 }, 10_000);
 
-test("on SIGTERM an in-flight request still completes, then the server exits 0 within 2 s", async () => {
+test.skipIf(!catchableSigterm)("on SIGTERM an in-flight request still completes, then the server exits 0 within 2 s", async () => {
   const server = await start();
   const body = JSON.stringify({ title: "drained" });
   const socket = net.connect({ host: server.host, port: server.port });

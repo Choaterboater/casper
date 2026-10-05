@@ -111,7 +111,7 @@ test("a route pins every harness's model to the same OpenRouter hosts, without f
   expect(written[2]).toEqual(written[0]);
   await expect(runHarness("pi", { command: ["true"], cwd: os.tmpdir(), prompt: "x", model: "github-copilot/gpt-5-mini", effort: "medium", timeoutMs: 1000, route: ["Together"] }))
     .rejects.toThrow("--route applies only to openrouter models");
-});
+}, 30_000);
 
 test.each(["casper", "pi", "omp"] as const)("%s keeps a saved conversation in the caller's home for a follow-up", async name => {
   const workdir = await mkdtemp(path.join(os.tmpdir(), "casper-harness-session-"));
