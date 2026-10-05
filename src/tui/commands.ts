@@ -1,4 +1,4 @@
-import type { SlashCommand } from "@earendil-works/pi-tui";
+import { type SlashCommand, visibleWidth } from "@earendil-works/pi-tui";
 
 /** Discoverability only: command dispatch and authorization remain in CasperApp. */
 export const COMMANDS: SlashCommand[] = [
@@ -61,4 +61,22 @@ export function runsDuringWork(line: string): boolean {
     || /^\/tasks(?:\s+stop\s+(?:\d+|all))?$/.test(line)
     || /^\/pane(?:\s+(?:on|off))?$/.test(line)
     || /^\/effort(?:\s+[^\s-]\S*(?:\s+--session)?)?$/.test(line);
+}
+
+/** Pi's command menu cuts a long description at the column, mid-word and with no mark. Trimmed here first: it ends at
+ * a word, with "…". Mirrors Pi's slash-menu layout (a 12-32 column label, two columns of margin); verified against
+ * @earendil-works/pi-tui 0.87.0 (SelectList.renderItem). `width` is the menu's width. */
+export function fitDescriptions<T extends { value: string; label?: string; description?: string }>(items: readonly T[], width: number): T[] {
+  if (width <= 40) return [...items];
+  const widest = Math.max(0, ...items.map(item => visibleWidth(item.label || item.value)));
+  const column = Math.min(Math.max(widest + 2, 12), 32, width - 6);
+  const room = width - 2 - column - 2;
+  if (room <= 10) return [...items];
+  return items.map(item => {
+    const text = item.description;
+    if (!text || visibleWidth(text) <= room) return item;
+    const cut = text.slice(0, room - 1);
+    const space = cut.lastIndexOf(" ");
+    return { ...item, description: `${(space > room / 2 ? cut.slice(0, space) : cut).trimEnd()} …` };
+  });
 }

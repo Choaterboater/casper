@@ -101,3 +101,14 @@ test("while working, typing / still shows the commands, and the ones that wait s
     expect(screen()).toContain("waits for this task");
   } finally { s.close(); input.destroy(); }
 });
+
+test("a command description too long for the menu ends at a word with …, never mid-word", async () => {
+  const { fitDescriptions } = await import("../src/tui/commands");
+  const items = [{ value: "model", label: "model", description: "Change model (remembered globally; --session for temporary)" }, { value: "exit", label: "exit", description: "Leave Casper" }];
+  // 60 columns: the label column is 12 wide, so 60 - 2 - 12 - 2 = 44 columns are left for the description.
+  const [model, exit] = fitDescriptions(items, 60);
+  expect(model!.description).toBe("Change model (remembered globally; …");
+  expect(model!.description!.length).toBeLessThanOrEqual(44);
+  expect(exit!.description).toBe("Leave Casper");
+  expect(fitDescriptions(items, 200)).toEqual(items);
+});

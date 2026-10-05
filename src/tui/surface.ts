@@ -3,7 +3,7 @@ import {
   matchesKey, setCapabilityOverrides, TuiMainScreen, truncateToWidth, visibleWidth, wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
-import { COMMANDS, RUNS_DURING_WORK } from "./commands";
+import { COMMANDS, fitDescriptions, RUNS_DURING_WORK } from "./commands";
 import { BUSY_GLYPH, hasTerminalControls, markdownTheme, paint, PROMPT_GLYPH, terminalText } from "./format";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
@@ -410,8 +410,9 @@ private updateSpinner(): void {
         getSuggestions: async (...args) => {
           const result = await provider.getSuggestions(...args);
           if (!result) return null;
-          return { ...result, items: result.items.filter(item =>
-            [item.value, item.label, item.description ?? ""].every(value => !hasTerminalControls(value) && !/[\r\n\t]/.test(value))) };
+          const items = result.items.filter(item =>
+            [item.value, item.label, item.description ?? ""].every(value => !hasTerminalControls(value) && !/[\r\n\t]/.test(value)));
+          return { ...result, items: result.prefix.startsWith("/") ? this.fitMenu(items) : items };
         },
         applyCompletion: (lines, row, col, item, prefix) => {
           if (prefix.startsWith("/") && lines.length === 1 && !/\s/.test(lines[0]!)) {
@@ -454,9 +455,13 @@ private updateSpinner(): void {
     this.editor.setAutocompleteProvider({ ...provider, getSuggestions: async (...args) => {
       const result = await provider.getSuggestions(...args);
       if (!result?.prefix.startsWith("/")) return result;
-      return { ...result, items: result.items.map(item => RUNS_DURING_WORK.has(item.value) ? item
-        : { ...item, label: this.muted(item.label || item.value), description: `waits for this task${item.description ? ` · ${item.description}` : ""}` }) };
+      return { ...result, items: this.fitMenu(result.items.map(item => RUNS_DURING_WORK.has(item.value) ? item
+        : { ...item, label: this.muted(item.label || item.value), description: `waits for this task${item.description ? ` · ${item.description}` : ""}` })) };
     } });
+  }
+  /** Command descriptions trimmed to the menu at a word, with "…" (see fitDescriptions). */
+  private fitMenu<T extends { value: string; label?: string; description?: string }>(items: T[]): T[] {
+    return fitDescriptions(items, Math.max(1, (this.io.output.columns ?? 80) - GUTTER));
   }
   private render(): void { if (this.started && !this.closed) this.tui.requestRender(); }
   write(text: string): void {
