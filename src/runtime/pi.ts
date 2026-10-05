@@ -519,6 +519,10 @@ export class PiRuntime implements AgentRuntime {
   private authWork?: Promise<RuntimeAuthenticationResult>;
   private readOnly = false;
   private starting = false;
+  /** The session's home folder: model defaults and ~ in tool paths resolve against it. */
+  private readonly home: string;
+
+  constructor(options: { homeDir?: string } = {}) { this.home = options.homeDir ?? os.homedir(); }
 
   async authenticate(options: RuntimeAuthenticationOptions): Promise<RuntimeAuthenticationResult> {
     if (this.readOnly || this.starting || this.authWork || this.wrapper?.busy || this.models?.busy || this.lifetime.signal.aborted) {
@@ -568,7 +572,7 @@ export class PiRuntime implements AgentRuntime {
     const agentDir = getAgentDir();
     if (readOnly) await checkReadOnlyState(readOnly, agentDir);
     const modelRuntime = await ModelRuntime.create({ authPath: `${agentDir}/auth.json`, modelsPath: `${agentDir}/models.json`, signal: readOnly?.signal });
-    const models = this.models = new PiModels(modelRuntime, agentDir);
+    const models = this.models = new PiModels(modelRuntime, agentDir, this.home);
     const tools = new PiToolController(options.tools ?? []);
     let limitReason: string | undefined;
     let toolCalls = 0;
@@ -578,7 +582,7 @@ export class PiRuntime implements AgentRuntime {
 
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
       readOnly?.signal.throwIfAborted();
-      const pathContext = { root: cwd, home: os.homedir(), agentDir, ...(options.privatePaths?.length ? { denyRead: options.privatePaths } : {}) };
+      const pathContext = { root: cwd, home: this.home, agentDir, ...(options.privatePaths?.length ? { denyRead: options.privatePaths } : {}) };
       const extensionFactory = (pi: ExtensionAPI) => {
         // Runs after the runtime's own attribution, so Casper's identity replaces Pi's. With
         // CASPER_TELEMETRY=0 there is none to add, and the runtime's is off too (agent-store.ts).
