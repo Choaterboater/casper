@@ -8,6 +8,7 @@ import { within } from "../src/platform/project-paths";
 import { cachePaths, clangModuleCache, hostListed, REGISTRY_HOSTS, sandboxPolicy } from "../src/sandbox/policy";
 import { SandboxStore } from "../src/sandbox/store";
 import { posixOnly } from "./support/platform";
+import { waitUntil } from "./support/wait";
 
 /** A temp folder as the policy stores it: resolved, so C:\tmp-fixture on Windows. */
 const TMP = path.resolve("/tmp-fixture");
@@ -207,12 +208,24 @@ test("a commondir a command writes into the project's .git is removed at once an
   const { home, root } = await fixture();
   const notes: string[] = [];
   const sandbox = new ShellSandbox({ root: () => root, home, tempDirs: [], platform: "linux", engine: passThroughEngine(), problem: () => undefined, note: (line) => notes.push(line) });
-  await sandbox.wrap("true", { cwd: root });
+  const removed = `a command wrote it, and it would point git at another folder's settings and hooks.`;
   const pointer = path.join(root, ".git", "commondir");
+  const exists = () => stat(pointer).then(() => true, () => false);
+  // While a command runs, the folder is watched. macOS can drop an event that comes just after its watch starts,
+  // so the watch is checked where it is live at once (Linux, Windows).
+  if (process.platform !== "darwin") {
+    await sandbox.wrap("true", { cwd: root });
+    await writeFile(pointer, "../elsewhere\n");
+    expect(await waitUntil(async () => !await exists())).toBe(true);
+    expect(notes).toEqual([`[sandbox] Removed ${pointer}: ${removed}`]);
+    notes.length = 0;
+  }
+  // When the command that wrote it ends, it is gone, watched or not.
+  const run = await sandbox.wrap("true", { cwd: root });
   await writeFile(pointer, "../elsewhere\n");
-  for (let attempt = 0; attempt < 500 && await stat(pointer).then(() => true, () => false); attempt++) await Bun.sleep(20);
-  expect(await stat(pointer).then(() => true, () => false)).toBe(false);
-  expect(notes).toEqual([`[sandbox] Removed ${pointer}: a command wrote it, and it would point git at another folder's settings and hooks.`]);
+  sandbox.finished(run.id);
+  expect(await exists()).toBe(false);
+  expect(notes).toEqual([`[sandbox] Removed ${pointer}: ${removed}`]);
   await sandbox.close();
 
   const { root: yours, home: home2 } = await fixture();
