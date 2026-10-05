@@ -263,10 +263,12 @@ test("/mcp shows each server's limits and, for a failed start, the server's last
     output: { write: (text) => { output += text; } },
   });
   cleanup.push(() => app.close());
-  await app.runOnce("/mcp connect broken", project).catch(() => {});
+  const error = await app.runOnce("/mcp connect broken", project).then(() => undefined, (caught: Error) => caught);
   expect(output).toContain("  limits: start 20 s · call 90 s");
   expect(output).toContain("  limits: start 20 s · call 400 s");
-  expect(output).toContain("  The server stopped while starting (exit code 1).\n  Last lines from the server:\n");
+  expect(output).toContain("  Last lines from the server:\n");
+  // The reason comes once, after the server's own lines, as the command's error.
+  expect(error?.message).toBe("broken did not start: The server stopped while starting (exit code 1).");
   expect(output).toContain("    | KeyError: 'CENTRAL_BASE_URL'");
   expect(output).not.toContain("hunter2-very-secret");
   expect(output).not.toContain("abc123");
@@ -460,4 +462,22 @@ test("a failing clock hook stops the call before it is sent and keeps the connec
   expect(failure).toBeInstanceOf(NotExecutedError);
   expect((failure as Error).message).toBe("Not executed (could not prepare the call)");
   expect(mcp.status()[0]?.state).toBe("ready");
+});
+
+test("/mcp connect to a server that can't start says why once, with no second generic error", async () => {
+  const { CasperApp } = await import("../src/app");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-mcp-missing-"));
+  let output = "";
+  const missing: MCPServerDefinition = { ...definition("missing"), transport: { type: "stdio", command: "casper-no-such-cmd", args: [], env: {} } };
+  const app = new CasperApp({ output: { write: (text) => { output += text; } }, runtimeFactory() { throw new Error("No model expected"); }, sessionHomeDir: root,
+    loadMCPConfiguration: async () => ({ servers: [{ ...missing, source: "user" } as never], diagnostics: [] }) });
+  try {
+    const error = await app.runOnce("/mcp connect missing", root).then(() => undefined, (caught: Error) => caught);
+    expect(error?.message).toBe("missing did not start: Command not found: casper-no-such-cmd");
+    expect(output).not.toContain("Command not found");
+    expect(error?.message).not.toContain("no tools exposed");
+  } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
 });

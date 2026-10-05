@@ -196,6 +196,18 @@ export function classifyCallError(error: unknown): CallErrorKind {
   return "server-answered";
 }
 
+/** Where to get the launchers MCP servers usually start with: the step after "Command not found". */
+const INSTALL_HINTS: Record<string, string> = {
+  uvx: "It comes with uv: https://docs.astral.sh/uv/getting-started/installation/",
+  uv: "Install uv: https://docs.astral.sh/uv/getting-started/installation/",
+  npx: "It comes with Node.js: https://nodejs.org/",
+  node: "Install Node.js: https://nodejs.org/",
+  bunx: "It comes with Bun: https://bun.sh/",
+  docker: "Install Docker: https://docs.docker.com/get-docker/",
+  python3: "Install Python: https://www.python.org/downloads/",
+  python: "Install Python: https://www.python.org/downloads/",
+};
+
 const DO_NOT_RETRY = "It may have run. Do not retry on your own; tell the user.";
 
 /**
@@ -214,7 +226,9 @@ export function describeFailure(error: unknown, context: FailureContext): string
   if (error instanceof MissingEnvironmentError) return error.message;
   if (errorCode(error) === "ENOENT") {
     const command = context.command ?? (error as { path?: unknown }).path;
-    return typeof command === "string" && command ? `Command not found: ${redactServerText(command, secrets)}` : "Command not found.";
+    if (typeof command !== "string" || !command) return "Command not found.";
+    const install = INSTALL_HINTS[command.split(/[\\/]/).pop()!.replace(/\.(?:exe|cmd)$/i, "")];
+    return `Command not found: ${redactServerText(command, secrets)}${install ? `. ${install}` : ""}`;
   }
   const http = httpError(error);
   if (http) {

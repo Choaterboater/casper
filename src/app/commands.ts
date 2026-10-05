@@ -816,7 +816,8 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       ...approvalLines(status),
       ...(status.preset?.lines ?? []).map((line) => `  ${terminalText(line)}`),
       ...(status.showOptIn ? ["  Plain show commands run without asking (/mcp junos-show " + status.name + " off)."] : []),
-      ...(status.error ? [`  ${terminalText(status.error)}`] : []),
+      // The server just asked for says why in the error below, once.
+      ...(status.error && !(action === "connect" && status.name === name) ? [`  ${terminalText(status.error)}`] : []),
       // Already redacted by the manager (known secrets and token shapes); shown to you, never to the model.
       ...(status.serverOutput?.length ? ["  Last lines from the server:", ...status.serverOutput.map((line) => `    | ${terminalText(line)}`)] : []),
     ].join("\n")).join("\n") + `\n${statuses.some((status) => status.writes === "off") ? `${WRITES_OFF_TEXT}\n` : ""}` : "No MCP servers configured.\n");
@@ -825,9 +826,8 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       const line = await networkSetupLine(network.homeDir, await network.configured());
       if (line) host.output.write(`${line}\n`);
     }
-    if (action === "connect" && statuses.find((status) => status.name === name)?.state !== "ready") {
-      throw new Error("MCP connection failed; no tools exposed");
-    }
+    const asked = action === "connect" ? statuses.find((status) => status.name === name) : undefined;
+    if (asked && asked.state !== "ready") throw new Error(`${name} did not start${asked.error ? `: ${terminalText(asked.error)}` : "."}`);
     if (action === "connect") await offerRemember(host, name!);
   }
 
