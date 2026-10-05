@@ -9,6 +9,7 @@ import { resolveVisualizationSettings, VisualizationRouter } from "../src/visual
 import { describeVisualization, visualizationTools } from "../src/visualize/tools";
 import { GRAPH_LIMITS, parseVisualizationGraph, spanningTree, type VisualizationGraph, type VisualizationProvider } from "../src/visualize/types";
 import { classifyTask } from "../src/task/classify";
+import { artifactFilesystemSupported } from "../src/visualize/artifacts";
 import { needsSymlinks } from "./support/platform";
 
 const cleanup: (() => Promise<unknown>)[] = [];
@@ -206,7 +207,10 @@ test("MindMesh synthetic root cannot collide with graph ids and keeps every node
   expect(map.nodes["map1: root"]!.extensions!.casper).toMatchObject({ syntheticRoot: true, graphType: "mindmap" });
 });
 
-test("router renders configured providers in order, writes artifacts outside the workspace, and never overwrites", async () => {
+// Artifact files are written only on macOS and Linux (see src/visualize/artifacts.ts); elsewhere the diagram stays in-conversation.
+const needsArtifactFiles = test.skipIf(!artifactFilesystemSupported);
+
+needsArtifactFiles("router renders configured providers in order, writes artifacts outside the workspace, and never overwrites", async () => {
   const out = await tempDir("casper-viz-out-");
   let tick = 0;
   const router = new VisualizationRouter({ workspaceRoot: await tempDir("casper-viz-workspace-"),
@@ -233,7 +237,20 @@ test("router renders configured providers in order, writes artifacts outside the
     "2026-01-01T00-00-00-000Z-authentication-flow-2.mermaid.mmd",
   ]);
   expect(await readFile(rendered.artifacts[1]!.path, "utf8")).toBe((await new MermaidProvider().render(authFlow)).content);
+});
 
+test.skipIf(artifactFilesystemSupported)("where artifact files aren't supported, a set outputDir keeps the diagram in-conversation and says why", async () => {
+  const out = await tempDir("casper-viz-out-");
+  const router = new VisualizationRouter({ workspaceRoot: await tempDir("casper-viz-workspace-"), providers: [new MermaidProvider()], settings: { providers: ["mermaid"], outputDir: out } });
+  const rendered = await router.render(authFlow);
+  expect(rendered.artifacts).toEqual([]);
+  expect(rendered.artifactNote).toContain("require macOS or Linux");
+  expect(rendered.primary.content).toBe((await new MermaidProvider().render(authFlow)).content);
+  expect(await readdir(out)).toEqual([]);
+});
+
+test("router keeps a disabled outputDir in-conversation, falls back past a provider that can't render, and stops when cancelled", async () => {
+  const out = await tempDir("casper-viz-out-");
   const disabled = new VisualizationRouter({ workspaceRoot: await tempDir("casper-viz-workspace-"), providers: [new MermaidProvider()], settings: { providers: ["mermaid"], outputDir: null } });
   const inline = await disabled.render(authFlow);
   expect(inline.artifacts).toEqual([]);
@@ -256,7 +273,7 @@ test("router renders configured providers in order, writes artifacts outside the
 });
 
 test("visualization settings: defaults outside the workspace, tilde expansion, project may only disable", () => {
-  const home = "/tmp/casper-home";
+  const home = path.resolve("/tmp/casper-home");
   const base = { projectName: "My Repo!", homeDir: home };
   expect(resolveVisualizationSettings({ ...base, layers: [] })).toEqual({ providers: ["mermaid", "mindmesh"], outputDir: path.join(home, ".casper/visualizations/my-repo") });
   expect(resolveVisualizationSettings({ ...base, layers: [
@@ -422,7 +439,7 @@ test("regression: oversized sources are skipped without crashing and are disclos
   expect(repo.notes).toContain("1 file(s) over 1 MiB were not parsed for imports.");
 });
 
-test("regression: concurrent renders with identical titles and timestamps get distinct artifact names", async () => {
+needsArtifactFiles("regression: concurrent renders with identical titles and timestamps get distinct artifact names", async () => {
   const out = await tempDir("casper-viz-race-");
   const router = new VisualizationRouter({ workspaceRoot: await tempDir("casper-viz-workspace-"), providers: [new MermaidProvider()], settings: { providers: ["mermaid"], outputDir: out }, now: () => new Date(0) });
   const graph: VisualizationGraph = { type: "plan", title: "Same", nodes: [{ id: "a", label: "A" }], edges: [] };
