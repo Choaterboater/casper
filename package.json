@@ -10,11 +10,12 @@
   "scripts": {
     "dev": "bun run src/cli.ts",
     "typecheck": "tsc --noEmit",
+    "lint": "oxlint",
     "test": "bun test --parallel --timings=tests/timings.json --path-ignore-patterns='tests/eval-*' --path-ignore-patterns='tests/phase10-debugger-real.test.ts' && bun test tests/phase10-debugger-real.test.ts",
     "test:timings": "bun test --parallel --timings=tests/timings.json --update-timings --path-ignore-patterns='tests/eval-*' --path-ignore-patterns='tests/phase10-debugger-real.test.ts'",
     "test:evals": "bun test --parallel tests/eval-",
     "build:release": "bun run scripts/build-release.ts",
-    "check": "bun run typecheck && bun run test"
+    "check": "bun run typecheck && bun run lint && bun run test"
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.77",
@@ -32,6 +33,7 @@
   "devDependencies": {
     "@types/node": "^22.15.30",
     "bun-types": "^1.3.0",
+    "oxlint": "1.87.0",
     "pyright": "1.1.414",
     "typescript": "^5.9.3",
     "typescript-language-server": "6.0.0"
