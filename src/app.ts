@@ -2928,6 +2928,7 @@ export class CasperApp {
       const box = formatApproval(call.plan, call.lastPreview, {
         product: this.mcp?.productLabel(call.plan.server), ...(call.product ? { toolProduct: PRODUCT_LABELS[call.product] } : {}),
         ...(scope ? { scope } : {}), ...(call.tool ? { tool: call.tool } : {}),
+        ...(call.showOnly ? { showOnly: true } : {}),
       });
       // The same channel as /mcp writes: only a key pressed after the box appeared answers it.
       const picked = await this.approveBox(box.preview, box.question, box.labels, signal);
@@ -2945,7 +2946,8 @@ export class CasperApp {
       // A call you allowed that can change things: undo can't reach it, and /undo says so.
       if ((result === "yes" || result === "yes-session" || result === "allow-all") && planLabel(call.plan) !== "read") this.taskChangeServers.add(call.plan.server);
       if (!this.closing) {
-        const said = { yes: "allowed", "yes-session": "allowed for this session", "allow-all": "allowed (allow all)", preview: "preview first", no: "denied" }[result];
+        const said = { yes: "allowed", "yes-session": "allowed for this session", "allow-all": "allowed (allow all)", preview: "preview first", no: "denied",
+          "show-session": `allowed show commands on ${terminalText(call.plan.server)} for this session` }[result];
         this.output.write(`[approval] ${said}\n`);
       }
       return result;

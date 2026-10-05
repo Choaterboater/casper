@@ -357,7 +357,7 @@ Type 1 or 2:
           <li>uses only the pipes <code>match</code>, <code>except</code>, <code>count</code>, <code>display</code>, <code>no-more</code>, <code>last</code>, <code>find</code> and <code>trim</code> (<code>| save</code> is refused).</li>
         </ul>
         <div class="prose">
-          <p>Show commands still ask, unless you type <code>/mcp junos-show junos on</code> for that server in this session. PFE commands always ask. And <code>load_and_commit_config</code> gets a plain warning in its box: <code>load_and_commit_config commits right away. No preview and no auto-rollback.</code></p>
+          <p>Show commands still ask, with <code>3 Yes, show commands on junos for this session</code> in the box (or type <code>/mcp junos-show junos on</code>); after that, plain show commands on that server run without a box, and everything else still asks. PFE commands always ask. And <code>load_and_commit_config</code> gets a plain warning in its box: <code>load_and_commit_config commits right away. No preview and no auto-rollback.</code></p>
         </div>
         <aside class="callout tip">
           <strong class="callout-title">Learning Junos?</strong>

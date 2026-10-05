@@ -48,8 +48,9 @@ read-only. Only you can approve a call or turn writes on; the AI can't. See
 2. Start Casper and type `/mcp` to see it. It shows `disconnected` until you connect it.
 3. Type `/mcp connect junos`. Casper asks if it should remember the server.
 4. Ask your question, for example "show the BGP summary on my lab router". Each
-   command still asks you first, unless it is a plain `show` command and you typed
-   `/mcp junos-show junos on`.
+   command still asks you first. For a plain `show` command the box offers
+   `3 Yes, show commands on junos for this session`: later show commands run without a
+   box; anything else still asks.
 
 Already set up servers in Claude Code or VS Code? Casper finds them; see the next
 section.
@@ -386,8 +387,10 @@ How pins work:
 - A plain show command starts with the literal word `show` (no short forms), has
   no `;`, line break or redirection, and uses only the pipes `match`, `except`,
   `count`, `display`, `no-more`, `last`, `find` and `trim` (`| save` is refused).
-- Show commands still ask, unless you type `/mcp junos-show <name> on` for that
-  server in this session (`[mcp] Plain show commands on <name> run without asking.`).
+- Show commands still ask, with `1 No · 2 Yes, this once · 3 Yes, show commands on
+  <name> for this session`. 3, like typing `/mcp junos-show <name> on`, lets plain show
+  commands on that server run without a box until the session ends
+  (`/mcp junos-show <name> off` ends it sooner). Commits and other commands still ask.
   PFE commands always ask.
 - The approval box for `load_and_commit_config` says
   `Note: load_and_commit_config commits right away. No preview and no auto-rollback.`

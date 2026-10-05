@@ -38,8 +38,9 @@ test.each(boxes)("%s: the yes-words it offers come first, in order, with the sam
   const offered = choices.filter((label) => (YES_WORDS as readonly string[]).includes(label));
   expect(choices.slice(0, offered.length)).toEqual(offered);
   expect(offered).toEqual(YES_WORDS.filter((word) => offered.includes(word)));
-  // A yes always reads as one of the four (the MCP box's own "Yes to everything on <product>" aside).
-  for (const label of choices) if (/^yes\b/i.test(label) && !label.startsWith("Yes to everything")) expect(YES_WORDS as readonly string[]).toContain(label);
+  // A yes always reads as one of the four (the MCP box's own "Yes to everything on <product>" and the Junos box's
+  // "Yes, show commands on <server> for this session" aside).
+  for (const label of choices) if (/^yes\b/i.test(label) && !/^Yes(?: to everything|, show commands on)/.test(label)) expect(YES_WORDS as readonly string[]).toContain(label);
   // 2 is "Yes, this once" wherever a box offers it.
   if (offered.includes(YES_ONCE)) expect(choices[1]).toBe(YES_ONCE);
 });

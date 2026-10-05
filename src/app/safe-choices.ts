@@ -79,6 +79,12 @@ export const APPROVE_PREVIEW_CHOICES = [NO, YES_ONCE, YES_SESSION, "Preview firs
 export const APPROVE_ONCE_CHOICES = [NO, YES_ONCE] as const;
 export const APPROVE_ONCE_PREVIEW_CHOICES = [NO, YES_ONCE, "Preview first"] as const;
 
+/** A plain Junos show command's box, third: the same switch as /mcp junos-show <server> on, for this session.
+ * Changes and other commands on that server still ask. */
+export function junosShowLabel(server: string): string {
+  return `Yes, show commands on ${server} for this session`;
+}
+
 /** The change box's last choice: no more boxes on this server for the session, for any change (reboots, deletes, risky
  * kinds, an AI-set confirm). Only the person picks it; ctrl+o, writes off or a disconnect end it; it is never stored. */
 export function approveAllLabel(product: string): string {

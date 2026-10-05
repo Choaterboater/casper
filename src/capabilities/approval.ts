@@ -13,7 +13,7 @@
  * Secret text inside config strings goes through the shared secret rules (src/secrets/scrub.ts
  * scrubText) by default; `MaskOptions.scrubText` can replace them.
  */
-import { APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, approveAllLabel, kindAllowChoices } from "../app/safe-choices";
+import { APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, approveAllLabel, junosShowLabel, kindAllowChoices } from "../app/safe-choices";
 import type { MCPTool } from "../mcp/manager";
 import { isSecretKey as isScrubbedKey, scrubText } from "../secrets/scrub";
 import { redactPreview, terminalText } from "../tui/format";
@@ -433,7 +433,7 @@ export function sessionAllowed(label: CapabilitySafety): boolean { return label 
 export const APPROVAL_QUESTION = "Make this change?";
 
 /** What one digit in the change box means. */
-export type ApprovalChoice = "no" | "preview" | "yes" | "yes-session" | "allow-all";
+export type ApprovalChoice = "no" | "preview" | "yes" | "yes-session" | "allow-all" | "show-session";
 
 /**
  * The change box: what changes in plain words, one value per line (secrets hidden), whether it makes the change,
@@ -441,7 +441,7 @@ export type ApprovalChoice = "no" | "preview" | "yes" | "yes-session" | "allow-a
  * change gets no "for this session" answer. The technical line (server, tool, label) closes the box.
  */
 export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview,
-  options: FormatOptions & { product?: string; toolProduct?: string; scope?: string; tool?: Pick<MCPTool, "_meta"> } = {}):
+  options: FormatOptions & { product?: string; toolProduct?: string; scope?: string; tool?: Pick<MCPTool, "_meta">; showOnly?: boolean } = {}):
 { preview: string; question: string; labels: string[]; choices: string[]; answers: Record<string, ApprovalChoice> } {
   const single = plan.routed.length === 1 && !plan.routerUnclear ? plan.routed[0]! : undefined;
   // The product the one real tool belongs to, when the server said ("Mist"); "Yes to everything" still names the
@@ -476,10 +476,13 @@ export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview,
   lines.push(`MCP · ${plan.server} · ${plan.tool}  [${planLabel(plan)}]`);
   const onceOnly = !sessionAllowed(planLabel(plan)) || asksEveryTime(plan, options.tool);
   const all = approveAllLabel(options.product ?? plan.server);
-  const labels: readonly string[] = [...(onceOnly ? (offer ? APPROVE_ONCE_PREVIEW_CHOICES : APPROVE_ONCE_CHOICES)
-    : offer ? APPROVE_PREVIEW_CHOICES : APPROVE_CHOICES), all];
+  // A plain Junos show (no session answer, it runs commands): 3 opts this server's show commands in for the session.
+  const show = options.showOnly && onceOnly ? junosShowLabel(plan.server) : undefined;
+  const base: readonly string[] = onceOnly ? (offer ? APPROVE_ONCE_PREVIEW_CHOICES : APPROVE_ONCE_CHOICES) : offer ? APPROVE_PREVIEW_CHOICES : APPROVE_CHOICES;
+  const labels: readonly string[] = [...base.slice(0, 2), ...(show ? [show] : []), ...base.slice(2), all];
   const meaning: Record<string, ApprovalChoice> = {
     "No": "no", "Preview first": "preview", "Yes, this once": "yes", "Yes, for this session": "yes-session", [all]: "allow-all",
+    ...(show ? { [show]: "show-session" as const } : {}),
   };
   const choices = labels.map((_, index) => String(index + 1));
   const answers = Object.fromEntries(labels.map((label, index) => [String(index + 1), meaning[label]!]));

@@ -218,3 +218,23 @@ test("/mcp allow: 6 allows everything on that server for this session only; the 
   expect(app.allowances!.allowAllOn("lab")).toBe(true);
   expect(app.terminal.badge).toMatch(/^ALLOW ALL: lab · /);
 });
+
+test("a Junos show command offers 3 Yes, show commands on <server> for this session: later shows run, a change still asks", async () => {
+  const { home, project } = await fixture({ casper: { mcpServers: { junos: entry({ FIXTURE_MODE: "junos" }, ["jmcp.py"]) } } });
+  const results: string[] = [];
+  const { output } = await session(home, project, ["/mcp connect junos", "check the routers"], ["1", "3", "1"], async (tools) => {
+    const call = tools.find((tool) => tool.name === "call_capability")!;
+    for (const command of ["show version", "show interfaces terse", "clear arp"]) {
+      results.push((await call.execute({ id: "mcp:junos:execute_junos_command", arguments: { router_name: "r1", command } })).text);
+    }
+  });
+  const box = output.indexOf("Change in");
+  expect(output.slice(box)).toContain("  1 No\n  2 Yes, this once\n  3 Yes, show commands on junos for this session\n");
+  expect(output).toContain("[approval] allowed show commands on junos for this session");
+  // The second show ran with no box; the change asked (and 1 said no).
+  expect(output.split("Make this change?").length - 1).toBe(2);
+  expect(results[1]).not.toContain("Not executed");
+  expect(results[2]).toContain("you said no");
+  // A change box never offers it.
+  expect(output.slice(output.lastIndexOf("Make this change?"))).not.toContain("show commands on junos");
+});
