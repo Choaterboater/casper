@@ -275,9 +275,8 @@ test("security tools keep their versioned folders", () => {
 test("a failed hash-locked install says why in plain words, with uv's own last line", async () => {
   const home = await temp("casper-security-install-");
   const bin = await temp("casper-security-uv-");
-  await writeFile(path.join(bin, "uv"), "#!/bin/sh\nexit 0\n");
-  await chmod(path.join(bin, "uv"), 0o755);
-  const failing = (stderr: string) => installTool(SECURITY_TOOLS.ruff, {
+  await fakeUv(bin);
+  const failing =(stderr: string) => installTool(SECURITY_TOOLS.ruff, {
     homeDir: home, env: { PATH: bin },
     run: async (options) => options.args[0] === "pip" ? { exitCode: 1, signal: null, stdout: "", stderr } : { exitCode: 0, signal: null, stdout: "", stderr: "" },
   });
