@@ -8,6 +8,7 @@ import { CHECK_NAMES } from "../verify/evidence";
 import { SessionWorkspaceManager, type ReturnAction } from "../sessions/manager";
 import { confirmYes } from "./approvals";
 import { stopDebugger } from "./task-tools";
+import { runVerification } from "./verification";
 
 export async function ensureSessionWorkspace(app: CasperApp): Promise<SessionWorkspaceManager> {
   if (app.sessionWorkspace) return app.sessionWorkspace;
@@ -64,7 +65,7 @@ export async function handleSwitchCommand(app: CasperApp, prompt: string): Promi
     transition = await manager.returnToMain(action as ReturnAction, {
       getRuntime: () => runtimeForWorkspaceTransition(app),
       confirm: (preview, question) => confirmYes(app, preview, question),
-      verify: async () => (await app.runVerification(
+      verify: async () => (await runVerification(app, 
         CHECK_NAMES,
         false,
         `Verify session branch ${manager.activeName} before returning to main.`,

@@ -12,12 +12,12 @@ import { hasSignIn, modelPreference } from "./tui/model-preference";
 import { BrowserSession } from "./browser/session";
 import { ServiceManager } from "./services/manager";
 import { SmokeChecks } from "./services/smoke";
-import { detectWebService, isDetectedWebService } from "./services/detect";
 import { pageOpener, type DevServerNotice, type PageOpener } from "./services/page-checks";
 import { InteractiveTerminal, type TerminalHost } from "./tui/terminal";
 import type { PaneSetting } from "./tui/pane-setting";
 import type { DisplayLevel } from "./tui/display";
 import { formatRuntimeStartLine, formatRuntimeStatus, lineText, redactPreview, terminalText } from "./tui/format";
+import { detectWebService, isDetectedWebService } from "./services/detect";
 import { ProjectMemory, type TaskOutcome } from "./memory/store";
 import { discoverReferenceConfiguration, type ReferenceConfiguration } from "./references/config";
 import { formatReferenceResult, ReferenceLibrary } from "./references/library";
@@ -40,13 +40,13 @@ import { childProjectOf, type ChildProject } from "./project/child";
 import type { AgentRuntime, RuntimeAuthProvider, RuntimeSession, RuntimeImage, RuntimeModelInfo, RuntimeStatus, RuntimeTool, RuntimeShell } from "./runtime/types";
 import { SkillRegistry, formatSelectedSkills, skillRegistryOptions } from "./skills/registry";
 import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "./task/classify";
-import { answerClaimsBrowserPass, formatReceipt, formatShortReceipt, liveCheckLine, undoPathsShown, formatTaskResult, type TaskResult, type TaskUsage } from "./task/result";
+import { answerClaimsBrowserPass, formatShortReceipt, undoPathsShown, formatTaskResult, type TaskResult, type TaskUsage } from "./task/result";
 import { TaskObservations } from "./task/observations";
 import { LifecycleRegistry } from "./app/lifecycle";
 import { helperActivityLine, RuntimeEventView } from "./app/events";
 import { diffSnapshots, snapshotFailureReason, snapshotTree, type TreeChanges } from "./task/changes";
 import { renderBanner, wordmarkHeader } from "./tui/banner";
-import { type CheckName, formatDuration, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "./verify/evidence";
+import type { CheckName, VerificationReport } from "./verify/evidence";
 import { ProcessCleanupError } from "./platform/processes";
 import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
@@ -59,22 +59,18 @@ import { independentAcceptance } from "./verify/acceptance";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "./task/review";
 import { extractChecklist, formatChecklistPrompt, normalizeCases } from "./task/checklist";
 import { isOutside } from "./platform/inside";
-import { checkCommands, isBuiltinCheck, labNamedChecks } from "./verify/named";
 import { autoDetectedChecks } from "./verify/migrations-check";
-import type { NamedCheckRunner, NetworkToolContext } from "./verify/registry";
+import type { NetworkToolContext } from "./verify/registry";
 import { buildNextRow, type NextItem } from "./tui/next-row";
 import { TaskUndo } from "./app/undo";
 import { SuggestionController, SUGGESTION_COMMAND } from "./app/suggestions";
 import { findFlow, formatFlowPrompt, loadFlowCatalog, type Flow, type FlowRule } from "./flows/catalog";
 import { beforeWorkPanel, readBeforeWorkAnswer, suggestBeforeWork } from "./flows/suggest";
 import { extractPlan, parsePlanLines, planEditorHeading, planEditorLines, planToolGate, type ParsedPlan } from "./flows/plan";
-import { PROJECT_YAML, saveNamedCheck, saveProjectCommand, saveProjectTimeout } from "./project/config-write";
-import { askLabFailure, labCheckRunner } from "./app/lab-checks";
+import { PROJECT_YAML, saveProjectCommand } from "./project/config-write";
 import type { SecurityAIReview, SecurityReviewHost } from "./app/security-review";
 import type { TaskClassification } from "./task/classify";
-import type { ProjectCommand } from "./project/model";
-import { describeChecksPlan, hasChecks, manualChecks, planAutoChecks, resolveVerificationMode, selectedChecks, type ChecksPlan, type VerificationMode } from "./verify/mode";
-import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
+import { describeChecksPlan, hasChecks, planAutoChecks, resolveVerificationMode, type ChecksPlan, type VerificationMode } from "./verify/mode";
 import { MermaidProvider } from "./visualize/mermaid";
 import { MindMeshProvider } from "./visualize/mindmesh";
 import { VisualizationRouter } from "./visualize/router";
@@ -91,7 +87,7 @@ import { runSlashCommand, type OutputWriter } from "./app/commands";
 import type { BackgroundTask } from "./app/background";
 import { detectHostTerminal } from "./tui/host-terminal";
 import { UsageError } from "./cli-args";
-import { checkEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent } from "./app/json-events";
+import { RuntimeEventMapper, sessionStartEvent, type CasperEvent } from "./app/json-events";
 import { StepRail } from "./app/steps";
 import { CASPER_VERSION } from "./version";
 import type { Install } from "./update/command";
@@ -108,7 +104,7 @@ import { runPreview } from "./services/preview";
 import { editUserConfig } from "./config/user-write";
 import { explainModelError } from "./runtime/model-errors";
 import { tildePath, type NewProjectOptions, type NewProjectResult } from "./new/scaffold";
-import { chooseAnswer, approveChoice, confirmCapability, confirmKind, answerServerQuestion, editGateReason, confirmYes, recordedApproval, exactPick } from "./app/approvals";
+import { chooseAnswer, approveChoice, confirmCapability, confirmKind, answerServerQuestion, editGateReason, confirmYes, recordedApproval } from "./app/approvals";
 import { networkSetupHost, offerNetworkServer, networkLoginHost, networkLoginFile, revertWrites, reportImports } from "./app/network-host";
 import { updateFooter, nameConversation, phase, clearSteps, displayLevel, loadPaneSetting, askPaneOnce, paneCommand, detailsCommand, expandLastStep } from "./app/footer";
 import { settleQueuedLines, submitDuringWork, cycleEffort } from "./app/during-work";
@@ -117,6 +113,7 @@ import { prepareCapabilities, browserSession, serviceManager, stopDebugger, back
 import { ensureModel, retryModelFailure, bigModelReceipt, bigModelNotice, switchToBigModel, restoreModel, askBigModelRetry, type BigModelChoice, bigModelOf, imagesForModel, switchForPictures } from "./app/big-model";
 import { newProjectFlowWithAbort, openProjectFolder, openProjectCommand, newProjectCommand, offerNewProject, childProjectOfTask, runChildChecks, offerWorkFolder } from "./app/workspace";
 import { ensureSessionWorkspace, handleBranchCommand, handleSwitchCommand, rebindWorkspace } from "./app/session-branches";
+import { runVerification, writeCheckResult, taskNetworkOptions, checksPlan, saveFoundCheck, projectAfterSetup } from "./app/verification";
 
 export type { OutputWriter } from "./app/commands";
 
@@ -199,7 +196,7 @@ export class CasperApp {
   private readonly runtimeFactory: () => AgentRuntime | Promise<AgentRuntime>;
   readonly subagents: SubagentManager;
   readonly inspectProjectFn: (cwd: string) => Promise<ProjectInfo>;
-  private readonly loadProjectContextFn: (project: ProjectInfo) => Promise<ProjectContext>;
+  readonly loadProjectContextFn: (project: ProjectInfo) => Promise<ProjectContext>;
   private readonly loadSkillRegistryFn: (context: ProjectContext) => Promise<SkillRegistry>;
   private readonly loadMCPConfigurationFn: (context: ProjectContext) => Promise<MCPConfiguration>;
   private readonly loadLSPConfigurationFn: (context: ProjectContext) => Promise<LSPConfiguration>;
@@ -260,8 +257,8 @@ export class CasperApp {
   projectContext?: ProjectContext;
   skillRegistry?: SkillRegistry;
   private readonly reportedSkillWarnings = new Set<string>();
-  private readonly verificationFlag?: VerificationMode;
-  private readonly verbose: boolean;
+  readonly verificationFlag?: VerificationMode;
+  readonly verbose: boolean;
   private readonly startupWarnings: readonly string[];
   private readonly updateCheck?: { install: Install; currentVersion: string };
   private readonly updateCheckAbort = new AbortController();
@@ -275,7 +272,7 @@ export class CasperApp {
   private responseText = "";
   private lastAnswer = "";
   /** casper_check calls in flight: their results were requested by the model, not by Casper. */
-  private modelCheckCalls = 0;
+  modelCheckCalls = 0;
   /** Turns after which --max-turns stopped the current task's model request. */
   taskTurnLimit?: number;
   /** The spend pause stopped the current task's model request: what it had used, and the limit. */
@@ -287,12 +284,12 @@ export class CasperApp {
   verificationAbort?: AbortController;
   verificationWork?: Promise<VerificationReport>;
   /** Active repair evidence; sharing it does not grant managed-tool consent. */
-  private verificationTask?: VerificationTask;
+  verificationTask?: VerificationTask;
   checkTask?: VerificationTask;
   /** This task's smoke checks (configured and model-recorded); run inside the task's verification. */
   smokeTask?: SmokeChecks;
   /** This task's page check: set when its changes reach a page of a web project in auto mode. */
-  private pageTask?: { context: ProjectContext; root: string; before: Map<string, string> };
+  pageTask?: { context: ProjectContext; root: string; before: Map<string, string> };
   /** The page opener of the current task (one disposable browser per task), closed when the task ends. */
   taskPageOpener?: PageOpener;
   readonly pageOpenerFn: NonNullable<CasperAppOptions["pageOpener"]>;
@@ -319,7 +316,7 @@ export class CasperApp {
   private snapshotFailure?: string;
   taskRuntimeFailed = false;
   /** The files from before the current task's change, while it runs: tells a failure the change caused from one already there. */
-  private taskBaseline?: { baseline: ChangeBaseline; root: string };
+  taskBaseline?: { baseline: ChangeBaseline; root: string };
   private cleanupError?: ProcessCleanupError;
   readonly blockOnCleanupFailure = () => {
     this.cleanupError = new ProcessCleanupError();
@@ -354,7 +351,7 @@ export class CasperApp {
   memoryWork?: Promise<void>;
   private readonly newProjectRequest?: CasperAppOptions["newProject"];
   readonly createProjectFn?: CasperAppOptions["createProject"];
-  private readonly networkTools?: NetworkToolContext;
+  readonly networkTools?: NetworkToolContext;
   readonly securitySeams?: Pick<SecurityReviewHost, "check" | "install">;
   readonly networkSeams?: CasperAppOptions["networkSeams"];
   /** Setup is offered at most once a session, and an update asked about at most once. */
@@ -372,7 +369,7 @@ export class CasperApp {
   private checksHintShown = false;
   private readonly undoNamed = new Set<string>();
   /** The next repair runs on this model (the big model), then Casper switches back. */
-  private repairOnBigModel?: BigModelChoice;
+  repairOnBigModel?: BigModelChoice;
   /** The user said yes to one more try on the big model at the repair limit. */
   bigModelGrant?: BigModelChoice;
   /** Repairs this task ran on the big model, for the receipt. */
@@ -596,7 +593,7 @@ export class CasperApp {
   }
 
   /** Next commands in a receipt are slash commands in a session, casper invocations otherwise. */
-  private receiptSurface(): "interactive" | "one-shot" {
+  receiptSurface(): "interactive" | "one-shot" {
     return this.interactive ? "interactive" : "one-shot";
   }
 
@@ -1088,7 +1085,7 @@ export class CasperApp {
 
   /** The banner's checks line; none when there is nothing to check yet and checking is on (/status still says it). */
   private async bannerChecks(context: ProjectContext): Promise<{ checks?: string }> {
-    const plan = await this.checksPlan(context);
+    const plan = await checksPlan(this, context);
     return plan.mode === "off" || hasChecks(plan) ? { checks: describeChecksPlan(plan) } : {};
   }
 
@@ -1128,7 +1125,7 @@ export class CasperApp {
       }
       return undefined;
     }
-    if (action.kind === "save-check") { await this.saveFoundCheck(action.name); return undefined; }
+    if (action.kind === "save-check") { await saveFoundCheck(this, action.name); return undefined; }
     if (action.kind === "run") {
       const text = await action.run();
       if (text && !this.closing) this.output.write(`${terminalText(text)}\n`);
@@ -1257,10 +1254,10 @@ export class CasperApp {
     if (this.closing || this.commandAbort?.signal.aborted) return;
     const flag = this.verificationFlag;
     const configured = context.verification.mode;
-    const verificationMode = (await this.checksPlan(context)).mode;
+    const verificationMode = (await checksPlan(this, context)).mode;
     if (verificationMode !== "off") this.checkTask = new VerificationTask(
-      VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure, this.taskNetworkOptions()), this.activeWorkspaceRoot(),
-      (result) => this.writeCheckResult(result),
+      VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure, taskNetworkOptions(this)), this.activeWorkspaceRoot(),
+      (result) => writeCheckResult(this, result),
     );
     // Smoke checks are verification: they run only when Casper checks this task.
     const edits: NonNullable<CasperApp["taskEdits"]> = { edited: false, shell: false, turnEnded: false };
@@ -1393,12 +1390,12 @@ export class CasperApp {
       // A project the model just set up (package.json, pyproject.toml, Package.swift...) gets its checks now,
       // not on the next task: the checks known at the start were those of the folder before the change.
       if (verificationMode !== "off" && before && afterModel && !this.closing) {
-        const refreshed = await this.projectAfterSetup(context, flatten(diffSnapshots(before, afterModel)));
+        const refreshed = await projectAfterSetup(this, context, flatten(diffSnapshots(before, afterModel)));
         if (refreshed) {
           context = refreshed;
           // The same task keeps what the model's casper_check already recorded this turn; repair rounds rebuild
           // the model's tools (prepareCapabilities), so its casper_check offers the new checks.
-          this.checkTask?.useRegistry(VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure, this.taskNetworkOptions()));
+          this.checkTask?.useRegistry(VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure, taskNetworkOptions(this)));
         }
       }
       // A request cut short by --max-turns is unfinished work: checking it would only start repairs.
@@ -1412,7 +1409,7 @@ export class CasperApp {
         if (failedChecks.length) {
           this.events.ensureLineBreak();
           this.output.write(`… Casper checking the edits the model made before it failed: ${failedChecks.join(", ")}\n`);
-          verification = await this.runVerification(failedChecks, false, prompt, this.checkTask);
+          verification = await runVerification(this, failedChecks, false, prompt, this.checkTask);
         }
       }
       if (!stopped && this.checkTask && verificationMode === "auto") {
@@ -1434,7 +1431,7 @@ export class CasperApp {
           const pending = [...new Set([...autoChecks.run, ...this.checkTask.checks]), ...(smokeDue ? ["smoke"] : []), ...(pagesDue ? ["pages"] : [])];
           this.events.ensureLineBreak();
           this.output.write(`… Casper checking: ${pending.join(", ")}\n`);
-          verification = await this.runVerification(autoChecks.run, true, prompt, this.checkTask);
+          verification = await runVerification(this, autoChecks.run, true, prompt, this.checkTask);
           // A model that sees pictures may look at the changed pages once (showPages); its fixes are checked again.
           ({ verification, shown: pagesShown } = await this.lookAtPages(session, prompt, autoChecks.run, verification, workspaceRoot));
           const changedCode = Boolean(before && afterModel && changesCode(diffSnapshots(before, afterModel)));
@@ -1458,7 +1455,7 @@ export class CasperApp {
           }
         }
       } else if (!stopped && this.checkTask && (this.checkTask.checks.length || this.smokeTask?.recordedCount)) {
-        verification = await this.runVerification(this.checkTask.checks, true, prompt, this.checkTask);
+        verification = await runVerification(this, this.checkTask.checks, true, prompt, this.checkTask);
       }
       // The work landed in a project inside this folder (sample-tools in Documents): its own checks run for this receipt.
       if (!stopped && before && afterModel && !this.closing) {
@@ -1670,7 +1667,7 @@ export class CasperApp {
     const after = unreviewed && await this.snapshotWorkspace(input.root);
     const edited = !unreviewed || !after || [...Object.values(diffSnapshots(unreviewed, after))].some((paths) => paths.length);
     if (edited) {
-      const reviewed = await this.runVerification(input.checks, true, input.request, this.checkTask, Math.max(0, max - verification.repairAttempts));
+      const reviewed = await runVerification(this, input.checks, true, input.request, this.checkTask, Math.max(0, max - verification.repairAttempts));
       verification = { ...reviewed, repairAttempts: verification.repairAttempts + reviewed.repairAttempts };
     }
     phase(this, "review", "end");
@@ -1712,7 +1709,7 @@ export class CasperApp {
     // A round cut off by its own budget needs no mark: the checks and the comparison below decide.
     await this.promptRound(input.session, proofRepairPrompt(input.request, proof), input.request);
     if (stopped()) return { verification: { ...verification, repairAttempts: attempt }, proof };
-    const again = await this.runVerification(input.checks, true, input.request, this.checkTask, max - attempt);
+    const again = await runVerification(this, input.checks, true, input.request, this.checkTask, max - attempt);
     verification = { ...again, repairAttempts: attempt + again.repairAttempts };
     if (verification.status === "pass" && !stopped()) proof = await compare();
     return { verification, proof };
@@ -1742,7 +1739,7 @@ export class CasperApp {
     const edited = !before || !after || [...Object.values(diffSnapshots(before, after))].some((paths) => paths.length);
     if (!edited) return { verification, shown: look.images.length };
     const max = this.projectContext!.repair.maxAttempts;
-    const again = await this.runVerification(checks, true, request, this.checkTask, Math.max(0, max - verification.repairAttempts));
+    const again = await runVerification(this, checks, true, request, this.checkTask, Math.max(0, max - verification.repairAttempts));
     return { verification: { ...again, repairAttempts: verification.repairAttempts + again.repairAttempts }, shown: look.images.length };
   }
 
@@ -1783,126 +1780,11 @@ export class CasperApp {
   async runVerification(
     checks: readonly CheckName[],
     repair: boolean,
-    request = `Make the selected verification checks pass: ${checks.join(", ")}.`,
+    request?: string,
     task?: VerificationTask,
     /** Repairs left for this task; defaults to the project's repair budget. */
     maxAttempts?: number,
-  ): Promise<VerificationReport> {
-    const context = this.projectContext!;
-    const controller = new AbortController();
-    // A standalone verification task (/verify, branch checks) owns its objective; post-task
-    // verification passes `task` and continues the parent request's delegation budget.
-    if (!task) this.delegateToolForTask = undefined;
-    // Your own /verify (no parent task) may use a saved "Always"; anything the AI asked for shows the box every time.
-    const evidence = task ?? new VerificationTask(
-      VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure, this.taskNetworkOptions(task ? "ai" : "user")), this.activeWorkspaceRoot(),
-      (result) => this.writeCheckResult(result),
-    );
-    // /verify <lab check> alone: a failure asks before any repair (Stop first); nothing touches the lab again on its own.
-    const labOnly = !task && checks.length > 0 && checks.every((name) => context.model.namedChecks?.[name]?.kind === "lab");
-    const cancel = () => controller.abort();
-    this.commandAbort?.signal.addEventListener("abort", cancel, { once: true });
-    if (this.commandAbort?.signal.aborted) cancel();
-    this.verificationAbort = controller;
-    this.verificationTask = evidence;
-    this.repairOnBigModel = undefined;
-    this.bigModelGrant = undefined;
-    if (!task) this.bigModelUse = undefined;
-    this.events.ensureLineBreak();
-    phase(this, "checks", "start");
-    try {
-      this.verificationWork = verifyAndRepair({
-        task: evidence,
-        checks,
-        cwd: this.activeWorkspaceRoot(),
-        request,
-        constraints: [context.rules.profile, context.rules.project, ...context.model.conventions].filter(Boolean).join("\n"),
-        maxAttempts: maxAttempts ?? context.repair.maxAttempts,
-        signal: controller.signal,
-        repair: repair || labOnly ? async (prompt) => {
-          await prepareCapabilities(this, request);
-          const session = await this.ensureRuntime();
-          // This try runs on the big model: the user chose it at the repair limit, or set repair.bigModelLastTry.
-          const big = this.repairOnBigModel;
-          this.repairOnBigModel = undefined;
-          if (controller.signal.aborted) return;
-          const back = big ? await switchToBigModel(this, session, big) : undefined;
-          if (big && !back) this.output.write(`[model] Casper could not switch to your big model ${terminalText(big.label)}; this repair runs on the current model.\n`);
-          phase(this, "repair", "start");
-          try { await session.prompt(prompt, controller.signal, { request, maxTurns: this.maxTurns }); }
-          finally {
-            phase(this, "repair", "end");
-            if (back) await restoreModel(this, session, back);
-          }
-          if (back && big) {
-            this.bigModelUse = { model: big.label, attempts: (this.bigModelUse?.attempts ?? 0) + 1,
-              oneOff: Boolean(big.oneOff) && (this.bigModelUse?.oneOff ?? true) };
-          }
-          if (this.taskRuntimeFailed && !this.taskRuntimeCancelled) throw new Error("Repair model stopped unsuccessfully; changes retained.");
-          return back && big ? { model: big.label } : undefined;
-        } : undefined,
-        onRepair: (attempt, max) => {
-          this.repairsTried = attempt;
-          // The granted extra try, or the last one with repair.bigModelLastTry on, runs on the big model.
-          const granted = this.bigModelGrant;
-          this.bigModelGrant = undefined;
-          const setting = attempt === max && context.repair.bigModelLastTry === true && this.session ? bigModelOf(this, this.session) : undefined;
-          this.repairOnBigModel = granted ?? (setting ? { query: "@reason", label: setting.label } : undefined);
-          const on = this.repairOnBigModel;
-          this.output.write(`↻ repair ${attempt}/${max}${on ? ` on ${on.oneOff ? "" : "your big model "}${terminalText(on.label)}` : ""}\n`);
-        },
-        // Out of tries: one numbered offer to try once more on the big model. Only a person answers it; one-shot
-        // and --json runs never get it, so they never spend on a bigger model on their own.
-        onRepairLimit: repair && this.interactive && this.terminal.canAsk ? (failures, signal) => askBigModelRetry(this, failures, signal) : undefined,
-        onLabFailure: (repair || labOnly) && this.interactive
-          ? (failures, signal) => askLabFailure({ pick: (question, options, answerSignal) => exactPick(this, question, options, answerSignal) }, failures, signal) : undefined,
-        // A check that was already failing before the change is not the change's doing: say so, and ask before paying to fix it.
-        beforeRepair: repair && task && task === this.checkTask && this.taskBaseline ? (failures, signal) => this.repairPreexisting(failures, signal) : undefined,
-        // Only a person can say whether a check that did not finish is worth a paid repair.
-        onUnfinished: this.interactive && this.terminal.rich ? (unfinished, signal) => this.askUnfinished(unfinished, context.verification.timeoutMs, signal) : undefined,
-        // The task's smoke checks join its own verification (repairs and review reruns), never a standalone /verify.
-        smoke: task && task === this.checkTask && this.smokeTask?.size ? smokeRun(this, this.smokeTask) : undefined,
-        // So do its page checks: planned again from every change since the task started, after each repair too.
-        pages: task && task === this.checkTask && this.pageTask ? pageRun(this, this.pageTask) : undefined,
-      });
-      const report = await this.verificationWork;
-      await recordCheckTimings(context.stateDirectory, report.rounds.flat());
-      // A model task's receipt summarizes its checks; a standalone run gets its own summary.
-      if (this.verbose) this.output.write(`${formatVerificationReport(report)}\n`);
-      else if (!task) this.output.write(`${formatReceipt({ execution: "completed", verification: report, ...bigModelReceipt(this),
-        ...(this.sandbox ? { sandbox: sandboxReceipt(this.sandbox)! } : {}) },
-        { surface: this.receiptSurface() })}\n`);
-      return report;
-    } finally {
-      phase(this, "checks", "end");
-      if (!task) { await evidence.close(); clearSteps(this); }
-      this.commandAbort?.signal.removeEventListener("abort", cancel);
-      this.verificationTask = undefined;
-      this.verificationAbort = undefined;
-      this.verificationWork = undefined;
-    }
-  }
-
-  /**
-   * The network tools plus a device (lab) check runner that asks the person in a numbered box first: for /verify and
-   * for the AI's casper_check in this session. Only a person's answer starts a device check; a run that can't ask
-   * (one-shot, --json, a pipe, auto mode) sends nothing. Helpers (subagents) never get it.
-   */
-  private taskNetworkOptions(origin: "user" | "ai" = "ai"): { network?: NetworkToolContext; runLab?: NamedCheckRunner } {
-    const context = this.projectContext!;
-    // Where nobody can answer the box (one-shot, --json, a pipe), the AI isn't offered device checks at all.
-    if (origin === "ai" && !this.interactive) return this.networkOptions();
-    return { ...this.networkOptions(), runLab: labCheckRunner({
-      // The approval box below decides whether a box can be answered (a cooked TTY with redirected output can't).
-      canAsk: () => this.interactive && !this.closing,
-      pick: (question, options, signal) => exactPick(this, question, options, signal),
-      write: (text) => { if (!this.closing) this.output.write(text); }, stateDirectory: context.stateDirectory, ...(context.lab ? { lab: context.lab } : {}),
-      ...(this.networkTools ? { network: this.networkTools } : {}) }, origin) };
-  }
-
-  networkOptions(): { network?: NetworkToolContext } {
-    return this.networkTools ? { network: this.networkTools } : {};
-  }
+  ): Promise<VerificationReport> { return runVerification(this, checks, repair, request, task, maxAttempts); }
 
   /**
    * The AI review after /security-review's tools: the review model's name and price (starting the session costs
@@ -1936,84 +1818,10 @@ export class CasperApp {
   }
 
   /** `/verify add <name>` or a picked suggestion: save a check Casper found in .casper/project.yaml, then use it. */
-  async saveFoundCheck(name: string): Promise<void> {
-    const context = this.projectContext!;
-    const spec = context.model.foundChecks?.[name];
-    if (!spec && context.model.namedChecks?.[name]) {
-      this.output.write(`[project] ${terminalText(name)} is already saved in ${PROJECT_YAML}; /verify ${terminalText(name)} runs it.\n`);
-      return;
-    }
-    if (!spec) {
-      const found = Object.keys(context.model.foundChecks ?? {});
-      this.output.write(`[project] ${terminalText(name)} is not a check Casper found here.${found.length ? ` Found: ${found.join(", ")}.` : ""}\n`);
-      return;
-    }
-    try {
-      const written = await saveNamedCheck(context.info.root, name, spec);
-      this.output.write(`[project] Saved ${terminalText(written.line)} in ${PROJECT_YAML}\n`);
-      try { this.projectContext = await this.loadProjectContextFn(context.info); }
-      catch (error) { this.output.write(`[project] ${PROJECT_YAML} could not be read again (${terminalText(error instanceof Error ? error.message : String(error))}); restart Casper to use it.\n`); }
-    } catch (error) {
-      this.output.write(`[project] Not saved: ${terminalText(error instanceof Error ? error.message : String(error))}\n`);
-    }
-  }
-
-  /** The project read again after the model changed a top-level file or .casper/project.yaml, when that changed
-   * which checks it has; undefined when nothing relevant changed or it can't be read. */
-  private async projectAfterSetup(context: ProjectContext, changed: string[]): Promise<ProjectContext | undefined> {
-    if (!changed.some((file) => !file.includes("/") || file === ".casper/project.yaml")) return undefined;
-    let fresh: ProjectContext;
-    try { fresh = await this.loadProjectContextFn(context.info); } catch { return undefined; }
-    const checks = (c: ProjectContext) => JSON.stringify([c.model.commands, c.model.namedChecks ?? {}, c.verification.checks ?? null]);
-    if (checks(fresh) === checks(context)) return undefined;
-    this.projectContext = fresh;
-    return fresh;
-  }
+  async saveFoundCheck(name: string): Promise<void> { return saveFoundCheck(this, name); }
 
   /** The mode and checks this session uses after a change; the banner, /status and every task share it. */
-  async checksPlan(context: ProjectContext): Promise<ChecksPlan> {
-    const flag = this.verificationFlag;
-    const configured = context.verification.mode;
-    const checks = selectedChecks(context.verification.checks, context.model.commands, context.model.namedChecks,
-      autoDetectedChecks(context.model).map((check) => check.name));
-    const measuredMs = flag || configured || !this.interactive ? undefined : await measuredCheckTime(context.stateDirectory, checks, checkCommands(context.model));
-    const mode = resolveVerificationMode({ flag, configured, interactive: this.interactive, measuredMs });
-    const manual = manualChecks(checks, context.model.namedChecks);
-    const lab = labNamedChecks(context.model.namedChecks);
-    const found = Object.keys(context.model.foundChecks ?? {});
-    // The dev server is named before it first runs, since it runs the project's own code.
-    const web = mode === "auto" && context.pages !== "off" ? await detectWebService(this.activeWorkspaceRoot(), { frameworks: context.model.frameworks,
-      packageManager: context.model.packageManager, services: context.services ?? {} }).catch(() => undefined) : undefined;
-    return { mode, checks, ...(mode === "offer" && measuredMs !== undefined ? { slow: true } : {}), ...(manual.length ? { manual } : {}),
-      ...(lab.length ? { lab } : {}), ...(found.length ? { found } : {}),
-      ...(isDetectedWebService(web) ? { pages: redactPreview(terminalText(web.label)).slice(0, 120) } : {}) };
-  }
-
-  /** Before the first repair: run each failing check on the files from before the change. One that failed there
-   * too was already broken; the terminal asks whether to pay for a fix (Esc leaves it), scripts go on repairing. */
-  private async repairPreexisting(failures: VerificationResult[], signal: AbortSignal): Promise<boolean> {
-    const held = this.taskBaseline;
-    const context = this.projectContext;
-    if (!held || !context) return true;
-    const names = failures.map((failure) => failure.name).filter((name): name is ProjectCommand => isBuiltinCheck(name) && Boolean(context.model.commands[name]?.trim()));
-    if (!names.length) return true;
-    this.events.ensureLineBreak();
-    this.output.write(`… Casper checking whether ${names.join(", ")} failed before this change too\n`);
-    const before: string[] = [];
-    for (const name of names) {
-      const result = await held.baseline.before({ root: held.root, check: name, command: context.model.commands[name]!.trim(),
-        timeoutMs: this.verificationTask?.limit(name) ?? context.verification.timeoutMs, signal });
-      if (result === "fail") before.push(name);
-    }
-    if (!before.length || signal.aborted) return true;
-    const which = before.join(", ");
-    this.output.write(`• ${which} was already failing before this change (Casper ran it on the files from before)\n`);
-    if (!this.interactive || !this.terminal.rich) return true;
-    // Leave it comes first, so Enter never starts a repair that uses tokens.
-    const answer = await this.terminal.ask(`${which} was already failing before this change. Fix it anyway?`,
-      ALREADY_FAILING_CHOICES.map((choice) => ({ ...choice })), false, signal);
-    return answer?.[0] === "Fix it anyway";
-  }
+  async checksPlan(context: ProjectContext): Promise<ChecksPlan> { return checksPlan(this, context); }
 
   /** A provider hiccup Pi does not retry (an empty response) ends a run for no reason of the task's: try once
    * more on its own, then, in the terminal, ask. Sign-in, quota and context errors, and errors Pi already
@@ -2027,35 +1835,6 @@ export class CasperApp {
     const agentDir = this.sessionHomeDir ? path.join(this.sessionHomeDir, ".casper", "agent")
       : process.env[AGENT_DIR_ENV] && process.env[AGENT_DIR_ENV] !== "undefined" ? process.env[AGENT_DIR_ENV]! : casperAgentDir();
     this.signedIn = await hasSignIn(agentDir);
-  }
-
-  /** "test timed out after 10m. 1 Stop · 2 Retry · 3 Fix it anyway · 4 Allow more time". Stop comes first, so Enter
-   * never runs anything or starts a repair; Esc is the same as Stop. */
-  private async askUnfinished(unfinished: VerificationResult[], timeoutMs: number, signal: AbortSignal): Promise<UnfinishedChoice | undefined> {
-    // The limit the run actually had: after "Allow more time" it is the longer one, not the configured one.
-    const limit = (result: VerificationResult) => timedOutAfter(result) ?? timeoutMs;
-    const what = unfinished.map((result) => result.ended === "timeout"
-      ? `${result.name} timed out after ${formatDuration(limit(result))}` : `${result.name} could not start`).join(", ");
-    // More time: four times the limit the run just had (at least a minute, at most an hour), as often as it is chosen.
-    const had = Math.max(0, ...unfinished.filter((result) => result.ended === "timeout").map(limit));
-    const longer = longerLimit(had);
-    const options = unfinishedChoices(had, longer);
-    this.events.ensureLineBreak();
-    const answer = await this.terminal.ask(`${what}. Casper did not try to fix it. What now?`,
-      options.map(({ label, description }) => ({ label, description })), false, signal);
-    const choice = options.find((option) => option.label === answer?.[0])?.choice;
-    if (choice !== "more-time-saved") return choice;
-    // Saved for the user, no file to edit: every check in this project gets the longer limit from now on.
-    try {
-      const written = await saveProjectTimeout(this.activeWorkspaceRoot(), longer);
-      this.output.write(`[verify] Saved ${written.line} in ${PROJECT_YAML}: every check here gets ${formatDuration(longer)} from now on.\n`);
-      if (this.projectContext) {
-        try { this.projectContext = await this.loadProjectContextFn(this.projectContext.info); } catch { /* the file is read again at the next start */ }
-      }
-    } catch (error) {
-      this.output.write(`[verify] Not saved (${terminalText(error instanceof Error ? error.message : String(error))}); this run gets ${formatDuration(longer)}.\n`);
-    }
-    return "more-time";
   }
 
   async ensureSessionWorkspace(): Promise<SessionWorkspaceManager> { return ensureSessionWorkspace(this); }
@@ -2120,24 +1899,6 @@ export class CasperApp {
 
   /** A rename is a normal edit inside the project: no box, like the AI's other edits (undo covers it). */
   confirmRename: ConfirmRename = async () => true;
-
-  /** One inline result line per check; a failed check also boxes the tail of its output, since that is
-   * what a person reads next. Passing checks stay quiet (their output remains in the evidence). */
-  writeCheckResult(result: VerificationResult): void {
-    this.onEvent?.(checkEvent(result, this.modelCheckCalls > 0 ? "casper_check" : "casper"));
-    this.events.ensureLineBreak();
-    // Each check Casper runs shows as it finishes; verbose output keeps the per-run evidence line
-    // instead. A check the model ran with casper_check already has its tool line.
-    if (this.verbose) this.output.write(`${formatVerificationResult(result)}\n`);
-    else if (this.modelCheckCalls === 0) this.output.write(`${liveCheckLine(result)}\n`);
-    if (result.status !== "fail") return;
-    for (const [stream, text] of [["stderr", result.stderr], ["stdout", result.stdout]] as const) {
-      if (!text.trim()) continue;
-      const lines = text.replace(/\n$/, "").split("\n");
-      const shown = lines.length > 40 ? [`… ${lines.length - 40} earlier line(s) omitted; the full output stays in the check evidence`, ...lines.slice(-40)] : lines;
-      this.terminal.writePanel(`${result.name}: ${stream}`, redactPreview(shown.join("\n")), { tone: "error" });
-    }
-  }
 
   /** Approvals and server questions are shown one at a time, so two boxes never race for one answer. */
   approvalQueue: Promise<unknown> = Promise.resolve();

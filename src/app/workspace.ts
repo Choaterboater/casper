@@ -21,6 +21,7 @@ import { defaultNameFor } from "../new/templates";
 import { tildePath } from "../new/scaffold";
 import { updateFooter, phase } from "./footer";
 import { revokeWorkspaceCapabilities } from "./session-branches";
+import { writeCheckResult, networkOptions } from "./verification";
 
 /** The last choice of the home-folder and folder-of-projects question. */
 const NEW_PROJECT_CHOICE = "New project";
@@ -270,12 +271,12 @@ export async function runChildChecks(app: CasperApp, child: ChildProject, change
   const label = `checks from ${child.relative}`;
   app.events.ensureLineBreak();
   app.output.write(`… Casper checking: ${plan.run.join(", ")} (${terminalText(label)})\n`);
-  const registry = VerifierRegistry.forProject(child.model, app.projectContext!.verification.timeoutMs, app.blockOnCleanupFailure, app.networkOptions());
+  const registry = VerifierRegistry.forProject(child.model, app.projectContext!.verification.timeoutMs, app.blockOnCleanupFailure, networkOptions(app));
   phase(app, "checks", "start");
   try {
     const results: VerificationResult[] = [];
     await registry.run(plan.run, { ...(app.commandAbort ? { signal: app.commandAbort.signal } : {}),
-      onResult: (result) => { const labelled = { ...result, label }; results.push(labelled); app.writeCheckResult(labelled); } });
+      onResult: (result) => { const labelled = { ...result, label }; results.push(labelled); writeCheckResult(app, labelled); } });
     const status = results.some((result) => result.status === "fail") ? "fail" as const
       : results.length && results.every((result) => result.status === "pass") ? "pass" as const : "incomplete" as const;
     return { status, repairAttempts: 0, rounds: [results], results };
