@@ -121,7 +121,7 @@ test.skipIf(process.platform !== "win32")("on a Windows PC, even with Ansible on
   const f = await setup("process.exit(0);");
   const { platform: _, ...onThisPC } = context(f);
   const result = await runNetworkCheck("aruba-syntax", syntax, onThisPC);
-  expect(formatNetworkCheckLine(result)).toBe("– aruba-syntax  not run: Ansible does not run on Windows; use WSL");
+  expect(liveCheckLine(fromNetworkResult(result))).toBe("– aruba-syntax · not run: Ansible does not run on Windows; use WSL");
   expect(await exists(path.join(f.records, "ansible-playbook.ran"))).toBe(false);
 });
 

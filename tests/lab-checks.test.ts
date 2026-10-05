@@ -11,7 +11,7 @@ import { fromNetworkResult } from "../src/verify/registry";
 import { labAlwaysAllowed, LAB_LIMIT_NOTE, rememberLabAlways } from "../src/network/lab";
 import type { LabSettings, NetworkCheckSpec } from "../src/network/spec";
 import { ANSIBLE_PLATFORM, fakeTool, networkFixture, RECORD_CALL, RECORD_FILE, writeProjectFile, type NetworkFixture } from "./support/network-fakes";
-import { needsSymlinks, POSIX, posixOnly } from "./support/platform";
+import { needsSymlinks, posixModes, posixOnly } from "./support/platform";
 
 let fixture: NetworkFixture | undefined;
 afterEach(async () => { await fixture?.cleanup(); fixture = undefined; });
@@ -175,8 +175,8 @@ test("Always for this project is remembered only for the same inventory, hosts a
   expect(await labAlwaysAllowed(state, "junos-commit", first.approvalKey)).toBe(false);
   await rememberLabAlways(state, "junos-commit", first.approvalKey);
   expect(await labAlwaysAllowed(state, "junos-commit", first.approvalKey)).toBe(true);
-  // Windows makes up mode bits, so 0600 can be checked only off Windows.
-  if (POSIX) expect((await stat(path.join(state, "lab-always.json"))).mode & 0o777).toBe(0o600);
+  // Windows makes up mode bits, so 0600 is checked only where the host keeps them.
+  if (posixModes) expect((await stat(path.join(state, "lab-always.json"))).mode & 0o777).toBe(0o600);
   await writeFile(path.join(f.records, "inventory.json"), inventoryJson({ "lab-r1": { ansible_host: "10.99.0.21" }, "lab-r9": { ansible_host: "10.99.0.29" } }));
   const second = await prepareLabCheck("junos-commit", junosCommit, context(f));
   if (second.state !== "ready") throw new Error("expected ready");

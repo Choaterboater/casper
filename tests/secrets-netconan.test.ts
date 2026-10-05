@@ -5,7 +5,7 @@ import path from "node:path";
 import { NETCONAN_FAILED, Scrubber, findNetconan, mergeNetconan, netconanPass, scrubNote } from "../src/secrets/netconan";
 import { LINE_MARKER, SECRET_MARKER, scrubText } from "../src/secrets/scrub";
 import { fakeProgram } from "./support/fake-program";
-import { POSIX } from "./support/platform";
+import { posixModes } from "./support/platform";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -89,8 +89,8 @@ test("netconan adds markers for what the built-in missed; its fake values never 
   expect(args[3]).toBe("-o");
   expect(args.slice(5)).toEqual(["-l", "ERROR"]);
   expect(args.join(" ")).not.toContain("Zq8LeakyToken"); // the config never goes through argv
-  // Windows makes up mode bits, so 0600 and 0700 can be checked only off Windows.
-  if (POSIX) {
+  // Windows makes up mode bits, so 0600 and 0700 are checked only where the host keeps them.
+  if (posixModes) {
     expect(inputMode).toBe(0o600);
     expect(folderMode).toBe(0o700);
   }
