@@ -84,16 +84,10 @@ jobs:
           name: windows-preview
           path: dist/release/
       - name: Full regression suite (files in parallel)
-        # Reports for now: the full suite doesn't pass on Windows yet (docs/RELEASE.md, Known preview limits).
-        # Install, startup and the focused tests above still block. Remove this line once it is green.
-        continue-on-error: true
         run: |
           bun run test 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/full-suite.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Eval bench tests
-        # Reports for now: the full suite doesn't pass on Windows yet (docs/RELEASE.md, Known preview limits).
-        # Install, startup and the focused tests above still block. Remove this line once it is green.
-        continue-on-error: true
         run: |
           bun run test:evals 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/evals.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

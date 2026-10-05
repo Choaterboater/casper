@@ -9,7 +9,7 @@ kind of machine, or when something works on your Mac but not on Windows or Linux
 | OS | What is tested | What is not |
 | --- | --- | --- |
 | macOS | Tested by hand, plus the full test suite | See **Limits** below |
-| Windows x64 | Install and startup, in CI (a GitHub build machine), under PowerShell 5.1 and 7, plus a list of test files (undo, project root, sign-in, receipts and more) | The full test suite (it does not pass on Windows yet), the interactive screen, process cleanup on a real desktop, browser and debugger |
+| Windows x64 | In CI (a GitHub build machine): install and startup under PowerShell 5.1 and 7, and the full test suite and eval tests, which pass there and must pass for a change to merge | Tests that need a PTY, POSIX signals or file modes (they skip), the interactive screen, process cleanup on a real desktop, browser and debugger |
 | Linux | The full test suite in CI on an Ubuntu build machine; the release build runs `casper-linux-x64 --version` on Ubuntu when a release is published | No recorded run of the full test suite or the interactive screen on a real Linux machine |
 | Windows ARM64 | Nothing | There is no release file for it |
 
@@ -159,10 +159,12 @@ git calls. It does not change the git commands the AI runs in its shell.
   written owner-only with `chmod`. Windows does not store or enforce those bits. Tests
   that expect `0o600`/`0o700` are skipped on Windows (the `posixModes` probe in
   `tests/support/platform.ts`) instead of failing.
-- **Windows testing covers install and startup only.** CI checks the compiled
-  program, image reading, `PATH`, `--version`, `--help`, `--licenses`, `/project` and
-  inline diagrams. It does not show that the PowerShell/`wmic` process list, signals,
-  the interactive screen, or the optional browser and debugger work on a real desktop.
+- **Windows testing is CI only.** CI checks the compiled program, image reading,
+  `PATH`, `--version`, `--help`, `--licenses`, `/project` and inline diagrams, and runs
+  the full test suite and eval tests, which pass. Tests that need a PTY, POSIX signals
+  or file modes skip there. It does not show that the PowerShell/`wmic` process list,
+  signals, the interactive screen, or the optional browser and debugger work on a real
+  desktop.
 - **Linux has no recorded full run.** All recorded test runs were on macOS. Linux uses
   the same macOS/Linux code paths (`ps`, process groups), but that is not the same as
   a test run. The [Linux preview workflow](../.github/workflows/linux-preview.yml) is
