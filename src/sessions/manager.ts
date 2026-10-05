@@ -174,7 +174,9 @@ export class SessionWorkspaceManager {
         await this.rememberConversation(runtime);
         notice = `Saved conversation for ${JSON.stringify(saved.name)} is missing (${saved.sessionFile}); started a fresh conversation.`;
       } else if (runtime.getSessionInfo().sessionFile !== saved.sessionFile) {
-        await runtime.switchSession({ cwd: saved.workspacePath, sessionFile: saved.sessionFile });
+        // Same folder (checked above), but keep the spelling the runtime started with: on Windows a junction or a
+        // short 8.3 name differs from the saved real path, and Pi lists conversations by that spelling.
+        await runtime.switchSession({ cwd: runtime.getState().cwd, sessionFile: saved.sessionFile });
       }
     }
     this.boundRuntime = runtime;
