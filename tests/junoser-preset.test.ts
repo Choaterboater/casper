@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { runNetworkCheck } from "../src/network/checks";
+import { JUNOSER_NOTE, runNetworkCheck } from "../src/network/checks";
 import { liveCheckLine } from "../src/task/result";
 import { formatVerificationResult, repairClass } from "../src/verify/evidence";
 import { checkResultForModel } from "../src/verify/model-output";
@@ -46,6 +46,8 @@ test("Junoser output is scrubbed before the casper_check text: a root password h
   expect(forModel).not.toContain(HASH);
   expect(result.stdout).toContain("<secret hidden>");
   expect(forModel).toContain("(it may be newer syntax)");
+  // casper_check and the repair prompt both read checkResultForModel: the model is told not to rewrite valid config.
+  expect(forModel).toContain(JUNOSER_NOTE);
 });
 
 test("clean files pass, and a missing junoser reads not run with the gem line", async () => {
@@ -54,6 +56,7 @@ test("clean files pass, and a missing junoser reads not run with the gem line", 
   const missing = await runNetworkCheck("junoser", spec, { ...context(f), path: path.join(f.root, "configs") });
   expect(liveCheckLine(fromNetworkResult(missing))).toBe("– junoser · not run: junoser is not installed (gem install junoser)");
   expect(repairClass(fromNetworkResult(missing))).toBe("never");
+  expect(fromNetworkResult(missing).note).toBeUndefined();
 });
 
 test("a config file linked from outside the project is not read", async () => {

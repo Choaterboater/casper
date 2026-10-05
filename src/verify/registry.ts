@@ -1,6 +1,6 @@
 import type { ProjectModel } from "../project/model";
 import type { NetworkCheckContext } from "../network/checks";
-import type { NetworkCheckResult } from "../network/spec";
+import { JUNOSER_NOTE, type NetworkCheckResult } from "../network/spec";
 import { runCommandCheck, type CommandWrap } from "./command";
 import { CHECK_NAMES, type CheckName, type VerificationResult } from "./evidence";
 import { isBuiltinCheck, labOnlyByYou, modelNamedChecks, type NamedCheckSpec } from "./named";
@@ -52,6 +52,7 @@ export function fromNetworkResult(result: NetworkCheckResult): VerificationResul
     ...(result.hosts ? { hosts: [...result.hosts] } : {}), ...(summary ? { summary } : {}),
     // A missing tool, collection or input is "not run", never a failure for the model to fix.
     ...(result.notRun ? { repair: "never" as const } : {}),
+    ...(result.preset === "junoser" && result.status === "fail" ? { note: JUNOSER_NOTE } : {}),
   };
 }
 

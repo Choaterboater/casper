@@ -46,6 +46,8 @@ export interface VerificationResult {
   hosts?: string[];
   /** Reports only: the one-line summary ("12 lines to change · 12 to undo"). Secrets already hidden. */
   summary?: string;
+  /** Extra words for the model about a failure (casper_check and repair prompts), e.g. Junoser's "may be newer syntax". */
+  note?: string;
   /** Set by the check itself when its failure must not go to the model on its own (see repairClass). */
   repair?: RepairClass;
 }

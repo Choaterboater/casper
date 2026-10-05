@@ -165,6 +165,8 @@ async function ansibleSyntax(base: Base, spec: NetworkCheckSpec, context: Networ
 }
 
 /** Junoser's grammar lags new Junos releases, so its complaint is "could not read", not "invalid". */
+export { JUNOSER_NOTE } from "./spec";
+
 async function junoser(base: Base, spec: NetworkCheckSpec, context: NetworkCheckContext): Promise<NetworkCheckResult> {
   const tool = which("junoser", context);
   if (!tool) return notRun(base, `junoser is not installed (${INSTALL_HINTS.junoser})`, "tool");
