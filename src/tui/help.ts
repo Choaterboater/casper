@@ -92,7 +92,7 @@ Local commands:
   /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
   /output all                       Every tool call of the last task on its own line (the screen folds them into a summary)
   /details [quiet|normal|detailed] [--session]  Failures only, steps folded (default), or every step with small diffs; remembered like /effort, --session for this session only. Ctrl+T shows the last step in full
-  /settings                         Your switches by number, written to ~/.casper/config.yaml for you: web lookups, the new-version notice, built-in skills, spend notes, spend pause, work shown
+  /settings                         Your switches by number, written to ~/.casper/config.yaml for you: web lookups, the new-version notice, built-in skills, spend notes, spend pause, work shown, Playwright tests
   /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
   /permissions                      What each tool may do and when Casper asks you
@@ -146,6 +146,8 @@ Local commands:
   /services                         Declared services: state and address (no model or startup)
   /services logs <name>             Recent log lines of a service
   /services start|restart|stop <name>  Start (waits for readiness; restarts a stale or crashed one), restart or stop
+  /preview                          Your web app on your network for a phone; asks 1 No · 2 Yes before a public link
+  /preview stop                     Stop sharing it
   /tasks                            What runs in the background, numbered; asks 1 Keep them · 2 Stop 1 ...
   /tasks stop <n>|all               Stop one of them, or all, without the question
   /pane [on|off]                    The steps split beside Casper in tmux or iTerm2 (120+ columns); saved

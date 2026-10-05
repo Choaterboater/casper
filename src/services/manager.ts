@@ -47,11 +47,18 @@ interface Slot {
   cleanup?: "unknown";
   /** A crash after readiness that no tool call has reported yet. */
   crashUnreported?: boolean;
+  /** How a host-added slot runs (see SlotOptions). */
+  options?: SlotOptions;
   /** An ad-hoc command's question when the sandbox fails to start on it (see ManagedProcessOptions.unsandboxed). */
   approve?: (signal: AbortSignal) => Promise<string | undefined>;
 }
 
 const HOST = "127.0.0.1";
+
+/** How a slot Casper adds itself runs. `listen: "network"` sets HOST to 0.0.0.0, so phones on the same network can
+ * open it (/preview); Casper still probes it on loopback. `sandbox: false` runs a tool the person installed and said
+ * yes to (a tunnel) outside the shell sandbox, which would hold its network. */
+export interface SlotOptions { listen?: "network"; sandbox?: false }
 const portTaken = (port: number, name: string) => `Port ${port} is in use by a process Casper didn't start; stop that process or set services.${name}.port: auto. Casper never replaces a process it does not own.`;
 const TAIL_LINES = 20;
 
@@ -146,19 +153,20 @@ export class ServiceManager {
    * detected slot whose command or readiness changed takes the new spec; if it is running, it is marked stale
    * so the next freshness check restarts it. The slot lives as long as the session, so later tasks reuse the
    * running server. It counts toward the MAX_SERVICES cap of named services; ad-hoc slots do not. Starts nothing. */
-  ensureSlot(name: string, spec: ServiceSpec): ServiceStatus {
+  ensureSlot(name: string, spec: ServiceSpec, options?: SlotOptions): ServiceStatus {
     if (this.closing) throw new Error("Casper's services were stopped with the conversation; start them again after it changes");
     if (!SERVICE_NAME.test(name) || name.startsWith("adhoc-")) throw new Error(`${JSON.stringify(name)} is not a service name`);
     const existing = this.slots.get(name);
     if (existing) {
-      if (!this.detected.has(name) || JSON.stringify(existing.spec) === JSON.stringify(spec)) return this.describe(existing);
+      if (!this.detected.has(name) || (JSON.stringify(existing.spec) === JSON.stringify(spec) && JSON.stringify(existing.options) === JSON.stringify(options))) return this.describe(existing);
       existing.spec = spec;
+      existing.options = options;
       if (existing.work !== undefined || existing.state === "starting" || existing.state === "ready") existing.stale = true;
       return this.describe(existing);
     }
     const named = [...this.slots.keys()].filter(key => !key.startsWith("adhoc-"));
     if (named.length >= MAX_SERVICES) throw new Error(`At most ${MAX_SERVICES} services are kept; ${name} was not added`);
-    const slot: Slot = { name, spec, state: "idle", stale: false };
+    const slot: Slot = { name, spec, state: "idle", stale: false, ...(options ? { options } : {}) };
     this.slots.set(name, slot);
     this.detected.add(name);
     return this.describe(slot);
@@ -273,7 +281,7 @@ export class ServiceManager {
         if (slot.process) await this.closeProcess(slot);
         signal.throwIfAborted();
         slot.port = port;
-        const target = (at: number) => ({ env: { ...spec.env, PORT: String(at), HOST },
+        const target = (at: number) => ({ env: { ...spec.env, PORT: String(at), HOST: slot.options?.listen === "network" ? "0.0.0.0" : HOST },
           ready: "http" in spec.ready ? { http: new URL(spec.ready.http, `http://${HOST}:${at}`) } : { log: spec.ready.log } });
         // The answer may take a while: a port something else took meanwhile is picked again (auto) or refused.
         const unsandboxed = async () => {
@@ -287,6 +295,7 @@ export class ServiceManager {
         const managed: ManagedProcess = new ManagedProcess({ command: spec.command, cwd: this.options.projectRoot,
           ...target(port),
           timeoutMs: spec.timeoutMs, label: `Service ${name}`, tempPrefix: "casper-service-", platform: this.options.platform,
+          ...(slot.options?.sandbox === false ? { sandbox: false as const } : {}),
           ...(slot.approve ? { unsandboxed } : {}),
           onExit: details => this.crashed(slot, managed, details) });
         slot.process = managed;
