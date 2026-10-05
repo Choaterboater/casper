@@ -149,7 +149,9 @@ test("an abort during startup leaves no process", async () => {
 }, 20_000);
 
 test("a startup that misses its deadline fails with the log tail", async () => {
-  const f = await fixture({ timeoutMs: 1000, env: { SLOW_READY_MS: "60000" } });
+  // The deadline has to outlast the fixture's start, or there is no "booting" line yet: a fresh Bun process
+  // took past 1 s in a full parallel suite.
+  const f = await fixture({ timeoutMs: 5000, env: { SLOW_READY_MS: "60000" } });
   const failure = await f.manager.start("api", new AbortController().signal).catch((error: unknown) => error);
   expect((failure as Error).message).toContain("readiness timed out");
   expect(api(f.manager)).toMatchObject({ state: "failed", tail: expect.stringContaining("booting") });
