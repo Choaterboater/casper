@@ -8,6 +8,7 @@ import { safeToCall } from "../src/mcp/check/live";
 import { DEAD_PROXY } from "../src/mcp/check/sandbox";
 import type { McpCheckCommand } from "../src/cli-args";
 import { fixtureTools } from "./fixtures/mcp-check-server";
+import { checkCommand } from "./support/check-command";
 
 const fixture = path.resolve(import.meta.dir, "fixtures/mcp-check-server.ts");
 const temps: string[] = [];
@@ -18,7 +19,7 @@ async function repo(start?: unknown): Promise<string> {
   temps.push(root);
   if (start !== undefined) {
     await mkdir(path.join(root, ".casper"));
-    await writeFile(path.join(root, ".casper/mcp-check.json"), JSON.stringify({ start, doctor: "true" }));
+    await writeFile(path.join(root, ".casper/mcp-check.json"), JSON.stringify({ start, doctor: checkCommand() }));
   }
   return root;
 }
