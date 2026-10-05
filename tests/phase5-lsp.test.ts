@@ -9,6 +9,7 @@ import { discoverLSPConfiguration } from "../src/lsp/config";
 import { planWorkspaceEdit, commitPlan } from "../src/lsp/workspace";
 import { lspTools } from "../src/lsp/tools";
 import { needsSymlinks, posixOnly } from "./support/platform";
+import { rejection } from "./support/settle";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
@@ -119,7 +120,7 @@ describe("Phase 5 LSP", () => {
   test("rename preflights all files, requires exact approval, then refreshes diagnostics", async () => {
     const { manager, root } = await fixture();
     await manager.connect("fixture");
-    await expect(manager.rename("fixture", "a.ts", position, "new", async () => false)).rejects.toThrow("not approved");
+    expect((await rejection(manager.rename("fixture", "a.ts", position, "new", async () => false))).message).toContain("not approved");
     expect(await readFile(path.join(root, "a.ts"), "utf8")).toBe("old();");
     const result = await manager.rename("fixture", "a.ts", position, "new", async (preview) => {
       expect(preview.files).toHaveLength(2);
@@ -135,17 +136,17 @@ describe("Phase 5 LSP", () => {
   test("edits or reconnect during approval revoke a rename without clobbering user work", async () => {
     const { manager, root } = await fixture();
     await manager.connect("fixture");
-    await expect(manager.rename("fixture", "a.ts", position, "new", async () => {
+    expect((await rejection(manager.rename("fixture", "a.ts", position, "new", async () => {
       await writeFile(path.join(root, "b.ts"), "user work");
       return true;
-    })).rejects.toThrow("changed");
+    }))).message).toContain("changed");
     expect(await readFile(path.join(root, "a.ts"), "utf8")).toBe("old();");
     await writeFile(path.join(root, "b.ts"), "old();");
-    await expect(manager.rename("fixture", "a.ts", position, "new", async () => {
+    expect((await rejection(manager.rename("fixture", "a.ts", position, "new", async () => {
       await manager.disconnect("fixture");
       await manager.connect("fixture");
       return true;
-    })).rejects.toThrow("cancelled");
+    }))).message).toContain("cancelled");
     expect(await readFile(path.join(root, "a.ts"), "utf8")).toBe("old();");
   });
 
@@ -268,10 +269,10 @@ describe("Phase 5 LSP", () => {
   test("new source files added during approval revoke the whole rename", async () => {
     const { manager, root } = await fixture();
     await manager.connect("fixture");
-    await expect(manager.rename("fixture", "a.ts", position, "new", async () => {
+    expect((await rejection(manager.rename("fixture", "a.ts", position, "new", async () => {
       await writeFile(path.join(root, "added.ts"), "old();");
       return true;
-    })).rejects.toThrow("membership changed");
+    }))).message).toContain("membership changed");
     expect(await readFile(path.join(root, "a.ts"), "utf8")).toBe("old();");
   });
 

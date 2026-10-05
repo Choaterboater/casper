@@ -3,7 +3,7 @@ import { mkdtemp, readdir, readFile, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { freePort, ManagedProcess, ManagedProcessError, portInUse, type ManagedProcessOptions } from "../src/platform/managed-process";
-import { ProcessCleanupError, type ProcessPlatform } from "../src/platform/processes";
+import { OwnedProcesses, osSupportsProcessGroups, ProcessCleanupError, type ProcessPlatform } from "../src/platform/processes";
 import { BrowserServer } from "../src/browser/server";
 
 const cleanups: Array<() => unknown> = [];
@@ -116,7 +116,12 @@ test("an unconfirmed cleanup raises the process cleanup error", async () => {
   const managed = new ManagedProcess({ command: COMMAND, cwd: f.root, env: { PORT: String(f.port), HOST: "127.0.0.1" }, ready: { log: "listening" }, timeoutMs: 10_000, platform });
   await managed.start(new AbortController().signal);
   const root = managed.pid!;
-  cleanups.push(() => { try { process.kill(-root, "SIGKILL"); } catch { try { process.kill(root, "SIGKILL"); } catch { /* gone */ } } });
+  // The simulated platform signals nothing. Without groups (Windows) stop the real tree first: Windows can't
+  // remove a folder that a live process still runs in.
+  cleanups.push(async () => {
+    if (!osSupportsProcessGroups) await new OwnedProcesses(root, () => true).stop();
+    try { process.kill(-root, "SIGKILL"); } catch { try { process.kill(root, "SIGKILL"); } catch { /* gone */ } }
+  });
   await expect(managed.close()).rejects.toBeInstanceOf(ProcessCleanupError);
 }, 20_000);
 

@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { DebugSession } from "../src/debug/session";
 import { needsSymlinks } from "./support/platform";
+import { rejection } from "./support/settle";
 
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -96,7 +97,7 @@ test("inspection results that cross stop epochs are rejected instead of reviving
   await f.session.run({ action: "start", target: "example" });
   const stack = await f.session.run({ action: "stack", threadId: 1 });
   const scopes = await f.session.run({ action: "scopes", frame: String(stack.items?.[0]?.handle) });
-  await expect(f.session.run({ action: "variables", reference: String(scopes.items?.[0]?.handle) })).rejects.toThrow("changed");
+  expect((await rejection(f.session.run({ action: "variables", reference: String(scopes.items?.[0]?.handle) }))).message).toContain("changed");
 });
 
 test("debug values stay bounded after terminal escaping and raw provider diagnostics never escape", async () => {
@@ -110,7 +111,7 @@ test("debug values stay bounded after terminal escaping and raw provider diagnos
   expect(formatTerminalJSON(result)).not.toMatch(/[\x1b\x9b]/);
   const other = await fixture(async () => true, "error");
   await other.session.run({ action: "start", target: "example" });
-  await expect(other.session.run({ action: "stack", threadId: 1 })).rejects.toThrow("Debugger request failed");
+  expect((await rejection(other.session.run({ action: "stack", threadId: 1 }))).message).toContain("Debugger request failed");
 });
 
 test("reverse requests cannot execute commands, and forged process IDs cannot kill unrelated processes", async () => {
@@ -120,6 +121,9 @@ test("reverse requests cannot execute commands, and forged process IDs cannot ki
   await writeFile(f.config, JSON.stringify({ targets: { example: { ...f.target, args: [adapter, "reverse", String(unrelated.pid)] } } }));
   await f.session.run({ action: "start", target: "example" });
   expect(() => process.kill(unrelated.pid!, 0)).not.toThrow();
+  // The adapter writes Casper's reply when it reads it, which can come after start returns (on Windows it often does).
+  const deadline = Date.now() + 3000;
+  while (!await Bun.file(path.join(f.root, "reverse-response")).exists() && Date.now() < deadline) await Bun.sleep(5);
   const reply = JSON.parse(await readFile(path.join(f.root, "reverse-response"), "utf8"));
   expect(reply).toMatchObject({ type: "response", command: "runInTerminal", success: false });
   expect(await Bun.file(path.join(f.root, "UNAUTHORIZED")).exists()).toBe(false);
@@ -171,8 +175,10 @@ test("debugger metadata and denied launch never start an adapter", async () => {
   expect(await f.session.targets()).toEqual(["example"]);
   expect(f.session.status().state).toBe("idle");
   await expect(f.session.run({ action: "start", target: "example" })).rejects.toThrow("denied");
-  expect(preview).toContain(f.root + "/program.py");
-  expect(preview).toContain(process.execPath);
+  // The preview is JSON, so a Windows path shows each backslash escaped.
+  const shown = (text: string) => JSON.stringify(text).slice(1, -1);
+  expect(preview).toContain(shown(path.join(f.root, "program.py")));
+  expect(preview).toContain(shown(process.execPath));
   expect(f.session.status().ownedAdapterPid).toBeUndefined();
   expect(await Bun.file(path.join(f.root, "adapter-started")).exists()).toBe(false);
 });

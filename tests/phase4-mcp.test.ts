@@ -9,6 +9,7 @@ import { MCPManager } from "../src/mcp/manager";
 import { CapabilityBroker } from "../src/capabilities/broker";
 import { boundCapabilityResult } from "../src/capabilities/result";
 import { fixtureServer } from "./fixtures/mcp-server";
+import { rejection } from "./support/settle";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -282,7 +283,7 @@ test("invalid arguments never reach approval, and a tool changed during approval
   });
   await expect(broker.invoke("mcp:generic:set_site", { site: 123 })).rejects.toThrow("Not executed (bad arguments");
   expect(approvals).toBe(0);
-  await expect(broker.invoke("mcp:generic:set_site", { site: "lab" })).rejects.toThrow("Not executed (tool changed; search again)");
+  expect((await rejection(broker.invoke("mcp:generic:set_site", { site: "lab" }))).message).toContain("Not executed (tool changed; search again)");
   expect(approvals).toBe(1);
 });
 
@@ -362,7 +363,7 @@ test("cancelled calls and successful reconnects spend no retry budget, and an ex
     const abort = new AbortController();
     const work = broker.invoke("mcp:generic:slow_read", {}, abort.signal);
     setTimeout(() => abort.abort(), 25);
-    await expect(work).rejects.toThrow("cancelled");
+    expect((await rejection(work)).message).toContain("cancelled");
     await mcp.prepare();
     expect(status("generic")).toMatchObject({ state: "ready", error: undefined });
   }
@@ -383,17 +384,17 @@ test("timeouts, caller cancellation, and close during handshake settle without l
   const abort = new AbortController();
   const work = broker.invoke("mcp:generic:slow_read", {}, abort.signal);
   setTimeout(() => abort.abort(), 25);
-  await expect(work).rejects.toThrow("cancelled");
+  expect((await rejection(work)).message).toContain("cancelled");
   expect(mcp.catalog()).toEqual([]);
   await broker.prepare("slow read"); // Cancellation invalidates the affected connection; no call is replayed.
-  await expect(broker.invoke("mcp:generic:slow_read", {})).rejects.toThrow("No answer from generic in 0.5 s. It may have run.");
+  expect((await rejection(broker.invoke("mcp:generic:slow_read", {}))).message).toContain("No answer from generic in 0.5 s. It may have run.");
   const stalled = manager([definition("stall", "stall")]);
   const connecting = stalled.connect("stall");
   await Bun.sleep(30);
   await Promise.all([stalled.close(), connecting, stalled.close()]);
   expect(stalled.status()[0]?.state).toBe("disconnected");
   expect(stalled.catalog()).toEqual([]);
-  await expect(stalled.connect("stall")).rejects.toThrow("closed");
+  expect((await rejection(stalled.connect("stall"))).message).toContain("closed");
 });
 
 test("stdio teardown kills an uncooperative server within the CLI cleanup deadline", async () => {
@@ -628,7 +629,8 @@ test("your own MCP servers start in your home folder, not the opened repository,
   } }));
   const config = await discoverMCPConfiguration({ homeDir: home, projectRoot: project, profileName: "work" });
   const cwd = Object.fromEntries(config.servers.map((server) => [server.name, server.cwd]));
-  expect(cwd).toEqual({ plain: home, pinned: "/srv/mcp", tilde: path.join(home, "mcp"), here: project, fromProfile: home,
+  // On Windows "/srv/mcp" names that folder on the current drive, written with backslashes.
+  expect(cwd).toEqual({ plain: home, pinned: path.normalize("/srv/mcp"), tilde: path.join(home, "mcp"), here: project, fromProfile: home,
     repo: project, repoTools: path.join(project, "tools") });
   expect(config.diagnostics.join("\n")).toContain('"relative"');
   expect(config.diagnostics.join("\n")).toContain('"escape"');

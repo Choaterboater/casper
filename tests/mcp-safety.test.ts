@@ -7,6 +7,7 @@ import type { MCPServerDefinition } from "../src/mcp/config";
 import { CapabilityBroker, type ApprovalAnswer, type ConfirmCapability, type ConfirmKind } from "../src/capabilities/broker";
 import { formatApproval } from "../src/capabilities/approval";
 import { numberPrompt } from "../src/tui/terminal";
+import { rejection } from "./support/settle";
 
 const cleanup: (() => Promise<unknown> | unknown)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -177,7 +178,7 @@ test("the user can ask for a preview at most three times, and sees the third one
 test("a fourth p is a no, and no preview is sent that the user would never see", async () => {
   const { confirm, boxes } = answering("preview", "preview", "preview", "preview");
   const { broker, file, id } = await setup({ confirm });
-  await expect(broker.invoke(id("set_ssid"), { ssid: "corp" })).rejects.toThrow("Not executed (you said no)");
+  expect((await rejection(broker.invoke(id("set_ssid"), { ssid: "corp" }))).message).toContain("Not executed (you said no)");
   expect(boxes).toHaveLength(4);
   expect(toolCalls(await calls(file))).toHaveLength(3);
 });

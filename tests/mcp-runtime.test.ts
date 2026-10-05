@@ -15,6 +15,7 @@ import { boundCapabilityResult, capabilityErrorResult, NotExecutedError } from "
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { fixtureServer } from "./fixtures/mcp-server";
+import { rejection } from "./support/settle";
 
 const cleanup: (() => Promise<unknown> | unknown)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -65,7 +66,7 @@ test("each progress message restarts the call clock; a silent call still times o
   const done = await mcp.call("generic", "progress_read", {});
   expect(JSON.stringify(done)).toContain('\\"job\\":\\"done\\"');
   const started = performance.now();
-  await expect(mcp.call("generic", "slow_read", {})).rejects.toThrow("No answer from generic in 0.5 s. It may have run. Do not retry on your own; tell the user.");
+  expect((await rejection(mcp.call("generic", "slow_read", {}))).message).toContain("No answer from generic in 0.5 s. It may have run. Do not retry on your own; tell the user.");
   expect(performance.now() - started).toBeLessThan(1500);
 });
 
@@ -142,30 +143,33 @@ test("an imported server's folder that links into the project still starts outsi
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+// Absolute paths in the host's own form: on Windows "/home/me" resolves to a folder on the current drive.
+const at = (...parts: string[]) => path.resolve("/", ...parts);
+
 test("imported servers never start in the opened project", () => {
-  const home = "/home/me"; const project = "/home/me/work/repo";
+  const home = at("home", "me"); const project = at("home", "me", "work", "repo");
   expect(startFolder(undefined, "imported", project, home)).toBe(home);
   const diagnostics: string[] = [];
-  expect(startFolder(`${project}/x`, "imported", project, home, { name: "junos", diagnostics })).toBe(home);
+  expect(startFolder(path.join(project, "x"), "imported", project, home, { name: "junos", diagnostics })).toBe(home);
   expect(startFolder("${PROJECT_ROOT}", "imported", project, home, { name: "junos", diagnostics })).toBe(home);
   expect(diagnostics).toEqual(["junos: starts in your home folder, not in this project.", "junos: starts in your home folder, not in this project."]);
-  expect(startFolder("/srv/mcp", "imported", project, home)).toBe("/srv/mcp");
-  expect(startFolder("~/mcp/junos", "imported", project, home)).toBe("/home/me/mcp/junos");
+  expect(startFolder(at("srv", "mcp"), "imported", project, home)).toBe(at("srv", "mcp"));
+  expect(startFolder("~/mcp/junos", "imported", project, home)).toBe(at("home", "me", "mcp", "junos"));
   // When the opened project is the home folder itself, start in ~/.casper instead.
-  expect(startFolder(undefined, "imported", home, home)).toBe("/home/me/.casper");
-  expect(startFolder("~", "imported", home, home)).toBe("/home/me/.casper");
+  expect(startFolder(undefined, "imported", home, home)).toBe(at("home", "me", ".casper"));
+  expect(startFolder("~", "imported", home, home)).toBe(at("home", "me", ".casper"));
   // The other scopes are unchanged.
   expect(startFolder(undefined, "user", project, home)).toBe(home);
   expect(startFolder(undefined, "project", project, home)).toBe(project);
 });
 
 test("a project server's cwd may be absolute when it stays inside the project (a home folder opened as the project)", () => {
-  const home = "/home/me"; const project = "/home/me/work/repo";
-  expect(startFolder("tools", "project", project, home)).toBe(`${project}/tools`);
-  expect(startFolder(`${project}/tools`, "project", project, home)).toBe(`${project}/tools`);
+  const home = at("home", "me"); const project = at("home", "me", "work", "repo");
+  expect(startFolder("tools", "project", project, home)).toBe(path.join(project, "tools"));
+  expect(startFolder(path.join(project, "tools"), "project", project, home)).toBe(path.join(project, "tools"));
   // ~/.mcp.json is the project's file when ~ is opened: an absolute folder under ~ is inside it.
-  expect(startFolder("/home/me/Projects/mist-mcp", "project", home, home)).toBe("/home/me/Projects/mist-mcp");
-  for (const outside of ["/srv/mcp", "../other", "/home/me/work/other"]) {
+  expect(startFolder(at("home", "me", "Projects", "mist-mcp"), "project", home, home)).toBe(at("home", "me", "Projects", "mist-mcp"));
+  for (const outside of [at("srv", "mcp"), "../other", at("home", "me", "work", "other")]) {
     expect(() => startFolder(outside, "project", project, home)).toThrow("cwd outside the project");
   }
 });
@@ -236,11 +240,11 @@ test("a JSON-RPC error answer keeps the connection ready", async () => {
 test("a crash during a call is still a lost connection and spends the retry budget", async () => {
   const mcp = manager([definition()]);
   await mcp.connect("generic");
-  await expect(mcp.call("generic", "crash_read", {})).rejects.toThrow("It may have run. Do not retry on your own");
+  expect((await rejection(mcp.call("generic", "crash_read", {}))).message).toContain("It may have run. Do not retry on your own");
   expect(mcp.status()[0]?.state).toBe("failed");
   await mcp.prepare();
   expect(mcp.status()[0]?.state).toBe("ready");
-  await expect(mcp.call("generic", "crash_read", {})).rejects.toThrow("Do not retry");
+  expect((await rejection(mcp.call("generic", "crash_read", {}))).message).toContain("Do not retry");
   await mcp.prepare();
   expect(mcp.status()[0]?.error).toContain("retry limit");
 });

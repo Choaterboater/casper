@@ -63,7 +63,7 @@ test("a live debugger is revoked before exposing a new workspace or model task",
     expect(output).not.toContain("[error]");
     expect(beforeTransition).toBe(true);
     expect(beforePrompt).toBe(true);
-    expect(info.cwd).toContain(".casper/worktrees");
+    expect(info.cwd).toContain(path.join(".casper", "worktrees"));
     expect(output).toContain('"state":"idle"');
   } finally { await app?.close(); await rm(root, { recursive: true, force: true }); }
 }, 15_000);

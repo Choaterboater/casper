@@ -6,6 +6,7 @@ import { CapabilityBroker, type ApprovalAnswer, type ConfirmCapability } from ".
 import type { MCPServerDefinition } from "../src/mcp/config";
 import { ConsentStore } from "../src/mcp/consent";
 import { MCPManager, type MCPManagerOptions } from "../src/mcp/manager";
+import { posixModes } from "./support/platform";
 
 const network = path.join(import.meta.dir, "fixtures/mcp-network-server.ts");
 const cleanup: (() => Promise<unknown>)[] = [];
@@ -42,7 +43,8 @@ test("a remembered server connects on the next start without asking, with writes
   await first.connect("lab");
   expect(await first.remember("lab")).toEqual({ remembered: true });
   expect(statusOf(first, "lab").consent).toBe("remembered");
-  expect((await stat(store.file)).mode & 0o777).toBe(0o600);
+  // Windows makes up mode bits instead of storing them.
+  if (posixModes) expect((await stat(store.file)).mode & 0o777).toBe(0o600);
   await first.close();
 
   const again = new ConsentStore(home);
