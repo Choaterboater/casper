@@ -95,11 +95,12 @@ test("a baseline without an HTTP response (a transport error) is not a failing b
 
 test("unknown cleanup of another service makes smoke incomplete even when the checked service is fresh and passes", async () => {
   // The OS listing keeps showing the ad-hoc service's root after it is gone, so its stop is never confirmed.
+  // The first record seen stays, even if Windows hands the PID to a new process meanwhile (it does that quickly).
   let stuck = 0, kept: ProcessRecord | undefined;
   const host = hostProcessPlatform();
   const platform: ProcessPlatform = { ...host, list: async () => {
     const all = await host.list();
-    if (stuck) { const real = all.get(stuck); if (real) kept = real; else if (kept) all.set(stuck, kept); }
+    if (stuck) { kept ??= all.get(stuck); if (kept) all.set(stuck, kept); }
     return all;
   } };
   const f = await fixture({ platform });
