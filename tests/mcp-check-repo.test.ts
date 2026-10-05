@@ -133,5 +133,6 @@ test("a broken .casper/mcp-check.json is reported, and the other checks still ru
   expect(report.findings[0]).toMatchObject({ status: "fail", label: "settings" });
   const tests = report.findings.find((finding) => finding.label === "tests")!;
   expect(tests.status).toBe("ok");
-  expect(tests.text).toMatch(/^bun run test \(\d+\.\d s\)$/);
+  // "1.2 s" under 10 s, "11 s" past it (a busy machine): the time is shown, not checked.
+  expect(tests.text).toMatch(/^bun run test \(\d+(\.\d)? s\)$/);
 });
