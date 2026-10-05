@@ -30,6 +30,19 @@ try {
   if ((Get-Command casper).Source -ne $Binary) { throw 'Current-session PATH was not updated' }
   $UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
   if (($UserPath -split ';') -notcontains $env:CASPER_INSTALL_DIR) { throw 'Persistent PATH missing install directory' }
+  # A stock account's user PATH is REG_EXPAND_SZ with %USERPROFILE% in it. Installing keeps both.
+  $Stock = '%USERPROFILE%\AppData\Local\Microsoft\WindowsApps'
+  $EnvKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+  try { $EnvKey.SetValue('Path', $Stock, [Microsoft.Win32.RegistryValueKind]::ExpandString) } finally { $EnvKey.Close() }
+  Invoke-RestMethod "$env:CASPER_BASE_URL/install.ps1" | Invoke-Expression
+  $EnvKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
+  try {
+    $Kind = $EnvKey.GetValueKind('Path')
+    $Raw = [string]$EnvKey.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+  } finally { $EnvKey.Close() }
+  if ($Kind -ne [Microsoft.Win32.RegistryValueKind]::ExpandString) { throw "User PATH changed type to $Kind" }
+  if (($Raw -split ';') -notcontains $Stock) { throw "User PATH lost $Stock (written out in full instead)" }
+  if (($Raw -split ';') -notcontains $env:CASPER_INSTALL_DIR) { throw 'Persistent PATH missing install directory after a stock PATH' }
   $null = & $Binary --help
   if ($LASTEXITCODE -ne 0) { throw 'Help failed' }
   $Licenses = & $Binary --licenses
