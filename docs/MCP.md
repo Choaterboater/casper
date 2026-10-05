@@ -67,7 +67,7 @@ file and set no variable.
    Casper asks once:
 
    ```text
-   Casper can set up its network server (casper-network-mcp 0.1.0, about 60 MB from pypi.org, installed with uv into ~/.casper/tools).
+   Casper can set up its network server (casper-network-mcp 0.1.1, about 60 MB from pypi.org, installed with uv into ~/.casper/tools).
    It starts read-only. Logins are asked per product the first time you use it.
      1 Not now
      2 Set it up
@@ -100,7 +100,7 @@ file and set no variable.
    logins don't work yet, and the question says so. Casper restarts the server with the
    login and checks what it can do with `access_check`, for example
    `Mist login: can change Branch-12 (checked)`. Mist and ClearPass logins are checked;
-   casper-network-mcp 0.1.0 can't check a Central login yet, so it shows
+   casper-network-mcp can't check a Central login yet, so it shows
    `Central login: saved (not checked)`.
    `/mcp login mist` adds or replaces it any time; `/mcp login mist forget` removes it.
 

@@ -15,7 +15,7 @@ import networkLock from "./casper-network-mcp.lock.txt" with { type: "text" };
 /** The server's name in ~/.casper/mcp.json. */
 export const NETWORK_SERVER_NAME = "network";
 
-export const NETWORK_SERVER_VERSION = "0.1.0";
+export const NETWORK_SERVER_VERSION = "0.1.1";
 
 export const NETWORK_SERVER: LockedSpec = {
   id: "casper-network-mcp",
