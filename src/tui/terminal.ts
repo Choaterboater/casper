@@ -9,6 +9,13 @@ import type { NextRow } from "./next-row";
 import { bellSequence, hostCommand, prepareTmuxPane, titleSequence, TITLE_RESTORE, TITLE_SAVE, type HostCommand, type HostTerminal } from "./host-terminal";
 import { SidePane, type ActivityPane } from "./side-pane";
 
+/** The plain terminal's prompt under numbered choices, the same for every question and box: "Type 1, 2 or 3: ".
+ * Enter alone picks 1, which is always the safe choice. */
+export function numberPrompt(count: number): string {
+  const digits = Array.from({ length: count }, (_, index) => String(index + 1));
+  return `Type ${digits.length === 2 ? "1 or 2" : `${digits.slice(0, -1).join(", ")} or ${digits.at(-1)}`}: `;
+}
+
 /** The terminal Casper was started in (tmux, iTerm2), when it is a real one. Tests leave it out. */
 export interface TerminalHost {
   host: HostTerminal;
@@ -18,10 +25,14 @@ export interface TerminalHost {
   run?: HostCommand;
 }
 
+/** The steps pane opens only on a window at least this wide: a split halves it. */
+export const PANE_MIN_COLUMNS = 120;
+
 export type TerminalOutput = RuntimePickerIO["output"] & { isTTY?: boolean };
 
 /** Terminal ownership boundary. Rich raw editor on a TTY; line input otherwise.
- * Neither path queues submissions made during work or treats a stale draft as consent; plain
+ * Lines typed during work go to the app (sent to the AI, queued, or run now), never to an approval; neither path
+ * treats a stale draft as consent; plain
  * input typed before the first prompt is read (a person or a pipe may be ahead of startup). */
 export class InteractiveTerminal {
   readonly color: boolean;
@@ -43,9 +54,12 @@ export class InteractiveTerminal {
   /** The steps pane beside Casper inside tmux or iTerm2: opened on the first busy step, closed at exit. */
   private pane?: ActivityPane;
   private paneTried = false;
+  /** /pane off (saved), or iTerm2 before its one question is answered: no pane. */
+  private paneOff = false;
   private titleSaved = false;
   private title?: string;
   private undoHost?: () => void;
+  private busySubmit?: (line: string, plain?: boolean) => true | string;
 
   constructor(private readonly input: Readable, private readonly output: TerminalOutput,
     private readonly onInterrupt: () => void, private readonly onEOF: () => void, private readonly host?: TerminalHost) {
@@ -76,6 +90,11 @@ export class InteractiveTerminal {
         this.nextKeys = undefined;
         resolve(offered ?? line);
       } else if (!this.busy || sameChunk) this.earlyLines.push(line);
+      else if ((this.input as NodeJS.ReadStream).isTTY && this.busySubmit && line.trim()) {
+        // A person typing during work: the same as Enter on the rich terminal (sent to the AI, queued, or run now).
+        const answer = this.busySubmit(line.trim(), true);
+        if (answer !== true) this.write(`[input] ${answer}\n`);
+      }
     });
     this.rl.on("SIGINT", () => this.interrupt());
     this.rl.once("close", () => {
@@ -105,13 +124,29 @@ export class InteractiveTerminal {
   /** The steps pane is open (inside tmux or iTerm2, after the first busy step). */
   get hasPane(): boolean { return this.pane !== undefined; }
   private activityPane(): ActivityPane | undefined {
-    if (!this.surface || !this.host || this.closed) return undefined;
+    if (!this.surface || !this.host || this.closed || this.paneOff) return undefined;
     if (!this.paneTried) {
+      // A narrow window keeps its Working box; a later step tries again once it is wide.
+      if ((this.output.columns ?? 0) < PANE_MIN_COLUMNS) return undefined;
       this.paneTried = true;
       this.pane = this.host.openPane ? this.host.openPane() : SidePane.open({ host: this.host.host });
     }
     return this.pane;
   }
+  /** /pane on|off: off closes an open pane (the Working box comes back); on opens it at the next step. */
+  setPane(setting: "on" | "off"): void {
+    this.paneOff = setting === "off";
+    if (this.paneOff) { const pane = this.pane; this.pane = undefined; pane?.close(); }
+    this.paneTried = this.pane !== undefined;
+  }
+  /** Where a steps pane can open: inside tmux (its own pane known), or iTerm2 on a Mac. */
+  get paneHost(): "tmux" | "iterm" | undefined {
+    const host = this.host?.host;
+    if (!this.surface || !host) return undefined;
+    if (host.tmux) return host.tmuxPane ? "tmux" : undefined;
+    return host.iterm && host.itermSession && (this.host!.openPane || process.platform === "darwin") ? "iterm" : undefined;
+  }
+
   /** The window title (the pane title inside tmux); the one before comes back at exit. Rich terminal only,
    * written only when it changes (the footer sets it on every update). */
   setTitle(title: string): void {
@@ -126,8 +161,12 @@ export class InteractiveTerminal {
   setAttentionAfter(ms: number): void { this.surface?.setAttentionAfter(ms); }
   /** Rich terminal only. Shift+Tab cycles effort; plain line input has no equivalent key. */
   setEffortCycle(handler: (() => void) | undefined): void { this.surface?.setEffortCycle(handler); }
-  /** Enter while Casper works (rich terminal): true ran it now; text is why the draft waits. */
-  setBusySubmit(handler: ((line: string) => true | string) | undefined): void { this.surface?.setBusySubmit(handler); }
+  /** Enter while Casper works: true took it (ran it, sent it to the AI or queued it); text is why it waits. `plain`:
+   * the plain terminal, which has no draft to keep. */
+  setBusySubmit(handler: ((line: string, plain?: boolean) => true | string) | undefined): void {
+    this.busySubmit = handler;
+    this.surface?.setBusySubmit(handler && (line => handler(line)));
+  }
   /** Rich terminal only. Ctrl+T shows the last finished step in full. */
   setExpandLast(handler: (() => void) | undefined): void { this.surface?.setExpandLast(handler); }
   flashNote(text: string): void { this.surface?.flashNote(text); }
@@ -199,6 +238,13 @@ export class InteractiveTerminal {
     this.assistantOpen = false;
   }
 
+  /** Put queued lines back in the prompt draft. False on the plain terminal, which has no draft to hold them. */
+  restoreDraft(text: string): boolean {
+    if (!this.surface) return false;
+    this.surface.restoreDraft(text);
+    return true;
+  }
+
   /** Print the receipt's next-step row and offer its keys until the next line or key. Nothing waits on it. */
   offerNext(row: NextRow | undefined): void {
     if (!row) { this.nextKeys = undefined; this.surface?.offerNext(undefined); return; }
@@ -224,50 +270,31 @@ export class InteractiveTerminal {
     try { this.rl?.write("\n"); } finally { this.discardingInput = false; }
   }
 
-  /** Exact yes/no approval: only a freshly typed "yes" approves. */
-  async confirm(preview: string, question: string, signal?: AbortSignal): Promise<boolean> {
-    return (await this.choose(preview, question, ["yes"], signal)) === "yes";
-  }
-
   /**
-   * One approval or server question with a few exact typed answers, on the rich surface or plain
-   * line input. It resolves one of `choices` as typed, "no" for any other text, and undefined for
-   * Ctrl+C, EOF or abort. Lines typed before the question appeared never answer it. The model's ask
-   * tool never reaches this channel.
+   * One approval box (a change, a host, a command, a device check), in the same numbered style as every other
+   * question: the context lines, then the choices. Rich: the panel, where one key picks; plain: numbered lines and
+   * a number with Enter. It resolves the chosen label (typed words or Enter alone are the first choice, No), or
+   * undefined for Esc, Ctrl+C, ctrl+o, EOF or abort. Lines and keys typed before the box appeared never answer it.
+   * The model's ask tool never reaches this channel.
    */
-  choose(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined> {
-    if (this.surface) return this.surface.choose(preview, question, choices, signal);
-    // Lines queued ahead of an approval were written before its preview existed: they can neither
-    // answer it nor, once it settles, silently become later commands or paid prompts.
-    if (this.earlyLines.length) {
-      this.write(`[input] Discarded ${this.earlyLines.length} line(s) entered before this approval appeared.\n`);
-      this.earlyLines.length = 0;
+  async approve(preview: string, question: string, options: ReadonlyArray<string | { label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined> {
+    const choices = options.map(option => typeof option === "string" ? { label: option } : option);
+    if (this.surface) return this.surface.approve(preview, question, choices, signal);
+    // A plain terminal on a TTY means the box can't be shown where it is answered (TERM=dumb, output redirected).
+    if ((this.input as NodeJS.ReadStream).isTTY && this.rl && !this.closed) {
+      this.write("[input] No: approval denied, because this terminal can't show the box (TERM=dumb, or output redirected).\n");
+      return undefined;
     }
-    if (!this.rl || this.closed || this.confirmation || signal?.aborted) return Promise.resolve(undefined);
-    if ((this.input as NodeJS.ReadStream).isTTY) {
-      this.write("[input] Exact approval denied: use an interactive terminal with TERM other than dumb and output not redirected.\n");
-      return Promise.resolve(undefined);
-    }
-    this.endAssistant(); this.discardPartialLine(); this.write(preview);
-    this.plainQuestions += 1;
-    return new Promise(resolve => {
-      let settled = false;
-      const finish = (answer: string | undefined) => {
-        if (settled) return; settled = true;
-        signal?.removeEventListener("abort", cancel);
-        this.confirmation = undefined; this.discardPartialLine();
-        resolve(answer === undefined ? undefined : choices.includes(answer) ? answer : "no");
-      };
-      const cancel = () => finish(undefined);
-      this.confirmation = finish;
-      signal?.addEventListener("abort", cancel, { once: true });
-      if (signal?.aborted) { cancel(); return; }
-      this.rl!.setPrompt(question); this.rl!.prompt();
-    });
+    if (!this.rl || this.closed || this.confirmation || signal?.aborted || !choices.length) return undefined;
+    this.endAssistant(); this.discardPartialLine();
+    if (preview.trim()) this.write(`${preview.replace(/\n+$/, "")}\n`);
+    const answer = await this.pick(question, choices, signal);
+    if (answer === undefined) return undefined;
+    return choices.some(choice => choice.label === answer) ? answer : choices[0]!.label;
   }
 
   modelPickerHost(): RuntimeModelPickerHost | undefined { return this.exclusiveHost(); }
-  exclusiveHost(): RuntimeModelPickerHost | undefined { return this.surface?.exclusiveHost(); }
+  exclusiveHost(options?: { onYield?: () => void }): RuntimeModelPickerHost | undefined { return this.surface?.exclusiveHost(options); }
 
   /** Structured clarification on the rich surface; undefined when skipped or unavailable. */
   ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal, from: AskOrigin = "casper"): Promise<string[] | undefined> {
@@ -307,7 +334,7 @@ export class InteractiveTerminal {
       this.confirmation = finish;
       signal?.addEventListener("abort", cancel, { once: true });
       if (signal?.aborted) { cancel(); return; }
-      this.rl!.setPrompt(options.length > 1 ? `Type 1-${options.length} (Enter for 1): ` : "Enter for 1, or type your own: ");
+      this.rl!.setPrompt(options.length > 1 ? numberPrompt(options.length) : "Enter for 1, or type your own: ");
       this.rl!.prompt();
     });
   }

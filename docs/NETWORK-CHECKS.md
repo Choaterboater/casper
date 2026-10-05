@@ -140,10 +140,9 @@ reaches one without your answer:
 
 1. **Casper asks first.** When the work needs a device check, the AI asks for it (or you
    type `/verify <name>`), and Casper shows a numbered box naming every device. You answer
-   with a digit and Enter, typed after the box appeared (keys typed before it never answer
-   it). The AI can't answer the box, auto mode never asks for one, a device check is never
+   with one key, pressed after the box appeared (keys typed before it never answer it). The AI can't answer the box, auto mode never asks for one, a device check is never
    rerun on its own (not after a repair, not at the end of a task), and a failed one is never
-   repaired without your answer. The one exception is yours: "Always for this project" on
+   repaired without your answer. The one exception is yours: "Yes, always for this project" on
    `junos-commit` lets *your own* `/verify` run it without the box, and only while the
    inventory, its host variables and the change file are exactly as they were; a check the
    AI asks for always shows the box. A run that cannot ask (`casper -p`, `--json`, a pipe)
@@ -168,6 +167,10 @@ reaches one without your answer:
    export of its `lab`-tagged hosts (`{"hosts": [...]}`), or one host per line. Casper
    lists the new ones and asks `1 No · 2 Add them`; `/lab` shows the list and the file it
    comes from. When your profile has its own lab list (it replaces yours), the hosts go there.
+
+   The AI's `ssh` and `scp` to a device on your lab list (by the name or address the command
+   types) don't ask first. `/lab ssh off` makes them ask again, for this project (kept in
+   `~/.casper`); `/lab ssh on` turns it back on.
 
    Entries are exact hostnames, single IP addresses or IP ranges. Casper does no DNS
    lookups and never guesses from a name: `lab-sw9` is not marked lab just because it
@@ -199,13 +202,13 @@ The boxes:
 ```
 Run junos-commit on 2 devices? It loads the change, runs commit check, then rolls back. lab-r1, core-r1
 Not marked lab: core-r1 (10.1.2.3).
-1 Skip · 2 Run it · 3 Always for this project
+1 No · 2 Yes, this once · 3 Yes, always for this project
 
 Run aoscx-check on 3 devices? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. lab-sw1, lab-sw2, lab-sw3
-1 Skip · 2 Run it
+1 No · 2 Yes, this once
 ```
 
-Skip is first, so Enter never reaches a device.
+No is first, so Enter never reaches a device.
 
 When a lab check fails, Casper asks before anything else happens. Stop is first, so
 Enter never starts a repair:
@@ -218,7 +221,7 @@ junos-commit failed on the lab. Casper did not ask the model to fix it, because 
 If you pick 2 and the model changes the files, the lab check asks again before it
 runs on the lab again.
 
-"Always for this project" exists only for `junos-commit`. It applies only while the
+"Yes, always for this project" exists only for `junos-commit`. It applies only while the
 inventory, its hosts and the change file stay the same. `ansible-check` always asks.
 
 What this does not cover: Casper checks the inventory and the playbook text. It

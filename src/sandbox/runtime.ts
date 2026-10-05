@@ -18,7 +18,7 @@ export interface SandboxEngine {
   /** Run `id` has ended (its process exited). On Linux the runtime leaves empty stand-in files in the project
    * (`.bashrc`, `.gitconfig`, `.vscode` …) while a command runs; they are removed once no command is running. */
   finished(id: string): void;
-  /** The hosts a command may reach without asking, after "Always for this project". */
+  /** The hosts a command may reach without asking, after "Yes, always for this project". */
   setAllowedHosts(hosts: string[]): void;
   reset(): Promise<void>;
 }

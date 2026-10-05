@@ -3,6 +3,7 @@ import { lstat, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
+import { matchConversation } from "../sessions/resume";
 import { PiModels } from "./pi-models";
 import { authenticatePi } from "./pi-auth";
 import { isOpenRouterModel, openRouterAttribution } from "./openrouter-attribution";
@@ -51,6 +52,7 @@ import type {
   RuntimeUsage,
   RuntimeModelInfo,
   RuntimeConversation,
+  RuntimeEvent,
 } from "./types";
 import { isOutside } from "../platform/inside";
 
@@ -82,6 +84,10 @@ class PiRuntimeSession implements RuntimeSession {
   private readonly writes = new Map<string, { before: string | undefined | null; after: string }>();
   private unsubscribePi?: () => void;
   private promptActive = false;
+  /** A response that ended in a provider error, held until Pi says whether it retries. */
+  private heldError?: Extract<RuntimeEvent, { type: "assistant_response_end" }>;
+  /** Steered lines the model never read; see takeUnsent. */
+  private readonly unsent: string[] = [];
   private progressChars = 0;
   private progressReported = 0;
   private promptController?: AbortController;
@@ -232,7 +238,20 @@ class PiRuntimeSession implements RuntimeSession {
   }
 
   async listConversations(): Promise<RuntimeConversation[]> {
-    return (await SessionManager.list(this.runtime.cwd)).map(info => ({ id: info.id, name: info.name, modified: info.modified.toISOString() }));
+    return (await SessionManager.list(this.runtime.cwd)).map(info => ({ id: info.id, name: info.name, modified: info.modified.toISOString(),
+      firstMessage: info.firstMessage.slice(0, 4000), messages: info.messageCount }));
+  }
+
+  recentTurns(count: number): Array<{ role: "user" | "assistant"; text: string }> {
+    const turns: Array<{ role: "user" | "assistant"; text: string }> = [];
+    for (const message of this.runtime.session.messages) {
+      if (message.role !== "user" && message.role !== "assistant") continue;
+      const content = message.content;
+      const text = typeof content === "string" ? content
+        : content.map(part => part.type === "text" ? part.text : "").filter(Boolean).join("\n");
+      if (text.trim()) turns.push({ role: message.role, text });
+    }
+    return turns.slice(-Math.max(0, count));
   }
 
   private persistUnwrittenConversation(): void {
@@ -253,10 +272,10 @@ class PiRuntimeSession implements RuntimeSession {
 
   async resumeConversation(id: string, options: { keepUnwritten?: boolean } = {}): Promise<void> {
     if (this.busy || this.readOnly || this.models.busy) throw new Error("Wait for active work before resuming.");
-    const saved = (await SessionManager.list(this.runtime.cwd)).filter(info => info.id === id);
-    if (saved.length !== 1) throw new Error("Unknown or ambiguous conversation ID in this workspace. Use /resume to list IDs.");
+    // The exact ID, or the one that starts with it.
+    const saved = matchConversation(await SessionManager.list(this.runtime.cwd), id);
     if (options.keepUnwritten !== false) this.persistUnwrittenConversation();
-    const result = await this.runtime.switchSession(saved[0]!.path, { cwdOverride: this.runtime.cwd });
+    const result = await this.runtime.switchSession(saved.path, { cwdOverride: this.runtime.cwd });
     if (result.cancelled) throw new Error("Resume cancelled.");
   }
 
@@ -332,12 +351,30 @@ class PiRuntimeSession implements RuntimeSession {
       });
       throw error;
     } finally {
+      // A line steered in after the model's last step is not lost: it comes back through takeUnsent.
+      if (session.pendingMessageCount) { const left = session.clearQueue(); this.unsent.push(...left.steering, ...left.followUp); }
       agent.streamFunction = stream;
       if (maxTurns !== undefined) agent.finishTurn = previousFinish;
       promptSignal.removeEventListener("abort", cancel);
       this.promptController = undefined;
       this.promptActive = false;
     }
+  }
+
+  async steer(text: string): Promise<boolean> {
+    const session = this.runtime.session;
+    if (this.readOnly || !this.promptActive || !session.isStreaming) return false;
+    await session.steer(text);
+    return true;
+  }
+
+  takeUnsent(): string[] {
+    const left = this.unsent.splice(0);
+    if (!this.promptActive) {
+      const queued = this.runtime.session.clearQueue();
+      left.push(...queued.steering, ...queued.followUp);
+    }
+    return left;
   }
 
   abort(): Promise<void> {
@@ -379,11 +416,17 @@ class PiRuntimeSession implements RuntimeSession {
           if (event.message.role === "assistant") {
             const { totalTokens, cost } = event.message.usage ?? {};
             const reported = Number.isFinite(totalTokens) && Number.isFinite(cost?.total);
-            this.emit({
-              type: "assistant_response_end", stopReason: event.message.stopReason, errorMessage: event.message.errorMessage,
+            const end = {
+              type: "assistant_response_end" as const, stopReason: event.message.stopReason, errorMessage: event.message.errorMessage,
               ...(reported ? { usage: { tokens: totalTokens!, estimatedCost: cost!.total } } : {}),
-            });
+            };
+            // A provider error may be retried: Pi decides at agent_end, so the error waits until then.
+            if (event.message.stopReason === "error") this.heldError = end; else this.emit(end);
           }
+          break;
+        case "auto_retry_start":
+          this.emit({ type: "retry", provider: session.model?.provider, attempt: event.attempt, maxAttempts: event.maxAttempts,
+            delayMs: event.delayMs, errorMessage: event.errorMessage });
           break;
         case "message_update": {
           const update = event.assistantMessageEvent;
@@ -423,10 +466,13 @@ class PiRuntimeSession implements RuntimeSession {
             isError: event.isError, ...(lines ? { lines } : {}), ...(diff ? { diff } : {}) });
           break;
         }
-        case "agent_end":
+        case "agent_end": {
           this.toolInputs.clear();
+          const held = this.heldError; this.heldError = undefined;
+          if (held) this.emit(event.willRetry ? { ...held, retrying: true } : held);
           this.emit({ type: "message_end" });
           break;
+        }
       }
     });
   }

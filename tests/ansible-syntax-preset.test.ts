@@ -1,9 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import {
-  collectionReason, formatNetworkCheckLine, missingCollection, repairClass, runNetworkCheck, VAULT_REASON, WINDOWS_REASON,
-} from "../src/network/checks";
+import { collectionReason, missingCollection, runNetworkCheck, VAULT_REASON, WINDOWS_REASON } from "../src/network/checks";
+import { liveCheckLine } from "../src/task/result";
+import { formatVerificationResult, repairClass } from "../src/verify/evidence";
+import { fromNetworkResult } from "../src/verify/registry";
 import type { NetworkCheckSpec } from "../src/network/spec";
 import { fakeTool, networkFixture, RECORD_CALL, writeProjectFile, type NetworkFixture } from "./support/network-fakes";
 
@@ -40,8 +41,11 @@ test("syntax check runs ansible-playbook --syntax-check with -i localhost, and C
   expect(env).not.toContain("ANSIBLE_VAULT_PASSWORD_FILE");
   // Casper's config file is removed after the run.
   expect(await exists(config!)).toBe(false);
-  expect(formatNetworkCheckLine(result)).toMatch(/^✓ aruba-syntax {2}ansible-playbook --syntax-check -i localhost, site\.yml {2}\(\d+\.\ds\)$/);
-  expect(formatNetworkCheckLine(result)).not.toContain("offline");
+  // The line shown when it finishes, and the verbose one with its command. Neither says "offline".
+  const shown = fromNetworkResult(result);
+  expect(liveCheckLine(shown)).toMatch(/^✓ aruba-syntax(?: · \d+\.\ds)?$/);
+  expect(formatVerificationResult(shown)).toStartWith("✓ aruba-syntax  ansible-playbook --syntax-check -i localhost, site.yml  (");
+  expect(liveCheckLine(shown) + formatVerificationResult(shown)).not.toContain("offline");
 });
 
 test("Casper's ansible.cfg enables only static inventory plugins and has no vault password file", async () => {
@@ -57,15 +61,15 @@ test("a missing collection reads not run with the install line, and is never rep
   const f = await setup(`echo "ERROR! couldn't resolve module/action 'arubanetworks.aoscx.aoscx_vlan'. This often indicates a misspelling, missing collection, or incorrect module path." >&2; exit 4`);
   const result = await runNetworkCheck("aruba-syntax", syntax, context(f));
   expect(result).toMatchObject({ status: "skip", notRun: "collection", reason: collectionReason("arubanetworks.aoscx") });
-  expect(formatNetworkCheckLine(result)).toBe("– aruba-syntax  not run: the Ansible collection arubanetworks.aoscx is not installed (ansible-galaxy collection install arubanetworks.aoscx)");
-  expect(repairClass(result)).toBe("never");
+  expect(liveCheckLine(fromNetworkResult(result))).toBe("– aruba-syntax · not run: the Ansible collection arubanetworks.aoscx is not installed (ansible-galaxy collection install arubanetworks.aoscx)");
+  expect(repairClass(fromNetworkResult(result))).toBe("never");
 });
 
 test("a real syntax error stays a failure the model may fix; an unclear message is not turned into a skip", async () => {
   const f = await setup(`echo "ERROR! 'vlan_idd' is not a valid attribute for a Task" >&2; exit 4`);
   const result = await runNetworkCheck("aruba-syntax", syntax, context(f));
   expect(result.status).toBe("fail");
-  expect(repairClass(result)).toBe("repairable");
+  expect(repairClass(fromNetworkResult(result))).toBe("repairable");
   expect(missingCollection("couldn't resolve module/action 'aoscx_vlan'")).toBeUndefined();
 });
 
@@ -109,7 +113,7 @@ test("on Windows the Ansible presets read not run with the WSL hint", async () =
   const f = await setup("exit 0");
   const result = await runNetworkCheck("aruba-syntax", syntax, { ...context(f), platform: "win32" });
   expect(result).toMatchObject({ status: "skip", reason: WINDOWS_REASON, notRun: "platform" });
-  expect(formatNetworkCheckLine(result)).toBe("– aruba-syntax  not run: Ansible does not run on Windows; use WSL");
+  expect(liveCheckLine(fromNetworkResult(result))).toBe("– aruba-syntax · not run: Ansible does not run on Windows; use WSL");
   expect(await exists(path.join(f.records, "ansible-playbook.ran"))).toBe(false);
 });
 

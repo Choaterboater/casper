@@ -292,8 +292,8 @@ test("interactive run: no to the server's question cancels the approved call", a
 });
 
 test("interactive run: p previews first, then the box shows the preview with the PSK hidden", async () => {
-  const { output, result } = await networkRun(["2", "3"], { id: "mcp:net:set_ssid", arguments: { ssid: "corp", wpa_passphrase: "hunter2hunter" } });
-  expect(output).toContain("  1 No\n  2 Preview first\n  3 Yes, this once\n  4 Yes, for this session\n");
+  const { output, result } = await networkRun(["4", "2"], { id: "mcp:net:set_ssid", arguments: { ssid: "corp", wpa_passphrase: "hunter2hunter" } });
+  expect(output).toContain("  1 No\n  2 Yes, this once\n  3 Yes, for this session\n  4 Preview first\n");
   expect(output).toContain("[approval] preview first");
   expect(output).toContain("Last preview (just now):");
   expect(output).toContain("  wpa_passphrase   ••• 13 chars\n");
@@ -437,7 +437,7 @@ test("interactive /mcp connect shows a project definition's origin before approv
       output: { write: (text) => {
         output += text;
         if (text === "> ") queueMicrotask(() => input.write(prompts++ === 0 ? "/mcp connect github\n" : "/exit\n"));
-        if (text.includes("Type yes:")) queueMicrotask(() => input.write(`${answer}\n`));
+        if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write(`${answer === "yes" ? "2" : "1"}\n`));
       } },
     });
     cleanup.push(() => app.close());
@@ -487,7 +487,7 @@ test("/mcp reload revokes consent only for approved changed servers and ignores 
 test("interactive run: a digit typed before the change box appeared does not answer it", async () => {
   // "2" (Yes, this once) is typed together with the request, before the box exists; the box is then answered 1.
   const { output, result } = await networkRun(["1"], { id: "mcp:net:set_ssid", arguments: { ssid: "corp" } }, "2\n");
-  expect(output).toMatch(/\[input\] Discarded 1 line\(s\) entered before this approval appeared\./);
+  expect(output).toMatch(/\[input\] Discarded 1 line\(s\) entered before this question appeared\./);
   expect(output).toContain("[approval] denied");
   expect(result).not.toContain("applied");
 });
@@ -501,11 +501,11 @@ test("interactive run: a server's pick-one question lists its options after 1 No
   expect(result).toContain("1/1/2");
 });
 
-test("interactive run: a risky kind asks first (1 No · 2 Allow), then the change box asks about the call", async () => {
-  const { output, result } = await networkRun(["2", "2"], { id: "mcp:net:invite_user", arguments: { email: "a@example.com" } });
+test("interactive run: a risky kind asks first (1 No · 2 Yes, this once · 3 Yes, for this session), then the change box asks about the call", async () => {
+  const { output, result } = await networkRun(["3", "2"], { id: "mcp:net:invite_user", arguments: { email: "a@example.com" } });
   const kind = output.indexOf("Admin and account changes are off by default on HPE networking.");
   expect(kind).toBeGreaterThanOrEqual(0);
-  expect(output.slice(kind)).toContain("  Runs: invite user\n  1 No\n  2 Allow admin and account changes for this session\n");
+  expect(output.slice(kind)).toContain("  Runs: invite user\nAllow admin and account changes on HPE networking?\n  1 No\n  2 Yes, this once\n  3 Yes, for this session\n");
   expect(output).toContain("[approval] allowed admin and account changes on net for this session");
   expect(output.indexOf("Change in HPE networking: invite user")).toBeGreaterThan(kind);
   expect(result).toContain("invite_user");
@@ -531,7 +531,7 @@ test("interactive run: 1 at the kind box runs nothing and shows no change box", 
 test("interactive run: the last choice allows everything on that server this session; the footer shows it", async () => {
   const { output, result, app } = await networkRun(["5", "2"], { id: "mcp:net:set_ssid", arguments: { ssid: "corp" } });
   // A digit typed from habit can't grant it: it asks once more.
-  expect(output).toContain("No box will ask about any change on HPE networking until ctrl+o or the session ends.\n  1 No\n  2 Yes to everything\nType 1 or 2: ");
+  expect(output).toContain("No box will ask about any change on HPE networking until ctrl+o or the session ends.\nYes to everything on HPE networking?\n  1 No\n  2 Yes to everything\nType 1 or 2: ");
   expect(output).toContain("  5 Yes to everything on HPE networking this session (no more asking, even reboots, deletes or an AI-set confirm)\n");
   expect(output).toContain("[approval] allowed (allow all)\n");
   expect(result).toContain("applied");

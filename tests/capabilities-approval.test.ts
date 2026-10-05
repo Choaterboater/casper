@@ -115,7 +115,8 @@ test("preset hints add a note and a no-change case, and can turn preview off", (
   const box = formatApproval(commit);
   expect(box.preview).toContain("Note: Commits at once. No auto-rollback.");
   expect(canPreview(commit)).toBe(false);
-  expect(box.question).toBe("Type 1, 2, 3 or 4: ");
+  expect(box.question).toBe("Make this change?");
+  expect(box.labels).toHaveLength(4);
   expect(Object.values(box.answers)).not.toContain("preview");
 });
 
@@ -181,9 +182,9 @@ test("p to preview first is offered only when the tool's own schema has the swit
   const direct = plan("set_ssid", { ssid: "x" }, setSsidSchema);
   expect(canPreview(direct)).toBe(true);
   const box = formatApproval(direct);
-  expect(box.question).toBe("Type 1, 2, 3, 4 or 5: ");
+  expect(box.labels).toHaveLength(5);
   expect(box.choices).toEqual(["1", "2", "3", "4", "5"]);
-  expect(box.answers["2"]).toBe("preview");
+  expect(box.answers["4"]).toBe("preview");
   expect(box.preview).toContain("No preview yet.");
   expect(previewArguments(plan("set_ssid", { ssid: "x", dry_run: false, confirm: true }, setSsidSchema)))
     .toEqual({ ssid: "x", dry_run: true, confirm: false });
@@ -192,7 +193,7 @@ test("p to preview first is offered only when the tool's own schema has the swit
   // No switch in the schema: a server that ignores dry_run would make the change.
   const bounce = plan("port_bounce", { serial_number: "SG1" }, { type: "object", properties: { serial_number: { type: "string" } } });
   expect(canPreview(bounce)).toBe(false);
-  expect(formatApproval(bounce).question).toBe("Type 1, 2 or 3: ");
+  expect(formatApproval(bounce).labels).toHaveLength(3);
   expect(formatApproval(bounce).choices).toEqual(["1", "2", "3"]);
   expect(Object.values(formatApproval(bounce).answers)).not.toContain("preview");
   expect(formatApproval(bounce).preview).not.toContain("No preview yet.");
@@ -201,7 +202,7 @@ test("p to preview first is offered only when the tool's own schema has the swit
   for (const args of [{ name: "set_ssid", arguments: {} }, { name: "set_ssid", arguments: { dry_run: false } }]) {
     const routed = plan("invoke_tool", args, routerSchema);
     expect(canPreview(routed)).toBe(false);
-    expect(formatApproval(routed).question).not.toContain("p to preview first");
+    expect(formatApproval(routed).labels).not.toContain("Preview first");
   }
 });
 
@@ -241,10 +242,11 @@ test("server text can't move the cursor or hide text", () => {
 test("names, keys and previews can't add fake lines to the box", () => {
   const sneaky = plan("invoke_tool", { name: "get_device\nMode: preview (dry_run=true, nothing changes)",
     arguments: { "a\npassword": "p" } }, routerSchema);
-  const box = formatApproval(sneaky, { text: "done\nRun it? Type yes: ", at: 0 }, { now: 0 }).preview;
+  const formatted = formatApproval(sneaky, { text: "done\nRun it? Type yes: ", at: 0 }, { now: 0 });
+  const box = formatted.preview;
   const lines = box.trimEnd().split("\n");
   expect(lines.filter((line) => /^(May make the change|This makes the change|Preview only)/.test(line))).toEqual(["May make the change (dry_run is not set)."]);
-  expect(lines.filter((line) => /^  \d /.test(line))).toEqual(["  1 No", "  2 Yes, this once", `  3 ${ALL}`]);
+  expect(formatted.labels).toEqual(["No", "Yes, this once", ALL]);
   expect(box).toContain("Last preview (just now): done Run it? Type yes: ");
   // Every injected line break was flattened: no line is only injected text.
   expect(lines.some((line) => line.startsWith("Run it?") || line.startsWith("Mode:"))).toBe(false);
@@ -294,18 +296,17 @@ test("the box says what changes in plain words, values one per line, secrets hid
 
 test("choices: preview offered when the tool has one; destructive never gets a session answer; allow-all is always last", () => {
   const ssid = formatApproval(plan("set_ssid", { ssid: "G" }, setSsidSchema));
-  expect(ssid.preview).toContain(`  1 No\n  2 Preview first\n  3 Yes, this once\n  4 Yes, for this session\n  5 ${ALL}\n`);
-  expect(ssid.question).toBe("Type 1, 2, 3, 4 or 5: ");
+  expect(ssid.labels).toEqual(["No", "Yes, this once", "Yes, for this session", "Preview first", ALL]);
+  expect(ssid.question).toBe("Make this change?");
   expect(ssid.choices).toEqual(["1", "2", "3", "4", "5"]);
-  expect(ssid.answers).toEqual({ "1": "no", "2": "preview", "3": "yes", "4": "yes-session", "5": "allow-all" });
+  expect(ssid.answers).toEqual({ "1": "no", "2": "yes", "3": "yes-session", "4": "preview", "5": "allow-all" });
   const reboot = formatApproval(plan("reboot_device", { serial: "SG1" }, { type: "object" }, { destructiveHint: true }));
-  expect(reboot.preview).toContain(`  1 No\n  2 Yes, this once\n  3 ${ALL}\n`);
-  expect(reboot.preview).not.toContain("for this session");
-  expect(reboot.question).toBe("Type 1, 2 or 3: ");
+  expect(reboot.labels).toEqual(["No", "Yes, this once", ALL]);
+  expect(reboot.labels).not.toContain("Yes, for this session");
   expect(reboot.answers).toEqual({ "1": "no", "2": "yes", "3": "allow-all" });
   const site = formatApproval(plan("set_site", { site: "lab" }), undefined, { product: "Mist" });
   expect(site.preview).toContain("Change in Mist: set site\n");
-  expect(site.preview).toContain("  4 Yes to everything on Mist this session (");
+  expect(site.labels[3]).toStartWith("Yes to everything on Mist this session (");
   expect(site.answers).toEqual({ "1": "no", "2": "yes", "3": "yes-session", "4": "allow-all" });
 });
 
@@ -319,8 +320,8 @@ test("a router change names the real tool in plain words", () => {
 
 test("a tool that runs commands (exec) gets no session answer, like a destructive one", () => {
   const box = formatApproval(plan("execute_junos_command", { router_name: "r1", command: "clear arp" }));
-  expect(box.preview).toContain("  1 No\n  2 Yes, this once\n");
-  expect(box.preview).not.toContain("for this session");
+  expect(box.labels.slice(0, 2)).toEqual(["No", "Yes, this once"]);
+  expect(box.labels).not.toContain("Yes, for this session");
   expect(box.answers).toEqual({ "1": "no", "2": "yes", "3": "allow-all" });
 });
 
@@ -332,15 +333,15 @@ test("the box says where the login can change things, when the server reports it
 
 test("review: a risky or disruptive kind gets no session answer in the box", () => {
   const invite = formatApproval(plan("invite_user", { email: "a" }));
-  expect(invite.preview).not.toContain("for this session");
+  expect(invite.labels).not.toContain("Yes, for this session");
   expect(Object.values(invite.answers)).toEqual(["no", "yes", "allow-all"]);
 });
 
 test("review: a tool the server tags as firmware gets no session answer; yes this once stays", () => {
   const settings = plan("update_device_settings", { serial: "SG1" });
-  expect(formatApproval(settings).preview).toContain("for this session");
+  expect(formatApproval(settings).labels).toContain("Yes, for this session");
   const box = formatApproval(settings, undefined, { tool: { _meta: { "casper/change-kind": "firmware" } } });
-  expect(box.preview).toContain("  1 No\n  2 Yes, this once\n");
-  expect(box.preview).not.toContain("for this session");
+  expect(box.labels.slice(0, 2)).toEqual(["No", "Yes, this once"]);
+  expect(box.labels).not.toContain("Yes, for this session");
   expect(Object.values(box.answers)).toEqual(["no", "yes", "allow-all"]);
 });

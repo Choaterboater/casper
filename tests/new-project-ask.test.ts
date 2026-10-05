@@ -215,7 +215,7 @@ test("3 Other kind shows Use this folder, then the kinds, then the name question
     h.input.write("3");
     await h.until(text => text.includes("What are you building?"));
     expect(h.visible().slice(h.visible().lastIndexOf("What are you building?"))).toContain("1 Use this folder");
-    h.input.write("5");
+    h.input.write("6");
     await h.until(text => text.includes("Name it? (Enter for mist-aps)"));
     h.input.write("\r");
     await h.until(() => h.prompts.length === 1);
@@ -276,7 +276,7 @@ test("the plain terminal answers the same question with a typed number", async (
   try {
     await h.until(text => text.includes("> "));
     h.input.write(`${REQUEST}\n`);
-    await h.until(text => text.includes("Type 1-3 (Enter for 1): "));
+    await h.until(text => text.includes("Type 1, 2 or 3: "));
     expect(h.visible()).toContain("Build this as a new Mist Python project in ~/Projects/mist-aps?\n  1 Use this folder\n  2 Yes\n  3 Other kind\n");
     expect(h.starts).toEqual([]);
     h.input.write("2\n");
@@ -359,7 +359,7 @@ test("in an empty folder, Enter (1 Not now) on the plain terminal builds nothing
   const running = h.app.runInteractive(empty);
   try {
     await h.until(text => text.includes("This folder is empty. Start a new project here?"));
-    await h.until(text => text.includes("Type 1-"));
+    await h.until(text => /Type 1(, \d)* or \d: /.test(text));
     expect(h.visible()).toContain("  1 Not now · just work in this folder\n");
     h.input.write("\n");
     await h.until(text => text.endsWith("> "));
@@ -385,7 +385,7 @@ test("the home-folder question ends with New project, which asks the kind and th
     expect(h.visible()).toContain("3 New project");
     h.input.write("3");
     await h.until(text => text.includes("What are you building?"));
-    h.input.write("2");
+    h.input.write("3");
     await h.until(text => text.includes("Name it? (Enter for "));
     h.input.write("site-mcp\r");
     await h.until(text => text.includes("idle"));
@@ -431,10 +431,32 @@ test("/new lists the templates, and once the model has started it builds but kee
     await h.until(() => h.prompts.length === 1);
     await h.until(settled);
     h.input.write("/new python-cli ping-tool\r");
-    await h.until(text => text.includes("Open the new project with: cd ~/Projects/ping-tool && casper"));
+    await h.until(text => text.includes("To work in it, run: casper ~/Projects/ping-tool"));
     expect(h.visible()).toContain(`[folder] This conversation stays in ${dirs.work}.`);
     expect(h.created.map(entry => entry.name)).toEqual(["ping-tool"]);
     expect(h.starts).toEqual([dirs.work]);
+    await h.until(settled);
+  } finally { await finish(h, running); await dirs.cleanup(); }
+});
+
+test("/new after the model started never drops a typed request silently: it says it didn't run and how to run it", async () => {
+  const dirs = await setup("casper-new-slash-typed-");
+  const h = harness(dirs.home);
+  const running = h.app.runInteractive(dirs.work);
+  try {
+    await h.until(text => text.includes("idle"));
+    h.input.write("hello there\r");
+    await h.until(() => h.prompts.length === 1);
+    await h.until(settled);
+    h.input.write("/new\r");
+    await h.until(text => text.includes("What are you building?"));
+    h.input.write("a nightly backup of my switch configs\r");
+    await h.until(text => text.includes("Name it? (Enter for "));
+    h.input.write("\r");
+    await h.until(text => text.includes("To work in it, run: casper ~/Projects/"));
+    await h.until(text => text.includes("[new] Your request didn't run here."));
+    expect(h.visible()).toMatch(/\[new\] Your request didn't run here\. Run casper ~\/Projects\/[a-z0-9-]+ and type it there\./);
+    expect(h.prompts.length).toBe(1);
     await h.until(settled);
   } finally { await finish(h, running); await dirs.cleanup(); }
 });
@@ -463,12 +485,12 @@ test("casper new opens the app only for a person at a terminal; --list and scrip
   expect(terminalNewProject(parseCliArgs(["build", "a", "tool"]), true)).toBeUndefined();
 });
 
-test("/new is in the command palette and both help texts; casper new is in the short help", () => {
+test("/new is in the command palette and the full help; casper new is in the short help", () => {
   expect(COMMANDS.find(command => command.name === "new")?.description).toBe("Start a new project in ~/Projects (no model)");
-  expect(HELP_TEXT).toContain("casper new [name]      Start a new project (Python tool, MCP server, Mist scripts)");
-  expect(HELP_TEXT).toContain("/new [name]            Start a new project in ~/Projects (no model)");
+  expect(HELP_TEXT).toContain("casper new [name]");
+  expect(FULL_HELP_TEXT).toContain("/new [name]                       Start a new project in ~/Projects (no model)");
   expect(FULL_HELP_TEXT).toContain("/new <template> <name>");
-  expect(FULL_HELP_TEXT).toContain("casper new [name]");
+  expect(FULL_HELP_TEXT).toContain("casper new [kind] [name]");
 });
 
 test("typed no or yes answers the build question and is never a project name", async () => {
@@ -492,7 +514,7 @@ test("typed no or yes answers the build question and is never a project name", a
   try {
     await yes.until(text => text.includes("> "));
     yes.input.write(`${REQUEST}\n`);
-    await yes.until(text => text.includes("Type 1-3 (Enter for 1): "));
+    await yes.until(text => text.includes("Type 1, 2 or 3: "));
     yes.input.write("y\n");
     await yes.until(() => yes.prompts.length === 1);
     expect(yes.created.map(entry => entry.name)).toEqual(["mist-aps"]);
@@ -507,9 +529,9 @@ test("a number that isn't a choice asks again instead of becoming a name", async
   try {
     await h.until(text => text.includes("> "));
     h.input.write(`${REQUEST}\n`);
-    await h.until(text => text.includes("Type 1-3 (Enter for 1): "));
+    await h.until(text => text.includes("Type 1, 2 or 3: "));
     h.input.write("4\n");
-    await h.until(text => text.includes("[new] Pick a number from 1 to 3.") && text.endsWith("Type 1-3 (Enter for 1): "));
+    await h.until(text => text.includes("[new] Pick a number from 1 to 3.") && text.endsWith("Type 1, 2 or 3: "));
     expect(h.visible()).not.toContain("Names use lowercase");
     h.input.write("1\n");
     await h.until(() => h.prompts.length === 1);

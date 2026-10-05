@@ -186,12 +186,15 @@ Bun.serve({ hostname: process.env.HOST, port: Number(process.env.PORT), fetch() 
   const opener: PageOpener = { consoleChecked: true, async close() {},
     async load(url, signal, options) {
       settles.push(options?.settle ?? "none");
+      // The stand-in logs a traceback on every request, the readiness probe's too: count the ones before this load.
+      const tracebacks = () => app.serviceManager().logs("web").text.split("KeyError").length - 1;
+      const before = tracebacks();
       const response = await fetch(url, { signal });
       await response.text();
-      // A real browser waits for the Streamlit script to finish; here, wait until the server's log has the traceback (or the page is clean).
+      // A real browser waits for the Streamlit script to finish; here, wait until this load's own traceback is in the log.
       const broken = (await readFile(path.join(project, "app.py"), "utf8")).includes("row['site']");
       // No try count: under load the log can take longer than any fixed budget; the test's own timeout bounds it.
-      while (broken && !signal?.aborted && !app.serviceManager().logs("web").text.includes("KeyError")) await Bun.sleep(10);
+      while (broken && !signal?.aborted && tracebacks() <= before) await Bun.sleep(10);
       return { status: response.status, consoleChecked: true, consoleErrors: [], pageErrors: [], failedRequests: [] };
     } };
   app = new CasperApp({ runtimeFactory: () => runtime, output: { write: text => { output.push(text); } }, sessionHomeDir: home, pageOpener: async () => opener,

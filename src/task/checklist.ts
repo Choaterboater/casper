@@ -1,4 +1,5 @@
 import type { AcceptanceCompletion } from "../verify/acceptance";
+import { lineText } from "../tui/format";
 
 /** verification.checklist: the concrete cases a request states, listed by one model call outside the
  * task conversation before the model's turn, so the model can test each one. */
@@ -45,7 +46,7 @@ export function normalizeCases(lines: readonly string[]): string[] {
 
 function cleanCases(lines: readonly string[]): string[] {
   return lines
-    .map((item) => item.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ").replace(/\s+/g, " ").trim()
+    .map((item) => lineText(item).replace(/\s+/g, " ").trim()
       .replace(/^[-*•](?: |$)/, "").trim().slice(0, CASE_LIMIT).trimEnd())
     .filter(Boolean);
 }

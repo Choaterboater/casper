@@ -194,7 +194,7 @@ test("a failed locked install leaves nothing behind", async () => {
   const spec = lockedSpec("0.1.0");
   const result = await installLockedSpec(spec, { homeDir: home, env: { PATH: await fakeUvDir() }, run: fakeRun([], { pipExit: 1 }) });
   expect(result.ok).toBe(false);
-  expect(result.message).toBe("casper-network-mcp: the hash-locked install failed");
+  expect(result.message).toBe("casper-network-mcp: the install failed.");
   expect(await exists(path.join(home, ".casper", "tools", "casper-network-mcp"))).toBe(false);
   expect(await readdir(path.join(home, ".casper", "tools")).catch(() => [])).toEqual([]);
   expect(await installedVersion(home, spec)).toBeUndefined();
@@ -247,4 +247,24 @@ test("an install killed between the two renames is put back by the next install"
 test("security tools keep their versioned folders", () => {
   const semgrep = SECURITY_TOOLS.semgrep;
   expect(pinnedToolDir("/home/someone", semgrep)).toBe(path.join("/home/someone", ".casper", "tools", `${semgrep.id}-${semgrep.version}`));
+});
+
+test("a failed hash-locked install says why in plain words, with uv's own last line", async () => {
+  const home = await temp("casper-security-install-");
+  const bin = await temp("casper-security-uv-");
+  await writeFile(path.join(bin, "uv"), "#!/bin/sh\nexit 0\n");
+  await chmod(path.join(bin, "uv"), 0o755);
+  const failing = (stderr: string) => installTool(SECURITY_TOOLS.ruff, {
+    homeDir: home, env: { PATH: bin },
+    run: async (options) => options.args[0] === "pip" ? { exitCode: 1, signal: null, stdout: "", stderr } : { exitCode: 0, signal: null, stdout: "", stderr: "" },
+  });
+  const offline = await failing("error: Failed to fetch: `https://pypi.org/simple/ruff/`\n  Caused by: dns error: failed to lookup address information\n");
+  expect(offline.ok).toBe(false);
+  expect(offline.message).toBe("ruff S: the install couldn't reach pypi.org. Check your internet connection, then try again. (uv: Caused by: dns error: failed to lookup address information)");
+  const hash = await failing("error: Hash mismatch for `ruff==0.15.0`\n");
+  expect(hash.message).toBe("ruff S: a download did not match its pinned hash, so nothing was installed. Try again later. (uv: error: Hash mismatch for `ruff==0.15.0`)");
+  const wheel = await failing("error: Distribution `ruff==0.15.0` can't be installed because it doesn't have a source distribution or wheel for the current platform\n");
+  expect(wheel.message).toContain("ruff S: there is no ready-made build of it for this computer.");
+  const other = await failing("error: something else\n");
+  expect(other.message).toBe("ruff S: the install failed. (uv: error: something else)");
 });

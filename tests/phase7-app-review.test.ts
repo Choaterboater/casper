@@ -48,7 +48,7 @@ test("review regression: failed destination context loading revokes old capabili
     loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
     output: { write(text) {
       output += text;
-      if (text.includes("Type yes:")) queueMicrotask(() => input.write("yes\n"));
+      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write("2\n"));
       if (text === "> ") {
         const current = question++;
         void (async () => {

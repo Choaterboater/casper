@@ -23,7 +23,8 @@ test("one very long line is checked in about linear time, whatever it holds", ()
       const started = performance.now();
       pass(line);
       const took = performance.now() - started;
-      if (took > 500) slow.push(`${JSON.stringify(shape)} ${name}: ${Math.round(took)} ms`);
+      // The old quadratic cases took about 5 s at 100 KB; 2 s leaves room for a busy CI runner without missing them.
+      if (took > 2000) slow.push(`${JSON.stringify(shape)} ${name}: ${Math.round(took)} ms`);
     }
   }
   expect(slow).toEqual([]);

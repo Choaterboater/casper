@@ -13,6 +13,7 @@
 import os from "node:os";
 import { remoteTargets } from "../sandbox/remote";
 import { formatChecklistPrompt, normalizeCases } from "../task/checklist";
+import { lineText } from "../tui/format";
 
 /** Pi's built-in tools that only look at files, and the web lookups, which only read. Every other tool
  * (edit, write, MCP tools, services, the browser, delegation...) is blocked while planning, whatever it
@@ -169,10 +170,9 @@ export interface ParsedPlan {
 /** Tidy one step for the editor: no Markdown emphasis or code marks, one line. (Pi's cleanStepText,
  * without its 50-character cut: the user reads and edits the whole step.) */
 function cleanLine(text: string): string {
-  const cleaned = text
+  const cleaned = lineText(text
     .replace(/\*{1,2}([^*]+)\*{1,2}/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/[\x00-\x1f\x7f-\x9f‪-‮⁦-⁩]/g, " ")
+    .replace(/`([^`]+)`/g, "$1"))
     .replace(/\s+/g, " ")
     .trim();
   return cleaned.length > 300 ? `${cleaned.slice(0, 297)}...` : cleaned;

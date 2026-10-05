@@ -278,7 +278,7 @@ Changed sum.
           <article class="card">
             <h3>Tool lines with +N -M</h3>
             <p>Each tool call is one line in the Working box, <code>•</code> while it runs and <code>✓</code> or
-            <code>✗</code> once done; the finished steps fold into one summary line. With a real model, an edit line also shows lines
+            <code>✗</code> once done; the finished steps fold into one summary line, with the changed files named under it. With a real model, an edit line also shows lines
             added and removed, like <code>+9 -1</code>. (The stand-in above does not send those counts.)</p>
           </article>
           <article class="card">
@@ -327,10 +327,10 @@ fixture [stdio; ready] 340 tools · writes off · access not checked
   limits: start 20 s · call 90 s
 Writes off: the server runs with its read-only settings, and every change asks you first. Answer 2
 or 3 in the change box to allow it, or /mcp writes &lt;name&gt; to turn writes on now.
-Remember this server? Next time it connects on its own, with writes off. Every change still asks
-you.
-  <span class="accent">1</span> Just this time
-  <span class="accent">2</span> Remember
+Next time it connects on its own, with writes off. Every change still asks you.
+Remember fixture?
+  <span class="accent">1</span> No
+  <span class="accent">2</span> Yes
 Type 1 or 2:
 <span class="dim">[mcp]</span> Not remembered. fixture is connected for this session only.</pre>
           <figcaption>Connecting a local test server (it never talks to a device). Note
@@ -707,45 +707,20 @@ Press 1-2 or Up/Down + Enter · type to answer · Esc skip
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">/help</span>
 Casper — your coding companion
 
-  casper                 Start interactive mode
-  casper &lt;prompt&gt;        Run one prompt and exit; Casper checks the changes (--no-verify skips)
-  casper --verbose ...   Detailed evidence receipts instead of the plain receipt
-  casper --json ...      Scripting: also --model, --continue, --require-verification
-(docs/SCRIPTING.md)
-  casper mcp check [repo]  Check an MCP server you built: its tests, labels and configs (no tool
-calls unless --live)
-  /help all              All commands, options and safety details
-  /status                Model/auth, integrations and local storage
-  /model [model]         Pick a model; Enter remembers globally, Ctrl+S is session-only
-  /effort [level|auto]   Pick reasoning effort, or auto per request; --session for temporary
-  /context, /usage       Context estimate, session tokens and cost availability
-  /compact               Summarize context (sends a model request)
-  /clear, /resume        Fresh conversation or list/resume a saved conversation
-  /diff                  Current tracked changes and untracked file names
-  /output [n]            Full retained output of the last task's n-th most recent tool call
-  /receipt               Detailed evidence behind the last task's receipt
-  /permissions           Explain actual tool/approval boundaries
-  /login                 Provider sign-in or private API-key setup (interactive only)
-  /project               Project context and check commands
-  /skills                Skills and trust; /skills diagnostics for warnings
-  /verify [checks ...]   Run repository checks (trusted projects only); /verify repair fixes
-failures
-  /browser               Disposable browser status; website tasks can reproduce bugs
-  /services              Declared services: status, logs, start, restart, stop (no model)
-  /debug                 Local debugger targets/status; explicit launch approval
-  /exit, /quit           Exit
-
-Type a request to work with the model. Native tools can execute code and edit files.
-Type / for fuzzy command discovery; Tab completes commands and file paths (@).
-Shift+Tab cycles reasoning effort, including auto, and remembers where it stops, like /effort.
-Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history.
-Esc stops active work. Ctrl-C cancels work; idle, it clears a draft; twice on empty exits.
-Ctrl+L redraws the screen. See docs/TERMINAL_UX.md for limits.
-Enter during work retains your draft; it does not queue a request.
-Approvals require a fresh yes. Task completion is not verification.
-After the model edits files, Casper runs the project's checks itself and repairs failures (auto
-mode), by default, with no command from you; slow checks (a minute or more) are offered as /verify
-in interactive sessions instead. --no-verify turns checking off. See docs/VERIFICATION.md.</pre>
+Type a request and press Enter (during a task it steers the AI or waits in the queue). Esc stops work. Type / for every command.
+  casper [folder]        Open Casper here, or in that folder
+  casper &lt;prompt&gt;        Run one request and exit (options: /help all)
+  casper new [name]      Start a new project (casper new --list shows the kinds)
+  /model, /effort        Pick the model, and how hard it thinks (Shift+Tab cycles effort)
+  /diff, /undo, /redo    See the last task's changes, or put its files back
+  /verify, /receipt      Run this project's checks (/verify add saves one Casper found); what the last task did
+  /mcp, /lab             Tool servers (writes off until you turn them on); your lab devices
+  /mcp setup network     Set up Casper's server for Mist, Central and ClearPass; /mcp login adds a login
+  /references            Search vendor specs you downloaded (/references add gets one)
+  /resume, /clear        Pick up a saved conversation, or start a fresh one
+  /settings              Turn web lookups, spend notes and other switches on or off by number
+  /help &lt;word&gt;           Search the help; /help all shows everything
+Ctrl+T shows the last step in full. Ctrl+C twice on an empty line exits. Approvals always need a fresh yes from you.</pre>
         </details>
         <p>Want more? The <a href="network.html">Network page</a> goes deep on MCP and device safety,
         and the <a href="roadmap.html">Roadmap</a> shows what is coming next (not released yet).</p>

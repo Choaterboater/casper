@@ -3,8 +3,9 @@ import {
   matchesKey, setCapabilityOverrides, TuiMainScreen, truncateToWidth, visibleWidth, wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
-import { COMMANDS } from "./commands";
+import { COMMANDS, fitDescriptions, RUNS_DURING_WORK } from "./commands";
 import { BUSY_GLYPH, hasTerminalControls, markdownTheme, paint, PROMPT_GLYPH, terminalText } from "./format";
+import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
 import { renderPanel } from "./presentation";
 import { StreamTerminal } from "./stream-terminal";
@@ -37,9 +38,9 @@ class StableMainScreen extends TuiMainScreen {
 
 const EXIT_NOTE = "Ctrl-C again to exit · Ctrl-D exits too";
 
-/** Braille spinner frames; the footer dot and Working panel title cycle through them while
- * background work runs, so activity is visible even between transcript updates. */
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+/** Spinner frames (braille; ASCII on the old Windows console); the footer dot and Working panel title cycle through
+ * them while background work runs, so activity is visible even between transcript updates. */
+const SPINNER_FRAMES = GLYPHS.spinner;
 const SPINNER_INTERVAL_MS = 120;
 
 /** 95000 ms → "1m35s"; hours fold to "1h02m". Same shape the events layer uses for panels. */
@@ -92,12 +93,16 @@ class PromptEditor extends Editor {
   }
 }
 
-/** Who asked a numbered question: Casper itself (approvals, choices) or the AI through its ask tool. */
-export type AskOrigin = "ai" | "casper";
+/** Who asked a numbered question: Casper itself (choices), Casper's approval boxes, or the AI through its ask tool.
+ * An approval box takes no typed answer (typed words are a No) and ctrl+o denies it. */
+export type AskOrigin = "ai" | "casper" | "approval";
+/** Keys pressed this soon after a box opens are ignored: they were typed before it appeared (mid-sentence), so they
+ * never answer it. tests/support/preload.ts sets 0 for the suite; tests/one-input-style.test.ts checks the real wait. */
+export const askDefaults = { guardMs: 300 };
 /** The muted first line of every question the AI asks, so it never looks like a Casper approval. */
 export const AI_ASKS_LABEL = "The AI asks:";
 
-/** Main-screen renderer: terminal scrollback, one editor, no autonomous input queue. */
+/** Main-screen renderer: terminal scrollback, one editor. Lines typed during work go to the app, never to a question. */
 export class TerminalSurface {
   private readonly tui: TuiMainScreen;
   private readonly terminal: StreamTerminal;
@@ -139,11 +144,11 @@ export class TerminalSurface {
   private waitStart?: number;
   /** Component shown in place of the editor while a picker is mounted. */
   private slot?: Component;
+  /** Closes a picker that gives way to an approval or question (one opened during a task). */
+  private slotYield?: () => void;
   /** Raw input is on loan to a line-oriented flow; the surface keeps rendering. */
   private lending = false;
   private command?: (text?: string) => void;
-  /** An open approval or server question: resolves the typed answer, or undefined for Esc/Ctrl+C/close. */
-  private confirmation?: (answer: string | undefined) => void;
   private pendingAsk?: (answer: string[] | undefined) => void;
   /** The open question and its options sanitized for display; an answer is the caller's own label. */
   private askQuestion?: string;
@@ -154,6 +159,8 @@ export class TerminalSurface {
   private askMulti = false;
   private askSelections = new Set<number>();
   private askActiveIndex = 0;
+  /** When the open question appeared; keys before askDefaults.guardMs has passed are ignored. */
+  private askOpenedAt = 0;
   /** An open list edit: the editor holds the lines; Enter returns them, Esc/Ctrl+C/close return undefined. */
   private pendingEdit?: (lines: string[] | undefined) => void;
   /** The row under the last receipt: a lone key on an empty, idle prompt submits its command. Any other key clears it. */
@@ -174,15 +181,13 @@ export class TerminalSurface {
     this.editor = new PromptEditor(this.tui, { borderColor: this.muted, selectList: {
       selectedPrefix: this.accent, selectedText: this.accent, description: this.muted, scrollInfo: this.muted, noMatch: this.muted,
     } }, { autocompleteMaxVisible: 7 });
-    this.editor.glyph = () => this.confirmation || this.pendingAsk || this.pendingEdit ? "?" : this.busy ? BUSY_GLYPH : PROMPT_GLYPH;
-    this.editor.paintGutter = text => this.busy && !this.confirmation && !this.pendingAsk && !this.pendingEdit ? this.muted(text) : this.accent(text);
+    this.editor.glyph = () => this.pendingAsk || this.pendingEdit ? "?" : this.busy ? BUSY_GLYPH : PROMPT_GLYPH;
+    this.editor.paintGutter = text => this.busy && !this.pendingAsk && !this.pendingEdit ? this.muted(text) : this.accent(text);
     this.editor.onSubmit = value => {
       if (this.pendingEdit) { this.pendingEdit(value.split("\n")); return; }
       if (this.pendingAsk) { this.answerAsk(value); return; }
-      if (this.confirmation) { this.confirmation(value.trim()); return; }
       if (!this.command) {
-        // While Casper works, a command that only shows something (or sets effort) runs now; anything else
-        // keeps its draft, with the reason. Nothing is queued to run later.
+        // While Casper works the app takes the line (runs it, sends it to the AI or queues it), or says why it waits.
         const answer = value.trim() ? this.onBusySubmit?.(value.trim()) : undefined;
         if (answer === true) {
           this.editor.addToHistory(value); this.editor.setText("");
@@ -190,8 +195,8 @@ export class TerminalSurface {
           return;
         }
         this.editor.setText(value);
-        this.note = answer ?? "draft retained · Enter again when idle";
-        this.render();
+        // A timed note: the steps and the timer come back on their own.
+        this.flashNote(answer ?? "draft kept · Enter again when this task ends", 2400);
         return;
       }
       if (!value.trim()) { this.editor.setText(""); return; } // Enter on an empty box is not a transcript event.
@@ -233,8 +238,9 @@ export class TerminalSurface {
       // approval is denied, so a change can't slip through while writes go off.
       if (matchesKey(data, "ctrl+o")) {
         const reverted = this.onWritesRevert?.() ?? false;
-        if (reverted) this.confirmation?.(undefined);
-        else this.flashNote("writes are already off");
+        if (!reverted) { this.flashNote("writes are already off"); return { consume: true }; }
+        if (this.askFrom === "approval") this.pendingAsk?.(undefined);
+        this.flashNote("Writes are off now");
         return { consume: true };
       }
       if (this.slot || this.lending) {
@@ -253,13 +259,14 @@ export class TerminalSurface {
       }
       if (matchesKey(data, "ctrl+c")) { this.interrupt(); return { consume: true }; }
       if (matchesKey(data, "ctrl+d") && !this.editor.getText()) { this.close(); return { consume: true }; }
-      if (matchesKey(data, "escape") && (this.busy || this.confirmation || this.pendingAsk || this.pendingEdit)) {
-        if (this.confirmation) this.confirmation(undefined);
-        else if (this.pendingAsk) this.pendingAsk(undefined);
+      if (matchesKey(data, "escape") && (this.busy || this.pendingAsk || this.pendingEdit)) {
+        if (this.pendingAsk) this.pendingAsk(undefined);
         else if (this.pendingEdit) this.pendingEdit(undefined);
         else this.cancel();
         return { consume: true };
       }
+      // A box that just opened ignores keys for a moment: they were typed before it appeared.
+      if (this.pendingAsk && Date.now() - this.askOpenedAt < askDefaults.guardMs) return { consume: true };
       if (this.nextKeys) {
         // Only a key pressed at the idle, empty prompt picks from the row; the row never answers a question.
         const offered = this.command && !this.waiting && !this.busy && !this.editor.getText() ? this.nextKeys.get(data) : undefined;
@@ -298,7 +305,7 @@ export class TerminalSurface {
       // Pi's thinking-cycle key. Consumed even while busy so the sequence never lands in the draft.
       if (matchesKey(data, "shift+tab")) {
         // While working too: the app applies it from the model's next step. A question or approval is still open first.
-        if (this.confirmation || this.pendingAsk || this.pendingEdit) this.flashNote("effort unchanged · answer first");
+        if (this.pendingAsk || this.pendingEdit) this.flashNote("effort unchanged · answer first");
         else this.onCycleEffort?.();
         return { consume: true };
       }
@@ -306,8 +313,11 @@ export class TerminalSurface {
     });
   }
 
-  /** A question, checklist or approval is open: Casper is waiting on the user, not working. */
-  private get waiting(): boolean { return Boolean(this.pendingAsk || this.pendingEdit || this.confirmation); }
+  /** An approval box is open: nothing else may take the terminal's input. */
+  private get approvalOpen(): boolean { return Boolean(this.pendingAsk) && this.askFrom === "approval"; }
+
+  /** A question, checklist, approval or picker is open: Casper is waiting on the user, not working. */
+  private get waiting(): boolean { return Boolean(this.pendingAsk || this.pendingEdit || this.slot || this.lending); }
 
   private footer(width: number): string {
     if (!this.badge) return this.footerText(width);
@@ -408,8 +418,9 @@ private updateSpinner(): void {
         getSuggestions: async (...args) => {
           const result = await provider.getSuggestions(...args);
           if (!result) return null;
-          return { ...result, items: result.items.filter(item =>
-            [item.value, item.label, item.description ?? ""].every(value => !hasTerminalControls(value) && !/[\r\n\t]/.test(value))) };
+          const items = result.items.filter(item =>
+            [item.value, item.label, item.description ?? ""].every(value => !hasTerminalControls(value) && !/[\r\n\t]/.test(value)));
+          return { ...result, items: result.prefix.startsWith("/") ? this.fitMenu(items) : items };
         },
         applyCompletion: (lines, row, col, item, prefix) => {
           if (prefix.startsWith("/") && lines.length === 1 && !/\s/.test(lines[0]!)) {
@@ -443,8 +454,22 @@ private updateSpinner(): void {
   private configureAutocomplete(): void {
     const provider = this.autocomplete;
     if (!provider) return;
-    this.editor.setAutocompleteProvider(this.busy || this.confirmation || this.pendingAsk || this.pendingEdit
-      ? { ...provider, triggerCharacters: [], getSuggestions: async () => null } : provider);
+    if (this.pendingAsk || this.pendingEdit) {
+      this.editor.setAutocompleteProvider({ ...provider, triggerCharacters: [], getSuggestions: async () => null });
+      return;
+    }
+    if (!this.busy) { this.editor.setAutocompleteProvider(provider); return; }
+    // During a task the menu stays; the commands that wait for the task are dimmed and say so.
+    this.editor.setAutocompleteProvider({ ...provider, getSuggestions: async (...args) => {
+      const result = await provider.getSuggestions(...args);
+      if (!result?.prefix.startsWith("/")) return result;
+      return { ...result, items: this.fitMenu(result.items.map(item => RUNS_DURING_WORK.has(item.value) ? item
+        : { ...item, label: this.muted(item.label || item.value), description: `waits for this task${item.description ? ` · ${item.description}` : ""}` })) };
+    } });
+  }
+  /** Command descriptions trimmed to the menu at a word, with "…" (see fitDescriptions). */
+  private fitMenu<T extends { value: string; label?: string; description?: string }>(items: T[]): T[] {
+    return fitDescriptions(items, Math.max(1, (this.io.output.columns ?? 80) - GUTTER));
   }
   private render(): void { if (this.started && !this.closed) this.tui.requestRender(); }
   write(text: string): void {
@@ -487,6 +512,14 @@ private updateSpinner(): void {
   setBell(sequence: string): void { this.bell = sequence; }
   setAttentionAfter(ms: number): void { this.attentionAfterMs = ms; }
 
+  /** Put text back in the prompt (queued lines of a stopped task), ahead of anything typed since. */
+  restoreDraft(text: string): void {
+    if (this.closed || !text) return;
+    const typed = this.editor.getExpandedText();
+    this.editor.setText(typed ? `${text}\n${typed}` : text);
+    this.render();
+  }
+
   /** Offer the receipt's next-step row: until another key or command, a lone key from `keys` submits its command. */
   offerNext(keys: ReadonlyMap<string, string> | undefined): void { this.nextKeys = keys?.size ? new Map(keys) : undefined; }
 
@@ -500,42 +533,26 @@ private updateSpinner(): void {
     this.command = resolve; this.render();
     return promise;
   }
-  /** Exact yes/no approval: only a freshly typed "yes" approves. */
-  async confirm(preview: string, question: string, signal?: AbortSignal): Promise<boolean> {
-    return (await this.choose(preview, question, ["yes"], signal)) === "yes";
-  }
-
   /**
-   * One approval or server question with a few exact typed answers. It resolves one of `choices`
-   * as typed, "no" for any other text, and undefined for Esc, Ctrl+C, close or abort. A pretyped
-   * draft never answers. This channel is the user's alone: the model's ask tool never reaches it.
+   * One approval box: the context lines go into the transcript, then the numbered panel asks. One key picks (or
+   * Up/Down and Enter); typed words are a No, the first choice. It resolves the chosen label, or undefined for Esc,
+   * Ctrl+C, ctrl+o, close or abort. A pretyped draft never answers, and nor does a key pressed as the box opened.
+   * This channel is the user's alone: the model's ask tool never reaches it.
    */
-  choose(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined> {
-    if (this.closed || this.slot || this.lending || this.confirmation || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
+  async approve(preview: string, question: string, options: { label: string; description?: string }[], signal?: AbortSignal): Promise<string | undefined> {
+    this.yieldSlot();
+    if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || signal?.aborted || !options.length) return undefined;
     this.endAssistant();
-    const draft = this.editor.getExpandedText();
-    this.editor.setText(""); // Pretyped drafts never answer approval.
-    this.write(terminalText(preview + question) + "\n");
-    const { promise, resolve } = Promise.withResolvers<string | undefined>();
-    let settled = false;
-    const finish = (answer: string | undefined) => {
-      if (settled) return; settled = true;
-      signal?.removeEventListener("abort", cancel);
-      this.confirmation = undefined;
-      this.editor.setText(draft); this.configureAutocomplete(); this.updateSpinner(); this.render();
-      resolve(answer === undefined ? undefined : choices.includes(answer) ? answer : "no");
-    };
-    const cancel = () => finish(undefined);
-    this.attention();
-    this.confirmation = finish; this.configureAutocomplete(); this.updateSpinner(); this.render();
-    signal?.addEventListener("abort", cancel, { once: true });
-    if (signal?.aborted) cancel();
-    return promise;
+    if (preview.trim()) this.write(`${terminalText(preview.replace(/\n+$/, ""))}\n`);
+    const answer = await this.ask(question, options, false, signal, "approval");
+    if (!answer) return undefined;
+    return options.some(option => option.label === answer[0]) ? answer[0] : options[0]!.label;
   }
 
   /** One structured clarification with a standalone question, navigable choices and free-text input. */
   ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal, from: AskOrigin = "casper"): Promise<string[] | undefined> {
-    if (this.closed || this.slot || this.lending || this.confirmation || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
+    this.yieldSlot();
+    if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant(); this.activity = undefined;
     const draft = this.editor.getExpandedText();
     this.editor.setText(""); // Pretyped drafts never answer a question.
@@ -574,7 +591,7 @@ private updateSpinner(): void {
     this.attention();
     this.pendingAsk = finish; this.askQuestion = safeQuestion; this.askOptions = shown; this.askFrom = from;
     this.askLabels = options.map(option => option.label); this.askMulti = multi;
-    this.askSelections.clear(); this.askActiveIndex = 0;
+    this.askSelections.clear(); this.askActiveIndex = 0; this.askOpenedAt = Date.now();
     this.configureAutocomplete(); this.updateSpinner(); this.render();
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
@@ -585,7 +602,8 @@ private updateSpinner(): void {
    * returns the editor's lines as they stand (blank ones included); Esc, Ctrl+C, abort or close return
    * undefined. A pretyped draft is set aside and restored. The caller records the outcome. */
   editLines(heading: string, hint: string, lines: readonly string[], signal?: AbortSignal): Promise<string[] | undefined> {
-    if (this.closed || this.slot || this.lending || this.confirmation || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
+    this.yieldSlot();
+    if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant(); this.activity = undefined;
     const draft = this.editor.getExpandedText();
     const { promise, resolve } = Promise.withResolvers<string[] | undefined>();
@@ -615,6 +633,7 @@ private updateSpinner(): void {
     const keys = count > 1 ? `1-${count}` : "1";
     const hint = this.askMulti
       ? `Press ${keys} or Space to toggle · Up/Down move · Enter answer · type to answer · Esc skip`
+      : this.askFrom === "approval" ? `Press ${keys} or Up/Down + Enter · Esc is No`
       : `Press ${keys} or Up/Down + Enter · type to answer · Esc skip`;
     const lines = (compact: boolean) => [
       ...(this.askFrom === "ai" ? [this.muted(AI_ASKS_LABEL)] : []),
@@ -646,33 +665,44 @@ private updateSpinner(): void {
     if (text) this.pendingAsk?.([text]);
   }
 
-  exclusiveHost(): RuntimeModelPickerHost | undefined {
-    if (this.closed || this.slot || this.lending || this.confirmation || this.pendingEdit || !this.started) return undefined;
+  /** A picker that gives way: an approval or question that opens while it is mounted closes it first. */
+  private yieldSlot(): void {
+    const close = this.slotYield;
+    if (!this.slot || !close) return;
+    this.slotYield = undefined; this.slot = undefined;
+    close();
+    this.updateSpinner();
+    this.tui.setFocus(this.editor);
+  }
+
+  /** `onYield`: the picker gives way to an approval or question (it must then close itself); see yieldSlot. */
+  exclusiveHost(options: { onYield?: () => void } = {}): RuntimeModelPickerHost | undefined {
+    if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || !this.started) return undefined;
     const claim = () => {
-      if (this.closed || this.slot || this.lending || this.confirmation) throw new Error("Terminal input is unavailable.");
+      if (this.closed || this.slot || this.lending || this.approvalOpen) throw new Error("Terminal input is unavailable.");
       this.endAssistant();
     };
     return {
       run: async operation => {
         claim();
-        this.lending = true; this.terminal.suspendInput(); this.render();
+        this.lending = true; this.terminal.suspendInput(); this.updateSpinner(); this.render();
         try {
           return await operation({ input: this.io.input, color: this.io.color, onEOF: () => this.close(),
             output: { write: text => this.write(terminalText(text)) },
-            show: component => { this.slot = component; this.render(); },
+            show: component => { this.slot = component; this.updateSpinner(); this.render(); },
             requestRender: () => this.render() });
         } finally {
-          this.slot = undefined; this.lending = false;
+          this.slot = undefined; this.lending = false; this.updateSpinner();
           if (!this.closed) { this.terminal.resumeInput(); this.tui.setFocus(this.editor); this.render(); }
         }
       },
       mount: async operation => {
         claim();
         const view: RuntimePickerView = { tui: this.tui, color: this.io.color, onEOF: () => this.close(),
-          show: component => { this.slot = component; this.render(); } };
+          show: component => { this.slot = component; this.slotYield = options.onYield; this.updateSpinner(); this.render(); } };
         try { return await operation(view); }
         finally {
-          this.slot = undefined;
+          this.slot = undefined; this.slotYield = undefined; this.updateSpinner();
           if (!this.closed) { this.tui.setFocus(this.editor); this.render(); }
         }
       },
@@ -680,7 +710,6 @@ private updateSpinner(): void {
   }
   interrupt(): void {
     if (this.closed) return;
-    if (this.confirmation) this.confirmation(undefined);
     if (this.pendingAsk) this.pendingAsk(undefined);
     if (this.pendingEdit) this.pendingEdit(undefined);
     if (this.busy) { this.cancel(); return; }
@@ -705,7 +734,7 @@ private updateSpinner(): void {
     clearInterval(this.spinnerTimer);
     this.spinnerTimer = undefined;
     this.endAssistant(); this.closed = true;
-    this.confirmation?.(undefined); this.pendingAsk?.(undefined); this.pendingEdit?.(undefined); this.command?.(); this.command = undefined;
+    this.pendingAsk?.(undefined); this.pendingEdit?.(undefined); this.command?.(); this.command = undefined;
     // The last lines written (a final notice) are drawn before the terminal is handed back.
     if (this.started) { this.tui.renderNow(); this.tui.stop(); }
     this.eof();

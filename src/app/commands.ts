@@ -9,7 +9,7 @@ import { formatSubagentReport, SubagentManager, type SubagentRole } from "../age
 import { formatReferenceResult, type ReferenceLibrary } from "../references/library";
 import { ProjectMemory } from "../memory/store";
 import { modelPreference } from "../tui/model-preference";
-import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP } from "../tui/help";
+import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP, helpFor, unknownCommandMessage, wrapHelp } from "../tui/help";
 import { formatTerminalJSON } from "../tui/json";
 import { formatCacheHitRate, formatCostLong, formatCostShort, formatTokenSplit } from "../tui/usage";
 import { effortChoices } from "../tui/effort";
@@ -19,7 +19,7 @@ import type { InteractiveTerminal } from "../tui/terminal";
 import type { CapabilityBroker } from "../capabilities/broker";
 import type { MCPManager, MCPStatus } from "../mcp/manager";
 import { READ_ONLY_LOGIN_ENABLE_TEXT } from "../mcp/access";
-import { ownSettingsNote, writesTitle } from "../mcp/presets";
+import { ownSettingsNote, writesTitle, WRITES_OFF_MEANING } from "../mcp/presets";
 import type { MCPConfiguration } from "../mcp/config";
 import { addUserServer, DOCS_TOOL_NAMES, docsOnlyDefinition, docsPinned, isDocsOnlyDefinition, MCP_FILE_LABEL } from "../mcp/docs";
 import { askForLogin, askToForgetLogin, loginLines, type LoginHost } from "../mcp/network/ask-login";
@@ -43,21 +43,23 @@ import { describeVisualization } from "../visualize/tools";
 import { renderProjectSummary } from "../tui/banner";
 import { LifecycleRegistry } from "./lifecycle";
 import type { VisualizationRouter } from "../visualize/router";
-import type { RuntimeAuthProvider, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
+import type { RuntimeAuthenticationResult, RuntimeAuthProvider, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
 import { describeChecksPlan, type ChecksPlan } from "../verify/mode";
 import { detectedMigrations, MIGRATIONS_CHECK } from "../verify/migrations-check";
 import { TOOL_CALL_LIMIT, type TaskObservations } from "../task/observations";
 import { formatTaskResult, NO_CHECKS_FOUND, type TaskResult } from "../task/result";
 import { UndoStore } from "../task/undo";
 import { tildePath } from "../new/scaffold";
+import { conversationLabel, matchConversation, recentTurnLines } from "../sessions/resume";
 import { readFile, stat } from "node:fs/promises";
 import type { SessionWorkspaceManager } from "../sessions/manager";
 import { formatProjectContext } from "../project/context";
 import { runSecurityReview, type SecurityAIReview, type SecurityReviewHost } from "./security-review";
 import { sandboxReport, sandboxStatusLine } from "./sandbox";
+import type { SessionYes } from "./session-yes";
 import { webStatusLine } from "../web/tools";
 import type { ShellSandbox } from "../sandbox/manager";
-import { allowKindsChoices, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, numberedLines } from "./safe-choices";
+import { allowKindsChoices, DOCS_COPY_CHOICES, SKILL_TRUST_CHOICES, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES } from "./safe-choices";
 import { KIND_TEXT, RISKY_KINDS } from "../capabilities/kinds";
 
 /** Output sink for the app; lives here so the command host stays import-cycle-free. */
@@ -83,6 +85,8 @@ export interface CommandHost {
   checksPlan(context: ProjectContext): Promise<ChecksPlan>;
   /** The provider of the last successful /login, preferred when Casper picks a first model. */
   loginProvider?: RuntimeAuthProvider;
+  /** False until a sign-in exists (the footer says how to start). */
+  signedIn?: boolean;
   readonly observations: TaskObservations;
   readonly skillRegistry?: SkillRegistry;
   readonly projectContext?: ProjectContext;
@@ -126,13 +130,18 @@ export interface CommandHost {
   acquireRuntime(): Promise<AgentRuntime>;
   ensureSessionWorkspace(): Promise<SessionWorkspaceManager>;
   stopDebugger(): Promise<void>;
-  confirmExact(preview: string, question: string, signal?: AbortSignal): Promise<boolean>;
-  /** The host for /mcp setup network: the exact channel, the MCP manager, and the install seams. */
+  /** The host for /mcp setup network: the numbered approval box, the MCP manager, and the install seams. */
   networkSetupHost(): SetupHost;
-  /** The host for /mcp login: the exact channel, the private prompt, and restarts through the MCP manager. */
+  /** The host for /mcp login: the numbered approval box, the private prompt, and restarts through the MCP manager. */
   networkLoginHost(): LoginHost;
-  /** One exact typed answer from the user (never the model), or undefined when nobody answered. */
+  /** One numbered answer from the user (never the model): the number picked, or undefined when nobody answered. */
   chooseAnswer(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined>;
+  /** A yes/no approval box (1 No · 2 Yes, this once); nobody to ask is a No. */
+  confirmYes(preview: string, question: string, signal?: AbortSignal): Promise<boolean>;
+  /** Boxes that also offer "Yes, for this session" (the debugger's launch). */
+  readonly sessionYes: SessionYes;
+  /** One approval box from the user (never the model): the chosen label, or undefined when nobody answered. */
+  approveChoice(preview: string, question: string, options: ReadonlyArray<string | { label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined>;
   git(args: string[]): Promise<string>;
   runVerification(checks: readonly CheckName[], repair: boolean, request?: string, task?: VerificationTask): Promise<VerificationReport>;
   activeWorkspaceRoot(): string;
@@ -154,12 +163,17 @@ export interface CommandHost {
   backgroundTasks(): BackgroundTask[];
 }
 
+/** The first, safe choice of the /resume picker. */
+export const STAY_HERE = "Stay in this conversation";
+
 export const VERIFY_USAGE = "Usage: /verify [repair] [typecheck|lint|test|build|<named check> ...] | /verify add <found check>";
 
 export async function runSlashCommand(host: CommandHost, prompt: string): Promise<VerificationReport | undefined> {
     if (host.closing) return;
-    if (prompt === "/help" || prompt === "/help all") {
-      host.output.write(prompt === "/help" ? HELP_TEXT : FULL_HELP_TEXT);
+    if (/^\/help(?:\s|$)/.test(prompt)) {
+      const word = prompt.slice(5).trim();
+      // Laid out for this terminal's width; piped output gets the text unchanged.
+      host.output.write(wrapHelp(!word ? HELP_TEXT : word === "all" ? FULL_HELP_TEXT : helpFor(word), host.interactive ? host.terminal.columns : undefined));
       return;
     }
     if (/^\/login(?:\s|$)/.test(prompt)) {
@@ -192,6 +206,15 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       }
       if (!session.selectModel) throw new Error("This runtime does not support model selection.");
       const sessionOnly = /^--session(?:\s|$)/.test(argument);
+      // Nothing signed in: an empty picker helps no one, so /model opens sign-in (which then picks a model).
+      if (host.interactive && host.terminal.rich && !argument.replace(/^--session/, "").trim()) {
+        const available = await session.selectModel({ signal: host.commandAbort?.signal }).catch(() => undefined);
+        if (available?.models && !available.models.length) {
+          host.output.write("[model] Not signed in yet. Pick a way to sign in; Esc cancels.\n");
+          await runLogin(host);
+          return;
+        }
+      }
       const result = await session.selectModel({ query: (sessionOnly ? argument.slice(9).trim() : argument) || undefined,
         persist: !sessionOnly, signal: host.commandAbort?.signal,
         picker: host.interactive ? host.terminal.modelPickerHost() : undefined });
@@ -216,10 +239,13 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       let choice = args[0] ? { level: args[0], persist: args[1] !== "--session" } : undefined;
       const status = session.getStatus?.();
       if (!choice) {
-        const picker = host.interactive ? host.terminal.exclusiveHost() : undefined;
+        // During a task an approval or question can arrive while the picker is open: the picker gives way to it.
+        const yielded = new AbortController();
+        const picker = host.interactive ? host.terminal.exclusiveHost({ onYield: () => yielded.abort() }) : undefined;
         if (picker && session.setEffort && status?.model) {
           const levels = effortChoices(status.availableThinkingLevels);
-          choice = await picker.mount(view => pickEffort(view, levels, status.configuredEffort ?? status.thinkingLevel, host.commandAbort?.signal));
+          const signal = host.commandAbort ? AbortSignal.any([yielded.signal, host.commandAbort.signal]) : yielded.signal;
+          choice = await picker.mount(view => pickEffort(view, levels, status.configuredEffort ?? status.thinkingLevel, signal));
           if (!choice) return;
         } else if (!status?.model) { host.output.write("Effort: no model selected. Use /model first; levels depend on the model.\n"); return; }
         else {
@@ -246,12 +272,12 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       const forget = /^\/sandbox\s+forget\s+(\S+)\s*$/.exec(prompt);
       if (forget) {
         const found = await sandbox.forget(forget[1]!);
-        host.output.write(found ? `Forgot ${terminalText(forget[1]!)}: shell commands ask before reaching it again.\n` : `${terminalText(forget[1]!)} was not remembered for this project.\n`);
+        host.output.write(found ? `Forgot ${terminalText(forget[1]!)}: shell commands and ssh ask before reaching it again.\n` : `${terminalText(forget[1]!)} was not remembered for this project.\n`);
         return;
       }
       if (prompt.trim() !== "/sandbox") throw new Error("Use /sandbox or /sandbox forget <host>.");
       await sandbox.loadRemembered();
-      host.output.write(sandboxReport(sandbox, host.activeWorkspaceRoot()));
+      host.output.write(sandboxReport(sandbox, host.activeWorkspaceRoot(), await sandbox.store?.reachHosts() ?? []));
       return;
     }
     if (prompt === "/context" || prompt === "/usage") {
@@ -280,13 +306,38 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     if (prompt === "/clear" || /^\/resume(?:\s|$)/.test(prompt)) {
       if (host.subagents.isBusy) throw new Error("Wait for active subagents before changing conversations.");
       const session = await host.ensureRuntime();
-      const id = prompt.slice(7).trim();
-      if (prompt === "/resume") {
-        if (!session.listConversations) throw new Error("This runtime does not support conversation listing. Use /tree and /switch for named workspaces.");
-        const saved = await session.listConversations();
-        host.output.write(saved.length ? saved.map(item => `${item.id}  ${item.name ?? "(unnamed)"}  ${item.modified}`).join("\n") + "\n" : "No saved conversations in this workspace.\n");
-        host.output.write("Use /resume <exact-id>; /tree and /switch manage named workspaces.\n");
-        return;
+      let id = prompt.slice(7).trim();
+      let title: string | undefined;
+      if (prompt !== "/clear") {
+        if (!session.listConversations) {
+          if (!id) throw new Error("This runtime does not support conversation listing. Use /tree and /switch for named workspaces.");
+        } else {
+          let current: string | undefined;
+          try { current = session.getSessionInfo?.().sessionId; } catch { current = undefined; }
+          const saved = (await session.listConversations()).filter(item => item.id !== current);
+          if (id) { const match = matchConversation(saved, id); id = match.id; title = conversationLabel(match).title; }
+          else if (!saved.length) { host.output.write("No other saved conversations in this folder.\n"); return; }
+          else if (host.interactive && host.terminal.canAsk) {
+            // A numbered picker, newest first; 1 stays here. Older ones are still there by ID.
+            const shown = saved.slice(0, 8).map(item => ({ item, ...conversationLabel(item) }));
+            const seen = new Set<string>();
+            const options = shown.map(entry => {
+              const label = seen.has(entry.title) ? `${entry.title} (${entry.item.id.slice(0, 8)})` : entry.title;
+              seen.add(entry.title);
+              return { label, description: entry.detail };
+            });
+            if (saved.length > shown.length) host.output.write(`${saved.length - shown.length} older conversation(s) not shown: /resume <id> opens one.\n`);
+            const picked = await host.terminal.pick("Resume which conversation?",
+              [{ label: STAY_HERE, description: "nothing changes" }, ...options], host.commandAbort?.signal);
+            const index = options.findIndex(option => option.label === picked);
+            if (index === -1) { host.output.write("[session] Staying in this conversation.\n"); return; }
+            id = shown[index]!.item.id; title = shown[index]!.title;
+          } else {
+            host.output.write(saved.map(item => { const label = conversationLabel(item); return `${item.id}  ${label.title} · ${label.detail}`; }).join("\n") + "\n");
+            host.output.write("Use /resume <id> (its first few characters are enough); /tree and /switch manage named workspaces.\n");
+            return;
+          }
+        }
       }
       await host.browser?.close(); host.browser = undefined;
       // Services belong to the conversation that started them.
@@ -303,8 +354,12 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       }
       host.lastTaskRequest = undefined;
       await (await host.ensureSessionWorkspace()).rememberConversation(session);
-      host.output.write(`[session] ${prompt === "/clear" ? "Fresh conversation started" : "Conversation resumed"}; workspace files unchanged. Previous conversations remain available through /resume.\n`);
+      host.output.write(prompt === "/clear"
+        ? "[session] New conversation. Your files are not changed; /resume brings the last one back.\n"
+        : `[session] Back in ${title ? `"${terminalText(title)}"` : "that conversation"}. Your files are not changed; /resume lists the others.\n`);
       host.output.write(`${formatRuntimeStatus(session.getStatus?.())}\n`);
+      const turns = prompt === "/clear" ? [] : recentTurnLines(session.recentTurns?.(12) ?? []);
+      if (turns.length) host.output.write(`Last turns:\n${turns.map(line => terminalText(line)).join("\n")}\n`);
       return;
     }
     if (prompt === "/diff") {
@@ -511,7 +566,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       }
       return host.runVerification(args.length ? args : host.projectContext ? defaultVerifyNames(host.projectContext.model) : CHECK_NAMES, repair);
     }
-    throw new Error(`Unknown command ${JSON.stringify(prompt.split(/\s+/)[0])}. Type /help for local commands.`);
+    throw new Error(unknownCommandMessage(prompt.split(/\s+/)[0]!));
   }
 
 async function handleMemoryCommand(host: CommandHost, prompt: string): Promise<void> {
@@ -555,7 +610,7 @@ async function handleReferencesCommand(host: CommandHost, prompt: string): Promi
       const signal = host.commandAbort?.signal;
       await runReferenceAdd(add[1], add[2], host.homeDir(), {
         print: (line) => { if (!host.closing) host.output.write(`${terminalText(line)}\n`); },
-        // Only the user's own typed 2 downloads anything; one-shot runs never do.
+        // Only the user's own 2 downloads anything; one-shot runs never do.
         choose: (preview, question, choices) => host.chooseAnswer(preview, question, choices, signal),
         runGit: (argv) => (host.runGit ?? defaultRunGit)(argv, signal),
         ...(host.reloadReferences ? { reload: () => host.reloadReferences!() } : {}),
@@ -593,7 +648,8 @@ async function handleDebugCommand(host: CommandHost, prompt: string): Promise<vo
       host.commandAbort?.signal.throwIfAborted();
       if (host.closing) return;
       host.debugSession = new DebugSession({ projectRoot: host.activeWorkspaceRoot(),
-        confirm: (preview, signal) => host.confirmExact(`Debugger execution confirmation:\n${preview}\nAdapter and debuggee execute code; not sandboxed. Debug values may contain secrets.\n`, "Launch this exact debugger target? Type yes: ", signal),
+        confirm: (preview, signal) => host.sessionYes.approve(`debug:${preview}`, `Debugger launch:\n${preview}\nThe adapter and the program run code, not sandboxed. Debug values may contain secrets.\n`,
+          "Launch this debugger target?", signal),
       });
       const debug = host.debugSession;
       host.lifecycle.add({ name: "debug", close: () => debug.close() });
@@ -683,7 +739,7 @@ async function approveProjectDefinition(host: CommandHost, kind: "mcp" | "lsp",
       + `${review.shadows ? `, replacing your definition in ${terminalText(review.shadows)}` : ""}. `
       + `--${kind} and non-interactive runs connect only user or profile definitions; review it with an interactive /${kind} connect ${name}`);
   }
-  const approved = await host.confirmExact(terminalText(review.preview), `Connect this project-defined ${label} server? Type yes: `, host.commandAbort?.signal);
+  const approved = await host.confirmYes(terminalText(review.preview), `Connect this project-defined ${label} server?`, host.commandAbort?.signal);
   if (!approved) host.output.write(`[${kind}] Connection not approved.\n`);
   return approved;
 }
@@ -742,7 +798,7 @@ async function handleDelegateCommand(host: CommandHost, prompt: string): Promise
 
 const MCP_USAGE = "Usage: /mcp | /mcp setup network | /mcp login [mist|central|clearpass] [forget] | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp docs";
 /** What "writes off" means, said once under the list: the server runs pinned and every change asks. */
-const WRITES_OFF_TEXT = "Writes off: the server runs with its read-only settings, and every change asks you first. Answer 2 or 3 in the change box to allow it, or /mcp writes <name> to turn writes on now.";
+const WRITES_OFF_TEXT = `${WRITES_OFF_MEANING} Answer 2 or 3 in the change box to allow it, or /mcp writes <name> to turn writes on now.`;
 
 async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void> {
     const [, action, name, ...extra] = prompt.trim().split(/\s+/);
@@ -814,7 +870,8 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       ...approvalLines(status),
       ...(status.preset?.lines ?? []).map((line) => `  ${terminalText(line)}`),
       ...(status.showOptIn ? ["  Plain show commands run without asking (/mcp junos-show " + status.name + " off)."] : []),
-      ...(status.error ? [`  ${terminalText(status.error)}`] : []),
+      // The server just asked for says why in the error below, once.
+      ...(status.error && !(action === "connect" && status.name === name) ? [`  ${terminalText(status.error)}`] : []),
       // Already redacted by the manager (known secrets and token shapes); shown to you, never to the model.
       ...(status.serverOutput?.length ? ["  Last lines from the server:", ...status.serverOutput.map((line) => `    | ${terminalText(line)}`)] : []),
     ].join("\n")).join("\n") + `\n${statuses.some((status) => status.writes === "off") ? `${WRITES_OFF_TEXT}\n` : ""}` : "No MCP servers configured.\n");
@@ -823,9 +880,8 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       const line = await networkSetupLine(network.homeDir, await network.configured());
       if (line) host.output.write(`${line}\n`);
     }
-    if (action === "connect" && statuses.find((status) => status.name === name)?.state !== "ready") {
-      throw new Error("MCP connection failed; no tools exposed");
-    }
+    const asked = action === "connect" ? statuses.find((status) => status.name === name) : undefined;
+    if (asked && asked.state !== "ready") throw new Error(`${name} did not start${asked.error ? `: ${terminalText(asked.error)}` : "."}`);
     if (action === "connect") await offerRemember(host, name!);
   }
 
@@ -871,7 +927,7 @@ async function handleMCPDocs(host: CommandHost): Promise<void> {
     "It only answers docs questions. Casper passes it no passwords.",
     "",
   ].join("\n");
-  if (!await host.confirmExact(preview, "Add a docs-only copy (no passwords, no device access)? Type yes: ", host.commandAbort?.signal)) {
+  if (await host.approveChoice(preview, "Add a docs-only copy (no passwords, no device access)?", DOCS_COPY_CHOICES, host.commandAbort?.signal) !== DOCS_COPY_CHOICES[1]) {
     host.output.write("Nothing added.\n");
     return;
   }
@@ -890,17 +946,16 @@ function approvalLines(status: MCPStatus): string[] {
   return [];
 }
 
-/** After you connect your own or an imported server, offer to remember it (writes stay off). Just this time is 1,
+/** After you connect your own or an imported server, offer to remember it (writes stay off). No is 1,
  * so a habitual 1 never remembers a server. */
 async function offerRemember(host: CommandHost, name: string): Promise<void> {
   const status = host.mcp!.status().find((entry) => entry.name === name);
   if (!host.interactive || !status || status.scope === "project" || status.consent === "remembered") return;
   const block = host.mcp!.rememberBlock(name);
   if (block) { host.output.write(`[mcp] ${terminalText(block)}\n`); return; }
-  const answer = await host.chooseAnswer(
-    `Remember this server? Next time it connects on its own, with writes off. Every change still asks you.\n${numberedLines(MCP_REMEMBER_CHOICES)}`,
-    "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
-  if (answer !== "2") { host.output.write(`[mcp] Not remembered. ${name} is connected for this session only.\n`); return; }
+  const answer = await host.approveChoice("Next time it connects on its own, with writes off. Every change still asks you.\n",
+    `Remember ${terminalText(name)}?`, MCP_REMEMBER_CHOICES, host.commandAbort?.signal);
+  if (answer !== MCP_REMEMBER_CHOICES[1]) { host.output.write(`[mcp] Not remembered. ${name} is connected for this session only.\n`); return; }
   const result = await host.mcp!.remember(name);
   host.output.write(result.remembered
     ? `[mcp] Remembered ${name}. It connects on its own next time, with writes off. /mcp forget ${name} undoes this.\n`
@@ -932,9 +987,8 @@ async function handleMCPWrites(host: CommandHost, name: string): Promise<void> {
   if (status.writes === "on") { host.output.write(`[mcp] Writes are already on for ${name}. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} turns them off.\n`); return; }
   if (status.access === "login: read-only (checked)") { host.output.write(`[mcp] ${READ_ONLY_LOGIN_ENABLE_TEXT}\n`); return; }
   const policy = mcp.policy(name);
-  const answer = await host.chooseAnswer(`${terminalText(writesTitle(name, policy.match))}\n${numberedLines(MCP_WRITES_CHOICES)}`,
-    "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
-  if (answer !== "2") { host.output.write(`[mcp] Writes stay off for ${name}.\n`); return; }
+  const answer = await host.approveChoice("", terminalText(writesTitle(name, policy.match)), MCP_WRITES_CHOICES, host.commandAbort?.signal);
+  if (answer !== MCP_WRITES_CHOICES[1]) { host.output.write(`[mcp] Writes stay off for ${name}.\n`); return; }
   await mcp.setWrites(name, true);
   host.output.write(`[mcp] Writes on for ${name}. Each change still asks you. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} turns writes off.\n`);
   const note = ownSettingsNote(mcp.definition(name), policy.match);
@@ -970,12 +1024,11 @@ async function handleMCPAllow(host: CommandHost, name: string, off: boolean): Pr
   const now = [...remembered.map((kind) => `${KIND_TEXT[kind]} (remembered)`), ...session.map((kind) => `${KIND_TEXT[kind]} (this session)`)];
   if (allowances.allowAllOn(name)) now.push("everything, no asking (this session)");
   const labels = allowKindsChoices();
-  const digits = labels.map((_, index) => String(index + 1));
-  const answer = await host.chooseAnswer([
+  const answer = await host.approveChoice([
     `${terminalText(product)} change kinds. Firmware changes, deletes and admin changes are off by default; every change still asks you.`,
     `  Allowed now: ${now.length ? now.join(", ") : "none"}`,
-  ].join("\n") + `\n${numberedLines(labels)}`, `Type ${digits.slice(0, -1).join(", ")} or ${digits.at(-1)}: `, digits, host.commandAbort?.signal);
-  const picked = Number(answer ?? "1") - 1;
+  ].join("\n") + "\n", `Which change kinds may ${terminalText(product)} make?`, labels, host.commandAbort?.signal);
+  const picked = answer === undefined ? 0 : labels.indexOf(answer);
   if (picked < 1) { host.output.write(`[mcp] ${name} keeps the defaults.\n`); return; }
   if (picked === labels.length - 1) {
     allowances.startAllowAll(name);
@@ -987,11 +1040,11 @@ async function handleMCPAllow(host: CommandHost, name: string, off: boolean): Pr
   const words = kinds.length > 1 ? "All change kinds" : KIND_TEXT[kinds[0]!];
   // Project servers and unpinned runners can't be remembered: this session only, without asking.
   const block = mcp.rememberBlock(name);
-  const keep = block ? undefined : await host.chooseAnswer(`${numberedLines(MCP_ALLOW_KEEP_CHOICES)}`, "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
+  const keep = block ? undefined : await host.approveChoice("", "For how long?", MCP_ALLOW_KEEP_CHOICES, host.commandAbort?.signal);
   // Cancelled (ctrl+c, closing): nothing is allowed.
   if (!block && keep === undefined) { host.output.write(`[mcp] ${name} keeps the defaults.\n`); return; }
   for (const kind of kinds) allowances.allowKind(name, kind);
-  if (keep === "2") {
+  if (keep === MCP_ALLOW_KEEP_CHOICES[1]) {
     const result = await mcp.rememberKinds(name, kinds);
     if (result.remembered) {
       host.output.write(`[mcp] ${words} allowed on ${name}, remembered. /mcp allow ${name} off undoes this.\n`);
@@ -1011,12 +1064,23 @@ async function handleLabCommand(host: CommandHost, prompt: string): Promise<void
   const profile = host.projectContext?.labProfile;
   const place = labConfigPlace(profile);
   const match = /^\/lab\s+import\s+(.+?)\s*$/.exec(prompt);
+  const store = host.sandbox?.store;
   if (prompt.trim() === "/lab") {
+    const ssh = current.length && store ? (await store.labReach()
+      ? "ssh and scp to them don't ask first (/lab ssh off turns that off).\n" : "ssh and scp to them ask first (/lab ssh on stops that).\n") : "";
     host.output.write(`Lab devices: ${current.length ? current.map(terminalText).join(", ") : "none"}${current.length ? ` (from ${place})` : ""}\n`
-      + "They only mark devices as lab: any device can be checked, after your answer. /lab import <file> adds more.\n");
+      + "They only mark devices as lab: any device can be checked, after your answer. /lab import <file> adds more.\n" + ssh);
     return;
   }
-  if (!match) throw new Error("Use /lab or /lab import <file>.");
+  const ssh = /^\/lab\s+ssh\s+(on|off)\s*$/.exec(prompt);
+  if (ssh) {
+    if (!store) throw new Error("The shell sandbox starts with the project.");
+    // Only you type this; kept for this project in ~/.casper.
+    await store.setLabReach(ssh[1] === "on");
+    host.output.write(ssh[1] === "on" ? "[lab] ssh and scp to lab devices don't ask first.\n" : "[lab] ssh and scp to lab devices ask first again.\n");
+    return;
+  }
+  if (!match) throw new Error("Use /lab, /lab import <file> or /lab ssh on|off.");
   if (!host.interactive) throw new Error("/lab import asks you first; run it in an interactive session.");
   const given = match[1]!.replace(/^["']|["']$/g, "");
   const file = given === "~" || given.startsWith("~/") ? path.join(host.homeDir(), given.slice(2)) : path.resolve(host.activeWorkspaceRoot(), given);
@@ -1033,9 +1097,8 @@ async function handleLabCommand(host: CommandHost, prompt: string): Promise<void
   if (!fresh.length) { host.output.write(`[lab] All ${hosts.length} are already in your lab list.\n`); return; }
   const shown = fresh.slice(0, 20).map(terminalText).join(", ") + (fresh.length > 20 ? ` and ${fresh.length - 20} more` : "");
   const devices = `${fresh.length} ${fresh.length === 1 ? "device" : "devices"}`;
-  const answer = await host.chooseAnswer(`Add ${devices} to your lab list (${place})? ${shown}\n${numberedLines(LAB_IMPORT_CHOICES)}`,
-    "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
-  if (answer !== "2") { host.output.write("[lab] Nothing added.\n"); return; }
+  const answer = await host.approveChoice("", `Add ${devices} to your lab list (${place})? ${shown}`, LAB_IMPORT_CHOICES, host.commandAbort?.signal);
+  if (answer !== LAB_IMPORT_CHOICES[1]) { host.output.write("[lab] Nothing added.\n"); return; }
   const result = await addLabHosts(host.homeDir(), fresh, profile);
   host.setLab?.({ hosts: [...current, ...result.added] });
   const added = `${result.added.length} ${result.added.length === 1 ? "device" : "devices"}`;
@@ -1062,7 +1125,7 @@ async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<v
         host.output.write(skills.length ? skills.map((skill) => [
           `${skill.id} [${skill.source}; ${skill.trust}${skill.disableModelInvocation ? "; manual-only" : ""}]`,
           `  ${JSON.stringify(skill.description)}`,
-          `  ${skill.source === "bundled" ? `${skill.filePath.replace(/^bundled:/, "")} (inside Casper; turn off with skills.bundled: false)` : skill.filePath}`,
+          `  ${skill.source === "bundled" ? `${skill.filePath.replace(/^bundled:/, "")} (inside Casper; /settings turns them off)` : skill.filePath}`,
         ].join("\n")).join("\n\n") + "\n" : "No skills discovered.\n");
       } else if (action === "diagnostics" && !id) {
         host.output.write(registry.diagnostics.length ? registry.diagnostics.join("\n") + "\n" : "No skill warnings.\n");
@@ -1081,28 +1144,49 @@ async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<v
           inspected.body,
           `SHA256: ${inspected.sha256}`,
           inspected.skill.source === "bundled"
-            ? `Bundled with Casper and trusted. /skills block ${id} stops it; skills.bundled: false turns them all off.`
-            : `After reviewing: /skills trust ${id} ${inspected.sha256}`,
+            ? `Bundled with Casper and trusted. /skills block ${id} stops it; /settings turns them all off.`
+            : `After reviewing: /skills trust ${id}${host.interactive ? "" : ` ${inspected.sha256}`}`,
           "",
         ].join("\n"));
       } else if (action === "trust" && id && sha256 && !extra.length) {
         await registry.trust(id, sha256);
         host.output.write(`Trusted reviewed content for ${id}.\n`);
+      } else if (action === "trust" && id && !sha256 && host.interactive) {
+        // Shows exactly what you trust, then 1 No · 2 Trust it: the fingerprint of what was shown, not a copied one.
+        const inspected = await registry.inspect(id);
+        const name = inspected.skill.id.replace(/@[a-f0-9]+$/, "");
+        const preview = [`Skill: ${inspected.skill.id}`, `File: ${inspected.skill.filePath}`, inspected.body, `SHA256: ${inspected.sha256}`, ""].join("\n");
+        if (await host.approveChoice(terminalText(preview), `Trust ${terminalText(name)} as shown?`, SKILL_TRUST_CHOICES, host.commandAbort?.signal) !== SKILL_TRUST_CHOICES[1]) {
+          host.output.write("[skills] Not trusted.\n");
+          return;
+        }
+        await registry.trust(id, inspected.sha256);
+        host.output.write(`Trusted reviewed content for ${inspected.skill.id}.\n`);
       } else if (action === "block" && id && !sha256) {
         await registry.block(id);
         host.output.write(`Blocked ${id} for future prompts.\n`);
       } else {
-        host.output.write("Usage: /skills | /skills inspect <id> | /skills trust <id> <sha256> | /skills block <id>\n");
+        host.output.write("Usage: /skills | /skills inspect <id> | /skills trust <id> | /skills block <id>\n");
       }
     } catch (error) {
       host.output.write(`[skills] ${error instanceof Error ? error.message : String(error)}\n`);
     }
   }
 
+/** A failed sign-in in plain words: the reason Casper has (never provider text) and the next step. */
+export function loginFailureText(result: Extract<RuntimeAuthenticationResult, { status: "failed" }>): string {
+  const detail = result.detail ? terminalText(result.detail) : undefined;
+  if (result.reason === "destination") return `[login] Can't save the key${detail ? `: ${detail}` : ""}. Nothing was changed.\n`;
+  if (detail === "CASPER_TUI_WRITE_LOG is set") return "[login] Sign-in is off while CASPER_TUI_WRITE_LOG is set. Unset it, then type /login.\n";
+  return detail ? `[login] Sign-in failed: ${detail}. Nothing was saved. Type /login to try again.\n`
+    : "[login] Sign-in didn't finish. Nothing was saved. Type /login to try again.\n";
+}
+
 /** The sign-in flow behind /login, also opened by Casper itself when no model can run. After a saved
  * credential, a model is picked only when none is set yet (never replacing a choice). True when a
  * credential was saved and refreshed. */
-export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider): Promise<boolean> {
+/** `list`: Casper opened sign-in by itself, so the numbered list shows even for a provider with one way. */
+export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider, list = false): Promise<boolean> {
   const picker = host.interactive ? host.terminal.exclusiveHost() : undefined;
   if (!picker) { host.output.write(LOGIN_HELP); return false; }
   if (host.subagents.isBusy) throw new Error("Wait for active subagents before login.");
@@ -1110,11 +1194,12 @@ export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider
     const runtime = await host.acquireRuntime();
     host.commandAbort?.signal.throwIfAborted();
     if (!runtime.authenticate) { host.output.write("[login] This runtime does not support login.\n"); return false; }
-    const result = await runtime.authenticate({ provider,
+    const result = await runtime.authenticate({ provider, ...(list ? { list } : {}),
       terminalHost: picker, signal: host.commandAbort?.signal });
     if (result.status === "saved") {
       // Login never starts a conversation: with none open yet, the first request picks the model.
       host.loginProvider = provider;
+      host.signedIn = true;
       const picked = host.session ? await host.session.selectDefaultModel?.({ provider, signal: host.commandAbort?.signal }).catch(() => undefined) : undefined;
       if (picked?.selected) {
         host.output.write(`[login] Credential saved and verified; no model call was made. Casper picked ${picked.status.provider}/${picked.status.model} and saved it as your default. Use /model to choose another.\n`);
@@ -1126,10 +1211,8 @@ export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider
     if (result.status === "saved-needs-refresh") host.output.write("[login] Credential saved, but local auth needs refresh. Restart Casper; do not repeat login blindly.\n");
     else if ("effect" in result && result.effect === "unknown") host.output.write("[login] Login ended; credential save outcome unknown. Restart and inspect local auth before retrying.\n");
     else if (result.status === "cancelled") host.output.write("[login] Cancelled; no credential saved.\n");
-    else host.output.write(result.reason === "destination"
-      ? `[login] Unsafe credential destination${result.detail ? `: ${terminalText(result.detail)}` : ""}. Requires a private, owner-held regular file in a real directory; no permissions were repaired.\n`
-      : "[login] Login unavailable or failed. No credential saved. Disable CASPER_TUI_WRITE_LOG if set. Check provider eligibility and loopback callback availability; no automatic method fallback.\n");
-  } catch { host.output.write("[login] Login could not complete. No provider diagnostics are displayed.\n"); }
+    else host.output.write(loginFailureText(result));
+  } catch { host.output.write("[login] Sign-in didn't finish. Nothing was saved. Type /login to try again.\n"); }
   return false;
 }
 
@@ -1147,12 +1230,12 @@ async function undoCopiesLine(stateDirectory: string, home: string): Promise<str
 export function permissionsText(sandbox: ShellSandbox | undefined): string {
   const shell = sandbox?.on
     ? "Shell commands and checks run in a sandbox: they can write only in this project, temp and package caches (other folders ask), can't read your private folders, and reach only listed hosts (others ask). They don't see your AI provider keys. MCP servers, language servers, the debugger and the browser are not in the sandbox."
-    : `Shell commands and checks are not sandboxed here (${sandbox?.failure ?? sandbox?.state.reason ?? "no sandbox"}): they run with your permissions, files and network, without your AI provider keys.${sandbox?.asksFirst ? " Casper asks before each shell command the AI runs." : ""}`;
+    : `Shell commands and checks are not sandboxed here (${sandbox?.failure ?? sandbox?.state.reason ?? "no sandbox"}): they run with your permissions, files and network, without your AI provider keys.${sandbox?.asksFirst ? " Casper asks before each shell command the AI runs, except plain reads like ls or git status." : ""}`;
   return [
     shell,
     `The AI's file tools (read, edit, write, grep, find, ls) stay out of private places and git's own files and never follow a link out of the project. ${sandbox && !sandbox.asksOutsideWrites
       ? "With the sandbox off, an edit or write outside the project doesn't ask." : "An edit or write outside the project asks first (temp and caches don't; --no-sandbox turns this off)."}`,
-    "Web lookups (web_search, web_fetch) read public pages without asking. Private and local addresses, other ports, and a search or address holding a secret are refused; what comes back has its secrets hidden. web: off in ~/.casper/config.yaml turns them off.",
+    "Web lookups (web_search, web_fetch) read public pages without asking. Private and local addresses, other ports, and a search or address holding a secret are refused; what comes back has its secrets hidden. /settings turns them off.",
     "MCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals. The AI can't approve anything for you.",
     "No SAFE/YOLO or read-only mode is implied. /verify and /services may execute project scripts (the declared checks and service commands). See docs/SECURITY.md.",
   ].join("\n");
@@ -1176,9 +1259,10 @@ export async function noChecksNote(model: ProjectModel, root: string, homeDir: s
   const names = defaultVerifyNames(model);
   const runnable = names.some((name) => !(CHECK_NAMES as readonly string[]).includes(name) || model.commands[name as keyof ProjectModel["commands"]]?.trim());
   if (runnable) return undefined;
-  const lines = [`No checks found in ${path.basename(root) || root}.`];
+  const folder = path.basename(root) || root;
   const children = await childProjectsWithTests(root, homeDir).catch(() => []);
+  if (!children.length) return `[verify] No tests in ${folder} yet. Say "add tests" and Casper writes some.\n`;
+  const lines = [`No checks found in ${folder}.`];
   for (const child of children) lines.push(`Tests found in ${child.relative}: /project ${child.relative}`);
-  if (!children.length) lines.push("To add one: verify.test in .casper/project.yaml.");
   return `[verify] ${lines.join(" ")}\n`;
 }

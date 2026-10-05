@@ -59,3 +59,21 @@ test("the footer returns to the static ○ after activity clears", async () => {
     expect(SPINNER.some(frame => idle.at(-1)!.includes(frame))).toBe(false);
   } finally { surface.close(); }
 });
+test("a picker open during work (the model picker, sign-in) shows waiting for you, not a spinner", async () => {
+  const { surface } = makeSurface();
+  try {
+    surface.start();
+    surface.setStatus("project/main │ model │ idle", process.cwd());
+    surface.setActivity("Starting the model");
+    expect(surface.footerLine(80)).not.toContain("waiting for you");
+    const host = surface.exclusiveHost()!;
+    let seen = "";
+    await host.mount(async (view) => {
+      view.show({ render: () => ["Pick a model"], invalidate() {} });
+      seen = surface.footerLine(80) ?? "";
+    });
+    expect(seen).toContain("? waiting for you");
+    expect(SPINNER.some((frame) => seen.includes(frame))).toBe(false);
+    expect(surface.footerLine(80)).not.toContain("waiting for you");
+  } finally { surface.close(); }
+});

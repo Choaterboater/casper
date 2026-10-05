@@ -107,15 +107,17 @@ def exercise_empty_eof(bun, repo, root):
         s.send("hello\n")
         # With no model, Casper opens sign-in itself instead of printing a fake failed receipt.
         s.until("No model yet. Sign in to a provider to start")
-        s.until("Login · Choose provider")
+        s.until("Type a number")
         s.send("\x1b")
         s.until("[login] Cancelled; no credential saved.")
         s.until("[model] No Casper model selected")
         s.pump(0.2)
         assert "model run failed" not in s.screen.text(), s.screen.text()
         assert s.screen.text().count("[model] No Casper model selected") == 1, s.screen.text()
+        # With nothing signed in, /model opens sign-in instead of an empty picker.
         s.send("/model\n")
-        s.until("No matching models")
+        s.until("Not signed in yet")
+        s.until("Type a number")
         s.send("\x04")
         deadline = time.monotonic() + 5
         while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)

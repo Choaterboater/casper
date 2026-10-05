@@ -212,7 +212,7 @@ test("Set it up installs, adds the server and connects it remembered and read-on
 test("a failed install adds nothing", async () => {
   const host = await fakeSetupHost({ answers: ["2"], pipExit: 1 });
   expect(await runNetworkSetup(host, { explicit: true })).toBe("failed");
-  expect(host.output).toContain("casper-network-mcp: the hash-locked install failed");
+  expect(host.output).toContain("casper-network-mcp: the install failed.");
   expect(await exists(path.join(host.homeDir, ".casper/mcp.json"))).toBe(false);
   expect(host.connected).toEqual([]);
 });
@@ -453,7 +453,7 @@ test("app: the first Mist question offers setup once; a 2 typed ahead is discard
     app.terminal.ask = (...args: Parameters<typeof ask>) => { asks++; return ask(...args); };
   } });
   expect(asks).toBe(0);
-  expect(first.output).toContain("[input] Discarded 1 line(s) entered before this approval appeared.");
+  expect(first.output).toContain("[input] Discarded 1 line(s) entered before this question appeared.");
   expect(first.output).toContain("Casper can set up its network server (casper-network-mcp");
   expect(first.output).toContain("  1 Not now\n  2 Set it up\nType 1 or 2: ");
   expect(first.output).toContain("Not set up. Type /mcp setup network any time.");

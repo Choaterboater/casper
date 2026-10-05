@@ -55,6 +55,9 @@ pipe (a terminal on stdin) or an empty stdin is a usage error (exit 64).
 | `--cd <path>` | Work in that folder instead of the current directory. A path that is not a folder is a usage error. |
 | `--max-turns <n>` | Stop each model request after `n` model turns (1–9999). The run is then incomplete (exit 2) and Casper runs no checks. The requirements review (`verification.review: true`) and the proof repair round have their own 12-turn budget; hitting that is not this stop (see [VERIFICATION.md](VERIFICATION.md#requirements-review)). |
 | `--verbose` | The detailed evidence receipt instead of the plain one. |
+| `--allow-host <host>` | Shell commands may reach this host for this run, as if you said yes to it. Repeatable. A run that can't ask names this flag when it blocks a host. |
+| `--allow-write <folder>` | Shell commands and the AI's edits may write this folder outside the project for this run (relative to where you typed the command; `~` is your home). Repeatable. Git's own files and private places stay closed. |
+| `--allow-reach <host>` | The AI's `ssh`, `scp` and the like may reach this machine for this run (a `~/.ssh/config` alias counts by its real address too). Repeatable. A machine named as `$HOST` is still refused. |
 | `--mcp <name>`, `--lsp <name>` | Connect one of your own MCP or language servers (from your user or profile config) before the prompt. Repeatable. Servers defined in a project need an interactive `/mcp connect` or `/lsp connect` review first. |
 | `--help` / `-h`, `--version` / `-v`, `--licenses` | Print help, the version and the path that is running, or third-party licenses, then exit. They write no state. |
 

@@ -1,4 +1,5 @@
 import { formatDuration, formatVerificationReport, reportText, type VerificationReport, type VerificationResult } from "../verify/evidence";
+import { modelErrorNext, type ModelErrorCause } from "../runtime/model-errors";
 import type { RiskyLine } from "../network/risky-receipt";
 import { isBuiltinCheck } from "../verify/named";
 import { DRY_RUN_LABEL } from "../network/checks";
@@ -12,6 +13,7 @@ import type { ChangeProof } from "../verify/proof";
 import type { AcceptanceResult } from "../verify/acceptance";
 import { ROUND_MAX_TURNS, type RequirementsReview } from "./review";
 import { formatCost, formatLimit } from "./spend";
+import { lineText } from "../tui/format";
 
 /** Tool-reported diagnostics, not process exit evidence or a reusable check pass. */
 export interface ObservedCheck {
@@ -36,6 +38,8 @@ export interface TaskUsage {
 /** Execution completion is not behavioral acceptance or proof of correctness. */
 export interface TaskResult {
   execution: "completed" | "failed" | "cancelled";
+  /** Why the model run failed, when the provider's error names a cause (bad key, no credits, rate limit …). */
+  modelError?: ModelErrorCause;
   verification?: VerificationReport;
   browser?: BrowserReport;
   /** The model's answer says the browser checks passed; only said when Casper's record disagrees. */
@@ -218,7 +222,7 @@ const RECEIPT_PATH_LIMIT = 8;
 
 export function formatTaskResult(task: TaskResult): string {
   const report = task.verification;
-  const safe = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
+  const safe = lineText;
   const lines = [`[task] Execution ${task.execution}`];
   if (task.spendLimit) lines.push(receiptLine("spend", `stopped at ${formatCost(task.spendLimit.spent)}, the ${formatLimit(task.spendLimit.limit)} limit for one task (spend.pauseAt)`));
 
@@ -337,7 +341,7 @@ export function formatShortReceipt(task: TaskResult, options: ReceiptOptions = {
   // All well: one line. Otherwise the verdict says what is wrong, and what went well shares one line under it.
   // Check names stay as typed: "✓ test passed", never "Test".
   const head = short !== undefined ? [[short, ...parts].join(" · ")] : [verdict!, ...(parts.length ? [`✓ ${parts.join(" · ")}`] : [])];
-  const safe = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
+  const safe = lineText;
   // The problems come right after the verdict; the checklist's line follows them.
   return [...head, ...body.filter((line) => !folded(line)), ...checklistLines(task, safe), ...undo].join("\n");
 }
@@ -364,7 +368,7 @@ function checklistLines(task: TaskResult, safe: (text: string) => string): strin
  * says all is well to the few words it becomes on the one-line receipt ("" drops it); `short` is the verdict
  * word when nothing is wrong. */
 function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: string[]; undo: string[]; folds: Map<string, string>; short?: string } {
-  const safe = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
+  const safe = lineText;
   const slash = (command: string) => options.surface === "one-shot" ? `casper "${command}"` : command;
   const lines: string[] = [];
   const folds = new Map<string, string>();
@@ -464,7 +468,7 @@ function changedShort(paths: string[], safe: (text: string) => string): string {
 }
 
 /** The full no-checks line, shown once per session; later receipts say it short. */
-export const NO_CHECKS_LINE = "• Not verified — no checks configured. Add verify.test to .casper/project.yaml.";
+export const NO_CHECKS_LINE = '• Not checked — no tests yet. Say "add tests".';
 
 /** The undo reason when a task changed nothing: nothing to say on the receipt. */
 export const UNDO_NOTHING_CHANGED = "no files changed";
@@ -476,7 +480,7 @@ export function undoPathsShown(task: Pick<TaskResult, "undo">, undoNamed?: Reado
 }
 
 /** The receipt's last lines about undo: what it can't put back, why it is not available, and (one-shot) the commands.
- * The interactive receipt's "Next: 1 Undo · 2 Show diff" row is printed by the app. */
+ * The interactive receipt's "Next: 1 Show diff · 2 Undo" row is printed by the app. */
 function undoLines(task: TaskResult, options: ReceiptOptions, safe: (text: string) => string): string[] {
   const undo = task.undo;
   if (!undo) return [];
@@ -500,7 +504,7 @@ export function receiptVerdict(task: TaskResult, options: ReceiptOptions = {}): 
 }
 
 function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions): { lines: string[]; short?: string } {
-  const safe = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
+  const safe = lineText;
   const promote = (prefix: string, fallback: string): string[] => {
     const index = body.findIndex((line) => line.startsWith(prefix));
     return index < 0 ? [fallback, ...body] : [body[index]!, ...body.slice(0, index), ...body.slice(index + 1)];
@@ -522,7 +526,8 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
       if (task.execution === "failed") {
         // Casper checked the edits the model left: say how they fared, then what to do next.
         const checked = !report?.results.length ? "" : failedChecks.length ? `; on those changes ${failedChecks.join(", ")}` : "; the checks pass on those changes";
-        const next = `• Next: ${options.surface === "one-shot" ? "casper --model <provider/id> \"…\" to try another model" : "/model to try another model, then ask again"}`;
+        const next = `• Next: ${modelErrorNext(task.modelError, options.surface === "one-shot")
+          ?? (options.surface === "one-shot" ? "casper --model <provider/id> \"…\" to try another model" : "/model to try another model, then ask again")}`;
         const verdict = task.changedPaths?.length === 0 && !task.possibleMutations
           ? "✗ Failed — the model run failed before changing any files" : `✗ Failed — the model run failed; changes already made are kept${checked}`;
         lines = [verdict, ...body, next];
@@ -541,7 +546,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
         : task.turnLimit !== undefined
         ? `• Incomplete — stopped after ${task.turnLimit} ${task.turnLimit === 1 ? "turn" : "turns"} (--max-turns); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
         : task.remoteNotRun?.length ? `• Incomplete — ${remoteNotRunVerdict(task.remoteNotRun, safe)}`
-        : report?.reason === NO_CHECKS_FOUND && !report.results.length ? "• Not checked — no checks found in this folder"
+        : report?.reason === NO_CHECKS_FOUND && !report.results.length ? NO_CHECKS_LINE
         : "• Incomplete — not every check ran", ...body];
       break;
     case "verified":
@@ -560,7 +565,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
       break;
     }
     case "not_verified":
-      lines = promote("• Not verified", `• Not verified — ${notVerifiedReason(task)}`); break;
+      lines = body.includes(NO_CHECKS_LINE) ? promote(NO_CHECKS_LINE, NO_CHECKS_LINE) : promote("• Not verified", `• Not verified — ${notVerifiedReason(task)}`); break;
     case "unchanged":
       lines = body.length ? promote("• No files changed", "• No files changed") : body; break;
   }
@@ -669,7 +674,7 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
   // A named check that could not run (a missing tool, a lab check) says why in its own words.
   if (result.status === "skip" && !isBuiltinCheck(name)) return `• Not verified — ${name} not run: ${safe(result.reason ?? "skipped").replace(/\.$/, "")}`;
   if (result.status === "skip") {
-    return result.command ? `• Not verified — ${name} was skipped.` : `• Not verified — ${name} has no command. Add verify.${name} to .casper/project.yaml.`;
+    return result.command ? `• Not verified — ${name} was skipped.` : `• Not verified — ${name} has no command here. Say ${name === "test" ? '"add tests"' : `"set up ${name}"`}.`;
   }
   if (result.status === "pass") {
     if (result.freshness === "stale") return `• Not verified — stale: files changed after the last passing ${name}. Run ${slash(`/verify ${name}`)}.`;
@@ -682,7 +687,7 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
   const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");
   // Unfinished checks are not the code failing: Casper does not repair them, so it does not offer to.
   if (result.ended === "timeout") {
-    return `✗ ${name} timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""} — it did not finish, so it was not checked; ${slash(`/verify ${name}`)} to run it again, or raise verification.timeoutMs in .casper/project.yaml`;
+    return `✗ ${name} timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""} — it did not finish, so it was not checked; ${slash(`/verify ${name}`)} to run it again (a session offers more time)`;
   }
   // The sandbox refused something the check tried: the same words the AI sees, so it does not retry it.
   if (result.ended === "blocked") return `✗ ${name} — ${safe(result.reason ?? "blocked by the sandbox")}`;
@@ -712,17 +717,17 @@ const elapsed = (ms: number) => ms < 1000 ? "" : formatDuration(ms);
 export function liveCheckLine(result: VerificationResult): string {
   const name = result.name;
   if (result.kind === "report") return `• ${name} · ${reportText(result)} (a diff, not a pass/fail check)`;
-  if (result.status === "skip" && !isBuiltinCheck(name)) return `– ${name} · not run${result.reason ? `: ${result.reason.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ")}` : ""}`;
+  if (result.status === "skip" && !isBuiltinCheck(name)) return `– ${name} · not run${result.reason ? `: ${lineText(result.reason)}` : ""}`;
   if (result.status === "skip") return `– ${name} · skipped${result.command ? "" : ", no command"}`;
   // A lab check's own label ("dry run not guaranteed") stays beside its result.
-  const label = result.label ? `${result.label.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ")} · ` : "";
+  const label = result.label ? `${lineText(result.label)} · ` : "";
   if (result.status === "pass") return result.reused ? `✓ ${name} · passed earlier, reused` : `✓ ${name}${[label.replace(/ · $/, ""), elapsed(result.durationMs)].filter(Boolean).map((part) => ` · ${part}`).join("")}`;
   const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");
   if (result.ended === "timeout") return `✗ ${name} · timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""}`;
   if (result.ended === "no_start") return `✗ ${name} · could not start${typeof result.exitCode === "number" ? ` (exit ${result.exitCode})` : ""}`;
-  if (result.ended === "blocked") return `✗ ${name} · ${(result.reason ?? "blocked by the sandbox").replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ")}`;
+  if (result.ended === "blocked") return `✗ ${name} · ${lineText(result.reason ?? "blocked by the sandbox")}`;
   const why = typeof result.exitCode === "number" ? `exit ${result.exitCode}` : result.signal ? `stopped by ${result.signal}`
-    : result.reason ? result.reason.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ") : "no exit status";
+    : result.reason ? lineText(result.reason) : "no exit status";
   return `✗ ${name} · ${label}${why}${elapsed(result.durationMs) ? ` · ${elapsed(result.durationMs)}` : ""}`;
 }
 

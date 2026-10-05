@@ -5,19 +5,18 @@ import "./runtime/engine-setup";
 import os from "node:os";
 import path from "node:path";
 import { stat } from "node:fs/promises";
-import { CasperApp } from "./app";
 import { agentStoreWarnings, importLegacyEngineState, useCasperAgentStore } from "./runtime/agent-store";
 import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
 import { taskExitCode } from "./task/result";
 import { looksLikePath, parseCliArgs, parseLearnArgs, parseMcpCheckArgs, parseNewArgs, parseSecurityArgs, parseUpdateArgs, UsageError, type McpCheckCommand,
-  type NewCommand, type SecurityCommand, type SubcommandName, type CliOptions, type UpdateCommand } from "./cli-args";
+  type NewCommand, type SecurityCommand, type SubcommandName, type CliOptions, type UpdateCommand, UPDATE_HELP, UPDATE_USAGE } from "./cli-args";
 import { runningFromBinary } from "./update/mode";
 import type { Install } from "./update/command";
 import type { VerificationMode } from "./verify/mode";
 
 import { redactPreview, terminalText } from "./tui/format";
 import { formatJsonEvent, receiptEvent, type CasperEvent } from "./app/json-events";
-import { HELP_TEXT } from "./tui/help";
+import { CLI_HELP_TEXT, wrapHelp } from "./tui/help";
 import { CASPER_VERSION } from "./version";
 import licenseNotices from "../THIRD_PARTY_NOTICES.txt" with { type: "text" };
 
@@ -138,6 +137,7 @@ function currentInstall(): Install {
  * Ctrl-C stops the update and waits (up to the shutdown deadline) for it to unwind, so a Windows swap is put back
  * and the downloaded installer is removed before the process exits. */
 async function runUpdateSubcommand(cmd: UpdateCommand): Promise<void> {
+  if (cmd.help) { process.stdout.write(`${UPDATE_USAGE}\n${UPDATE_HELP}\n`); return; }
   const { runUpdate } = await import("./update/command");
   const controller = new AbortController();
   let pending: Promise<unknown> = Promise.resolve();
@@ -173,7 +173,7 @@ async function withStandaloneSandbox(options: CliOptions, work: () => Promise<vo
 export function terminalNewProject(options: CliOptions, stdinTTY: boolean): NewCommand | undefined {
   if (options.command !== "new" || !stdinTTY) return undefined;
   const command = parseNewArgs(options.rest.slice(1));
-  return command && !command.list ? command : undefined;
+  return command && !command.list && !command.help ? command : undefined;
 }
 
 /** Subcommands that run with no app, no model and no saved state, in one place. `learn` needs Casper's agent store
@@ -192,7 +192,7 @@ export async function runCli(): Promise<void> {
     return;
   }
   if (options.info === "help") {
-    process.stdout.write(HELP_TEXT);
+    process.stdout.write(wrapHelp(CLI_HELP_TEXT, process.stdout.isTTY ? process.stdout.columns : undefined));
     return;
   }
   if (options.info === "version") {
@@ -231,6 +231,8 @@ export async function runCli(): Promise<void> {
     // A slash command (`casper /undo`) is not a path.
     } else if (looksLikePath(word) && !/^\/[A-Za-z][\w-]*$/.test(word)) throw new UsageError(`Not a folder: ${word}`);
   }
+  // --allow-write folders are named from where you typed the command, before --cd moves.
+  const launchedFrom = process.cwd();
   if (options.cd) {
     const folder = path.resolve(options.cd);
     if (!(await stat(folder).then((entry) => entry.isDirectory(), () => false))) throw new UsageError(`--cd: not a folder: ${options.cd}`);
@@ -276,7 +278,14 @@ export async function runCli(): Promise<void> {
   const prompt = newProject ? "" : options.promptFromStdin ? await stdinPrompt() : options.rest.join(" ").trim();
   // --json: stdout carries only JSON Lines; the banner, transcript and receipt a person reads go to stderr.
   const emit = options.json ? (event: CasperEvent) => { process.stdout.write(formatJsonEvent(event)); } : undefined;
+  // Loaded only now: --help, --version and usage errors never need the app.
+  const { CasperApp } = await import("./app");
+  // --allow-write folders: ~ is your home folder; others are named from where you typed the command.
+  const home = os.homedir();
+  const allow = { hosts: options.allowHosts ?? [], reach: options.allowReach ?? [],
+    writes: (options.allowWrites ?? []).map((folder) => folder === "~" ? home : folder.startsWith("~/") ? path.join(home, folder.slice(2)) : path.resolve(launchedFrom, folder)) };
   const app = new CasperApp({ verificationMode: verificationFlag(options), verbose: options.verbose, ...(options.noSandbox ? { noSandbox: true } : {}),
+    ...(allow.hosts.length || allow.reach.length || allow.writes.length ? { allow } : {}),
     model: options.model, effort: options.effort, maxTurns: options.maxTurns, startupWarnings,
     // A session says when a newer Casper is out; --json output is for scripts and never does.
     ...(options.json ? {} : { updateCheck: { install: currentInstall(), currentVersion: CASPER_VERSION } }),

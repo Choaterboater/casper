@@ -55,7 +55,7 @@ test("a live debugger is revoked before exposing a new workspace or model task",
       loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
       output: { write(text) {
         output += text;
-        if (text.includes("Type yes:")) setImmediate(() => input.write("yes\n"));
+        if (/Type [\d, ]*\d or \d: $/.test(text)) setImmediate(() => input.write("2\n"));
         if (text === "> ") setImmediate(() => input.write((commands.shift() ?? "/exit") + "\n"));
       } },
     });

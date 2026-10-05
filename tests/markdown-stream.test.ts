@@ -62,22 +62,22 @@ test("chunked streaming matches a one-shot render, including color and a later w
   }
 });
 
-const plain = (lines: string[]) => lines.map(line => line.replace(/ +│$/, " │"));
+const plain = (lines: string[]) => lines;
 
-test("fences inside list items and blockquotes keep the language title and the container indent", () => {
+test("fences inside list items and blockquotes keep the language title and the container indent; code has no side border", () => {
   const listed = plain(once("1. Install deps:\n   ```bash\n   npm install\n   ```\n2. Run it.", 40, false));
   expect(listed[0]).toBe("1. Install deps:");
-  expect(listed[1]).toMatch(/^ {3}╭─ bash ─+╮$/);
-  expect(listed[2]).toBe("   │ npm install │");
-  expect(listed[3]).toMatch(/^ {3}╰─+╯$/);
+  expect(listed[1]).toMatch(/^ {3}── bash ─+$/);
+  expect(listed[2]).toBe("   npm install");
+  expect(listed[3]).toMatch(/^ {3}─+$/);
   expect(listed[4]).toBe("2. Run it.");
   const first = plain(once("- ```sh\n  ls\n  ```", 40, false));
-  expect(first[0]).toMatch(/^- ╭─ sh ─+╮$/);
-  expect(first[1]).toBe("  │ ls │");
+  expect(first[0]).toMatch(/^- ── sh ─+$/);
+  expect(first[1]).toBe("  ls");
   const quoted = plain(once("> ```sh\n> ls\n> ```", 40, false));
-  expect(quoted[0]).toMatch(/^│ ╭─ sh ─+╮$/);
-  expect(quoted[1]).toBe("│ │ ls │");
-  expect(quoted[2]).toMatch(/^│ ╰─+╯$/);
+  expect(quoted[0]).toMatch(/^│ ── sh ─+$/);
+  expect(quoted[1]).toBe("│ ls");
+  expect(quoted[2]).toMatch(/^│ ─+$/);
   for (const lines of [listed, first, quoted]) for (const line of lines) expect(line.length).toBeLessThanOrEqual(40);
   // Colour keeps the container's own styling outside the box.
   const colored = once("> ```sh\n> ls\n> ```", 40, true).map(line => line.replace(/\x1b\[[0-9;]*m/g, ""));
@@ -104,17 +104,18 @@ test("streaming a list or quote with a nested fence matches the one-shot render 
   }
 });
 
-test("a fenced block's panel spans the width and a long code line wraps once at its inner width", () => {
+test("a fenced block's title line spans the width; a long code line is cut at the edge only, every character kept", () => {
   const source = `const x = 1; // ${"word ".repeat(30)}END`;
   for (const width of [40, 80, 200]) {
     for (const doc of [`\`\`\`ts\n${source}\n\`\`\``, `1. Step:\n   \`\`\`ts\n   ${source}\n   \`\`\``]) {
       const lines = once(doc, width, false);
-      const top = lines.findIndex(line => line.includes("╭─ ts "));
-      const margin = lines[top]!.indexOf("╭");
-      const panel = width - margin;
+      const top = lines.findIndex(line => line.includes("── ts "));
+      const margin = lines[top]!.indexOf("──");
       expect(visibleWidth(lines[top]!)).toBe(width);
-      const rows = lines.slice(top + 1, -1).map(line => line.slice(margin + 2, margin + panel - 2).trimEnd());
-      expect(rows).toEqual(wrapTextWithAnsi(source, panel - 4).map(row => row.trimEnd()));
+      // No border, no indent added, no space dropped: the rows put together are the line as written.
+      const rows = lines.slice(top + 1, -1).map(line => line.slice(margin));
+      expect(rows.join("")).toBe(source);
+      for (const row of rows.slice(0, -1)) expect(visibleWidth(row)).toBe(width - margin);
       for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
     }
   }

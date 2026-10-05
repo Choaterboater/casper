@@ -1,4 +1,9 @@
+import { setDefaultTimeout } from "bun:test";
 import { cleanEnv } from "./env";
+
+// Many files drive real git, apps and child processes; under load (a parallel run, a busy CI runner) those pass
+// bun's 5 s default without anything being wrong. A test that needs a tighter limit still sets its own.
+setDefaultTimeout(30_000);
 
 // In-process tests read process.env directly (config profiles, the agent store, provider keys), so a
 // developer's own PI_*/CASPER_* variables or provider keys would give them a different suite than CI's.
@@ -29,3 +34,8 @@ afterEach(() => {
   useSandbox(undefined);
   throw new Error("This test left a session's shell sandbox open: close the app (app.close()) or the sandbox in a finally.");
 });
+
+// A box ignores keys for a moment after it opens (typed mid-sentence, they never answer it). Tests press keys as
+// soon as a box is up; tests/one-input-style.test.ts sets the real wait itself.
+const { askDefaults } = await import("../../src/tui/surface");
+askDefaults.guardMs = 0;

@@ -2,7 +2,7 @@ import { lstat, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import hierConfigScript from "./assets/hier_config_diff.py" with { type: "text" };
 import junosCommitPlaybook from "./assets/junos_commit_check.yml" with { type: "text" };
-import { formatDuration } from "../verify/evidence";
+import { NO, YES_ALWAYS, YES_ONCE } from "../app/safe-choices";
 import { scrubText } from "../secrets/scrub";
 import { readProjectPlaybook } from "./ansible";
 import { ansibleWorkspace, plainWorkspace, pythonWorkspace, type ToolWorkspace } from "./environment";
@@ -166,7 +166,7 @@ async function ansibleSyntax(base: Base, spec: NetworkCheckSpec, context: Networ
 }
 
 /** Junoser's grammar lags new Junos releases, so its complaint is "could not read", not "invalid". */
-export const JUNOSER_NOTE = "Junoser could not read this line; it may be newer syntax than Junoser knows. Do not rewrite valid config just to please Junoser.";
+export { JUNOSER_NOTE } from "./spec";
 
 async function junoser(base: Base, spec: NetworkCheckSpec, context: NetworkCheckContext): Promise<NetworkCheckResult> {
   const tool = which("junoser", context);
@@ -287,7 +287,8 @@ export async function runNetworkCheck(name: string, spec: NetworkCheckSpec, cont
 export interface LabAsk {
   /** The question, then the hosts. */
   text: string;
-  /** Numbered choices, in order: "Skip" (so Enter never reaches a device), "Run it", then "Always for this project" (junos-commit only). */
+  /** Numbered choices, in order: No (so Enter never reaches a device), Yes, this once, then Yes, always for this project
+   * (junos-commit only). */
   choices: string[];
   /** Always the limit of what Casper checked. */
   note: string;
@@ -305,17 +306,17 @@ function formatHosts(hosts: readonly LabHost[]): string {
   return names.join(", ") + (hosts.length > 12 ? ` and ${hosts.length - 12} more` : "");
 }
 
-/** The device-check box. 1 is always Skip; "Always" only for junos-commit with no warning about reach. */
+/** The device-check box. 1 is always No; "Always" only for junos-commit with no warning about reach. */
 export function labAskFor(name: string, preset: NetworkPreset, hosts: readonly LabHost[], warnings: readonly string[] = [], allowAlways = preset === "junos-commit"): LabAsk {
   const count = hosts.length;
   const devices = `${count} ${count === 1 ? "device" : "devices"}`;
   const text = preset === "junos-commit"
     ? `Run ${name} on ${devices}? It loads the change, runs commit check, then rolls back. ${formatHosts(hosts)}`
     : `Run ${name} on ${devices}? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. ${formatHosts(hosts)}`;
-  return { text, choices: ["Skip", "Run it", ...(allowAlways ? ["Always for this project"] : [])], note: LAB_LIMIT_NOTE, warnings: [...warnings] };
+  return { text, choices: [NO, YES_ONCE, ...(allowAlways ? [YES_ALWAYS] : [])], note: LAB_LIMIT_NOTE, warnings: [...warnings] };
 }
 
-/** "1 Skip · 2 Run it" */
+/** "1 No · 2 Yes, this once" */
 export function numberedChoices(choices: readonly string[]): string {
   return choices.map((choice, index) => `${index + 1} ${choice}`).join(" · ");
 }
@@ -331,7 +332,7 @@ function junosFormat(file: string): string {
  * Check everything a device (lab) check needs before anything reaches a device: the platform, the tools, and a
  * plain inventory inside the project. Any device may be checked: the plan's box names every device, which aren't
  * marked lab, and every way the playbook or inventory can reach others. Only a "ready" plan can run, and only after
- * a person picks "Run it" (or their own "Always" for junos-commit). Nothing here asks the model anything.
+ * a person picks "Yes, this once" (or their own "Yes, always" for junos-commit). Nothing here asks the model anything.
  */
 export async function prepareLabCheck(name: string, spec: NetworkCheckSpec, context: NetworkCheckContext): Promise<LabPlan> {
   const label = spec.preset === "ansible-check" ? DRY_RUN_LABEL : COMMIT_CHECK_LABEL;
@@ -409,70 +410,10 @@ export async function prepareLabCheck(name: string, spec: NetworkCheckSpec, cont
   };
 }
 
-/** How a result may be repaired: never for not-run skips or reports, only after asking for lab checks. */
-export function repairClass(result: NetworkCheckResult): "repairable" | "ask" | "never" {
-  if (result.status !== "fail" || result.kind === "report") return "never";
-  if (result.kind === "lab") return "ask";
-  if (result.ended) return "never";
-  return "repairable";
-}
-
-/** Extra words for the repair prompt. */
-export function repairNote(result: NetworkCheckResult): string | undefined {
-  return result.preset === "junoser" ? JUNOSER_NOTE : undefined;
-}
-
 export function labFailureAsk(name: string): { text: string; choices: string[]; defaultChoice: number } {
   return {
     text: `${name} failed on the lab. Casper did not ask the model to fix it, because each try touches lab devices.`,
     // Stop first: Enter (or a stray key) never starts a paid repair that touches the lab again.
     choices: ["Stop", "Ask the model to fix it"], defaultChoice: 1,
-  };
-}
-export const labStoppedReason = (name: string): string => `${name} failed on the lab; stopped without asking the model to fix it`;
-
-/** Reports never make a run pass or fail; lab passes with "dry run not guaranteed" are not grounds for Verified. */
-export function countsTowardVerified(result: NetworkCheckResult): boolean {
-  if (result.kind === "report") return false;
-  if (result.label === DRY_RUN_LABEL) return false;
-  return true;
-}
-
-/** The status over checks that count: reports are left out entirely. */
-export function networkStatus(results: readonly NetworkCheckResult[]): "pass" | "fail" | "incomplete" {
-  const counted = results.filter((result) => result.kind !== "report");
-  if (counted.some((result) => result.status === "fail")) return "fail";
-  if (!counted.length || counted.some((result) => result.status === "skip")) return "incomplete";
-  return "pass";
-}
-
-function plain(text: string): string { return text.replace(/[\x00-\x1f\x7f-\x9f‪-‮⁦-⁩]/g, " "); }
-
-/** One check line for the terminal and the receipt. Never says "offline": that is not enforced yet. */
-export function formatNetworkCheckLine(result: NetworkCheckResult): string {
-  if (result.status === "skip") return `– ${result.name}  not run: ${plain(result.reason ?? "skipped")}`;
-  if (result.kind === "report") {
-    if (result.report) return `• ${result.name}  ${result.report.changeLines} lines to change · ${result.report.undoLines} to undo (a diff, not a pass/fail check)`;
-    return `• ${result.name}  no diff: ${plain(result.reason ?? "hier_config failed")} (a diff, not a pass/fail check)`;
-  }
-  const mark = result.status === "pass" ? "✓" : "✗";
-  const parts = [result.label, result.status === "fail" ? (result.reason ?? (result.exitCode === null ? result.signal : `exit ${result.exitCode}`)) : undefined, formatDuration(result.durationMs)]
-    .filter((part): part is string => !!part).map(plain);
-  return `${mark} ${result.name}${result.command ? `  ${plain(result.command)}` : ""}  (${parts.join(" · ")})`;
-}
-
-/** Additive JSON event and receipt fields. */
-export function networkEventFields(result: NetworkCheckResult): { kind: NetworkCheckResult["kind"]; label?: string; hosts?: string[] } {
-  return { kind: result.kind, ...(result.label ? { label: result.label } : {}), ...(result.hosts ? { hosts: [...result.hosts] } : {}) };
-}
-
-/** What casper_check hands the model: bounded and already scrubbed. */
-export function networkResultForModel(result: NetworkCheckResult): Record<string, unknown> {
-  return {
-    name: result.name, status: result.status, kind: result.kind, ...(result.label ? { label: result.label } : {}),
-    command: result.command, exitCode: result.exitCode, reason: result.reason, truncated: result.truncated,
-    stdout: scrub(result.stdout), stderr: scrub(result.stderr),
-    ...(result.report ? { report: { ...result.report, remediation: scrub(result.report.remediation), rollback: scrub(result.report.rollback) } } : {}),
-    ...(repairNote(result) && result.status === "fail" ? { note: repairNote(result) } : {}),
   };
 }

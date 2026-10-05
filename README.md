@@ -69,8 +69,9 @@ are not tied to one model company.
   [Terminal guide](docs/TERMINAL_UX.md)
 - **Rich or plain terminal.** A live footer, colors and lines that update in place, or plain text with
   `NO_COLOR`, `TERM=dumb` or redirected output. [Terminal guide](docs/TERMINAL_UX.md)
-- **tmux, automatic.** Inside tmux (or iTerm2) the busy steps go to a view-only side pane that
-  Casper opens and closes itself; `/tasks` lists what runs in the background. [tmux](docs/TMUX.md)
+- **tmux, automatic.** Inside tmux (or iTerm2, after one question) the busy steps go to a view-only side
+  pane on a wide window that Casper opens and closes itself; `/pane off` turns it off. `/tasks` lists
+  what runs in the background. [tmux](docs/TMUX.md)
 
 ## What a receipt looks like
 
@@ -114,7 +115,7 @@ preview. After the first install, `casper update` gets the newest preview (it ru
 release's own installer, with the same checks), and `casper update --check` only says whether
 there is one. A session also tells you when one is out: one `[update]` line at the start, from a
 check it makes in the background at most once a day (no model, no tokens). Turn it off with
-`updates: false` in `~/.casper/config.yaml` or `CASPER_NO_UPDATE_CHECK=1`. If GitHub says it is limiting requests, set `GITHUB_TOKEN` (or `GH_TOKEN`) to a
+`/settings` (New-version notice) or `CASPER_NO_UPDATE_CHECK=1`. If GitHub says it is limiting requests, set `GITHUB_TOKEN` (or `GH_TOKEN`) to a
 GitHub token for a higher limit. Useful `install.sh` options: `--dir <path>`, `--version 0.2.21`, `--sha256 <hex>`
 and `--force` (replace a development symlink). [Installer details](docs/RELEASE.md).
 
@@ -128,8 +129,8 @@ casper
 If you start Casper in your home folder or a folder that only holds projects (such as
 `~/Projects`), it asks which project to open: press its number, or Esc to stay.
 
-**Sign in.** Type `/login` and pick a provider (OpenAI Codex, GitHub Copilot, Anthropic,
-OpenRouter). If you skip this, Casper opens sign-in on your first request and picks that
+**Sign in.** Type `/login` and press a number: one list of providers and ways to sign in,
+OpenRouter first (Enter picks it), then Anthropic, OpenAI Codex and GitHub Copilot. If you skip this, Casper opens sign-in on your first request and picks that
 provider's default model (OpenRouter: `deepseek/deepseek-v4.1-flash`). `/model` picks another;
 Casper never replaces a model you chose. Type keys or codes only in the private login prompt,
 never in chat. Your provider's plans and charges still apply.
@@ -154,18 +155,19 @@ in a sandbox (a sealed-off area). Use Casper only in projects you trust, or star
 
 | Command | What it does |
 | --- | --- |
-| `/help` | Short command guide; `/help all` for the full list |
+| `/help` | Short command guide; `/help <word>` searches it, `/help all` shows everything |
 | `/status` | Project, model and connections |
 | `/model`, `/effort` | Pick a model and how hard it thinks (`/effort auto` lets Casper choose) |
 | `/verify` | Run the checks with no model |
 | `/verify repair test` | Let the AI fix a failing test check, with a limit |
 | `/receipt` | Full detail behind the last receipt |
-| `/diff` | Show Git changes |
+| `/diff`, `/undo` | The last task's changes; put its files back |
 | `/output [n]` | Full output of a recent tool call |
 | `/clear`, `/resume` | Start fresh or bring back a chat (does not undo file changes) |
 | `/mcp` | MCP servers: status, connect, writes on/off |
 | `/secrets` | What secret hiding is doing |
 | `/permissions` | What Casper can and cannot do |
+| `/settings` | Turn web lookups, spend notes and other switches on or off by number |
 
 Ctrl+C stops the current work but keeps changes already made. On an empty prompt, a second
 Ctrl+C within two seconds exits; Ctrl+D exits at once.
@@ -178,7 +180,7 @@ temp and package caches and can't read `~/.ssh` or cloud logins. The AI's shell 
 reach only listed hosts (others ask first); services and dev servers keep the machine's network on
 Linux (on macOS they reach only listed hosts too), and you can reach them on localhost either way.
 On Windows, or Linux without bubblewrap, nothing holds the shell: the AI's shell asks before each
-command, and your checks run with your permissions. Worktrees, read-only agent roles and
+command that changes something (reads like `ls` or `git status` don't), and your checks run with your permissions. Worktrees, read-only agent roles and
 connection prompts do not isolate anything at the OS level. See [SECURITY.md](docs/SECURITY.md).
 
 Your code, tool output and chat may go to the model provider you picked, and may stay on
@@ -252,13 +254,13 @@ it. What each version changed, in more detail: [RELEASE.md](docs/RELEASE.md).
   servers run without AI provider keys.
 
 **v0.2.17: undo and a real safety net.**
-- `Next: 1 Undo · 2 Show diff` after each task; `/undo`, `/redo`, `/diff` and `/receipt` work on
+- `Next: 1 Show diff · 2 Undo` after each task; `/undo`, `/redo`, `/diff` and `/receipt` work on
   any saved task, also after a restart and outside git. Undo never overwrites a file you changed
   since. [UNDO.md](docs/UNDO.md)
 - A shell sandbox on Linux (bubblewrap, socat and ripgrep: `sudo apt install bubblewrap socat ripgrep`) and macOS:
   the AI's shell, checks, services and dev servers write only the project, temp and package
   caches, can't read `~/.ssh` or cloud logins, and reach only listed hosts (others ask). On
-  Windows, or Linux without bubblewrap, the AI's shell asks before each command.
+  Windows, or Linux without bubblewrap, the AI's shell asks before each command that changes something (reads like `ls` don't).
   [SECURITY.md](docs/SECURITY.md)
 - A stricter "verified": `--require-verification` exits 3 unless the change is proven, so
   `• Checks passed — not proven` exits 3 too; the JSON `checksPassed` field still says the
@@ -292,7 +294,7 @@ it. What each version changed, in more detail: [RELEASE.md](docs/RELEASE.md).
   own), then which one, with Back first. My own is an empty folder with git.
 - The AI does the next step in your project itself instead of telling you to edit a file, builds
   things on by default (with an off switch), and keeps risk notes to one line.
-- A write outside the project asks once: `1 No · 2 Allow <folder> for this session`. This covers
+- A write outside the project asks once, naming the folder: `1 No · 2 Yes, this once · 3 Yes, for this session`. This covers
   the AI's shell and its edit and write tools.
 - `web_search` and `web_fetch`: the AI can look things up (DuckDuckGo by default, no key). Public
   pages only; a lookup holding a secret is refused. `web: off` turns them off.
@@ -320,9 +322,9 @@ it. What each version changed, in more detail: [RELEASE.md](docs/RELEASE.md).
 - The receipt's browser line says so when the answer claims the browser checks passed and
   Casper's record says they failed, or none of them finished.
 
-## Coming next
+## Planned next
 
-**v0.3: crews.**
+**v0.3: crews** (planned, not started).
 - For a big job, the AI splits the work on its own: builders in their own copies of the project,
   a reviewer for each part, a fixer, then one merge and the full tests. No command needed.
 - The status bar shows the crew (`crew 2/3 building · 1 reviewing · $0.40`), and `/crew` shows
@@ -331,7 +333,8 @@ it. What each version changed, in more detail: [RELEASE.md](docs/RELEASE.md).
   ("keep it under $2", "no crew for this") holds for the whole crew. `crew: off` turns crews off.
 
 Later, not scheduled: vendor packs (`casper pack add aruba` sets up a vendor's MCP server,
-read-only preset, references and skill in one step), `casper doctor` (Casper checks and fixes its
+read-only preset, references and skill in one step), chat that investigates your infrastructure,
+a reader for untrusted text that hands back only strict JSON, scheduled jobs with an AI on call, `casper doctor` (Casper checks and fixes its
 own setup), a terminal check (Casper tries a command-line program like a person), community lessons (fixes proven by passing checks, shared as a pack) and tool rules you
 write (for example, bounces only on lab sites in a maintenance window). See the [roadmap](https://choaterboater.github.io/casper/roadmap.html#later).
 

@@ -5,11 +5,11 @@ import { DEFAULT_WEB, type WebSettings } from "../config/load";
 import { webGuidance, type WebLookup } from "./lookup";
 import { PROVIDER_LABELS } from "./providers";
 
-/** The /status line: "on (DuckDuckGo) · web: off in ~/.casper/config.yaml turns it off". */
+/** The /status line: "on (DuckDuckGo) · /settings turns it off". */
 export function webStatusLine(settings: WebSettings = DEFAULT_WEB): string {
   return settings.enabled
-    ? `on (${PROVIDER_LABELS[settings.provider]}) · web: off in ~/.casper/config.yaml turns it off`
-    : "off (web: off in ~/.casper/config.yaml)";
+    ? `on (${PROVIDER_LABELS[settings.provider]}) · /settings turns it off`
+    : "off (/settings turns it on)";
 }
 
 /** web_search and web_fetch. Both only read, never ask, and run in parallel with other reads. */

@@ -308,12 +308,13 @@ for (const layout of ["default-root", "state-alias", "missing-state"]) needsSyml
     await symlink(source, requested);
   } else f.env.CASPER_AGENT_DIR = path.join(f.project, "missing/.pi/agent");
   const before = await snapshot(source);
-  const entries = await readdir(source, { recursive: true });
+  // readdir's order isn't fixed: compare sorted lists.
+  const entries = (await readdir(source, { recursive: true })).sort();
   const result = await f.run(["learn", requested]);
   expect(result.exit).toBe(1);
   expect(result.stderr).toContain("overlaps writable runtime state");
   expect(f.payloads).toEqual([]);
-  expect(await readdir(source, { recursive: true })).toEqual(entries);
+  expect((await readdir(source, { recursive: true })).sort()).toEqual(entries);
   expect(await snapshot(source)).toEqual(before);
 });
 

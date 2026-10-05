@@ -134,7 +134,7 @@ export interface SandboxPolicyInput {
   agentDir?: string;
   user?: SandboxUserSettings;
   project?: SandboxProjectSettings;
-  /** Hosts remembered for this project ("Always for this project"). */
+  /** Hosts remembered for this project ("Yes, always for this project"). */
   rememberedHosts?: string[];
   /** Folders outside the project you allowed writes to for this session (never kept). */
   sessionWrites?: string[];

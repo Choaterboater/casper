@@ -59,7 +59,7 @@ export interface CapabilityListPage {
 }
 /** The user's answer to one approval: yes, no, or "preview" (run the preview first, then ask again).
  * `true`/`false` mean yes/no. */
-export type ApprovalAnswer = boolean | "yes" | "no" | "preview" | "yes-session" | "allow-all";
+export type ApprovalAnswer = boolean | "yes" | "no" | "preview" | "yes-session" | "allow-all" | "show-session";
 /** Ask the user about one exact call. Only their yes runs it; it may throw NotExecutedError when
  * nobody can be asked (a one-shot run), so the model is never told "you said no" by mistake. */
 export type ConfirmCapability = (call: {
@@ -72,15 +72,17 @@ export type ConfirmCapability = (call: {
   tool?: Pick<MCPTool, "_meta">;
   /** The product Casper's network server said the one routed tool belongs to (from find_tool). */
   product?: NetworkProduct;
+  /** A plain Junos show command: the box may offer "Yes, show commands on <server> for this session". */
+  showOnly?: boolean;
 }, signal?: AbortSignal) => Promise<ApprovalAnswer>;
 
-/** Ask the user whether a change kind that is off by default (firmware, delete, admin) may run on this server for
- * the rest of the session. Only their answer counts; true allows it. */
 /** A product of Casper's network server had no login: the host asks the person (never the AI) and returns the
  * one line the AI gets back instead of the server's answer. */
 export type LoginMissingHandler = (server: string, product: NetworkProduct, signal: AbortSignal, trouble?: LoginTrouble) => Promise<string>;
 
-export type ConfirmKind = (ask: { server: string; kind: ChangeKind; realTool: string }, signal?: AbortSignal) => Promise<boolean>;
+/** Ask the user whether a change kind that is off by default (firmware, delete, admin) may run on this server. Only
+ * their answer counts: "once" allows it for this call, true for the rest of the session on that server. */
+export type ConfirmKind = (ask: { server: string; kind: ChangeKind; realTool: string }, signal?: AbortSignal) => Promise<boolean | "once">;
 
 /** Hides device secrets in an MCP result before the model sees it. The app passes its shared
  * scrubber (Casper's rules plus netconan when installed); the default is Casper's rules only. */
@@ -338,8 +340,12 @@ export class CapabilityBroker {
     // Covered by the user's "Yes, for this session": approved without a box, so server questions still reach them.
     const covered = allCovered || (needsApproval(plan) && !optedIn && this.sessionCovers(plan, capability));
     const writesBefore = this.writes(policy);
+    // A plain Junos show the user hasn't opted into: the box can opt this server in for the session (changes still ask).
+    const showOnly = guard === "ask" && !plan.routed.length && !plan.routerUnclear && aiConfirm(plan.arguments).length === 0
+      && previewSwitchedOff(plan.arguments).length === 0
+      && guardArguments(policy.match, capability.tool, frozenArgs, { writes: "on", showOptIn: true }) === "allow";
     const answer = covered ? { realTool: realToolOf(plan), once: false }
-      : needsApproval(plan) && !optedIn ? await this.approve(capability, plan, combined) : undefined;
+      : needsApproval(plan) && !optedIn ? await this.approve(capability, plan, combined, showOnly) : undefined;
     // Writes turned off (ctrl+o, /mcp writes off) while the box was open: the user's latest word is "off", so a yes
     // given in that box no longer counts and doesn't turn writes back on.
     if (answer && writesBefore === "on" && this.writes(this.manager.policy(plan.server)) === "off") {
@@ -384,6 +390,10 @@ export class CapabilityBroker {
         approved ? { approved: { capabilityId: id, realTool: approved, label } } : {});
     } finally {
       if (turnedOn && answer?.once) await this.manager.setWrites(plan.server, false, { once: true }).catch(() => {});
+      // "Yes, show commands on <server> for this session": the same switch as /mcp junos-show <server> on.
+      if (answer && "showSession" in answer && answer.showSession) {
+        try { this.manager.setShowOptIn(plan.server, true); } catch { /* not a Junos server any more */ }
+      }
     }
     // Casper's network server (recognised by what it runs) had no login for this product: the person is asked, and
     // the AI gets one line back. Any other server's look-alike answer is an ordinary result.
@@ -444,7 +454,7 @@ export class CapabilityBroker {
    * Ask the user until they say yes (returns the real tool name for the approved call) or no (throws).
    * "p" runs the preview, when the tool's own schema declares one, and asks again with its result.
    */
-  private async approve(capability: Capability, plan: ApprovalPlan, signal: AbortSignal): Promise<{ realTool: string; once: boolean; session?: boolean; all?: boolean }> {
+  private async approve(capability: Capability, plan: ApprovalPlan, signal: AbortSignal, showOnly = false): Promise<{ realTool: string; once: boolean; session?: boolean; all?: boolean; showSession?: boolean }> {
     if (!this.confirm) throw new NotExecutedError("needs your approval, and this run cannot ask");
     const realTool = realToolOf(plan);
     const slot = this.previewSlot(capability, plan);
@@ -458,9 +468,11 @@ export class CapabilityBroker {
         plan: structuredClone(shown), ...(lastPreview ? { lastPreview: { ...lastPreview } } : {}),
         ...(capability.tool._meta ? { tool: { _meta: structuredClone(capability.tool._meta) } } : {}),
         ...(product ? { product } : {}),
+        ...(showOnly ? { showOnly: true } : {}),
       }, signal);
       notCancelled(signal);
       if (answer === true || answer === "yes") return { realTool, once: true };
+      if (answer === "show-session") return showOnly ? { realTool, once: true, showSession: true } : { realTool, once: true };
       if (answer === "allow-all") return { realTool, once: false, all: true };
       // "For this session" only where it is offered; anywhere else it counts as this once.
       if (answer === "yes-session") return sessionAllowed(planLabel(shown)) && !asksEveryTime(shown, capability.tool) ? { realTool, once: false, session: true } : { realTool, once: true };
@@ -502,7 +514,7 @@ export class CapabilityBroker {
       const yes = await this.confirmKind({ server: plan.server, kind, realTool: realToolOf(plan) }, signal);
       notCancelled(signal);
       if (!yes) throw new NotExecutedError("you said no");
-      this.allowKind(plan.server, kind, at);
+      if (yes === true) this.allowKind(plan.server, kind, at);
     }
   }
 

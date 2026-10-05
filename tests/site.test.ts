@@ -161,3 +161,27 @@ describe("pages workflow", () => {
     expect(deploy).toContain("id-token: write");
   });
 });
+
+describe("roadmap", () => {
+  const page = readFileSync(join(site, "roadmap.html"), "utf8");
+  test("the On this page list links every card", () => {
+    const toc = page.slice(page.indexOf('aria-label="On this page"'), page.indexOf("</nav>", page.indexOf('aria-label="On this page"')));
+    const cards = [...page.matchAll(/<article class="card" id="([^"]+)"/g)].map((match) => match[1]!);
+    expect(cards.filter((id) => !toc.includes(`href="#${id}"`))).toEqual([]);
+  });
+  test("nothing unbuilt is said to be in the works", () => {
+    for (const text of [page, readFileSync(join(root, "README.md"), "utf8")]) {
+      expect(text).not.toMatch(/being built (?:right )?now/);
+      expect(text).not.toContain("coming, not released");
+    }
+    expect(page).toContain("planned, not started");
+  });
+});
+
+test("the tour's /help example is the real short help", async () => {
+  const { HELP_TEXT } = await import("../src/tui/help");
+  const tour = readFileSync(join(site, "tour.html"), "utf8");
+  const block = /<span class="you">\/help<\/span>\n([\s\S]*?)<\/pre>/.exec(tour)?.[1];
+  const unescape = (text: string) => text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  expect(unescape(block ?? "")).toBe(HELP_TEXT.trimEnd());
+});

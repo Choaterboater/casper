@@ -13,7 +13,7 @@
  * Secret text inside config strings goes through the shared secret rules (src/secrets/scrub.ts
  * scrubText) by default; `MaskOptions.scrubText` can replace them.
  */
-import { APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, approveAllLabel, kindAllowChoices, numberedLines } from "../app/safe-choices";
+import { APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, approveAllLabel, junosShowLabel, kindAllowChoices } from "../app/safe-choices";
 import type { MCPTool } from "../mcp/manager";
 import { isSecretKey as isScrubbedKey, scrubText } from "../secrets/scrub";
 import { redactPreview, terminalText } from "../tui/format";
@@ -431,8 +431,11 @@ export function tooLongToShow(args: Record<string, unknown>): boolean {
  * (exec) or is destructive, because one answer would then let any later command or destructive call run unasked. */
 export function sessionAllowed(label: CapabilitySafety): boolean { return label !== "exec" && label !== "destructive"; }
 
+/** The change box's question, under what changes. */
+export const APPROVAL_QUESTION = "Make this change?";
+
 /** What one digit in the change box means. */
-export type ApprovalChoice = "no" | "preview" | "yes" | "yes-session" | "allow-all";
+export type ApprovalChoice = "no" | "preview" | "yes" | "yes-session" | "allow-all" | "show-session";
 
 /**
  * The change box: what changes in plain words, one value per line (secrets hidden), whether it makes the change,
@@ -440,8 +443,8 @@ export type ApprovalChoice = "no" | "preview" | "yes" | "yes-session" | "allow-a
  * change gets no "for this session" answer. The technical line (server, tool, label) closes the box.
  */
 export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview,
-  options: FormatOptions & { product?: string; toolProduct?: string; scope?: string; tool?: Pick<MCPTool, "_meta"> } = {}):
-{ preview: string; question: string; choices: string[]; answers: Record<string, ApprovalChoice> } {
+  options: FormatOptions & { product?: string; toolProduct?: string; scope?: string; tool?: Pick<MCPTool, "_meta">; showOnly?: boolean } = {}):
+{ preview: string; question: string; labels: string[]; choices: string[]; answers: Record<string, ApprovalChoice> } {
   const single = plan.routed.length === 1 && !plan.routerUnclear ? plan.routed[0]! : undefined;
   // The product the one real tool belongs to, when the server said ("Mist"); "Yes to everything" still names the
   // whole server, because that is what it covers.
@@ -475,29 +478,31 @@ export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview,
   lines.push(`MCP · ${plan.server} · ${plan.tool}  [${planLabel(plan)}]`);
   const onceOnly = !sessionAllowed(planLabel(plan)) || asksEveryTime(plan, options.tool);
   const all = approveAllLabel(options.product ?? plan.server);
-  const labels: readonly string[] = [...(onceOnly ? (offer ? APPROVE_ONCE_PREVIEW_CHOICES : APPROVE_ONCE_CHOICES)
-    : offer ? APPROVE_PREVIEW_CHOICES : APPROVE_CHOICES), all];
+  // A plain Junos show (no session answer, it runs commands): 3 opts this server's show commands in for the session.
+  const show = options.showOnly && onceOnly ? junosShowLabel(plan.server) : undefined;
+  const base: readonly string[] = onceOnly ? (offer ? APPROVE_ONCE_PREVIEW_CHOICES : APPROVE_ONCE_CHOICES) : offer ? APPROVE_PREVIEW_CHOICES : APPROVE_CHOICES;
+  const labels: readonly string[] = [...base.slice(0, 2), ...(show ? [show] : []), ...base.slice(2), all];
   const meaning: Record<string, ApprovalChoice> = {
     "No": "no", "Preview first": "preview", "Yes, this once": "yes", "Yes, for this session": "yes-session", [all]: "allow-all",
+    ...(show ? { [show]: "show-session" as const } : {}),
   };
   const choices = labels.map((_, index) => String(index + 1));
   const answers = Object.fromEntries(labels.map((label, index) => [String(index + 1), meaning[label]!]));
-  const last = choices.at(-1)!;
   return {
     // Every line is one line: a tool name, key or value can't add a fake choice or question line.
-    preview: `${lines.map((line) => terminalText(line.replace(LINE_BREAKS, " "))).join("\n")}\n${numberedLines(labels)}`,
-    question: `Type ${choices.length === 2 ? "1 or 2" : `${choices.slice(0, -1).join(", ")} or ${last}`}: `,
+    preview: `${lines.map((line) => terminalText(line.replace(LINE_BREAKS, " "))).join("\n")}\n`,
+    question: APPROVAL_QUESTION,
+    labels: [...labels],
     choices,
     answers,
   };
 }
 
 /** The box before the change box when a call makes a risky kind the user hasn't allowed on this server. */
-export function kindBox(kind: ChangeKind, product: string, realTool: string): { preview: string; question: string; choices: string[] } {
-  const labels = kindAllowChoices(kind);
+export function kindBox(kind: ChangeKind, product: string, realTool: string): { preview: string; question: string; labels: string[] } {
   return {
-    preview: `${KIND_TEXT[kind]} are off by default on ${terminalText(product)}.\n  Runs: ${toolWords(realTool)}\n${numberedLines(labels)}`,
-    question: "Type 1 or 2: ",
-    choices: labels.map((_, index) => String(index + 1)),
+    preview: `${KIND_TEXT[kind]} are off by default on ${terminalText(product)}.\n  Runs: ${toolWords(realTool)}\n`,
+    question: `Allow ${KIND_TEXT[kind].toLowerCase()} on ${terminalText(product)}?`,
+    labels: kindAllowChoices(kind),
   };
 }

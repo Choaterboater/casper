@@ -7,6 +7,7 @@ import { CHECK_NAMES } from "../verify/evidence";
 import type { ProjectCommand } from "./model";
 import { namedCheckNameError, parseNetworkChecks } from "../network/spec";
 import type { NamedCheckSpec } from "../verify/named";
+import { hasLineControls } from "../tui/format";
 
 /** The same bound the configuration loader applies to .casper/project.yaml. */
 const MAX_PROJECT_YAML_BYTES = 256 * 1024;
@@ -25,7 +26,7 @@ export interface ProjectCommandWrite {
 
 function checkCommand(name: ProjectCommand, command: string): void {
   if (!CHECK_NAMES.includes(name)) throw new Error(`${name} is not a check name (${CHECK_NAMES.join(", ")})`);
-  if (!command.trim() || command.length > 500 || /[\x00-\x1f\x7f-\x9f‪-‮⁦-⁩]/.test(command)) {
+  if (!command.trim() || command.length > 500 || hasLineControls(command)) {
     throw new Error("the command must be one plain line");
   }
 }
@@ -116,7 +117,14 @@ export async function saveNamedCheck(root: string, name: string, spec: NamedChec
     (current) => JSON.stringify(current) === JSON.stringify(value), `verify.checks.${name} is already set in ${PROJECT_YAML}; change it there yourself`);
 }
 
-async function setProjectSetting(root: string, keys: string[], value: unknown, line: string, same: (current: unknown) => boolean, taken: string): Promise<ProjectCommandWrite> {
+/** `verification.timeoutMs` in .casper/project.yaml: the user picked "Allow more time from now on". It replaces a
+ * shorter limit saved there before (the user's own choice, made just now). */
+export async function saveProjectTimeout(root: string, timeoutMs: number): Promise<ProjectCommandWrite> {
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 3_600_000) throw new Error("the time limit must be between 1 ms and an hour");
+  return setProjectSetting(root, ["verification", "timeoutMs"], timeoutMs, `verification.timeoutMs: ${timeoutMs}`, (current) => current === timeoutMs, "", true);
+}
+
+async function setProjectSetting(root: string, keys: string[], value: unknown, line: string, same: (current: unknown) => boolean, taken: string, replace = false): Promise<ProjectCommandWrite> {
   const folder = await casperFolder(root);
   const file = path.join(folder, "project.yaml");
   const existing = await readExisting(file);
@@ -131,7 +139,7 @@ async function setProjectSetting(root: string, keys: string[], value: unknown, l
   const current = node === undefined || node === null ? undefined : (isNode(node) ? node.toJSON() : node);
   if (current !== undefined && current !== null) {
     if (same(current)) return { file, line, before: existing?.text ?? null, after: existing?.text ?? "" };
-    throw new Error(taken);
+    if (!replace) throw new Error(taken);
   }
   document.setIn(keys, document.createNode(value));
   const after = document.toString();

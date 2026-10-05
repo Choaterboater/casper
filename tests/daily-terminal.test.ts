@@ -91,7 +91,9 @@ test("a provider failure ends the response with its cause instead of a bare fail
     events.handle({ type: "assistant_response_start", provider: "openrouter", model: "inclusionai/ling-3.0-flash-vl:free" });
     events.handle({ type: "assistant_response_end", stopReason: "error", errorMessage: reason });
     await screen.until(text => Bun.stripANSI(text).includes("[error]"));
-    expect(flat()).toContain(`[error] ${reason}`);
+    // The cause in plain words; the provider's own words are one key away (ctrl+t).
+    expect(flat()).toContain("[error] The provider can't run this model. Next: /model to pick another model. Ctrl+T shows the provider's message.");
+    expect(events.lastStep()?.body).toBe(reason);
     expect(stops).toEqual([[false, true]]);
 
     // The same failure arriving again as a thrown prompt error stays one line.
@@ -101,8 +103,8 @@ test("a provider failure ends the response with its cause instead of a bare fail
     // A completed turn prints nothing; provider text is redacted like every other preview.
     events.handle({ type: "assistant_response_end", stopReason: "stop" });
     events.handle({ type: "assistant_response_end", stopReason: "error", errorMessage: "401: rejected key sk-or-v1-0000000000000000" });
-    await screen.until(text => Bun.stripANSI(text).includes("401: rejected key"));
-    expect(flat()).toContain("[error] 401: rejected key <redacted>");
+    await screen.until(text => Bun.stripANSI(text).includes("/login to sign in again"));
+    expect(events.lastStep()?.body).toBe("401: rejected key <redacted>");
     expect(flat()).not.toContain("sk-or-v1-0000000000000000");
     expect(stops).toEqual([[false, true], [false, false], [false, true]]);
   } finally { terminal.close(); input.destroy(); }
@@ -151,11 +153,11 @@ test("streamed assistant Markdown renders lists and fences once, whole, and re-r
     await screen.until(output => output.split(REPAINT).length > 1 && output.split(REPAINT).at(-1)!.includes("after"));
     const frame = plainLines(screen.output.split(REPAINT).at(-1)!);
     const body = frame.slice(0, frame.indexOf("after")).filter(line => line.trim());
-    // The fenced block is boxed with its language at the new width; no fence markers remain.
+    // The fenced block keeps its language title line at the new width, and its code copies clean: no side borders.
     expect(body.slice(0, 3)).toEqual(["Here is a plan:", "- first item", "- second item with code"]);
-    expect(body[3]).toMatch(/^╭─ ts ─+╮$/);
-    expect(body[4]).toMatch(/^│ const x = 1; +│$/);
-    expect(body[5]).toMatch(/^╰─+╯$/);
+    expect(body[3]).toMatch(/^── ts ─+$/);
+    expect(body[4]).toBe("const x = 1;");
+    expect(body[5]).toMatch(/^─+$/);
     expect(body[6]).toBe("Done.");
     expect(body[3]!.length).toBe(40);
     expect(screen.output).not.toContain("\x1b[?1049h");
@@ -179,8 +181,11 @@ test("tool, code and Working panels span the whole terminal width and follow it 
       await screen.until(output => output.split(REPAINT).length > repaints && output.split(REPAINT).at(-1)!.includes("Working"));
       const borders = plainLines(screen.output.split(REPAINT).at(-1)!).filter(line => /^[╭╰]/.test(line));
       // Titles, with the Working panel's spinner frame (a braille cell) removed.
-      expect(borders.filter(line => line.startsWith("╭")).map(line => line.replace(/[╭─╮\u2800-\u28ff]/g, "").trim())).toEqual(["output", "ts", "Working"]);
-      expect(borders.map(line => visibleWidth(line))).toEqual(Array(6).fill(columns));
+      expect(borders.filter(line => line.startsWith("╭")).map(line => line.replace(/[╭─╮\u2800-\u28ff]/g, "").trim())).toEqual(["output", "Working"]);
+      expect(borders.map(line => visibleWidth(line))).toEqual(Array(4).fill(columns));
+      // The code block's title line spans the width too.
+      const code = plainLines(screen.output.split(REPAINT).at(-1)!).find(line => line.startsWith("── ts "));
+      expect(visibleWidth(code!)).toBe(columns);
     }
   } finally { terminal.close(); input.destroy(); }
 });

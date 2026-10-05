@@ -8,14 +8,14 @@ project's own checks once, and makes a first commit with your own git identity.
 
 | Where | What happens |
 | --- | --- |
-| `casper new` at a terminal | Asks "What are you building?" (numbered kinds) and "Name it? (Enter for my-tool)", builds `~/Projects/<name>`, then opens Casper there. `casper new <name>` skips the name question; `casper new <template> <name>` asks nothing. |
+| `casper new` at a terminal | Asks "What are you building?" (numbered kinds, My own first: an empty folder for anything you describe) and "Name it? (Enter for my-tool)", builds `~/Projects/<name>`, then opens Casper there. Typing what you want instead ("a nightly backup of my switch configs") picks the kind it reads as (or an empty project), names it from your words, and runs your words as the first request there. `casper new <name>` skips the name question; a lone kind word (`casper new web-app`) picks the kind and asks only the name; `casper new <template> <name>` asks nothing. `casper new --help` lists every kind. |
 | `casper` in an empty folder | Asks "This folder is empty. Start a new project here?" "Not now" first (Enter builds nothing), then the kinds. The folder's own name is the project name when it is a valid name. "Not now" also answers the build-request question below for that session. A resumed conversation (`casper --continue`) doesn't ask. |
 | `casper` from your home folder or a folder of projects | The "Work in which project?" question ends with **New project**. From home it goes in `~/Projects`, otherwise in the folder you opened. |
 | A build request before the model starts | Outside a project (no git, no project files), "build a tool that lists Mist APs per site" asks once, before any model call: "Build this as a new Mist Python project in ~/Projects/mist-aps? 1 Use this folder · 2 Yes · 3 Other kind". Enter keeps this folder, and Other kind lists the kinds after "Use this folder". Typing a name instead of a number uses that name; typing "yes" builds it and "no" keeps this folder, and a number that isn't a choice asks again. Yes builds it, opens it, and your request goes on there, so its checks and proof run in the new project. It is asked at most once a session, and only before the model has started: a conversation's folder is fixed once it exists. |
 
 `/new [name]`, `/new <template> <name>` and `/new --list` do the same inside a session. Before the
 model starts, Casper opens the new project; after, it builds the project and tells you how to open
-it (`cd ~/Projects/<name> && casper`), because this conversation stays where it is.
+it (`casper ~/Projects/<name>`), because this conversation stays where it is.
 
 Every question works on the plain terminal too: type the number (Enter picks 1). A one-shot or
 `--json` run can't ask. It works in the folder it was started in and prints the command that
@@ -27,10 +27,12 @@ doesn't follow it, and no checklist is made.
 
 ## Scripts and CI
 
-Without a terminal, `casper new` needs both a template and a name:
+Without a terminal, `casper new` needs a template. A name is optional: a lone kind word uses that
+kind's usual name.
 
 ```sh
 casper new python-cli ping-tool
+casper new web-app
 casper new --list
 ```
 

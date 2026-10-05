@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { CasperApp } from "../../src/app";
+import { askDefaults } from "../../src/tui/surface";
 
 /**
  * An interactive Casper session on a fake terminal, answered by a script: SCENARIO_ANSWERS is a JSON list of
@@ -12,6 +13,8 @@ if (!cwd) throw new Error("Missing cwd");
 const answers = JSON.parse(process.env.SCENARIO_ANSWERS ?? "[]") as Array<[string, string]>;
 process.env.TERM = "xterm-256color";
 delete process.env.NO_COLOR;
+// The script answers a box as soon as it shows; tests/one-input-style.test.ts covers the real wait.
+askDefaults.guardMs = 0;
 const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
 let screen = "";
 let from = 0;

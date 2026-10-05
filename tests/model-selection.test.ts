@@ -117,7 +117,7 @@ test("context and usage are local; fresh conversations retain saved sessions wit
   expect((await f.cli("/clear")).exit).toBe(0);
   const listed = await f.cli("/resume");
   expect(listed.exit).toBe(0);
-  expect(listed.stdout).toContain("Use /resume <exact-id>");
+  expect(listed.stdout).toContain("Use /resume <id> (its first few characters are enough)");
   const result = await f.run(`
 const before = session.getSessionInfo();
 await session.selectModel({ query: 'fixture/second', persist: false });
@@ -341,7 +341,7 @@ await session.switchSession({ cwd: process.cwd(), sessionFile: ${JSON.stringify(
 let failure; try { await session.prompt('MUST_NOT_SEND'); } catch (error) { failure = error.message; }
 console.log('RESULT=' + JSON.stringify({ status: session.getStatus(), failure }));`);
   expect(restored.status).toMatchObject({ provider: "fixture", model: "second", auth: "missing", selectionSource: "conversation" });
-  expect(restored.failure).toContain("/login");
+  expect(restored.failure).toContain("No key for fixture");
 }, 30_000);
 
 test("missing auth, unknown models and cancelled selection leave the active model and default unchanged", async () => {
@@ -355,7 +355,7 @@ for (const query of ['missing/no-auth', 'fixture/not-real']) {
 const controller = new AbortController(); controller.abort();
 try { await session.selectModel({ query: 'fixture/second', signal: controller.signal }); } catch (error) { failures.push(error.name); }
 console.log('RESULT=' + JSON.stringify({ failures, status: session.getStatus() }));`);
-  expect(result.failures[0]).toContain("/login");
+  expect(result.failures[0]).toContain("No key for missing");
   expect(result.failures[1]).toContain("Unknown model");
   expect(result.failures[2]).toBe("AbortError");
   expect(result.status).toMatchObject({ model: "first", defaultModel: { provider: "fixture", id: "first" } });

@@ -198,7 +198,7 @@ test("/security-review in a one-shot run goes through the app, starts no model a
 
 test("/security-review is in the help and the command list", () => {
   expect(COMMANDS.some((command) => command.name === "security-review")).toBe(true);
-  expect(HELP_TEXT).toContain("/security-review       Run the pinned security tools here, then offer an AI review (asks first)");
+  expect(FULL_HELP_TEXT).toContain("/security-review                  Run the pinned security tools here (no model), then offer an AI review");
   expect(FULL_HELP_TEXT).toContain("/security-review ai               The same; where Casper can't ask (one-shot, --json), runs the AI review");
   expect(FULL_HELP_TEXT).toContain("/security-review ignores");
   expect(FULL_HELP_TEXT).toContain("Exit 0 no problems, 1 problems, 64 usage mistake");

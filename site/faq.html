@@ -172,7 +172,7 @@ The change was not made.</pre>
             <li>The sandbox is <strong>a fence, not proof</strong>. On Linux and macOS the AI's shell
             reaches only listed hosts, and Casper asks <code>Reach 198.51.100.20 (build-server)?</code>
             before <code>ssh</code>, <code>scp</code> or <code>rsync</code>. On Windows there is no
-            sandbox: the AI's shell asks before each command. With the sandbox off, a program that
+            sandbox: the AI's shell asks before each command that changes something (reads like <code>ls</code> don't). With the sandbox off, a program that
             opens its own connection (a Python script, <code>curl</code>) still reaches a switch with
             no question.</li>
             <li>A login counts as read-only only when the product itself says so (through an
@@ -213,7 +213,7 @@ The change was not made.</pre>
           outside the project, a host the sandbox does not know, the browser, the debugger and a few
           downloads. On Linux and macOS the AI's shell and the checks run in a sandbox
           (<code>/sandbox</code> shows what it holds). On Windows the AI's shell asks before each
-          command. Checks run your project's own commands without asking first.</p>
+          command that changes something (reads like <code>ls</code> don't). Checks run your project's own commands without asking first.</p>
           <p>So use Casper in projects you trust, or start with <code>--no-verify</code> (no
           Casper-run checks). <code>/permissions</code> shows what Casper can and cannot do.</p>
         </details>
@@ -278,7 +278,7 @@ sum now turns its inputs into numbers first.
             <li>a model error that repeated, to retry or stop;</li>
             <li>the request checklist before a code change (edit it, or <kbd>Esc</kbd> to skip);</li>
             <li>which project to open, when you start in your home folder;</li>
-            <li><code>Next: 1 Undo · 2 Show diff</code> after each task (Enter runs nothing);</li>
+            <li><code>Next: 1 Show diff · 2 Undo</code> after each task (Enter runs nothing);</li>
             <li>before the AI's shell reaches another machine, or writes outside the project;</li>
             <li>a shell command to a host the sandbox does not know;</li>
             <li>a retry on your big model when repairs run out, with a rough cost;</li>

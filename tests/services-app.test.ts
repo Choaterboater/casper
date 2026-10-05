@@ -104,7 +104,7 @@ test("/permissions says /services runs the project's declared commands", async (
 });
 
 test("help and command discovery list /services", () => {
-  expect(HELP_TEXT).toContain("/services");
+  expect(FULL_HELP_TEXT).toContain("/services ");
   for (const entry of ["/services logs <name>", "/services start|restart|stop <name>"]) expect(FULL_HELP_TEXT).toContain(entry);
   expect(COMMANDS.some(command => command.name === "services")).toBe(true);
 });
@@ -213,7 +213,7 @@ test("a workspace transition (/branch) stops the session's services", async () =
     loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
     output: { write(text) {
       f.output.push(text);
-      if (text.includes("Type yes:")) queueMicrotask(() => input.write("yes\n"));
+      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write("2\n"));
       if (text === "> ") queueMicrotask(() => input.write(["/branch services-rebind\n", "/exit\n"][prompts++] ?? "/exit\n"));
     } } });
   cleanups.push(() => branching.close().catch(() => {}));
@@ -221,6 +221,8 @@ test("a workspace transition (/branch) stops the session's services", async () =
   const root = pid(f.text()), grandchild = await f.grandchild();
   await branching.runInteractive();
   expect(info.cwd).toContain(".casper/worktrees");
+  // You typed /branch: it doesn't ask again.
+  expect(f.text()).not.toContain("Create this exact session branch?");
   await gone(root); await gone(grandchild);
   expect(branching.services).toBeUndefined();
 }, 30_000);

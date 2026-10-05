@@ -143,12 +143,14 @@ def connect_with_writes(s):
     """Connect the fixture, decline remembering it, and turn its writes on (they start off)."""
     s.send("/mcp connect fixture\n")
     s.until("340 tools")
-    s.until("Remember this server?")
-    s.send("1\n")  # 1 Just this time
+    s.until("Remember fixture?")
+    time.sleep(0.5)  # A box ignores keys for a moment after it opens.
+    s.send("1")  # 1 No: one key, no Enter
     s.until("fixture is connected for this session only")
     s.send("/mcp writes fixture\n")
     s.until("fixture writes are off.")
-    s.send("2\n")  # 2 Enable for this server
+    time.sleep(0.5)
+    s.send("2")  # 2 Enable for this server
     s.until("Writes on for fixture. Each change still asks you.")
     s.until("WRITES: fixture · ctrl+o")
 
@@ -168,21 +170,18 @@ def exercise(bun, repo, root, no_color):
         s.release("stream-step")
         s.until("• read · src/example.ts")
         assert "… /sta" in s.screen.text(), s.screen.text()
-        assert "First bold and code text." in s.screen.text(), s.screen.text()
         s.send("tus\n")  # A command that only shows something runs during work, with no model request.
         s.until("mcp       1 configured")
+        assert "First bold and code text." in s.screen.text(), s.screen.text()  # The / menu covered it only while open.
         assert s.requests() == ["stream"]
-        s.send("next idea\n")  # Anything else must NOT queue or discard the draft.
-        s.until("draft kept")
+        s.send("next idea\n")  # Anything else goes to the AI; this runtime cannot steer, so it is queued for after the task.
+        s.until("queued · runs when this task ends")
         assert s.requests() == ["stream"]
         s.release("stream-end")
         s.until("Done streaming.")
+        s.until("Echo: next idea")
         s.until("│ idle")
-        s.until("❯ next idea")
-        assert s.requests() == ["stream"]
-        s.send("\x03")  # Ctrl+C at the idle prompt clears the kept draft.
-        s.pump()
-        assert s.requests() == ["stream"]
+        assert s.requests() == ["stream", "next idea"]
         # Hidden streaming (reasoning, tool arguments) shows a boxed live status that leaves no trace.
         s.send("progress\n")
         s.until("Working")
@@ -196,10 +195,10 @@ def exercise(bun, repo, root, no_color):
         s.pump(0.05)
         assert "composing arguments" not in s.screen.text(), s.screen.text()
         assert "✓ write · site/index.html" in s.screen.text() and "— completed" not in s.screen.text(), s.screen.text()
-        # Fenced code is boxed with its language; fence markers never reach the screen.
+        # Fenced code gets a title line with its language and no side borders; fence markers never reach the screen.
         s.send("code\n")
-        s.until("╭─ sh ")
-        assert "╭─ ts " in s.screen.text() and "return a + b;" in s.screen.text(), s.screen.text()
+        s.until("── sh ")
+        assert "── ts " in s.screen.text() and "\n  return a + b;" in s.screen.text(), s.screen.text()
         assert "```" not in s.screen.text(), s.screen.text()
         # A line typed while the code task still finishes is only kept as a draft: wait for idle first.
         s.until("│ idle")
@@ -210,12 +209,12 @@ def exercise(bun, repo, root, no_color):
         s.send(draft + "\x1b[D\x1b[D")
         s.pump()
         s.send("\x03")
-        s.until("Cancelling active work")
+        s.until("[cancel] Stopping")
         s.until("Stopped — cancelled")
         # Enter before the cancelled task has closed only keeps the draft: wait for the prompt to be idle first.
         s.until("│ idle")
         s.send("Q\n")
-        s.until("Echo:")  # Pi wraps an overlong word after the label; exact draft checked below.
+        s.until_new("Echo:")  # Pi wraps an overlong word after the label; exact draft checked below.
         assert s.requests()[-1] == "x" * 93 + "Qxx", s.requests()
         # Enter while the echo task still runs only keeps the draft: wait for the prompt to be idle again.
         s.until("│ idle")
@@ -226,17 +225,19 @@ def exercise(bun, repo, root, no_color):
         s.send("2")  # "Yes, this once", typed before the box exists.
         s.pump()
         s.release("approval-deny")
-        s.until_new("Type 1, 2, 3 or 4:")
-        assert not s.screen.text().rstrip().endswith("Type 1, 2, 3 or 4: 2"), s.screen.text()
-        s.send("\n")  # Empty fresh answer denies, despite the old '2' draft.
+        s.until_new("Press 1-4")
+        assert "Approval result" not in s.screen.text()[-400:], s.screen.text()
+        time.sleep(0.5)
+        s.send("\n")  # Enter picks 1, No, despite the old '2' draft.
         s.until("Approval result: denied")
         s.until("❯ 2")
         assert s.requests()[-1] == "approval-deny"
         s.send("\x01\x0bapproval-allow\n")
         s.pump()
         s.release("approval-allow")
-        s.until_new("Type 1, 2, 3 or 4:")
-        s.send("2\n")
+        s.until_new("Press 1-4")
+        time.sleep(0.5)
+        s.send("2")  # One key answers the box.
         s.until("Approval result: allowed")
         # Typed before the task ends, the next request would only be kept as a draft. The WRITES badge pushes
         # "idle" past 80 columns, so wait for the idle glyph that leads the footer.
@@ -244,7 +245,7 @@ def exercise(bun, repo, root, no_color):
         s.send("approval-cancel\n")
         s.pump()
         s.release("approval-cancel")
-        s.until_new("Type 1, 2, 3 or 4:")
+        s.until_new("Press 1-4")
         s.send("\x03")
         s.until("Stopped — cancelled")
         approval_lines = (s.root / "approvals.jsonl").read_text().splitlines()
@@ -257,12 +258,15 @@ def exercise(bun, repo, root, no_color):
         s.until("[mcp] Writes off for fixture. Every change asks you again.")
         s.pump(0.3)
         assert "WRITES" not in s.screen.text().splitlines()[-1], s.screen.text()[-500:]
+        # The cancelled task may still be closing: wait for the idle footer before the next command.
+        deadline = time.monotonic() + 5
+        while not s.screen.text().rstrip().endswith("idle") and time.monotonic() < deadline: s.pump(0.05)
         s.send("/login\n")
         s.until("This runtime does not support login")
         assert not any(request.startswith("/") for request in s.requests())
         before = s.requests()
         s.send("hold\n\x03")
-        s.until("Request cancelled before startup")
+        s.until("[cancel] Stopped before it started")
         assert s.requests() == before
         s.send("/exit\n")
         deadline = time.monotonic() + 5
@@ -283,7 +287,7 @@ def exercise_eof(bun, repo, root):
         s.send("approval-eof\n")
         s.pump()
         s.release("approval-eof")
-        s.until_new("Type 1, 2, 3 or 4:")
+        s.until_new("Press 1-4")
         s.send("\x04")
         deadline = time.monotonic() + 5
         while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)

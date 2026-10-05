@@ -35,7 +35,18 @@ const GENERIC_SKIP = String.raw`${SYNTAX}|manager|operator|port-access|prompt|po
 
 const value = (skip = SYNTAX) => String.raw`((?!(?:${skip})(?:\s|$|;))(?:${QUOTED}|${BARE}))`;
 const V = value();
-const VG = value(GENERIC_SKIP);
+/** Key words that name a secret rather than being one. */
+const KEY_WORDS = String.raw`password|passwd|secret|secrets|hash`;
+/** Code operators and table punctuation: "password = x", "| password | X |", "secret || password". */
+const OPERATOR = String.raw`(?:[=|:]|\|\||&&|===?|!==?|:=|=>|[<>]=|\?\?)`;
+/**
+ * The broad rules' value. A key word is skipped only inside a list ("password secret hash", "password | secret"),
+ * so a real password that is literally "secret" or "password" is still hidden. Punctuation is a value unless it is
+ * an operator or table bar. Never on the next line (see GAP).
+ */
+const VG = String.raw`((?!(?:${GENERIC_SKIP})(?:\s|$|;|,))(?!(?:${KEY_WORDS})(?:[ \t]*[|,]|[ \t]+(?:${KEY_WORDS})\b))(?!${OPERATOR}(?:\s|$))(?:${QUOTED}|${BARE}))`;
+/** Space between words on one line: \s also matches \r, \v, \f and U+2028/2029, which end a line in some text. */
+const GAP = String.raw`[ \t]+`;
 
 function rule(id: string, platform: SecretPlatform, kind: SecretKind, source: string,
   options: { groups?: number[]; strict?: boolean; block?: SecretBlock; flags?: string } = {}): SecretRule {
@@ -94,9 +105,9 @@ export const SECRET_RULES: readonly SecretRule[] = [
     String.raw`\bstandby\s+(?:\d+\s+)?authentication\s+(?!md5\b)(?:text\s+)?${V}`, { strict: true }),
   rule("asa-passwd", "cisco", "password", String.raw`^\s*passwd\s+${V}`, { strict: true }),
   // Generic
-  rule("generic-password", "generic", "password", String.raw`(?:^|[\s{])(?:password|secret|passwd)\s+(?:(?:[0-9]|level\s+\d+)\s+)?${VG}`),
+  rule("generic-password", "generic", "password", String.raw`(?:^|[ \t{])(?<!\b(?:${KEY_WORDS})[ \t]+)(?:password|secret|passwd)${GAP}(?:(?:[0-9]|level${GAP}\d+)${GAP})?${VG}`),
   rule("generic-hash", "generic", "hash",
-    String.raw`\b(?:password|secret|hash|passwd)\b[^\n]*?(\$(?:1|5|6|8|y|2[aby]?)\$[^\s";'{}]+)`),
+    String.raw`\b(?:password|secret|hash|passwd)\b[^\n\r\v\f\u2028\u2029]*?(\$(?:1|5|6|8|y|2[aby]?)\$[^\s";'{}]+)`),
 ];
 
 /** Lines up to this length are checked whole, exactly as written. */

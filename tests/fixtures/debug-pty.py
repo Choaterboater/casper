@@ -30,16 +30,20 @@ def case(bun, repo, root, ending):
         s.until("│ idle")
         # Pretyped yes is a draft, not consent to the subsequent exact launch preview.
         s.send("/debug start example\nyes")
-        s.until("Launch this exact debugger target? Type yes:")
-        s.send("\n")
+        s.until("Launch this debugger target?")
+        # A box ignores keys for a moment after it opens; Enter then picks 1, No.
+        time.sleep(0.5)
+        s.send("\r")
         s.until("Debugger launch denied")
         assert not (root / "project/adapter-started").exists()
-        s.send("\x01\x0b/debug start example\n")
+        seen = len(s.raw)
+        s.send("\x01\x0b/debug start example\r")
         # Wait for a second actual question, not the old transcript line.
         deadline = time.monotonic() + 5
-        while s.raw.count(b"Launch this exact debugger target? Type yes:") < 2 and time.monotonic() < deadline: s.pump(0.03)
-        assert s.raw.count(b"Launch this exact debugger target? Type yes:") >= 2
-        s.send("yes\n")
+        while b"Launch this debugger target?" not in s.raw[seen:] and time.monotonic() < deadline: s.pump(0.03)
+        assert b"Launch this debugger target?" in s.raw[seen:]
+        time.sleep(0.5)
+        s.send("2")
         s.until('"state":"stopped"')
         debuggee = int((root / "project/debuggee-pid").read_text())
         adapter = int((root / "project/adapter-started").read_text())

@@ -1,17 +1,45 @@
+import os from "node:os";
 import { CredentialSynchronizationError, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { tildePath } from "../new/scaffold";
 import { privateFileProblem } from "../platform/private-file";
 import { withLoginDisplay } from "../tui/login";
 import { openRouterAttribution } from "./openrouter-attribution";
 import type { RuntimeAuthenticationOptions, RuntimeAuthenticationResult, RuntimeAuthProvider } from "./types";
 
-const providers: readonly { id: RuntimeAuthProvider; label: string }[] = [
-  { id: "openai-codex", label: "OpenAI Codex — device code" },
-  { id: "github-copilot", label: "GitHub Copilot — device code (github.com)" },
-  { id: "anthropic", label: "Anthropic / Claude — API key or browser sign-in" },
-  { id: "openrouter", label: "OpenRouter — API key or browser sign-in" },
-];
+/** The home folder now (tests and wrappers change HOME after start). */
+const home = () => process.env.HOME ?? process.env.USERPROFILE ?? os.homedir();
 
-/** Accept only Anthropic's HTTPS authorization page and loopback callback. */
+const providerNames: Record<RuntimeAuthProvider, string> = {
+  openrouter: "OpenRouter", anthropic: "Anthropic (Claude)", "openai-codex": "OpenAI Codex (ChatGPT plan)", "github-copilot": "GitHub Copilot",
+};
+
+/** Over SSH, or on Linux with no display, a browser on this machine can't finish a sign-in: Codex uses a
+ * device code there (which some accounts must turn on first), and its browser sign-in everywhere else. */
+function noBrowserHere(): boolean {
+  const env = process.env;
+  if (env.SSH_CONNECTION || env.SSH_CLIENT || env.SSH_TTY) return true;
+  return process.platform === "linux" && !env.DISPLAY && !env.WAYLAND_DISPLAY;
+}
+
+/** One way to sign in: a provider and its method, one numbered row. */
+export interface SignInWay { id: string; provider: RuntimeAuthProvider; method: "api_key" | "oauth"; label: string }
+
+/** Every way to sign in, provider and method together in one list, OpenRouter first (Enter picks it).
+ * With a provider, only that provider's ways. */
+export function signInWays(provider?: RuntimeAuthProvider): SignInWay[] {
+  const ways: SignInWay[] = [
+    { id: "openrouter:api_key", provider: "openrouter", method: "api_key", label: "OpenRouter · paste an API key" },
+    { id: "openrouter:oauth", provider: "openrouter", method: "oauth", label: "OpenRouter · sign in with your browser" },
+    { id: "anthropic:api_key", provider: "anthropic", method: "api_key", label: "Anthropic (Claude) · paste an API key" },
+    { id: "anthropic:oauth", provider: "anthropic", method: "oauth", label: "Anthropic (Claude) · sign in with your browser" },
+    { id: "openai-codex:oauth", provider: "openai-codex", method: "oauth",
+      label: `OpenAI Codex (ChatGPT plan) · ${noBrowserHere() ? "enter a code at openai.com" : "sign in with your browser"}` },
+    { id: "github-copilot:oauth", provider: "github-copilot", method: "oauth", label: "GitHub Copilot · enter a code at github.com" },
+  ];
+  return provider ? ways.filter((way) => way.provider === provider) : ways;
+}
+
+/** Accept only the provider's own HTTPS authorization page, with its callback on this machine. */
 function validAuthorizationUrl(provider: RuntimeAuthProvider, value: string): boolean {
   if (typeof value !== "string" || value.length > 8192 || !/^[\x21-\x7e]+$/.test(value)) return false;
   try {
@@ -23,6 +51,10 @@ function validAuthorizationUrl(provider: RuntimeAuthProvider, value: string): bo
     }
     if (provider === "openrouter") {
       return url.origin === "https://openrouter.ai" && url.pathname === "/auth";
+    }
+    if (provider === "openai-codex") {
+      return url.origin === "https://auth.openai.com" && url.pathname === "/oauth/authorize" &&
+        url.searchParams.get("redirect_uri") === "http://localhost:1455/auth/callback";
     }
     return false;
   } catch { return false; }
@@ -53,56 +85,68 @@ async function verifyProviderKey(provider: "anthropic" | "openrouter", key: stri
   }
 }
 
+/** Why a sign-in failed, in a few plain words, from what Casper already knows. Never provider text: errors can
+ * hold tokens. Undefined when the cause isn't clear. */
+function failureDetail(error: unknown, timedOut: boolean, name: string): string | undefined {
+  const message = error instanceof Error ? error.message : "";
+  if (/(?:status[= ]|\()(?:400|401|403)\b/.test(message)) return `${name} refused the sign-in`;
+  if (timedOut) return "timed out after 15 minutes";
+  if (error instanceof TypeError || /fetch failed|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|Unable to connect|network/i.test(message)) return `couldn't reach ${name}`;
+  return undefined;
+}
+
 /** Dedicated builtin-only runtime: no sessions, extensions, model config or network catalog refresh. */
 export async function authenticatePi(options: RuntimeAuthenticationOptions, destination: string,
   lifetime: AbortSignal): Promise<RuntimeAuthenticationResult & { provider?: RuntimeAuthProvider }> {
   const signal = AbortSignal.any([lifetime, ...(options.signal ? [options.signal] : [])]);
   if (signal.aborted) return { status: "cancelled", effect: "none" };
-  if ((options.provider !== undefined && !providers.some(item => item.id === options.provider)) || process.env.CASPER_TUI_WRITE_LOG || process.env.PI_TUI_WRITE_LOG) {
-    return { status: "failed", effect: "none", reason: "unavailable" };
-  }
+  if (options.provider !== undefined && !Object.hasOwn(providerNames, options.provider)) return { status: "failed", effect: "none", reason: "unavailable" };
+  // The terminal log would record what is typed and shown, codes included.
+  if (process.env.CASPER_TUI_WRITE_LOG || process.env.PI_TUI_WRITE_LOG) return { status: "failed", effect: "none", reason: "unavailable", detail: "CASPER_TUI_WRITE_LOG is set" };
   let invoked = false;
   let provider = options.provider;
   try {
-    // Refuse an unusable destination before the picker and consent, naming the component to fix.
+    // Refuse an unusable destination before the picker, naming the component to fix.
     const early = await privateFileProblem(destination, signal);
     if (early) return { status: "failed", effect: "none", reason: "destination", detail: early };
     return await options.terminalHost.run((io) => withLoginDisplay(io, signal, async (display): Promise<RuntimeAuthenticationResult> => {
-      provider ??= await display.choose("Choose provider", providers);
-      if (!provider) return { status: "cancelled", effect: "none" };
-      const selected = provider;
-      const method = selected === "anthropic" || selected === "openrouter"
-        ? await display.choose("Choose sign-in method", [{ id: "api_key", label: "API key" }, { id: "oauth", label: "Browser sign-in" }] as const)
-        : "oauth";
-      if (!method) return { status: "cancelled", effect: "none" };
+      const saved = `Saved in ${tildePath(destination, home())}, only on this computer.`;
+      display.setNote(saved);
+      // One numbered list (provider and method together); /login <provider> with one way skips it.
+      const ways = signInWays(provider);
+      const pickedId = ways.length === 1 && !options.list ? ways[0]!.id
+        : await display.choose(provider ? `Sign in to ${providerNames[provider]}` : "Sign in", ways);
+      const way = ways.find((item) => item.id === pickedId);
+      if (!way) return { status: "cancelled", effect: "none" };
+      provider = way.provider;
+      const selected = way.provider;
+      const method = way.method;
       // Browser sign-in (loopback listener + authorization page) vs device-code oauth.
-      const browser = method === "oauth" && (selected === "anthropic" || selected === "openrouter");
-      const disclosure = selected === "github-copilot"
-        ? "Sign-in may enable model policies on your GitHub account. Cancellation cannot undo remote changes."
-        : selected === "anthropic" ? "API use is billed separately. Claude subscription sign-in is documented as per-token extra usage, not plan limits."
-        : selected === "openrouter"
-          ? method === "api_key" ? "Usage is billed from OpenRouter credits. Use an API key from OpenRouter."
-            : "Usage is billed from OpenRouter credits. Browser sign-in exchanges an authorization code for a user-controlled OpenRouter API key."
-          : "Device-code access must be enabled by the provider.";
-      if (!await display.consent(destination, selected, method === "api_key" ? "an API key" : browser ? "browser authorization" : "a device code",
-        disclosure + (browser ? "\nStarts a temporary loopback callback listener. Redirect URLs/codes belong only in the private login prompt." : "")) || display.signal.aborted) {
-        return { status: "cancelled", effect: "none" };
-      }
+      const browser = method === "oauth" && (selected === "anthropic" || selected === "openrouter" || (selected === "openai-codex" && !noBrowserHere()));
+      // Picking the way is the consent (as in Claude Code and Codex); the next screen still says what it costs.
+      const disclosure = selected === "github-copilot" ? "Signing in may turn on model policies on your GitHub account."
+        : selected === "anthropic" ? "API use is billed per token; a Claude plan sign-in is billed per token as extra usage."
+        : selected === "openrouter" ? "Usage is billed from your OpenRouter credits."
+        : "";
+      display.setNote([saved, disclosure].filter(Boolean).join("\n"));
+      if (display.signal.aborted) return { status: "cancelled", effect: "none" };
       // The SDK reads this override when its lazy OAuth module loads. Never allow a public listener.
       if (browser && [process.env.CASPER_OAUTH_CALLBACK_HOST, process.env.PI_OAUTH_CALLBACK_HOST]
         .some(host => host && host !== "127.0.0.1")) {
         return { status: "failed", effect: "none", reason: "unavailable" };
       }
-      // Re-check after consent: the preflight above is not atomic.
+      // Re-check after the pick: the preflight above is not atomic.
       try {
         const problem = await privateFileProblem(destination, display.signal);
         if (problem) return { status: "failed", effect: "none", reason: "destination", detail: problem };
       } catch { return display.signal.aborted ? { status: "cancelled", effect: "none" } : { status: "failed", effect: "none", reason: "destination" }; }
       const deadline = new AbortController();
-      const timer = setTimeout(() => deadline.abort(), 15 * 60_000);
+      let timedOut = false;
+      const timer = setTimeout(() => { timedOut = true; deadline.abort(); }, 15 * 60_000);
       const flow = AbortSignal.any([display.signal, deadline.signal]);
       let active = true;
       let promptHandled = false;
+      let codexAsked = false;
       let authorizationShown = false;
       let verificationCancelled = false;
       try {
@@ -114,6 +158,14 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
           signal: flow,
           prompt: async (prompt) => {
             flow.throwIfAborted(); prompt.signal?.throwIfAborted();
+            // Codex asks browser or device code first; the browser path then asks for the pasted code.
+            if (active && !codexAsked && selected === "openai-codex" && prompt.type === "select" && prompt.message === "Select OpenAI Codex login method:" &&
+              prompt.options.length === 2 && prompt.options[0]?.id === "browser" && prompt.options[1]?.id === "device_code") {
+              codexAsked = true;
+              if (browser) return "browser";
+              promptHandled = true;
+              return "device_code";
+            }
             if (!active || promptHandled) throw new Error("unsupported interaction");
             promptHandled = true;
             if (method === "api_key" && prompt.type === "secret") {
@@ -138,8 +190,6 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
                 if (choice !== "retry") { verificationCancelled = true; deadline.abort(); throw new Error("verification cancelled"); }
               }
             }
-            if (selected === "openai-codex" && prompt.type === "select" && prompt.message === "Select OpenAI Codex login method:" &&
-              prompt.options.length === 2 && prompt.options[0]?.id === "browser" && prompt.options[1]?.id === "device_code") return "device_code";
             if (selected === "github-copilot" && prompt.type === "text" && prompt.message === "GitHub Enterprise URL/domain (blank for github.com)") return "";
             if (browser && authorizationShown && prompt.type === "manual_code") {
               return display.privateInput("Private authorization code / redirect URL (or finish in your browser)",
@@ -165,9 +215,9 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
       } catch (error) {
         if (error instanceof CredentialSynchronizationError) return { status: "saved-needs-refresh" };
         if (verificationCancelled) return { status: "cancelled", effect: invoked ? "unknown" : "none" };
-        return display.signal.aborted
-          ? { status: "cancelled", effect: invoked ? "unknown" : "none" }
-          : { status: "failed", effect: invoked ? "unknown" : "none", reason: "provider" };
+        if (display.signal.aborted) return { status: "cancelled", effect: invoked ? "unknown" : "none" };
+        const detail = failureDetail(error, timedOut, providerNames[selected]);
+        return { status: "failed", effect: invoked ? "unknown" : "none", reason: "provider", ...(detail ? { detail } : {}) };
       } finally { active = false; clearTimeout(timer); deadline.abort(); }
     })).then(result => ({ ...result, provider }));
   } catch {

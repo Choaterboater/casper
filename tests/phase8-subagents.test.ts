@@ -455,25 +455,33 @@ describe("Phase 8 bounded subagents", () => {
     await expect(other.app.runOnce("inspect again")).rejects.toThrow("does not support custom capabilities");
   });
 
-  test("review regression: workspace approval reserves admission against commands and captured delegate tools", async () => {
-    const input = new PassThrough(); const approval = gate();
-    const parent = new ParentRuntime(); let children = 0; let questions = 0;
+  test("review regression: a workspace transition reserves admission against commands and captured delegate tools", async () => {
+    const input = new PassThrough(); const reached = gate(); const hold = gate();
+    // /branch asks nothing (you typed it): the transition is held at the runtime's fork instead.
+    const parent = new class extends ParentRuntime {
+      override async start(options: RuntimeStartOptions): Promise<RuntimeSession> {
+        const session = await super.start(options);
+        const info = { cwd: options.cwd, sessionId: "parent", sessionFile: path.join(options.cwd, "parent.jsonl") };
+        return { ...session, getSessionInfo: () => ({ ...info }), switchSession: async () => ({ ...info }),
+          forkSession: async () => { reached.release(); await hold.promise; throw new Error("fork stopped by the test"); } };
+      }
+    }();
+    let children = 0; let questions = 0;
     const { app, project } = await appFixture({ input, runtimeFactory: () => parent,
       subagentRuntimeFactory: () => { children++; return new ChildRuntime(); },
       output: { write(text) {
         if (text === "> ") queueMicrotask(() => input.write(questions++ === 0 ? "/branch experiment\n" : "/exit\n"));
-        if (text.includes("Type yes:")) approval.release();
       } },
     });
     await app.runOnce("inspect", project);
     const capturedTool = parent.tools.find((tool) => tool.name === "delegate")!;
-    const interactive = app.runInteractive(); await approval.promise;
+    const interactive = app.runInteractive(); await reached.promise;
     await expect(app.runOnce("/delegate explorer inspect")).rejects.toThrow("workspace transition");
     const result = await capturedTool.execute({ role: "explorer", goal: "inspect" });
     expect(result.isError).toBe(true);
     expect(result.text).toContain("Workspace transition");
     expect(children).toBe(0);
-    input.write("no\n"); await interactive;
+    hold.release(); await interactive;
   });
 
   test("parent tasks expose delegation, invalid commands stay local, and command failures reject", async () => {

@@ -17,6 +17,17 @@ const UNSAFE_TERMINAL_G = new RegExp(UNSAFE_TERMINAL.source, "gu");
  * on one cell. Kept before U+200D, where it belongs to a joined emoji sequence. */
 const EMOJI_PRESENTATION = /\uFE0F(?!\u200D)/g;
 
+/** Every C0/C1 control (newline and tab too) and bidi control: what one line of shown text may never hold. */
+const LINE_UNSAFE = /[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/;
+const LINE_UNSAFE_G = new RegExp(LINE_UNSAFE.source, "g");
+
+/** One line of untrusted text (a receipt line, a label, a reason): each control or bidi character becomes a space,
+ * so it cannot move the cursor, break the line or reorder what is shown. The one place this set is kept. */
+export function lineText(text: string): string { return text.replace(LINE_UNSAFE_G, " "); }
+
+/** True when text holds a character lineText would replace: not a plain one-line value. */
+export function hasLineControls(text: string): boolean { return LINE_UNSAFE.test(text); }
+
 /** Control-bearing text: C0/C1 controls other than newline and tab, or a bidi override. */
 export function hasTerminalControls(text: string): boolean { return UNSAFE_TERMINAL.test(text); }
 
@@ -190,9 +201,19 @@ export function formatEffort(status: RuntimeStatus): string | undefined {
 
 /** Before the runtime starts, `saved` is the advisory saved-default display (modelPreference);
  * credentials are not read then, so auth is only promised for startup. */
-export function formatRuntimeStatus(status?: RuntimeStatus, saved?: string): string {
-  if (!status && saved) return ` model     ${terminalText(saved)} (starts on your first prompt; /model to change)\n auth      checked when the model starts`;
-  if (!status) return " model     none saved yet (/model picks one, or your first prompt offers sign-in)\n auth      checked when the model starts (/login adds a provider)";
+/** The footer's model part when no model is set yet: not signed in at all, or signed in with the model picked
+ * on the first request. `canSignIn` false (a plain terminal or a script, where sign-in can't open) names the
+ * step that works there. */
+export function noModelFooter(signedIn: boolean | undefined, canSignIn = true): string {
+  if (signedIn !== false) return "model picked on your first request · /model";
+  return canSignIn ? "not signed in · type a request to sign in" : "not signed in · run casper in a terminal and type /login";
+}
+
+/** The banner's model line before the model starts (one line), or /status's labeled block. `signedIn` false:
+ * no saved sign-in or provider key was found. */
+export function formatRuntimeStatus(status?: RuntimeStatus, saved?: string, signedIn?: boolean, canSignIn = true): string {
+  if (!status && saved) return ` model     ${terminalText(saved)} (starts on your first prompt; /model to change)`;
+  if (!status) return signedIn === false ? ` model     ${noModelFooter(false, canSignIn)}` : " model     none yet · your first request picks one (/model to choose)";
   const identity = status.provider && status.model ? `${status.provider} / ${status.model}` : "none selected";
   const effort = formatEffort(status);
   const role = status.modelRole ? ` · role ${terminalText(status.modelRole)}` : "";

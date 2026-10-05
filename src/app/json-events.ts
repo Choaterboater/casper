@@ -297,7 +297,8 @@ export class RuntimeEventMapper {
         this.text = "";
         const events: CasperEvent[] = text ? [{ type: "assistant_message", text }] : [];
         // A provider failure (quota, retired model, rejected credential) ends the response.
-        if (!["stop", "toolUse", "aborted"].includes(event.stopReason) && event.errorMessage) events.push({ type: "error", message: redactPreview(event.errorMessage) });
+        // One that is about to be retried is not the outcome.
+        if (!event.retrying && !["stop", "toolUse", "aborted"].includes(event.stopReason) && event.errorMessage) events.push({ type: "error", message: redactPreview(event.errorMessage) });
         return events;
       }
       case "tool_start": {

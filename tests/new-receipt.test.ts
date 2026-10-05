@@ -16,7 +16,7 @@ test("ready: line 1 is the verdict, then the checks, then what to do next", () =
   expect(formatNewProjectReceipt(base)).toEqual([
     "Ready: ~/Projects/mist-aps · tests passed · first commit 3f2a1c0 (template mist-python v1)",
     "✓ lint passed · ✓ tests passed (3 tests)",
-    "Next: tell Casper what to build, or run: cd ~/Projects/mist-aps && casper",
+    "Next: tell Casper what to build, or run: casper ~/Projects/mist-aps",
   ]);
 });
 
@@ -30,7 +30,7 @@ test("created but not ready says why on line 1 and shows the output with secrets
   expect(lines[1]).toBe("Output:");
   expect(lines.join("\n")).not.toContain("abc123secret");
   expect(lines).toContain("✓ lint passed · ✗ tests failed");
-  expect(lines.at(-1)).toBe("Next: cd ~/Projects/mist-aps && casper, then ask Casper to fix the failing check.");
+  expect(lines.at(-1)).toBe("Next: casper ~/Projects/mist-aps, then ask Casper to fix the failing check.");
 });
 
 test("Ready needs a commit: a passing project inside another repo is 'Created …, not committed'", () => {

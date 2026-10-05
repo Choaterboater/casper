@@ -73,7 +73,7 @@ test("each reason Casper ran no checks is stated with a way forward", () => {
   expect(formatReceipt(done({ changedPaths: [], verificationMode: "auto", autoSkipped: "no-changes", verification: report([check()]) })))
     .toBe("✓ Checks passed — no files changed\n• No files changed\n✓ test passed (npm run test, 1.3s)");
   expect(formatReceipt(done({ changedPaths: ["sum.js"], verificationMode: "auto", autoSkipped: "no-checks" })))
-    .toBe("• Not verified — no checks configured. Add verify.test to .casper/project.yaml.\n✓ Changed 1 file: sum.js");
+    .toBe('• Not checked — no tests yet. Say "add tests".\n✓ Changed 1 file: sum.js');
   expect(formatReceipt(done({ changedPaths: ["README.md"], verificationMode: "auto", autoSkipped: "not-covered" })))
     .toBe("• Not verified — no configured check covers the changed files.\n✓ Changed 1 file: README.md");
   expect(formatReceipt(done({ changedPaths: ["sum.js"], verificationMode: "offer" })))
@@ -81,7 +81,7 @@ test("each reason Casper ran no checks is stated with a way forward", () => {
   expect(formatReceipt(done({ changedPaths: ["sum.js"], verificationMode: "off" }), { surface: "one-shot" }))
     .toBe("• Not verified — checks are off for this run. Run casper --verify to have Casper check.\n✓ Changed 1 file: sum.js");
   expect(formatReceipt(done({ changedPaths: ["sum.js"], verification: report([check({ status: "skip", command: undefined, exitCode: null })], { status: "incomplete" }) })))
-    .toBe("• Incomplete — not every check ran\n✓ Changed 1 file: sum.js\n• Not verified — test has no command. Add verify.test to .casper/project.yaml.");
+    .toBe("• Incomplete — not every check ran\n✓ Changed 1 file: sum.js\n• Not verified — test has no command here. Say \"add tests\".");
 });
 
 test("later receipts in a session say the no-checks line short and leave out files undo already named", () => {
@@ -256,7 +256,7 @@ test("short receipt: not verified says why on its own line, and never claims Ver
   const unproven = formatShortReceipt(done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([check()]), proofSkipped: "only docs changed" }));
   expect(unproven).toBe("• Checks passed — not proven: only docs changed\n✓ test passed · changed sum.js");
   const none = formatShortReceipt(done({ changedPaths: ["sum.js"], autoSkipped: "no-checks" }));
-  expect(none).toBe("• Not verified — no checks configured. Add verify.test to .casper/project.yaml.\n✓ changed sum.js");
+  expect(none).toBe('• Not checked — no tests yet. Say "add tests".\n✓ changed sum.js');
   for (const text of [unproven, none]) expect(text).not.toContain("Verified");
   const incomplete = formatShortReceipt(done({ changedPaths: ["sum.js"], verification: report([check()], { status: "incomplete" }) }));
   expect(incomplete.split("\n")[0]).toBe("• Incomplete — not every check ran");

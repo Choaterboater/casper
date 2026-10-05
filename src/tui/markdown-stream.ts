@@ -1,6 +1,6 @@
 import { type Component, Markdown, type MarkdownTheme, visibleWidth } from "@earendil-works/pi-tui";
 import { stripVTControlCharacters } from "node:util";
-import { renderPanel } from "./presentation";
+import { renderCodeBlock } from "./presentation";
 
 const INDENTED_CODE = /^(?: {4}|\t)/;
 const FENCE_OPEN = /^( {0,3})(`{3,}|~{3,})/;
@@ -125,19 +125,20 @@ export class StreamingMarkdown implements Component {
   private cache?: Cache;
   private readonly full: Markdown;
   private readonly scratch: Markdown;
-  /** Styled code lines of the current render, in the order Pi emitted their CODE_LINE_TAGs. */
+  /** Code lines (as written) of the current render, in the order Pi emitted their CODE_LINE_TAGs. */
   private codeLines: string[] = [];
+  private readonly styleCode: (text: string) => string;
 
   constructor(private readonly color: boolean, theme: MarkdownTheme) {
     // Pi-tui renders code content verbatim, so rendered lines cannot distinguish a content
     // line starting with ``` from a real border (nested fences). Tag border lines; the tag
     // is consumed by boxFences and never reaches rendered output. Code lines become a
-    // zero-width tag so Pi never wraps them; boxFences wraps the kept text once, at the
-    // panel's inner width.
+    // zero-width tag so Pi never wraps them; boxFences lays the kept text out once.
+    this.styleCode = theme.codeBlock;
     const tagged: MarkdownTheme = {
       ...theme,
       codeBlockBorder: (text) => `${FENCE_BORDER_TAG}${theme.codeBlockBorder(text)}`,
-      codeBlock: (text) => { this.codeLines.push(theme.codeBlock(text)); return CODE_LINE_TAG; },
+      codeBlock: (text) => { this.codeLines.push(text); return CODE_LINE_TAG; },
     };
     this.full = new Markdown("", 0, 0, tagged);
     this.scratch = new Markdown("", 0, 0, tagged);
@@ -177,14 +178,14 @@ export class StreamingMarkdown implements Component {
     markdown.setText(literalStars(text));
     this.codeLines = [];
     const rendered = markdown.render(width).map(line => line.replace(/ +$/, ""));
-    return boxFences(rendered, this.codeLines, width, this.color);
+    return boxFences(rendered, this.codeLines, width, this.color, this.styleCode);
   }
 }
 
-/** Replaces each tagged fence with a panel. The panel sits after the container prefix Pi put in
- * front of the fence (list indent, `│ ` quote border), so the title is the bare info string and
- * the body is the source code, wrapped once. */
-function boxFences(lines: string[], code: readonly string[], width: number, color: boolean): string[] {
+/** Replaces each tagged fence with a copy-safe code block (see renderCodeBlock). It sits after the container prefix
+ * Pi put in front of the fence (list indent, `│ ` quote border), so the title is the bare info string and the body is
+ * the source code as written. */
+function boxFences(lines: string[], code: readonly string[], width: number, color: boolean, style: (text: string) => string): string[] {
   const out: string[] = [];
   let next = 0;
   let body: string[] = [];
@@ -198,7 +199,7 @@ function boxFences(lines: string[], code: readonly string[], width: number, colo
   };
   const flush = (closing: string) => {
     const rest = margin ?? closing;
-    const panel = renderPanel(title || "code", body, width - visibleWidth(head), color, "muted");
+    const panel = renderCodeBlock(title || "code", body, width - visibleWidth(head), color, style);
     out.push(...panel.map((row, index) => `${index ? rest : head}${row}`));
     body = [];
     title = undefined;

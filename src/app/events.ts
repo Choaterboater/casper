@@ -1,5 +1,5 @@
 import type { InteractiveTerminal } from "../tui/terminal";
-import { BUSY_GLYPH, formatDuration, formatToolActivity, redactPreview, terminalText } from "../tui/format";
+import { BUSY_GLYPH, displayPath, formatDuration, formatToolActivity, redactPreview, terminalText } from "../tui/format";
 import type { RuntimeEvent } from "../runtime/types";
 import type { OutputWriter } from "./commands";
 import { SPEND_STOP_REASON } from "../task/spend";
@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { tildePath } from "../new/scaffold";
 import { isOutside } from "../platform/inside";
+import { explainModelError } from "../runtime/model-errors";
 
 /** Session-owned effects the renderer needs; the app implements these against its state. */
 export interface RuntimeEventCallbacks {
@@ -243,6 +244,13 @@ export class RuntimeEventView {
     else if (ran.length) {
       for (const step of ran) if (step.failed && !step.retried) this.output.write(`${step.printed}\n`);
       this.output.write(`${stepSummary(ran)}\n`);
+      // The files the folded edits changed, so a wrong one is easy to spot as it happens.
+      const changed = [...new Set(ran.filter(step => step.kind === "edit" && !step.failed && step.path !== undefined)
+        .map(step => displayPath(step.path!, this.fit())))];
+      if (changed.length) {
+        const shown = changed.slice(0, 5).join(", ");
+        this.output.write(`  changed ${redactPreview(shown)}${changed.length > 5 ? ` +${changed.length - 5} more` : ""}\n`);
+      }
     }
     this.endedWithNewline = true;
     this.renderBox();
@@ -253,6 +261,25 @@ export class RuntimeEventView {
   /** A step's line with its small diff under it (the detailed display). */
   private withDiff(line: string, diff?: string): string {
     return diff ? [line, ...inlineDiff(diff)].join("\n") : line;
+  }
+
+  /** A provider error: its cause and next step in plain words when Casper can name it, else the provider's text.
+   * The provider's own words stay one key away (ctrl+t), or on the next line where there is no ctrl+t. */
+  private writeError(message: string): void {
+    const explained = explainModelError(message);
+    if (!explained) { this.output.write(`[error] ${redactPreview(message)}\n`); return; }
+    if (this.terminal.rich) {
+      this.expanded = { title: "Provider error", body: redactPreview(message), diff: false };
+      this.output.write(`[error] ${explained.line} Ctrl+T shows the provider's message.\n`);
+    } else this.output.write(`[error] ${explained.line}\n  provider: ${redactPreview(message)}\n`);
+  }
+
+  /** An error thrown to the prompt loop: a model error gets the same plain cause line as a provider error event;
+   * any other error (a command's usage line) is shown as it is. */
+  showError(message: string): void {
+    if (explainModelError(message)) this.writeError(message);
+    else this.output.write(`[error] ${message}\n`);
+    this.displayedError = message;
   }
 
   /** ctrl+t: the last finished step in full, or undefined before the first one. */
@@ -314,7 +341,20 @@ export class RuntimeEventView {
         this.setResponseActivity(`${what}${size}`);
         break;
       }
+      case "retry": {
+        // Pi tries the provider again by itself: say so now, instead of an error that looks final and a blank pause.
+        this.terminal.endAssistant();
+        this.ensureLineBreak();
+        const provider = terminalText(event.provider ?? "the model provider");
+        const wait = `${Math.max(1, Math.ceil(event.delayMs / 1000))}s`;
+        this.output.write(`… Can't reach ${provider} · trying again in ${wait} (${event.attempt} of ${event.maxAttempts})${this.terminal.rich ? " · Esc stops" : ""}\n`);
+        this.setStaticActivity(`Waiting to try ${provider} again`);
+        this.endedWithNewline = true;
+        break;
+      }
       case "assistant_response_end": {
+        // A failed attempt that will be retried is not the outcome; the retry line says what happens next.
+        if (event.retrying) { this.terminal.endAssistant(); break; }
         this.setStaticActivity(event.stopReason === "toolUse" ? "Starting tools…" : undefined);
         this.terminal.endAssistant();
         // Pi may retry a provider error inside prompt(); only the final response
@@ -326,7 +366,7 @@ export class RuntimeEventView {
         // A cancel already printed its own notice, so its aborted stop is not an error.
         if (failed && !this.callbacks.cancelled() && event.errorMessage && this.displayedError !== event.errorMessage) {
           this.ensureLineBreak();
-          this.output.write(`[error] ${redactPreview(event.errorMessage)}\n`);
+          this.writeError(event.errorMessage);
           this.displayedError = event.errorMessage;
           this.endedWithNewline = true;
         }
@@ -437,7 +477,7 @@ export class RuntimeEventView {
         this.setStaticActivity();
         this.terminal.endAssistant();
         this.ensureLineBreak();
-        if (this.displayedError !== event.message && !this.callbacks.cancelled()) this.output.write(`[error] ${redactPreview(event.message)}\n`);
+        if (this.displayedError !== event.message && !this.callbacks.cancelled()) this.writeError(event.message);
         this.displayedError = event.message;
         this.endedWithNewline = true;
         break;

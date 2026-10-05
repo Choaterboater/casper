@@ -6,6 +6,37 @@ environment variables, sign-in storage, model roles and skills.
 a model per job, run Casper from a different state folder, or add your own skills. Every file here
 is optional; Casper works with none of them.
 
+## Settings
+
+You don't need to edit a file to change Casper's switches. `/settings` lists them by number and
+writes your answer into `~/.casper/config.yaml` for you, keeping your comments and other settings:
+
+```text
+Settings (saved in ~/.casper/config.yaml for you). Pick one to change:
+  1 Done                nothing changes
+  2 Web lookups         on (DuckDuckGo)
+  3 New-version notice  on
+  4 Built-in skills     on
+  5 Spend notes         at $1 a task
+  6 Spend pause         off
+  7 Work shown          normal
+```
+
+1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
+A change applies from now on (built-in skills from the next start) and says so:
+`[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Where Casper can't ask (a one-shot
+run), `/settings` lists them. `/details <level>` saves the work shown the same way, like `/effort`.
+
+### Web lookups
+
+The AI can search the web and read public pages, with no question: `web_search` uses DuckDuckGo
+by default, and `web_fetch` reads one page. Both reach only public `https` pages on ports 80 and 443
+(`http` is upgraded), checked again on every redirect; a search or address holding a secret is
+refused and never sent, and secrets on a page are hidden before the AI sees it. Turn them off with
+`/settings` (it writes `web: off`). Brave Search (`web: { provider: brave }`, with your key saved
+as `brave` in `~/.casper/agent/auth.json`) and your own SearXNG (`web: { provider: searxng,
+searxngUrl: <address> }`) are the other choices. A project file can't change `web:`.
+
 ## Config files
 
 Casper reads these files if they exist:
@@ -359,7 +390,8 @@ The pause comes before the AI's next step (a tool call), so a turn that ends in 
 task instead. The shown cost leaves out the small automatic-effort call and `/delegate` helpers until
 they report back, so it can be a little under the real figure.
 
-To change the limits, or turn one off, set them in your own config (a project cannot):
+To change the limits, or turn one off, use `/settings` (Spend notes, Spend pause), or set them in
+your own config (a project cannot):
 
 ```yaml
 # ~/.casper/config.yaml or a profile's config.yaml
@@ -405,8 +437,8 @@ How much of the work shows on screen while Casper works. The model's thinking is
 - `quiet`: the model's words, failures and the receipt; successful steps leave no line.
 - `detailed`: every step on its own line, with a small diff (up to 12 changed lines) under each edit.
 
-`/details quiet|normal|detailed` switches for the session, and `/details` alone goes to the next
-level. Ctrl+T shows the last finished step in full at any level: an edit's whole diff, or what a
+`/details quiet|normal|detailed` switches and remembers it (it writes `display:` for you, like
+`/effort`); `--session` keeps it to this session, and `/details` alone goes to the next level. Ctrl+T shows the last finished step in full at any level: an edit's whole diff, or what a
 command printed. The window title names the conversation from its first request
 (`Casper · subnet calculator`) and shows `◐` while Casper works.
 
@@ -521,12 +553,13 @@ bodies to the model:
 /skills
 /skills diagnostics
 /skills inspect <id>
-/skills trust <id> <sha256>
+/skills trust <id>
 /skills block <id>
 ```
 
-Use the exact ID from `/skills`. `inspect` prints the body and its SHA-256 hash; read it before
-running the printed `trust` command. Decisions are stored in `~/.casper/skills-trust.json`, keyed
+Use the exact ID from `/skills`. `trust` prints the body and its SHA-256 hash, then asks
+`1 No · 2 Trust it`; 2 trusts exactly what it showed. `/skills trust <id> <sha256>` still works for
+scripts. Decisions are stored in `~/.casper/skills-trust.json`, keyed
 by the real file path. Trust is checked against the file's current content each time the skill
 is used, so changing a reviewed skill needs another review. Changing its frontmatter needs a
 Casper restart to rebuild the list. A damaged or unreadable trust file is an error, and nothing is

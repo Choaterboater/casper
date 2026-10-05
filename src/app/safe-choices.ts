@@ -1,14 +1,25 @@
 /**
  * The choices of Casper's own numbered questions that live in the app and in /mcp. Enter picks choice 1 on both
- * terminals, so choice 1 is always the one that does nothing risky (Stop, Leave it, Just this time, Keep writes
+ * terminals, so choice 1 is always the one that does nothing risky (Stop, Leave it, No, Keep writes
  * off); anything that builds, spends tokens, runs a check again, remembers or turns writes on takes a deliberate
  * 2 or 3. The AI's own ask tool never uses these. tests/safe-first-choice.test.ts keeps it that way.
+ *
+ * Every approval box says yes in the same words, with the same numbers: 1 No · 2 Yes, this once · 3 Yes, for this
+ * session · 4 Yes, always for this project. A box offers only the ones that make sense, first and in that order; what
+ * the yes is about goes in the question. tests/yes-words.test.ts keeps it that way.
  */
 import { KIND_TEXT, RISKY_KINDS, type ChangeKind } from "../capabilities/kinds";
 import { formatDuration } from "../verify/evidence";
 import type { UnfinishedChoice } from "../verify/repair-loop";
 
 export interface Choice { label: string; description?: string }
+
+export const NO = "No";
+export const YES_ONCE = "Yes, this once";
+export const YES_SESSION = "Yes, for this session";
+export const YES_ALWAYS = "Yes, always for this project";
+/** The yes-words of every approval box, in order: choice 1, 2, 3 and 4 wherever they appear. */
+export const YES_WORDS = [NO, YES_ONCE, YES_SESSION, YES_ALWAYS] as const;
 
 /** Asked after the plan on both terminals (on the rich one, after the plan editor). */
 export const PLAN_QUESTION = "Build this plan?";
@@ -36,14 +47,15 @@ export function modelFailedChoices(bigModel?: string): Choice[] {
 
 /** "test timed out after 10m. Casper did not try to fix it. What now?" `had` is the limit the run just had (0 when
  * a check could not start), `longer` the limit "Allow more time" gives. */
-export function unfinishedChoices(had: number, longer: number): Array<Choice & { choice: UnfinishedChoice | undefined }> {
+export function unfinishedChoices(had: number, longer: number): Array<Choice & { choice: UnfinishedChoice | "more-time-saved" | undefined }> {
   return [
     { label: "Stop", description: "keep the changes; the receipt says it did not finish", choice: undefined },
     { label: "Retry", description: "run it again with the same limit", choice: "retry" },
     { label: "Fix it anyway", description: had ? "ask the model to make it finish in time, for example a hanging or slow test (uses tokens)"
       : "ask the model to fix why it could not start (uses tokens)", choice: "repair" },
-    ...(had && had < 3_600_000 ? [{ label: "Allow more time",
-      description: `run it with ${formatDuration(longer)}; to keep a longer limit, set verification.timeoutMs in .casper/project.yaml`, choice: "more-time" as const }] : []),
+    ...(had && had < 3_600_000 ? [{ label: "Allow more time", description: `run it with ${formatDuration(longer)}, this time only`, choice: "more-time" as const },
+      { label: "Allow more time from now on", description: `run it with ${formatDuration(longer)}, and give every check in this project that long (saved for you)`,
+        choice: "more-time-saved" as const }] : []),
   ];
 }
 
@@ -56,16 +68,23 @@ export const REMEMBER_BIG_MODEL_CHOICES = [
   { label: "Yes", description: "save it as your big model (/model big clear forgets it)" },
 ] as const satisfies readonly Choice[];
 
-/** /mcp connect: "Remember this server?" Typed answers: only "2" remembers. */
-export const MCP_REMEMBER_CHOICES = ["Just this time", "Remember"] as const;
+/** /mcp connect: "Remember lab?" Only "Yes" remembers. */
+export const MCP_REMEMBER_CHOICES = [NO, "Yes"] as const;
 /** The MCP change box. 1 does nothing; a change takes a deliberate 2 or later. "Yes, for this session" covers later
  * changes on the same server that are not destructive, until the session ends or ctrl+o. */
-export const APPROVE_CHOICES = ["No", "Yes, this once", "Yes, for this session"] as const;
-/** When the tool's own preview can run first: "Preview first" runs it (nothing changes), then the box comes back. */
-export const APPROVE_PREVIEW_CHOICES = ["No", "Preview first", "Yes, this once", "Yes, for this session"] as const;
+export const APPROVE_CHOICES = [NO, YES_ONCE, YES_SESSION] as const;
+/** When the tool's own preview can run first: "Preview first" runs it (nothing changes), then the box comes back. It
+ * comes after the yes-words, so 2 and 3 mean the same in every change box. */
+export const APPROVE_PREVIEW_CHOICES = [NO, YES_ONCE, YES_SESSION, "Preview first"] as const;
 /** A destructive change (reboot, delete, bounce...) asks every time: no session answer. */
-export const APPROVE_ONCE_CHOICES = ["No", "Yes, this once"] as const;
-export const APPROVE_ONCE_PREVIEW_CHOICES = ["No", "Preview first", "Yes, this once"] as const;
+export const APPROVE_ONCE_CHOICES = [NO, YES_ONCE] as const;
+export const APPROVE_ONCE_PREVIEW_CHOICES = [NO, YES_ONCE, "Preview first"] as const;
+
+/** A plain Junos show command's box, third: the same switch as /mcp junos-show <server> on, for this session.
+ * Changes and other commands on that server still ask. */
+export function junosShowLabel(server: string): string {
+  return `Yes, show commands on ${server} for this session`;
+}
 
 /** The change box's last choice: no more boxes on this server for the session, for any change (reboots, deletes, risky
  * kinds, an AI-set confirm). Only the person picks it; ctrl+o, writes off or a disconnect end it; it is never stored. */
@@ -73,9 +92,10 @@ export function approveAllLabel(product: string): string {
   return `Yes to everything on ${product} this session (no more asking, even reboots, deletes or an AI-set confirm)`;
 }
 
-/** A risky change kind (firmware, delete, admin) is off by default: 2 allows that kind on that server for this session. */
-export function kindAllowChoices(kind: ChangeKind): string[] {
-  return ["No", `Allow ${KIND_TEXT[kind].toLowerCase()} for this session`];
+/** A risky change kind (firmware, delete, admin) is off by default ("Allow firmware changes on Mist?"): 2 allows it
+ * for this call, 3 for this session on that server. The change box still asks about the call itself. */
+export function kindAllowChoices(_kind: ChangeKind): string[] {
+  return [NO, YES_ONCE, YES_SESSION];
 }
 
 /** /mcp allow <name>: 1 keeps the defaults; then each risky kind, all of them, and everything (no asking) this session. */
@@ -88,6 +108,12 @@ export const MCP_ALLOW_KEEP_CHOICES = ["This session", "Remember"] as const;
 
 /** /references add <name>: only "2" runs the shown git commands. */
 export const REFERENCE_ADD_CHOICES = ["No", "Download"] as const;
+
+/** /mcp docs: "Add a docs-only copy (no passwords, no device access)?" Only "2" adds it. */
+export const DOCS_COPY_CHOICES = [NO, "Add it"] as const;
+
+/** /skills trust <id>: "Trust deploy as shown?" after the skill and its fingerprint. Only "2" trusts it. */
+export const SKILL_TRUST_CHOICES = [NO, "Trust it"] as const;
 
 /** /lab import <file>: only "2" adds the hosts to your lab list. */
 export const LAB_IMPORT_CHOICES = ["No", "Add them"] as const;
@@ -112,7 +138,8 @@ export function forgetLoginChoices(product: string): string[] {
 /** /mcp writes <name>: only "2" turns writes on. */
 export const MCP_WRITES_CHOICES = ["Keep writes off", "Enable for this server"] as const;
 
-/** "  1 Just this time\n  2 Remember\n" */
+/** "  1 No\n  2 Download\n": a numbered question's lines (the network setup, logins and /references add); the app
+ * asks them in the same numbered box as every approval. */
 export function numberedLines(choices: readonly string[]): string {
   return choices.map((choice, index) => `  ${index + 1} ${choice}\n`).join("");
 }
@@ -127,34 +154,43 @@ export function undoChangedChoices(verb: "Undo" | "Redo", others: number): Choic
 
 /** "A shell command wants to reach api.mist.com." (the shell sandbox's host question). Enter keeps it blocked. */
 export const HOST_CHOICES = [
-  { label: "No", description: "the command can't reach it" },
-  { label: "Allow for this session", description: "until Casper exits" },
-  { label: "Always for this project", description: "kept in ~/.casper, never in the repo; /sandbox forget <host> undoes it" },
+  { label: NO, description: "the command can't reach it" },
+  { label: YES_ONCE, description: "this connection only" },
+  { label: YES_SESSION, description: "until Casper exits" },
+  { label: YES_ALWAYS, description: "kept in ~/.casper, never in the repo; /sandbox forget <host> undoes it" },
 ] as const satisfies readonly Choice[];
 
-/** "The AI wants to write to ~/Library/Application Support/SomeApp." (a write outside the project, by the AI's
- * shell or its edit and write tools). Enter writes nothing; nothing is kept past the session. */
-export function writeChoices(folder: string): Choice[] {
+/** "The AI wants to write to ~/Library/Application Support/SomeApp. Allow it?" (a write outside the project, by the
+ * AI's shell or its edit and write tools). Enter writes nothing; nothing is kept past the session. */
+export function writeChoices(_folder: string): Choice[] {
   return [
-    { label: "No", description: "nothing is written" },
-    { label: `Allow ${folder} for this session`, description: "until Casper exits; Casper keeps no undo copy there" },
+    { label: NO, description: "nothing is written" },
+    { label: YES_ONCE, description: "this write only (for a shell command, the next command); Casper keeps no undo copy there" },
+    { label: YES_SESSION, description: "until Casper exits; Casper keeps no undo copy there" },
   ];
 }
 
 /** "Reach 10.0.0.5 (build-server)?  ssh root@build-server uptime" before the AI's shell runs ssh, scp, sftp, rsync, nc, telnet or
  * socat to another machine, sandbox or not. Enter runs nothing. */
 export const REACH_CHOICES = [
-  { label: "No", description: "the command does not run" },
-  { label: "Yes, this time", description: "this command only" },
-  { label: "Yes, for this session", description: "commands to this host don't ask again until Casper exits" },
+  { label: NO, description: "the command does not run" },
+  { label: YES_ONCE, description: "this command only" },
+  { label: YES_SESSION, description: "commands to this host don't ask again until Casper exits" },
+  { label: YES_ALWAYS, description: "kept in ~/.casper, never in the repo; /sandbox forget <host> undoes it" },
 ] as const satisfies readonly Choice[];
 
-/** "Run this command?  npm test" when no sandbox can run (Windows, bubblewrap missing). Enter runs nothing. */
-export const SHELL_COMMAND_CHOICES = [
-  { label: "No", description: "the command does not run" },
-  { label: "Yes, this once", description: "it runs with your permissions and network" },
-  { label: "Yes, and don't ask again for this exact command here", description: "kept in ~/.casper for this project" },
-] as const satisfies readonly Choice[];
+/** "Run this command?  npm test --watch" when no sandbox can run (Windows, bubblewrap missing). Enter runs nothing.
+ * 3 and 4 cover commands starting with the prefix (`npm test`), or this exact command when it has none. */
+export function shellCommandChoices(prefix?: string): Choice[] {
+  const covers = prefix ? `commands starting with ${prefix}` : "this exact command";
+  return [
+    { label: NO, description: "the command does not run" },
+    { label: YES_ONCE, description: "it runs with your permissions and network" },
+    { label: YES_SESSION, description: `${covers} don't ask again until Casper exits` },
+    { label: YES_ALWAYS, description: `${covers}; kept in ~/.casper, never in the repo` },
+  ];
+}
+export const SHELL_COMMAND_CHOICES = shellCommandChoices();
 
 /** "Next: the AI can read the 12 changed files for security problems …" after /security-review's tools. Enter spends nothing. */
 export const AI_REVIEW_CHOICES = [

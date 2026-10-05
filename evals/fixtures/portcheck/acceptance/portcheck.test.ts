@@ -1,13 +1,21 @@
 import { afterAll, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { X509Certificate } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import tls from "node:tls";
 import { main } from "../src/cli";
 
-const certs = path.join(import.meta.dir, "certs");
+// A throwaway self-signed certificate, made fresh for each run: no private key is kept in the repository.
+const certs = mkdtempSync(path.join(os.tmpdir(), "portcheck-certs-"));
+const made = spawnSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=portcheck.example.com", "-days", "30",
+  "-keyout", path.join(certs, "key.pem"), "-out", path.join(certs, "cert.pem")], { encoding: "utf8" });
+if (made.status !== 0) throw new Error(`openssl could not make a test certificate: ${made.error?.message ?? made.stderr}`);
 const cert = readFileSync(path.join(certs, "cert.pem"));
+const key = readFileSync(path.join(certs, "key.pem"));
+rmSync(certs, { recursive: true, force: true });
 const expires = new Date(new X509Certificate(cert).validTo);
 
 async function listen(server: net.Server): Promise<number> {
@@ -15,7 +23,7 @@ async function listen(server: net.Server): Promise<number> {
   return (server.address() as net.AddressInfo).port;
 }
 const plain = net.createServer((socket) => socket.end());
-const secure = tls.createServer({ cert, key: readFileSync(path.join(certs, "key.pem")) }, (socket) => socket.end());
+const secure = tls.createServer({ cert, key }, (socket) => socket.end());
 const silent: net.Socket[] = [];
 const hanging = net.createServer((socket) => { silent.push(socket); });
 const plainPort = await listen(plain);

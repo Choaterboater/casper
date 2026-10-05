@@ -165,7 +165,7 @@ test("named-session rebinding reloads source metadata and revokes the old captur
     loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
     loadReferenceConfiguration: () => discoverReferenceConfiguration({ homeDir: home }),
     output: { write: (text) => {
-      if (text.includes("Type yes:")) queueMicrotask(() => input.write("yes\n"));
+      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write("2\n"));
       if (text === "> ") queueMicrotask(() => input.write(["/branch alternate", "Search again", "/exit"][step++]! + "\n"));
     } },
   });

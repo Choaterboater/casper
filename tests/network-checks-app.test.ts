@@ -159,7 +159,7 @@ test("Always for this project lets junos-commit run without asking, and its chec
   const { app, output, events } = makeApp(f);
   try {
     await app.runOnce("/verify junos-commit", f.root);
-    expect(output()).toContain("Running junos-commit on your lab (you chose Always for this project).");
+    expect(output()).toContain("Running junos-commit on your lab (you chose Yes, always for this project).");
     expect(output()).toContain("✓ junos-commit · commit check only; not committed");
     expect(await ran(f, "ansible-playbook")).toBe(true);
     const check = events.find((event) => event.type === "check" && (event as { name?: string }).name === "junos-commit");
@@ -199,8 +199,8 @@ test("on the plain terminal the AOS-CX lab check asks with no Always choice, run
     t.input.write("/verify aoscx-check\n");
     await t.until((text) => text.includes("Type 1 or 2: "));
     expect(t.visible()).toContain("Run aoscx-check on 1 device? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. lab-sw1\n");
-    expect(t.visible()).toContain("  1 Skip\n  2 Run it\n");
-    expect(t.visible()).not.toContain("Always for this project");
+    expect(t.visible()).toContain("  1 No\n  2 Yes, this once\n");
+    expect(t.visible()).not.toContain("Yes, always for this project");
     expect(await ran(f, "ansible-playbook")).toBe(false);
     t.input.write("2\n");
     await t.until((text) => text.includes("failed on the lab. Casper did not ask the model to fix it"));
@@ -223,7 +223,7 @@ test("on the plain terminal the AOS-CX lab check asks with no Always choice, run
   }
 });
 
-test("Skip at the lab ask sends nothing, and so does Enter", async () => {
+test("No at the lab ask sends nothing, and so does Enter", async () => {
   const f = fixture = await labProject({ "lab-sw1": { ansible_host: "10.99.0.11" } }, "aoscx-check");
   const t = plainTerminal(f);
   const running = t.app.runInteractive(f.root);
@@ -231,9 +231,9 @@ test("Skip at the lab ask sends nothing, and so does Enter", async () => {
     await t.until((text) => text.endsWith("> "));
     t.input.write("/verify aoscx-check\n");
     await t.until((text) => text.includes("Type 1 or 2: "));
-    // Enter picks 1, which is Skip: a stray Enter never reaches a device.
+    // Enter picks 1, which is No: a stray Enter never reaches a device.
     t.input.write("\n");
-    await t.until((text) => text.includes("aoscx-check · not run: you chose Skip; nothing was sent"));
+    await t.until((text) => text.includes("aoscx-check · not run: you chose No; nothing was sent"));
     expect(await ran(f, "ansible-playbook")).toBe(false);
     await t.until((text) => text.endsWith("> "));
   } finally {

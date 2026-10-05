@@ -10,10 +10,11 @@
   "scripts": {
     "dev": "bun run src/cli.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test",
-    "test:fast": "bun run scripts/test-parallel.ts",
+    "test": "bun test --parallel --timings=tests/timings.json --path-ignore-patterns='tests/eval-*' --path-ignore-patterns='tests/phase10-debugger-real.test.ts' && bun test tests/phase10-debugger-real.test.ts",
+    "test:timings": "bun test --parallel --timings=tests/timings.json --update-timings --path-ignore-patterns='tests/eval-*' --path-ignore-patterns='tests/phase10-debugger-real.test.ts'",
+    "test:evals": "bun test --parallel tests/eval-",
     "build:release": "bun run scripts/build-release.ts",
-    "check": "bun run typecheck && bun test"
+    "check": "bun run typecheck && bun run test"
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.77",

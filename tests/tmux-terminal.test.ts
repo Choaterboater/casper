@@ -18,6 +18,7 @@ function fakePane() {
 function session(host?: TerminalHost) {
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
   const screen = fakeWriter();
+  screen.writer.columns = 140; // The pane opens only on a wide window.
   const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {}, host);
   const events = new RuntimeEventView(terminal, { write: text => { terminal.write(text); } }, {
     updateFooter() {}, onToolEnd() {}, setTaskStop() {}, markRuntimeFailed() {}, turnLimitReached() {}, cancelled: () => false,
@@ -118,6 +119,7 @@ test("inside tmux Casper's helpers show their steps in the side pane", async () 
   const fake = fakePane();
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
   const screen = fakeWriter();
+  screen.writer.columns = 140;
   const child = {
     async start(): Promise<never> { throw new Error("read-only only"); },
     async startReadOnly(options: { cwd: string }) {

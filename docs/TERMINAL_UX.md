@@ -3,7 +3,8 @@
 **What this is:** a guide to Casper's terminal screen: what you see, the keys,
 and the `/` commands. **When you'd use it:** when you are learning Casper, or
 want to know what a symbol, key or command does. `/help` shows a short list in
-Casper, and `/help all` the full one.
+Casper, `/help <word>` only the lines that mention a word (`/help mcp`), and
+`/help all` the full one. A mistyped command gets "Did you mean …?".
 
 ## Quick reference
 
@@ -11,7 +12,7 @@ Casper, and `/help all` the full one.
 
 | Key | What it does |
 | --- | --- |
-| Enter | Send the request (during work, keeps your draft; nothing is queued) |
+| Enter | Send the request (during work: the AI reads it at its next step, or it is queued for after the task) |
 | Shift+Enter or Ctrl+J | New line in the prompt (Shift+Enter only where the terminal supports it) |
 | Up / Down | Earlier prompts from this session |
 | `/` | Command list with fuzzy search; Tab completes |
@@ -20,6 +21,7 @@ Casper, and `/help all` the full one.
 | Esc | Stop the current work |
 | Ctrl+C | Cancel work; when idle, clear the draft; twice on an empty prompt exits |
 | Ctrl+D | Exit when the prompt is empty |
+| Ctrl+T | Show the last step in full: an edit's whole diff, what a command printed, or the provider's own words after an `[error]` (works during work too) |
 | Ctrl+L | Redraw the screen |
 | Ctrl+O | Turn MCP writes off for every server at once (see [MCP.md](MCP.md)) |
 
@@ -31,24 +33,44 @@ over the network, and `/references add` downloads files after asking you.
 
 | Command | What it does |
 | --- | --- |
-| `/help`, `/help all` | Short help, or the full reference |
-| `/status` | Model, login, integrations and local storage |
-| `/model`, `/effort` | Pick a model or reasoning effort (see [Model and effort](#model-and-effort)) |
+| `/help`, `/help <word>`, `/help all` | Short help, the lines that mention a word (`/help mcp`), or the full reference |
+| `/status` | Project, model, sign-in and connections |
+| `/model`, `/model big <model>` | Pick a model (remembered; `--session` for this conversation only); your big model for when repairs run out |
+| `/effort [level\|auto]` | Reasoning effort, or `auto` per request; Shift+Tab cycles it (see [Model and effort](#model-and-effort)) |
 | `/login [provider]` | Sign in to a provider (see [Provider login](#provider-login)) |
 | `/context`, `/usage` | Context estimate; session tokens and estimated cost |
 | `/compact [instructions]` | Summarize the conversation (**makes a model request**) |
-| `/clear`, `/resume [id]` | New conversation; list or reopen a saved one |
-| `/diff` | Git status and tracked changes against HEAD |
-| `/output [n]` | Full output of a recent tool call from the last task |
-| `/receipt` | Detailed evidence behind the last task's receipt |
-| `/verify [checks]`, `/verify repair` | Run the project's checks; repair failures |
-| `/project`, `/permissions` | Project context; what is and is not enforced |
-| `/skills`, `/references`, `/memory`, `/secrets` | Skills; local reference search; saved facts ([MEMORY.md](MEMORY.md)); secret hiding ([SECRETS.md](SECRETS.md)) |
-| `/mcp`, `/lsp` | MCP servers ([MCP.md](MCP.md)); language servers ([LSP.md](LSP.md)) |
-| `/browser`, `/services`, `/debug` | Browser ([BROWSER.md](BROWSER.md)); dev servers ([SERVICES.md](SERVICES.md)); debugger ([DEBUGGER.md](DEBUGGER.md)) |
-| `/tree`, `/branch`, `/switch` | Named sessions and worktrees ([SESSIONS.md](SESSIONS.md)) |
-| `/delegate <explorer\|reviewer> <goal>` | Read-only helper agent ([DELEGATION.md](DELEGATION.md)) |
+| `/clear` | Start a fresh conversation; files and saved conversations stay |
+| `/resume [id]` | Pick a saved conversation from a numbered list, or go back to one (the start of its ID is enough) |
+| `/diff [n\|list]` | The last task's changes (also outside git), task n's, or a list to pick from; before any task, git's view |
+| `/undo [n]`, `/redo [n]` | Put the last task's (or task n's) files back, or back again (no model; [UNDO.md](UNDO.md)) |
+| `/new [name]` | Start a new project in ~/Projects (no model; [NEW.md](NEW.md)) |
+| `/plan <request>` | Plan first: the model writes a plan and cases to test, you edit it, then build |
+| `/suggestions [on\|off]` | List the suggested next steps, or turn them on or off |
+| `/details [quiet\|normal\|detailed]` | How much work shows, remembered like `/effort` (`--session` for this session only); Ctrl+T shows the last step in full |
+| `/settings` | Turn web lookups, the new-version notice, built-in skills, spend notes and pause, and the work shown on or off by number ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
+| `/output [n\|all]` | Full command and output of a recent tool call from the last task |
+| `/receipt [n\|list]` | The last task's receipt in detail, a saved one, or the last 10 |
+| `/verify [checks]`, `/verify repair`, `/verify add <name>` | Run the project's checks; repair failures; save a check Casper found ([VERIFICATION.md](VERIFICATION.md)) |
+| `/security-review` | Run the pinned security tools here, then offer an AI review (asks first; [SECURITY_CHECKS.md](SECURITY_CHECKS.md)) |
+| `/project [name]` | Project context and checks; open a project folder inside this one |
+| `/permissions` | What each tool may do here and when Casper asks you |
+| `/sandbox`, `/sandbox forget <host>` | What the shell sandbox holds; forget a host you allowed |
+| `/lab`, `/lab import <file>` | Your lab devices; add more from a file ([NETWORK-CHECKS.md](NETWORK-CHECKS.md)) |
+| `/skills` | Skills and whether you trust them ([SKILLS.md](SKILLS.md)) |
+| `/mcp` | MCP servers: set up Casper's network server (`/mcp setup network`) and its logins (`/mcp login`), connect, writes on or off, allow, forget, docs ([MCP.md](MCP.md)) |
+| `/lsp` | Language servers ([LSP.md](LSP.md)) |
+| `/browser` | A disposable browser; screenshots ([BROWSER.md](BROWSER.md)) |
+| `/services` | Dev servers the project declares ([SERVICES.md](SERVICES.md)) |
+| `/tasks [stop <n>\|all]` | What runs in the background; stop one |
+| `/pane [on\|off]` | The steps split beside Casper inside tmux or iTerm2 (only on a window 120+ columns wide); saved for every session. See [TMUX.md](TMUX.md) |
+| `/debug` | The local debugger ([DEBUGGER.md](DEBUGGER.md)) |
+| `/tree`, `/branch <name>`, `/switch <name>` | Named conversations, each with its own workspace ([SESSIONS.md](SESSIONS.md)) |
+| `/memory` | Project facts you saved, and task outcomes ([MEMORY.md](MEMORY.md)) |
+| `/references` | Search local reference sources; download a vendor spec repo ([REFERENCES.md](REFERENCES.md)) |
+| `/secrets` | What Casper hides from the AI ([SECRETS.md](SECRETS.md)) |
 | `/visualize [repo [dir]]` | Diagrams ([VISUALIZATION.md](VISUALIZATION.md)) |
+| `/delegate <explorer\|reviewer> <goal>` | A read-only helper AI on one goal (uses a model; [DELEGATION.md](DELEGATION.md)) |
 | `/exit`, `/quit` | Exit |
 
 An unknown `/` command is rejected on your machine. It is never sent to a model.
@@ -61,7 +83,10 @@ persistent footer, with no alternate-screen takeover. Casper owns the terminal
 before it prints the startup banner, so the banner, model status and diagnostics
 are transcript lines like everything else. A model is not started just to paint
 the footer. A saved default is shown as an advisory startup snapshot; after
-runtime initialization the footer uses the active conversation's model.
+runtime initialization the footer uses the active conversation's model. Before any
+sign-in, the banner and footer say `not signed in · type a request to sign in`, and `/model`
+opens sign-in instead of an empty picker. Where sign-in can't open (a plain or piped terminal,
+a one-shot run) they say `not signed in · run casper in a terminal and type /login` instead.
 
 On a rich terminal at least 58 columns wide the transcript opens with the
 wordmark — the Casper ghost (bold white) beside a block-letter `CASPER` (accent)
@@ -78,9 +103,12 @@ Transcript lines are inline, not boxed: `✓`/`✗`/`•` tool lines, `[model]`,
 `[approval]`, `[task]` and similar bracketed notices, and the `❯ …` echo of each
 prompt. Green marks success, red an error, amber a notice or decision, cyan the
 accent (banner, prompt echo, Markdown structure), dim the muted status lines.
-Bordered panels (`src/tui/presentation.ts`) are used for code-like output and
-live work status: every fenced block in an assistant message is boxed and titled
-with its language, `/output` replays a tool result in a box, `/diff` boxes `git status` and
+A fenced block in an assistant message copies clean: a title line with its language
+(`── ts ────`), then the code exactly as written with no side border and no indent, then a
+closing rule. A line wider than the window is cut at the edge only (no character added or
+dropped), so a mouse copy of switch config picks up no `│` characters.
+Bordered panels (`src/tui/presentation.ts`) are used for other code-like output and
+live work status: `/output` replays a tool result in a box, `/diff` boxes `git status` and
 the colored unified diff, a failed check boxes the tail of its stderr and stdout
 (last 40 lines; the full output stays in the evidence), and exclusive input flows such as `/login` use them.
 Prose, notices and tool lines stay inline. Panels span the terminal's current width, like
@@ -114,7 +142,8 @@ On a rich terminal the main screen keeps the model's words, questions and receip
 in a transient `Working` box that shows the last 3 steps, each updated in place (`• read · src/x.ts`
 while it runs, `✓ read · src/x.ts` once done), even with calls running side by side. When the model
 moves on (its next words, or the end of its turn), the finished steps fold into one line:
-`✓ 14 edits · 6 commands · 38s` (`•` instead of `✓` when a step failed); a single step prints its own line. A failed command
+`✓ 14 edits · 6 commands · 38s` (`•` instead of `✓` when a step failed), with the changed files on one line under
+it (`  changed app.py, tests/test_app.py`, five at most, then `+N more`); a single step prints its own line. A failed command
 prints its line and cause above the summary; a failed edit the model tried again at once is counted,
 not printed. `/output all` lists every call of the last task on its own line. A command Casper refused before it ran (a private place such as `~/.ssh`, another machine
 you said No to, or one a script run can't ask about) is not a failure: it reads
@@ -266,23 +295,37 @@ unreported failed-request cost is unknown, not zero.
 
 ### Provider login
 
-`/login` offers Codex and GitHub Copilot device-code login, Anthropic/Claude and
-OpenRouter API-key or browser sign-in. `/login <provider-id>` skips only the
-provider chooser. Every method requires fresh consent to provider-scoped
-credential replacement in Casper's store (`~/.casper/agent/auth.json`); login does not select a model. Browser sign-in opens the system
+`/login` shows one numbered list of providers and ways to sign in, OpenRouter first:
+1 OpenRouter · paste an API key, 2 OpenRouter · sign in with your browser, 3-4 the same for
+Anthropic (Claude), then OpenAI Codex and GitHub Copilot. OpenAI Codex opens your browser on
+a desktop; over SSH or on Linux with no display it shows a code to enter at openai.com
+instead (some accounts must turn that on first). GitHub Copilot always uses a code. Press a number, or Up/Down and
+Enter (Enter alone picks 1); Esc cancels. `/login <provider-id>` lists only that provider's
+ways, and opens the only one straight away. When Casper opens sign-in by itself (a request
+with nothing signed in, or a model whose sign-in is missing), the list shows even for a provider
+with one way, so you see what is about to start. Picking a row is your go-ahead, as in Claude Code
+and Codex: no confirm screen follows. The list says where the key goes (`Saved in
+~/.casper/agent/auth.json, only on this computer.`), and the next screen says what the provider
+charges. Only that provider's saved sign-in is replaced. Browser sign-in opens the system
 browser automatically; offline mode (CASPER_OFFLINE=1) suppresses the launch and keeps the URL
 printed for manual opening.
 Typed API keys are verified with the provider before they are stored; a rejected
 key is never saved, and a key that cannot be verified (network or provider error)
 can be retried, saved explicitly, or cancelled. Keys and callback codes/URLs use a
 separate hidden prompt (live character count, contents never rendered), never chat/history.
-Escape/Ctrl-C cancel; EOF and shutdown drain the login lifecycle.
+Escape/Ctrl-C cancel; EOF and shutdown drain the login lifecycle. A failed sign-in says the reason
+Casper has in plain words (timed out, couldn't reach the provider, the provider refused it) and
+never the provider's own text. A model whose provider has no sign-in names that provider, its
+`/login` and its key variable (for example `OPENROUTER_API_KEY`); a one-shot run or a plain
+terminal with nothing signed in says `Not signed in yet. Run casper in a terminal and type /login.`
+A one-shot run with a key set but no model Casper can pick says
+`No Casper model selected. Pass --model <provider/model>, or run casper and type /model.`
 
-Provider and method choices reuse Pi's selection list: Up/Down moves the visible
-highlight in place, Enter confirms that item, and Cancel exits without contacting
+The list reuses Pi's selection list: a digit picks its row at once, Up/Down moves the
+visible highlight in place, Enter confirms that item, and Esc exits without contacting
 the provider. Navigation accepts Pi's decoded arrow/Enter sequences, including
 fragmented or batched terminal input. Trailing keys cannot answer the next prompt;
-pasted text cannot grant consent or submit a private credential.
+pasted text cannot pick a row or submit a private credential.
 All login panels render through the host surface; terminal-control bytes never
 pass through the untrusted-text sanitizer or get appended as transcript text.
 
@@ -313,11 +356,15 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   (type a letter first); a digit past the last choice is ordinary text.
 - A question from the AI's `ask` tool starts with a muted `The AI asks:` line. Casper's own
   questions and approvals never do, so the AI can't pass off a question as a Casper approval.
-- Casper's own numbered questions (a new project, one more repair on your big model, a lab check,
-  security tools and ignores, Build this plan?) also work on the plain terminal: it prints the
-  choices as numbered lines and reads `Type 1-3 (Enter for 1)`; a number or a choice's words pick
+- Every box takes the same input: approvals (an MCP change, a host, a shell command, a device
+  check, `/mcp writes`) are the same numbered panel as any question. Press a choice's number
+  (no Enter), or Up/Down and Enter; Esc is No. An approval takes no typed answer: typed words are
+  a No. Keys pressed in the first moment after a box opens (about 0.3 s) are ignored, so a key
+  typed mid-sentence never answers a box that just appeared.
+- Casper's own numbered questions and approvals also work on the plain terminal: it prints the
+  choices as numbered lines and reads `Type 1, 2 or 3:`; a number or a choice's words pick
   it. Enter picks choice 1, and at every Casper question choice 1 is the one that does nothing
-  risky (Stop, Skip, Not now, Use this folder, Leave it, No, Just this time, Keep writes off, Keep the
+  risky (Stop, Not now, Use this folder, Leave it, No, Keep writes off, Keep the
   default): building, installing, downloading, spending tokens, running a check again, saving a
   choice, approving or reaching a lab always takes a deliberate 2 or 3, so a stray Enter is harmless.
   One-shot runs, `--json` and piped input never get these questions: each takes the safe answer,
@@ -333,15 +380,25 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   empty editor the first Ctrl+C only shows `Ctrl-C again to exit`; a second within two
   seconds exits, any other key disarms it. Ctrl+D exits an empty editor at once.
   Ctrl+L forces a redraw.
-- Enter during work runs a command that only shows something (`/help`, `/status`, `/usage`,
-  `/context`, `/permissions`) or `/effort <level>` at once. Anything else keeps its draft and
-  says why (`/undo waits until this task ends · draft kept`); it never queues an automatic
-  next request.
+- Enter during work runs a command that only shows something at once: `/help`, `/status`,
+  `/usage`, `/context`, `/permissions`, `/diff`, `/receipt`, `/output`, `/tasks` (and
+  `/tasks stop <n>`), `/details`, `/mcp`, `/lsp`, `/skills`, `/sandbox`, `/secrets`, `/tree`,
+  `/project`, and `/effort` (a bare `/effort` opens its picker; an approval that arrives closes
+  it first). Typing `/` keeps the command menu; the commands that must wait are dimmed and say
+  `waits for this task`. Any other command keeps its draft and says why for a moment
+  (`/undo waits until this task ends · draft kept`).
+- Anything else you type during work goes to the AI. While the model is working it reads the
+  line at its next step (`↳ sent to the AI · it reads this at its next step`); while Casper
+  runs checks or writes the receipt, the line is queued and runs as the next request
+  (`↳ queued · runs when this task ends`). A line the AI never got to read runs next too. Esc
+  stops the task and puts queued lines back in the prompt instead of running them. Queued
+  lines live outside the prompt, so a queued line never answers an approval box.
   Pickers borrow exclusive input ownership; pretyped text cannot answer a later
   exact approval. NO_COLOR keeps input controls, while TERM=dumb/redirected output
   uses plain line input and retains existing fail-closed cooked-terminal approval.
   Plain lines that arrive before the first prompt (a fast typist, or a pipe) are
-  read in order once Casper starts reading; lines typed during work are dropped.
+  read in order once Casper starts reading. On a plain terminal, lines a person types during
+  work go to the AI or the queue as above; piped lines that arrive during work are dropped.
 
 Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/skills`,
 `/mcp`, `/lsp`, `/browser`, `/permissions`, `/model`, `/effort` and:
@@ -351,21 +408,24 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 | `/context` | Runtime context estimate and counts; no invented per-file token attribution |
 | `/usage` | Tokens split into out, new and cached plus the raw counts; catalog cost estimate for the whole session, or the subscription name with the pay-per-token figure; not billing |
 | `/compact [instructions]` | Explicit cancellable model-assisted summary; **can make a model request** |
-| `/clear` | Fresh saved conversation, no workspace rollback; prior conversation remains resumable |
-| `/resume` | List saved conversation IDs in this workspace |
-| `/resume <exact-id>` | Restore one of those conversations, keeping named workspace linkage consistent |
+| `/clear` | Fresh saved conversation; files stay as they are (`/undo` puts a task's files back); the earlier conversation stays resumable |
+| `/resume` | Pick a saved conversation from a numbered list (title · when · messages; 1 stays here); then the last few turns show |
+| `/resume <id>` | Go back to that conversation; the first few characters of its ID are enough |
 | `/tree`, `/switch <name>` | Existing named-workspace navigation and its approval policy |
 | `/output [n]` | Full command and output of the last task's n-th most recent tool call (1 = latest; 20 retained per task); out-of-range n is a usage error |
 
-`/diff` shows Git status and tracked changes against HEAD, without external diff or
-textconv drivers. Untracked names are listed, not file contents. Each Git command
-has a five-second deadline and 64 KiB output limit; large output is marked truncated.
+`/diff` shows the last task's changes in this folder, also outside git (`/diff 12` a
+saved task's, `/diff list` picks one). Before any task it shows Git status and tracked
+changes against HEAD, without external diff or textconv drivers; untracked names are
+listed, not file contents, each Git command has a five-second deadline and 64 KiB
+output limit, and large output is marked truncated. `/undo` puts the last task's files
+back and `/redo` undoes that (see [UNDO.md](UNDO.md)).
 After a task that changed files, the receipt names the changed paths (from a before/after
 tree digest), or how many past three. The per-file table (a bounded `git diff --stat`) is shown
 with `--verbose`; `/diff` shows the task's full changes.
 `/permissions` explains actual boundaries from the state Casper is in: whether the shell
 sandbox holds shell commands and checks here, or (without it) that the AI's shell asks
-before each command. `/sandbox` lists what it holds. Existing integration-specific
+before each command that changes something (reads like `ls` don't). `/sandbox` lists what it holds. Existing integration-specific
 approvals remain in force. Verification is still separate from tool completion.
 
 ### Local debugger
@@ -395,8 +455,11 @@ surface, not live-model usefulness or human visual sign-off.
 
 macOS terminal behavior is exercised with real PTYs. Windows and Linux need host
 runs; exhaustive terminal compatibility is not claimed. Conversation/token storage
-is not automatically redacted. There is no workspace rollback, automatic shell
-shortcut, queued prompt execution or enforced permission-mode selector.
+is not automatically redacted. `/undo` puts back the files a task changed (see
+[UNDO.md](UNDO.md)); there is no automatic shell shortcut or enforced permission-mode
+selector. A line typed during a task steers the AI at its next step or waits in the
+queue and runs when the task ends (see Current interface above); Esc gives queued
+lines back to the prompt.
 
 ## Design references and reuse
 
