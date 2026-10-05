@@ -114,7 +114,7 @@ preview. After the first install, `casper update` gets the newest preview (it ru
 release's own installer, with the same checks), and `casper update --check` only says whether
 there is one. A session also tells you when one is out: one `[update]` line at the start, from a
 check it makes in the background at most once a day (no model, no tokens). Turn it off with
-`updates: false` in `~/.casper/config.yaml` or `CASPER_NO_UPDATE_CHECK=1`. If GitHub says it is limiting requests, set `GITHUB_TOKEN` (or `GH_TOKEN`) to a
+`/settings` (New-version notice) or `CASPER_NO_UPDATE_CHECK=1`. If GitHub says it is limiting requests, set `GITHUB_TOKEN` (or `GH_TOKEN`) to a
 GitHub token for a higher limit. Useful `install.sh` options: `--dir <path>`, `--version 0.2.21`, `--sha256 <hex>`
 and `--force` (replace a development symlink). [Installer details](docs/RELEASE.md).
 
@@ -160,12 +160,13 @@ in a sandbox (a sealed-off area). Use Casper only in projects you trust, or star
 | `/verify` | Run the checks with no model |
 | `/verify repair test` | Let the AI fix a failing test check, with a limit |
 | `/receipt` | Full detail behind the last receipt |
-| `/diff` | Show Git changes |
+| `/diff`, `/undo` | The last task's changes; put its files back |
 | `/output [n]` | Full output of a recent tool call |
 | `/clear`, `/resume` | Start fresh or bring back a chat (does not undo file changes) |
 | `/mcp` | MCP servers: status, connect, writes on/off |
 | `/secrets` | What secret hiding is doing |
 | `/permissions` | What Casper can and cannot do |
+| `/settings` | Turn web lookups, spend notes and other switches on or off by number |
 
 Ctrl+C stops the current work but keeps changes already made. On an empty prompt, a second
 Ctrl+C within two seconds exits; Ctrl+D exits at once.

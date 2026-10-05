@@ -15,6 +15,7 @@ Type a request and press Enter. Esc stops work. Type / for every command.
   /mcp, /lab             Tool servers (writes off until you turn them on); your lab devices
   /references            Search vendor specs you downloaded (/references add gets one)
   /resume, /clear        Pick up a saved conversation, or start a fresh one
+  /settings              Turn web lookups, spend notes and other switches on or off by number
   /help <word>           Search the help; /help all shows everything
 Ctrl+T shows the last step in full. Ctrl+C twice on an empty line exits. Approvals always need a fresh yes from you.
 `;
@@ -91,7 +92,8 @@ Local commands:
   /new <template> <name>            The same without questions; /new --list shows the templates
   /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
   /output all                       Every tool call of the last task on its own line (the screen folds them into a summary)
-  /details [quiet|normal|detailed]  For this session: failures only, steps folded (default), or every step with small diffs; display: in ~/.casper/config.yaml sets the default. Ctrl+T shows the last step in full
+  /details [quiet|normal|detailed] [--session]  Failures only, steps folded (default), or every step with small diffs; remembered like /effort, --session for this session only. Ctrl+T shows the last step in full
+  /settings                         Your switches by number, written to ~/.casper/config.yaml for you: web lookups, the new-version notice, built-in skills, spend notes, spend pause, work shown
   /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
   /permissions                      What each tool may do and when Casper asks you
@@ -196,7 +198,7 @@ Piped line input drops unfinished input when a question opens; NO_COLOR is suppo
 LSP connection runs a configured program. Review .casper/lsp.json first.
 An LSP rename asks you first; one-shot runs can't rename.
 Web lookups (web_search, web_fetch) are on by default and never ask. They reach only public https pages on ports 80 and 443 (http is upgraded), checked again on every redirect; a search or address holding a secret is refused, never sent. Search is DuckDuckGo by default; web: { provider: brave } uses Brave Search with the key saved as "brave" in Casper's login file (~/.casper/agent/auth.json), and web: { provider: searxng, searxngUrl: <address> } your own SearXNG.
-web: off in ~/.casper/config.yaml turns them off; a project file can't change web:.
+/settings turns them off (web: off in ~/.casper/config.yaml); a project file can't change web:.
 Browser tasks use installed Chrome/Chromium (CASPER_BROWSER_EXECUTABLE overrides detection).
 No automatic browser installation, personal profiles, account credentials or arbitrary page scripts.
 Clicks and typing on your own local project pages may go ahead; anything with real effects, or unclear, asks you first. One-shot runs can't ask. Ordinary outside resources still load: this is not isolation.

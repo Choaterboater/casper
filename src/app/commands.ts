@@ -1064,7 +1064,7 @@ async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<v
         host.output.write(skills.length ? skills.map((skill) => [
           `${skill.id} [${skill.source}; ${skill.trust}${skill.disableModelInvocation ? "; manual-only" : ""}]`,
           `  ${JSON.stringify(skill.description)}`,
-          `  ${skill.source === "bundled" ? `${skill.filePath.replace(/^bundled:/, "")} (inside Casper; turn off with skills.bundled: false)` : skill.filePath}`,
+          `  ${skill.source === "bundled" ? `${skill.filePath.replace(/^bundled:/, "")} (inside Casper; /settings turns them off)` : skill.filePath}`,
         ].join("\n")).join("\n\n") + "\n" : "No skills discovered.\n");
       } else if (action === "diagnostics" && !id) {
         host.output.write(registry.diagnostics.length ? registry.diagnostics.join("\n") + "\n" : "No skill warnings.\n");
@@ -1083,7 +1083,7 @@ async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<v
           inspected.body,
           `SHA256: ${inspected.sha256}`,
           inspected.skill.source === "bundled"
-            ? `Bundled with Casper and trusted. /skills block ${id} stops it; skills.bundled: false turns them all off.`
+            ? `Bundled with Casper and trusted. /skills block ${id} stops it; /settings turns them all off.`
             : `After reviewing: /skills trust ${id} ${inspected.sha256}`,
           "",
         ].join("\n"));
@@ -1154,7 +1154,7 @@ export function permissionsText(sandbox: ShellSandbox | undefined): string {
     shell,
     `The AI's file tools (read, edit, write, grep, find, ls) stay out of private places and git's own files and never follow a link out of the project. ${sandbox && !sandbox.asksOutsideWrites
       ? "With the sandbox off, an edit or write outside the project doesn't ask." : "An edit or write outside the project asks first (temp and caches don't; --no-sandbox turns this off)."}`,
-    "Web lookups (web_search, web_fetch) read public pages without asking. Private and local addresses, other ports, and a search or address holding a secret are refused; what comes back has its secrets hidden. web: off in ~/.casper/config.yaml turns them off.",
+    "Web lookups (web_search, web_fetch) read public pages without asking. Private and local addresses, other ports, and a search or address holding a secret are refused; what comes back has its secrets hidden. /settings turns them off.",
     "MCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals. The AI can't approve anything for you.",
     "No SAFE/YOLO or read-only mode is implied. /verify and /services may execute project scripts (the declared checks and service commands). See docs/SECURITY.md.",
   ].join("\n");

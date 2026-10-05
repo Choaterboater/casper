@@ -91,7 +91,7 @@ describe("the app with the pack", () => {
       await app.runOnce("/skills", projectRoot);
       expect(output).toContain("6 indexed (6 bundled)");
       expect(output).toContain("network-mist-api@bundled [bundled; trusted]");
-      expect(output).toContain("skills/network/mist/SKILL.md (inside Casper; turn off with skills.bundled: false)");
+      expect(output).toContain("skills/network/mist/SKILL.md (inside Casper; /settings turns them off)");
       expect(runtime.prompts).toHaveLength(0);
       output = "";
       await app.runOnce("list APs per site in Mist");

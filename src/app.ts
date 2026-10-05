@@ -130,6 +130,8 @@ import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestio
   type NewProjectFlow } from "./app/new-project";
 import { listLines } from "./new/command";
 import { defaultNameFor } from "./new/templates";
+import { runSettings } from "./app/settings";
+import { editUserConfig } from "./config/user-write";
 import { explainModelError } from "./runtime/model-errors";
 import { tildePath, type NewProjectOptions, type NewProjectResult } from "./new/scaffold";
 
@@ -579,13 +581,7 @@ export class CasperApp {
       // A product with no login: the person is asked (never the AI); the AI gets one line back.
       onLoginMissing: (server, product, _signal, trouble) => loginMissingAnswer(this.networkLoginHost(), server, product, trouble) });
     this.lifecycle.add({ name: "references", close: () => this.references!.close() });
-    // Web lookups never ask: the checks in src/web/url.ts hold instead. Off only with web: off in your own config.
-    this.web?.close();
-    const web = context.web ?? DEFAULT_WEB;
-    const loginFile = path.join(casperAgentDir(), "auth.json");
-    this.web = web.enabled ? new WebLookup({ provider: webProvider(web, loginFile), loginValues: loginValuesFrom(loginFile), ...this.webSeams }) : undefined;
-    const lookup = this.web;
-    if (lookup) this.lifecycle.add({ name: "web", close: async () => lookup.close() });
+    this.applyWeb(context);
     this.lifecycle.add({ name: "mcp", close: () => this.broker!.close() });
     this.lifecycle.add({ name: "lsp", close: () => this.lsp!.close() });
     return { project, context, registry, mcp: this.mcp, visualization: this.visualization, lspConfiguration, referenceConfiguration };
@@ -1096,7 +1092,8 @@ export class CasperApp {
 
   /** Local command dispatch moved to app/commands.ts; the app is the command host. */
   private handleSlashCommand(prompt: string): Promise<VerificationReport | undefined> {
-    if (/^\/details(?:\s|$)/.test(prompt)) { this.detailsCommand(prompt.slice(8).trim()); return Promise.resolve(undefined); }
+    if (/^\/details(?:\s|$)/.test(prompt)) return this.detailsCommand(prompt.slice(8).trim()).then(() => undefined);
+    if (prompt.trim() === "/settings") return this.settingsCommand().then(() => undefined);
     if (/^\/new(?:\s|$)/.test(prompt)) return this.newProjectCommand(prompt.slice(4).trim()).then(() => undefined);
     if (/^\/suggestions(?:\s|$)/.test(prompt)) {
       return this.suggestions.command(prompt.slice(12).trim(), this.projectContext).then((text) => { this.output.write(text); return undefined; });
@@ -1247,6 +1244,33 @@ export class CasperApp {
     const result = await offerMissingFolder(this.newProjectFlow(), typed, root, terminalText(folder));
     if (this.closing || !opened(result) || this.commandAbort?.signal.aborted) return;
     await this.openWorkspaceBeforeRuntime(result.dir);
+  }
+
+  /** Web lookups never ask: the checks in src/web/url.ts hold instead. Off only with your own setting (/settings). */
+  private applyWeb(context: ProjectContext): void {
+    this.web?.close();
+    const web = context.web ?? DEFAULT_WEB;
+    const loginFile = path.join(casperAgentDir(), "auth.json");
+    this.web = web.enabled ? new WebLookup({ provider: webProvider(web, loginFile), loginValues: loginValuesFrom(loginFile), ...this.webSeams }) : undefined;
+    const lookup = this.web;
+    if (lookup) this.lifecycle.add({ name: "web", close: async () => lookup.close() });
+  }
+
+  /** /settings: the off switches by number; a change is written to ~/.casper/config.yaml and applies from now on. */
+  private settingsCommand(): Promise<void> {
+    return runSettings({
+      output: this.output, homeDir: () => this.homeDir(), canAsk: this.interactive && this.terminal.canAsk,
+      context: async () => this.projectContext,
+      reload: async () => {
+        const before = this.projectContext;
+        if (!before) return;
+        try { this.projectContext = await this.loadProjectContextFn(before.info); } catch { return; }
+        this.applyWeb(this.projectContext);
+        // A new default for the work shown replaces this session's /details choice.
+        if (this.projectContext.display !== before.display) this.displayChoice = undefined;
+      },
+      ask: async (question, options, signal) => (await this.terminal.ask(question, options, false, signal))?.[0],
+    }, this.commandAbort?.signal);
   }
 
   /** The banner's checks line; none when there is nothing to check yet and checking is on (/status still says it). */
@@ -3180,7 +3204,7 @@ export class CasperApp {
         if (answer === "Keep going") { guard.keepGoing(spent.cost); return undefined; }
       } else {
         this.events.ensureLineBreak();
-        this.output.write(`[spend] ${used} Casper stops here, at the ${formatLimit(limit)} limit for one task; the work so far is kept. spend.pauseAt in ~/.casper/config.yaml changes it.\n`);
+        this.output.write(`[spend] ${used} Casper stops here, at the ${formatLimit(limit)} limit for one task; the work so far is kept. /settings changes the limit.\n`);
       }
       this.taskSpendStop = { spent: spent.cost, limit };
       return SPEND_STOP_REASON;
@@ -3192,16 +3216,24 @@ export class CasperApp {
   /** How much of the work shows: /details for this session, else display: in your config, else normal. */
   private displayLevel(): DisplayLevel { return this.displayChoice ?? this.projectContext?.display ?? "normal"; }
 
-  /** /details [quiet|normal|detailed]: no word goes to the next level. For this session; the config keeps the default. */
-  private detailsCommand(argument: string): void {
-    if (argument && !DISPLAY_LEVELS.some(level => level === argument)) throw new Error("Usage: /details [quiet|normal|detailed]");
-    this.displayChoice = (argument as DisplayLevel) || nextDisplay(this.displayLevel());
+  /** /details [quiet|normal|detailed] [--session]: no word goes to the next level. Remembered like /effort (display:
+   * in ~/.casper/config.yaml, written for you); --session keeps it to this session. */
+  private async detailsCommand(argument: string): Promise<void> {
+    const session = /(?:^|\s)--session$/.test(argument);
+    const level = argument.replace(/(?:^|\s)--session$/, "").trim();
+    if (level && !DISPLAY_LEVELS.some(known => known === level)) throw new Error("Usage: /details [quiet|normal|detailed] [--session]");
+    this.displayChoice = (level as DisplayLevel) || nextDisplay(this.displayLevel());
     const words: Record<DisplayLevel, string> = {
       quiet: "the model's words, failures and receipts",
       normal: "steps fold into one summary line",
       detailed: "every step, with a small diff under each edit",
     };
-    this.output.write(`[details] ${this.displayChoice}: ${words[this.displayChoice]}. For this session; display: in ~/.casper/config.yaml sets the default.\n`);
+    let saved = false;
+    if (!session) {
+      try { await editUserConfig(this.homeDir(), ["display"], this.displayChoice); saved = true; }
+      catch (error) { this.output.write(`[details] Not saved (${terminalText(error instanceof Error ? error.message : String(error))}); for this session only.\n`); }
+    }
+    this.output.write(`[details] ${this.displayChoice}: ${words[this.displayChoice]}. ${saved ? "Saved; /details <level> --session changes only this session." : "For this session only."}\n`);
   }
 
   private expandLastStep(): void {

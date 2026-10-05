@@ -47,7 +47,8 @@ over the network, and `/references add` downloads files after asking you.
 | `/new [name]` | Start a new project in ~/Projects (no model; [NEW.md](NEW.md)) |
 | `/plan <request>` | Plan first: the model writes a plan and cases to test, you edit it, then build |
 | `/suggestions [on\|off]` | List the suggested next steps, or turn them on or off |
-| `/details [quiet\|normal\|detailed]` | How much work shows; Ctrl+T shows the last step in full |
+| `/details [quiet\|normal\|detailed]` | How much work shows, remembered like `/effort` (`--session` for this session only); Ctrl+T shows the last step in full |
+| `/settings` | Turn web lookups, the new-version notice, built-in skills, spend notes and pause, and the work shown on or off by number ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
 | `/output [n\|all]` | Full command and output of a recent tool call from the last task |
 | `/receipt [n\|list]` | The last task's receipt in detail, a saved one, or the last 10 |
 | `/verify [checks]`, `/verify repair`, `/verify add <name>` | Run the project's checks; repair failures; save a check Casper found ([VERIFICATION.md](VERIFICATION.md)) |
