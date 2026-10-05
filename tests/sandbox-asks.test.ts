@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createSessionSandbox, runtimeShell, SHELL_CANT_ASK, SHELL_DECLINED, type SandboxHost } from "../src/app/sandbox";
+import { createSessionSandbox, runtimeShell, SHELL_CANT_ASK, SHELL_DECLINED, writeCantAsk, type SandboxHost } from "../src/app/sandbox";
 import { HOST_CHOICES, REACH_CHOICES, SHELL_COMMAND_CHOICES } from "../src/app/safe-choices";
 import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
@@ -87,7 +87,7 @@ test("a run that can't ask blocks the host at once and says so once", async () =
   expect(await engine.ask!("api.mist.com", 443)).toBe(false);
   expect(await engine.ask!("api.mist.com", 443)).toBe(false);
   expect(terminal.asked).toEqual([]);
-  expect(terminal.written).toEqual(["[sandbox] Blocked api.mist.com (this run can't ask). Allow it in a session first (Yes, always for this project), or add it to sandbox.allowedDomains in ~/.casper/config.yaml.\n"]);
+  expect(terminal.written).toEqual(["[sandbox] Blocked api.mist.com (this run can't ask). To allow it for one run: --allow-host api.mist.com. Or allow it in a session (Yes, always for this project).\n"]);
   await sandbox.close();
 });
 
@@ -333,13 +333,36 @@ test("a machine on your lab list doesn't ask before ssh; /lab ssh off makes it a
   await sandbox.close();
 });
 
+test("a run that can't ask takes --allow-host, --allow-write and --allow-reach for this run, and its refusals name them", async () => {
+  const { home, project, context } = await labFixture();
+  const engine = fakeEngine();
+  const terminal = host([], false);
+  const shared = path.join(home, "shared");
+  await mkdir(shared);
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home,
+    allow: { hosts: ["api.mist.com"], writes: [shared], reach: ["build-server"] }, seams: { engine, problem: () => undefined, platform: "linux" } });
+  const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+  await sandbox.wrap("true", { cwd: project });
+  expect(await engine.ask!("api.mist.com", 443)).toBe(true);
+  expect(sandbox.writeAllowed(path.join(shared, "notes.txt"))).toBe(true);
+  expect(await shell.approve!("ssh build-server uptime")).toBeUndefined();
+  expect(await shell.approve!("ssh deploy@198.51.100.20 uptime")).toBeUndefined();
+  expect(terminal.asked).toEqual([]);
+  // Anything else is refused, and the refusal says which flag allows it.
+  expect(await engine.ask!("collector.example", 443)).toBe(false);
+  expect(terminal.written.join("")).toContain("--allow-host collector.example");
+  expect(await shell.approve!("ssh 10.9.9.9 uptime")).toContain("--allow-reach 10.9.9.9");
+  expect(writeCantAsk("~/other")).toContain("--allow-write ~/other");
+  await sandbox.close();
+});
+
 test("a run that can't ask refuses ssh with a plain line and never waits, with the sandbox on, off or unable to run", async () => {
   for (const seams of [{ problem: () => undefined, platform: "linux" as const }, { problem: () => undefined, platform: "linux" as const, noSandboxFlag: true }, { platform: "win32" as const }]) {
     const { home, project, context } = await labFixture();
     const terminal = host([], false);
     const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), ...seams } });
     const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
-    expect(await shell.approve!("ssh root@build-server 'pveum user token add root@pam sampleapp'")).toBe("Not run: this command reaches 198.51.100.20 (build-server), another machine, and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user; they can run it themselves or in a Casper session.");
+    expect(await shell.approve!("ssh root@build-server 'pveum user token add root@pam sampleapp'")).toBe("Not run: this command reaches 198.51.100.20 (build-server), another machine, and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user; they can run it themselves, in a Casper session, or with --allow-reach build-server for one run.");
     expect(terminal.written).toEqual(["[shell] Not run: the AI's command reaches 198.51.100.20 (build-server), and this run can't ask you. Nothing was sent.\n"]);
     expect(terminal.asked).toEqual([]);
     await sandbox.close();

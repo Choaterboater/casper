@@ -102,7 +102,7 @@ test("a run that can't ask refuses the shell write at once with the allowWrite f
   const s = await session([], { canAsk: false, refuse: () => [`deny(1) file-write-create ${path.join(s.app, "config.json")}`] });
   const run = await s.shell.wrap("touch config.json", s.project);
   expect(await s.shell.refused!(run.id!, "")).toContain(writeCantAsk(FOLDER));
-  expect(writeCantAsk(FOLDER)).toBe(`${FOLDER} is outside this project and this run can't ask. To allow it, add it to sandbox.allowWrite in ~/.casper/config.yaml.`);
+  expect(writeCantAsk(FOLDER)).toBe(`${FOLDER} is outside this project and this run can't ask. To allow it for one run: --allow-write ${FOLDER}.`);
   expect(s.terminal.asked).toEqual([]);
   await s.sandbox.close();
 });

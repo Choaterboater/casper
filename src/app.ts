@@ -119,7 +119,7 @@ import { StepRail } from "./app/steps";
 import { CASPER_VERSION } from "./version";
 import type { Install } from "./update/command";
 import { refreshUpdateCheck, updateChecksOff, updateNotice } from "./update/notice";
-import { createSessionSandbox, outsideWritesReceipt, runtimeShell, sandboxReceipt, sandboxStartupNotes, sandboxStatusLine, type SandboxHost } from "./app/sandbox";
+import { createSessionSandbox, outsideWritesReceipt, runtimeShell, sandboxReceipt, sandboxStartupNotes, sandboxStatusLine, type RunAllowances, type SandboxHost } from "./app/sandbox";
 import { useSandbox, currentSandbox, type ShellSandbox, type ShellSandboxOptions } from "./sandbox/manager";
 import { SandboxStore } from "./sandbox/store";
 import { loginMissingAnswer, type LoginHost } from "./mcp/network/ask-login";
@@ -191,6 +191,8 @@ export interface CasperAppOptions {
   networkSeams?: { install?: SetupHost["install"] };
   /** --no-sandbox: the shell sandbox is off for this run, and the receipt says so. */
   noSandbox?: boolean;
+  /** --allow-host, --allow-write (absolute folders) and --allow-reach: allowed for this run without asking. */
+  allow?: RunAllowances;
   /** Tests: the sandbox's engine, machine check or platform. */
   sandboxSeams?: Partial<ShellSandboxOptions>;
   /** Tests: the web lookups' transport, DNS, clock, provider or login keys. */
@@ -406,6 +408,7 @@ export class CasperApp {
   sandbox?: ShellSandbox;
   private shell?: RuntimeShell & { close(): Promise<void> };
   private readonly noSandbox: boolean;
+  private readonly allow?: RunAllowances;
   private readonly sandboxSeams?: Partial<ShellSandboxOptions>;
   /** web_search and web_fetch for this workspace; unset when web: off. */
   private web?: WebLookup;
@@ -502,6 +505,7 @@ export class CasperApp {
     this.newProjectRequest = options.newProject;
     this.createProjectFn = options.createProject;
     this.noSandbox = options.noSandbox ?? false;
+    this.allow = options.allow;
     this.sandboxSeams = options.sandboxSeams;
     this.webSeams = options.webSeams;
   }
@@ -546,7 +550,7 @@ export class CasperApp {
     await this.lifecycle.close("sandbox").catch(() => {});
     const host = this.sandboxHost();
     const sandbox = this.sandbox = createSessionSandbox(host, context, { root: () => this.activeWorkspaceRoot(), home: this.sessionHomeDir ?? os.homedir(),
-      noSandbox: this.noSandbox, ...(this.sandboxSeams ? { seams: this.sandboxSeams } : {}) });
+      noSandbox: this.noSandbox, ...(this.allow ? { allow: this.allow } : {}), ...(this.sandboxSeams ? { seams: this.sandboxSeams } : {}) });
     this.shell = runtimeShell(host, sandbox, new SandboxStore(context.stateDirectory));
     useSandbox(sandbox);
     this.lifecycle.add({ name: "sandbox", close: async () => {

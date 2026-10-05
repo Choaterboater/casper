@@ -97,6 +97,9 @@ Usage:
   casper --verify ...  Casper runs the checks after this run's edits, with bounded repair (auto)
   casper --no-verify   No Casper checks during tasks for this run (off)
   casper --no-sandbox ...  Shell commands and checks run with your own permissions for this run (the receipt says so)
+  casper --allow-host <host> ...  Shell commands may reach this host for this run, without asking (repeat for more)
+  casper --allow-write <folder> ...  Shell commands and the AI's edits may write this folder for this run
+  casper --allow-reach <host> ...  The AI's ssh and scp may reach this machine for this run, without asking
   casper --verbose ... Detailed evidence receipts and per-check lines
   casper --json <prompt>  JSON Lines events on stdout (see docs/SCRIPTING.md); other output to stderr
   casper --json - < f     Read the prompt from stdin (kept out of the process list)

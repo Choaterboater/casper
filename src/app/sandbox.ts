@@ -41,7 +41,7 @@ export const shellQuestion = (command: string) => `Run this command?  ${shownCom
 /** "Reach 10.0.0.5 (build-server)?  ssh root@build-server uptime" */
 export const reachQuestion = (target: RemoteTarget, command: string) => `Reach ${terminalText(targetLabel(target))}?  ${shownCommand(command)}`;
 /** The AI reads these when a command to another machine does not run. */
-export const reachCantAsk = (target: RemoteTarget) => `Not run: this command reaches ${targetLabel(target)}${target.unclear ? "" : ", another machine,"} and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user; they can run it themselves or in a Casper session.`;
+export const reachCantAsk = (target: RemoteTarget) => `Not run: this command reaches ${targetLabel(target)}${target.unclear ? "" : ", another machine,"} and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user; they can run it themselves${target.unclear ? " or in a Casper session" : `, in a Casper session, or with --allow-reach ${target.typed} for one run`}.`;
 export const reachDeclined = (target: RemoteTarget) => `Not run: the user said no to reaching ${targetLabel(target)}. Don't try it again another way; ask the user what to do instead.`;
 export const SHELL_CANT_ASK = "Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.";
 export const SHELL_DECLINED = "Not run: the user said no to this command. Don't run it again; ask the user what to do instead.";
@@ -51,15 +51,21 @@ export const writePlaces = (places: string[]) => places.length > 1 ? `${places.s
 export const SANDBOX_REFUSED = "The sandbox refuses this every time. Don't retry it or work around it, not with the write or edit tool either. If the task needs it, say in one line what was blocked. No helper scripts for the user to run outside Casper.";
 export const writeAllowedLine = (folder: string) => `[sandbox] The user allowed writes to ${folder} for this session. Run the command again.`;
 export const writeDeclined = (folder: string) => `The user said no to writing ${folder}. Don't retry it or work around it.`;
-export const writeCantAsk = (folder: string) => `${folder} is outside this project and this run can't ask. To allow it, add it to sandbox.allowWrite in ~/.casper/config.yaml.`;
+export const writeCantAsk = (folder: string) => `${folder} is outside this project and this run can't ask. To allow it for one run: --allow-write ${folder}.`;
 export const PI_SANDBOX_IGNORED = "[sandbox] Ignored .pi/sandbox.json: a project can't loosen the sandbox.";
 
+/** --allow-host, --allow-write and --allow-reach: what this run allows without asking (folders absolute). */
+export interface RunAllowances { hosts?: string[]; writes?: string[]; reach?: string[] }
+
 export function createSessionSandbox(host: SandboxHost, context: ProjectContext, options: { root: () => string; home: string; noSandbox?: boolean;
-  seams?: Partial<ShellSandboxOptions> }): ShellSandbox {
+  allow?: RunAllowances; seams?: Partial<ShellSandboxOptions> }): ShellSandbox {
   const store = new SandboxStore(context.stateDirectory);
   return new ShellSandbox({
     root: options.root, home: options.home, agentDir: casperAgentDir(), settings: context.sandbox ?? {}, store,
     ...(options.noSandbox ? { noSandboxFlag: true } : {}),
+    ...(options.allow?.hosts?.length ? { allowHosts: options.allow.hosts } : {}),
+    ...(options.allow?.writes?.length ? { allowWrites: options.allow.writes } : {}),
+    ...(options.allow?.reach?.length ? { allowReach: options.allow.reach } : {}),
     askHost: (name) => host.canAsk() ? host.pick(hostQuestion(name), [...HOST_CHOICES]).then((answer): HostAnswer =>
       answer === YES_ONCE ? "once" : answer === YES_SESSION ? "session" : answer === YES_ALWAYS ? "project" : "no") : undefined,
     askWrite: (targets, from) => {
@@ -91,6 +97,10 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
   /** Commands you said yes to just now, with the hosts they reach (wrap lets them through). */
   const cleared = new Map<string, RemoteTarget[]>();
   const said = new Set<string>();
+  /** --allow-reach: a machine allowed for this run, by the name the command typed or the address it resolves to. */
+  // An alias from ~/.ssh/config counts by its real address too.
+  const runReach = sandbox.allowedReach.flatMap((entry) => [entry.toLowerCase(), ...remoteTargets(`ssh ${entry}`, sandbox.home).map((target) => target.host)]);
+  const allowedForRun = (target: RemoteTarget): boolean => runReach.includes(target.typed.toLowerCase()) || runReach.includes(target.host);
   /** A device on your lab list, by the name the command typed or the address it resolves to (unless /lab ssh off). */
   const onLabList = async (target: RemoteTarget): Promise<boolean> => {
     const lab = (host.labHosts?.() ?? []).map((entry) => entry.toLowerCase());
@@ -105,7 +115,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
     let asked = false;
     for (const target of targets) {
       // A machine named as $HOST could be any machine: it always asks.
-      if (!target.unclear && (sessionReach.has(target.host) || (await store.reachHosts()).includes(target.host) || await onLabList(target))) continue;
+      if (!target.unclear && (sessionReach.has(target.host) || allowedForRun(target) || (await store.reachHosts()).includes(target.host) || await onLabList(target))) continue;
       if (!host.canAsk()) {
         sayOnce(`[shell] Not run: the AI's command reaches ${targetLabel(target)}, and this run can't ask you. Nothing was sent.`);
         return { refused: reachCantAsk(target), asked };

@@ -49,7 +49,9 @@ the operating system, not a list of words:
   package tools, git) asks `A shell command wants to reach api.mist.com. Allow it?` with
   `1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project` (2 allows that one
   connection). Enter keeps it blocked. A run that
-  can't ask (one-shot, `--json`, piped) blocks it and says `[sandbox] Blocked api.mist.com (this run can't ask).`
+  can't ask (one-shot, `--json`, piped) blocks it and says `[sandbox] Blocked api.mist.com (this run can't ask).
+  To allow it for one run: --allow-host api.mist.com.` The same goes for writes (`--allow-write <folder>`)
+  and ssh (`--allow-reach <host>`): each allows just that one thing, for that run only.
   A program that connects straight to an address without the proxy (`nc`, `telnet`, `socat`, and `ssh`
   on macOS) can't reach other machines from inside the sandbox; Casper says so when it sees one.
 - **Other machines (ssh, scp, sftp, rsync, nc, telnet, socat).** From v0.2.19, before the AI's shell runs

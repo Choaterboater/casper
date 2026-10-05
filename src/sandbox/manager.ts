@@ -57,6 +57,11 @@ export interface ShellSandboxOptions {
   settings?: { user?: SandboxUserSettings; project?: SandboxProjectSettings };
   /** --no-sandbox: the explicit opt-out, reported on the receipt. */
   noSandboxFlag?: boolean;
+  /** --allow-host and --allow-write: hosts and absolute folders allowed for this run, as if you said yes for the session. */
+  allowHosts?: string[];
+  allowWrites?: string[];
+  /** --allow-reach: machines the AI's ssh and scp may reach for this run (the shell's Reach question reads this). */
+  allowReach?: string[];
   /** Tests: the runtime seam and the machine check. */
   engine?: SandboxEngine;
   problem?: () => string | undefined;
@@ -113,6 +118,8 @@ export class ShellSandbox {
   constructor(private readonly options: ShellSandboxOptions) {
     this.engine = options.engine ?? sandboxDefaults.engine?.() ?? runtimeEngine();
     this.state = ShellSandbox.detect(options);
+    for (const host of options.allowHosts ?? []) this.sessionHosts.add(hostName(host));
+    for (const folder of options.allowWrites ?? []) this.sessionWrites.push(realpathLongest(path.resolve(folder)));
   }
 
   /** Whether and why the sandbox holds commands on this machine. */
@@ -140,6 +147,8 @@ export class ShellSandbox {
    * (--no-sandbox, sandbox: off): then they go through as before. */
   get asksOutsideWrites(): boolean { return this.state.kind !== "off"; }
   get user(): SandboxUserSettings { return this.options.settings?.user ?? {}; }
+  /** --allow-reach: machines allowed for this run. */
+  get allowedReach(): readonly string[] { return this.options.allowReach ?? []; }
   /** What this project's answers keep in ~/.casper (hosts, machines ssh may reach, commands). */
   get store(): SandboxStore | undefined { return this.options.store; }
 
@@ -345,7 +354,7 @@ export class ShellSandbox {
       if (!answer) {
         if (!this.blockedSaid.has(name)) {
           this.blockedSaid.add(name);
-          this.options.note?.(`[sandbox] Blocked ${name}${port && port !== 443 && port !== 80 ? `:${port}` : ""} (this run can't ask). Allow it in a session first (Yes, always for this project), or add it to sandbox.allowedDomains in ~/.casper/config.yaml.`);
+          this.options.note?.(`[sandbox] Blocked ${name}${port && port !== 443 && port !== 80 ? `:${port}` : ""} (this run can't ask). To allow it for one run: --allow-host ${name}. Or allow it in a session (Yes, always for this project).`);
         }
         return false;
       }

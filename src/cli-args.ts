@@ -16,6 +16,12 @@ export interface CliOptions {
   noVerify: boolean;
   /** --no-sandbox: shell commands and checks run with your own permissions for this run (said on the receipt). */
   noSandbox?: boolean;
+  /** --allow-host <host>: the sandbox lets shell commands reach this host for this run, without asking. */
+  allowHosts?: string[];
+  /** --allow-write <folder>: shell commands and the AI's edits may write this folder outside the project, for this run. */
+  allowWrites?: string[];
+  /** --allow-reach <host>: the AI's ssh, scp and the like may reach this machine for this run, without asking. */
+  allowReach?: string[];
   verbose: boolean;
   /** A one-shot run that ends without Casper's proof exits 3. Implies --verify. */
   requireVerification: boolean;
@@ -70,11 +76,17 @@ const USAGES: Record<SubcommandName, () => string> = {
 };
 
 /** Every leading option the parser accepts; /help all must document each one. */
-export const CLI_OPTIONS = ["--json", "--max-turns", "--cd", "--continue", "--resume", "--model", "--effort", "--verify", "--no-verify", "--no-sandbox", "--verbose", "--require-verification", "--mcp", "--lsp",
+export const CLI_OPTIONS = ["--json", "--max-turns", "--cd", "--continue", "--resume", "--model", "--effort", "--verify", "--no-verify", "--no-sandbox", "--allow-host", "--allow-write", "--allow-reach", "--verbose", "--require-verification", "--mcp", "--lsp",
   "--help", "--version", "--licenses"] as const;
 
 /** Options that take a value, as `--name value` or `--name=value`. */
-const VALUE_OPTIONS = new Set(["--max-turns", "--cd", "--resume", "--model", "--effort", "--mcp", "--lsp"]);
+const VALUE_OPTIONS = new Set(["--max-turns", "--cd", "--resume", "--model", "--effort", "--mcp", "--lsp", "--allow-host", "--allow-write", "--allow-reach"]);
+/** The one-run allow flags: the option they fill and what their value names. */
+const ALLOW_FLAGS = {
+  "--allow-host": { key: "allowHosts", what: "a host", shown: "<host>" },
+  "--allow-write": { key: "allowWrites", what: "a folder", shown: "<folder>" },
+  "--allow-reach": { key: "allowReach", what: "a machine", shown: "<host>" },
+} as const;
 
 const SERVER_NAME = /^[a-zA-Z0-9_.][a-zA-Z0-9_.-]{0,63}$/;
 
@@ -109,6 +121,11 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
       if (!value || !SERVER_NAME.test(value)) throw new UsageError(`${flag} requires a configured server name`);
       const list = flag === "--lsp" ? options.languageServers : options.servers;
       if (!list.includes(value)) list.push(value);
+    } else if (flag && flag in ALLOW_FLAGS) {
+      const allow = ALLOW_FLAGS[flag as keyof typeof ALLOW_FLAGS];
+      if (!value?.trim() || value.startsWith("-") || (allow.key !== "allowWrites" && /\s/.test(value))) throw new UsageError(`${flag} needs ${allow.what}: ${flag} ${allow.shown}`);
+      const list = options[allow.key] ??= [];
+      if (!list.includes(value.trim())) list.push(value.trim());
     } else if (flag === "--max-turns") {
       if (!value || !/^[1-9]\d{0,3}$/.test(value)) throw new UsageError("--max-turns needs a whole number from 1 to 9999");
       options.maxTurns = Number(value);
