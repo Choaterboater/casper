@@ -7,6 +7,7 @@ import { PassThrough } from "node:stream";
 import { WORDMARK_COLUMNS, wordmarkHeader } from "../src/tui/banner";
 import { formatRuntimeStatus, noModelFooter, formatToolActivity, markdownTheme, redactPreview, terminalText } from "../src/tui/format";
 import { InteractiveTerminal } from "../src/tui/terminal";
+import { hasSignIn } from "../src/tui/model-preference";
 import { posixOnly } from "./support/platform";
 import { cleanEnv } from "./support/env";
 
@@ -200,4 +201,19 @@ test("the screen keeps 'token add' readable and leaves Casper's own <secret hidd
   expect(redactPreview("ssh build-server 'pveum user token add root@pam sampleapp --privsep 0'")).toBe("ssh build-server 'pveum user token add root@pam sampleapp --privsep 0'");
   expect(redactPreview("sshpass -p '<secret hidden>' ssh root@10.0.0.5 id")).toBe("sshpass -p '<secret hidden>' ssh root@10.0.0.5 id");
   expect(redactPreview("--password '<secret hidden>' x; token: abc123")).toBe("--password '<secret hidden>' x; token: <redacted>");
+});
+
+test("only a known provider's key counts as signed in, not any *_API_KEY variable", async () => {
+  const agent = await mkdtemp(path.join(os.tmpdir(), "casper-signin-")); roots.push(agent);
+  expect(await hasSignIn(agent, {})).toBe(false);
+  expect(await hasSignIn(agent, { STRIPE_API_KEY: "x", MIST_API_KEY: "y" })).toBe(false);
+  expect(await hasSignIn(agent, { OPENROUTER_API_KEY: "" })).toBe(false);
+  expect(await hasSignIn(agent, { OPENROUTER_API_KEY: "x" })).toBe(true);
+  expect(await hasSignIn(agent, { GROQ_API_KEY: "x" })).toBe(true);
+  expect(await hasSignIn(agent, { ANTHROPIC_OAUTH_TOKEN: "x" })).toBe(true);
+  expect(await hasSignIn(agent, { AWS_BEARER_TOKEN_BEDROCK: "x" })).toBe(true);
+  // Casper's own secrets are not a model sign-in.
+  expect(await hasSignIn(agent, { CASPER_API_KEY: "x" })).toBe(false);
+  await writeFile(path.join(agent, "auth.json"), JSON.stringify({ openrouter: { type: "api_key", key: "x" } }));
+  expect(await hasSignIn(agent, {})).toBe(true);
 });

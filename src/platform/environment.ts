@@ -41,6 +41,11 @@ const EXTRA_PROVIDER_NAMES = ["AWS_BEARER_TOKEN_BEDROCK"];
 /** Casper's and Pi's own variables that hold a secret. */
 const OWN_SECRET = /^(?:CASPER|PI)_.*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY|PRIVATE_KEY|CREDENTIAL)/i;
 
+/** True when `name` is a variable Pi reads a model provider's key or login from (not Casper's own secrets). */
+export function isModelProviderKeyName(name: string): boolean {
+  return PROVIDER_KEY_NAMES.includes(name) || EXTRA_PROVIDER_NAMES.includes(name);
+}
+
 /** True when `name` is an AI provider key or one of Casper's own secrets. */
 export function isProviderKeyName(name: string): boolean {
   const upper = name.toUpperCase();
