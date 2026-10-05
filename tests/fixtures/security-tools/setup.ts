@@ -1,14 +1,59 @@
 import { spawnSync } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ToolLocation } from "../../../src/security/install";
 import type { SecurityToolSpec } from "../../../src/security/tools";
 import type { SecurityToolId } from "../../../src/security/types";
 
-export type FakeBehaviour = "canned" | "clean" | "crash" | "hang" | "garbage" | "missing";
+/** semgrep has no Windows build, so Casper doesn't run it there (src/security/run.ts) and reports it as not run. */
+export const SEMGREP_RUNS = process.platform !== "win32";
+export const SEMGREP_NOT_ON_WINDOWS = "not run on Windows (semgrep needs Linux or macOS)";
+
+export type FakeBehaviour ="canned" | "clean" | "crash" | "hang" | "garbage" | "missing";
 
 const FAKE = path.join(import.meta.dir, "fake-tool.ts");
+const LAUNCHER = path.join(import.meta.dir, "launcher.ts");
+
+let launcherExe: Promise<string> | undefined;
+
+/** launcher.ts built into an .exe once per version of it, shared by every test (Windows only). */
+function windowsLauncher(): Promise<string> {
+  launcherExe ??= (async () => {
+    const hash = createHash("sha256").update(await readFile(LAUNCHER)).update(Bun.version).digest("hex").slice(0, 16);
+    const exe = path.join(os.tmpdir(), `casper-test-launcher-${hash}.exe`);
+    if (await stat(exe).then((details) => details.isFile(), () => false)) return exe;
+    const building = path.join(os.tmpdir(), `casper-test-launcher-${hash}-${process.pid}-${Date.now()}.exe`);
+    const built = spawnSync(process.execPath, ["build", "--compile", LAUNCHER, "--outfile", building], { encoding: "utf8", windowsHide: true });
+    if (built.status !== 0) throw new Error(`could not build the test launcher: ${built.stderr}`);
+    // Another test process may have built it first: either copy is the same program.
+    await rename(building, exe).catch(async () => { await rm(building, { force: true }); });
+    return exe;
+  })();
+  return launcherExe;
+}
+
+/**
+ * A program `dir/<name>` that runs `argv` with its own arguments added. A "#!/bin/sh" script on macOS and Linux;
+ * on Windows, which can't start a script, `dir/<name>.exe` (the built launcher) with the command in `<name>.launch.json`.
+ * Returns the program's path.
+ */
+export async function fakeProgram(dir: string, name: string, argv: string[]): Promise<string> {
+  if (process.platform !== "win32") {
+    const file = path.join(dir, name);
+    await writeFile(file, `#!/bin/sh\nexec ${argv.map((arg) => JSON.stringify(arg)).join(" ")} "$@"\n`);
+    await chmod(file, 0o755);
+    return file;
+  }
+  const file = path.join(dir, `${name}.exe`);
+  await writeFile(path.join(dir, `${name}.launch.json`), JSON.stringify({ argv }));
+  await rm(file, { force: true });
+  const launcher = await windowsLauncher();
+  // A link is instant; a copy (another drive) is the fallback.
+  await link(launcher, file).catch(() => copyFile(launcher, file));
+  return file;
+}
 
 /** Writes one wrapper per tool that runs fake-tool.ts, and a find() that points the engine at them. */
 export async function fakeTools(dir: string, behaviours: Partial<Record<SecurityToolId, FakeBehaviour>> = {}) {
@@ -19,9 +64,7 @@ export async function fakeTools(dir: string, behaviours: Partial<Record<Security
   const find = async (spec: SecurityToolSpec): Promise<ToolLocation> => {
     const behaviour = behaviours[spec.id] ?? "canned";
     if (behaviour === "missing") return { kind: "missing" };
-    const wrapper = path.join(bin, spec.id);
-    await writeFile(wrapper, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE)} ${spec.id} ${JSON.stringify(record)} ${behaviour} "$@"\n`);
-    await chmod(wrapper, 0o755);
+    const wrapper = await fakeProgram(bin, spec.id, [process.execPath, FAKE, spec.id, record, behaviour]);
     return { kind: "pinned", path: wrapper, version: spec.version };
   };
   const recorded = async (id: SecurityToolId): Promise<{ args: string[]; env: Record<string, string>; cwd: string } | undefined> => {

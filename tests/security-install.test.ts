@@ -6,8 +6,8 @@ import path from "node:path";
 import { findTool, installedVersion, installLockedSpec, installQuestion, installTool, lockedEntryPath, numberedChoices, ownCopyLine, UV_MISSING } from "../src/security/install";
 import { SecurityCheck } from "../src/security/run";
 import type { ToolRunner } from "../src/security/spawn";
-import { hostPlatform, pinnedToolDir, SECURITY_TOOLS, type LockedSpec, type SecurityToolSpec } from "../src/security/tools";
-import { fakeTools, fixtureRepo, run } from "./fixtures/security-tools/setup";
+import { hostPlatform, pinnedToolDir, pinnedToolPath, SECURITY_TOOLS, type LockedSpec, type SecurityToolSpec } from "../src/security/tools";
+import { fakeProgram, fakeTools, fixtureRepo, run, SEMGREP_NOT_ON_WINDOWS, SEMGREP_RUNS } from "./fixtures/security-tools/setup";
 
 const temps: string[] = [];
 afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
@@ -70,7 +70,7 @@ test("a matching tar.gz download is unpacked into ~/.casper/tools/<id>-<version>
   expect(result).toMatchObject({ ok: true, message: "gitleaks 8.30.1 installed" });
   expect(fetched).toHaveLength(1);
   expect(await readdir(pinnedToolDir(home, spec))).toEqual([".casper-installed.json", "bin"]);
-  expect(await findTool(spec, { homeDir: home, env: { PATH: "" } })).toEqual({ kind: "pinned", path: path.join(pinnedToolDir(home, spec), "bin", "gitleaks"), version: "8.30.1" });
+  expect(await findTool(spec, { homeDir: home, env: { PATH: "" } })).toEqual({ kind: "pinned", path: pinnedToolPath(home, spec), version: "8.30.1" });
   // Only the pinned file counts: a copy whose marker names another checksum is not Casper's.
   const other = fakeBinarySpec(bytes, "tar.gz", "f".repeat(64));
   expect((await findTool(other, { homeDir: home, env: { PATH: "" } })).kind).toBe("missing");
@@ -86,8 +86,7 @@ test("Python tools need uv; without it the install says so and leaves nothing be
 test("a hash-locked install runs uv with --require-hashes and no source builds", async () => {
   const home = await temp("casper-security-install-");
   const bin = await temp("casper-security-uv-");
-  await writeFile(path.join(bin, "uv"), "#!/bin/sh\nexit 0\n");
-  await chmod(path.join(bin, "uv"), 0o755);
+  await fakeUv(bin);
   const calls: string[][] = [];
   const result = await installTool(SECURITY_TOOLS.ruff, {
     homeDir: home, env: { PATH: bin, MIST_APITOKEN: "abc123" },
@@ -95,9 +94,9 @@ test("a hash-locked install runs uv with --require-hashes and no source builds",
       calls.push([...options.args]);
       expect(options.env.MIST_APITOKEN).toBeUndefined();
       if (options.args[0] === "pip") {
-        const venvBin = path.join(pinnedToolDir(home, SECURITY_TOOLS.ruff), "venv", "bin");
-        await mkdir(venvBin, { recursive: true });
-        await writeFile(path.join(venvBin, "ruff"), "");
+        const entry = pinnedToolPath(home, SECURITY_TOOLS.ruff);
+        await mkdir(path.dirname(entry), { recursive: true });
+        await writeFile(entry, "");
       }
       return { exitCode: 0, signal: null, stdout: "", stderr: "" };
     },
@@ -113,10 +112,9 @@ test("a hash-locked install runs uv with --require-hashes and no source builds",
 test("your own copy on PATH is used and shown with its version next to Casper's pin", async () => {
   const home = await temp("casper-security-install-");
   const bin = await temp("casper-security-path-");
-  await writeFile(path.join(bin, "gitleaks"), "#!/bin/sh\necho 8.18.0\n");
-  await chmod(path.join(bin, "gitleaks"), 0o755);
+  const own = await fakeProgram(bin, "gitleaks", [process.execPath, "-e", "console.log('8.18.0')"]);
   const location = await findTool(SECURITY_TOOLS.gitleaks, { homeDir: home, env: { PATH: bin } });
-  expect(location).toEqual({ kind: "path", path: path.join(bin, "gitleaks"), version: "8.18.0" });
+  expect(location).toEqual({ kind: "path", path: own, version: "8.18.0" });
   expect(ownCopyLine(SECURITY_TOOLS.gitleaks, location)).toBe("gitleaks: using your 8.18.0 (Casper pins 8.30.1)");
 });
 
@@ -132,8 +130,8 @@ test("a check with tools missing reports them and downloads nothing ('2 Run what
   const home = await temp("casper-security-install-");
   const tools = await fakeTools(home, { gitleaks: "clean", semgrep: "missing", zizmor: "missing", "osv-scanner": "missing", "ansible-lint": "missing" });
   const report = await new SecurityCheck({ root, homeDir: home, find: tools.find }).run();
-  expect(report.missing).toEqual(["semgrep", "zizmor", "osv-scanner", "ansible-lint"]);
-  expect(report.tools.find((tool) => tool.id === "semgrep")).toMatchObject({ status: "not-run", text: "not installed" });
+  expect(report.missing).toEqual([...SEMGREP_RUNS ? ["semgrep" as const] : [], "zizmor", "osv-scanner", "ansible-lint"]);
+  expect(report.tools.find((tool) => tool.id === "semgrep")).toMatchObject({ status: "not-run", text: SEMGREP_RUNS ? "not installed" : SEMGREP_NOT_ON_WINDOWS });
   expect(await readdir(path.join(home, ".casper")).then((names) => names.sort())).toEqual(["security"]);
 });
 
@@ -142,10 +140,16 @@ test("a check with tools missing reports them and downloads nothing ('2 Run what
 
 const exists = (file: string) => stat(file).then(() => true, () => false);
 
+/** A uv that is only found on PATH, never run (the tests pass their own runner). Windows finds programs by extension. */
+async function fakeUv(bin: string): Promise<void> {
+  const uv = path.join(bin, process.platform === "win32" ? "uv.exe" : "uv");
+  await writeFile(uv, "#!/bin/sh\nexit 0\n");
+  await chmod(uv, 0o755);
+}
+
 async function fakeUvDir(): Promise<string> {
   const bin = await temp("casper-locked-uv-");
-  await writeFile(path.join(bin, "uv"), "#!/bin/sh\nexit 0\n");
-  await chmod(path.join(bin, "uv"), 0o755);
+  await fakeUv(bin);
   return bin;
 }
 
@@ -166,7 +170,7 @@ function fakeRun(calls: string[][], options: { pipExit?: number } = {}): ToolRun
       if (options.pipExit) return { exitCode: options.pipExit, signal: null, stdout: "", stderr: "" };
       const python = run.args[run.args.indexOf("--python") + 1]!;
       await mkdir(path.dirname(python), { recursive: true });
-      await writeFile(path.join(path.dirname(python), "casper-network-mcp"), "#!/bin/sh\n");
+      await writeFile(path.join(path.dirname(python), process.platform === "win32" ? "casper-network-mcp.exe" : "casper-network-mcp"), "#!/bin/sh\n");
     }
     return { exitCode: 0, signal: null, stdout: "", stderr: "" };
   };

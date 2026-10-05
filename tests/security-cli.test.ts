@@ -1,9 +1,9 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { SECURITY_TOOLS } from "../src/security/tools";
-import { fixtureRepo } from "./fixtures/security-tools/setup";
+import { fakeProgram, fixtureRepo } from "./fixtures/security-tools/setup";
 import { cleanEnv } from "./support/env";
 
 setDefaultTimeout(60_000);
@@ -21,11 +21,7 @@ async function machine(): Promise<{ home: string; bin: string; record: string }>
   const record = path.join(home, "record");
   await mkdir(bin, { recursive: true });
   await mkdir(record, { recursive: true });
-  for (const spec of Object.values(SECURITY_TOOLS)) {
-    const wrapper = path.join(bin, spec.command);
-    await writeFile(wrapper, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(fake)} ${spec.id} ${JSON.stringify(record)} canned "$@"\n`);
-    await chmod(wrapper, 0o755);
-  }
+  for (const spec of Object.values(SECURITY_TOOLS)) await fakeProgram(bin, spec.command, [process.execPath, fake, spec.id, record, "canned"]);
   const db = path.join(home, ".casper", "security", "osv-db", "osv-scalibr", "PyPI");
   await mkdir(db, { recursive: true });
   await writeFile(path.join(db, "all.zip"), "");
@@ -33,9 +29,12 @@ async function machine(): Promise<{ home: string; bin: string; record: string }>
 }
 
 async function casper(cwd: string, home: string, bin: string, args: string[]) {
-  const child = Bun.spawn([process.execPath, cli, ...args], {
-    cwd, env: cleanEnv({ HOME: home, CASPER_PROFILE: "default", PATH: `${bin}:/usr/bin:/bin` }), stdin: "ignore", stdout: "pipe", stderr: "pipe",
-  });
+  // The fakes, then git and the system's own programs. Windows reads the home folder from USERPROFILE.
+  const system = process.platform === "win32" ? [path.dirname(Bun.which("git")!), path.join(process.env.SystemRoot ?? "C:\\Windows", "System32")] : ["/usr/bin", "/bin"];
+  const env = cleanEnv({ HOME: home, USERPROFILE: home, CASPER_PROFILE: "default" });
+  for (const name of Object.keys(env)) if (name.toUpperCase() === "PATH") delete env[name];
+  env.PATH = [bin, ...system].join(path.delimiter);
+  const child = Bun.spawn([process.execPath, cli, ...args], { cwd, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, code };
 }
@@ -78,10 +77,9 @@ test("with nothing to find the run exits 0, and --strict exits 1 when a check di
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-security-cli-empty-")); temps.push(root);
   await writeFile(path.join(root, "README.md"), "# notes\n");
   await writeFile(path.join(root, "requirements.txt"), "requests==2.32.0\n");
-  const { home, bin } = await machine();
+  const { home, bin, record } = await machine();
   // A clean gitleaks and an osv-scanner with no advisory data.
-  await writeFile(path.join(bin, "gitleaks"), "#!/bin/sh\necho '[]'\n");
-  await writeFile(path.join(bin, "osv-scanner"), "#!/bin/sh\necho '{\"results\":[]}'\n");
+  for (const id of ["gitleaks", "osv-scanner"] as const) await fakeProgram(bin, SECURITY_TOOLS[id].command, [process.execPath, fake, id, record, "clean"]);
   await rm(path.join(home, ".casper", "security", "osv-db"), { recursive: true, force: true });
   const plain = await casper(root, home, bin, ["security"]);
   expect(plain.stdout).toContain("osv-scanner");

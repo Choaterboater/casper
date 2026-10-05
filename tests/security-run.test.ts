@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { formatResultLine, formatSecurityHeader, formatSecurityReport, SECURITY_OFFLINE_LINE, securityNetworkLine, securityReportJson } from "../src/security/format";
 import { MCP_NEEDS_TOOLS, OSV_NO_DATA, SecurityCheck } from "../src/security/run";
-import { fakeTools, fixtureRepo } from "./fixtures/security-tools/setup";
+import { fakeTools, fixtureRepo, SEMGREP_NOT_ON_WINDOWS, SEMGREP_RUNS } from "./fixtures/security-tools/setup";
 
 const temps: string[] = [];
 afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
@@ -35,7 +35,7 @@ test("one tool crashing, hanging or printing garbage leaves the others' results 
   expect(byId.gitleaks).toMatchObject({ status: "not-run", text: "ended with exit code 3: panic: something broke inside the tool" });
   expect(byId.ruff).toMatchObject({ status: "not-run", text: "took longer than 2 seconds; stopped" });
   expect(byId.semgrep!.status).toBe("not-run");
-  expect(byId.semgrep!.text).toStartWith("its report could not be read");
+  expect(byId.semgrep!.text).toStartWith(SEMGREP_RUNS ? "its report could not be read" : SEMGREP_NOT_ON_WINDOWS);
   expect(byId.zizmor!.status).toBe("problems");
   expect(byId["osv-scanner"]!.status).toBe("problems");
   expect(byId["ansible-lint"]!.status).toBe("problems");
@@ -52,7 +52,7 @@ test("Casper's own words never call the code safe or secure, even with nothing f
   await withOsvData(home, 0, new Date());
   const tools = await fakeTools(home, { gitleaks: "clean", ruff: "clean", semgrep: "clean", zizmor: "clean", "osv-scanner": "clean", "ansible-lint": "clean", "mcp-scanner": "clean" });
   const report = await new SecurityCheck({ root, homeDir: home, find: tools.find, mcpScanner: true, mcpToolsJson: path.join(root, "tools.json") }).run();
-  expect(report.tools.every((tool) => tool.status === "ok")).toBe(true);
+  expect(report.tools.every((tool) => tool.status === "ok" || (!SEMGREP_RUNS && tool.id === "semgrep"))).toBe(true);
   expect(report.exitCode).toBe(0);
   const text = formatSecurityReport(report);
   const json = JSON.stringify(securityReportJson(report));
@@ -62,7 +62,7 @@ test("Casper's own words never call the code safe or secure, even with nothing f
     // Casper can't keep a tool off the network yet, so its own words never say "offline".
     expect(output).not.toMatch(/\boffline\b/i);
   }
-  expect(text).toContain("Result: 0 problems. This is what these tools found. It does not prove the code has no problems.");
+  expect(text).toContain(`Result: 0 problems${SEMGREP_RUNS ? "" : ", 1 check not run"}. This is what these tools found. It does not prove the code has no problems.`);
   expect(text).toContain("zizmor        ok           its online checks off");
 });
 
@@ -90,7 +90,7 @@ test("--strict also fails on a check that did not run; --json has the versioned 
   expect(strict.exitCode).toBe(1);
   const json = securityReportJson(strict);
   expect(Object.keys(json)).toEqual(["version", "target", "tools", "findings", "ignores", "ignoreFiles", "notRun", "problems", "notes", "exitCode"]);
-  expect(json.notRun).toEqual([{ id: "osv-scanner", reason: OSV_NO_DATA }]);
+  expect(json.notRun).toEqual([...SEMGREP_RUNS ? [] : [{ id: "semgrep", reason: SEMGREP_NOT_ON_WINDOWS }], { id: "osv-scanner", reason: OSV_NO_DATA }]);
 });
 
 test("mcp-scanner is off unless turned on, and needs the server's tool list", async () => {
