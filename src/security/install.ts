@@ -224,6 +224,21 @@ async function installBinary(spec: SecurityToolSpec, options: InstallOptions): P
   }
 }
 
+/** Why uv's hash-locked install failed, in plain words with one next step, and uv's own last line. */
+export function installFailure(stderr: string): string {
+  const lines = stderr.split("\n").map((line) => line.trim()).filter(Boolean);
+  const last = lines.at(-1);
+  const uv = last ? ` (uv: ${last.length > 200 ? `${last.slice(0, 199)}…` : last})` : "";
+  if (/hash mismatch|hashes? (?:do not|don't) match/i.test(stderr)) return `a download did not match its pinned hash, so nothing was installed. Try again later.${uv}`;
+  if (/dns error|failed to fetch|connection (?:refused|reset)|timed out|network is unreachable|could not connect|failed to lookup/i.test(stderr)) {
+    return `the install couldn't reach pypi.org. Check your internet connection, then try again.${uv}`;
+  }
+  if (/(?:no|doesn't have a) (?:source distribution or )?wheel|no matching distribution|not compatible with the current platform|for the current platform/i.test(stderr)) {
+    return `there is no ready-made build of it for this computer.${uv}`;
+  }
+  return `the install failed.${uv}`;
+}
+
 interface LockedBuild { label: string; version: string; source: UvLockSource; relocatable: boolean }
 
 /** The program inside a locked venv folder. */
@@ -255,7 +270,7 @@ async function buildLockedVenv(build: LockedBuild, dir: string, uv: string, opti
       file: uv, args: ["pip", "install", "--quiet", "--python", python, "--require-hashes", "--no-deps", "--only-binary", ":all:", "-r", lockFile],
       cwd: dir, env, timeoutMs: 1_200_000,
     });
-    if (installed.exitCode !== 0) throw new Error(`${label}: the hash-locked install failed`);
+    if (installed.exitCode !== 0) throw new Error(`${label}: ${installFailure(installed.stderr)}`);
     if (!(await isFile(venvEntry(dir, source.entry, platform)))) throw new Error(`${label}: the install did not create ${source.entry}`);
   } catch (error) {
     await rm(dir, { recursive: true, force: true });
