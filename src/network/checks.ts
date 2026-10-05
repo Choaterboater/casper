@@ -3,6 +3,7 @@ import path from "node:path";
 import hierConfigScript from "./assets/hier_config_diff.py" with { type: "text" };
 import junosCommitPlaybook from "./assets/junos_commit_check.yml" with { type: "text" };
 import { formatDuration } from "../verify/evidence";
+import { NO, YES_ALWAYS, YES_ONCE } from "../app/safe-choices";
 import { scrubText } from "../secrets/scrub";
 import { readProjectPlaybook } from "./ansible";
 import { ansibleWorkspace, plainWorkspace, pythonWorkspace, type ToolWorkspace } from "./environment";
@@ -287,7 +288,8 @@ export async function runNetworkCheck(name: string, spec: NetworkCheckSpec, cont
 export interface LabAsk {
   /** The question, then the hosts. */
   text: string;
-  /** Numbered choices, in order: "Skip" (so Enter never reaches a device), "Run it", then "Always for this project" (junos-commit only). */
+  /** Numbered choices, in order: No (so Enter never reaches a device), Yes, this once, then Yes, always for this project
+   * (junos-commit only). */
   choices: string[];
   /** Always the limit of what Casper checked. */
   note: string;
@@ -305,17 +307,17 @@ function formatHosts(hosts: readonly LabHost[]): string {
   return names.join(", ") + (hosts.length > 12 ? ` and ${hosts.length - 12} more` : "");
 }
 
-/** The device-check box. 1 is always Skip; "Always" only for junos-commit with no warning about reach. */
+/** The device-check box. 1 is always No; "Always" only for junos-commit with no warning about reach. */
 export function labAskFor(name: string, preset: NetworkPreset, hosts: readonly LabHost[], warnings: readonly string[] = [], allowAlways = preset === "junos-commit"): LabAsk {
   const count = hosts.length;
   const devices = `${count} ${count === 1 ? "device" : "devices"}`;
   const text = preset === "junos-commit"
     ? `Run ${name} on ${devices}? It loads the change, runs commit check, then rolls back. ${formatHosts(hosts)}`
     : `Run ${name} on ${devices}? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. ${formatHosts(hosts)}`;
-  return { text, choices: ["Skip", "Run it", ...(allowAlways ? ["Always for this project"] : [])], note: LAB_LIMIT_NOTE, warnings: [...warnings] };
+  return { text, choices: [NO, YES_ONCE, ...(allowAlways ? [YES_ALWAYS] : [])], note: LAB_LIMIT_NOTE, warnings: [...warnings] };
 }
 
-/** "1 Skip · 2 Run it" */
+/** "1 No · 2 Yes, this once" */
 export function numberedChoices(choices: readonly string[]): string {
   return choices.map((choice, index) => `${index + 1} ${choice}`).join(" · ");
 }
@@ -331,7 +333,7 @@ function junosFormat(file: string): string {
  * Check everything a device (lab) check needs before anything reaches a device: the platform, the tools, and a
  * plain inventory inside the project. Any device may be checked: the plan's box names every device, which aren't
  * marked lab, and every way the playbook or inventory can reach others. Only a "ready" plan can run, and only after
- * a person picks "Run it" (or their own "Always" for junos-commit). Nothing here asks the model anything.
+ * a person picks "Yes, this once" (or their own "Yes, always" for junos-commit). Nothing here asks the model anything.
  */
 export async function prepareLabCheck(name: string, spec: NetworkCheckSpec, context: NetworkCheckContext): Promise<LabPlan> {
   const label = spec.preset === "ansible-check" ? DRY_RUN_LABEL : COMMIT_CHECK_LABEL;

@@ -302,7 +302,7 @@ async function roleFiles(root: string, base: string, name: string): Promise<stri
 
 /** A fingerprint of what the user agreed to: the check, the inventory file, the hosts and the change file. */
 /**
- * What "Always for this project" is bound to: the check, the inventory, every host and its address, the inventory's
+ * What "Yes, always for this project" is bound to: the check, the inventory, every host and its address, the inventory's
  * host variables, and each change file by path and contents. Any edit (by you or the AI) asks again.
  */
 export function labApprovalKey(check: string, parts: { inventory: string; hosts: readonly LabHost[]; files?: readonly string[]; contents?: readonly string[]; vars?: string }): string {
@@ -317,7 +317,7 @@ export function labApprovalKey(check: string, parts: { inventory: string; hosts:
 
 const ALWAYS_FILE = "lab-always.json";
 
-/** "Always for this project" applies only to junos-commit style checks, never to ansible --check. */
+/** "Yes, always for this project" applies only to junos-commit style checks, never to ansible --check. */
 export async function rememberLabAlways(stateDir: string, check: string, key: string): Promise<void> {
   await mkdir(stateDir, { recursive: true, mode: 0o700 });
   const file = path.join(stateDir, ALWAYS_FILE);

@@ -292,8 +292,8 @@ test("interactive run: no to the server's question cancels the approved call", a
 });
 
 test("interactive run: p previews first, then the box shows the preview with the PSK hidden", async () => {
-  const { output, result } = await networkRun(["2", "3"], { id: "mcp:net:set_ssid", arguments: { ssid: "corp", wpa_passphrase: "hunter2hunter" } });
-  expect(output).toContain("  1 No\n  2 Preview first\n  3 Yes, this once\n  4 Yes, for this session\n");
+  const { output, result } = await networkRun(["4", "2"], { id: "mcp:net:set_ssid", arguments: { ssid: "corp", wpa_passphrase: "hunter2hunter" } });
+  expect(output).toContain("  1 No\n  2 Yes, this once\n  3 Yes, for this session\n  4 Preview first\n");
   expect(output).toContain("[approval] preview first");
   expect(output).toContain("Last preview (just now):");
   expect(output).toContain("  wpa_passphrase   ••• 13 chars\n");
@@ -501,11 +501,11 @@ test("interactive run: a server's pick-one question lists its options after 1 No
   expect(result).toContain("1/1/2");
 });
 
-test("interactive run: a risky kind asks first (1 No · 2 Allow), then the change box asks about the call", async () => {
-  const { output, result } = await networkRun(["2", "2"], { id: "mcp:net:invite_user", arguments: { email: "a@example.com" } });
+test("interactive run: a risky kind asks first (1 No · 2 Yes, this once · 3 Yes, for this session), then the change box asks about the call", async () => {
+  const { output, result } = await networkRun(["3", "2"], { id: "mcp:net:invite_user", arguments: { email: "a@example.com" } });
   const kind = output.indexOf("Admin and account changes are off by default on HPE networking.");
   expect(kind).toBeGreaterThanOrEqual(0);
-  expect(output.slice(kind)).toContain("  Runs: invite user\nAllow admin and account changes on HPE networking?\n  1 No\n  2 Allow admin and account changes for this session\n");
+  expect(output.slice(kind)).toContain("  Runs: invite user\nAllow admin and account changes on HPE networking?\n  1 No\n  2 Yes, this once\n  3 Yes, for this session\n");
   expect(output).toContain("[approval] allowed admin and account changes on net for this session");
   expect(output.indexOf("Change in HPE networking: invite user")).toBeGreaterThan(kind);
   expect(result).toContain("invite_user");

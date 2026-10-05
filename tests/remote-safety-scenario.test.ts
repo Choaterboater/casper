@@ -140,7 +140,7 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
 
   // Asked before each ssh, naming the real address and the alias, with No first.
   for (const command of ["ssh deploy@build-server hostname", "ssh deploy@build-server 'sampleapp-admin create api-token ci'", "ssh deploy@198.51.100.20 'apt-get install -y nginx'"]) {
-    expect(screen).toContain(`?  ${command}\n→ 1 No  the command does not run\n  2 Yes, this time`);
+    expect(screen).toContain(`?  ${command}\n→ 1 No  the command does not run\n  2 Yes, this once`);
   }
   expect(screen).toContain("Reach 198.51.100.20 (build-server)?  ssh deploy@build-server hostname");
   expect(screen.split("Press 1-3").length - 1).toBe(SSH_STEPS);

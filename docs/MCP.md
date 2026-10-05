@@ -310,12 +310,12 @@ After an interactive `/mcp connect` of your own or an imported server, Casper as
 ```text
 Next time it connects on its own, with writes off. Every change still asks you.
 Remember lab?
-  1 Just this time
-  2 Remember
+  1 No
+  2 Yes
 ```
 
-`1` (or Enter, or anything other than `2`) connects it for this session only. (Before
-v0.2.16, `1` was Remember; the order changed so Enter is always the safe choice.)
+`1` (or Enter, or Esc) connects it for this session only. (Before v0.2.16, `1` was
+Remember; the order changed so Enter is always the safe choice.)
 
 - **What is stored.** `2` stores a keyed hash (a fingerprint that can't be turned
   back into the values) of the definition: name, start folder, command, arguments,
@@ -497,12 +497,13 @@ Firmware changes are off by default on Mist.
   Runs: trigger device upgrade
 Allow firmware changes on Mist?
   1 No
-  2 Allow firmware changes for this session
-Type 1 or 2:
+  2 Yes, this once
+  3 Yes, for this session
+Type 1, 2 or 3:
 ```
 
-`2` allows that kind on that server until the session ends, ctrl+o, `/mcp writes off`
-or a disconnect; the change box still asks about each call, with no "for this session"
+`2` allows that kind for this one change. `3` allows it on that server until the session
+ends, ctrl+o, `/mcp writes off` or a disconnect; the change box still asks about each call, with no "for this session"
 answer (risky and disruptive kinds ask every time). `1` runs nothing.
 One-shot runs refuse: `Not executed (Firmware changes are off by default on <server>,
 and this run cannot ask)`.
@@ -714,7 +715,8 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
     `/mcp writes off`, a disconnect or the end of the session ends it. Each call it
     covers is logged as `[approval] allowed (allow all): <server> · <tool>`. A read-only
     login, a hidden tool or a preset's rule still refuses.
-  - `Preview first` (listed second when the tool's own schema has a preview switch) runs
+  - `Preview first` (listed after the yes answers when the tool's own schema has a preview switch, so 2 and 3 mean
+    the same in every change box) runs
     the same call with the switch on (and confirm off), then shows the box again with
     `Last preview (just now)`. It is never offered through a router: Casper can't see
     the real tool's schema, and a server that ignores an unknown `dry_run` would make

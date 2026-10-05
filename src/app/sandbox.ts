@@ -15,7 +15,7 @@ import { terminalText } from "../tui/format";
 import { blockedBySandbox } from "../verify/command";
 import { hideCommandSecrets } from "../secrets/files";
 import { remoteTargets, runsAlone, targetLabel, type RemoteTarget } from "../sandbox/remote";
-import { HOST_CHOICES, REACH_CHOICES, SHELL_COMMAND_CHOICES, writeChoices } from "./safe-choices";
+import { HOST_CHOICES, REACH_CHOICES, SHELL_COMMAND_CHOICES, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
 
 /**
  * The session's shell sandbox, as the app uses it: the host question, the ask-only fallback for the AI's shell
@@ -32,7 +32,7 @@ export interface SandboxHost {
   planning(): boolean;
 }
 
-export const hostQuestion = (host: string) => `A shell command wants to reach ${terminalText(host)}.`;
+export const hostQuestion = (host: string) => `A shell command wants to reach ${terminalText(host)}. Allow it?`;
 /** A command as a question shows it: one line, with any secret the AI typed into it hidden. */
 const shownCommand = (command: string) => terminalText(hideCommandSecrets(command).text).replace(/\s+/g, " ").trim();
 export const shellQuestion = (command: string) => `Run this command?  ${shownCommand(command)}`;
@@ -43,7 +43,7 @@ export const reachCantAsk = (target: RemoteTarget) => `Not run: this command rea
 export const reachDeclined = (target: RemoteTarget) => `Not run: the user said no to reaching ${targetLabel(target)}. Don't try it again another way; ask the user what to do instead.`;
 export const SHELL_CANT_ASK = "Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.";
 export const SHELL_DECLINED = "Not run: the user said no to this command. Don't run it again; ask the user what to do instead.";
-export const writeQuestion = (from: WriteAsker, folder: string) => `${from === "shell" ? "A shell command" : "The AI"} wants to write to ${terminalText(folder)}.`;
+export const writeQuestion = (from: WriteAsker, folder: string) => `${from === "shell" ? "A shell command" : "The AI"} wants to write to ${terminalText(folder)}. Allow it?`;
 /** "A and B", "A, B and C": the places one question names. */
 export const writePlaces = (places: string[]) => places.length > 1 ? `${places.slice(0, -1).join(", ")} and ${places.at(-1)}` : places[0] ?? "";
 export const SANDBOX_REFUSED = "The sandbox refuses this every time. Don't retry it or work around it, not with the write or edit tool either. If the task needs it, say in one line what was blocked. No helper scripts for the user to run outside Casper.";
@@ -59,12 +59,12 @@ export function createSessionSandbox(host: SandboxHost, context: ProjectContext,
     root: options.root, home: options.home, agentDir: casperAgentDir(), settings: context.sandbox ?? {}, store,
     ...(options.noSandbox ? { noSandboxFlag: true } : {}),
     askHost: (name) => host.canAsk() ? host.pick(hostQuestion(name), [...HOST_CHOICES]).then((answer): HostAnswer =>
-      answer === HOST_CHOICES[1].label || answer === "2" ? "session" : answer === HOST_CHOICES[2].label || answer === "3" ? "project" : "no") : undefined,
+      answer === YES_ONCE ? "once" : answer === YES_SESSION ? "session" : answer === YES_ALWAYS ? "project" : "no") : undefined,
     askWrite: (targets, from) => {
       if (!host.canAsk()) return undefined;
       const shown = writePlaces(targets.map((target) => displayPath(target, options.root(), options.home)));
       const choices = writeChoices(shown);
-      return host.pick(writeQuestion(from, shown), choices).then((answer) => answer === choices[1]!.label || answer === "2");
+      return host.pick(writeQuestion(from, shown), choices).then((answer) => answer === YES_SESSION);
     },
     note: (line) => host.write(`${line}\n`),
     seccompPath: () => seccompHelper({ home: options.home }),
@@ -102,8 +102,8 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, store: Sa
       const answer = await host.pick(reachQuestion(target, command), [...REACH_CHOICES], signal);
       asked = true;
       // A machine the command names as $HOST could be any machine next time: that yes counts for this command only.
-      if (answer === REACH_CHOICES[2].label || answer === "3") { if (!target.unclear) sessionReach.add(target.host); }
-      else if (!(answer === REACH_CHOICES[1].label || answer === "2")) return { refused: reachDeclined(target), asked };
+      if (answer === YES_SESSION) { if (!target.unclear) sessionReach.add(target.host); }
+      else if (answer !== YES_ONCE) return { refused: reachDeclined(target), asked };
     }
     // Only the command about to run (a service start approved here never comes back to wrap).
     cleared.clear();
@@ -178,8 +178,8 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, store: Sa
       if (await store.hasCommand(command)) return undefined;
       if (!host.canAsk()) return SHELL_CANT_ASK;
       const answer = await host.pick(shellQuestion(command), [...SHELL_COMMAND_CHOICES], signal);
-      if (answer === SHELL_COMMAND_CHOICES[1].label || answer === "2") return undefined;
-      if (answer === SHELL_COMMAND_CHOICES[2].label || answer === "3") { await store.addCommand(command); return undefined; }
+      if (answer === YES_ONCE) return undefined;
+      if (answer === YES_ALWAYS) { await store.addCommand(command); return undefined; }
       return SHELL_DECLINED;
     },
     logDir() {
@@ -230,9 +230,9 @@ export function sandboxReport(sandbox: ShellSandbox, root: string): string {
   lines.push(`Hosts:   ${REGISTRY_HOSTS.join(", ")}, localhost${sandbox.user.allowedDomains?.length ? `; yours: ${sandbox.user.allowedDomains.join(", ")}` : ""}`);
   const remembered = sandbox.rememberedHosts();
   lines.push(`Remembered for this project: ${remembered.length ? `${remembered.join(", ")} (/sandbox forget <host>)` : "none"}`);
-  lines.push("Other hosts: Casper asks (1 No · 2 Allow for this session · 3 Always for this project); a run that can't ask blocks them.");
+  lines.push("Other hosts: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project); a run that can't ask blocks them.");
   const folders = sandbox.allowedWriteFolders();
-  lines.push(`Other writes outside the project: Casper asks (1 No · 2 Allow for this session)${folders.length ? `; allowed this session: ${[...new Set(folders.map(show))].join(", ")}` : ""}.`);
+  lines.push(`Other writes outside the project: Casper asks (1 No · 2 Yes, for this session)${folders.length ? `; allowed this session: ${[...new Set(folders.map(show))].join(", ")}` : ""}.`);
   lines.push("Not in the sandbox: MCP servers, language servers, the debugger, the browser and lab checks.");
   return `${lines.join("\n")}\n`;
 }

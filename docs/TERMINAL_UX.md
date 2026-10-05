@@ -321,7 +321,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - Casper's own numbered questions and approvals also work on the plain terminal: it prints the
   choices as numbered lines and reads `Type 1, 2 or 3:`; a number or a choice's words pick
   it. Enter picks choice 1, and at every Casper question choice 1 is the one that does nothing
-  risky (Stop, Skip, Not now, Use this folder, Leave it, No, Just this time, Keep writes off, Keep the
+  risky (Stop, Not now, Use this folder, Leave it, No, Keep writes off, Keep the
   default): building, installing, downloading, spending tokens, running a check again, saving a
   choice, approving or reaching a lab always takes a deliberate 2 or 3, so a stray Enter is harmless.
   One-shot runs, `--json` and piped input never get these questions: each takes the safe answer,

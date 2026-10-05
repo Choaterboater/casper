@@ -74,13 +74,13 @@ export type ConfirmCapability = (call: {
   product?: NetworkProduct;
 }, signal?: AbortSignal) => Promise<ApprovalAnswer>;
 
-/** Ask the user whether a change kind that is off by default (firmware, delete, admin) may run on this server for
- * the rest of the session. Only their answer counts; true allows it. */
 /** A product of Casper's network server had no login: the host asks the person (never the AI) and returns the
  * one line the AI gets back instead of the server's answer. */
 export type LoginMissingHandler = (server: string, product: NetworkProduct, signal: AbortSignal, trouble?: LoginTrouble) => Promise<string>;
 
-export type ConfirmKind = (ask: { server: string; kind: ChangeKind; realTool: string }, signal?: AbortSignal) => Promise<boolean>;
+/** Ask the user whether a change kind that is off by default (firmware, delete, admin) may run on this server. Only
+ * their answer counts: allowed for this call only ("once"), for this session on that server (true), or no. */
+export type ConfirmKind = (ask: { server: string; kind: ChangeKind; realTool: string }, signal?: AbortSignal) => Promise<boolean | "once">;
 
 /** Hides device secrets in an MCP result before the model sees it. The app passes its shared
  * scrubber (Casper's rules plus netconan when installed); the default is Casper's rules only. */
@@ -502,7 +502,7 @@ export class CapabilityBroker {
       const yes = await this.confirmKind({ server: plan.server, kind, realTool: realToolOf(plan) }, signal);
       notCancelled(signal);
       if (!yes) throw new NotExecutedError("you said no");
-      this.allowKind(plan.server, kind, at);
+      if (yes === true) this.allowKind(plan.server, kind, at);
     }
   }
 

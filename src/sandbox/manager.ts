@@ -41,8 +41,8 @@ export interface WrappedCommand {
   held: boolean;
 }
 
-/** What a host question answered: no, for this session, or remembered for this project. */
-export type HostAnswer = "no" | "session" | "project";
+/** What a host question answered: no, this connection only, for this session, or remembered for this project. */
+export type HostAnswer = "no" | "once" | "session" | "project";
 
 /** Who wants to write outside the project: a shell command, or the AI's own edit and write tools. */
 export type WriteAsker = "shell" | "ai";
@@ -343,12 +343,13 @@ export class ShellSandbox {
       if (!answer) {
         if (!this.blockedSaid.has(name)) {
           this.blockedSaid.add(name);
-          this.options.note?.(`[sandbox] Blocked ${name}${port && port !== 443 && port !== 80 ? `:${port}` : ""} (this run can't ask). Allow it in a session first (Always for this project), or add it to sandbox.allowedDomains in ~/.casper/config.yaml.`);
+          this.options.note?.(`[sandbox] Blocked ${name}${port && port !== 443 && port !== 80 ? `:${port}` : ""} (this run can't ask). Allow it in a session first (Yes, always for this project), or add it to sandbox.allowedDomains in ~/.casper/config.yaml.`);
         }
         return false;
       }
       const choice = await answer.catch((): HostAnswer => "no");
       if (choice === "no") return false;
+      if (choice === "once") return true;
       this.sessionHosts.add(name);
       if (choice === "project") await this.remember(name);
       return true;
@@ -357,7 +358,7 @@ export class ShellSandbox {
     try { return await decision; } finally { this.pendingHosts.delete(name); }
   }
 
-  /** "Always for this project": kept in Casper's own folder, never in the repo. */
+  /** "Yes, always for this project": kept in Casper's own folder, never in the repo. */
   async remember(host: string): Promise<void> {
     const name = hostName(host);
     await this.options.store?.addHost(name);

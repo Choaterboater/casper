@@ -14,7 +14,7 @@ import { posixOnly } from "./support/platform";
 
 /**
  * Writes outside the project, by the AI's shell or its edit and write tools: one question per folder (No first,
- * then Allow <folder> for this session), never remembered past the session. A run that can't ask refuses at once;
+ * then Yes, for this session), never remembered past the session. A run that can't ask refuses at once;
  * private, protected, system and git places are refused without a question.
  */
 
@@ -61,12 +61,12 @@ async function session(answers: Array<string | undefined>, options: { canAsk?: b
 const FOLDER = "~/apps/SomeApp";
 
 test("a shell write outside the project asks once, No first; allowed for the session, the next command may write there", async () => {
-  const s = await session([`Allow ${FOLDER} for this session`], { refuse: (command) => command.startsWith("touch")
+  const s = await session(["Yes, for this session"], { refuse: (command) => command.startsWith("touch")
     ? [`deny(1) file-write-create ${path.join(s.app, "config.json")}`] : [] });
   const run = await s.shell.wrap("touch config.json", s.project);
   expect(await s.shell.refused!(run.id!, "")).toBe(writeAllowedLine(FOLDER));
   expect(writeAllowedLine(FOLDER)).toBe(`[sandbox] The user allowed writes to ${FOLDER} for this session. Run the command again.`);
-  expect(s.terminal.asked).toEqual([{ question: `A shell command wants to write to ${FOLDER}.`, options: ["No", `Allow ${FOLDER} for this session`] }]);
+  expect(s.terminal.asked).toEqual([{ question: `A shell command wants to write to ${FOLDER}. Allow it?`, options: ["No", "Yes, for this session"] }]);
   // The policy is rebuilt per command: the next one may write the folder; its denies still win.
   await s.shell.wrap("true", s.project);
   expect(s.engine.wrapped.at(-1)!.policy.allowWrite).toContain(s.app);
@@ -109,7 +109,7 @@ test("a run that can't ask refuses the shell write at once with the allowWrite f
 
 test("private, protected, system and git places, ~ itself, reads and hosts get the plain refusal, never a question", async () => {
   let refusal: string[] = [];
-  const s = await session([`Allow ${FOLDER} for this session`], { refuse: () => refusal });
+  const s = await session(["Yes, for this session"], { refuse: () => refusal });
   const other = path.join(s.base, "other-repo");
   await mkdir(path.join(other, ".git", "hooks"), { recursive: true });
   for (const lines of [
@@ -135,11 +135,11 @@ test("private, protected, system and git places, ~ itself, reads and hosts get t
 });
 
 test("the AI's write tool outside the project asks the same question on Windows, and the receipt says so; --no-sandbox turns it off", async () => {
-  const s = await session([`Allow ${FOLDER} for this session`], { seams: { platform: "win32" as const } });
+  const s = await session(["Yes, for this session"], { seams: { platform: "win32" as const } });
   expect(s.sandbox.on).toBe(false);
   const file = path.join(s.app, "servers.json");
   expect(await s.shell.outsideWrite!(file)).toBeUndefined();
-  expect(s.terminal.asked).toEqual([{ question: `The AI wants to write to ${FOLDER}.`, options: ["No", `Allow ${FOLDER} for this session`] }]);
+  expect(s.terminal.asked).toEqual([{ question: `The AI wants to write to ${FOLDER}. Allow it?`, options: ["No", "Yes, for this session"] }]);
   // A new file in a new subfolder of it: allowed, no second question.
   expect(await s.shell.outsideWrite!(path.join(s.app, "new", "deep.json"))).toBeUndefined();
   expect(s.terminal.asked).toHaveLength(1);
@@ -163,7 +163,7 @@ test("the AI's write tool asks about the file alone when its folder can't be off
   const home = path.join(base, "home"), project = path.join(home, "Documents", "proj");
   await mkdir(path.join(project, ".git", "hooks"), { recursive: true });
   const context = await loadProjectContext(await inspectProject(project), { homeDir: home });
-  const terminal = host(["Allow ~/Documents/report.md for this session", "No"]);
+  const terminal = host(["Yes, for this session", "No"]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home,
     seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux", tempDirs: [] } });
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
@@ -173,8 +173,8 @@ test("the AI's write tool asks about the file alone when its folder can't be off
   expect(await shell.outsideWrite!(report)).toBeUndefined();
   expect(await shell.outsideWrite!(path.join(home, "notes.md"))).toBe(`Not done: ${writeDeclined("~/notes.md")}`);
   expect(terminal.asked).toEqual([
-    { question: "The AI wants to write to ~/Documents/report.md.", options: ["No", "Allow ~/Documents/report.md for this session"] },
-    { question: "The AI wants to write to ~/notes.md.", options: ["No", "Allow ~/notes.md for this session"] },
+    { question: "The AI wants to write to ~/Documents/report.md. Allow it?", options: ["No", "Yes, for this session"] },
+    { question: "The AI wants to write to ~/notes.md. Allow it?", options: ["No", "Yes, for this session"] },
   ]);
   // A file allowed for the AI's tools is not the shell's, and not its folder.
   await shell.wrap("true", project);
@@ -194,18 +194,18 @@ posixOnly("a link in temp to a folder outside still asks about where the write l
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(dirs.context.stateDirectory));
   expect(await shell.outsideWrite!(path.join(scratch, "plain.txt"))).toBeUndefined();
   expect(await shell.outsideWrite!(path.join(scratch, "x", "evil.txt"))).toBe(`Not done: ${writeDeclined(FOLDER)}`);
-  expect(terminal.asked).toEqual([{ question: `The AI wants to write to ${FOLDER}.`, options: ["No", `Allow ${FOLDER} for this session`] }]);
+  expect(terminal.asked).toEqual([{ question: `The AI wants to write to ${FOLDER}. Allow it?`, options: ["No", "Yes, for this session"] }]);
   await sandbox.close();
 });
 
 test("one shell command refused for two folders asks one question about both", async () => {
   const both = `${FOLDER} and ~/apps/Other`;
-  const s = await session([`Allow ${both} for this session`], { refuse: () => [
+  const s = await session(["Yes, for this session"], { refuse: () => [
     `deny(1) file-write-create ${path.join(s.app, "config.json")}`, `deny(1) file-write-create ${path.join(s.home, "apps", "Other", "b.json")}`] });
   await mkdir(path.join(s.home, "apps", "Other"));
   const run = await s.shell.wrap("do-both", s.project);
   expect(await s.shell.refused!(run.id!, "")).toBe(writeAllowedLine(both));
-  expect(s.terminal.asked).toEqual([{ question: `A shell command wants to write to ${both}.`, options: ["No", `Allow ${both} for this session`] }]);
+  expect(s.terminal.asked).toEqual([{ question: `A shell command wants to write to ${both}. Allow it?`, options: ["No", "Yes, for this session"] }]);
   expect(s.sandbox.allowedWriteFolders()).toEqual([s.app, path.join(s.home, "apps", "Other")]);
   await s.sandbox.close();
 });
@@ -233,7 +233,7 @@ test("the AI's write tool: No and a run that can't ask refuse; temp, caches and 
 });
 
 test("parallel writes to one folder share one question", async () => {
-  const s = await session([`Allow ${FOLDER} for this session`], { delay: 30 });
+  const s = await session(["Yes, for this session"], { delay: 30 });
   const results = await Promise.all([
     s.shell.outsideWrite!(path.join(s.app, "a.json")),
     s.shell.outsideWrite!(path.join(s.app, "b.json")),
@@ -244,12 +244,12 @@ test("parallel writes to one folder share one question", async () => {
   await s.sandbox.close();
 });
 
-test("the write choices keep No first; Allow names the folder", () => {
-  expect(writeChoices(FOLDER).map((choice) => choice.label)).toEqual(["No", `Allow ${FOLDER} for this session`]);
+test("the write choices keep No first; the question names the folder", () => {
+  expect(writeChoices(FOLDER).map((choice) => choice.label)).toEqual(["No", "Yes, for this session"]);
 });
 
 posixOnly("the shell route also asks from Linux's read-only-file-system line", async () => {
-  const s = await session([`Allow ${FOLDER} for this session`]);
+  const s = await session(["Yes, for this session"]);
   const run = await s.shell.wrap("touch config.json", s.project);
   expect(await s.shell.refused!(run.id!, `touch: cannot touch '${path.join(s.app, "config.json")}': Read-only file system`)).toBe(writeAllowedLine(FOLDER));
   await s.sandbox.close();

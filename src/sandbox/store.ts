@@ -5,7 +5,7 @@ import { hostName } from "./policy";
 
 /**
  * What you told the sandbox to remember for one project, kept in Casper's own folder
- * (~/.casper/projects/<id>/), never in the repo: hosts ("Always for this project") and, when no sandbox
+ * (~/.casper/projects/<id>/), never in the repo: hosts ("Yes, always for this project") and, when no sandbox
  * can run, exact shell commands you said not to ask about again. Private (0600), written only from your
  * own answer to a numbered question. The sandbox keeps the AI's shell from reading or writing this folder.
  */

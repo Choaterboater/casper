@@ -184,7 +184,7 @@ test("p to preview first is offered only when the tool's own schema has the swit
   const box = formatApproval(direct);
   expect(box.labels).toHaveLength(5);
   expect(box.choices).toEqual(["1", "2", "3", "4", "5"]);
-  expect(box.answers["2"]).toBe("preview");
+  expect(box.answers["4"]).toBe("preview");
   expect(box.preview).toContain("No preview yet.");
   expect(previewArguments(plan("set_ssid", { ssid: "x", dry_run: false, confirm: true }, setSsidSchema)))
     .toEqual({ ssid: "x", dry_run: true, confirm: false });
@@ -296,10 +296,10 @@ test("the box says what changes in plain words, values one per line, secrets hid
 
 test("choices: preview offered when the tool has one; destructive never gets a session answer; allow-all is always last", () => {
   const ssid = formatApproval(plan("set_ssid", { ssid: "G" }, setSsidSchema));
-  expect(ssid.labels).toEqual(["No", "Preview first", "Yes, this once", "Yes, for this session", ALL]);
+  expect(ssid.labels).toEqual(["No", "Yes, this once", "Yes, for this session", "Preview first", ALL]);
   expect(ssid.question).toBe("Make this change?");
   expect(ssid.choices).toEqual(["1", "2", "3", "4", "5"]);
-  expect(ssid.answers).toEqual({ "1": "no", "2": "preview", "3": "yes", "4": "yes-session", "5": "allow-all" });
+  expect(ssid.answers).toEqual({ "1": "no", "2": "yes", "3": "yes-session", "4": "preview", "5": "allow-all" });
   const reboot = formatApproval(plan("reboot_device", { serial: "SG1" }, { type: "object" }, { destructiveHint: true }));
   expect(reboot.labels).toEqual(["No", "Yes, this once", ALL]);
   expect(reboot.labels).not.toContain("Yes, for this session");

@@ -81,7 +81,7 @@ test("after /mcp connect, 1 remembers nothing; 2 remembers it, and the next sess
   const { home, project } = await fixture({ casper: { mcpServers: { lab: entry({ FIXTURE_MODE: "access-bad" }) } } });
   const consentFile = path.join(home, ".casper/mcp-consent.json");
   const declined = await session(home, project, ["/mcp connect lab"], ["1"]);
-  expect(declined.output).toContain("Next time it connects on its own, with writes off. Every change still asks you.\nRemember lab?\n  1 Just this time\n  2 Remember\n");
+  expect(declined.output).toContain("Next time it connects on its own, with writes off. Every change still asks you.\nRemember lab?\n  1 No\n  2 Yes\n");
   expect(declined.output).toContain("[mcp] Not remembered. lab is connected for this session only.");
   expect(await Bun.file(consentFile).exists()).toBe(false);
   const remembered = await session(home, project, ["/mcp connect lab"], ["2"]);

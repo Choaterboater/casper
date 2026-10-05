@@ -41,7 +41,7 @@ test("any device may be checked: one not marked lab is named in the box, and not
   if (plan.state !== "ready") return;
   expect(plan.ask.text).toContain("core-sw1, lab-sw1");
   expect(plan.ask.warnings).toEqual(["Not marked lab: core-sw1 (10.1.2.3)."]);
-  expect(numberedChoices(plan.ask.choices)).toBe("1 Skip · 2 Run it");
+  expect(numberedChoices(plan.ask.choices)).toBe("1 No · 2 Yes, this once");
   expect(await ran(f)).toBe(false);
   const argv = (await readFile(path.join(f.records, "ansible-inventory.argv"), "utf8")).trim().split("\n");
   expect(argv[0]).toBe("-i");
@@ -57,7 +57,7 @@ test("an all-lab inventory gives a numbered ask with no Always choice for ansibl
   expect(plan.allowAlways).toBe(false);
   expect(plan.ask.text).toBe("Run aoscx-check on 3 devices? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. lab-sw1, lab-sw2, lab-sw3");
   expect(plan.ask.warnings).toEqual([]);
-  expect(numberedChoices(plan.ask.choices)).toBe("1 Skip · 2 Run it");
+  expect(numberedChoices(plan.ask.choices)).toBe("1 No · 2 Yes, this once");
   expect(plan.ask.note).toBe(LAB_LIMIT_NOTE);
   // Preparing asked nothing of the devices: only the inventory was read.
   expect(await ran(f)).toBe(false);
@@ -78,7 +78,7 @@ test("a playbook with delegate_to is shown as a warning with its line; you decid
   if (plan.state !== "ready") return;
   expect(plan.ask.warnings).toEqual(["site.yml uses delegate_to (line 6), so it can reach devices not listed here."]);
   expect(plan.allowAlways).toBe(false);
-  expect(numberedChoices(plan.ask.choices)).toBe("1 Skip · 2 Run it");
+  expect(numberedChoices(plan.ask.choices)).toBe("1 No · 2 Yes, this once");
   expect(await ran(f)).toBe(false);
 });
 
@@ -132,7 +132,7 @@ test("no lab list at all: the check still runs after your answer, and the box sa
   expect(plan.state).toBe("ready");
   if (plan.state !== "ready") return;
   expect(plan.ask.warnings).toEqual(["Not marked lab: lab-sw1 (10.99.0.11)."]);
-  expect(numberedChoices(plan.ask.choices)).toBe("1 Skip · 2 Run it · 3 Always for this project");
+  expect(numberedChoices(plan.ask.choices)).toBe("1 No · 2 Yes, this once · 3 Yes, always for this project");
 });
 
 test("junos-commit asks with an Always choice and runs Juniper's config module with check on and commit off", async () => {
@@ -142,7 +142,7 @@ test("junos-commit asks with an Always choice and runs Juniper's config module w
   if (plan.state !== "ready") return;
   expect(plan.allowAlways).toBe(true);
   expect(plan.ask.text).toBe("Run junos-commit on 2 devices? It loads the change, runs commit check, then rolls back. lab-r1, lab-r2");
-  expect(numberedChoices(plan.ask.choices)).toBe("1 Skip · 2 Run it · 3 Always for this project");
+  expect(numberedChoices(plan.ask.choices)).toBe("1 No · 2 Yes, this once · 3 Yes, always for this project");
   const result = await plan.run();
   expect(result.status).toBe("pass");
   const argv = (await readFile(path.join(f.records, "ansible-playbook.argv"), "utf8")).trim().split("\n");
@@ -218,15 +218,15 @@ test("review: a saved Always runs your own /verify, but a check the AI asks for 
   });
   const ctx = { cwd: f.root, timeoutMs: 60_000 };
   // Yours: Always holds, no box.
-  await labCheckRunner(host("Skip"), "user")("junos-commit", junosCommit, ctx);
+  await labCheckRunner(host("No"), "user")("junos-commit", junosCommit, ctx);
   expect(shown).toEqual([]);
   expect(await ran(f)).toBe(true);
-  // The AI's: the box, with no Always choice; Skip sends nothing more.
-  const result = await labCheckRunner(host("Skip"), "ai")("junos-commit", junosCommit, ctx);
-  expect(shown).toEqual([["Skip", "Run it"]]);
+  // The AI's: the box, with no Always choice; No sends nothing more.
+  const result = await labCheckRunner(host("No"), "ai")("junos-commit", junosCommit, ctx);
+  expect(shown).toEqual([["No", "Yes, this once"]]);
   expect(result.status).toBe("skip");
   // And with nobody to ask, the AI's request sends nothing.
-  const quiet = await labCheckRunner({ ...host("Run it"), canAsk: () => false }, "ai")("junos-commit", junosCommit, ctx);
+  const quiet = await labCheckRunner({ ...host("Yes, this once"), canAsk: () => false }, "ai")("junos-commit", junosCommit, ctx);
   expect(quiet.status).toBe("skip");
 });
 

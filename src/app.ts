@@ -71,7 +71,7 @@ import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
 import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 import { longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } from "./verify/repair-loop";
-import { ALREADY_FAILING_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, spendChoices, unfinishedChoices, workFolderChoices } from "./app/safe-choices";
+import { ALREADY_FAILING_CHOICES, modelFailedChoices, PLAN_CHOICES, YES_ONCE, YES_SESSION, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, spendChoices, unfinishedChoices, workFolderChoices } from "./app/safe-choices";
 import { DEFAULT_SPEND_LIMITS, formatCost, formatFooterSpend, formatLimit, formatTokens, SPEND_STOP_REASON, SpendGuard, requestSpendLimit } from "./task/spend";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
@@ -2953,9 +2953,11 @@ export class CasperApp {
       const box = kindBox(ask.kind, this.mcp?.productLabel(ask.server) ?? ask.server, ask.realTool);
       const picked = await this.approveBox(box.preview, box.question, box.labels, signal);
       if (picked === undefined && this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
-      const yes = picked !== undefined && box.labels.indexOf(picked) === 1;
-      if (!this.closing) this.output.write(`[approval] ${yes ? `allowed ${KIND_TEXT[ask.kind].toLowerCase()} on ${terminalText(ask.server)} for this session` : "denied"}\n`);
-      return yes;
+      const answer = picked === YES_SESSION ? true : picked === YES_ONCE ? "once" as const : false;
+      const kind = KIND_TEXT[ask.kind].toLowerCase();
+      if (!this.closing) this.output.write(`[approval] ${answer === true ? `allowed ${kind} on ${terminalText(ask.server)} for this session`
+        : answer ? `allowed ${kind} on ${terminalText(ask.server)} for this change` : "denied"}\n`);
+      return answer;
     });
   };
 

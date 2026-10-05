@@ -142,7 +142,7 @@ reaches one without your answer:
    type `/verify <name>`), and Casper shows a numbered box naming every device. You answer
    with one key, pressed after the box appeared (keys typed before it never answer it). The AI can't answer the box, auto mode never asks for one, a device check is never
    rerun on its own (not after a repair, not at the end of a task), and a failed one is never
-   repaired without your answer. The one exception is yours: "Always for this project" on
+   repaired without your answer. The one exception is yours: "Yes, always for this project" on
    `junos-commit` lets *your own* `/verify` run it without the box, and only while the
    inventory, its host variables and the change file are exactly as they were; a check the
    AI asks for always shows the box. A run that cannot ask (`casper -p`, `--json`, a pipe)
@@ -198,13 +198,13 @@ The boxes:
 ```
 Run junos-commit on 2 devices? It loads the change, runs commit check, then rolls back. lab-r1, core-r1
 Not marked lab: core-r1 (10.1.2.3).
-1 Skip · 2 Run it · 3 Always for this project
+1 No · 2 Yes, this once · 3 Yes, always for this project
 
 Run aoscx-check on 3 devices? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. lab-sw1, lab-sw2, lab-sw3
-1 Skip · 2 Run it
+1 No · 2 Yes, this once
 ```
 
-Skip is first, so Enter never reaches a device.
+No is first, so Enter never reaches a device.
 
 When a lab check fails, Casper asks before anything else happens. Stop is first, so
 Enter never starts a repair:
@@ -217,7 +217,7 @@ junos-commit failed on the lab. Casper did not ask the model to fix it, because 
 If you pick 2 and the model changes the files, the lab check asks again before it
 runs on the lab again.
 
-"Always for this project" exists only for `junos-commit`. It applies only while the
+"Yes, always for this project" exists only for `junos-commit`. It applies only while the
 inventory, its hosts and the change file stay the same. `ansible-check` always asks.
 
 What this does not cover: Casper checks the inventory and the playbook text. It

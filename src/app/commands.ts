@@ -892,7 +892,7 @@ function approvalLines(status: MCPStatus): string[] {
   return [];
 }
 
-/** After you connect your own or an imported server, offer to remember it (writes stay off). Just this time is 1,
+/** After you connect your own or an imported server, offer to remember it (writes stay off). No is 1,
  * so a habitual 1 never remembers a server. */
 async function offerRemember(host: CommandHost, name: string): Promise<void> {
   const status = host.mcp!.status().find((entry) => entry.name === name);
