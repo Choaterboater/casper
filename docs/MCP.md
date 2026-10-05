@@ -105,7 +105,8 @@ file and set no variable.
    `/mcp login mist` adds or replaces it any time; `/mcp login mist forget` removes it.
 
    When the product turns a saved login down (an expired ClearPass token, a revoked Mist
-   token: the server answers `login_expired`, or passes the product's `HTTP 401` through),
+   token: the server answers `login_expired`, or, in casper-network-mcp 0.1.0, passes the
+   product's own answer through with `"status": 401`),
    Casper asks the same way: `The ClearPass login didn't work (ClearPass turned it down; it
    may have expired). Replace it?` with `1 Not now · 2 Replace the login`.
 3. Every change asks you in the change box, like any server

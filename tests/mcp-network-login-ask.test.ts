@@ -404,10 +404,18 @@ test("login_expired, or the product's own 401 for a tool of that product, reads 
   expect(loginExpired(textResult({ error: "login_expired", product: "clearpass" }))).toBe("clearpass");
   expect(loginExpired(textResult({ error: "login_expired", product: "clearpass", note: "x" }))).toBeUndefined();
   expect(loginExpired(textResult({ error: "login_expired", product: "../x" }))).toBeUndefined();
-  expect(loginExpired(textResult({ error: "HTTP 401 at /api/endpoint: {\"error\":\"invalid_token\"}" }), "clearpass")).toBe("clearpass");
-  // A 401 needs the tool's product; any other status is an ordinary error.
-  expect(loginExpired(textResult({ error: "HTTP 401 at /api/endpoint: no" }))).toBeUndefined();
-  expect(loginExpired(textResult({ error: "HTTP 403 at /api/endpoint: no" }), "clearpass")).toBeUndefined();
+  // casper-network-mcp 0.1.0's ApiError.as_error() for the product's 401.
+  const url = "https://cppm.example.com/api/endpoint";
+  const answered = (status: unknown) => ({ error: `ClearPass answered ${String(status)} to GET ${url}: invalid_token`, status, detail: { error: "invalid_token" }, request_id: "r-1", url });
+  expect(loginExpired(textResult(answered(401)), "clearpass")).toBe("clearpass");
+  expect(loginExpired({ content: [], structuredContent: { result: answered(401) } }, "clearpass")).toBe("clearpass");
+  expect(loginExpired(textResult({ error: "ClearPass answered 401", status: 401 }), "clearpass")).toBe("clearpass");
+  // A 401 needs the tool's product, a number status and only as_error()'s keys; any other status is an ordinary error.
+  expect(loginExpired(textResult(answered(401)))).toBeUndefined();
+  expect(loginExpired(textResult(answered(403)), "clearpass")).toBeUndefined();
+  expect(loginExpired(textResult(answered("401")), "clearpass")).toBeUndefined();
+  expect(loginExpired(textResult({ ...answered(401), rows: [] }), "clearpass")).toBeUndefined();
+  expect(loginExpired(textResult({ status: 401 }), "clearpass")).toBeUndefined();
   expect(loginExpired(textResult({ error: "login_missing", product: "mist" }), "mist")).toBeUndefined();
 });
 

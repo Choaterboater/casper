@@ -61,17 +61,20 @@ export function loginMissing(result: unknown): NetworkProduct | undefined {
   return productError(result, "login_missing");
 }
 
+/** The keys of casper-network-mcp 0.1.0's error for a product's own error status (ApiError.as_error()). */
+const API_ERROR_KEYS = new Set(["error", "status", "detail", "request_id", "url"]);
+
 /**
- * A saved login the product no longer takes (expired, revoked): {"error":"login_expired","product":…}, or, from a server
- * that passes the product's own answer through (casper-network-mcp 0.1.0), {"error":"HTTP 401 …"} for a tool whose
- * product Casper knows.
+ * A saved login the product no longer takes (expired, revoked): {"error":"login_expired","product":…}, or, from
+ * casper-network-mcp 0.1.0, which passes the product's own answer through, {"error": "<Product> answered 401 …",
+ * "status": 401, "detail", "request_id", "url"} for a tool whose product Casper knows.
  */
 export function loginExpired(result: unknown, toolProduct?: NetworkProduct): NetworkProduct | undefined {
   const named = productError(result, "login_expired");
   if (named) return named;
   const body = errorBody(result);
-  if (!toolProduct || !body || Object.keys(body).length !== 1 || typeof body.error !== "string") return undefined;
-  return /^HTTP 401\b/.test(body.error) ? toolProduct : undefined;
+  if (!toolProduct || !body || typeof body.error !== "string" || Object.keys(body).some((key) => !API_ERROR_KEYS.has(key))) return undefined;
+  return body.status === 401 ? toolProduct : undefined;
 }
 
 /** Why the person is asked: no login yet, or a saved one the product turned down. */
