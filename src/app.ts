@@ -3081,6 +3081,11 @@ export class CasperApp {
           pick: async () => undefined, duringWork: true }).catch(failed);
         return true;
       }
+      // A picker would sit in the way of any approval the task asks; the list prints instead.
+      if (/^\/diff\s+list$/.test(line)) {
+        void this.taskUndo.diff("list", undefined, true).catch(failed);
+        return true;
+      }
       void this.handleSlashCommand(line).catch(failed);
       return true;
     }

@@ -31,7 +31,7 @@ Undo: casper /undo 12 · Diff: casper /diff 12
 | `/redo` | Puts the files of the newest undone task back the way that task left them. |
 | `/diff` | The newest task's changes (a patch), also in a folder that is not a git repository. With no task yet, git's view (`git diff HEAD`). |
 | `/diff 12` | Task 12's changes. |
-| `/diff list` | Pick one of your recent tasks by number. |
+| `/diff list` | Pick one of your recent tasks by number. While a task runs it prints the list instead; `/diff <n>` shows one. |
 | `/receipt` | The last receipt, also after Casper restarts. |
 | `/receipt 12` | Receipt 12, headed "Task 12 · 14:02 · fix the login bug". |
 | `/receipt list` | The last 10 receipts: number, time, first line and request. |

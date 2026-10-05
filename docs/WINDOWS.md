@@ -203,8 +203,9 @@ commands.
 
 In the disposable project above (a git repository, with Git for Windows installed):
 
-- Ask for a small change, then press `1` on the `Next: 1 Undo · 2 Show diff` row. The
-  file goes back; `/redo` puts it back again. Press Enter on the row instead: nothing runs.
+- Ask for a small change, then press `2` on the `Next: 1 Show diff · 2 Undo` row. The
+  file goes back; `/redo` puts it back again (its row shows `2 Redo`). Press Enter on the row
+  instead: nothing runs.
 - Change the same file yourself after a task, then `/undo`: the question starts with
   `1 Cancel`, and Enter changes nothing.
 - `/diff`, `/receipt list`, then restart Casper and `/receipt 1`: the old receipt shows.

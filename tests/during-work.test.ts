@@ -112,3 +112,37 @@ test("a command description too long for the menu ends at a word with …, never
   expect(exit!.description).toBe("Leave Casper");
   expect(fitDescriptions(items, 200)).toEqual(items);
 });
+
+test("/diff list during a task prints the list with no picker, so nothing sits in the way of a box the task opens", async () => {
+  const gate = Promise.withResolvers<void>();
+  let turns = 0, second = false;
+  const app = await richApp(project => ({
+    async start() {
+      return {
+        setTools: () => {},
+        getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }),
+        getState: () => ({ cwd: project, isStreaming: false }),
+        subscribe: () => () => {},
+        abort: async () => {},
+        prompt: async () => {
+          if (++turns === 1) { await Bun.write(`${project}/notes.txt`, "changed\n"); return; }
+          second = true; await gate.promise;
+        },
+      };
+    },
+    async dispose() {},
+  }));
+  try {
+    await app.until(text => text.includes("idle"));
+    app.input.write("change the notes\r");
+    await app.until(text => text.includes("Show diff"));
+    app.input.write("tidy up\r");
+    await app.until(() => second);
+    const from = app.screen().length;
+    app.input.write("/diff list\r");
+    await app.until(text => text.slice(from).includes("/diff <task number> shows one."));
+    expect(app.screen().slice(from)).toContain("Task 1 · ");
+    expect(app.screen().slice(from)).not.toContain("Show the changes of which task?");
+    gate.resolve();
+  } finally { gate.resolve(); await app.close(); }
+}, 30_000);

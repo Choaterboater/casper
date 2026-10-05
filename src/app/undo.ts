@@ -372,14 +372,16 @@ export class TaskUndo {
 
   /** /diff [n|list]: this task's changes, also outside git. False when no task has run in this folder (the caller
    * shows the git view instead). */
-  async diff(argument: string, signal?: AbortSignal): Promise<boolean> {
+  /** `duringWork`: a task is running, so /diff list prints its list instead of a picker; a box the task opens
+   * (an approval, a question) must never find a picker in its way. */
+  async diff(argument: string, signal?: AbortSignal, duringWork = false): Promise<boolean> {
     const receipts = this.receipts();
     const root = this.host.activeRoot();
     if (argument === "list") {
       const recent = (await receipts?.list(30) ?? []).flatMap(({ receipt }) => typeof receipt !== "string" && receipt.root === root && hasCopies(receipt) ? [receipt] : []).slice(0, 9);
       if (!recent.length) { this.write("No task has changed files in this folder yet.\n"); return true; }
       const label = (receipt: StoredReceipt) => `Task ${receipt.n} · ${time(receipt.createdAt)} · ${terminalText(receipt.request).replace(/\s+/g, " ").slice(0, 60)}`;
-      if (!this.host.interactive) {
+      if (!this.host.interactive || duringWork) {
         this.write(`${recent.map((receipt) => `  ${label(receipt)}`).join("\n")}\n/diff <task number> shows one.\n`);
         return true;
       }
