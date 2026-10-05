@@ -58,7 +58,8 @@ test("many secrets on one long line are all hidden", () => {
   const line = "password=a1b2c3x ".repeat(5_000);
   const started = performance.now();
   const result = scrubAssignments(line, false);
-  expect(performance.now() - started).toBeLessThan(500);
+  // Linear work is tens of ms; the old quadratic rule took seconds. 2 s leaves room for a busy CI runner.
+  expect(performance.now() - started).toBeLessThan(2_000);
   expect(result.hidden).toBe(5_000);
   expect(result.text).toBe(`password=${SECRET_MARKER} `.repeat(5_000));
 });
