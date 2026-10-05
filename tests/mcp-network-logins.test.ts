@@ -12,6 +12,7 @@ import { PRIVATE_PATHS } from "../src/platform/project-paths";
 import { networkLoginValues } from "../src/secrets/files";
 import { scrubToolOutput } from "../src/secrets/tool-output";
 import { scrubText } from "../src/secrets/scrub";
+import { allowSlowServerStopsOnWindows, fakeProgram, fakeServerProgram } from "./support/fake-program";
 import { needsPosixModes, needsSymlinks, posixModes } from "./support/platform";
 
 const cleanup: (() => Promise<unknown>)[] = [];
@@ -21,19 +22,19 @@ async function tempHome(): Promise<string> {
   cleanup.push(() => rm(dir, { recursive: true, force: true }));
   return dir;
 }
-const fixtureServer = path.join(import.meta.dir, "fixtures/mcp-network-server.ts");
 const key = randomBytes(32);
 
 function networkDefinition(home: string, scope: MCPServerDefinition["scope"] = "user"): MCPServerDefinition {
   return { name: "network", source: path.join(home, ".casper/mcp.json"), scope, cwd: home, disabled: false, transport: { type: "stdio", ...networkServerEntry(home) } };
 }
 
-/** Casper's installed program, as a script: `body` runs in place of the real server. */
-async function installScript(home: string, body: string): Promise<void> {
+allowSlowServerStopsOnWindows();
+
+/** Where Casper's installed program goes; the tests put a fake there (tests/support/fake-program.ts). */
+async function installedProgram(home: string): Promise<string> {
   const entry = networkServerEntry(home).command;
   await mkdir(path.dirname(entry), { recursive: true });
-  await writeFile(entry, `#!/bin/sh\n${body}\n`);
-  await chmod(entry, 0o755);
+  return entry;
 }
 
 test("each product's login fields are the server's own login variables", () => {
@@ -145,7 +146,7 @@ test("forgetting a login drops it from spawn env and from hidden values", async 
 test("the manager starts Casper's network server with the saved logins, read-only, and hides them in its output", async () => {
   const home = await tempHome();
   await saveLogin(home, "mist", { MIST_HOST: "https://api.mist.com", MIST_API_TOKEN: "tok_EXAMPLE_0123456789" });
-  await installScript(home, `FIXTURE_ENV_DUMP=1 exec "${process.execPath}" "${fixtureServer}" "$@"`);
+  await fakeServerProgram(await installedProgram(home), "mcp-network-server", { FIXTURE_ENV_DUMP: "1" });
   const manager = new MCPManager({ servers: [networkDefinition(home)], diagnostics: [] }, { timeoutMs: 10_000, homeDir: home });
   cleanup.push(() => manager.close());
   await manager.connect("network");
@@ -164,7 +165,7 @@ test("the manager starts Casper's network server with the saved logins, read-onl
 test("a login the server prints on stderr is hidden in /mcp", async () => {
   const home = await tempHome();
   await saveLogin(home, "mist", { MIST_HOST: "https://api.mist.com", MIST_API_TOKEN: "tok_EXAMPLE_0123456789" });
-  await installScript(home, 'echo "login with $MIST_API_TOKEN refused" >&2\nexit 1');
+  await fakeProgram(await installedProgram(home), "err(`login with ${process.env.MIST_API_TOKEN} refused\\n`);\nprocess.exit(1);");
   const manager = new MCPManager({ servers: [networkDefinition(home)], diagnostics: [] }, { timeoutMs: 10_000, homeDir: home });
   cleanup.push(() => manager.close());
   await manager.connect("network").catch(() => {});
