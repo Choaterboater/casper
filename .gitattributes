@@ -1,0 +1,9 @@
+# LF in every checkout, whatever core.autocrlf says (Windows defaults to CRLF).
+# Tests compare committed text byte for byte.
+* text=auto eol=lf
+
+# Test captures kept with CRLF on purpose: leave them byte for byte.
+evals/fixtures/net-config-audit/acceptance/configs/aoscx-after.cfg -text
+evals/fixtures/net-interfaces/acceptance/transcripts/aoscx.txt -text
+evals/fixtures/net-macfind/acceptance/data/idf3-sw1.lldp.txt -text
+evals/fixtures/net-macfind/acceptance/data/idf3-sw1.mac.txt -text
