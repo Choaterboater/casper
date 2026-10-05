@@ -155,8 +155,10 @@ describe("running named checks", () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "casper-tool-"));
     dirs.push(root);
     await writeFile(path.join(root, "switch.cfg"), "enable secret 0 hunter2secret\n");
+    // Prints the file through the runtime, not `cat`: on Windows a check runs through cmd.exe.
+    await writeFile(path.join(root, "render.js"), `process.stdout.write(require("fs").readFileSync("switch.cfg", "utf8"));\n`);
     const registry = VerifierRegistry.forProject(model(root, {
-      render: { kind: "offline", run: "cat switch.cfg", after: "each-change" },
+      render: { kind: "offline", run: `${JSON.stringify(process.execPath)} render.js`, after: "each-change" },
       "junos-commit": { kind: "lab", preset: "junos-commit", files: ["c.set"], inventory: "lab.yml" },
     }), 10_000);
     const tool = new VerificationTask(registry, root).tool()!;

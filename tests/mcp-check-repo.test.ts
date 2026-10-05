@@ -5,6 +5,7 @@ import path from "node:path";
 import { McpCheck } from "../src/mcp/check/index";
 import { findRepoCommands, repoFinding } from "../src/mcp/check/repo";
 import type { McpCheckCommand } from "../src/cli-args";
+import { checkCommand } from "./support/check-command";
 
 const temps: string[] = [];
 afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
@@ -21,6 +22,9 @@ async function repo(files: Record<string, string>): Promise<string> {
 
 const command = (repoPath: string, extra: Partial<McpCheckCommand> = {}): McpCheckCommand =>
   ({ repo: repoPath, live: false, quick: false, strict: false, json: false, env: {}, ...extra });
+
+// Python on Windows is `python` (python3 is usually missing or the Store stub); see findRepoCommands.
+const python = process.platform === "win32" ? "python" : "python3";
 
 test("a Makefile test target with no pytest gives make test, and unittest runs the safety files", async () => {
   const root = await repo({
@@ -59,7 +63,7 @@ test("a declared pytest safety marker runs -m safety instead of guessing by name
     "tests/test_write_gate.py": "",
   });
   const found = await findRepoCommands(root);
-  expect(found.safetyTests).toMatchObject({ command: "python3 -m pytest -m safety", summary: "-m safety" });
+  expect(found.safetyTests).toMatchObject({ command: `${python} -m pytest -m safety`, summary: "-m safety" });
 });
 
 test("a slow marker alone is not a safety marker", async () => {
@@ -71,7 +75,7 @@ test("package.json doctor and test scripts, and scripts/doctor.py", async () => 
   const node = await repo({ "package.json": JSON.stringify({ scripts: { doctor: "node doctor.js", test: "bun test" } }), "bun.lock": "" });
   expect(await findRepoCommands(node)).toMatchObject({ doctor: { command: "bun run doctor" }, tests: { command: "bun run test" } });
   const script = await repo({ "scripts/doctor.py": "print('ok')", "Makefile": "doctor:\n\ttrue\n" });
-  expect((await findRepoCommands(script)).doctor?.command).toBe("python3 scripts/doctor.py");
+  expect((await findRepoCommands(script)).doctor?.command).toBe(`${python} scripts/doctor.py`);
   const make = await repo({ "Makefile": "doctor:\n\ttrue\n" });
   expect((await findRepoCommands(make)).doctor?.command).toBe("make doctor");
 });
@@ -93,16 +97,18 @@ test("repo command results become plain lines", () => {
 });
 
 test("the check runs doctor, safety tests and tests in the repo; --quick skips the full tests", async () => {
+  // Commands through the check script, not sh: on Windows they run through cmd.exe.
+  const failing = checkCommand("stderr:boom", "exit:3");
   const root = await repo({
-    ".casper/mcp-check.json": JSON.stringify({ doctor: "echo 'Summary: 0 fail, 1 warn, 5 ok'", safetyTests: "echo safe > safety-ran.txt", tests: "echo boom >&2; exit 3" }),
+    ".casper/mcp-check.json": JSON.stringify({ doctor: checkCommand("stdout:Summary: 0 fail, 1 warn, 5 ok"), safetyTests: checkCommand("write:safety-ran.txt=safe"), tests: failing }),
   });
   const written: string[] = [];
   const report = await new McpCheck(command(root), { write: (text) => { written.push(text); } }).run();
   const repoLines = report.findings.filter((finding) => finding.section === "repo");
   expect(repoLines.map((finding) => [finding.status, finding.label])).toEqual([["ok", "doctor"], ["ok", "safety tests"], ["fail", "tests"]]);
   expect(repoLines[0]!.text).toContain("Summary: 0 fail, 1 warn, 5 ok");
-  expect(repoLines[2]!.text).toBe("echo boom >&2; exit 3: exit code 3 (see output above)");
-  expect(await readFile(path.join(root, "safety-ran.txt"), "utf8")).toBe("safe\n");
+  expect(repoLines[2]!.text).toBe(`${failing}: exit code 3 (see output above)`);
+  expect(await readFile(path.join(root, "safety-ran.txt"), "utf8")).toBe("safe");
   // The failing command's output is shown above the report.
   expect(written.join("")).toContain("tests output (secrets hidden):\n  | boom");
   expect(report.exitCode).toBe(1);
@@ -121,10 +127,11 @@ test("a repo with nothing to run says so, and with no start source names the -- 
 });
 
 test("a broken .casper/mcp-check.json is reported, and the other checks still run", async () => {
-  const root = await repo({ ".casper/mcp-check.json": "{ nope", "Makefile": "test:\n\ttrue\n" });
+  // A package.json test script, not make: make is not on every Windows machine.
+  const root = await repo({ ".casper/mcp-check.json": "{ nope", "package.json": JSON.stringify({ scripts: { test: "echo ok" } }), "bun.lock": "" });
   const report = await new McpCheck(command(root)).run();
   expect(report.findings[0]).toMatchObject({ status: "fail", label: "settings" });
   const tests = report.findings.find((finding) => finding.label === "tests")!;
   expect(tests.status).toBe("ok");
-  expect(tests.text).toMatch(/^make test \(\d+\.\d s\)$/);
+  expect(tests.text).toMatch(/^bun run test \(\d+\.\d s\)$/);
 });

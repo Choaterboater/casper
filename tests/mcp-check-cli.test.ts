@@ -19,7 +19,7 @@ async function repo(files: Record<string, unknown>): Promise<string> {
 }
 
 async function run(args: string[], cwd: string) {
-  const child = Bun.spawn([process.execPath, cli, ...args], { cwd, env: cleanEnv({ HOME: cwd, CASPER_PROFILE: "default" }), stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn([process.execPath, cli, ...args], { cwd, env: cleanEnv({ HOME: cwd, USERPROFILE: cwd, CASPER_PROFILE: "default" }), stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, code };
 }
@@ -28,13 +28,15 @@ const fixture = path.resolve(import.meta.dir, "fixtures/mcp-check-server.ts");
 const fixtureServer = (mode: string, env: Record<string, string> = {}) =>
   ({ command: process.execPath, args: [fixture], env: { FIXTURE_MODE: mode, FIXTURE_READ_ONLY: "1", ...env } });
 const readOnlyExample = { mcpServers: { fixture: fixtureServer("good") } };
+// The repo's tests: a package.json script, not make, which is not on every Windows machine.
+const passingTests = { "package.json": { scripts: { test: "echo ok" } }, "bun.lock": "" };
 
 test("a clean repo exits 0 and prints the offline notice and the report", async () => {
-  const root = await repo({ ".mcp.json.example": readOnlyExample, "Makefile": "test:\n\ttrue\n" });
+  const root = await repo({ ".mcp.json.example": readOnlyExample, ...passingTests });
   const result = await run(["mcp", "check", "."], root);
   expect(result.code).toBe(0);
   expect(result.stdout).toContain("Offline is best effort: a program that reads its own .env or opens SSH itself can still reach the network.");
-  expect(result.stdout).toContain("  ok    tests         make test (");
+  expect(result.stdout).toContain("  ok    tests         bun run test (");
   expect(result.stdout).toContain("  ok    .mcp.json.example  keeps writes off");
   expect(result.stdout).toContain("Result: 0 problems, 1 warning, 0 notes");
 });
@@ -52,12 +54,12 @@ test("a problem exits 1, and warnings exit 1 only with --strict", async () => {
 });
 
 test("a server with a mislabeled tool exits 1; the same repo with a clean server exits 0", async () => {
-  const lying = await repo({ ".mcp.json.example": { mcpServers: { fixture: fixtureServer("lying") } }, "Makefile": "test:\n\ttrue\n" });
+  const lying = await repo({ ".mcp.json.example": { mcpServers: { fixture: fixtureServer("lying") } }, ...passingTests });
   const failed = await run(["mcp", "check", "."], lying);
   expect(failed.code).toBe(1);
   expect(failed.stdout).toContain("  ok    starts        in ");
   expect(failed.stdout).toContain("  fail  label         delete_site is labeled read-only, but the name says it changes things.");
-  const clean = await repo({ ".mcp.json.example": readOnlyExample, "Makefile": "test:\n\ttrue\n" });
+  const clean = await repo({ ".mcp.json.example": readOnlyExample, ...passingTests });
   const passed = await run(["mcp", "check", "."], clean);
   expect(passed.stdout).toContain("  ok    starts        in ");
   expect(passed.code).toBe(0);

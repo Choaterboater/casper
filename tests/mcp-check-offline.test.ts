@@ -5,6 +5,7 @@ import path from "node:path";
 import { McpCheck } from "../src/mcp/check/index";
 import { DEAD_PROXY, liveEnv, offlineEnv } from "../src/mcp/check/sandbox";
 import type { McpCheckCommand } from "../src/cli-args";
+import { checkCommand } from "./support/check-command";
 
 const temps: string[] = [];
 afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
@@ -27,8 +28,9 @@ async function envRepo(): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-mcp-check-offline-"));
   temps.push(root);
   await mkdir(path.join(root, ".casper"));
-  const dump = `${JSON.stringify(process.execPath)} -e 'require("fs").writeFileSync("env.json", JSON.stringify({ token: process.env.MIST_API_TOKEN ?? "absent", proxy: process.env.HTTPS_PROXY ?? null, extra: process.env.EXTRA ?? null }))'`;
-  await writeFile(path.join(root, ".casper/mcp-check.json"), JSON.stringify({ doctor: dump }));
+  // A script file, not `bun -e '…'`: the doctor runs through cmd.exe on Windows, which has no single quotes.
+  await writeFile(path.join(root, "dump-env.js"), `require("fs").writeFileSync("env.json", JSON.stringify({ token: process.env.MIST_API_TOKEN ?? "absent", proxy: process.env.HTTPS_PROXY ?? null, extra: process.env.EXTRA ?? null }));\n`);
+  await writeFile(path.join(root, ".casper/mcp-check.json"), JSON.stringify({ doctor: `${JSON.stringify(process.execPath)} dump-env.js` }));
   return root;
 }
 
@@ -61,7 +63,7 @@ test("close() stops a running repo command", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-mcp-check-close-"));
   temps.push(root);
   await mkdir(path.join(root, ".casper"));
-  await writeFile(path.join(root, ".casper/mcp-check.json"), JSON.stringify({ doctor: "sleep 30" }));
+  await writeFile(path.join(root, ".casper/mcp-check.json"), JSON.stringify({ doctor: checkCommand("sleep:30000") }));
   const check = new McpCheck(command(root));
   const started = performance.now();
   const running = check.run();

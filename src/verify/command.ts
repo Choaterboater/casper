@@ -62,10 +62,15 @@ export interface CommandCheckOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-/** A timeout, a command that could not execute, or the shell's 126 (not executable) / 127 (not found). */
-export function checkEnded(exitCode: number | null, reason?: string): VerificationResult["ended"] {
+// cmd.exe's "not found" ends with this, and `cmd /c` exits 1 (9009 inside a batch file).
+const CMD_NOT_FOUND = /'[^'\r\n]+' is not recognized as an internal or external command,\r?\noperable program or batch file\.\s*$/;
+
+/** A timeout, a command that could not execute, or the shell's 126 (not executable) / 127 (not found). On
+ * Windows the shell is cmd.exe: its "not recognized" as the last thing printed, or 9009, is "not found". */
+export function checkEnded(exitCode: number | null, reason?: string, stderr = "", platform: NodeJS.Platform = process.platform): VerificationResult["ended"] {
   if (reason?.startsWith("Timed out")) return "timeout";
   if (reason?.startsWith("Could not execute") || exitCode === 126 || exitCode === 127) return "no_start";
+  if (platform === "win32" && (exitCode === 9009 || (exitCode === 1 && CMD_NOT_FOUND.test(stderr)))) return "no_start";
   return undefined;
 }
 
@@ -140,7 +145,7 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
       signal?.removeEventListener("abort", abort);
       child.stdout.destroy(); child.stderr.destroy();
       child.unref(); // Unknown cleanup must not turn a reported failure into an exit hang.
-      const ended = checkEnded(exitCode, reason);
+      const ended = checkEnded(exitCode, reason, plan.shell ? stderr.text() : "");
       const result: VerificationResult = { ...base(), status: !reason && exitCode === 0 ? "pass" : "fail", exitCode, signal: exitSignal, reason, ...(ended ? { ended } : {}) };
       if (!held || result.status === "pass" || reason) { sandbox?.finished(held); resolve(result); return; }
       // A failure the sandbox caused says so, in the receipt and to the AI: "blocked by the sandbox (wanted to write /etc/hosts)".

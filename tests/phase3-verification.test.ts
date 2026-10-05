@@ -37,8 +37,8 @@ describe("Phase 3 verification", () => {
 
   test("declared check scope ignores only explicit outputs, not source edits or gitignored inputs", async () => {
     const { root, context } = await fixture(`verify:
-  build: mkdir -p dist; printf built > dist/output.js
-  test: printf after > source.ts
+  build: ${JSON.stringify(checkCommand("mkdir:dist", "write:dist/output.js=built"))}
+  test: ${JSON.stringify(checkCommand("write:source.ts=after"))}
 verification:
   scopes:
     build:
