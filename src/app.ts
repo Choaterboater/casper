@@ -689,9 +689,9 @@ export class CasperApp {
       if (!candidates.length) return cwd;
     }
     if (!this.terminal.rich) {
-      // The CLI takes no folder argument (`casper <path>` is a prompt), so only restarting works.
-      this.output.write(fromHome ? `[folder] Opened in your home directory; restart from a project folder: cd ~/Projects/myapp && casper\n`
-        : `[folder] This folder holds several projects; restart from one of them: cd ${terminalText(path.relative(cwd, candidates![0]!))} && casper\n`);
+      // `casper <folder>` opens that folder, so the hint is one command, no cd and no restart.
+      this.output.write(fromHome ? `[folder] Opened in your home folder. To work in a project: casper ~/Projects/myapp\n`
+        : `[folder] This folder holds several projects. To work in one: casper ${terminalText(path.relative(cwd, candidates![0]!))}\n`);
       this.output.write("[folder] To start a new project instead: casper new\n");
       return cwd;
     }
