@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { checkEvent } from "../src/app/json-events";
 import { formatReceipt } from "../src/task/result";
-import { runCommandCheck } from "../src/verify/command";
+import { checkEnded, runCommandCheck } from "../src/verify/command";
 import type { VerificationResult } from "../src/verify/evidence";
 import { checkCommand } from "./support/check-command";
 
@@ -27,6 +27,20 @@ test("a check that timed out or could not start is marked as unfinished, not as 
   const failing = await runCommandCheck({ name: "test", command: checkCommand("exit:1"), cwd, timeoutMs: 5000 });
   expect(failing.status).toBe("fail");
   expect(failing.ended).toBeUndefined();
+});
+
+test("on Windows, cmd.exe's 'is not recognized' as the last thing a check printed means it could not start", () => {
+  const notFound = "'jest' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n";
+  expect(checkEnded(1, undefined, notFound, "win32")).toBe("no_start");
+  expect(checkEnded(9009, undefined, "", "win32")).toBe("no_start");
+  expect(checkEnded(127, undefined, "", "win32")).toBe("no_start");
+  // A test runner that hit a missing tool and then reported its own failure is a test failure.
+  expect(checkEnded(1, undefined, `${notFound}npm error Lifecycle script \`test\` failed with error:\r\n`, "win32")).toBeUndefined();
+  expect(checkEnded(1, undefined, "1 test failed\n", "win32")).toBeUndefined();
+  // POSIX shells keep their 126/127 meaning only.
+  expect(checkEnded(1, undefined, notFound, "linux")).toBeUndefined();
+  expect(checkEnded(9009, undefined, "", "darwin")).toBeUndefined();
+  expect(checkEnded(127, undefined, "", "linux")).toBe("no_start");
 });
 
 test("the JSON check event carries ended only when set, and the receipt does not offer a repair for it", () => {
