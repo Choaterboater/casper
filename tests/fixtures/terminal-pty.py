@@ -168,21 +168,18 @@ def exercise(bun, repo, root, no_color):
         s.release("stream-step")
         s.until("• read · src/example.ts")
         assert "… /sta" in s.screen.text(), s.screen.text()
-        assert "First bold and code text." in s.screen.text(), s.screen.text()
         s.send("tus\n")  # A command that only shows something runs during work, with no model request.
         s.until("mcp       1 configured")
+        assert "First bold and code text." in s.screen.text(), s.screen.text()  # The / menu covered it only while open.
         assert s.requests() == ["stream"]
-        s.send("next idea\n")  # Anything else must NOT queue or discard the draft.
-        s.until("draft kept")
+        s.send("next idea\n")  # Anything else goes to the AI; this runtime cannot steer, so it is queued for after the task.
+        s.until("queued · runs when this task ends")
         assert s.requests() == ["stream"]
         s.release("stream-end")
         s.until("Done streaming.")
+        s.until("Echo: next idea")
         s.until("│ idle")
-        s.until("❯ next idea")
-        assert s.requests() == ["stream"]
-        s.send("\x03")  # Ctrl+C at the idle prompt clears the kept draft.
-        s.pump()
-        assert s.requests() == ["stream"]
+        assert s.requests() == ["stream", "next idea"]
         # Hidden streaming (reasoning, tool arguments) shows a boxed live status that leaves no trace.
         s.send("progress\n")
         s.until("Working")
@@ -196,10 +193,10 @@ def exercise(bun, repo, root, no_color):
         s.pump(0.05)
         assert "composing arguments" not in s.screen.text(), s.screen.text()
         assert "✓ write · site/index.html" in s.screen.text() and "— completed" not in s.screen.text(), s.screen.text()
-        # Fenced code is boxed with its language; fence markers never reach the screen.
+        # Fenced code gets a title line with its language and no side borders; fence markers never reach the screen.
         s.send("code\n")
-        s.until("╭─ sh ")
-        assert "╭─ ts " in s.screen.text() and "return a + b;" in s.screen.text(), s.screen.text()
+        s.until("── sh ")
+        assert "── ts " in s.screen.text() and "\n  return a + b;" in s.screen.text(), s.screen.text()
         assert "```" not in s.screen.text(), s.screen.text()
         # A line typed while the code task still finishes is only kept as a draft: wait for idle first.
         s.until("│ idle")
@@ -215,7 +212,7 @@ def exercise(bun, repo, root, no_color):
         # Enter before the cancelled task has closed only keeps the draft: wait for the prompt to be idle first.
         s.until("│ idle")
         s.send("Q\n")
-        s.until("Echo:")  # Pi wraps an overlong word after the label; exact draft checked below.
+        s.until_new("Echo:")  # Pi wraps an overlong word after the label; exact draft checked below.
         assert s.requests()[-1] == "x" * 93 + "Qxx", s.requests()
         # Enter while the echo task still runs only keeps the draft: wait for the prompt to be idle again.
         s.until("│ idle")
