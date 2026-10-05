@@ -24,7 +24,7 @@
     "sha256": "21b759377ab8afb9f2f957cb9bc669eeb15f9e5bdfe051cc7668424479a68fee"
   },
   "web-app": {
-    "version": 1,
-    "sha256": "659deb6a2b5d0360ff729fc720fd8ab4cac79f9efa4b5becbcfd14eca3b9c7e6"
+    "version": 2,
+    "sha256": "b443c104fc833a699ac5c87118055a2a0018ffb566b2032184842d6e1489a558"
   }
 }

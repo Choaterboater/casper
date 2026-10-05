@@ -1,0 +1,29 @@
+@import "tailwindcss";
+@import "./theme.css";
+
+@layer base {
+  html {
+    @apply bg-paper text-ink font-sans antialiased;
+  }
+
+  body {
+    @apply m-0 min-h-screen;
+  }
+
+  a {
+    @apply text-accent underline underline-offset-2;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-accent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

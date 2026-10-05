@@ -65,7 +65,7 @@ describe.skipIf(!live)("casper new, live", () => {
     expect(run(["uv", "run", "pytest", "-q"], dir, { UV_OFFLINE: "1" }).status).toBe(0);
   }, LONG);
 
-  test("web-app: created with bun init --react, and bun test passes", async () => {
+  test("web-app: created with bun init --react=tailwind, and bun test passes", async () => {
     const dir = await make("web-app", "demo-web");
     expect(run([process.execPath, "test"], dir).status).toBe(0);
   }, LONG);

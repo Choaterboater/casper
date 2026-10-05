@@ -6,6 +6,7 @@ import { parse } from "yaml";
 import { loadConfiguration } from "../src/config/load";
 import { findExampleConfigs, reviewExampleConfigs } from "../src/mcp/check/examples";
 import { findRepoCommands, SAFETY_TEST_NAME } from "../src/mcp/check/repo";
+import { detectRepositoryStructure } from "../src/project/structure";
 import { allTemplates, getTemplate, renderFiles, renderValues, type RenderedFile } from "../src/new/templates";
 
 /** What each template's files promise, checked offline without running uv or bun. */
@@ -111,6 +112,39 @@ test("web-app and noc-dashboard: .casper/project.yaml declares a service Casper 
     expect(loaded.services[service]!.port).toBe("auto");
     await rm(scratch!, { recursive: true, force: true });
   }
+});
+
+test("web-app: Tailwind with Casper's own small theme, no shadcn, and a page with labels, focus and 44px targets", () => {
+  const manifest = getTemplate("web-app")!.manifest;
+  expect(manifest.init).toEqual(["bun", "init", "--react=tailwind", "-y"]);
+  const files = render("web-app");
+  const theme = text(files, "src/theme.css");
+  // Its own palette, type scale, spacing and radius as CSS variables, read by Tailwind's @theme.
+  for (const token of ["--paper", "--ink", "--muted", "--line", "--accent", "--danger", "--text-base", "--text-2xl", "--spacing", "--radius"]) expect(theme).toContain(token);
+  expect(theme).toContain("@theme");
+  expect(theme).toContain("prefers-color-scheme: dark");
+  expect(text(files, "src/index.css")).toContain('@import "./theme.css"');
+  const all = files.map((file) => file.text).join("\n");
+  expect(all).not.toMatch(/shadcn|components\.json|lorem ipsum/i);
+  expect(all).not.toMatch(/purple|violet|indigo|from-\w+-\d+ to-/);
+  const app = text(files, "src/App.tsx");
+  expect(app).toContain("<main");
+  const form = text(files, "src/APITester.tsx");
+  expect(form).toContain("<label");
+  expect(form).toContain("min-h-11");
+  expect(form).toContain("focus-visible:");
+  expect(form).toContain("No answer yet");
+  expect(app).not.toMatch(/[\u{1F300}-\u{1FAFF}]/u);
+  expect(text(files, "src/index.html")).toContain('<html lang="en">');
+  expect(text(files, "src/index.html")).toContain("<title>demo-proj</title>");
+  expect(text(files, "bunfig.toml")).toContain('plugins = ["bun-plugin-tailwind"]');
+  expect(manifest.replace).toEqual(expect.arrayContaining(["src/App.tsx", "src/APITester.tsx", "src/index.css", "src/index.html", "bunfig.toml", "README.md"]));
+});
+
+test("web-app: Casper reads src/theme.css as the project's styles, so the repo's look wins", async () => {
+  const root = await writeOut(render("web-app"));
+  const structure = await detectRepositoryStructure(root);
+  expect(structure.architecture.styles).toContain("src/theme.css");
 });
 
 test("ansible templates: lab inventory only, show-only command lists, and render-only checks", () => {
