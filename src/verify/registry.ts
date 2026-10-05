@@ -6,6 +6,7 @@ import { CHECK_NAMES, type CheckName, type VerificationResult } from "./evidence
 import { isBuiltinCheck, labOnlyByYou, modelNamedChecks, type NamedCheckSpec } from "./named";
 import { detectedMigrations, MIGRATIONS_CHECK, migrationsRunnable, runDetectedMigrations } from "./migrations-check";
 import { migrationsScope } from "./migrations";
+import { detectedE2e, E2E_CHECK, e2eNotInstalled, e2eResult } from "./e2e";
 import type { VerificationScope } from "./scope";
 
 export interface Verifier {
@@ -167,12 +168,22 @@ export class VerifierRegistry {
       registry.register({ name: MIGRATIONS_CHECK, scope: migrationsScope(plan), ...(migrationsRunnable(plan) ? {} : { runnable: false as const }),
         run: async (signal) => cleanupFailed ? blocked(MIGRATIONS_CHECK) : runDetectedMigrations(cwd, plan, signal) });
     }
+    // The project's own Playwright tests (unless it named its own `e2e`). Not installed: it only skips and says why.
+    const e2e = detectedE2e(model);
+    if (e2e) {
+      const { command, installed } = e2e;
+      registry.register({ name: E2E_CHECK, command, ...(installed ? {} : { runnable: false as const }),
+        run: async (signal, runOptions) => cleanupFailed ? blocked(E2E_CHECK)
+          : !installed ? { name: E2E_CHECK, cwd, status: "skip", ...nothing, reason: e2eNotInstalled(model.packageManager), repair: "never" }
+          : e2eResult(await runCommandCheck({ name: E2E_CHECK, command, cwd, timeoutMs: limit(runOptions?.timeoutMs), signal, onCleanupFailure: onCleanup, ...wrap })) });
+    }
     return registry;
   }
 }
 
 /** The names /verify runs when none are given: the built-in checks and every named check but lab ones. */
-export function defaultVerifyNames(model: Pick<ProjectModel, "namedChecks" | "migrations">): CheckName[] {
+export function defaultVerifyNames(model: Pick<ProjectModel, "namedChecks" | "migrations" | "e2e">): CheckName[] {
   const migrations = detectedMigrations(model);
-  return [...CHECK_NAMES, ...modelNamedChecks(model.namedChecks), ...(migrations && migrationsRunnable(migrations) ? [MIGRATIONS_CHECK] : [])];
+  return [...CHECK_NAMES, ...modelNamedChecks(model.namedChecks), ...(migrations && migrationsRunnable(migrations) ? [MIGRATIONS_CHECK] : []),
+    ...(detectedE2e(model)?.installed ? [E2E_CHECK] : [])];
 }

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { E2ePlan } from "../verify/e2e";
 import type { ProjectInfo } from "./inspect";
 import type { NamedCheckSpec } from "../verify/named";
 import type { MigrationPlan } from "../verify/migrations";
@@ -36,6 +37,8 @@ export interface ProjectModel {
   verificationScopes?: Partial<Record<ProjectCommand, VerificationScope>>;
   /** Checks the project named under verify.checks, next to the four built-in ones. */
   namedChecks?: Record<string, NamedCheckSpec>;
+  /** Playwright tests the project already has (the e2e check); found when the project is opened, never cached. */
+  e2e?: E2ePlan;
   /** SQL migrations found in the project (the migrations check); found when the project is opened, never cached. */
   migrations?: MigrationPlan;
   /** Ready-made checks Casper found for the project (Ansible playbooks) that the project has not saved under

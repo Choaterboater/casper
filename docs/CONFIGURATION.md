@@ -20,6 +20,7 @@ Settings (saved in ~/.casper/config.yaml for you). Pick one to change:
   5 Spend notes         at $1 a task
   6 Spend pause         off
   7 Work shown          normal
+  8 Playwright tests    on
 ```
 
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.

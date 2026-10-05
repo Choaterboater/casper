@@ -1,6 +1,7 @@
 import type { VerificationResult } from "./evidence";
 import { detectMigrations, migrationsScope, runMigrationsCheck, type MigrationPlan, type MigrationsReport } from "./migrations";
 import type { VerificationScope } from "./scope";
+import { detectedE2e, E2E_CHECK, type E2ePlan } from "./e2e";
 
 /**
  * The SQL migrations check as a named check: Casper finds it from the project's own files (see migrations.ts),
@@ -13,7 +14,7 @@ export const MIGRATIONS_CHECK = "migrations";
 /** What the check says it does, for the live line and the AI's list of checks. */
 export const MIGRATIONS_COMMAND = "apply the SQL migrations to a throwaway SQLite";
 
-interface MigrationsModel { migrations?: MigrationPlan; namedChecks?: Record<string, unknown> }
+interface MigrationsModel { migrations?: MigrationPlan; e2e?: E2ePlan; namedChecks?: Record<string, unknown> }
 
 /** The detected migrations, unless the project named its own check `migrations`. */
 export function detectedMigrations(model: MigrationsModel): MigrationPlan | undefined {
@@ -25,12 +26,16 @@ export function migrationsRunnable(plan: MigrationPlan): boolean {
   return plan.dialect === "sqlite" && !(plan.kind === "prisma" && !plan.envName);
 }
 
-/** Detected checks that run after each change, with the files that make them worth running. Migrations Casper
+/** Detected checks that run after each change, with the files that make them worth running and what they run (the
+ * migrations check, and the e2e check once Playwright is installed). Migrations Casper
  * can't apply (Postgres, a literal Prisma address) are left out: they run only with /verify migrations, which
  * says why they were not checked. */
-export function autoDetectedChecks(model: MigrationsModel): Array<{ name: string; scope: VerificationScope }> {
+export function autoDetectedChecks(model: MigrationsModel): Array<{ name: string; scope: VerificationScope; command: string }> {
   const plan = detectedMigrations(model);
-  return plan && migrationsRunnable(plan) ? [{ name: MIGRATIONS_CHECK, scope: migrationsScope(plan) }] : [];
+  const e2e = detectedE2e(model);
+  return [...(plan && migrationsRunnable(plan) ? [{ name: MIGRATIONS_CHECK, scope: migrationsScope(plan), command: `${MIGRATIONS_COMMAND} (Casper runs it)` }] : []),
+    // The project's Playwright tests, once installed: any change may reach a page they cover.
+    ...(e2e?.installed ? [{ name: E2E_CHECK, scope: { inputs: ["."] }, command: e2e.command }] : [])];
 }
 
 /** A migrations run as check evidence. A failure names the file and the database error; "not checked" is a

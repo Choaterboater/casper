@@ -31,13 +31,23 @@ posixOnly("editUserConfig keeps comments and other settings, replaces the one va
   await expect(editUserConfig(home, ["display"], "quiet")).rejects.toThrow("does not parse");
 });
 
+test("Playwright tests: off writes verification.e2e: false, and the found e2e check goes away", async () => {
+  const { home, project, config } = await place();
+  await writeFile(config, "verification:\n  e2e: false\n");
+  const context = await loadProjectContext(await inspectProject(project), { homeDir: home });
+  const row = settingRows(context).find((entry) => entry.label === "Playwright tests")!;
+  expect(row.value).toBe("off");
+  expect(row.choices.map((choice) => [choice.label, choice.keys, choice.value])).toEqual([["Turn them on", ["verification", "e2e"], true]]);
+});
+
 test("the settings list shows each switch and where it stands", async () => {
   const { home, project, config } = await place();
   await writeFile(config, "web: off\nupdates: false\nspend:\n  pauseAt: 5\n");
   const context = await loadProjectContext(await inspectProject(project), { homeDir: home });
   expect(settingRows(context).map((row) => `${row.label}: ${row.value}`)).toEqual([
-    "Web lookups: off", "New-version notice: off", "Built-in skills: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task", "Work shown: normal",
+    "Web lookups: off", "New-version notice: off", "Built-in skills: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task", "Work shown: normal", "Playwright tests: on",
   ]);
+  expect(settingRows(context).at(-1)!.question).toBe("Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are on.");
   const questions = settingRows(context).map((row) => row.question);
   expect(questions[3]).toStartWith("Spend notes come at $1 a task. ");
   expect(questions[4]).toStartWith("Spend pause comes at $5 a task. ");
