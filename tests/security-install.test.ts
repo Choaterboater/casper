@@ -105,6 +105,8 @@ test("a hash-locked install runs uv with --require-hashes and no source builds",
   expect(result.ok).toBe(true);
   expect(calls[0]!.slice(0, 1)).toEqual(["venv"]);
   expect(calls[1]).toEqual(expect.arrayContaining(["pip", "install", "--require-hashes", "--no-deps", "--only-binary", ":all:"]));
+  // A version published minutes ago is found even when uv cached the package list before it.
+  expect(calls[1]).toContain("--refresh");
   expect((await findTool(SECURITY_TOOLS.ruff, { homeDir: home, env: { PATH: "" } })).kind).toBe("pinned");
 });
 

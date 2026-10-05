@@ -36,6 +36,13 @@ const ACCOUNT_WORDS = new Set(["user", "users", "account", "accounts"]);
 const DISRUPTIVE_WORDS = new Set(["bounce", "reboot", "restart", "reload", "disconnect", "deauth", "deauthenticate",
   "halt", "shutdown", "powercycle", "power", "reset", "kick"]);
 const TROUBLESHOOT_WORDS = new Set(["ping", "traceroute", "show", "test", "iperf", "speedtest", "cable", "nslookup", "blink"]);
+/** Words that name a check which touches the network or a link (not "show" or "test" alone, which plain reads use too). */
+const LINK_CHECK_WORDS = new Set(["ping", "traceroute", "iperf", "speedtest", "cable", "nslookup", "blink"]);
+
+/** True when a tool's name reads as a link or reachability check: a routed call to it asks even before find_tool names it. */
+export function namesLinkCheck(name: string): boolean {
+  return toolWords(name).some((word) => LINK_CHECK_WORDS.has(word));
+}
 
 /** The kind Casper's word lists give a tool name. Never `read`: that comes from the label. */
 function wordKind(name: string): ChangeKind {

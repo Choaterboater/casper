@@ -267,7 +267,7 @@ async function buildLockedVenv(build: LockedBuild, dir: string, uv: string, opti
     if (made.exitCode !== 0) throw new Error(`${label}: uv could not make a Python ${source.python} environment`);
     const python = platform === "win32" ? path.join(venv, "Scripts", "python.exe") : path.join(venv, "bin", "python");
     const installed = await run({
-      file: uv, args: ["pip", "install", "--quiet", "--python", python, "--require-hashes", "--no-deps", "--only-binary", ":all:", "-r", lockFile],
+      file: uv, args: ["pip", "install", "--quiet", "--refresh", "--python", python, "--require-hashes", "--no-deps", "--only-binary", ":all:", "-r", lockFile],
       cwd: dir, env, timeoutMs: 1_200_000,
     });
     if (installed.exitCode !== 0) throw new Error(`${label}: ${installFailure(installed.stderr)}`);
