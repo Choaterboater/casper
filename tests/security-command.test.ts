@@ -5,6 +5,8 @@ import path from "node:path";
 import { CasperApp } from "../src/app";
 import { CANT_ASK_IGNORES, CANT_ASK_INSTALL, CANT_ASK_UPDATE, runSecurityReview, SECURITY_REVIEW_USAGE, type SecurityReviewHost } from "../src/app/security-review";
 import { loadProjectContext } from "../src/project/context";
+import { ShellSandbox } from "../src/sandbox/manager";
+import { SECURITY_OFFLINE_LINE } from "../src/security/format";
 import { SkillRegistry } from "../src/skills/registry";
 import { approvalsPath } from "../src/security/suppressions";
 import { COMMANDS } from "../src/tui/commands";
@@ -190,8 +192,11 @@ test("/security-review in a one-shot run goes through the app, starts no model a
     await app.runOnce("/security-review", root);
   } finally { await app.close(); }
   expect(started).toBe(false);
-  // The second line says what holds the tools in this session (see securityNetworkLine).
-  expect(output).toContain("Casper runs these tools in the shell sandbox: no network, no passwords or tokens");
+  // The second line says what holds the tools in this session (see securityNetworkLine): the shell sandbox where
+  // it runs, and only the dead proxy where it can't (Windows has none yet).
+  expect(output).toContain(ShellSandbox.detect({}).kind === "on"
+    ? "Casper runs these tools in the shell sandbox: no network, no passwords or tokens"
+    : `${SECURITY_OFFLINE_LINE} Nothing blocks their network here`);
   expect(output).toContain(CANT_ASK_INSTALL);
   expect(output).toMatch(/Result: \d+ problems/);
 });

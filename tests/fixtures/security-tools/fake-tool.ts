@@ -34,8 +34,10 @@ if (behaviour === "hang") {
 } else {
   const entry = canned[id];
   if (!entry) process.exit(98);
-  // The canned reports were captured in /work/repo: point them at the folder this run is in.
-  const text = readFileSync(path.join(outputs, entry.file), "utf8").split("/work/repo").join(process.cwd());
+  // The canned reports were captured in /work/repo: point them at the folder this run is in, written the way
+  // this system writes paths (C:\… on Windows), as a JSON string.
+  const text = readFileSync(path.join(outputs, entry.file), "utf8").replace(/\/work\/repo((?:\/[^"]*)?)/g,
+    (_, rest: string) => JSON.stringify(path.join(process.cwd(), ...rest.split("/").filter(Boolean))).slice(1, -1));
   process.stdout.write(text);
   process.exit(entry.exit);
 }

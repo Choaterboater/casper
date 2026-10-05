@@ -176,6 +176,17 @@ async function finish(spec: SecurityToolSpec, dir: string, pin: string): Promise
   await writeFile(path.join(dir, MARKER), `${JSON.stringify(marker)}\n`);
 }
 
+/**
+ * The tar that unpacks a download. On Windows that is Windows' own tar.exe, by its full path: Git Bash puts Git's
+ * GNU tar first on PATH, and that one reads "C:\…" as a remote host and can't open a zip.
+ */
+async function tarProgram(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): Promise<string> {
+  if (platform !== "win32") return "tar";
+  const systemRoot = Object.entries(env).find(([name]) => name.toUpperCase() === "SYSTEMROOT")?.[1] ?? process.env.SystemRoot;
+  const windowsTar = systemRoot ? path.join(systemRoot, "System32", "tar.exe") : undefined;
+  return windowsTar && await isFile(windowsTar) ? windowsTar : "tar";
+}
+
 async function installBinary(spec: SecurityToolSpec, options: InstallOptions): Promise<InstallResult> {
   if (spec.source.kind !== "binary") throw new Error("not a binary tool");
   const platform = options.platform ?? process.platform;
@@ -201,7 +212,7 @@ async function installBinary(spec: SecurityToolSpec, options: InstallOptions): P
       await writeFile(archive, bytes);
       await mkdir(extract);
       const unpacked = await (options.run ?? runTool)({
-        file: "tar", args: [asset.archive === "zip" ? "-xf" : "-xzf", archive, "-C", extract, asset.member],
+        file: await tarProgram(platform, options.env ?? process.env), args: [asset.archive === "zip" ? "-xf" : "-xzf", archive, "-C", extract, asset.member],
         cwd: staging, env: installEnv(options.env ?? process.env), timeoutMs: 120_000,
       });
       const member = path.join(extract, asset.member);

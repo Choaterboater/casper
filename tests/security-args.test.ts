@@ -5,7 +5,7 @@ import path from "node:path";
 import { DEAD_PROXY } from "../src/mcp/check/sandbox";
 import { SecurityCheck, type SecurityReport } from "../src/security/run";
 import { RUFF_SECURITY_RULES, toolArgs } from "../src/security/tools";
-import { fakeTools, fixtureRepo } from "./fixtures/security-tools/setup";
+import { fakeTools, fixtureRepo, SEMGREP_RUNS } from "./fixtures/security-tools/setup";
 
 let root: string;
 let home: string;
@@ -29,7 +29,7 @@ afterAll(async () => { await rm(root, { recursive: true, force: true }); await r
 
 test("every tool ran with its offline flags and with its own inline ignores turned off", async () => {
   expect(report.tools.map((tool) => [tool.id, tool.status])).toEqual([
-    ["gitleaks", "problems"], ["ruff", "problems"], ["semgrep", "problems"], ["zizmor", "problems"],
+    ["gitleaks", "problems"], ["ruff", "problems"], ["semgrep", SEMGREP_RUNS ? "problems" : "not-run"], ["zizmor", "problems"],
     ["osv-scanner", "problems"], ["ansible-lint", "problems"], ["mcp-scanner", "problems"],
   ]);
   const gitleaks = (await tools.recorded("gitleaks"))!.args;
@@ -38,16 +38,20 @@ test("every tool ran with its offline flags and with its own inline ignores turn
   // No committed .gitleaks.toml: Casper's default-rules config, never the repo's.
   expect(gitleaks[gitleaks.indexOf("--config") + 1]).toMatch(/gitleaks-default\.toml$/);
 
-  const semgrep = (await tools.recorded("semgrep"))!.args;
-  expect(semgrep).toContain("--metrics=off");
-  expect(semgrep).toContain("--disable-nosem");
-  expect(semgrep).toContain("--disable-version-check");
-  const configs = semgrep.filter((_, index) => semgrep[index - 1] === "--config");
-  expect(configs.length).toBeGreaterThan(0);
-  for (const config of configs) {
-    expect(config).not.toBe("auto");
-    expect(config).not.toMatch(/^(p|r)\//);
-    expect(path.isAbsolute(config)).toBe(true);
+  if (SEMGREP_RUNS) {
+    const semgrep = (await tools.recorded("semgrep"))!.args;
+    expect(semgrep).toContain("--metrics=off");
+    expect(semgrep).toContain("--disable-nosem");
+    expect(semgrep).toContain("--disable-version-check");
+    const configs = semgrep.filter((_, index) => semgrep[index - 1] === "--config");
+    expect(configs.length).toBeGreaterThan(0);
+    for (const config of configs) {
+      expect(config).not.toBe("auto");
+      expect(config).not.toMatch(/^(p|r)\//);
+      expect(path.isAbsolute(config)).toBe(true);
+    }
+  } else {
+    expect(await tools.recorded("semgrep")).toBeUndefined();
   }
 
   const zizmor = (await tools.recorded("zizmor"))!.args;
@@ -77,7 +81,7 @@ test("every tool ran with its offline flags and with its own inline ignores turn
 test("every tool ran in the repo with the clean env: no tokens, dead proxy", async () => {
   // The project's real folder: on macOS the temp folder is behind a link (/var is /private/var).
   const real = await realpath(root);
-  for (const tool of report.tools) {
+  for (const tool of report.tools.filter((tool) => tool.id !== "semgrep" || SEMGREP_RUNS)) {
     const seen = (await tools.recorded(tool.id))!;
     expect(seen.cwd).toBe(real);
     expect(seen.env.MIST_APITOKEN).toBeUndefined();
