@@ -9,7 +9,10 @@ setDefaultTimeout(30_000);
 // developer's own PI_*/CASPER_* variables or provider keys would give them a different suite than CI's.
 // Start every test file from the same clean environment; tests that need a variable set it themselves.
 const clean = cleanEnv();
-for (const name of Object.keys(process.env)) if (!(name in clean)) delete process.env[name];
+// Windows names ignore case: cleanEnv calls the host's `Path` PATH, and deleting `Path` would drop PATH too.
+const key = (name: string) => process.platform === "win32" ? name.toUpperCase() : name;
+const kept = new Set(Object.keys(clean).map(key));
+for (const name of Object.keys(process.env)) if (!kept.has(key(name))) delete process.env[name];
 
 // The shell sandbox holds nothing in the suite by default, whatever this machine has installed, so a test's
 // checks and commands run the same on every host. Sandbox tests build their own ShellSandbox (a fake engine,

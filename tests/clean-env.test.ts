@@ -1,4 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { cleanEnv } from "./support/env";
 
 const env = process.env as Record<string, string | undefined>;
@@ -24,4 +27,27 @@ test("cleanEnv keeps what a test sets explicitly, even in the stripped namespace
 test("an undefined value in extra removes that variable rather than passing it through", () => {
   env.CLEAN_ENV_UNRELATED = "ambient";
   expect("CLEAN_ENV_UNRELATED" in cleanEnv({ CLEAN_ENV_UNRELATED: undefined })).toBe(false);
+});
+
+test("a fake HOME is the child's home folder on every OS, so a spawned Casper never reads the real profile", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-clean-env-home-"));
+  try {
+    const child = Bun.spawn([process.execPath, "-e", "process.stdout.write(require('node:os').homedir())"], {
+      env: cleanEnv({ HOME: home }), stdout: "pipe", stderr: "pipe",
+    });
+    const [out, exit] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+    expect({ exit, home: out }).toEqual({ exit: 0, home });
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("the search path has one key, PATH, whatever case the host or the test uses", () => {
+  const pathKeys = (env: Record<string, string | undefined>) => Object.keys(env).filter(name => name.toUpperCase() === "PATH");
+  expect(pathKeys(cleanEnv())).toEqual(["PATH"]);
+  expect(cleanEnv().PATH).toBe(process.env.PATH);
+  if (process.platform !== "win32") return; // names are case-sensitive elsewhere: Path and PATH are two variables
+  const set = cleanEnv({ Path: "C:\fixture-bin" });
+  expect(pathKeys(set)).toEqual(["PATH"]);
+  expect(set.PATH).toBe("C:\fixture-bin");
 });
