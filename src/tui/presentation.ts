@@ -1,5 +1,6 @@
 import { Container, sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { paint, terminalText } from "./format";
+import { GLYPHS } from "./glyphs";
 
 export type PanelTone = "accent" | "assistant" | "success" | "warning" | "error" | "muted";
 
@@ -13,14 +14,16 @@ export function panelColor(text: string, tone: PanelTone, color: boolean): strin
 }
 
 /** Body lines contain trusted styling only; callers sanitize external text before styling. */
-export function renderPanel(title: string, body: readonly string[], width: number, color: boolean, tone: PanelTone = "accent"): string[] {
+export function renderPanel(title: string, body: readonly string[], width: number, color: boolean, tone: PanelTone = "accent",
+  corners: readonly string[] = GLYPHS.corners): string[] {
+  const [topLeft, topRight, bottomLeft, bottomRight] = corners;
   width = Number.isFinite(width) ? Math.max(1, Math.floor(width)) : 80;
   const label = terminalText(title).replace(/\s+/g, " ").trim();
   if (width < 8) return [label, ...body].flatMap(line => wrapTextWithAnsi(line, width))
     .map(line => visibleWidth(line) > width ? truncateToWidth(line, width, "…") : line);
   const inner = width - 4;
   const heading = truncateToWidth(` ${label} `, width - 4, "");
-  const top = `╭─${heading}${"─".repeat(Math.max(0, width - 3 - visibleWidth(heading)))}╮`;
+  const top = `${topLeft}─${heading}${"─".repeat(Math.max(0, width - 3 - visibleWidth(heading)))}${topRight}`;
   const rows = [panelColor(top, tone, color)];
   const border = panelColor("│", tone, color);
   for (const source of body) {
@@ -28,7 +31,7 @@ export function renderPanel(title: string, body: readonly string[], width: numbe
       rows.push(`${border} ${line}${" ".repeat(Math.max(0, inner - visibleWidth(line)))} ${border}`);
     }
   }
-  rows.push(panelColor(`╰${"─".repeat(width - 2)}╯`, tone, color));
+  rows.push(panelColor(`${bottomLeft}${"─".repeat(width - 2)}${bottomRight}`, tone, color));
   return rows;
 }
 

@@ -101,7 +101,9 @@ This needs a **source checkout** with dependencies installed
 (`bun install --frozen-lockfile`). Write down: the commit, `bun --version`, the
 Windows build, `$PSVersionTable.PSVersion`, and the terminal app and version. Test in
 Windows Terminal under both PowerShell 7 and Windows PowerShell 5.1. Record any other
-console separately.
+console separately. The old Windows console (conhost, outside Windows Terminal) has no braille
+or rounded corners in its fonts, so there Casper's spinner is `| / - \` and panels have square
+corners.
 
 **Step A — the offline demo.** It makes no model calls and saves nothing:
 

@@ -5,6 +5,7 @@ import {
 import type { RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
 import { COMMANDS, RUNS_DURING_WORK } from "./commands";
 import { BUSY_GLYPH, hasTerminalControls, markdownTheme, paint, PROMPT_GLYPH, terminalText } from "./format";
+import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
 import { renderPanel } from "./presentation";
 import { StreamTerminal } from "./stream-terminal";
@@ -37,9 +38,9 @@ class StableMainScreen extends TuiMainScreen {
 
 const EXIT_NOTE = "Ctrl-C again to exit · Ctrl-D exits too";
 
-/** Braille spinner frames; the footer dot and Working panel title cycle through them while
- * background work runs, so activity is visible even between transcript updates. */
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+/** Spinner frames (braille; ASCII on the old Windows console); the footer dot and Working panel title cycle through
+ * them while background work runs, so activity is visible even between transcript updates. */
+const SPINNER_FRAMES = GLYPHS.spinner;
 const SPINNER_INTERVAL_MS = 120;
 
 /** 95000 ms → "1m35s"; hours fold to "1h02m". Same shape the events layer uses for panels. */
