@@ -8,6 +8,7 @@ import { checkResultForModel } from "../src/verify/model-output";
 import { fromNetworkResult } from "../src/verify/registry";
 import type { NetworkCheckSpec } from "../src/network/spec";
 import { fakeTool, networkFixture, RECORD_CALL, writeProjectFile, type NetworkFixture } from "./support/network-fakes";
+import { needsSymlinks } from "./support/platform";
 
 let fixture: NetworkFixture | undefined;
 afterEach(async () => { await fixture?.cleanup(); fixture = undefined; });
@@ -24,7 +25,7 @@ async function setup(body: string) {
 }
 
 test("a Junoser complaint is a failure that names the line and says it may be newer syntax", async () => {
-  const f = await setup(`echo "Invalid syntax:  set foo" >&2; exit 1`);
+  const f = await setup(`err(lines(["Invalid syntax:  set foo"])); process.exit(1);`);
   const result = await runNetworkCheck("junoser", spec, context(f));
   expect(result.status).toBe("fail");
   expect(result.stderr).toContain("Invalid syntax:  set foo");
@@ -39,7 +40,7 @@ test("a Junoser complaint is a failure that names the line and says it may be ne
 });
 
 test("Junoser output is scrubbed before the casper_check text: a root password hash shows <secret hidden>", async () => {
-  const f = await setup(`cat "$2"; echo "Invalid syntax:  set foo" >&2; exit 1`);
+  const f = await setup(`out(fs.readFileSync(args[1], "utf8")); err(lines(["Invalid syntax:  set foo"])); process.exit(1);`);
   const result = await runNetworkCheck("junoser", spec, context(f));
   const forModel = JSON.stringify(checkResultForModel(fromNetworkResult(result)));
   expect(result.stdout).not.toContain(HASH);
@@ -51,7 +52,7 @@ test("Junoser output is scrubbed before the casper_check text: a root password h
 });
 
 test("clean files pass, and a missing junoser reads not run with the gem line", async () => {
-  const f = await setup("exit 0");
+  const f = await setup("process.exit(0);");
   expect((await runNetworkCheck("junoser", spec, context(f))).status).toBe("pass");
   const missing = await runNetworkCheck("junoser", spec, { ...context(f), path: path.join(f.root, "configs") });
   expect(liveCheckLine(fromNetworkResult(missing))).toBe("– junoser · not run: junoser is not installed (gem install junoser)");
@@ -59,8 +60,8 @@ test("clean files pass, and a missing junoser reads not run with the gem line", 
   expect(fromNetworkResult(missing).note).toBeUndefined();
 });
 
-test("a config file linked from outside the project is not read", async () => {
-  const f = await setup("exit 0");
+needsSymlinks("a config file linked from outside the project is not read", async () => {
+  const f = await setup("process.exit(0);");
   const { symlink, writeFile, mkdir } = await import("node:fs/promises");
   await mkdir(path.join(path.dirname(f.root), "outside"), { recursive: true });
   await writeFile(path.join(path.dirname(f.root), "outside", "secret.conf"), "x");
@@ -71,8 +72,8 @@ test("a config file linked from outside the project is not read", async () => {
 });
 
 test("yanglint checks data against the declared models, as arguments, and reads not run when the models are missing", async () => {
-  const f = await setup("exit 0");
-  await fakeTool(f, "yanglint", `${RECORD_CALL("yanglint")}\necho "libyang[0]: Invalid value \\"abc\\" of \\"vlan-id\\"." >&2; exit 1`);
+  const f = await setup("process.exit(0);");
+  await fakeTool(f, "yanglint", `${RECORD_CALL("yanglint")}\nerr(lines([${JSON.stringify(`libyang[0]: Invalid value "abc" of "vlan-id".`)}])); process.exit(1);`);
   await writeProjectFile(f, "yang/openconfig-vlan.yang", "module openconfig-vlan {}\n");
   await writeProjectFile(f, "data/vlans.json", "{}\n");
   const yang: NetworkCheckSpec = { kind: "offline", preset: "yanglint", models: ["yang"], modules: ["yang/openconfig-vlan.yang"], files: ["data/vlans.json"] };

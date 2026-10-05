@@ -10,7 +10,8 @@ import { formatVerificationResult, repairClass, verificationStatus } from "../sr
 import { fromNetworkResult } from "../src/verify/registry";
 import { labAlwaysAllowed, LAB_LIMIT_NOTE, rememberLabAlways } from "../src/network/lab";
 import type { LabSettings, NetworkCheckSpec } from "../src/network/spec";
-import { fakeTool, networkFixture, RECORD_CALL, writeProjectFile, type NetworkFixture } from "./support/network-fakes";
+import { ANSIBLE_PLATFORM, fakeTool, networkFixture, RECORD_CALL, RECORD_FILE, writeProjectFile, type NetworkFixture } from "./support/network-fakes";
+import { needsSymlinks, POSIX, posixOnly } from "./support/platform";
 
 let fixture: NetworkFixture | undefined;
 afterEach(async () => { await fixture?.cleanup(); fixture = undefined; });
@@ -24,17 +25,17 @@ function inventoryJson(hosts: Record<string, Record<string, unknown>>) {
   return JSON.stringify({ _meta: { hostvars: hosts }, all: { children: ["switches"] }, switches: { hosts: Object.keys(hosts) } });
 }
 
-async function setup(hosts: Record<string, Record<string, unknown>>, playbookBody = "exit 0") {
+async function setup(hosts: Record<string, Record<string, unknown>>, playbookBody = "process.exit(0);") {
   fixture = await networkFixture();
   await writeProjectFile(fixture, "lab.yml", "all:\n  hosts: {}\n");
   await writeProjectFile(fixture, "site.yml", SITE);
   await writeProjectFile(fixture, "change.set", "set system host-name lab-r1\n");
   await writeFile(path.join(fixture.records, "inventory.json"), inventoryJson(hosts));
-  await fakeTool(fixture, "ansible-inventory", `${RECORD_CALL("ansible-inventory")}\ncat "$RECORDS/inventory.json"`);
-  await fakeTool(fixture, "ansible-playbook", `${RECORD_CALL("ansible-playbook")}\ncp "$3" "$RECORDS/playbook-copy.yml" 2>/dev/null\n${playbookBody}`);
+  await fakeTool(fixture, "ansible-inventory", `${RECORD_CALL("ansible-inventory")}\nout(fs.readFileSync(path.join(RECORDS, "inventory.json"), "utf8"));`);
+  await fakeTool(fixture, "ansible-playbook", `${RECORD_CALL("ansible-playbook")}\n${RECORD_FILE("args[2]", "playbook-copy.yml")}\n${playbookBody}`);
   return fixture;
 }
-const context = (f: NetworkFixture) => ({ root: f.root, path: f.path, tmpRoot: f.tmp, realHome: f.home, lab: LAB as LabSettings | undefined });
+const context = (f: NetworkFixture) => ({ root: f.root, path: f.path, tmpRoot: f.tmp, realHome: f.home, lab: LAB as LabSettings | undefined, platform: ANSIBLE_PLATFORM });
 const ran = (f: NetworkFixture) => stat(path.join(f.records, "ansible-playbook.ran")).then(() => true, () => false);
 
 test("any device may be checked: one not marked lab is named in the box, and nothing is started before your answer", async () => {
@@ -111,19 +112,24 @@ test("other ways to reach past the inventory are warnings too: included files, v
   expect(await ran(f)).toBe(false);
 });
 
-test("an inventory that is a program, or a link out of the project, is refused and never run", async () => {
+// Windows has no executable bit, and lab.ts reads it only off Windows.
+posixOnly("an inventory that is a program is refused and never run", async () => {
   const f = await setup({ "lab-sw1": { ansible_host: "10.99.0.11" } });
   await writeProjectFile(f, "lab.yml", "#!/bin/sh\necho '{}'\n", 0o755);
   const plan = await prepareLabCheck("aoscx-check", aoscxCheck, context(f));
   expect(plan).toMatchObject({ state: "refused", message: expect.stringContaining("is a program (it is executable)") });
   expect(await stat(path.join(f.records, "ansible-inventory.ran")).then(() => true, () => false)).toBe(false);
+});
 
+needsSymlinks("an inventory linked from outside the project is refused and never run", async () => {
+  const f = await setup({ "lab-sw1": { ansible_host: "10.99.0.11" } });
   const outside = path.join(path.dirname(f.root), "outside");
   await mkdir(outside, { recursive: true });
   await writeFile(path.join(outside, "inv.yml"), "all: {}\n");
   await symlink(path.join(outside, "inv.yml"), path.join(f.root, "linked.yml"));
   expect(await prepareLabCheck("aoscx-check", { ...aoscxCheck, inventory: "linked.yml" }, context(f)))
     .toMatchObject({ state: "refused", message: expect.stringContaining("leads outside the project") });
+  expect(await stat(path.join(f.records, "ansible-inventory.ran")).then(() => true, () => false)).toBe(false);
 });
 
 test("a proxy (jump host) in the inventory's host variables is a warning", async () => {
@@ -169,7 +175,8 @@ test("Always for this project is remembered only for the same inventory, hosts a
   expect(await labAlwaysAllowed(state, "junos-commit", first.approvalKey)).toBe(false);
   await rememberLabAlways(state, "junos-commit", first.approvalKey);
   expect(await labAlwaysAllowed(state, "junos-commit", first.approvalKey)).toBe(true);
-  expect((await stat(path.join(state, "lab-always.json"))).mode & 0o777).toBe(0o600);
+  // Windows makes up mode bits, so 0600 can be checked only off Windows.
+  if (POSIX) expect((await stat(path.join(state, "lab-always.json"))).mode & 0o777).toBe(0o600);
   await writeFile(path.join(f.records, "inventory.json"), inventoryJson({ "lab-r1": { ansible_host: "10.99.0.21" }, "lab-r9": { ansible_host: "10.99.0.29" } }));
   const second = await prepareLabCheck("junos-commit", junosCommit, context(f));
   if (second.state !== "ready") throw new Error("expected ready");
@@ -177,7 +184,7 @@ test("Always for this project is remembered only for the same inventory, hosts a
 });
 
 test("a failed lab check is never repaired on its own: the ask defaults to Stop", async () => {
-  const f = await setup({ "lab-r1": { ansible_host: "10.99.0.21" } }, `echo "error: commit check failed" >&2; exit 2`);
+  const f = await setup({ "lab-r1": { ansible_host: "10.99.0.21" } }, `err(lines(["error: commit check failed"])); process.exit(2);`);
   const plan = await prepareLabCheck("junos-commit", junosCommit, context(f));
   if (plan.state !== "ready") throw new Error("expected ready");
   const result = await plan.run();
@@ -219,7 +226,7 @@ test("review: a saved Always runs your own /verify, but a check the AI asks for 
   const shown: string[][] = [];
   const host = (answer: string | undefined) => ({
     canAsk: () => true, write: () => {}, stateDirectory: state, lab: LAB as LabSettings,
-    network: { path: f.path, tmpRoot: f.tmp, realHome: f.home },
+    network: { path: f.path, tmpRoot: f.tmp, realHome: f.home, platform: ANSIBLE_PLATFORM },
     pick: async (_question: string, options: { label: string }[]) => { shown.push(options.map((option) => option.label)); return answer; },
   });
   const ctx = { cwd: f.root, timeoutMs: 60_000 };

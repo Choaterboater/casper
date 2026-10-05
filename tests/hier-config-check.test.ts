@@ -11,7 +11,7 @@ import { countedResults, formatVerificationResult, repairClass, verificationStat
 import { checkResultForModel } from "../src/verify/model-output";
 import { fromNetworkResult } from "../src/verify/registry";
 import type { NetworkCheckResult, NetworkCheckSpec } from "../src/network/spec";
-import { fakeTool, networkFixture, RECORD_CALL, writeProjectFile, type NetworkFixture } from "./support/network-fakes";
+import { fakeTool, networkFixture, RECORD_CALL, RECORD_FILE, writeProjectFile, type NetworkFixture } from "./support/network-fakes";
 
 let fixture: NetworkFixture | undefined;
 afterEach(async () => { await fixture?.cleanup(); fixture = undefined; });
@@ -21,18 +21,21 @@ const REPORT = JSON.stringify({
   change_lines: 12, undo_lines: 12,
   remediation: "vlan 30\nradius-server host 10.1.1.10 key plaintext RadKeyCX", rollback: "no vlan 30",
 });
+const PRINT_REPORT = `out(lines([${JSON.stringify(REPORT)}]));`;
+// The project's Python when there is no venv: python on Windows, python3 elsewhere (pythonArgv).
+const PYTHON = process.platform === "win32" ? "python" : "python3";
 
 async function setup(body: string) {
   fixture = await networkFixture();
   await writeProjectFile(fixture, "running.cfg", "hostname sw1\n");
   await writeProjectFile(fixture, "intended.cfg", "hostname sw1\nvlan 30\n");
-  await fakeTool(fixture, "python3", `${RECORD_CALL("python3")}\ncp "$1" "$RECORDS/script.py"\n${body}`);
+  await fakeTool(fixture, PYTHON, `${RECORD_CALL("python3")}\n${RECORD_FILE("args[0]", "script.py")}\n${body}`);
   return fixture;
 }
 const context = (f: NetworkFixture) => ({ root: f.root, path: f.path, tmpRoot: f.tmp, realHome: f.home });
 
 test("the hier_config diff is a report: its line counts, never a pass that counts toward Verified", async () => {
-  const f = await setup(`printf '%s\\n' '${REPORT}'`);
+  const f = await setup(PRINT_REPORT);
   const result = await runNetworkCheck("aoscx-diff", spec, context(f));
   expect(result.kind).toBe("report");
   expect(result.report).toMatchObject({ changeLines: 12, undoLines: 12 });
@@ -49,7 +52,7 @@ test("the hier_config diff is a report: its line counts, never a pass that count
 });
 
 test("the report text is scrubbed of secrets before anyone sees it", async () => {
-  const f = await setup(`printf '%s\\n' '${REPORT}'`);
+  const f = await setup(PRINT_REPORT);
   const result = await runNetworkCheck("aoscx-diff", spec, context(f));
   expect(result.report!.remediation).not.toContain("RadKeyCX");
   // What casper_check hands the model, and the receipt's one line.
@@ -58,7 +61,7 @@ test("the report text is scrubbed of secrets before anyone sees it", async () =>
 });
 
 test("the embedded script gets the platform and the two files, run by the project's Python", async () => {
-  const f = await setup(`printf '%s\\n' '${REPORT}'`);
+  const f = await setup(PRINT_REPORT);
   await runNetworkCheck("aoscx-diff", spec, context(f));
   const argv = (await readFile(path.join(f.records, "python3.argv"), "utf8")).trim().split("\n");
   expect(argv[0]).toEndWith("hier_config_diff.py");
@@ -70,7 +73,7 @@ test("the embedded script gets the platform and the two files, run by the projec
 });
 
 test("exit 3 means hier_config is not installed: not run, with the install line for the project's runner", async () => {
-  const f = await setup("exit 3");
+  const f = await setup("process.exit(3);");
   const result = await runNetworkCheck("aoscx-diff", spec, context(f));
   expect(result).toMatchObject({ status: "skip", notRun: "tool", reason: "hier_config is not installed (pip install hier-config)" });
   await writeProjectFile(f, "uv.lock", "");
