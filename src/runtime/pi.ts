@@ -503,18 +503,20 @@ export function containedContextFile(file: string, cwd: string, agentDir?: strin
 
 /** Resolve existing state aliases and prospective missing suffixes without creating anything.
  * This is a bounded, non-atomic preflight, not protection against concurrent path replacement. */
-async function canonicalStatePath(file: string, signal: AbortSignal): Promise<string> {
+export async function canonicalStatePath(file: string, signal: AbortSignal, fs: { realpath: (file: string) => Promise<string>; lstat: (file: string) => Promise<{ isSymbolicLink(): boolean }> } = { realpath, lstat }): Promise<string> {
   if (Buffer.byteLength(file) > 4096) throw new Error("Writable runtime state path exceeds the preflight limit");
   let prefix = file;
   const suffix: string[] = [];
   for (let step = 0; step < 128; step++) {
     signal.throwIfAborted();
-    try { return path.join(await realpath(prefix), ...suffix); }
+    try { return path.join(await fs.realpath(prefix), ...suffix); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       // A dangling symlink is not a missing ordinary path: never invent its destination.
-      const entry = await lstat(prefix).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
-      if (entry) throw new Error("Cannot resolve writable runtime state");
+      const entry = await fs.lstat(prefix).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
+      if (entry?.isSymbolicLink()) throw new Error("Cannot resolve writable runtime state");
+      // Another Casper sharing this home created it after realpath looked (auth.json, models-store.json): look again.
+      if (entry) continue;
       const parent = path.dirname(prefix);
       if (parent === prefix) throw error;
       suffix.unshift(path.basename(prefix));
