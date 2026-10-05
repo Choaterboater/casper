@@ -179,9 +179,11 @@ test("tool, code and Working panels span the whole terminal width and follow it 
       const repaints = screen.output.split(REPAINT).length;
       screen.writer.columns = columns; screen.writer.emit("resize");
       await screen.until(output => output.split(REPAINT).length > repaints && output.split(REPAINT).at(-1)!.includes("Working"));
-      const borders = plainLines(screen.output.split(REPAINT).at(-1)!).filter(line => /^[╭╰]/.test(line));
-      // Titles, with the Working panel's spinner frame (a braille cell) removed.
-      expect(borders.filter(line => line.startsWith("╭")).map(line => line.replace(/[╭─╮\u2800-\u28ff]/g, "").trim())).toEqual(["output", "Working"]);
+      // Round corners, or square ones on the old Windows console (src/tui/glyphs.ts).
+      const borders = plainLines(screen.output.split(REPAINT).at(-1)!).filter(line => /^[╭╰┌└]/.test(line));
+      // Titles, with the Working panel's spinner frame (a braille cell, or | / - \ on the old console) removed.
+      expect(borders.filter(line => /^[╭┌]/.test(line)).map(line => line.replace(/[╭─╮┌┐\u2800-\u28ff|/\\]/g, "").replace(/(^|\s)-(\s|$)/g, " ").trim()))
+        .toEqual(["output", "Working"]);
       expect(borders.map(line => visibleWidth(line))).toEqual(Array(4).fill(columns));
       // The code block's title line spans the width too.
       const code = plainLines(screen.output.split(REPAINT).at(-1)!).find(line => line.startsWith("── ts "));
