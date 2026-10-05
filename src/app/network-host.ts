@@ -9,6 +9,7 @@ import { loginFile } from "../mcp/network/logins";
 import { withLoginDisplay } from "../tui/login";
 import { namesNetworkProduct, runNetworkSetup, runNetworkUpdate, shouldOfferNetworkSetup, shouldOfferNetworkUpdate, type SetupHost } from "../mcp/network/setup";
 import { oneAtATime, chooseAnswer, chooseNumbered } from "./approvals";
+import { updateFooter } from "./footer";
 
 /**
  * The network server's setup host: questions in the numbered approval box (only the person, never the AI's ask tool),
@@ -31,7 +32,7 @@ export function networkSetupHost(app: CasperApp): SetupHost {
       if (status?.state !== "ready") return { ok: false, ...(status?.error ? { message: status.error } : {}) };
       const remembered = await app.mcp.remember(name);
       if (!remembered.remembered) app.output.write(`[mcp] ${terminalText(remembered.reason)}\n`);
-      app.updateFooter();
+      updateFooter(app);
       return { ok: true };
     },
     restart: async (name, whileStopped) => {
@@ -97,13 +98,13 @@ export function revertWrites(app: CasperApp): boolean {
   const on = app.mcp?.writesOn() ?? [];
   if (ended && !on.length) {
     app.output.write("[mcp] Allowed change kinds ended. Every change asks you again.\n");
-    app.updateFooter();
+    updateFooter(app);
   }
   if (!on.length) return ended;
   // The gate flips at once; servers restart with their pins once their running calls finish.
   for (const server of on) void app.mcp!.setWrites(server, false).catch(() => {});
   for (const server of on) app.output.write(`[mcp] Writes off for ${server}. Every change asks you again.\n`);
-  app.updateFooter();
+  updateFooter(app);
   return true;
 }
 
