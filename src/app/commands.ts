@@ -43,7 +43,7 @@ import { describeVisualization } from "../visualize/tools";
 import { renderProjectSummary } from "../tui/banner";
 import { LifecycleRegistry } from "./lifecycle";
 import type { VisualizationRouter } from "../visualize/router";
-import type { RuntimeAuthProvider, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
+import type { RuntimeAuthenticationResult, RuntimeAuthProvider, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
 import { describeChecksPlan, type ChecksPlan } from "../verify/mode";
 import { detectedMigrations, MIGRATIONS_CHECK } from "../verify/migrations-check";
 import { TOOL_CALL_LIMIT, type TaskObservations } from "../task/observations";
@@ -1110,6 +1110,15 @@ async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<v
     }
   }
 
+/** A failed sign-in in plain words: the reason Casper has (never provider text) and the next step. */
+export function loginFailureText(result: Extract<RuntimeAuthenticationResult, { status: "failed" }>): string {
+  const detail = result.detail ? terminalText(result.detail) : undefined;
+  if (result.reason === "destination") return `[login] Can't save the key${detail ? `: ${detail}` : ""}. Nothing was changed.\n`;
+  if (detail === "CASPER_TUI_WRITE_LOG is set") return "[login] Sign-in is off while CASPER_TUI_WRITE_LOG is set. Unset it, then type /login.\n";
+  return detail ? `[login] Sign-in failed: ${detail}. Nothing was saved. Type /login to try again.\n`
+    : "[login] Sign-in didn't finish. Nothing was saved. Type /login to try again.\n";
+}
+
 /** The sign-in flow behind /login, also opened by Casper itself when no model can run. After a saved
  * credential, a model is picked only when none is set yet (never replacing a choice). True when a
  * credential was saved and refreshed. */
@@ -1138,10 +1147,8 @@ export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider
     if (result.status === "saved-needs-refresh") host.output.write("[login] Credential saved, but local auth needs refresh. Restart Casper; do not repeat login blindly.\n");
     else if ("effect" in result && result.effect === "unknown") host.output.write("[login] Login ended; credential save outcome unknown. Restart and inspect local auth before retrying.\n");
     else if (result.status === "cancelled") host.output.write("[login] Cancelled; no credential saved.\n");
-    else host.output.write(result.reason === "destination"
-      ? `[login] Unsafe credential destination${result.detail ? `: ${terminalText(result.detail)}` : ""}. Requires a private, owner-held regular file in a real directory; no permissions were repaired.\n`
-      : "[login] Login unavailable or failed. No credential saved. Disable CASPER_TUI_WRITE_LOG if set. Check provider eligibility and loopback callback availability; no automatic method fallback.\n");
-  } catch { host.output.write("[login] Login could not complete. No provider diagnostics are displayed.\n"); }
+    else host.output.write(loginFailureText(result));
+  } catch { host.output.write("[login] Sign-in didn't finish. Nothing was saved. Type /login to try again.\n"); }
   return false;
 }
 

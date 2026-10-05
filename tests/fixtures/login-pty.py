@@ -121,7 +121,7 @@ def dumb(bun, repo, root):
     try:
         s.until("/help · /status · /login")
         s.send("/login\n")
-        s.until("requires an interactive Casper terminal")
+        s.until("Sign-in needs an interactive terminal")
         assert not (s.root / "home/.casper/agent/auth.json").exists()
         assert not (s.root / "login-fetches.txt").exists()
         assert b"\x1b[" not in s.raw

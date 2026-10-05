@@ -85,14 +85,24 @@ async function verifyProviderKey(provider: "anthropic" | "openrouter", key: stri
   }
 }
 
+/** Why a sign-in failed, in a few plain words, from what Casper already knows. Never provider text: errors can
+ * hold tokens. Undefined when the cause isn't clear. */
+function failureDetail(error: unknown, timedOut: boolean, name: string): string | undefined {
+  const message = error instanceof Error ? error.message : "";
+  if (/(?:status[= ]|\()(?:400|401|403)\b/.test(message)) return `${name} refused the sign-in`;
+  if (timedOut) return "timed out after 15 minutes";
+  if (error instanceof TypeError || /fetch failed|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|Unable to connect|network/i.test(message)) return `couldn't reach ${name}`;
+  return undefined;
+}
+
 /** Dedicated builtin-only runtime: no sessions, extensions, model config or network catalog refresh. */
 export async function authenticatePi(options: RuntimeAuthenticationOptions, destination: string,
   lifetime: AbortSignal): Promise<RuntimeAuthenticationResult & { provider?: RuntimeAuthProvider }> {
   const signal = AbortSignal.any([lifetime, ...(options.signal ? [options.signal] : [])]);
   if (signal.aborted) return { status: "cancelled", effect: "none" };
-  if ((options.provider !== undefined && !Object.hasOwn(providerNames, options.provider)) || process.env.CASPER_TUI_WRITE_LOG || process.env.PI_TUI_WRITE_LOG) {
-    return { status: "failed", effect: "none", reason: "unavailable" };
-  }
+  if (options.provider !== undefined && !Object.hasOwn(providerNames, options.provider)) return { status: "failed", effect: "none", reason: "unavailable" };
+  // The terminal log would record what is typed and shown, codes included.
+  if (process.env.CASPER_TUI_WRITE_LOG || process.env.PI_TUI_WRITE_LOG) return { status: "failed", effect: "none", reason: "unavailable", detail: "CASPER_TUI_WRITE_LOG is set" };
   let invoked = false;
   let provider = options.provider;
   try {
@@ -131,7 +141,8 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
         if (problem) return { status: "failed", effect: "none", reason: "destination", detail: problem };
       } catch { return display.signal.aborted ? { status: "cancelled", effect: "none" } : { status: "failed", effect: "none", reason: "destination" }; }
       const deadline = new AbortController();
-      const timer = setTimeout(() => deadline.abort(), 15 * 60_000);
+      let timedOut = false;
+      const timer = setTimeout(() => { timedOut = true; deadline.abort(); }, 15 * 60_000);
       const flow = AbortSignal.any([display.signal, deadline.signal]);
       let active = true;
       let promptHandled = false;
@@ -204,9 +215,9 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
       } catch (error) {
         if (error instanceof CredentialSynchronizationError) return { status: "saved-needs-refresh" };
         if (verificationCancelled) return { status: "cancelled", effect: invoked ? "unknown" : "none" };
-        return display.signal.aborted
-          ? { status: "cancelled", effect: invoked ? "unknown" : "none" }
-          : { status: "failed", effect: invoked ? "unknown" : "none", reason: "provider" };
+        if (display.signal.aborted) return { status: "cancelled", effect: invoked ? "unknown" : "none" };
+        const detail = failureDetail(error, timedOut, providerNames[selected]);
+        return { status: "failed", effect: invoked ? "unknown" : "none", reason: "provider", ...(detail ? { detail } : {}) };
       } finally { active = false; clearTimeout(timer); deadline.abort(); }
     })).then(result => ({ ...result, provider }));
   } catch {

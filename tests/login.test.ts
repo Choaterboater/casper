@@ -414,6 +414,8 @@ test("provider refusal and occupied browser port expose no diagnostics and prese
     const result = JSON.parse(output);
     expect(result.result.status).toBe("failed");
     expect(result.calls).toBe(occupied ? 0 : 1);
+    // The reason Casper has, in plain words, with no provider text.
+    if (!occupied) expect(result.result.detail).toBe("Anthropic (Claude) refused the sign-in");
     expect(result.safe).toBe(true);
     expect(await readFile(path.join(agent, "auth.json"), "utf8")).toBe(original);
   }
@@ -692,7 +694,7 @@ test("CASPER_TUI_WRITE_LOG refuses login before terminal or auth ownership", asy
     process.env.CASPER_TUI_WRITE_LOG = '/tmp/must-not-log-device-code'; let runs = 0;
     const runtime = new PiRuntime(); try { const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { async run() { runs++; throw new Error('MUST_NOT_RUN'); } } }); console.log(JSON.stringify({ result, runs })); } finally { await runtime.dispose(); }
   `);
-  expect(JSON.parse(output)).toEqual({ result: { status: "failed", effect: "none", reason: "unavailable" }, runs: 0 });
+  expect(JSON.parse(output)).toEqual({ result: { status: "failed", effect: "none", reason: "unavailable", detail: "CASPER_TUI_WRITE_LOG is set" }, runs: 0 });
   expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).exists()).toBe(false);
 });
 
@@ -747,7 +749,7 @@ test("plain login arguments stay local and never reflect supplied credential-lik
     try { for (const command of ['/login', '/login openai-codex', '/login github-copilot', '/login anthropic', '/login openrouter', '/login secret-provider', '/login openai-codex SECRET_ARGUMENT']) await app.runOnce(command); }
     finally { await app.close(); }
   `);
-  expect(output).toContain("device-code");
+  expect(output).toContain("Run casper and type /login");
   expect(output).toContain("Usage: /login [openai-codex|github-copilot|anthropic|openrouter]");
   expect(output).not.toContain("SECRET_ARGUMENT");
   expect(output).not.toContain("secret-provider");

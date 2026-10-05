@@ -8,8 +8,10 @@ test("help names Casper's own credential store and model routing, not Pi's", () 
     expect(text).not.toMatch(/\bPi\b/);
     expect(text).not.toMatch(/shared (?:Pi\/Casper )?auth store/);
   }
-  expect(LOGIN_HELP).toContain("Casper's credential store (~/.casper/agent)");
-  expect(LOGIN_HELP).toContain("Claude and OpenRouter offer API key or browser sign-in");
+  // Two plain lines: where to sign in, and never in chat.
+  expect(LOGIN_HELP.trimEnd().split("\n")).toHaveLength(2);
+  expect(LOGIN_HELP).toContain("Run casper and type /login");
+  expect(LOGIN_HELP).toContain("chat");
   expect(FULL_HELP_TEXT).toContain("Children use Casper roles (explorer→fast, reviewer→review) or the startup default.");
   expect(FULL_HELP_TEXT).toContain("Learning uses the startup default");
 });

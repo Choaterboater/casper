@@ -86,9 +86,24 @@ test("a request with no model picks one for a signed-in provider and runs; scrip
   expect(picking.output()).toContain("[model] Casper picked openrouter/deepseek/deepseek-v4.1-flash for your signed-in provider and saved it as your default.");
   await picking.app.close();
 
-  const stuck = await appWith(() => ({ auth: "unknown", blocked: "No Casper model selected. Use /model to choose one." }), async () => undefined);
-  await expect(stuck.app.runOnce("explain this project", stuck.root)).rejects.toThrow("No Casper model selected");
-  expect(stuck.prompts()).toBe(0);
-  expect(stuck.output()).not.toContain("model run failed");
-  await stuck.app.close();
+  // Nothing signed in: a one-shot run says how to sign in, not "Use /model".
+  const keys = Object.entries(process.env).filter(([name]) => /_API_KEY$|_TOKEN$/.test(name));
+  for (const [name] of keys) delete process.env[name];
+  try {
+    const stuck = await appWith(() => ({ auth: "unknown", blocked: "No Casper model selected. Use /model to choose one." }), async () => undefined);
+    await expect(stuck.app.runOnce("explain this project", stuck.root)).rejects.toThrow("Not signed in yet. Run casper and type /login.");
+    expect(stuck.prompts()).toBe(0);
+    expect(stuck.output()).not.toContain("model run failed");
+    await stuck.app.close();
+  } finally { for (const [name, value] of keys) process.env[name] = value; }
 });
+
+test("a missing sign-in names the real provider, its /login and its key variable", async () => {
+  const { missingSignIn } = await import("../src/runtime/pi-models");
+  expect(missingSignIn("openrouter")).toBe("Not signed in to OpenRouter. Type /login openrouter, or set OPENROUTER_API_KEY.");
+  expect(missingSignIn("anthropic")).toBe("Not signed in to Anthropic. Type /login anthropic, or set ANTHROPIC_API_KEY.");
+  expect(missingSignIn("openai-codex")).toBe("Not signed in to OpenAI Codex. Type /login openai-codex.");
+  expect(missingSignIn("deepseek")).toBe("No key for deepseek. Set DEEPSEEK_API_KEY, or /model to choose another.");
+  for (const provider of ["openrouter", "anthropic", "deepseek"]) expect(missingSignIn(provider)).not.toContain("OpenAI Codex or");
+});
+

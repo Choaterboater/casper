@@ -1020,7 +1020,7 @@ export class CasperApp {
   private async applyRunSelection(session: RuntimeSession): Promise<void> {
     const flagError = (flag: string, error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
-      return /^Credential/.test(message) ? new Error(message) : new UsageError(`${flag}: ${message}`);
+      return /^(?:Credential|Not signed in to|No key for)/.test(message) ? new Error(message) : new UsageError(`${flag}: ${message}`);
     };
     if (this.runModel) {
       if (!session.selectModel) throw new UsageError("--model: this runtime does not support model selection.");
@@ -2187,7 +2187,8 @@ export class CasperApp {
     }
     const blocked = session.getStatus?.().blocked;
     if (!blocked) return true;
-    if (!this.interactive) throw new Error(blocked);
+    // A script can't sign in: say the one step that works, not "Use /model".
+    if (!this.interactive) throw new Error(!session.getStatus?.()?.provider && this.signedIn === false ? "Not signed in yet. Run casper and type /login." : blocked);
     this.output.write(`[model] ${blocked}\n`);
     return false;
   }
@@ -2227,7 +2228,8 @@ export class CasperApp {
 
   /** Whether any sign-in exists yet, for the banner and footer only. */
   private async checkSignIn(): Promise<void> {
-    const agentDir = process.env[AGENT_DIR_ENV] && process.env[AGENT_DIR_ENV] !== "undefined" ? process.env[AGENT_DIR_ENV]! : casperAgentDir();
+    const agentDir = this.sessionHomeDir ? path.join(this.sessionHomeDir, ".casper", "agent")
+      : process.env[AGENT_DIR_ENV] && process.env[AGENT_DIR_ENV] !== "undefined" ? process.env[AGENT_DIR_ENV]! : casperAgentDir();
     this.signedIn = await hasSignIn(agentDir);
   }
 

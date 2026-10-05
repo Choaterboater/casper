@@ -284,7 +284,11 @@ Typed API keys are verified with the provider before they are stored; a rejected
 key is never saved, and a key that cannot be verified (network or provider error)
 can be retried, saved explicitly, or cancelled. Keys and callback codes/URLs use a
 separate hidden prompt (live character count, contents never rendered), never chat/history.
-Escape/Ctrl-C cancel; EOF and shutdown drain the login lifecycle.
+Escape/Ctrl-C cancel; EOF and shutdown drain the login lifecycle. A failed sign-in says the reason
+Casper has in plain words (timed out, couldn't reach the provider, the provider refused it) and
+never the provider's own text. A model whose provider has no sign-in names that provider, its
+`/login` and its key variable (for example `OPENROUTER_API_KEY`); a one-shot run with nothing
+signed in says `Not signed in yet. Run casper and type /login.`
 
 The list reuses Pi's selection list: a digit picks its row at once, Up/Down moves the
 visible highlight in place, Enter confirms that item, and Esc exits without contacting

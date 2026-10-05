@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import { withLoginDisplay } from "../src/tui/login";
 import { signInWays } from "../src/runtime/pi-auth";
+import { loginFailureText } from "../src/app/commands";
 import { withLoginSurface } from "./support/login-surface";
 
 const items = [{ id: "codex", label: "OpenAI Codex" }, { id: "copilot", label: "GitHub Copilot" }] as const;
@@ -112,4 +113,18 @@ test("one sign-in list: OpenRouter first, provider and method together; /login <
   for (const way of ways) expect(way.label).not.toMatch(/device code|oauth|loopback/i);
   expect(signInWays("anthropic").map(({ method }) => method)).toEqual(["api_key", "oauth"]);
   expect(signInWays("github-copilot")).toHaveLength(1);
+});
+
+test("a failed sign-in says the reason Casper has, in plain words, and the next step", () => {
+  const failed = (detail?: string, reason: "unavailable" | "provider" | "destination" = "provider") =>
+    loginFailureText({ status: "failed", effect: "none", reason, ...(detail ? { detail } : {}) });
+  expect(failed("timed out after 15 minutes")).toBe("[login] Sign-in failed: timed out after 15 minutes. Nothing was saved. Type /login to try again.\n");
+  expect(failed("couldn't reach OpenRouter")).toContain("couldn't reach OpenRouter");
+  expect(failed(undefined)).toBe("[login] Sign-in didn't finish. Nothing was saved. Type /login to try again.\n");
+  expect(failed("CASPER_TUI_WRITE_LOG is set", "unavailable")).toBe("[login] Sign-in is off while CASPER_TUI_WRITE_LOG is set. Unset it, then type /login.\n");
+  for (const text of [failed(undefined, "unavailable"), failed("x")]) {
+    expect(text).not.toMatch(/loopback|eligibility|CASPER_TUI_WRITE_LOG|fallback/);
+  }
+  expect(failed("\"~/.casper/agent/auth.json\" is a symbolic link; replace it with a regular file", "destination"))
+    .toBe("[login] Can't save the key: \"~/.casper/agent/auth.json\" is a symbolic link; replace it with a regular file. Nothing was changed.\n");
 });
