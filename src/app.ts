@@ -789,7 +789,7 @@ export class CasperApp {
       const line = queued ?? await this.terminal.readCommand();
       if (line === undefined) break;
       if (this.cancelBeforeCommand) {
-        this.output.write("[cancel] Request cancelled before startup.\n");
+        this.output.write("[cancel] Stopped before it started; nothing ran.\n");
         continue;
       }
       const prompt = line.trim();
@@ -860,7 +860,7 @@ export class CasperApp {
     this.verificationAbort?.abort(); this.checkTask?.abort(); this.visualizationAbort?.abort();
     void this.session?.abort().catch(() => {});
     this.terminal.endAssistant();
-    this.output.write("[cancel] Cancelling active work; changes already made are retained.\n");
+    this.output.write("[cancel] Stopping. Changes made so far stay as they are.\n");
   }
 
   /** A session (never a one-shot run) says when a newer Casper is out, from the last check, then checks again in the

@@ -207,7 +207,7 @@ def exercise(bun, repo, root, no_color):
         s.send(draft + "\x1b[D\x1b[D")
         s.pump()
         s.send("\x03")
-        s.until("Cancelling active work")
+        s.until("[cancel] Stopping")
         s.until("Stopped — cancelled")
         # Enter before the cancelled task has closed only keeps the draft: wait for the prompt to be idle first.
         s.until("│ idle")
@@ -259,7 +259,7 @@ def exercise(bun, repo, root, no_color):
         assert not any(request.startswith("/") for request in s.requests())
         before = s.requests()
         s.send("hold\n\x03")
-        s.until("Request cancelled before startup")
+        s.until("[cancel] Stopped before it started")
         assert s.requests() == before
         s.send("/exit\n")
         deadline = time.monotonic() + 5
