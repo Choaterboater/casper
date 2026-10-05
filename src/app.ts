@@ -2050,7 +2050,7 @@ export class CasperApp {
     // Where nobody can answer the box (one-shot, --json, a pipe), the AI isn't offered device checks at all.
     if (origin === "ai" && !this.interactive) return this.networkOptions();
     return { ...this.networkOptions(), runLab: labCheckRunner({
-      // The exact channel below decides whether a box can be answered (a cooked TTY with redirected output can't).
+      // The approval box below decides whether a box can be answered (a cooked TTY with redirected output can't).
       canAsk: () => this.interactive && !this.closing,
       pick: (question, options, signal) => this.exactPick(question, options, signal),
       write: (text) => { if (!this.closing) this.output.write(text); }, stateDirectory: context.stateDirectory, ...(context.lab ? { lab: context.lab } : {}),
@@ -2955,7 +2955,7 @@ export class CasperApp {
   };
 
   /** A risky change kind (firmware, delete, admin) the user hasn't allowed on this server: 2 allows it for this session,
-   * then the change box asks about the call itself. Same exact channel and queue as the change box. */
+   * then the change box asks about the call itself. Same box and queue as the change box. */
   private confirmKind: ConfirmKind = async (ask, signal) => {
     if (!this.interactive) throw new NotExecutedError("needs your approval, and this run cannot ask");
     return this.oneAtATime(async () => {
