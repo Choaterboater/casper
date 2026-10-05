@@ -735,8 +735,10 @@ function pathList(paths: string[], safe: (text: string) => string, count = true)
 /** A folder as a shell runs it: plain when it needs no quotes; otherwise in single quotes, with a leading ~/ left
  * outside them so the shell still expands it (a quoted "~" is a folder named ~, and "$x" would be expanded). */
 function shellFolder(folder: string): string {
-  if (/^[\w./~:@%+=,-]+$/.test(folder)) return folder;
-  if (process.platform === "win32") return JSON.stringify(folder);
+  const windows = process.platform === "win32";
+  if ((windows ? /^[\w.\\/~:@%+=,-]+$/ : /^[\w./~:@%+=,-]+$/).test(folder)) return folder;
+  // cmd and PowerShell take the folder in double quotes with its backslashes as they are (a Windows path has no ").
+  if (windows) return `"${folder}"`;
   const quote = (text: string) => `'${text.replace(/'/g, "'\\''")}'`;
   return folder.startsWith("~/") ? `~/${quote(folder.slice(2))}` : quote(folder);
 }
