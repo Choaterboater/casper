@@ -1,6 +1,6 @@
 import { realpath } from "node:fs/promises";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { projectLSPDefinitionReview, type LSPConfiguration, type LSPServerDefinition } from "./config";
 import { LSPConnection, record } from "./protocol";
 import { ProcessCleanupError } from "../platform/processes";
@@ -27,6 +27,23 @@ interface Server {
   needsDiagnosticRefresh: boolean;
   documents: Map<string, Document>;
   diagnostics: Map<string, Published>;
+}
+
+/** The path a file URI names, for comparing two spellings of one file (case-blind on Windows). */
+function uriPath(uri: string): string | undefined {
+  try { const file = fileURLToPath(uri); return process.platform === "win32" ? file.toLowerCase() : file; } catch { return undefined; }
+}
+
+/**
+ * The open document a server's URI names. Servers may spell a file differently from Node: those built
+ * on vscode-uri write file:///c%3A/... on Windows where Casper sent file:///C:/....
+ */
+function openDocumentUri(documents: ReadonlyMap<string, unknown>, uri: string): string | undefined {
+  if (documents.has(uri)) return uri;
+  const wanted = uriPath(uri);
+  if (wanted === undefined) return undefined;
+  for (const key of documents.keys()) if (uriPath(key) === wanted) return key;
+  return undefined;
 }
 
 export class LSPManager {
@@ -93,9 +110,10 @@ export class LSPManager {
     connection.onClose = () => server.lifetime.abort();
     connection.onNotification = (method, params) => {
       if (method !== "textDocument/publishDiagnostics" || !record(params) || typeof params.uri !== "string" || !Array.isArray(params.diagnostics)) return;
-      const doc = server.documents.get(params.uri);
-      if (!doc || (params.version !== undefined && params.version !== doc.version)) return;
-      server.diagnostics.set(params.uri, { version: typeof params.version === "number" ? params.version : undefined, items: params.diagnostics, at: Date.now() });
+      const uri = openDocumentUri(server.documents, params.uri);
+      const doc = uri === undefined ? undefined : server.documents.get(uri);
+      if (!uri || !doc || (params.version !== undefined && params.version !== doc.version)) return;
+      server.diagnostics.set(uri, { version: typeof params.version === "number" ? params.version : undefined, items: params.diagnostics, at: Date.now() });
     };
     try {
       const result = await connection.request("initialize", {

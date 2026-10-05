@@ -346,10 +346,14 @@ test("advice and notes for servers Casper can't pin", () => {
 });
 
 test("the enable text notices when the user's own settings still keep writes off", () => {
+  // A Windows shell may have no HOME, so the test sets its own.
+  const savedHome = process.env.HOME;
+  cleanup.push(async () => { if (savedHome === undefined) delete process.env.HOME; else process.env.HOME = savedHome; });
+  process.env.HOME = path.resolve("/home/u");
   const own = stdio("hpe", "python", hpeRouterArgs, { HPE_MCP_ACCESS_PROFILE: "safe-read-only" });
-  own.source = path.join(process.env.HOME ?? "/home/u", ".claude.json");
+  own.source = path.join(process.env.HOME, ".claude.json");
   expect(ownSettingsNote(own, matchPreset(own))).toBe(
-    "Casper removed its read-only pins, but your own settings still keep writes off (HPE_MCP_ACCESS_PROFILE=safe-read-only in ~/.claude.json).");
+    `Casper removed its read-only pins, but your own settings still keep writes off (HPE_MCP_ACCESS_PROFILE=safe-read-only in ~${path.sep}.claude.json).`);
   expect(ownSettingsNote(stdio("hpe", "python", hpeRouterArgs, { HPE_MCP_CENTRAL_WRITES: "1" }), matchPreset(own))).toBeUndefined();
   expect(writesTitle("aruba-central", matchPreset(stdio("aruba-central", "centralmcp", [])))).toBe("Central writes are off.");
   expect(writesTitle("my-server")).toBe("my-server writes are off.");

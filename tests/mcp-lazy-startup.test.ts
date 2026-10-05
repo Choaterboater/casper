@@ -5,6 +5,8 @@ import path from "node:path";
 import { cleanEnv } from "./support/env";
 
 const source = path.resolve(import.meta.dir, "..");
+// Each test's code is source text inside a template literal, so "[\\\\/]" there reaches the regex as
+// [\\/]: it matches module paths written with "/" (POSIX) or "\" (Windows).
 async function freshProcess(code: string) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-mcp-lazy-"));
   try {
@@ -41,7 +43,7 @@ test("local app commands and unapproved preparation do not load MCP SDK or Ajv",
       assert.deepEqual(broker.search("anything"), []);
       await broker.close();
     } finally { await app.close(); }
-    const loaded = Object.keys(require.cache).filter(p => p.includes("/node_modules/@modelcontextprotocol/") || p.includes("/node_modules/ajv/"));
+    const loaded = Object.keys(require.cache).filter(p => /[\\\\/]node_modules[\\\\/](@modelcontextprotocol|ajv)[\\\\/]/.test(p));
     assert.deepEqual(loaded, [], "local commands must not initialize MCP/Ajv modules");
     console.log("passed");
   `);
@@ -62,7 +64,7 @@ test("a cold approved connection loads the real SDK and retains schema validatio
       const result = await broker.invoke("mcp:fixture:inspect_quantum_flux", { site: "lab" });
       assert.equal(result.isError, false);
       assert.equal(result.data.content[0].data.arguments.site, "lab");
-      assert.ok(Object.keys(require.cache).some(p => p.includes("/node_modules/@modelcontextprotocol/")));
+      assert.ok(Object.keys(require.cache).some(p => /[\\\\/]node_modules[\\\\/]@modelcontextprotocol[\\\\/]/.test(p)));
     } finally { await broker.close(); }
     assert.equal(manager.status()[0].state, "disconnected");
     console.log("passed");
@@ -77,7 +79,7 @@ for (const action of ["cancel", "close", "refresh"] as const) {
       const loading = new Promise(resolve => entered = resolve);
       const gate = new Promise(resolve => release = resolve);
       Bun.plugin({ name: "delay-real-validator-import", setup(build) {
-        build.onLoad({ filter: /node_modules\\/ajv\\/dist\\/ajv\\.js$/ }, async args => {
+        build.onLoad({ filter: /node_modules[\\\\/]ajv[\\\\/]dist[\\\\/]ajv\\.js$/ }, async args => {
           entered();
           await gate;
           return { contents: await Bun.file(args.path).text(), loader: "js" };
@@ -118,7 +120,7 @@ for (const moduleFile of ["index", "stdio"] as const) for (const action of ["clo
       const loading = new Promise(resolve => entered = resolve);
       const gate = new Promise(resolve => release = resolve);
       Bun.plugin({ name: "delay-real-mcp-client-import", setup(build) {
-        build.onLoad({ filter: /@modelcontextprotocol\\/sdk\\/dist\\/esm\\/client\\/${moduleFile}\\.js$/ }, async args => {
+        build.onLoad({ filter: /@modelcontextprotocol[\\\\/]sdk[\\\\/]dist[\\\\/]esm[\\\\/]client[\\\\/]${moduleFile}\\.js$/ }, async args => {
           entered();
           await gate;
           return { contents: await Bun.file(args.path).text(), loader: "js" };

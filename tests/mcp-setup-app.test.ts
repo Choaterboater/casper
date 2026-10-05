@@ -157,7 +157,11 @@ test("the enable text says when your own settings still keep writes off, and a r
   } } });
   const { output } = await session(home, project, ["/mcp connect hpe", "/mcp writes hpe", "/mcp connect ro", "/mcp writes ro"], ["1", "2", "1"]);
   expect(output).toContain("HPE networking writes are off.");
-  expect(output).toContain(`[mcp] Casper removed its read-only pins, but your own settings still keep writes off (HPE_MCP_ACCESS_PROFILE=safe-read-only in ${path.join(home, ".casper/mcp.json")}).`);
+  // A file under HOME is shown as ~/...; on Windows the temp folder is under HOME.
+  const source = path.join(home, ".casper/mcp.json");
+  const userHome = process.env.HOME;
+  const shown = userHome && source.startsWith(`${userHome}${path.sep}`) ? `~${source.slice(userHome.length)}` : source;
+  expect(output).toContain(`[mcp] Casper removed its read-only pins, but your own settings still keep writes off (HPE_MCP_ACCESS_PROFILE=safe-read-only in ${shown}).`);
   expect(output).toContain("ro [stdio; ready] 3 tools · writes off · login: read-only (checked)");
   expect(output).toContain("[mcp] This login is read-only (access_check). Writes can't be turned on here.");
 });

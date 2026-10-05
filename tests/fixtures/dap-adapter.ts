@@ -7,9 +7,14 @@ let sequence = 0;
 let launch: { seq: number; command: string } | undefined;
 let child: ReturnType<typeof spawn> | undefined;
 let pending = Buffer.alloc(0);
+// Messages sent while handling one request go out in one write. POSIX pipes deliver quick separate
+// writes together anyway; Windows pipes deliver them one read at a time, so the tests' "start returns
+// stopped" would depend on timing there.
+let outbox: string[] = [];
 function send(message: Record<string, unknown>) {
   const json = JSON.stringify({ seq: ++sequence, ...message });
-  process.stdout.write(`Content-Length: ${Buffer.byteLength(json)}\r\n\r\n${json}`);
+  if (!outbox.length) queueMicrotask(() => { const text = outbox.join(""); outbox = []; process.stdout.write(text); });
+  outbox.push(`Content-Length: ${Buffer.byteLength(json)}\r\n\r\n${json}`);
 }
 function event(event: string, body = {}) { send({ type: "event", event, body }); }
 function response(request: { seq: number; command: string }, body = {}, success = true) {

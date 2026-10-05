@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node
 import os from "node:os";
 import path from "node:path";
 import { freePort, portInUse } from "../src/platform/managed-process";
-import { ProcessCleanupError, type ProcessPlatform } from "../src/platform/processes";
+import { OwnedProcesses, osSupportsProcessGroups, ProcessCleanupError, type ProcessPlatform } from "../src/platform/processes";
 import type { ServiceSpec } from "../src/services/config";
 import { ServiceManager } from "../src/services/manager";
 
@@ -169,7 +169,12 @@ test("an unconfirmed cleanup raises the process cleanup error through the platfo
   const started = await f.manager.start("api", new AbortController().signal);
   root = started.pid!;
   const grandchild = await f.grandchild();
-  cleanups.push(() => { for (const pid of [root, grandchild]) { try { process.kill(-pid, "SIGKILL"); } catch { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } } } });
+  // The simulated platform signals nothing. Without groups (Windows) stop the real tree first: Windows can't
+  // remove a folder that a live process still runs in.
+  cleanups.push(async () => {
+    if (!osSupportsProcessGroups) await new OwnedProcesses(root, () => true).stop();
+    for (const pid of [root, grandchild]) { try { process.kill(-pid, "SIGKILL"); } catch { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } } }
+  });
   await expect(f.manager.stop("api")).rejects.toBeInstanceOf(ProcessCleanupError);
   expect(() => f.manager.assertCleanup()).toThrow(ProcessCleanupError);
   expect(api(f.manager).cleanup).toBe("unknown");

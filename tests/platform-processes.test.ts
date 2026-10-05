@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
 import { openNoFollow } from "../src/platform/files";
-import { OwnedProcesses, posixProcessPlatform, terminateTree, type ProcessPlatform, type ProcessRecord } from "../src/platform/processes";
+import { OwnedProcesses, posixProcessPlatform, terminateTree, windowsProcessTable, type ProcessPlatform, type ProcessRecord } from "../src/platform/processes";
 import { needsSymlinks, posixOnly } from "./support/platform";
 
 const cleanups: Array<() => unknown> = [];
@@ -280,4 +280,48 @@ test("a group whose leader has exited but a TERM-resistant member still runs is 
   const second = new OwnedProcesses(1000, () => !table.get(1000)?.zombie, platform);
   await second.capture();
   expect(await second.stop()).toBe("unknown");
+});
+
+// Windows has no process groups: this is the path every MCP, LSP and debugger stop takes there.
+test.skipIf(process.platform !== "win32")("a Windows stop of a small owned tree is quick and confirmed", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-platform-"));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const marker = path.join(root, "grandchild.pid");
+  const unrelated = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
+  cleanups.push(() => { unrelated.kill("SIGKILL"); });
+  const script = `const c = require("node:child_process").spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
+require("node:fs").writeFileSync(${JSON.stringify(marker)}, String(c.pid)); setTimeout(() => {}, 30000);`;
+  const child = spawn(process.execPath, ["-e", script], { stdio: "ignore" });
+  cleanups.push(() => { try { child.kill("SIGKILL"); } catch { /* already gone */ } });
+  await until(async () => (await readFile(marker, "utf8").catch(() => "")).trim().length > 0, 15_000);
+  const grandchild = Number((await readFile(marker, "utf8")).trim());
+  cleanups.push(() => { try { process.kill(grandchild, "SIGKILL"); } catch { /* already gone */ } });
+  const owner = new OwnedProcesses(child.pid!, () => child.exitCode === null && child.signalCode === null);
+  await owner.capture();
+  const started = performance.now();
+  expect(await owner.stop()).toBe("stopped");
+  // The native list makes this stop take about 0.15 s. The limit is loose so a busy runner
+  // passes, but a stop that stalls (the old PowerShell list took 6 s or more under load) fails.
+  expect(performance.now() - started).toBeLessThan(5_000);
+  expect(() => process.kill(grandchild, 0)).toThrow();
+  expect(() => process.kill(unrelated.pid!, 0)).not.toThrow();
+}, 30_000);
+
+test("a Windows parent link is cut when the parent PID now names a newer process", () => {
+  // Windows keeps a child's parent PID after the parent exits, and that PID can be reused.
+  const table = windowsProcessTable([
+    { pid: 4000, parent: 3000, created: 200n },
+    { pid: 3000, parent: 1, created: 500n }, // reused: started after the child it seems to own
+    { pid: 4001, parent: 3000, created: 600n },
+    { pid: 4002, parent: 4002, created: 700n }, // never its own parent
+  ]);
+  expect(table.get(4000)).toEqual({ pid: 4000, parent: 0, group: 0, stamp: "200" });
+  expect(table.get(4001)).toEqual({ pid: 4001, parent: 3000, group: 0, stamp: "600" });
+  expect(table.get(4002)?.parent).toBe(0);
+  const signals: Array<{ kind: "process" | "group"; id: number }> = [];
+  const owner = new OwnedProcesses(3000, () => true, simulatedPlatform([...table.values()], signals).platform);
+  return owner.capture().then(() => owner.stop()).then((outcome) => {
+    expect(outcome).toBe("stopped");
+    expect(signals.map((entry) => entry.id).sort()).toEqual([3000, 4001]);
+  });
 });
