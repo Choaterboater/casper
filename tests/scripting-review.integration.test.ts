@@ -55,7 +55,7 @@ test("verification.acceptance: tests written from the request alone decide betwe
   expect({ exit: warnedRun.exit, outcome: warnedReceipt.outcome, proof: warnedReceipt.proof, acceptance: { ...warnedReceipt.acceptance, output: undefined } })
     .toEqual({ exit: 3, outcome: "not_verified", proof: null, acceptance: { status: "fail", mode: "warn", unconfirmed: ["\"value is FIXED\""], output: undefined } });
   expect(warnedReceipt.text).toContain("⚠ Not confirmed by tests written from the request: \"value is FIXED\"");
-}, 120_000);
+}, 180_000);
 
 shellCheckTest("verification.checklist: a separate call lists the request's cases first; the task prompt asks for one test per case", async () => {
   const listing = (answer: string) => fixture((_request, payload) => isChecklist(payload) ? { text: answer }
@@ -96,7 +96,7 @@ shellCheckTest("verification.checklist: a separate call lists the request's case
   const plain = JSON.parse((await off.run(["--json", "--verify", "Fix sum.js"])).stdout.trim().split("\n").at(-1)!);
   expect({ outcome: plain.outcome, checklist: plain.checklist }).toEqual({ outcome: "verified", checklist: null });
   expect(off.payloads.some(isChecklist)).toBe(false);
-}, 90_000);
+}, 120_000);
 
 shellCheckTest("the review round fixes a gap the model finds; a gap it admits keeps the change unverified", async () => {
   // The review finds that sum.js also needs a newline marker and fixes it; the checks rerun and pass.
@@ -125,7 +125,7 @@ shellCheckTest("the review round fixes a gap the model finds; a gap it admits ke
   const gapReceipt = JSON.parse(gap.stdout.trim().split("\n").at(-1)!);
   expect({ exit: gap.exit, outcome: gapReceipt.outcome }).toEqual({ exit: 3, outcome: "not_verified" });
   expect(gapReceipt.text).toContain("⚠ The model's review says not done: negative numbers — not implemented");
-}, 90_000);
+}, 120_000);
 
 shellCheckTest("the review stops at its own 12-turn budget; Casper still reruns the checks and proves the change", async () => {
   const f = await fixture(endlessReview);

@@ -43,7 +43,7 @@ test("one tool crashing, hanging or printing garbage leaves the others' results 
   expect(report.findings.some((finding) => finding.tool === "zizmor")).toBe(true);
   expect(report.exitCode).toBe(1);
   expect(formatResultLine(report)).toBe(`Result: ${report.problems} problems, 1 note, 3 checks not run. This is what these tools found. It does not prove the code has no problems.`);
-});
+}, 90_000);
 
 test("Casper's own words never call the code safe or secure, even with nothing found", async () => {
   const root = await fixtureRepo("casper-security-clean-");

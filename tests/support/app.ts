@@ -25,7 +25,8 @@ export async function richApp(makeRuntime: (project: string) => AgentRuntime, op
     if (pending?.test(Bun.stripANSI(output))) { pending.resolve(); pending = undefined; }
   } });
   const screen = () => Bun.stripANSI(output);
-  const until = (test: (screen: string) => boolean, ms = 4000) => {
+  // Returns as soon as the screen matches; a slow Windows CI runner needed more than 4 s.
+  const until = (test: (screen: string) => boolean, ms = 15_000) => {
     if (test(screen())) return Promise.resolve();
     const { promise, resolve } = Promise.withResolvers<void>();
     pending = { test, resolve };

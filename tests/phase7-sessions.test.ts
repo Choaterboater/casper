@@ -122,7 +122,7 @@ describe("Phase 7 sessions and worktrees", () => {
       expect(await readFile(path.join(preserved!, lateFile), "utf8")).toContain("must survive");
       expect((await git(repo, "branch", "--list", relation.branch)).trim()).toBe("");
     }
-  });
+  }, 60_000);
 
   test("review follow-up: cleanup preserves unrelated missing worktree registration and index", async () => {
     const { home, repo } = await repository();

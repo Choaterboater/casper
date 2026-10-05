@@ -68,7 +68,7 @@ test("a package.json the model writes in this turn gets its test check on this t
   expect(result?.verification?.results.map((check) => check.name)).toEqual(["test"]);
   // The tests are new, so there is no "without the change" to prove against; the receipt says why, plainly.
   expect(output).toContain("the tests came with this change");
-});
+}, 60_000);
 
 test("a change that adds no check leaves the receipt as it was", async () => {
   const { output } = await run({ "README.md": "# demo\n" });

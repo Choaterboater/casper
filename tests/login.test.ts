@@ -9,8 +9,9 @@ const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 const repo = path.resolve(import.meta.dir, "..");
 // Every test spawns a fresh Bun child running the real login flow; the 5 s default has
-// tripped on the Windows CI runner.
-setDefaultTimeout(15_000);
+// tripped on the Windows CI runner, and so has 15 s: on a loaded 4-core runner a test that
+// takes 5-12 s took 12-27 s.
+setDefaultTimeout(30_000);
 
 async function fixture() {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-login-"))); roots.push(root);
@@ -22,7 +23,8 @@ async function fixture() {
   async function run(body: string, args: string[] = []) {
     body = `import { withLoginSurface } from ${JSON.stringify(path.join(repo, "tests/support/login-surface.ts"))};\n${body}`;
     const child = Bun.spawn([process.execPath, "-e", body, ...args], { cwd: project, env, stdout: "pipe", stderr: "pipe" });
-    const timer = setTimeout(() => child.kill(), 15_000);
+    // A hang guard only; the test's own limit is the real bound.
+    const timer = setTimeout(() => child.kill(), 60_000);
     try {
       const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
@@ -78,7 +80,7 @@ test("API-key login verifies with the provider, keeps secrets off screen, and pr
     expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8"))).toEqual({ unrelated: { type: "api_key", key: "keep" }, [provider]: { type: "api_key", key: "synthetic-private-key" } });
     expect(await Bun.file(path.join(agent, "sessions")).exists()).toBe(false);
   }
-});
+}, 60_000);
 
 test("Enter at the numbered sign-in list picks OpenRouter with an API key", async () => {
   const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
@@ -333,7 +335,7 @@ test("Anthropic browser sign-in completes through private manual input or real l
     expect(Object.keys(auth)).toEqual(mode === "cancel" ? [] : [provider]);
     if (mode !== "cancel") expect(auth[provider].access).toBe("synthetic-private-access");
   }
-}, 30_000);
+}, 90_000);
 
 test("private key entry rejects executable syntax, multiline and oversized unfinished pastes without saving", async () => {
   for (const key of ["!touch SHOULD_NOT_EXIST", "!id", "$SECRET_ENV", "line1\nline2", "x".repeat(40_000)]) {
@@ -359,7 +361,7 @@ test("private key entry rejects executable syntax, multiline and oversized unfin
     expect(JSON.parse(await readFile(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json"), "utf8"))).toEqual({});
     expect(await Bun.file(path.join(f.project, "SHOULD_NOT_EXIST")).exists()).toBe(false);
   }
-}, 25_000);
+}, 120_000);
 
 test("API-key replacement refreshes the selected non-Codex parent without changing its conversation selection", async () => {
   const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
@@ -388,7 +390,7 @@ test("API-key replacement refreshes the selected non-Codex parent without changi
   expect(result.result).toEqual({ status: "saved" });
   expect(result.after).toMatchObject({ provider: "anthropic", model: result.before.model, selectionSource: result.before.selectionSource, auth: "configured" });
   expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8")).anthropic.key).toBe("synthetic-new");
-});
+}, 60_000);
 
 test("provider refusal and occupied browser port expose no diagnostics and preserve existing credentials", async () => {
   for (const occupied of [false, true]) {
@@ -419,7 +421,7 @@ test("provider refusal and occupied browser port expose no diagnostics and prese
     expect(result.safe).toBe(true);
     expect(await readFile(path.join(agent, "auth.json"), "utf8")).toBe(original);
   }
-});
+}, 60_000);
 
 test("Ctrl+C at the sign-in list is cancellation, not login failure", async () => {
   const f = await fixture();

@@ -67,8 +67,9 @@ export default function(pi) {
     await writeFile(path.join(project, "AGENTS.md"), "AMBIENT_AGENTS_MUST_NOT_APPEAR");
   }
   const env = cleanEnv({ HOME: home, CASPER_AGENT_DIR: agent, PI_CODING_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" });
-  // killAfterMs is a hang guard; a test with a longer limit can pass a longer one.
-  async function run(args: string[], overrides: Record<string, string | undefined> = {}, killAfterMs = 10_000) {
+  // killAfterMs is a hang guard; a test with a longer limit can pass a longer one. A run takes 2-5 s, but a slow
+  // Windows CI runner took past 10 s (killed, exit 143), so the test's own limit is the usual bound.
+  async function run(args: string[], overrides: Record<string, string | undefined> = {}, killAfterMs = 60_000) {
     const child = Bun.spawn([process.execPath, ...args], { cwd: project, env: { ...env, ...overrides }, stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => child.kill(), killAfterMs);
     try {

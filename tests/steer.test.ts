@@ -54,7 +54,7 @@ test("a line steered in while the model works reaches it at its next step; with 
   expect(result).toEqual({ idle: false, steered: true, unsent: [] });
   expect(JSON.stringify(payloads.at(-1)!.messages)).toContain("ALSO_MENTION_PINEAPPLE");
   expect(JSON.stringify(payloads[0]!.messages)).not.toContain("too early");
-});
+}, 90_000);
 
 function fakeRuntime(state: { prompts: string[]; steered: string[]; steering: boolean; gates: Array<ReturnType<typeof Promise.withResolvers<void>>>; unsent?: string[] }): AgentRuntime {
   return {

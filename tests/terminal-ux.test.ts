@@ -162,7 +162,7 @@ test("with no sign-in, the banner says so in one line and how to start; the foot
   expect(stdout).not.toContain("type a request");
   expect(stdout).toContain("[model] Not signed in yet. Run casper in a terminal and type /login.");
   expect(stdout).not.toContain(" auth      ");
-}, 30_000);
+}, 60_000);
 
 test("the startup banner names a saved default model instead of saying no model is set up", async () => {
   expect(formatRuntimeStatus(undefined, "default fixture/first · high")).toBe(

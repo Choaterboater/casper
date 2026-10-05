@@ -3,6 +3,8 @@ import { cleanEnv } from "./env";
 
 // Many files drive real git, apps and child processes; under load (a parallel run, a busy CI runner) those pass
 // bun's 5 s default without anything being wrong. A test that needs a tighter limit still sets its own.
+// A test that starts real Bun children gets at least 4x its slowest time on a normal Windows CI runner: a slow
+// runner starts processes 2-4x slower, and these limits only catch hangs.
 setDefaultTimeout(30_000);
 
 // In-process tests read process.env directly (config profiles, the agent store, provider keys), so a

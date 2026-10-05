@@ -42,7 +42,7 @@ shellCheckTest("a fix no test proves is not verified: the receipt says why, and 
   expect(receipt.text).toContain("⚠ Not proven: test passes without this change too, and no test was added or changed");
   // Exactly one proof round was asked for; the model's answer did not add a test.
   expect(f.payloads.filter((payload) => lastUser(payload).includes(PROOF_REPAIR)).length).toBe(1);
-}, 60_000);
+}, 180_000);
 
 shellCheckTest("a feature worded like a test task is still reviewed and proven; a docs-only edit is not", async () => {
   // "new test files" makes the keyword classifier say intent "test"; the work (a code change) decides.
@@ -63,7 +63,7 @@ shellCheckTest("a feature worded like a test task is still reviewed and proven; 
   // The checks passed; the docs edit was not proven, so the outcome is not verified (and --require-verification exits 3).
   expect({ checksPassed: docsReceipt.checksPassed, exit: documented.exit }).toEqual({ checksPassed: true, exit: 0 });
   expect(docs.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
-}, 90_000);
+}, 180_000);
 
 shellCheckTest("the review round runs even after a fully ticked first checklist, and the receipt keeps the review's", async () => {
   const f = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
@@ -105,4 +105,4 @@ shellCheckTest("the review round is off by default (and with verification.review
   await writeFile(path.join(user.home, ".casper/config.yaml"), "verification:\n  review: false\n");
   expect((await user.run(["--json", "--verify", "Fix sum.js"])).exit).toBe(0);
   expect(user.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
-}, 60_000);
+}, 180_000);

@@ -190,7 +190,7 @@ test("-- ends option parsing, so a prompt may start with a dash", async () => {
   const result = await run([cli, "--", "--", "--bogus", "is", "a", "prompt"], root);
   expect(result.stderr).not.toContain("Unknown option");
   expect(result.stdout).toContain("> --bogus is a prompt");
-});
+}, 60_000);
 
 test("parseCliArgs reads leading options only; the rest is the prompt", () => {
   expect(parseCliArgs(["--verify", "--verbose", "fix", "the", "-v", "flag"])).toMatchObject({

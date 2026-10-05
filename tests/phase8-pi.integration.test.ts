@@ -42,7 +42,7 @@ test("OpenRouter traffic carries Casper's app attribution while other providers 
   const none = f.headers[2]!;
   expect([none.get("http-referer"), none.get("x-openrouter-title"), none.get("x-openrouter-categories"), none.get("x-openrouter-app-visibility")])
     .toEqual([null, null, null, null]);
-}, 30_000);
+}, 60_000);
 
 test("real /delegate reads evidence but cannot write, shell, recurse, or load ambient extensions/settings", async () => {
   let step = 0;
@@ -73,7 +73,7 @@ test("real /delegate reads evidence but cannot write, shell, recurse, or load am
   expect(await snapshot(f.project)).toEqual(before);
   const sessions = await readdir(path.join(f.agent, "sessions"), { recursive: true }).catch(() => []);
   expect(sessions.filter((file) => file.endsWith(".jsonl"))).toHaveLength(0);
-}, 15_000);
+}, 60_000);
 
 
 test("a parent session never executes project .pi extensions or injects project system prompts", async () => {
@@ -95,7 +95,7 @@ test("a parent session never executes project .pi extensions or injects project 
     expect({ args, executed: await Bun.file(marker).exists() }).toEqual({ args, executed: false });
   }
   expect(f.payloads).toHaveLength(1);
-}, 30_000);
+}, 60_000);
 
 needsSymlinks("a project context file that links outside the project is never sent to the provider", async () => {
   const f = await fixture(() => answer("CONTEXT_FILE_GUARD"));
@@ -115,7 +115,7 @@ needsSymlinks("a project context file that links outside the project is never se
   expect({ exit: contained.exit, stderr: contained.stderr }).toEqual({ exit: 0, stderr: "" });
   expect(f.payloads).toHaveLength(2);
   expect(JSON.stringify(f.payloads[1])).toContain("IN_REPO_CONTEXT_LOADS");
-}, 30_000);
+}, 90_000);
 
 test("the parent system prompt states Casper's identity exactly once, first, with or without a user SYSTEM.md", async () => {
   const f = await fixture(() => answer("IDENTITY_FIXTURE"));
@@ -141,7 +141,7 @@ test("the parent system prompt states Casper's identity exactly once, first, wit
     for (const rule of PI_TOOL_RULES) expect(system(index)).toContain(`- ${rule}`);
     expect(system(index)).toContain("caps any timeout at 3600 seconds");
   }
-}, 30_000);
+}, 60_000);
 
 test("read-only Pi refuses a source containing its active state before initialization", async () => {
   const f = await fixture(() => answer("must not be requested"));
@@ -167,7 +167,7 @@ needsSymlinks("ordinary parent Pi startup remains allowed when state is inside i
   expect(result.stdout).not.toContain("local-fixture-not-a-secret");
   expect(f.payloads).toHaveLength(1);
   expect(f.payloads[0]?.tools.map((tool) => tool.function.name)).toContain("bash");
-});
+}, 60_000);
 
 posixOnly("real Pi forwards correlated bounded shell diagnostics without edit bodies or fabricated exit codes", async () => {
   let step = 0;
@@ -270,7 +270,7 @@ try {
   expect(ends[0]!.isError).toBe(true);
   expect(ends[0]!.text).toContain("Casper does not let the model run `git stash push -m tmp`");
   expect(ends[0]!.text).not.toContain("STASHED");
-}, 15_000);
+}, 30_000);
 
 test("real Pi's write reports its size: a rewrite counts changed lines, a new file counts all", async () => {
   let step = 0;
@@ -295,7 +295,7 @@ try {
     { path: "fixture.txt", lines: { added: 1, removed: 0 } },
     { path: "fresh.txt", lines: { added: 3, removed: 0 } },
   ]);
-}, 15_000);
+}, 30_000);
 
 for (const sequential of [false, true]) test(`real Pi runs a batch ${sequential ? "one call at a time when a tool is marked sequential" : "in parallel by default"}`, async () => {
   let step = 0;

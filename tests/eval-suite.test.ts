@@ -125,7 +125,7 @@ test("a missing fixture leaves no harness-owned temporary directories and preser
   expect(observed.left).toEqual([]);
   expect(observed.factories).toBe(0);
   expect(observed.keep).toBe("caller-owned\n");
-});
+}, 60_000);
 
 test("an evaluation nested inside another Git repository refuses to start a runtime there", async () => {
   const root = await tempDir("casper-eval-enclosing-repo-");
@@ -638,7 +638,7 @@ needsSymlinks("the grading CLI rejects candidate-owned observations reached thro
   expect((await readdir(path.join(prepared.root, "results"))).length).toBe(1);
   const exported = JSON.parse(await readFile(path.join(host, "export.json"), "utf8"));
   expect(exported.results[0].outputTail).toBe("<tmp>/trace");
-}, 30_000);
+}, 60_000);
 
 test.each(["repair-order-reservations", "add-order-cancellation"])("%s rejects otherwise valid repairs that edit outside production scope", async id => {
   const task = findEvalTask(id)!;

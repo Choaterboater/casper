@@ -105,4 +105,4 @@ test("a huge folder (a home folder) is scanned only so far: a playbook near the 
   expect(found?.playbooks.map((playbook) => playbook.file)).toContain("site.yml");
   // Past the entry limit: not looked at.
   expect(found?.playbooks.map((playbook) => playbook.file)).not.toContain("aaa/d59/deep.yml");
-});
+}, 60_000);
