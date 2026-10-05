@@ -8,7 +8,7 @@ const prompt = stdinPrompt ?? args.at(-1);
 const casper = args.includes("--json");
 // OMP keeps its agent directory under ~/.omp, its models in models.yml and its credentials in agent.db.
 const agent = process.env.CASPER_AGENT_DIR ?? process.env.PI_CODING_AGENT_DIR!;
-const omp = agent?.endsWith(".omp/agent");
+const omp = agent?.replaceAll("\\", "/").endsWith(".omp/agent");
 writeFileSync("observed.json", JSON.stringify({ args, stdinPrompt, home: process.env.HOME,
   casperDir: process.env.CASPER_AGENT_DIR, piDir: process.env.PI_CODING_AGENT_DIR,
   inheritedSecret: process.env.EVAL_HARNESS_SECRET ?? null,
