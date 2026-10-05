@@ -218,6 +218,13 @@ test.skipIf(process.platform === "win32")("the one-shot undo command quotes a fo
   expect(last("/srv/a $HOME's")).toBe("Undo: casper --cd '/srv/a $HOME'\\''s' /undo 4 · Diff: casper --cd '/srv/a $HOME'\\''s' /diff 4");
 });
 
+test.if(process.platform === "win32")("Windows: the one-shot undo command shows the folder as typed, in double quotes only when it has a space", () => {
+  const task = done({ changedPaths: ["sum.js"], verificationMode: "off", receipt: 4, undo: { available: true } });
+  const last = (folder: string) => formatReceipt(task, { surface: "one-shot", folder }).split("\n").at(-1);
+  expect(last("C:\\code\\app")).toBe("Undo: casper --cd C:\\code\\app /undo 4 · Diff: casper --cd C:\\code\\app /diff 4");
+  expect(last("C:\\My Lab")).toBe("Undo: casper --cd \"C:\\My Lab\" /undo 4 · Diff: casper --cd \"C:\\My Lab\" /diff 4");
+});
+
 // The short receipt the terminal shows after a task. The full form above stays for --json and saved receipts.
 const proven: TaskResult["proof"] = { status: "proven", check: "test", command: "npm run test", testsChanged: true, without: { exitCode: 1, ended: "fail" } };
 const many = Array.from({ length: 15 }, (_, index) => `src/file-${index}.ts`);
