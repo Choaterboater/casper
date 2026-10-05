@@ -32,12 +32,15 @@ has checked. Windows has not yet been tested on a real machine.
 ## Use
 
 From a trusted local project, ask Casper to debug a website, a browser
-interaction, a responsive layout or an overflow problem. The model gets the
-`browser` tool only when your request has an `http://` or `https://` URL or one
-of these words: browser, website, webpage, frontend, layout, responsive,
-overflow, css, puppeteer, playwright. It also gets it when a browser you opened
-with `/browser open` is ready. Ordinary chat and `/browser` status do not start a
-browser or a model.
+interaction, a responsive layout or an overflow problem. When Chrome or Edge is
+installed (or `CASPER_BROWSER_EXECUTABLE` is set), the model has the `browser`
+tool from the first request in every project, so "fix the spacing on the settings
+page" in a web app is not done blind. Without one, it gets the tool only when your
+request has an `http://` or `https://` URL or one of these words: browser,
+website, webpage, frontend, layout, responsive, overflow, css, puppeteer,
+playwright, or when a browser you opened with `/browser open` is ready. Once
+offered, the tool stays for the session. Having the tool starts nothing: ordinary
+chat and `/browser` status do not start a browser or a model.
 
 ```text
 /browser                              status (starts nothing)
