@@ -9,6 +9,7 @@ import { taskExitCode } from "../src/task/result";
 import { SkillRegistry } from "../src/skills/registry";
 import { checkCommand } from "./support/check-command";
 import { posixOnly, sandboxAvailable } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 import { cleanEnv } from "./support/env";
 
 // Nearly every test here runs two or more fixture checks, each a fresh Bun process; under a
@@ -29,7 +30,7 @@ async function fixture() {
   return root;
 }
 
-afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(dirs.splice(0).map(removeTempDir)); });
 
 function createApp(root: string, options: { autoVerify?: boolean; respond?: (prompt: string, emit: RuntimeEventListener) => Promise<void>; onStart?: () => Promise<void>; onAbort?: () => Promise<void>; stopReason?: string; editOnPrompt?: (count: number) => boolean; checkOnPrompt?: boolean; checkFailureOnPrompt?: boolean; selectCheckOnPrompt?: (count: number) => boolean; onSetTools?: (tools: RuntimeTool[]) => void } = {}) {
   const prompts: string[] = [];

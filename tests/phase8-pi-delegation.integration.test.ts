@@ -96,7 +96,8 @@ const app = new CasperApp({ input, output: { write(text) {
 } } });
 try { await app.runInteractive(); } finally { await app.close(); }
 `);
-  const result = await f.run([harness]);
+  // On Windows, in a full parallel run, this test has needed more than the default 10 s.
+  const result = await f.run([harness], {}, 25_000);
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
   expect(result.stdout).not.toContain("[error]");
   const worktree = result.stdout.match(/\[sessions\] active candidate · ([^\n]+)/)?.[1];
@@ -109,7 +110,7 @@ try { await app.runInteractive(); } finally { await app.close(); }
   expect(JSON.stringify(f.payloads[2]?.messages)).not.toContain(json(worktree!));
   expect(git("status", "--porcelain")).toBe("");
   expect(git("worktree", "list", "--porcelain").match(/^worktree /gm)).toHaveLength(1);
-}, 15_000);
+}, 30_000);
 
 test("review regression: truncated tool loops still obey the model-turn ceiling", async () => {
   let requests = 0;

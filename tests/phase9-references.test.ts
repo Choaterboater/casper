@@ -297,6 +297,18 @@ test("a partial read budget cannot be mistaken for a complete no-match search", 
   expect(result.issues.join("\n")).toContain("Total read limit");
 });
 
+test("every distinct file is searched: no two files are taken for one hard link", async () => {
+  // Windows file IDs are larger than a JavaScript number holds exactly, and files made one after another get
+  // neighbouring IDs, so a rounded ID made many different files look like links to the same one.
+  const { home, repo } = await fixture();
+  await Promise.all(Array.from({ length: 150 }, (_, index) => writeFile(path.join(repo, `docs/${String(index).padStart(3, "0")}.txt`), "x\n")));
+  const library = new ReferenceLibrary(await discoverReferenceConfiguration({ homeDir: home }));
+  cleanup.push(() => library.close());
+  const result = await library.search({ query: "absent" });
+  expect(result.status).toBe("complete");
+  expect(result.filesSearched).toBe(150);
+});
+
 needsFifos("FIFO configuration and reference entries cannot wait for a writer", async () => {
   const { home, repo, config } = await fixture();
   await rm(config);

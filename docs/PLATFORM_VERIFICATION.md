@@ -36,7 +36,7 @@ or needs model credentials. The sign-in tests use fake provider answers.
 | Workflow | What it runs | Evidence it keeps |
 | --- | --- | --- |
 | [Linux preview](../.github/workflows/linux-preview.yml) | Ubuntu 24.04, Bun 1.4.0, records `python3` and its PTY modules; locked install; platform probe; typecheck; focused platform/terminal/login/model/debugger suite; full `bun run test` (files in parallel) | `linux-preview-evidence`: host, install, probe, typecheck, focused and full-suite logs, kept 14 days, uploaded even when a check fails |
-| [Windows preview](../.github/workflows/windows-preview.yml) | `windows-latest`, Bun 1.4.0, locked install; typecheck; platform probe; focused platform/terminal/login/model suite; release-compile test; release build; installer test under Windows PowerShell 5.1 and PowerShell 7 | `windows-verification`: host and per-step logs, uploaded even on failure; the built files go to `windows-preview` |
+| [Windows preview](../.github/workflows/windows-preview.yml) | `windows-latest`, Bun 1.4.0, locked install; typecheck; platform probe; focused platform/terminal/login/model suite; release-compile test; release build; installer test under Windows PowerShell 5.1 and PowerShell 7; full `bun run test` (files in parallel); eval bench tests (`bun run test:evals`) | `windows-verification`: host and per-step logs, full-suite and eval logs included, uploaded even on failure; the built files go to `windows-preview` |
 
 On Linux the Python PTY tests run (Windows skips them). A PTY is a fake terminal a
 test can type into. These cover the real login and model pickers and the debugger

@@ -28,6 +28,17 @@ const filesystemAliases = await (async () => {
     };
   } finally { await rm(root, { recursive: true, force: true }); }
 })();
+// POSIX follows a link's `regular/../outside` through `regular` and fails with ENOTDIR. Windows resolves the `..` in
+// the link's text first, so the same write lands in `outside`: there is no invalid traversal to observe.
+const linkTraversalFails = await (async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-link-traversal-probe-"));
+  try {
+    await writeFile(path.join(root, "regular"), "");
+    await mkdir(path.join(root, "outside"));
+    await symlink("regular/../outside", path.join(root, "alias"), "dir");
+    return await writeFile(path.join(root, "alias/probe"), "").then(() => false, (error: NodeJS.ErrnoException) => error.code === "ENOTDIR");
+  } catch { return false; } finally { await rm(root, { recursive: true, force: true }); }
+})();
 async function fixture(config: unknown = {
   verify: { test: command, build: checkCommand("append:build-runs") },
   verification: { scopes: { test: { inputs: ["src"] } } },
@@ -513,7 +524,7 @@ needsSymlinks("an included symlink observed during a check stays invalidating af
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
 });
 
-needsSymlinks("an invalid symlink traversal stays unknown rather than being classified as unrelated", async () => {
+test.skipIf(!linkTraversalFails)("an invalid symlink traversal stays unknown rather than being classified as unrelated", async () => {
   const root = await fixture({ verify: { test: checkCommand("append:test-runs"), build: checkCommand("touch:unselected") },
     verification: { scopes: { test: { inputs: ["src"] } } } });
   await writeFile(path.join(root, "regular"), "not a directory");

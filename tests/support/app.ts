@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -7,6 +7,7 @@ import { CasperApp, type CasperAppOptions } from "../../src/app";
 import { loadProjectContext } from "../../src/project/context";
 import type { AgentRuntime } from "../../src/runtime/types";
 import { SkillRegistry } from "../../src/skills/registry";
+import { removeTempDir } from "./temp-dir";
 
 /** An interactive CasperApp over a fake rich TTY in a temp project, with `until` on the (ANSI-free) screen. */
 export async function richApp(makeRuntime: (project: string) => AgentRuntime, options: Partial<CasperAppOptions> = {}) {
@@ -43,6 +44,6 @@ export async function richApp(makeRuntime: (project: string) => AgentRuntime, op
   const interactive = app.runInteractive(project);
   return {
     app, input, project, home, interactive, screen, until,
-    async close() { await app.close(); input.destroy(); await rm(root, { recursive: true, force: true }); },
+    async close() { await app.close(); input.destroy(); await removeTempDir(root); },
   };
 }

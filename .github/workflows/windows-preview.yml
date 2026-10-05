@@ -3,13 +3,13 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'docs/WINDOWS.md', 'docs/PLATFORM_VERIFICATION.md', 'package.json', 'bun.lock', 'tsconfig.json', 'bunfig.toml', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/windows-preview.yml']
+    paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'docs/WINDOWS.md', 'docs/PLATFORM_VERIFICATION.md', 'package.json', 'bun.lock', 'tsconfig.json', 'bunfig.toml', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/windows-preview.yml']
 permissions:
   contents: read
 jobs:
   standalone:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     defaults:
       run:
         shell: pwsh
@@ -75,6 +75,14 @@ jobs:
         with:
           name: windows-preview
           path: dist/release/
+      - name: Full regression suite (files in parallel)
+        run: |
+          bun run test 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/full-suite.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Eval bench tests
+        run: |
+          bun run test:evals 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/evals.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload verification evidence even on failure
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

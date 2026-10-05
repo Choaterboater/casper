@@ -347,9 +347,16 @@ export class OwnedProcesses {
       } else await this.terminateRecords(signal);
       await new Promise(resolve => setTimeout(resolve, 50));
     }
-    const all = await this.capture();
     // An exited process waiting to be reaped is not running: it counts as stopped.
-    const remaining = [...this.owned.values()].some(item => all.get(item.pid)?.stamp === item.stamp && !all.get(item.pid)?.zombie);
-    return remaining || this.uncertain ? "unknown" : "stopped";
+    const running = (all: Map<number, ProcessRecord>) =>
+      [...this.owned.values()].some(item => all.get(item.pid)?.stamp === item.stamp && !all.get(item.pid)?.zombie);
+    let all = await this.capture();
+    // Without groups (Windows) a kill only starts a process's end, and it stays listed until the exit completes:
+    // on a busy machine that can take longer than the pause above. Wait up to 2 s before calling cleanup unknown.
+    for (let waited = 0; !this.platform.groups && !this.uncertain && running(all) && waited < 2000; waited += 100) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      all = await this.capture();
+    }
+    return running(all) || this.uncertain ? "unknown" : "stopped";
   }
 }

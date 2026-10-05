@@ -46,7 +46,12 @@ test("a result gets a colored edge on the rich terminal (green pass, red fail, y
   const rich = (text: string) => {
     const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
     const screen = fakeWriter();
-    const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {});
+    // A rich terminal has color, whatever NO_COLOR the shell running the tests has set.
+    const noColor = process.env.NO_COLOR;
+    delete process.env.NO_COLOR;
+    let terminal: InteractiveTerminal;
+    try { terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {}); }
+    finally { if (noColor !== undefined) process.env.NO_COLOR = noColor; }
     terminal.setStatus("fixture"); terminal.start();
     terminal.writeResult(text);
     terminal.close(); input.destroy();

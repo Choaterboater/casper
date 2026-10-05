@@ -1,12 +1,15 @@
 import { expect, test, vi } from "bun:test";
 import { PassThrough } from "node:stream";
+import { GLYPHS } from "../src/tui/glyphs";
 import { TerminalSurface } from "../src/tui/surface";
 
 /** The footer spinner is the visible-motion contract: while a prompt runs or tool activity is
- * on screen the state glyph cycles through braille frames, and it returns to the static ○ when
- * idle. Rendered output is the observable surface; private timer fields are not asserted. */
+ * on screen the state glyph cycles through braille frames (ASCII ones in the old Windows console), and it
+ * returns to the static ○ when idle. Rendered output is the observable surface; private timer fields are not asserted. */
 
-const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const SPINNER = GLYPHS.spinner;
+/** A footer line that starts with a frame. The ASCII frames (| / - \) also turn up inside other text, such as "/ for commands". */
+const spinning = (text: string) => Bun.stripANSI(text).split(/\r?\n|\r/).some(line => SPINNER.some(frame => line.startsWith(`${frame} `)));
 
 function makeSurface() {
   const chunks: string[] = [];
@@ -56,7 +59,7 @@ test("the footer returns to the static ○ after activity clears", async () => {
     await new Promise(resolve => setTimeout(resolve, 300));
     const idle = chunks.filter(text => text.includes("○"));
     expect(idle.length).toBeGreaterThan(0);
-    expect(SPINNER.some(frame => idle.at(-1)!.includes(frame))).toBe(false);
+    expect(spinning(idle.at(-1)!)).toBe(false);
   } finally { surface.close(); }
 });
 test("a picker open during work (the model picker, sign-in) shows waiting for you, not a spinner", async () => {
@@ -73,7 +76,7 @@ test("a picker open during work (the model picker, sign-in) shows waiting for yo
       seen = surface.footerLine(80) ?? "";
     });
     expect(seen).toContain("? waiting for you");
-    expect(SPINNER.some((frame) => seen.includes(frame))).toBe(false);
+    expect(spinning(seen)).toBe(false);
     expect(surface.footerLine(80)).not.toContain("waiting for you");
   } finally { surface.close(); }
 });

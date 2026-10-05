@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { appendFile, mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { cleanUpAfterEach, fixture, events, fixProject, lastUser, afterTool, REVIEW, reviewOn, PROOF_REPAIR, weaklyTestedProject, asked, TICKED, isAcceptance, isChecklist, endlessReview } from "./support/scripting";
+import { cleanUpAfterEach, fixture, events, fixProject, lastUser, afterTool, REVIEW, reviewOn, PROOF_REPAIR, weaklyTestedProject, asked, TICKED, isAcceptance, isChecklist, endlessReview, shellCheckTest } from "./support/scripting";
 
 cleanUpAfterEach();
 
@@ -57,7 +57,7 @@ test("verification.acceptance: tests written from the request alone decide betwe
   expect(warnedReceipt.text).toContain("⚠ Not confirmed by tests written from the request: \"value is FIXED\"");
 }, 120_000);
 
-test("verification.checklist: a separate call lists the request's cases first; the task prompt asks for one test per case", async () => {
+shellCheckTest("verification.checklist: a separate call lists the request's cases first; the task prompt asks for one test per case", async () => {
   const listing = (answer: string) => fixture((_request, payload) => isChecklist(payload) ? { text: answer }
     : afterTool(payload) ? { text: "Fixed." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] });
   const checklistOn = (f: Awaited<ReturnType<typeof fixture>>) => appendFile(path.join(f.project, ".casper/project.yaml"), "verification:\n  checklist: true\n");
@@ -98,7 +98,7 @@ test("verification.checklist: a separate call lists the request's cases first; t
   expect(off.payloads.some(isChecklist)).toBe(false);
 }, 90_000);
 
-test("the review round fixes a gap the model finds; a gap it admits keeps the change unverified", async () => {
+shellCheckTest("the review round fixes a gap the model finds; a gap it admits keeps the change unverified", async () => {
   // The review finds that sum.js also needs a newline marker and fixes it; the checks rerun and pass.
   const fixed = await fixture((_request, payload) => {
     const prompt = lastUser(payload);
@@ -127,7 +127,7 @@ test("the review round fixes a gap the model finds; a gap it admits keeps the ch
   expect(gapReceipt.text).toContain("⚠ The model's review says not done: negative numbers — not implemented");
 }, 90_000);
 
-test("the review stops at its own 12-turn budget; Casper still reruns the checks and proves the change", async () => {
+shellCheckTest("the review stops at its own 12-turn budget; Casper still reruns the checks and proves the change", async () => {
   const f = await fixture(endlessReview);
   await fixProject(f);
   await reviewOn(f);
@@ -143,7 +143,7 @@ test("the review stops at its own 12-turn budget; Casper still reruns the checks
   expect(receipt.text).not.toContain("--max-turns");
 }, 60_000);
 
-test("a --max-turns below the review's budget still stops the task in the review: no proof, exit 2", async () => {
+shellCheckTest("a --max-turns below the review's budget still stops the task in the review: no proof, exit 2", async () => {
   const f = await fixture(endlessReview);
   await fixProject(f);
   await reviewOn(f);
@@ -155,7 +155,7 @@ test("a --max-turns below the review's budget still stops the task in the review
   expect(receipt.text).toContain("• Incomplete — stopped after 3 turns (--max-turns)");
 }, 60_000);
 
-test("the proof repair round has the same 12-turn budget; the proof then decides", async () => {
+shellCheckTest("the proof repair round has the same 12-turn budget; the proof then decides", async () => {
   const f = await fixture((_request, payload) => {
     const prompt = lastUser(payload);
     if (prompt.includes(PROOF_REPAIR)) return { tools: [{ name: "write", args: { path: `proof-${payload.messages.length}.txt`, content: "x\n" } }] };

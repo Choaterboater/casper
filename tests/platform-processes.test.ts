@@ -83,6 +83,33 @@ test("an untrustworthy process listing fails closed instead of terminating anyth
   expect(signals).toEqual([]);
 });
 
+test("without process groups, a killed process still listed for a moment is waited for, not reported as unknown", async () => {
+  // TerminateProcess only starts a process's end: Windows lists it until the exit completes, which on a busy
+  // machine can take longer than the short pause between the stop signals.
+  const signals: Array<{ kind: "process" | "group"; id: number }> = [];
+  const table = new Map<number, ProcessRecord>([
+    { pid: 1000, parent: 42, group: 0, stamp: "server" },
+    { pid: 1001, parent: 1000, group: 0, stamp: "child" },
+  ].map(record => [record.pid, record]));
+  const ending = new Map<number, number>();
+  const platform: ProcessPlatform = {
+    groups: false,
+    list: async () => {
+      for (const [pid, listings] of ending) {
+        if (listings <= 1) { table.delete(pid); ending.delete(pid); } else ending.set(pid, listings - 1);
+      }
+      return new Map(table);
+    },
+    signalProcess: (pid) => { signals.push({ kind: "process", id: pid }); if (!ending.has(pid)) ending.set(pid, 6); },
+    signalGroup: () => { throw new Error("Process groups are unavailable on Windows"); },
+  };
+  const owner = new OwnedProcesses(1000, () => table.has(1000), platform);
+  await owner.capture();
+  expect(await owner.stop()).toBe("stopped");
+  expect(table.size).toBe(0);
+  expect(signals[0]).toEqual({ kind: "process", id: 1001 });
+});
+
 test("grouped ownership signals only groups backed by a proven descendant, root last", async () => {
   const signals: Array<{ kind: "process" | "group"; id: number }> = [];
   const table = new Map<number, ProcessRecord>([

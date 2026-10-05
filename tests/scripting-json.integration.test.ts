@@ -3,11 +3,11 @@ import { mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises"
 import path from "node:path";
 import { notesServer } from "./support/notes-server";
 import { sandboxAvailable } from "./support/platform";
-import { cleanUpAfterEach, fixture, events, fixProject, lastUser, REVIEW, reviewOn, asked } from "./support/scripting";
+import { cleanUpAfterEach, fixture, events, fixProject, lastUser, REVIEW, reviewOn, asked, shellCheckTest } from "./support/scripting";
 
 cleanUpAfterEach();
 
-test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's check and one receipt", async () => {
+shellCheckTest("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's check and one receipt", async () => {
   const f = await fixture((request, payload) => lastUser(payload).includes(REVIEW) ? { text: "Requirements:\n- [x] sum.js is fixed — the test check" }
     : request === 0 ? { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] }
     : { text: "Fixed \u001b[31msum.js\u202e." });
@@ -111,7 +111,7 @@ test("--json ends with an error event when Casper stops before a receipt", async
   expect(lines[0].message).toContain("Unknown model");
 }, 30_000);
 
-test("--json tells a check the model asked for (casper_check) from one Casper ran", async () => {
+shellCheckTest("--json tells a check the model asked for (casper_check) from one Casper ran", async () => {
   const f = await fixture((request) => request === 0 ? { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] }
     : request === 1 ? { tools: [{ name: "casper_check", args: { check: "test" } }] } : { text: "Fixed." });
   await fixProject(f);

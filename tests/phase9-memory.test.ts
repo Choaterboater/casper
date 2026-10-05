@@ -14,6 +14,7 @@ import type { VerificationReport } from "../src/verify/evidence";
 import { VerifierRegistry } from "../src/verify/registry";
 import { verifyAndRepair } from "../src/verify/repair-loop";
 import { runCommandCheck } from "../src/verify/command";
+import { checkCommand } from "./support/check-command";
 import { needsFifos, needsSymlinks, posixModes } from "./support/platform";
 
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -228,8 +229,9 @@ test("saved command passes retain stale, unknown and declared-scope qualificatio
     await writeFile(path.join(project, "source.ts"), "before");
     const scope = freshness === "unavailable" ? undefined : { inputs: ["source.ts"] };
     const registry = new VerifierRegistry();
-    registry.register({ name: "build", scope, run: () => runCommandCheck({ name: "build", cwd: project, timeoutMs: 1000,
-      command: freshness === "stale" ? "printf after > source.ts" : "printf DO_NOT_STORE_OUTPUT" }) });
+    // The check script, not printf: PowerShell has no printf (tests/fixtures/check-script.ts).
+    registry.register({ name: "build", scope, run: () => runCommandCheck({ name: "build", cwd: project, timeoutMs: 10_000,
+      command: freshness === "stale" ? checkCommand("write:source.ts=after") : checkCommand("stdout:DO_NOT_STORE_OUTPUT") }) });
     const report = await verifyAndRepair({ registry, checks: ["build"], cwd: project, request: "Build" });
     await store.recordOutcome({ task: "Build", skills: [], modelStatus: "completed", verification: report });
     const [saved] = await new ProjectMemory(context.stateDirectory).outcomes();
