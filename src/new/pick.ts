@@ -28,6 +28,7 @@ type Kind = { template: string; test: (text: string) => boolean };
 const KINDS: Kind[] = [
   { template: "network-mcp", test: (t) => /\bmcp\b/.test(t) },
   { template: "noc-dashboard", test: (t) => /\b(dashboard|noc)\b/.test(t) },
+  { template: "vite-react", test: (t) => /\bvite\b/.test(t) },
   { template: "web-app", test: (t) => /\b(web ?app|website|web site|web page|react|frontend|front-end)\b/.test(t) },
   { template: "aoscx-ansible", test: (t) => /\b(ansible|playbooks?)\b/.test(t) && /\b(aruba|aos-?cx|cx switch(es)?|cx)\b/.test(t) },
   { template: "junos-ansible", test: (t) => /\b(ansible|playbooks?)\b/.test(t) && /\b(junos|juniper|srx|qfx|ex\d{4}|mx\d+)\b/.test(t) },
@@ -91,7 +92,7 @@ export interface KindGroup {
 const KIND_GROUPS: Array<Omit<KindGroup, "choices" | "ids"> & { templates: string[] }> = [
   { label: "Network", description: "Mist scripts, Aruba CX or Junos Ansible", question: "Which network project?", templates: ["mist-python", "aoscx-ansible", "junos-ansible"] },
   { label: "MCP server", description: "tools an AI can call, read-only by default", question: "Which MCP server?", templates: ["network-mcp"] },
-  { label: "Web app or dashboard", description: "a React app, or a NOC dashboard", question: "Which web app or dashboard?", templates: ["web-app", "noc-dashboard"] },
+  { label: "Web app or dashboard", description: "a React app, or a NOC dashboard", question: "Which web app or dashboard?", templates: ["web-app", "vite-react", "noc-dashboard"] },
   { label: "Python tool", description: "a command-line tool", question: "Which Python tool?", templates: ["python-cli"] },
 ];
 

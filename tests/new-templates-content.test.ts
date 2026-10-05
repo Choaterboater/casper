@@ -102,8 +102,8 @@ test("mist-python: recorded answers are sample data, replay-only, and never keep
   expect(text(files, "README.md")).toContain("sample data, not from your org");
 });
 
-test("web-app and noc-dashboard: .casper/project.yaml declares a service Casper accepts", async () => {
-  for (const [id, service] of [["web-app", "web"], ["noc-dashboard", "dashboard"]] as const) {
+test("web-app, vite-react and noc-dashboard: .casper/project.yaml declares a service Casper accepts", async () => {
+  for (const [id, service] of [["web-app", "web"], ["vite-react", "web"], ["noc-dashboard", "dashboard"]] as const) {
     const root = await writeOut(render(id));
     const home = path.join(scratch!, "home");
     await mkdir(home);
@@ -145,6 +145,27 @@ test("web-app: Casper reads src/theme.css as the project's styles, so the repo's
   const root = await writeOut(render("web-app"));
   const structure = await detectRepositoryStructure(root);
   expect(structure.architecture.styles).toContain("src/theme.css");
+});
+
+test("vite-react: create-vite's react-ts template, the same small theme as plain CSS variables, and bun test with happy-dom", () => {
+  const manifest = getTemplate("vite-react")!.manifest;
+  expect(manifest.init).toEqual(["bun", "create", "vite", ".", "--template", "react-ts", "--no-interactive"]);
+  const files = render("vite-react");
+  const theme = text(files, "src/theme.css");
+  for (const token of ["--paper", "--ink", "--muted", "--line", "--accent", "--danger", "--text-base", "--text-2xl", "--space-4", "--radius"]) expect(theme).toContain(token);
+  expect(theme).toContain("prefers-color-scheme: dark");
+  expect(text(files, "src/index.css")).toContain("@import './theme.css'");
+  const all = files.map((file) => file.text).join("\n");
+  expect(all).not.toMatch(/shadcn|tailwind|lorem ipsum|purple|violet|indigo/i);
+  const app = text(files, "src/App.tsx");
+  expect(app).toContain("<main");
+  expect(app).toContain("<label");
+  expect(text(files, "src/App.css")).toContain("min-height: 44px");
+  expect(text(files, "src/App.css")).toContain(":focus-visible");
+  expect(text(files, "index.html")).toContain('<html lang="en">');
+  expect(text(files, "src/App.test.tsx")).toStartWith('/// <reference types="bun" />');
+  expect(manifest.packageJson?.scripts).toEqual({ test: "bun test", typecheck: "tsc -b" });
+  expect(manifest.addDev).toEqual(["@happy-dom/global-registrator", "@types/bun"]);
 });
 
 test("ansible templates: lab inventory only, show-only command lists, and render-only checks", () => {

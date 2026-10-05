@@ -70,6 +70,11 @@ describe.skipIf(!live)("casper new, live", () => {
     expect(run([process.execPath, "test"], dir).status).toBe(0);
   }, LONG);
 
+  test("vite-react: created with bun create vite, and bun test passes", async () => {
+    const dir = await make("vite-react", "demo-vite");
+    expect(run([process.execPath, "test"], dir).status).toBe(0);
+  }, LONG);
+
   test("aoscx-ansible and junos-ansible: created, and their file checks pass", async () => {
     for (const [template, name] of [["aoscx-ansible", "demo-cx"], ["junos-ansible", "demo-junos"]] as const) {
       const dir = await make(template, name);

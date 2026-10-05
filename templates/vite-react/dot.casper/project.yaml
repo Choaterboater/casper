@@ -1,0 +1,6 @@
+# Casper settings for this project. See Casper's docs/SERVICES.md.
+services:
+  web:
+    command: vite --host $HOST --port $PORT --strictPort   # Vite's dev server on Casper's port
+    port: auto
+    ready: { http: / }
