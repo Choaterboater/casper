@@ -1,4 +1,4 @@
-import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
@@ -16,7 +16,6 @@ import { COMMANDS } from "../src/tui/commands";
 import { FULL_HELP_TEXT, HELP_TEXT } from "../src/tui/help";
 import type { AgentRuntime, RuntimeSession } from "../src/runtime/types";
 
-setDefaultTimeout(20_000);
 // The rich cases need the ask panel; this suite must not depend on the ambient TERM.
 const ambientTerm = process.env.TERM;
 const ambientNoColor = process.env.NO_COLOR;
