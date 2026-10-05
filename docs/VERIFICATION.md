@@ -599,6 +599,19 @@ with secrets hidden); the pages are planned and opened again after each repair. 
 says `• Checks passed — not proven: pages load, but no test fails without the change`; without Chrome it
 says `pages answer, but their console was not checked` instead.
 
+**Accessibility notes.** New in v0.2.23. While a page is open at desktop width, Casper also counts a
+few common misses with its own small rules (no third-party script): images with no `alt` (`alt=""`
+is fine for decoration), fields with no label (a placeholder is not a label), buttons with no name,
+text below 3:1 contrast against its background, and a page with no `lang`. They show as one note
+under the page line and never fail the page or start a repair:
+
+```text
+✓ /signup loads · 0 console errors
+  • /signup: 2 inputs have no label · 1 image has no alt text · the page has no lang
+```
+
+They cost no model tokens and need Chrome; `pages: off` turns them off with the rest of the check.
+
 **Chrome.** Pages are opened in a fresh headless Chrome (`CASPER_BROWSER_EXECUTABLE`, else an installed
 Chrome or Chromium; Casper never downloads one). Without Chrome, Casper only fetches the page and says so:
 `✓ /dashboard answers (HTTP 200) · console not checked: no Chrome found (install Chrome or set
