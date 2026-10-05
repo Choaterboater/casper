@@ -90,7 +90,8 @@ export function fakeServerProgram(file: string, server: FakeServerName,
  */
 export async function fakeProgram(file: string, body: string): Promise<string> {
   const program = programName(file);
-  const script = `${program.replace(/\.exe$/i, "")}.fake.cjs`;
+  // Found next to the program, so a fake still runs after its folder is moved (an install swaps folders).
+  const script = `${windows ? program.replace(/\.exe$/i, "") : program}.fake.cjs`;
   await writeFile(script, `${PREAMBLE}\n${body}\n`);
   if (windows) {
     const source = await launcher();
@@ -98,7 +99,7 @@ export async function fakeProgram(file: string, body: string): Promise<string> {
     // A hard link costs nothing; the temp folder can be on another drive, so copy when it can't link.
     await link(source, program).catch(() => copyFile(source, program));
   } else {
-    await writeFile(program, `#!/bin/sh\nexec '${process.execPath.replaceAll("'", `'\\''`)}' '${script.replaceAll("'", `'\\''`)}' "$@"\n`);
+    await writeFile(program, `#!/bin/sh\nexec '${process.execPath.replaceAll("'", `'\\''`)}' "$0.fake.cjs" "$@"\n`);
     await chmod(program, 0o755);
   }
   return program;
