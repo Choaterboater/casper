@@ -9,7 +9,7 @@ import { VerifierRegistry } from "../src/verify/registry";
 import { verifyAndRepair } from "../src/verify/repair-loop";
 import { workspaceState } from "../src/verify/workspace-state";
 import { formatVerificationReport, formatVerificationResult } from "../src/verify/evidence";
-import { checkCommand } from "./support/check-command";
+import { CHECK_LIMIT_MS, checkCommand } from "./support/check-command";
 import { needsPosixModes, posixOnly, posixSymlinks } from "./support/platform";
 
 const dirs: string[] = [];
@@ -28,7 +28,7 @@ posixSymlinks("artifact-only build success cannot improve when an unrelated syml
     if (linked) await symlink("/dev/null", path.join(root, "unrelated-link"));
     const registry = new VerifierRegistry();
     registry.register({ name: "build", run: () => runCommandCheck({ name: "build",
-      command: checkCommand("mkdir:dist", "write:dist/output.js=built"), cwd: root, timeoutMs: 1000 }) });
+      command: checkCommand("mkdir:dist", "write:dist/output.js=built"), cwd: root, timeoutMs: CHECK_LIMIT_MS }) });
     const report = await verifyAndRepair({ registry, checks: ["build"], cwd: root, request: "Build" });
     expect(report.results[0]?.exitCode).toBe(0);
     expect(report.status).toBe("pass"); // Command outcome, not certification of current inputs.
@@ -78,7 +78,7 @@ test("repair retains regression coverage and reuses only an unchanged targeted p
   const counts = { test: 0, build: 0 };
   for (const [name, command] of [["test", checkCommand("require:fixed")], ["build", checkCommand("forbid:regression", "mkdir:dist", "write:dist/output.js=built")]] as const) registry.register({ name, scope: { inputs: ["."], exclude: ["dist"] }, run: async (signal) => {
     counts[name]++;
-    return runCommandCheck({ name, command, cwd: root, timeoutMs: 1000, signal });
+    return runCommandCheck({ name, command, cwd: root, timeoutMs: CHECK_LIMIT_MS, signal });
   } });
   const report = await verifyAndRepair({ registry, cwd: root, checks: ["test", "build"], request: "fix", repair: async () => {
     await writeFile(path.join(root, "fixed"), "");
@@ -95,7 +95,7 @@ test("an edit overlapping a verifier cannot be stamped as fresh at completion", 
   const checked = Promise.withResolvers<void>();
   const changed = Promise.withResolvers<void>();
   registry.register({ name: "test", scope: { inputs: ["."] }, run: async () => {
-    const result = await runCommandCheck({ name: "test", command: checkCommand(), cwd: root, timeoutMs: 1000 });
+    const result = await runCommandCheck({ name: "test", command: checkCommand(), cwd: root, timeoutMs: CHECK_LIMIT_MS });
     checked.resolve();
     await changed.promise;
     return result;
@@ -125,7 +125,7 @@ posixOnly("unknown filesystem state disables reuse while still reporting actual 
   let calls = 0;
   for (const name of ["test", "build"] as const) registry.register({ name, scope: { inputs: ["."] }, run: () => {
     calls++;
-    return runCommandCheck({ name, command: name === "test" ? checkCommand("require:fixed") : checkCommand(), cwd: root, timeoutMs: 1000 });
+    return runCommandCheck({ name, command: name === "test" ? checkCommand("require:fixed") : checkCommand(), cwd: root, timeoutMs: CHECK_LIMIT_MS });
   } });
   const report = await verifyAndRepair({ registry, cwd: root, checks: ["test", "build"], request: "fix", repair: () => writeFile(path.join(root, "fixed"), "") });
   expect(calls).toBe(5);
@@ -138,9 +138,9 @@ test("observed stale evidence stays invalid even when repair restores directory 
   const root = await fixture();
   await mkdir(path.join(root, "src"));
   const registry = new VerifierRegistry();
-  registry.register({ name: "test", scope: { inputs: ["src"] }, run: () => runCommandCheck({ name: "test", cwd: root, timeoutMs: 1000,
+  registry.register({ name: "test", scope: { inputs: ["src"] }, run: () => runCommandCheck({ name: "test", cwd: root, timeoutMs: CHECK_LIMIT_MS,
     command: checkCommand("append:test-runs") }) });
-  registry.register({ name: "build", run: () => runCommandCheck({ name: "build", cwd: root, timeoutMs: 1000,
+  registry.register({ name: "build", run: () => runCommandCheck({ name: "build", cwd: root, timeoutMs: CHECK_LIMIT_MS,
     command: checkCommand("on-failure:touch:src/temporary", "require:fixed") }) });
   const report = await verifyAndRepair({ registry, checks: ["test", "build"], cwd: root, request: "Check", repair: async () => {
     await rm(path.join(root, "src/temporary"));
@@ -156,9 +156,9 @@ test("deleting a named input after a pass is known stale, not just unavailable",
   await writeFile(path.join(root, "source.ts"), "before");
   const registry = new VerifierRegistry();
   registry.register({ name: "test", scope: { inputs: ["source.ts"] }, run: () => runCommandCheck({
-    name: "test", command: checkCommand("require:source.ts"), cwd: root, timeoutMs: 1000 }) });
+    name: "test", command: checkCommand("require:source.ts"), cwd: root, timeoutMs: CHECK_LIMIT_MS }) });
   registry.register({ name: "build", run: () => runCommandCheck({
-    name: "build", command: checkCommand("remove:source.ts"), cwd: root, timeoutMs: 1000 }) });
+    name: "build", command: checkCommand("remove:source.ts"), cwd: root, timeoutMs: CHECK_LIMIT_MS }) });
   const report = await verifyAndRepair({ registry, checks: ["test", "build"], cwd: root, request: "Check" });
   expect(report.results[0]).toMatchObject({ status: "pass", freshness: "stale" });
   expect(formatVerificationReport(report)).toContain("current files unverified");
@@ -168,7 +168,7 @@ test("a verifier executing in a different cwd cannot borrow another workspace's 
   const root = await fixture();
   const other = await fixture();
   const registry = new VerifierRegistry();
-  registry.register({ name: "test", scope: { inputs: ["."] }, run: () => runCommandCheck({ name: "test", command: checkCommand(), cwd: other, timeoutMs: 1000 }) });
+  registry.register({ name: "test", scope: { inputs: ["."] }, run: () => runCommandCheck({ name: "test", command: checkCommand(), cwd: other, timeoutMs: CHECK_LIMIT_MS }) });
   const report = await verifyAndRepair({ registry, cwd: root, checks: ["test"], request: "check" });
   expect(report.results[0]).toMatchObject({ status: "pass", cwd: other, freshness: "unavailable" });
   expect(report.results[0]?.workspaceState).toBeUndefined();
@@ -184,7 +184,7 @@ posixOnly("dependency-heavy workspaces can observe an explicitly limited scope w
   await writeFile(path.join(root, "src", "code.ts"), "before");
   const scope = { inputs: ["src"], exclude: ["src/coverage"] };
   const registry = new VerifierRegistry();
-  registry.register({ name: "test", scope, run: () => runCommandCheck({ name: "test", cwd: root, timeoutMs: 1000,
+  registry.register({ name: "test", scope, run: () => runCommandCheck({ name: "test", cwd: root, timeoutMs: CHECK_LIMIT_MS,
     command: checkCommand("mkdir:src/coverage", "write:src/coverage/results.json=coverage") }) });
   const report = await verifyAndRepair({ registry, checks: ["test"], cwd: root, request: "Check" });
   expect(report.results[0]).toMatchObject({ status: "pass", freshness: "fresh", scope });
@@ -199,9 +199,9 @@ posixOnly("dependency-heavy workspaces can observe an explicitly limited scope w
 posixOnly("a missing after-observation never becomes reusable merely because the final observation succeeds", async () => {
   const root = await fixture();
   const registry = new VerifierRegistry();
-  registry.register({ name: "test", scope: { inputs: ["."] }, run: () => runCommandCheck({ name: "test", cwd: root, timeoutMs: 1000,
+  registry.register({ name: "test", scope: { inputs: ["."] }, run: () => runCommandCheck({ name: "test", cwd: root, timeoutMs: CHECK_LIMIT_MS,
     command: "ln -s /dev/null temporary-link" }) });
-  registry.register({ name: "build", run: () => runCommandCheck({ name: "build", cwd: root, timeoutMs: 1000,
+  registry.register({ name: "build", run: () => runCommandCheck({ name: "build", cwd: root, timeoutMs: CHECK_LIMIT_MS,
     command: "rm temporary-link" }) });
   const report = await verifyAndRepair({ registry, checks: ["test", "build"], cwd: root, request: "Check" });
   expect(report.results[0]).toMatchObject({ status: "pass", freshness: "unavailable" });
