@@ -56,7 +56,7 @@ are not tied to one model company.
   [Check a server you built](docs/MCP.md#check-a-server-you-built)
 - **Secrets hidden from the AI.** Known formats in MCP results and config files are hidden
   (best effort, not every secret). [Secrets](docs/SECRETS.md)
-- **References.** Search local copies of vendor specs (Mist OpenAPI, Junos YANG, pycentral)
+- **References.** Search local copies of vendor specs and SDKs (Junos YANG, pycentral, mistapi)
   without a model call. [References](docs/REFERENCES.md)
 - **Scripting and CI.** `--json` streams events, and exit codes tell a script what happened
   (for example 3 = not verified with `--require-verification`). [Scripting](docs/SCRIPTING.md#exit-codes)
@@ -96,7 +96,7 @@ No Bun install or source checkout is needed.
 **Windows x64 — PowerShell:**
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.21/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.22/install.ps1 | iex
 ```
 
 Then run `casper` from your project folder. If your terminal does not find it, open a new
@@ -105,18 +105,18 @@ terminal. Windows ARM64 has no release file yet.
 **macOS / Linux:**
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.21/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.22/install.sh | sh
 ```
 
 The installer checks the file's SHA-256 and runs the new program's `--version` before it
 replaces an older install. If the download is rejected, your old install stays as it was.
-It needs no admin rights. These commands pin **v0.2.21**: running them again reinstalls that
+It needs no admin rights. These commands pin **v0.2.22**: running them again reinstalls that
 preview. After the first install, `casper update` gets the newest preview (it runs that
 release's own installer, with the same checks), and `casper update --check` only says whether
 there is one. A session also tells you when one is out: one `[update]` line at the start, from a
 check it makes in the background at most once a day (no model, no tokens). Turn it off with
 `/settings` (New-version notice) or `CASPER_NO_UPDATE_CHECK=1`. If GitHub says it is limiting requests, set `GITHUB_TOKEN` (or `GH_TOKEN`) to a
-GitHub token for a higher limit. Useful `install.sh` options: `--dir <path>`, `--version 0.2.21`, `--sha256 <hex>`
+GitHub token for a higher limit. Useful `install.sh` options: `--dir <path>`, `--version 0.2.22`, `--sha256 <hex>`
 and `--force` (replace a development symlink). [Installer details](docs/RELEASE.md).
 
 ## Quick start
@@ -144,7 +144,7 @@ One-shot runs from the shell:
 casper "Explain this project"
 casper --verify "Fix the failing tests"
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.2.21 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.2.22 (/absolute/path/of/the/binary/or/cli.ts)
 ```
 
 **About checks.** A check runs your project's own command without asking first, and it is not
@@ -232,8 +232,9 @@ browser or debugger was installed. Remove secrets and private paths from logs fi
 
 ## What's new since v0.2.15
 
-v0.2.21 ships everything from v0.2.16 to v0.2.20 in one release; the install commands above give
-it. What each version changed, in more detail: [RELEASE.md](docs/RELEASE.md).
+v0.2.21 shipped everything from v0.2.16 to v0.2.20 in one release; v0.2.22 is the newest, and the
+install commands above give it. What each version changed, in more detail:
+[RELEASE.md](docs/RELEASE.md).
 
 **v0.2.16: build new things.**
 - `casper new` (and `/new`) starts a new project from a template (Python tool, MCP server for
@@ -321,6 +322,28 @@ it. What each version changed, in more detail: [RELEASE.md](docs/RELEASE.md).
   [BROWSER.md](docs/BROWSER.md)
 - The receipt's browser line says so when the answer claims the browser checks passed and
   Casper's record says they failed, or none of them finished.
+
+**v0.2.22: one box for every yes, and a network server Casper sets up.**
+- Casper sets up its network server for Mist, Central and ClearPass with one question
+  (`1 Not now · 2 Set it up`): casper-network-mcp 0.1.1, hash-locked, connected with writes off.
+  Each product's login is asked the first time the AI uses it, typed by you, and a login the
+  product turns down asks to be replaced. [Casper's network server](docs/MCP.md#caspers-network-server)
+- Every approval is one numbered box (`1 No · 2 Yes, this once · 3 Yes, for this session ·
+  4 Yes, always for this project`, only the answers that fit); nothing asks you to type `yes`.
+- The MCP change box says what changes and where the login reaches. Firmware, deletes and admin
+  changes are off by default; `/mcp allow` picks them ahead of time, and "Yes to everything"
+  shows `ALLOW ALL` until ctrl+o. [Change kinds](docs/MCP.md#change-kinds-and-mcp-allow)
+- Device checks reach any device, only after your answer; the box names devices not marked lab.
+  `/lab import <file>` fills your lab list. [Your lab](docs/NETWORK-CHECKS.md#your-lab)
+- The receipt lists risky config lines a task added (`reload`, `shutdown`, `erase` …), as a
+  report, never a pass or a fail.
+- With no sandbox, plain reads (`ls`, `grep`, `git status`) don't ask, and a command prefix such
+  as `npm test` can be allowed for the session or the project.
+- Enter during a task steers the AI or queues the line for after it; look-only commands run
+  during work, and provider retries show as they happen.
+- `/login` is one numbered list, model errors say the cause and one next step, `/settings` turns
+  switches on or off by number, and `casper update` installs the newest preview.
+- Windows fixes: undo, session worktrees and browser sign-in, and the installer keeps your PATH as it was.
 
 ## Planned next
 

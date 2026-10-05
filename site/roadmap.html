@@ -55,6 +55,7 @@
         <ul>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0222">v0.2.22: one box for every yes, a network server Casper sets up</a></li>
               <li><a href="#v0221">v0.2.21: a clearer screen, pages at phone width</a></li>
               <li><a href="#v0220">v0.2.20: fewer layers</a></li>
               <li><a href="#v0219">v0.2.19: asks before reaching other machines</a></li>
@@ -69,7 +70,6 @@
           </li>
           <li><a href="#coming">Planned, not started</a>
             <ul>
-              <li><a href="#network-setup">Casper sets up its network server</a></li>
               <li><a href="#v030">v0.3: crews</a></li>
             </ul>
           </li>
@@ -95,8 +95,49 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <article class="card" id="v0222" aria-labelledby="v0222-h">
+          <h3 id="v0222-h">v0.2.22 · One box for every yes, a network server Casper sets up <span class="badge ok">current preview</span></h3>
+          <p>Every question that lets something happen is the same numbered box, Casper sets up its
+          own network server, and device checks ask before they touch anything.</p>
+          <ul>
+            <li><strong>Casper sets up its network server.</strong> Ask about Mist, Central, ClearPass
+            or Wi-Fi, or type <code>/mcp setup network</code>: <code>1 Not now · 2 Set it up</code>.
+            <code>2</code> installs <a href="https://github.com/Choaterboater/casper-network-mcp">casper-network-mcp</a>
+            0.1.1, every package checked by hash, and connects it with writes off. No file to edit,
+            no variable to set.</li>
+            <li><strong>Logins on first use.</strong> The first time the AI uses a product, Casper asks
+            you for its login (<code>1 Not now · 2 Add a login</code>), typed hidden, kept in Casper's
+            own private file. The AI never sees it. Casper says where it reaches:
+            <code>Mist login: can change Branch-12 (checked)</code>. Central shows
+            <code>saved (not checked)</code> for now, and means new Central (GreenLake) only. A login
+            the product turns down asks <code>1 Not now · 2 Replace the login</code>.</li>
+            <li><strong>One box for every yes.</strong> <code>1 No · 2 Yes, this once · 3 Yes, for this
+            session · 4 Yes, always for this project</code>, only the answers that fit. One key picks,
+            Esc is No, and nothing asks you to type <code>yes</code> any more.</li>
+            <li><strong>Change kinds.</strong> Each MCP change is config, troubleshoot, disruptive,
+            firmware, delete or admin. Firmware, deletes and admin changes are off by default;
+            <code>/mcp allow</code> picks them ahead of time. "Yes to everything" shows
+            <code>ALLOW ALL</code> in the footer until <kbd>ctrl+o</kbd>.</li>
+            <li><strong>Device checks ask first.</strong> They can reach any device, only after your
+            answer; the box names every device and those not marked lab. <code>/lab import</code>
+            fills your lab list from a file.</li>
+            <li><strong>Risky lines in the receipt.</strong> After a config change the receipt lists each
+            dangerous line the task added: <code>risky configs/sw1.cfg:6 reload (reboots the
+            switch)</code>. A report, never a pass or a fail.</li>
+            <li><strong>Steer while it works.</strong> Enter during a task goes to the AI at its next
+            step, or waits for after the task. Look-only commands run during work, and provider
+            retries show as they happen.</li>
+            <li><strong>Plainer words.</strong> One numbered sign-in list, model errors with the cause
+            and one next step, <code>/settings</code> by number, and <code>casper update</code> for the
+            newest preview.</li>
+            <li><strong>Windows fixes.</strong> Undo, session worktrees and browser sign-in work; the
+            installer keeps your PATH entries as they were. The full test suite does not pass on
+            Windows yet.</li>
+          </ul>
+        </article>
+
         <article class="card" id="v0221" aria-labelledby="v0221-h">
-          <h3 id="v0221-h">v0.2.21 · A clearer screen, pages at phone width <span class="badge ok">current preview</span></h3>
+          <h3 id="v0221-h">v0.2.21 · A clearer screen, pages at phone width</h3>
           <p>The first published build since v0.2.15. It ships everything from v0.2.16 to v0.2.20
           below, plus a screen you can turn up or down and stricter page checks.</p>
           <ul>
@@ -334,38 +375,11 @@
         <h2 id="coming-h">Planned, not started</h2>
         <aside class="callout soon">
           <strong class="callout-title">Not in any release yet</strong>
-          <p>Nothing in this section is in v0.2.21, and none of it has been started. Names, commands and
+          <p>Nothing in this section is in v0.2.22, and none of it has been started. Names, commands and
           details may change, or move to a later version, before they ship.</p>
         </aside>
 
         <div class="stack">
-        <article class="card" id="network-setup" aria-labelledby="network-setup-h">
-          <h3 id="network-setup-h">Casper sets up its network server · Mist, Central and ClearPass in one step <span class="badge soon">built, not released</span></h3>
-          <p>Built and tested; it comes in the next release. No file to edit, no variable to set.</p>
-          <ul>
-            <li><strong>One question.</strong> Ask about Mist, Central, ClearPass or Wi-Fi, or type
-            <code>/mcp setup network</code>: <code>1 Not now · 2 Set it up</code>. <code>2</code>
-            installs <a href="https://github.com/Choaterboater/casper-network-mcp">casper-network-mcp</a>
-            at the version Casper pins, every package checked by hash, and connects it read-only.
-            <code>1</code> is kept.</li>
-            <li><strong>Logins on first use.</strong> The first time the AI uses a product, Casper asks
-            you for its login (<code>1 Not now · 2 Add a login</code>), typed hidden, kept in Casper's
-            own private file. The AI never sees it. <code>/mcp login</code> changes or forgets one.</li>
-            <li><strong>It says where the login reaches.</strong> <code>Mist login: can change Branch-12
-            (checked)</code>, from the product itself, for Mist and ClearPass. Central shows
-            <code>saved (not checked)</code> for now.</li>
-            <li><strong>The same change box.</strong> Every change asks, and the box names the product.
-            Reboots, firmware, deletes and admin changes ask every time, also when the server says a tool
-            is one of those. <kbd>ctrl+o</kbd> turns writes off at once.</li>
-            <li><strong>Updates ask too.</strong> When Casper pins a newer version:
-            <code>1 Not now · 2 Update it</code>. A failed update keeps the old one.</li>
-            <li><strong>Your own servers still work.</strong> Nothing here replaces a server you set up
-            yourself. <code>casper new network-mcp</code> now builds a server the same way: a
-            <code>--read-only</code> start flag, the change kind on every tool that changes things, and
-            an <code>access_check</code> that says where the login can change things.</li>
-          </ul>
-        </article>
-
         <article class="card" id="v030" aria-labelledby="v030-h">
           <h3 id="v030-h">v0.3 · Crews <span class="badge soon">planned, not started</span></h3>
           <p>Big jobs get a team, on their own.</p>
@@ -396,9 +410,10 @@
         <div class="stack">
         <article class="card" id="packs" aria-labelledby="packs-h">
           <h3 id="packs-h">Vendor packs · one step to set up a vendor <span class="badge">idea, not scheduled</span></h3>
-          <p>Today, setting up Casper for one vendor takes four separate steps: connect its MCP
-          server, pick a read-only preset, add its reference docs, maybe add a skill. A pack does all
-          four at once.</p>
+          <p>Since v0.2.22 Casper sets up its own server for Mist, Central and ClearPass in one step.
+          For any other vendor it still takes four separate steps: connect its MCP server, pick a
+          read-only preset, add its reference docs, maybe add a skill. A pack does all four at
+          once.</p>
           <ul>
             <li><strong>One command.</strong> <code>casper pack add aruba</code> connects
             hpe-networking-mcp with its <code>safe-read-only</code> preset, adds the Aruba CX and
@@ -544,7 +559,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.21</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.22</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
