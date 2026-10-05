@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   ADD_LOGIN_CHOICES, DOCS_COPY_CHOICES, SKILL_TRUST_CHOICES, REPLACE_LOGIN_CHOICES, ALREADY_FAILING_CHOICES, forgetLoginChoices, APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, allowKindsChoices, kindAllowChoices, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, NETWORK_SETUP_CHOICES, NETWORK_SETUP_UV_CHOICES, NETWORK_UPDATE_CHOICES, REFERENCE_ADD_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
-  REPAIR_LIMIT_STOP, spendChoices, undoChangedChoices, missingFolderChoices, workFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES, writeChoices,
+  REPAIR_LIMIT_STOP, pictureChoices, spendChoices, undoChangedChoices, missingFolderChoices, workFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES, writeChoices,
 } from "../src/app/safe-choices";
 import { planEditorHeading } from "../src/flows/plan";
 import { beforeWorkPanel } from "../src/flows/suggest";
@@ -73,6 +73,8 @@ const firsts: Array<[string, string, string]> = [
   ["a typed folder that isn't there", missingFolderChoices("Documents", "sample-tools")[0]!.label, "Stay in Documents"],
   ["the work is in a project inside this folder", workFolderChoices("Documents", "sample-tools")[0]!.label, "Stay here"],
   ["this task has used $5.02", spendChoices("$10")[0]!.label, "Stop here"],
+  // Both send the request; switching to another model is the deliberate one.
+  ["this model can't see pictures", pictureChoices("fixture/eyes", 1)[0]!.label, "Send without it"],
   ["/tasks: stop something? (several running)", tasksChoices([running("api"), running("web")])[0]!.label, "Keep them"],
   ["/tasks: stop something? (one running)", tasksChoices([running("api")])[0]!.label, "Leave it running"],
 ];

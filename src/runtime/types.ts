@@ -111,6 +111,8 @@ export interface RuntimeStatus {
   blocked?: string;
   /** The model has a catalog price (true) or is free (false); unset when unknown. */
   priced?: boolean;
+  /** The model can see images (true) or reads text only (false); unset when no model is selected. */
+  images?: boolean;
 }
 
 export interface RuntimePickerIO {
@@ -185,7 +187,12 @@ export interface RuntimeModelInfo {
   contextWindow?: number;
   /** Catalog price in dollars per million input tokens; an estimate, never a bill. */
   inputCostPerMillion?: number;
+  /** The model can see images. */
+  images?: boolean;
 }
+
+/** A picture sent with a request: base64 bytes and their type (image/png, image/jpeg, image/gif, image/webp). */
+export interface RuntimeImage { data: string; mimeType: string }
 
 export interface RuntimeUsage {
   context?: { tokens: number | null; contextWindow: number; percent: number | null };
@@ -280,6 +287,9 @@ export interface RuntimeSession {
   /** What a selector (`@reason`, `provider/id`) names, without selecting it: its context window and input price
    * per million tokens, when the catalog knows them. Undefined when nothing matches. Makes no call. */
   describeModel?(query: string): RuntimeModelInfo | undefined;
+  /** A signed-in model that can see images, for a request with pictures on one that can't: the user's model
+   * roles first, then the provider's default. Undefined when none can. Makes no call. */
+  visionModel?(): RuntimeModelInfo | undefined;
   setModelRole?(role: string, selector?: string): Promise<Record<string, string>>;
   setEffort?(level: string, persist: boolean): Promise<RuntimeStatus>;
   getUsage?(): RuntimeUsage;
@@ -296,8 +306,9 @@ export interface RuntimeSession {
   recentTurns?(count: number): Array<{ role: "user" | "assistant"; text: string }>;
   compact?(instructions?: string, signal?: AbortSignal): Promise<void>;
   /** `maxTurns` stops the request gracefully after that many model turns (tools of the last turn
-   * still finish) and emits turn_limit; unset means no Casper turn limit. */
-  prompt(text: string, signal?: AbortSignal, options?: { request: string; maxTurns?: number }): Promise<void>;
+   * still finish) and emits turn_limit; unset means no Casper turn limit. `images` go with the text (a model
+   * that can't see them gets a placeholder from the runtime). */
+  prompt(text: string, signal?: AbortSignal, options?: { request: string; maxTurns?: number; images?: readonly RuntimeImage[] }): Promise<void>;
   /** A line the user typed while the model works: the model reads it at its next step. False, with nothing sent,
    * when no prompt is running (the caller keeps it as the next request). */
   steer?(text: string): Promise<boolean>;

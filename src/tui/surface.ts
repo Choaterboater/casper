@@ -1,8 +1,9 @@
 import {
-  CombinedAutocompleteProvider, type AutocompleteProvider, type Component, Editor, type MarkdownTheme,
+  CombinedAutocompleteProvider, type AutocompleteProvider, type Component, Editor, getNativeClipboard, type MarkdownTheme,
   matchesKey, setCapabilityOverrides, TuiMainScreen, truncateToWidth, visibleWidth, wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import type { RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
+import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
+import { imageLabel, imageMimeType, MAX_IMAGES } from "../app/images";
 import { COMMANDS, fitDescriptions, RUNS_DURING_WORK } from "./commands";
 import { BUSY_GLYPH, hasTerminalControls, markdownTheme, paint, PROMPT_GLYPH, terminalText } from "./format";
 import { GLYPHS } from "./glyphs";
@@ -37,6 +38,15 @@ class StableMainScreen extends TuiMainScreen {
 }
 
 const EXIT_NOTE = "Ctrl-C again to exit · Ctrl-D exits too";
+
+/** The key that pastes a picture: Ctrl+V, or Alt+V on Windows, where Ctrl+V is the terminal's own text paste (as in Pi). */
+export const PASTE_IMAGE_KEY = process.platform === "win32" ? "alt+v" : "ctrl+v";
+/** Where a pasted picture comes from: the system clipboard through pi-tui's helper. Tests swap it.
+ * Undefined: no clipboard helper here; null: no picture on the clipboard. */
+export const clipboardDefaults: { image: () => Promise<Uint8Array | null | undefined>; text: () => Promise<string | null | undefined> } = {
+  image: async () => getNativeClipboard()?.getImage(),
+  text: async () => getNativeClipboard()?.getText(),
+};
 
 /** Spinner frames (braille; ASCII on the old Windows console); the footer dot and Working panel title cycle through
  * them while background work runs, so activity is visible even between transcript updates. */
@@ -167,6 +177,8 @@ export class TerminalSurface {
   private nextKeys?: Map<string, string>;
   private editHeading: string[] = [];
   private message?: StreamingMarkdown;
+  /** Pictures pasted into the prompt, by their number in `[image N]`; the app takes them with the request. */
+  private pasted = new Map<number, RuntimeImage>();
   private source = "";
   private plainAssistantOpen = false;
 
@@ -297,6 +309,8 @@ export class TerminalSurface {
         }
       }
       if (matchesKey(data, "ctrl+l")) { this.tui.requestRender(true); return { consume: true }; }
+      // A picture from the clipboard goes in as [image N]; with no picture, the clipboard's text is pasted.
+      if (matchesKey(data, PASTE_IMAGE_KEY) && !this.pendingAsk) { void this.pasteImage(); return { consume: true }; }
       // The last step in full (an edit's diff, a command's output), even while work runs.
       if (matchesKey(data, "ctrl+t")) {
         if (this.onExpandLast) this.onExpandLast(); else this.flashNote("no step to show yet");
@@ -311,6 +325,34 @@ export class TerminalSurface {
       }
       return undefined;
     });
+  }
+
+  /** Ctrl+V: the clipboard's picture as `[image N]` at the cursor, kept until the request is sent. */
+  private async pasteImage(): Promise<void> {
+    let bytes: Uint8Array | null | undefined;
+    try { bytes = await clipboardDefaults.image(); } catch { bytes = undefined; }
+    if (this.closed) return;
+    if (!bytes?.length) {
+      let text: string | null | undefined;
+      try { text = await clipboardDefaults.text(); } catch { text = undefined; }
+      if (text) { this.editor.insertTextAtCursor(text); this.render(); }
+      else this.flashNote("no picture on the clipboard");
+      return;
+    }
+    const mimeType = imageMimeType(bytes);
+    if (!mimeType) { this.flashNote("the clipboard picture is not PNG, JPEG, GIF or WebP"); return; }
+    if (this.pasted.size >= MAX_IMAGES) { this.flashNote(`at most ${MAX_IMAGES} pictures go with one request`); return; }
+    const number = Math.max(0, ...this.pasted.keys()) + 1;
+    this.pasted.set(number, { data: Buffer.from(bytes).toString("base64"), mimeType });
+    this.editor.insertTextAtCursor(`${imageLabel(number)} `);
+    this.render();
+  }
+
+  /** The pictures pasted for the line just sent; the next request starts again at [image 1]. */
+  takePastedImages(): Map<number, RuntimeImage> {
+    const pasted = this.pasted;
+    this.pasted = new Map();
+    return pasted;
   }
 
   /** An approval box is open: nothing else may take the terminal's input. */

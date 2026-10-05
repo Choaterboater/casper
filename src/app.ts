@@ -56,7 +56,9 @@ import type {
   AgentRuntime,
   RuntimeAuthProvider,
   RuntimeSession,
+  RuntimeImage,
   RuntimeModelInfo,
+  RuntimeStatus,
   RuntimeTool,
 } from "./runtime/types";
 import { SkillRegistry, formatSelectedSkills, skillRegistryOptions } from "./skills/registry";
@@ -73,7 +75,7 @@ import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
 import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 import { longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } from "./verify/repair-loop";
-import { ALREADY_FAILING_CHOICES, modelFailedChoices, NO, PLAN_CHOICES, YES_ONCE, YES_SESSION, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, spendChoices, unfinishedChoices, workFolderChoices } from "./app/safe-choices";
+import { ALREADY_FAILING_CHOICES, modelFailedChoices, NO, pictureChoices, PLAN_CHOICES, YES_ONCE, YES_SESSION, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, spendChoices, unfinishedChoices, workFolderChoices } from "./app/safe-choices";
 import { DEFAULT_SPEND_LIMITS, formatCost, formatFooterSpend, formatLimit, formatTokens, SPEND_STOP_REASON, SpendGuard, requestSpendLimit } from "./task/spend";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
@@ -104,6 +106,7 @@ import { VisualizationRouter } from "./visualize/router";
 import { artifactFilesystemSupported } from "./visualize/artifacts";
 import { describeVisualization } from "./visualize/tools";
 import { assembleTaskTools } from "./app/capabilities";
+import { attachImages } from "./app/images";
 import { DEFAULT_WEB } from "./config/load";
 import { AGENT_DIR_ENV, casperAgentDir } from "./runtime/agent-store";
 import { loginValuesFrom, WebLookup, webProvider, type WebLookupOptions } from "./web/lookup";
@@ -1089,6 +1092,8 @@ export class CasperApp {
       // Nothing on offer: no extra wait, so a close that arrives with this line still finds the command running.
       if (this.suggestions.pending) await this.suggestions.settle(prompt, this.projectContext);
       else this.suggestions.forgetChoice();
+      // Pictures pasted into this line (Ctrl+V) go with it, or with nothing when it is a command.
+      this.pastedImages = this.terminal.takePastedImages();
       return await (prompt.startsWith("/") ? this.handleSlashCommand(prompt) : this.runModelTask(prompt));
     } catch (error) {
       if (error instanceof ProcessCleanupError) this.cleanupError = error;
@@ -1475,6 +1480,11 @@ export class CasperApp {
 
   private async runModelTask(prompt: string, options: { flow?: Flow; planFirst?: boolean } = {}): Promise<VerificationReport | undefined> {
     if (this.closing) return;
+    // Pictures with the request: pasted ones and dropped image files are [image N] from here on (app/images.ts).
+    const attached = await attachImages(prompt, { cwd: this.activeWorkspaceRoot(), pasted: this.pastedImages });
+    this.pastedImages = undefined;
+    for (const note of attached.notes) this.output.write(`[image] ${terminalText(note)}\n`);
+    prompt = attached.text;
     // A flow the user picked, or /plan, is already this task's one choice before work: no other panel.
     this.beforeWorkAsked = Boolean(options.flow || options.planFirst);
     if (await this.offerNewProject(prompt) === "stop" || this.closing || this.commandAbort?.signal.aborted) return;
@@ -1537,6 +1547,8 @@ export class CasperApp {
     const session = await this.ensureRuntime();
     if (this.closing || this.commandAbort?.signal.aborted) return;
     if (!await this.ensureModel(session)) return;
+    const { images, back: visionBack } = attached.images.length ? await this.imagesForModel(session, attached.images) : { images: [], back: undefined };
+    if (this.closing || this.commandAbort?.signal.aborted) { if (visionBack) await this.restoreModel(session, visionBack); return; }
     this.nameConversation(session, prompt);
     this.updateFooter();
     this.bigModelNotice(session);
@@ -1626,17 +1638,22 @@ export class CasperApp {
     const classifiedBefore = classifications();
     try {
       this.phase("task", "start");
-      await session.prompt([
-        memoryContext,
-        skillContext,
-        formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving,
-          reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
-        planBlock,
-        checklist ? formatChecklistPrompt(checklist) : "",
-        // A flow the user picked from the row: guidance for this one request.
-        options.flow ? formatFlowPrompt(options.flow, prompt) : "",
-      ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt, maxTurns: this.maxTurns });
-      await this.retryModelFailure(session, prompt);
+      try {
+        await session.prompt([
+          memoryContext,
+          skillContext,
+          formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving,
+            reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
+          planBlock,
+          checklist ? formatChecklistPrompt(checklist) : "",
+          // A flow the user picked from the row: guidance for this one request.
+          options.flow ? formatFlowPrompt(options.flow, prompt) : "",
+        ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt, maxTurns: this.maxTurns, ...(images.length ? { images } : {}) });
+        await this.retryModelFailure(session, prompt);
+      } finally {
+        // A switch to a model that sees pictures was for this request's own turn; checks and repairs run on yours.
+        if (visionBack && !this.closing) await this.restoreModel(session, visionBack);
+      }
       this.phase("task", "end");
       // Repair, review and proof rounds follow the change.
       edits.turnEnded = true;
@@ -2378,6 +2395,42 @@ export class CasperApp {
     return back;
   }
 
+  /**
+   * Pictures for the model in use. One that can see them gets them. One that can't: a numbered question when a model
+   * you set up can (1 Switch to it for this request · 2 Send without them), else one line and the request goes
+   * without them. `back` is the model to return to after the request's turn.
+   */
+  private async imagesForModel(session: RuntimeSession, images: RuntimeImage[]): Promise<{ images: RuntimeImage[]; back?: string }> {
+    let status: RuntimeStatus | undefined;
+    try { status = session.getStatus?.(); } catch { status = undefined; }
+    if (status?.images !== false) return { images };
+    const name = status.model ? terminalText(status.model) : "This model";
+    const them = images.length === 1 ? "it" : "them";
+    let vision: RuntimeModelInfo | undefined;
+    try { vision = session.visionModel?.(); } catch { vision = undefined; }
+    if (!vision) {
+      this.output.write(`[image] ${name} can't see pictures, and no model you set up can; the request goes without ${them}. /model picks one that can.\n`);
+      return { images: [] };
+    }
+    const label = `${vision.provider}/${vision.id}`;
+    if (!this.interactive || !this.terminal.canAsk) {
+      this.output.write(`[image] ${name} can't see pictures; the request goes without ${them}. ${terminalText(label)} can see them (/model ${terminalText(label)}).\n`);
+      return { images: [] };
+    }
+    this.events.ensureLineBreak();
+    const choices = pictureChoices(terminalText(label), images.length);
+    const picked = await this.terminal.pick(`${name} can't see pictures, and this request has ${images.length === 1 ? "one" : images.length}.`,
+      choices, this.commandAbort?.signal);
+    if (picked !== choices[1]!.label) return { images: [] };
+    const back = await this.switchToBigModel(session, { query: label, label, oneOff: true });
+    if (!back) {
+      this.output.write(`[model] Casper could not switch to ${terminalText(label)}; the request goes without the pictures.\n`);
+      return { images: [] };
+    }
+    this.output.write(`[model] On ${terminalText(label)} for this request.\n`);
+    return { images, back };
+  }
+
   /** Back to the model the user was on, with its own effort. */
   private async restoreModel(session: RuntimeSession, back: string): Promise<void> {
     try {
@@ -2691,6 +2744,9 @@ export class CasperApp {
       return undefined;
     }
   }
+
+  /** Pictures pasted into the line being handled; runModelTask takes them. */
+  private pastedImages?: Map<number, RuntimeImage>;
 
   /** Looked up once: the answer decides whether the browser tool is there from the first turn. */
   private browserInstalled?: Promise<boolean>;
