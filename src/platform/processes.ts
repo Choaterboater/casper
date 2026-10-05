@@ -1,3 +1,4 @@
+import { dlopen, FFIType, ptr } from "bun:ffi";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -65,15 +66,106 @@ function parseWindowsRows(stdout: string, columns: (fields: string[]) => Process
   return all;
 }
 
+/** One raw Windows process row: `created` is the creation time in 100 ns units (a FILETIME). */
+export interface WindowsProcessRow { pid: number; parent: number; created: bigint }
+
+/**
+ * Windows keeps a child's parent PID after the parent exits, and that PID can then name a new
+ * process. A parent that started after its child can't be the real parent, so that link is cut
+ * (parent 0) and the newer process never inherits the old child.
+ */
+export function windowsProcessTable(rows: Iterable<WindowsProcessRow>): Map<number, ProcessRecord> {
+  const valid = [...rows].filter(row => Number.isInteger(row.pid) && row.pid > 0);
+  const created = new Map(valid.map(row => [row.pid, row.created]));
+  const all = new Map<number, ProcessRecord>();
+  for (const row of valid) {
+    const parentCreated = created.get(row.parent);
+    const real = row.parent !== row.pid && parentCreated !== undefined && parentCreated <= row.created;
+    all.set(row.pid, { pid: row.pid, parent: real ? row.parent : 0, group: 0, stamp: String(row.created) });
+  }
+  if (!all.size) throw new Error("Process listing was empty");
+  return all;
+}
+
+const SYSTEM_PROCESS_INFORMATION = 5;
+const STATUS_INFO_LENGTH_MISMATCH = 0xC0000004;
+type NativeQuery = (buffer: Uint8Array) => { status: number; needed: number };
+let nativeQuery: NativeQuery | null | undefined;
+let nativeBuffer = new Uint8Array(0);
+
+/**
+ * The kernel's own process list, read in one call: PID, parent PID and creation time come from
+ * the same instant, so a PID reused between two calls can't be paired with another process's
+ * data. It takes a few milliseconds; a PowerShell CIM query takes 0.3 to 2 s. Both 64-bit
+ * Windows targets (x64, arm64) share this layout; anything else uses PowerShell.
+ */
+function loadNativeQuery(): NativeQuery | null {
+  if (nativeQuery !== undefined) return nativeQuery;
+  nativeQuery = null;
+  if (process.platform !== "win32" || (process.arch !== "x64" && process.arch !== "arm64")) return nativeQuery;
+  try {
+    const { symbols } = dlopen("ntdll.dll", {
+      NtQuerySystemInformation: { args: [FFIType.u32, FFIType.ptr, FFIType.u32, FFIType.ptr], returns: FFIType.i32 },
+    });
+    const needed = new Uint32Array(1);
+    nativeQuery = (buffer) => {
+      needed[0] = 0;
+      const status = symbols.NtQuerySystemInformation(SYSTEM_PROCESS_INFORMATION, ptr(buffer), buffer.byteLength, ptr(needed)) >>> 0;
+      return { status, needed: needed[0]! };
+    };
+  } catch { nativeQuery = null; }
+  return nativeQuery;
+}
+
+/** Undefined when the native list can't be loaded at all; throws when it loaded but failed. */
+function nativeProcessRows(): WindowsProcessRow[] | undefined {
+  const query = loadNativeQuery();
+  if (!query) return undefined;
+  if (!nativeBuffer.byteLength) nativeBuffer = new Uint8Array(1 << 20);
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const { status, needed } = query(nativeBuffer);
+    if (status === STATUS_INFO_LENGTH_MISMATCH) {
+      const size = Math.max(nativeBuffer.byteLength * 2, needed + (1 << 16));
+      if (size > 64 << 20) break;
+      nativeBuffer = new Uint8Array(size);
+      continue;
+    }
+    if (status !== 0) throw new Error(`Process listing failed (status 0x${status.toString(16)})`);
+    const view = new DataView(nativeBuffer.buffer, nativeBuffer.byteOffset, nativeBuffer.byteLength);
+    const rows: WindowsProcessRow[] = [];
+    // SYSTEM_PROCESS_INFORMATION (64-bit): NextEntryOffset at 0, CreateTime at 0x20,
+    // UniqueProcessId at 0x50, InheritedFromUniqueProcessId (the parent) at 0x58.
+    for (let offset = 0; ;) {
+      if (offset + 0x60 > view.byteLength) throw new Error("Process listing was malformed");
+      rows.push({
+        pid: Number(view.getBigUint64(offset + 0x50, true)),
+        parent: Number(view.getBigUint64(offset + 0x58, true)),
+        created: view.getBigUint64(offset + 0x20, true),
+      });
+      const next = view.getUint32(offset, true);
+      if (!next) return rows;
+      if (rows.length > 1 << 20) throw new Error("Process listing was malformed");
+      offset += next;
+    }
+  }
+  throw new Error("Process listing kept growing");
+}
+
 async function listWindows(): Promise<Map<number, ProcessRecord>> {
+  // Once the native list loads it is the only source, so stamps never mix two formats.
+  const native = nativeProcessRows();
+  if (native) return windowsProcessTable(native);
   try {
     const { stdout } = await exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", WINDOWS_PS_QUERY], {
       encoding: "utf8", timeout: 15_000, maxBuffer: 8 * 1024 * 1024, windowsHide: true,
     });
-    return parseWindowsRows(stdout, ([pid, parent, stamp]) => {
-      const record = { pid: Number(pid), parent: Number(parent), group: 0, stamp: stamp ?? "" };
-      return record.pid > 0 && Number.isInteger(record.parent) && record.stamp ? record : undefined;
-    });
+    const rows: WindowsProcessRow[] = [];
+    for (const line of stdout.split(/\r?\n/)) {
+      const [pid, parent, stamp] = line.split(",").map(field => field.trim());
+      if (!pid || !parent || !stamp || !/^\d+$/.test(pid) || !/^\d+$/.test(parent) || !/^\d+$/.test(stamp)) continue;
+      rows.push({ pid: Number(pid), parent: Number(parent), created: BigInt(stamp) });
+    }
+    return windowsProcessTable(rows);
   } catch (error) {
     // wmic is deprecated but is the only remaining source of parentage where
     // PowerShell is unavailable; CSV column order is documented and fixed.
