@@ -249,14 +249,26 @@ export async function prepareWorkdir(task: EvalTask, repoRoot: string, destinati
     }
     if (task.tools?.includes("typescript")) {
       await mkdir(path.join(workdir, "node_modules/.bin"), { recursive: true });
-      await symlink(path.join(repoRoot, "node_modules/typescript"), path.join(workdir, "node_modules/typescript"), "dir");
-      await symlink("../typescript/bin/tsc", path.join(workdir, "node_modules/.bin/tsc"));
+      // A junction on Windows: it needs no symlink privilege ("junction" is ignored elsewhere).
+      await symlink(path.join(repoRoot, "node_modules/typescript"), path.join(workdir, "node_modules/typescript"), "junction");
+      if (process.platform === "win32") await copyWindowsLaunchers("tsc", repoRoot, workdir);
+      else await symlink("../typescript/bin/tsc", path.join(workdir, "node_modules/.bin/tsc"));
     }
     return workdir;
   } catch (error) {
     if (owned) await rm(workdir, { recursive: true, force: true });
     throw error;
   }
+}
+
+/** Windows runs `.bin/<name>` through launcher files (Bun's `<name>.exe` + `<name>.bunx`, npm's `<name>.cmd`),
+ * never an extensionless link. They point at the package relative to `node_modules`, so copies work beside
+ * the linked package. */
+async function copyWindowsLaunchers(name: string, repoRoot: string, workdir: string): Promise<void> {
+  const bin = path.join(repoRoot, "node_modules/.bin");
+  const launchers = (await readdir(bin).catch(() => [])).filter((entry) => /^(.+)\.(exe|bunx|cmd|ps1)$/i.exec(entry)?.[1] === name);
+  if (!launchers.length) throw new Error(`No ${name} launcher in ${bin}; run bun install in this checkout`);
+  for (const entry of launchers) await copyFile(path.join(bin, entry), path.join(workdir, "node_modules/.bin", entry));
 }
 
 async function setupRemovals(task: EvalTask, repoRoot: string): Promise<string[]> {

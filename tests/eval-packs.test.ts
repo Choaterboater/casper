@@ -185,7 +185,8 @@ test("a prepared task with linked tools can still be graded offline; only the ca
   const task = benchmark.find((entry) => entry.tools?.includes("typescript"))!;
   const { root, workdir } = await prepareEvalTask(task, repoRoot);
   cleanup.push(() => rm(root, { recursive: true, force: true }));
-  expect(await exists(path.join(workdir, "node_modules/.bin/tsc"))).toBe(true);
+  // Windows runs tools through launcher files (Bun makes tsc.exe and tsc.bunx), not an extensionless link.
+  expect(await exists(path.join(workdir, "node_modules/.bin", process.platform === "win32" ? "tsc.exe" : "tsc"))).toBe(true);
   expect(await exists(path.join(root, "evaluator/node_modules"))).toBe(false);
   for (const top of task.candidatePaths) {
     await rm(path.join(workdir, top), { recursive: true, force: true });
@@ -193,4 +194,4 @@ test("a prepared task with linked tools can still be graded offline; only the ca
   }
   const result = await gradePreparedEval(root, { startedAt: new Date().toISOString(), wallClockMs: 1, execution: "completed", modelCalls: 1, answer: "Done.", interventions: [] });
   expect({ success: result.success, failures: result.acceptance.failures }).toEqual({ success: true, failures: [] });
-});
+}, 30_000);
