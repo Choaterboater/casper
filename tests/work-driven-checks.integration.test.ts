@@ -9,7 +9,7 @@ import { SkillRegistry } from "../src/skills/registry";
 import type { VerificationResult } from "../src/verify/evidence";
 import { taskExitCode } from "../src/task/result";
 import type { VerificationMode } from "../src/verify/mode";
-import { checkCommand } from "./support/check-command";
+import { CHECK_LIMIT_MS, checkCommand } from "./support/check-command";
 import { needsSymlinks, posixOnly } from "./support/platform";
 import { waitForFile as fileAppears } from "./support/wait";
 
@@ -105,7 +105,7 @@ async function waitForFile(file: string): Promise<void> {
 }
 
 test("closing drains an active model-selected command and retains cancellation evidence without repair", async () => {
-  const root = await fixture({ verify: { test: checkCommand("touch:started", "sleep:10000") }, verification: { timeoutMs: 2000 } });
+  const root = await fixture({ verify: { test: checkCommand("touch:started", "sleep:10000") }, verification: { timeoutMs: CHECK_LIMIT_MS } });
   const { app, prompts } = createApp(root, async (_prompt, tools) => {
     expect(await check(checkTool(tools))).toMatchObject({ status: "fail", reason: "Verification cancelled" });
   });
@@ -121,7 +121,7 @@ test("closing drains an active model-selected command and retains cancellation e
 
 test("an external edit overlapping a real check leaves its exit success stale and prevents reuse", async () => {
   const overlap = checkCommand("fail:7", "append:test-runs", "require-line:src/value=good", "touch:started", "wait:release");
-  const root = await fixture({ verify: { test: overlap }, verification: { timeoutMs: 2000, scopes: { test: { inputs: ["src"] } } }, repair: { maxAttempts: 0 } });
+  const root = await fixture({ verify: { test: overlap }, verification: { timeoutMs: CHECK_LIMIT_MS, scopes: { test: { inputs: ["src"] } } }, repair: { maxAttempts: 0 } });
   await writeFile(path.join(root, "src/value"), "good\n");
   const { app } = createApp(root, async (_prompt, tools) => {
     const tool = checkTool(tools);
@@ -274,7 +274,7 @@ test("native edit invalidation is independent of the receipt's bounded edit list
 
 test("an observed native edit during a check stays stale even when membership is restored before command completion", async () => {
   const root = await fixture({ verify: { test: checkCommand("append:test-runs", "touch:started", "wait:release") },
-    verification: { timeoutMs: 2000, scopes: { test: { inputs: ["src"] } } } });
+    verification: { timeoutMs: CHECK_LIMIT_MS, scopes: { test: { inputs: ["src"] } } } });
   const { app } = createApp(root, async (_prompt, tools, options) => {
     const tool = checkTool(tools);
     const pending = check(tool);
@@ -295,7 +295,7 @@ test("an observed native edit during a check stays stale even when membership is
 
 test.skipIf(!filesystemAliases.caseInsensitive)("a missing named alias observed during a check stays stale after partial-write removal", async () => {
   const root = await fixture({ verify: { test: checkCommand("append:test-runs", "touch:started", "wait:release") },
-    verification: { timeoutMs: 2000, scopes: { test: { inputs: ["SRC/MISSING"] } } } });
+    verification: { timeoutMs: CHECK_LIMIT_MS, scopes: { test: { inputs: ["SRC/MISSING"] } } } });
   const { app } = createApp(root, async (_prompt, tools, _options, emit) => {
     const tool = checkTool(tools);
     const pending = check(tool);
@@ -504,7 +504,7 @@ for (const destination of ["excluded", "outside"]) for (const outcome of ["succe
 
 needsSymlinks("an included symlink observed during a check stays invalidating after removal", async () => {
   const root = await fixture({ verify: { test: checkCommand("append:test-runs", "touch:started", "wait:release") },
-    verification: { timeoutMs: 2000, scopes: { test: { inputs: ["src"], exclude: ["src/generated"] } } } });
+    verification: { timeoutMs: CHECK_LIMIT_MS, scopes: { test: { inputs: ["src"], exclude: ["src/generated"] } } } });
   await mkdir(path.join(root, "src/generated"));
   const { app } = createApp(root, async (_prompt, tools, options) => {
     const tool = checkTool(tools);
