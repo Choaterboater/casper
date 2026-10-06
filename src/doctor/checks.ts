@@ -195,6 +195,23 @@ export async function checkConfig(ctx: DoctorContext): Promise<{ lines: DoctorLi
 
 // --- Model sign-in ---
 
+/** Providers set up in models.json (Pi's provider catalog) with their own key or address, such as a local server
+ * or a company gateway: these work with no /login. Names only; a key is never shown. */
+async function customProviders(ctx: DoctorContext): Promise<string[]> {
+  try {
+    const parsed: unknown = Bun.JSONC.parse(await readFile(path.join(ctx.agentDir, "models.json"), "utf8"));
+    const providers = parsed && typeof parsed === "object" ? (parsed as { providers?: unknown }).providers : undefined;
+    if (!providers || typeof providers !== "object" || Array.isArray(providers)) return [];
+    return Object.entries(providers as Record<string, unknown>)
+      .filter(([, value]) => {
+        const entry = value && typeof value === "object" ? value as Record<string, unknown> : {};
+        return (typeof entry.apiKey === "string" && Boolean(entry.apiKey)) || (typeof entry.baseUrl === "string" && Boolean(entry.baseUrl));
+      })
+      .map(([name]) => name)
+      .sort();
+  } catch { return []; }
+}
+
 /** Each provider in Casper's sign-in file, and any provider key in the environment. Reads only which providers are
  * there and when a sign-in runs out; never a key, and nothing is sent anywhere. */
 export async function checkSignIn(ctx: DoctorContext): Promise<DoctorLine[]> {
@@ -219,6 +236,8 @@ export async function checkSignIn(ctx: DoctorContext): Promise<DoctorLine[]> {
     } else if (entry.type === "api_key" || typeof entry.key === "string") signedIn.push(provider);
     else lines.push(note(`Sign-in: ${provider} is saved in a form Casper can't read`, `type /login ${provider} in Casper`));
   }
+  const custom = await customProviders(ctx);
+  if (custom.length) signedIn.push(`${custom.join(", ")} (models.json)`);
   const fromEnv = Object.keys(ctx.env).filter((name) => ctx.env[name] && isModelProviderKeyName(name)).sort();
   if (fromEnv.length) signedIn.push(...fromEnv.map((name) => `$${name}`));
   if (signedIn.length) lines.unshift(ok(`Sign-in: ${signedIn.join(", ")}`));

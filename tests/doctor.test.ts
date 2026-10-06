@@ -114,6 +114,26 @@ test("sign-in: none is something to fix; a self-renewing sign-in is fine; an exp
   expect(JSON.stringify(lines)).not.toContain("\"k\"");
 });
 
+test("sign-in: a provider set up in models.json with a key or address counts, and the doctor exits 0", async () => {
+  const dir = await home();
+  await writeFile(path.join(dir, ".casper", "agent", "models.json"), `{
+    // comments are allowed, as Pi reads it
+    "providers": {
+      "ollama": { "baseUrl": "http://localhost:11434/v1", "api": "openai-completions", "models": [{ "id": "llama3" }] },
+      "gateway": { "apiKey": "secret-key", "models": [] },
+      "bare": { "models": [] }
+    }
+  }`);
+  const lines = await checkSignIn(context(dir));
+  expect(lines).toEqual([{ status: "ok", text: "Sign-in: gateway, ollama (models.json)" }]);
+  expect(JSON.stringify(lines)).not.toContain("secret-key");
+
+  let output = "";
+  const result = await runDoctor(context(dir, { fetch: releases("v0.2.22") }), { write: (text) => { output += text; } });
+  expect(output).not.toContain("No model sign-in");
+  expect(result.exitCode).toBe(0);
+});
+
 test("MCP: a missing launcher is named with its install page, a missing variable by name; nothing is started", async () => {
   const dir = await home();
   await writeFile(path.join(dir, ".casper", "mcp.json"), JSON.stringify({ mcpServers: {
