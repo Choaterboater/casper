@@ -198,8 +198,9 @@ Each row names the test that fails without it.
 - **Releases are checked, not code-signed.** Until the owner makes the release key, `SHA256SUMS` is
   not signed and the installers check only the SHA-256 (and, with `gh` signed in, where the file was
   built). The very first `curl … | sh` trusts the installer it downloads; the signature protects
-  `casper update` after that. Without an `ssh-keygen` that can check signatures, the installers say so
-  and go on. The programs are not code-signed or notarized, so macOS or Windows may warn
+  `casper update` after that: Casper checks the signed list itself and gives the installer the digest
+  from it. Without an `ssh-keygen` that can check signatures, the installers say so and go on (asked of
+  `ssh-keygen` alone, never read from what the check printed). The programs are not code-signed or notarized, so macOS or Windows may warn
   ([RELEASE.md](RELEASE.md#paid-code-signing-owner-decision)).
 - **The model provider sees what the AI reads.** Code, file contents, command output and chat go to the
   provider you picked, with secrets hidden as [SECRETS.md](SECRETS.md) says (known formats only; there is

@@ -921,8 +921,10 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
   installed.`, and the old `casper` stays as it was. A missing one is refused from the
   release's own address and said from another `CASPER_BASE_URL` (a local build or a
   mirror: `No signature (SHA256SUMS.sig) at …; checking SHA-256 only.`). With no
-  `ssh-keygen`, or one too old, the installer says so and the SHA-256 still decides. An
-  out-of-band `--sha256` skips the list and so its signature.
+  `ssh-keygen`, or one too old, the installer says so and the SHA-256 still decides. Too
+  old is asked of `ssh-keygen` alone, before the check, never read from the check's own
+  output (which can echo text from the signature file); once it can check, any failure is
+  a refusal. An out-of-band `--sha256` skips the list and so its signature.
 - **Checks where it was built, with gh.** When `gh` is installed and signed in, the
   binary's GitHub build provenance must match (`gh attestation verify --repo
   Choaterboater/casper`): `Verified: built by GitHub Actions from Choaterboater/casper.`,
@@ -957,8 +959,8 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
 - **Flag parity is deliberately asymmetric.** `install.sh` accepts `--dir`,
   `--version`, `--sha256`, `--force`, `--print-target` and `--help` (and reads the
   same `CASPER_*` variables, plus `CASPER_OS`/`CASPER_ARCH` to override detection);
-  `install.ps1` takes no flags and reads `CASPER_BASE_URL`, `CASPER_INSTALL_DIR`, `CASPER_VERSION` and
-  `CASPER_SHA256` from the environment.
+  `install.ps1` takes no flags and reads `CASPER_BASE_URL`, `CASPER_INSTALL_DIR`, `CASPER_VERSION`,
+  `CASPER_SHA256` and `CASPER_ARCH` (`x64` or `arm64`) from the environment.
 - **Does not edit shell dotfiles.** macOS/Linux print the exact `export PATH=…` line
   when the install directory is not on `PATH`. Windows requires PowerShell 5.1 or
   newer, enables TLS 1.2, suppresses slow per-chunk download progress, and updates
@@ -971,7 +973,10 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
   folder of the running program with the new version pinned. Once there is a release
   key, Casper first checks `SHA256SUMS.sig` itself (no `ssh-keygen` needed) and that the
   signed list names the installer with a matching digest; when `gh` is signed in, it
-  also checks the installer's build provenance. Any failure says why in one line and
+  also checks the installer's build provenance. It then hands the installer the running
+  program's own file (`CASPER_OS`/`CASPER_ARCH`) and its SHA-256 from the list it checked
+  (`CASPER_SHA256`), so the installer fetches no list of its own; a signed list that does
+  not name that file installs nothing. Any failure says why in one line and
   runs nothing; on Windows the running
   `casper.exe` is renamed to `casper.old.exe` first and put back if the installer fails.
   A token in `GITHUB_TOKEN` or `GH_TOKEN` is sent with the release lookup only (not the

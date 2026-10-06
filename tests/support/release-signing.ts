@@ -12,7 +12,8 @@ const sshString = (data: Buffer | string) => {
   return Buffer.concat([length, body]);
 };
 
-export interface TestKey { publicKey: string; sign(message: Buffer | string, namespace?: string): string }
+/** `hash` names the hash in the signature; a forged one may name anything (ssh-keygen prints it back). */
+export interface TestKey { publicKey: string; sign(message: Buffer | string, namespace?: string, hash?: string): string }
 
 export function testReleaseKey(): TestKey {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -20,14 +21,14 @@ export function testReleaseKey(): TestKey {
   const blob = Buffer.concat([sshString("ssh-ed25519"), sshString(raw)]);
   return {
     publicKey: `ssh-ed25519 ${blob.toString("base64")}`,
-    sign(message, namespace = "casper-release") {
+    sign(message, namespace = "casper-release", hash = "sha512") {
       const magic = Buffer.from("SSHSIG");
       const digest = createHash("sha512").update(message).digest();
-      const signed = Buffer.concat([magic, sshString(namespace), sshString(""), sshString("sha512"), sshString(digest)]);
+      const signed = Buffer.concat([magic, sshString(namespace), sshString(""), sshString(hash), sshString(digest)]);
       const signature = Buffer.concat([sshString("ssh-ed25519"), sshString(sign(null, signed, privateKey))]);
       const version = Buffer.alloc(4);
       version.writeUInt32BE(1);
-      const body = Buffer.concat([magic, version, sshString(blob), sshString(namespace), sshString(""), sshString("sha512"), sshString(signature)]);
+      const body = Buffer.concat([magic, version, sshString(blob), sshString(namespace), sshString(""), sshString(hash), sshString(signature)]);
       const lines = body.toString("base64").match(/.{1,70}/g)!;
       return `-----BEGIN SSH SIGNATURE-----\n${lines.join("\n")}\n-----END SSH SIGNATURE-----\n`;
     },

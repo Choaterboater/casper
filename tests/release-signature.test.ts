@@ -63,6 +63,17 @@ test("Casper and both installers pin the same release key", async () => {
   if (RELEASE_KEY) expect(ed25519Key(RELEASE_KEY)).toBeDefined();
 });
 
+test("install.ps1 decides 'too old' from its own probe, never from what the real check printed", async () => {
+  // ssh-keygen prints text from the signature file, so a forged one could read like an old ssh-keygen.
+  const powershell = await readFile(path.join(repoRoot, "scripts/install.ps1"), "utf8");
+  const body = powershell.slice(powershell.indexOf("function Test-CasperSignature"), powershell.indexOf("\n}\n", powershell.indexOf("function Test-CasperSignature")));
+  const tooOld = [...body.matchAll(/if \((\$\w+) -match 'option -- Y/g)].map((match) => match[1]);
+  expect(tooOld).toEqual(["$Probe"]);
+  expect(body).toMatch(/\$Probe = .*\$ProbeOut.*\$ProbeErr/);
+  expect(body).not.toMatch(/\$Probe = .*\$(OutPath|ErrPath|SigPath)/);
+  expect(body.indexOf("-ArgumentList @('-Y', 'verify')")).toBeLessThan(body.indexOf("$SigPath)"));
+});
+
 test("scripts/release-key.ts pins one public key in all three places and refuses anything else", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-pin-"));
   temps.push(root);

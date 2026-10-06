@@ -18,6 +18,7 @@
 #   CASPER_INSTALL_DIR  Install directory (default: %LOCALAPPDATA%\Programs\casper).
 #   CASPER_VERSION      Required installed version; the installer fails on any other.
 #   CASPER_SHA256       Expected digest, when SHA256SUMS cannot be fetched.
+#   CASPER_ARCH         x64 or arm64 instead of this PC's own (casper update sets it with CASPER_SHA256).
 #
 # Installer and startup smoke checks run on Windows CI with PowerShell 5.1 and 7.
 # This does not certify all interactive/optional features (see docs/RELEASE.md).
@@ -55,6 +56,19 @@ function Test-CasperSignature([string]$SumsPath) {
   }
   $Keygen = Get-Command ssh-keygen -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $Keygen) { Write-Host 'Install OpenSSH (ssh-keygen) to also check the release signature.'; return }
+  # Too old is asked of ssh-keygen alone, with nothing from the download: the real check prints text from the
+  # signature file, so its words never decide this.
+  $ProbeOut = Join-Path $Tmp 'probe-out.txt'
+  $ProbeErr = Join-Path $Tmp 'probe-err.txt'
+  $NoInput = Join-Path $Tmp 'probe-in.txt'
+  [IO.File]::WriteAllText($NoInput, '')
+  $null = Start-Process -FilePath $Keygen.Source -ArgumentList @('-Y', 'verify') -RedirectStandardInput $NoInput `
+    -RedirectStandardOutput $ProbeOut -RedirectStandardError $ProbeErr -NoNewWindow -Wait -PassThru
+  $Probe = "$(Get-Content -Raw -ErrorAction SilentlyContinue $ProbeOut) $(Get-Content -Raw -ErrorAction SilentlyContinue $ProbeErr)"
+  if ($Probe -match 'option -- Y|illegal option|unknown option') {
+    Write-Host 'This ssh-keygen is too old to check the release signature (OpenSSH 8.1 or newer can).'
+    return
+  }
   $Allowed = Join-Path $Tmp 'allowed_signers'
   [IO.File]::WriteAllText($Allowed, "casper-release $ReleaseKey`n")
   $OutPath = Join-Path $Tmp 'verify-out.txt'
@@ -64,11 +78,6 @@ function Test-CasperSignature([string]$SumsPath) {
   $Check = Start-Process -FilePath $Keygen.Source -ArgumentList $Arguments -RedirectStandardInput $SumsPath `
     -RedirectStandardOutput $OutPath -RedirectStandardError $ErrPath -NoNewWindow -Wait -PassThru
   if ($Check.ExitCode -eq 0) { Write-Host 'Verified: signed with the Casper release key.'; return }
-  $Said = "$(Get-Content -Raw -ErrorAction SilentlyContinue $OutPath) $(Get-Content -Raw -ErrorAction SilentlyContinue $ErrPath)"
-  if ($Said -match 'option -- Y|illegal option|unknown option') {
-    Write-Host 'This ssh-keygen is too old to check the release signature (OpenSSH 8.1 or newer can).'
-    return
-  }
   throw "The release signature doesn't match the Casper release key. Nothing installed."
 }
 
@@ -85,6 +94,14 @@ function Select-CasperArtifact([string]$Process, [string]$Wow64, [string]$Machin
 }
 $MachineArch = try { [string](Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -Name PROCESSOR_ARCHITECTURE -ErrorAction Stop).PROCESSOR_ARCHITECTURE } catch { '' }
 $Artifact = Select-CasperArtifact $env:PROCESSOR_ARCHITECTURE $env:PROCESSOR_ARCHITEW6432 $MachineArch
+# casper update names the file it runs as, whose SHA-256 it already checked against the signed list.
+if ($env:CASPER_ARCH) {
+  $Artifact = switch ($env:CASPER_ARCH) {
+    'x64' { 'casper-windows-x64.exe' }
+    'arm64' { 'casper-windows-arm64.exe' }
+    default { throw "Unsupported architecture: $($env:CASPER_ARCH). Casper has Windows files for x64 and ARM64 only." }
+  }
+}
 
 $Tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("casper-install-" + [guid]::NewGuid().ToString('N'))
 # An interrupted update must not leave the staged download behind.

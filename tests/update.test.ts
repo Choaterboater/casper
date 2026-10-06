@@ -125,7 +125,7 @@ test("binary: a newer release runs that release's installer on this program's fo
   const github = fakeGitHub([{ tag_name: "v0.2.22", assets: [{ name: "install.sh", digest: `sha256:${sha(script)}` }] }, { tag_name: "v0.2.21" }], releaseFiles("0.2.22", script));
   const { run, calls } = recordingRunner();
   const lines: string[] = [];
-  const result = await runUpdate({ releaseKey: NO_KEY, check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: (line) => lines.push(line), fetch: github.fetch, run, platform: "darwin",
+  const result = await runUpdate({ releaseKey: NO_KEY, check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: (line) => lines.push(line), fetch: github.fetch, run, platform: "darwin", arch: "arm64",
     env: { PATH: "/usr/bin", CASPER_SHA256: "f".repeat(64), CASPER_OS: "windows", CASPER_INSTALL_DIR: "/elsewhere" } });
   expect(result.exitCode).toBe(0);
   expect(calls).toHaveLength(1);
@@ -135,9 +135,9 @@ test("binary: a newer release runs that release's installer on this program's fo
   expect(call.script).toBe(script);
   expect(call.inherit).toBe(true);
   expect(call.env.CASPER_BASE_URL).toBe(`${DOWNLOAD}/v0.2.22`);
-  // The user's own overrides cannot change the hash, the platform or the folder.
-  expect(call.env.CASPER_SHA256).toBeUndefined();
-  expect(call.env.CASPER_OS).toBeUndefined();
+  // The user's own overrides cannot change the hash, the platform or the folder: the hash is this program's line in
+  // the list Casper checked, so the installer fetches no list of its own.
+  expect(call.env).toMatchObject({ CASPER_SHA256: "0".repeat(64), CASPER_OS: "darwin", CASPER_ARCH: "arm64" });
   expect(call.env.CASPER_INSTALL_DIR).toBeUndefined();
   expect(lines).toEqual(["Updating Casper from 0.2.21 to 0.2.22.", "Casper is now 0.2.22."]);
   // The downloaded installer is gone afterwards.
@@ -158,7 +158,7 @@ test("binary: an installer that does not match its published digest is never run
 /** A release whose SHA256SUMS names its installer and is signed with `key` (or carries `signature` instead). */
 function signedRelease(version: string, key: TestKey, options: { signature?: string | null; listInstaller?: boolean; script?: string } = {}) {
   const script = options.script ?? installer(version);
-  const sums = `${"0".repeat(64)}  casper-darwin-arm64\n${options.listInstaller === false ? "" : `${sha(installer(version))}  install.sh\n`}`;
+  const sums = `${"0".repeat(64)}  casper-linux-x64\n${options.listInstaller === false ? "" : `${sha(installer(version))}  install.sh\n`}`;
   const files: Record<string, string> = { ...releaseFiles(version, script), [`${DOWNLOAD}/v${version}/SHA256SUMS`]: sums };
   if (options.signature !== null) files[`${DOWNLOAD}/v${version}/SHA256SUMS.sig`] = options.signature ?? key.sign(sums);
   return fakeGitHub([{ tag_name: `v${version}` }], files);
@@ -170,7 +170,7 @@ async function signedUpdate(github: ReturnType<typeof fakeGitHub>, key: TestKey,
   const run: ProcessRunner = async (argv) => { calls.push(argv); return { code: result ? result(argv) : 0, stdout: "", stderr: "" }; };
   const lines: string[] = [];
   const outcome = await runUpdate({ check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: (line) => lines.push(line),
-    fetch: github.fetch, run, platform: "linux", env: {}, releaseKey: key.publicKey });
+    fetch: github.fetch, run, platform: "linux", arch: "x64", env: {}, releaseKey: key.publicKey });
   return { exitCode: outcome.exitCode, lines, calls };
 }
 
@@ -195,6 +195,38 @@ test("binary: with a release key, a missing or bad signature, or a list without 
     const result = await signedUpdate(github, key);
     expect({ exitCode: result.exitCode, last: result.lines.at(-1), calls: result.calls }).toEqual({ exitCode: 1, last: message, calls: [] });
   }
+});
+
+test("binary: with a release key, the installer gets this program's digest from the signed list and fetches no list itself", async () => {
+  const key = testReleaseKey();
+  const binary = "b".repeat(64);
+  const sums = `${binary}  casper-linux-x64\n${sha(installer("0.2.22"))}  install.sh\n`;
+  const github = fakeGitHub([{ tag_name: "v0.2.22" }], { ...releaseFiles("0.2.22"), [`${DOWNLOAD}/v0.2.22/SHA256SUMS`]: sums, [`${DOWNLOAD}/v0.2.22/SHA256SUMS.sig`]: key.sign(sums) });
+  const { executable } = await binaryInstall();
+  const { run, calls } = recordingRunner();
+  const lines: string[] = [];
+  const result = await runUpdate({ check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: (line) => lines.push(line),
+    fetch: github.fetch, run, platform: "linux", arch: "x64", env: { CASPER_SHA256: "f".repeat(64), CASPER_ARCH: "arm64" }, releaseKey: key.publicKey });
+  expect(result.exitCode).toBe(0);
+  const install = calls.find((call) => call.argv[0] === "sh")!;
+  expect(install.env).toMatchObject({ CASPER_SHA256: binary, CASPER_OS: "linux", CASPER_ARCH: "x64" });
+  // A signed list that doesn't name this program's file installs nothing.
+  const other = await runUpdate({ check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: (line) => lines.push(line),
+    fetch: github.fetch, run, platform: "linux", arch: "arm64", env: {}, releaseKey: key.publicKey });
+  expect(other.exitCode).toBe(1);
+  expect(lines.at(-1)).toBe("The signed list for Casper 0.2.22 does not name casper-linux-arm64, so nothing was installed. Nothing was changed.");
+  expect(calls.filter((call) => call.argv[0] === "sh")).toHaveLength(1);
+});
+
+test("windows: the installer gets this program's file and digest from the list Casper checked", async () => {
+  const { executable } = await binaryInstall("casper.exe");
+  const sums = `${"c".repeat(64)}  casper-windows-x64.exe\n`;
+  const github = fakeGitHub([{ tag_name: "v0.2.22" }], { ...releaseFiles("0.2.22"), [`${DOWNLOAD}/v0.2.22/SHA256SUMS`]: sums });
+  const { run, calls } = recordingRunner();
+  const installs: ProcessRunner = async (argv, options) => { await writeFile(executable, "new"); return run(argv, options); };
+  const result = await runUpdate({ releaseKey: NO_KEY, check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: () => {}, fetch: github.fetch, run: installs, platform: "win32", arch: "x64" });
+  expect(result.exitCode).toBe(0);
+  expect(calls[0]!.env).toMatchObject({ CASPER_SHA256: "c".repeat(64), CASPER_ARCH: "x64" });
 });
 
 test("binary: gh signed in and saying the installer isn't a Casper build stops the update; gh missing or signed out does not", async () => {

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { artifactName, hostTarget, TARGETS } from "../scripts/build-release";
 
@@ -95,3 +96,24 @@ test.skipIf(process.platform !== "win32")("install.ps1 picks this PC's own file 
   const script = `$ErrorActionPreference = 'Stop'\n${await selectFunction()}\n${machineLine}\n${call}\n$Artifact`;
   expect(await runPowerShell("powershell", script)).toEqual({ out: artifactName(hostTarget()), exitCode: 0 });
 }, 30_000);
+
+test.skipIf(shells.length === 0)("install.ps1 takes the file casper update names in CASPER_ARCH, and only x64 or arm64", async () => {
+  const installer = await read("scripts/install.ps1");
+  const start = installer.indexOf("$Artifact = Select-CasperArtifact");
+  const end = installer.indexOf("\n}\n", installer.indexOf("if ($env:CASPER_ARCH)", start));
+  expect({ start: start >= 0, end: end > start }).toEqual({ start: true, end: true });
+  const pick = installer.slice(start, end + 3);
+  const cases: Array<[string, string]> = [["x64", "casper-windows-x64.exe"], ["arm64", "casper-windows-arm64.exe"], ["x86", "error: Unsupported architecture: x86. Casper has Windows files for x64 and ARM64 only."]];
+  const calls = cases.map(([arch]) => `$env:CASPER_ARCH = '${arch}'\ntry { $MachineArch = 'ARM64'\n${pick}\n$Artifact } catch { Write-Output "error: $($_.Exception.Message)" }`);
+  const script = `$ErrorActionPreference = 'Stop'\n${await selectFunction()}\n${calls.join("\n")}`;
+  for (const shell of shells) {
+    const { out, ...rest } = await runPowerShell(shell, script);
+    expect({ shell, ...rest }).toEqual({ shell, exitCode: 0 });
+    expect(out.split(/\r?\n/)).toEqual(cases.map(([, expected]) => expected));
+  }
+}, 30_000);
+
+test.skipIf(process.platform === "win32")("install.sh takes x64 as casper update names it", () => {
+  const child = Bun.spawnSync(["sh", path.join(repoRoot, "scripts/install.sh"), "--print-target"], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: os.tmpdir(), CASPER_OS: "linux", CASPER_ARCH: "x64" }, stdout: "pipe", stderr: "pipe" });
+  expect({ exitCode: child.exitCode, out: child.stdout.toString().trim() }).toEqual({ exitCode: 0, out: "casper-linux-x64" });
+});

@@ -355,3 +355,34 @@ posixOnly("an ssh-keygen too old to check signatures is named, and the SHA-256 s
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toContain("This ssh-keygen is too old to check the release signature (OpenSSH 8.1 or newer can).");
 }, 30_000);
+
+signingTest("a forged signature whose text reads like an old ssh-keygen is still refused", async () => {
+  const root = await tempDir("casper-install-forged-");
+  const release = await fakeRelease(root, artifactName(hostTarget()));
+  const sums = await readFile(path.join(release, "SHA256SUMS"));
+  const key = testReleaseKey();
+  const script = await keyedInstaller(root, key.publicKey, release);
+  // ssh-keygen prints the hash name back ("unsupported hash algorithm \"illegal option\""); that must not read as "too old".
+  for (const signature of [key.sign(sums, "casper-release", "illegal option"), key.sign(sums, "casper-release", "unknown option -- Y")]) {
+    await writeFile(path.join(release, "SHA256SUMS.sig"), signature);
+    const result = await runInstaller(script, path.join(root, "bin"), {});
+    expect({ exitCode: result.exitCode, stdout: result.stdout.includes("too old") }).toEqual({ exitCode: 1, stdout: false });
+    expect(result.stderr).toContain("The release signature doesn't match the Casper release key. Nothing installed.");
+    await expect(stat(path.join(root, "bin", "casper"))).rejects.toThrow();
+  }
+}, 30_000);
+
+posixOnly("only a probe apart from the download decides ssh-keygen is too old", async () => {
+  const root = await tempDir("casper-install-probe-");
+  const release = await fakeRelease(root, artifactName(hostTarget()));
+  const key = testReleaseKey();
+  await writeFile(path.join(release, "SHA256SUMS.sig"), key.sign(await readFile(path.join(release, "SHA256SUMS"))));
+  const bin = path.join(root, "probe-ssh");
+  await mkdir(bin);
+  // Knows -Y, but the real check fails with words that look like an old one.
+  await writeFile(path.join(bin, "ssh-keygen"), "#!/bin/sh\nfor a in \"$@\"; do [ \"$a\" = -s ] && { echo 'illegal option' >&2; exit 255; }; done\necho 'Too few arguments for verify: missing namespace' >&2\nexit 1\n");
+  await chmod(path.join(bin, "ssh-keygen"), 0o755);
+  const result = await runInstaller(await keyedInstaller(root, key.publicKey, release), path.join(root, "bin"), {}, bin);
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("The release signature doesn't match the Casper release key. Nothing installed.");
+}, 30_000);

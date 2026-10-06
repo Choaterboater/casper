@@ -40,6 +40,8 @@ export interface UpdateOptions {
   currentVersion: string;
   write: (line: string) => void;
   platform?: NodeJS.Platform;
+  /** This program's CPU, as the release files name it (x64 or arm64); tests pass one. */
+  arch?: string;
   env?: NodeJS.ProcessEnv;
   fetch?: Fetcher;
   run?: ProcessRunner;
@@ -191,7 +193,12 @@ async function updateBinary(options: UpdateOptions, executable: string): Promise
   const refused = checkInstaller({ version, script, installer, sums, signature, releaseKey,
     published: newest.assets.find((asset) => asset.name === script)?.digest });
   if (refused) { write(`${refused} ${NOTHING_CHANGED}`); return { exitCode: 1 }; }
-  const listed = sums.split(/\r?\n/).some((line) => /^[0-9a-f]{64}\s+\*?(\S+)$/i.exec(line.trim())?.[1] === script);
+  const listed = listedDigest(sums, script) !== undefined;
+  // This program's own file: the installer checks it against the list Casper just checked, and fetches none itself.
+  const arch = options.arch ?? process.arch;
+  const binary = `casper-${windows ? "windows" : options.platform ?? process.platform}-${arch}${windows ? ".exe" : ""}`;
+  const binaryDigest = listedDigest(sums, binary);
+  if (releaseKey && !binaryDigest) { write(`The signed list for Casper ${version} does not name ${binary}, so nothing was installed. ${NOTHING_CHANGED}`); return { exitCode: 1 }; }
   // Its own default download address names its release; one for another release is not run.
   if (!installer.includes(`${base}}`) && !installer.includes(`'${base}'`)) {
     write(`The downloaded installer is for a different release than ${version}, so it was not run. ${NOTHING_CHANGED}`);
@@ -201,6 +208,7 @@ async function updateBinary(options: UpdateOptions, executable: string): Promise
   const env: NodeJS.ProcessEnv = { ...(options.env ?? process.env) };
   for (const setting of INSTALLER_SETTINGS) delete env[setting];
   env.CASPER_BASE_URL = base;
+  if (binaryDigest) Object.assign(env, { CASPER_SHA256: binaryDigest, CASPER_ARCH: arch, ...(windows ? {} : { CASPER_OS: options.platform ?? process.platform }) });
   const run = options.run ?? defaultRunner;
   const temp = await mkdtemp(path.join(os.tmpdir(), "casper-update-"));
   try {
@@ -222,6 +230,11 @@ async function updateBinary(options: UpdateOptions, executable: string): Promise
       return result.code === 0;
     });
   } finally { await rm(temp, { recursive: true, force: true }); }
+}
+
+/** The SHA-256 a SHA256SUMS list gives for `file`, or undefined when it doesn't name it. */
+function listedDigest(sums: string, file: string): string | undefined {
+  return sums.split(/\r?\n/).map((line) => /^([0-9a-f]{64})\s+\*?(\S+)$/i.exec(line.trim())).find((match) => match?.[2] === file)?.[1]?.toLowerCase();
 }
 
 /** False only when gh is installed and signed in and says the file is not a build from the Casper repository. */

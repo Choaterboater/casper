@@ -70,7 +70,7 @@ case "$uname_s" in
 esac
 case "$uname_m" in
   arm64|aarch64) arch=arm64 ;;
-  x86_64|amd64) arch=x64 ;;
+  x86_64|amd64|x64) arch=x64 ;;
   *) echo "Unsupported architecture: $uname_m. Download an artifact manually from ${BASE_URL}." >&2; exit 2 ;;
 esac
 artifact="casper-${os}-${arch}"
@@ -160,17 +160,20 @@ check_signature() {
     echo "Install OpenSSH (ssh-keygen) to also check the release signature."
     return 0
   fi
+  # Too old is asked of ssh-keygen alone, with nothing from the download: the real check
+  # prints text from the signature file, so its words never decide this.
+  probe="$(ssh-keygen -Y verify < /dev/null 2>&1)" || true
+  case "$probe" in
+    *"option -- Y"*|*"illegal option"*|*"unknown option"*)
+      echo "This ssh-keygen is too old to check the release signature (OpenSSH 8.1 or newer can)."
+      return 0 ;;
+  esac
   printf 'casper-release %s\n' "$RELEASE_KEY" > "$tmp/allowed_signers"
-  if checked="$(ssh-keygen -Y verify -f "$tmp/allowed_signers" -I casper-release -n casper-release -s "$tmp/SHA256SUMS.sig" < "$tmp/SHA256SUMS" 2>&1)"; then
+  if ssh-keygen -Y verify -f "$tmp/allowed_signers" -I casper-release -n casper-release -s "$tmp/SHA256SUMS.sig" < "$tmp/SHA256SUMS" >/dev/null 2>&1; then
     echo "Verified: signed with the Casper release key."
   else
-    case "$checked" in
-      *"option -- Y"*|*"illegal option"*|*"unknown option"*)
-        echo "This ssh-keygen is too old to check the release signature (OpenSSH 8.1 or newer can)." ;;
-      *)
-        echo "The release signature doesn't match the Casper release key. Nothing installed." >&2
-        exit 1 ;;
-    esac
+    echo "The release signature doesn't match the Casper release key. Nothing installed." >&2
+    exit 1
   fi
 }
 
