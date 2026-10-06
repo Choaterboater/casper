@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -10,6 +10,7 @@ import type { AgentRuntime, RuntimeStatus } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { effortChoices, nextEffort } from "../src/tui/effort";
 import { InteractiveTerminal } from "../src/tui/terminal";
+import { removeTempDir } from "./support/temp-dir";
 
 const ambientTerm = process.env.TERM;
 process.env.TERM = "xterm-256color";
@@ -153,7 +154,7 @@ test("Ctrl+C cancels the effort picker instead of arming exit behind it", async 
   } finally {
     await app.close();
     input.destroy();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -225,7 +226,7 @@ test("interactive Shift+Tab steps through levels and saves the one it settles on
   } finally {
     await app.close();
     input.destroy();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -306,7 +307,7 @@ test("during a running task: /usage runs, Shift+Tab and /effort apply from the n
   } finally {
     await app.close();
     input.destroy();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 }, 30_000);
 
@@ -352,6 +353,6 @@ test("while Casper is still opening the project, Enter keeps the draft and says 
   } finally {
     await app.close();
     input.destroy();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 }, 30_000);
