@@ -6,6 +6,8 @@ import { DEFAULT_SPEND_LIMITS, formatLimit } from "../task/spend";
 import { PROVIDER_LABELS } from "../web/providers";
 import type { DisplayLevel } from "../tui/display";
 import type { OutputWriter } from "./commands";
+import type { MCPManager } from "../mcp/manager";
+import { MCP_SANDBOX_FILE } from "../mcp/sandbox";
 
 /** What /settings needs from the app: a numbered question only the person answers, and the project read again. */
 export interface SettingsHost {
@@ -14,14 +16,18 @@ export interface SettingsHost {
   /** A person can answer a numbered question here (an interactive session). */
   readonly canAsk: boolean;
   context(): Promise<ProjectContext | undefined>;
+  /** The MCP servers, for the sandbox line of each one Casper has a profile for. */
+  mcp?(): Pick<MCPManager, "status" | "setSandbox"> | undefined;
   /** Read the settings again after a change, so it applies from now on. */
   reload(): Promise<void>;
   /** The chosen label, or undefined (Esc, nobody answered). */
   ask(question: string, options: { label: string; description?: string }[], signal?: AbortSignal): Promise<string | undefined>;
 }
 
-interface Choice { label: string; keys: string[] | ((home: string) => Promise<string[]>); value: unknown; shown: string }
-interface Setting { label: string; value: string; question: string; keep: string; choices: Choice[] }
+interface Choice { label: string; keys: string[] | ((home: string) => Promise<string[]>); value: unknown; shown: string;
+  /** Saved some other way than in config.yaml (the MCP sandbox, in ~/.casper/mcp-sandbox.json). */
+  apply?: () => Promise<unknown> }
+interface Setting { label: string; value: string; question: string; keep: string; choices: Choice[]; savedIn?: string }
 
 const SPEND_AMOUNTS = [2, 5, 20];
 const DISPLAY_WORDS: Record<DisplayLevel, string> = {
@@ -88,6 +94,17 @@ export function settingRows(context: ProjectContext): Setting[] {
   ];
 }
 
+/** One line per MCP server Casper runs in the sandbox (or would, if you turned it off). */
+export function mcpSandboxRows(mcp: Pick<MCPManager, "status" | "setSandbox"> | undefined): Setting[] {
+  return (mcp?.status() ?? []).filter((status) => status.sandbox?.state === "on" || status.sandbox?.state === "off").map((status) => {
+    const on = status.sandbox!.state === "on";
+    return { label: `Sandbox for MCP server ${status.name}`, value: on ? "on" : "off", savedIn: MCP_SANDBOX_FILE.replace(/^\.casper/, "~/.casper"),
+      question: `MCP server ${status.name} runs ${on ? "in" : "outside"} the sandbox. In it, it reaches only its login hosts, writes only its cache, and can't read your keys or projects.`,
+      keep: `Keep it ${on ? "on" : "off"}`,
+      choices: [{ label: on ? "Turn it off" : "Turn it on", keys: [], value: !on, shown: on ? "off" : "on", apply: () => mcp!.setSandbox(status.name, !on) }] };
+  });
+}
+
 /**
  * /settings: Casper's off switches as one numbered list, so nobody edits a config file. 1 is Done; a pick asks
  * with 1 Keep first, writes the answer into ~/.casper/config.yaml and lists the settings again.
@@ -96,7 +113,7 @@ export async function runSettings(host: SettingsHost, signal?: AbortSignal): Pro
   for (;;) {
     const context = await host.context();
     if (!context) return;
-    const rows = settingRows(context);
+    const rows = [...settingRows(context), ...mcpSandboxRows(host.mcp?.())];
     if (!host.canAsk) {
       const width = Math.max(...rows.map((row) => row.label.length)) + 2;
       host.output.write(`Settings (${USER_CONFIG}):\n${rows.map((row) => `  ${row.label.padEnd(width)}${row.value}`).join("\n")}\nRun /settings in a Casper session to change one by number.\n`);
@@ -111,12 +128,13 @@ export async function runSettings(host: SettingsHost, signal?: AbortSignal): Pro
     if (!choice || signal?.aborted) continue;
     const home = host.homeDir();
     try {
-      await editUserConfig(home, typeof choice.keys === "function" ? await choice.keys(home) : choice.keys, choice.value);
+      if (choice.apply) await choice.apply();
+      else await editUserConfig(home, typeof choice.keys === "function" ? await choice.keys(home) : choice.keys, choice.value);
     } catch (error) {
       host.output.write(`[settings] Not saved: ${error instanceof Error ? error.message : String(error)}\n`);
       return;
     }
     await host.reload();
-    host.output.write(`[settings] ${row.label}: ${choice.shown}. Saved in ${USER_CONFIG}.\n`);
+    host.output.write(`[settings] ${row.label}: ${choice.shown}. Saved in ${row.savedIn ?? USER_CONFIG}.\n`);
   }
 }

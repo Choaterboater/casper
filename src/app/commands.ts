@@ -28,6 +28,7 @@ import { networkSetupLine, runNetworkSetup, type SetupHost } from "../mcp/networ
 import type { Scrubber } from "../secrets/netconan";
 import { defaultRunGit, runReferenceAdd } from "../references/catalog";
 import { formatDuration } from "../mcp/clock";
+import { sandboxLines, sandboxSummary } from "../mcp/sandbox";
 import type { LSPManager } from "../lsp/manager";
 import type { SkillRegistry } from "../skills/registry";
 import type { ProjectContext } from "../project/context";
@@ -799,7 +800,7 @@ async function handleDelegateCommand(host: CommandHost, prompt: string): Promise
     if (result.status !== "completed") throw new Error(`Delegation ${result.status}; see the bounded report above`);
   }
 
-const MCP_USAGE = "Usage: /mcp | /mcp setup network | /mcp login [mist|central|clearpass] [forget] | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp docs";
+const MCP_USAGE = "Usage: /mcp | /mcp setup network | /mcp login [mist|central|clearpass] [forget] | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp sandbox <name> on|off | /mcp docs";
 /** What "writes off" means, said once under the list: the server runs pinned and every change asks. */
 const WRITES_OFF_TEXT = `${WRITES_OFF_MEANING} Answer 2 or 3 in the change box to allow it, or /mcp writes <name> to turn writes on now.`;
 
@@ -850,6 +851,14 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
         ? `[mcp] Forgot ${name}. Casper asks again before it connects next time.\n`
         : `[mcp] ${name} was not remembered.\n`);
       return;
+    } else if (action === "sandbox") {
+      if (!name || extra.length !== 1 || !["on", "off"].includes(extra[0]!)) throw new Error(MCP_USAGE);
+      // Only the user types this; the model has no way to run a slash command. Kept for next time.
+      const status = await mcp.setSandbox(name, extra[0] === "on");
+      host.output.write(extra[0] === "on"
+        ? `[mcp] ${name} runs in the sandbox${status?.state === "failed" ? ` once it can (${status.why})` : ""}.\n`
+        : `[mcp] ${name} runs outside the sandbox from now on. /mcp sandbox ${name} on puts it back.\n`);
+      return;
     } else if (action === "junos-show") {
       if (!name || extra.length !== 1 || !["on", "off"].includes(extra[0]!)) throw new Error(MCP_USAGE);
       // Only the user types this; the model has no way to run a slash command.
@@ -873,11 +882,13 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       ...approvalLines(status),
       ...(status.preset?.lines ?? []).map((line) => `  ${terminalText(line)}`),
       ...(status.showOptIn ? ["  Plain show commands run without asking (/mcp junos-show " + status.name + " off)."] : []),
+      ...sandboxLines(status.name, status.sandbox).map(terminalText),
       // The server just asked for says why in the error below, once.
       ...(status.error && !(action === "connect" && status.name === name) ? [`  ${terminalText(status.error)}`] : []),
       // Already redacted by the manager (known secrets and token shapes); shown to you, never to the model.
       ...(status.serverOutput?.length ? ["  Last lines from the server:", ...status.serverOutput.map((line) => `    | ${terminalText(line)}`)] : []),
-    ].join("\n")).join("\n") + `\n${statuses.some((status) => status.writes === "off") ? `${WRITES_OFF_TEXT}\n` : ""}` : "No MCP servers configured.\n");
+    ].join("\n")).join("\n") + `\n${statuses.some((status) => status.writes === "off") ? `${WRITES_OFF_TEXT}\n` : ""}`
+      + `${sandboxSummary(statuses) ? `${terminalText(sandboxSummary(statuses)!)}\n` : ""}` : "No MCP servers configured.\n");
     if (!action) {
       const network = host.networkSetupHost();
       const line = await networkSetupLine(network.homeDir, await network.configured());

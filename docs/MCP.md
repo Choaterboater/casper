@@ -134,6 +134,37 @@ keeps the old version running. Your `network` entry and what you remembered stay
 One-shot runs never install, never ask for a login and never turn writes on. They print
 one line instead, such as `Mist has no login yet. Run casper and type /mcp login mist.`
 
+#### It runs in the sandbox
+
+On macOS and Linux the network server runs inside the same sandbox as the AI's shell
+(sandbox-exec, or bubblewrap), held to what it needs:
+
+- **Network.** It reaches only the product hosts of your saved logins: the Mist cloud you
+  picked, your Central region and `sso.common.cloud.hpe.com` (where Central logins get their
+  token), and your ClearPass address. It goes through a small proxy of its own; any other host
+  is refused and Casper says so once: `[mcp] The sandbox kept network from reaching example.com
+  (it may reach only api.mist.com).` A login you add or change applies when it restarts, as it
+  does after `/mcp login`.
+- **Files.** It reads only its own install (`~/.casper/tools/casper-network-mcp`) and the
+  Python it was built with, and writes only its spec cache (`~/.cache/casper-network-mcp`) and
+  its own temp folder. The rest of your home folder (`~/.ssh`, `~/.casper`, your projects), the
+  temp folders and the open project are hidden from it.
+
+`/mcp` shows it under the server and in one line under the list:
+
+```text
+  sandbox: on · reaches only api.mist.com · writes only its cache · can't read your keys, ~/.casper or projects (/mcp sandbox network off)
+Sandboxed: network. Run as they are: local-docs (Casper doesn't know what it needs).
+```
+
+It is on by default. `/mcp sandbox network off` turns it off for that server (kept in
+`~/.casper/mcp-sandbox.json`; `/settings` has the same switch), and `/mcp sandbox network on`
+puts it back; a running server restarts once its calls finish. Other servers run as they
+always did: Casper doesn't know what an unknown server needs, so it never guesses and breaks it.
+A server that runs through a package runner (`uvx casper-network-mcp`) or sets its own proxy
+runs as it is too. With no sandbox here (Windows, `--no-sandbox`, `sandbox: off`), or when the
+sandbox can't start, the server starts as before and `/mcp` says why.
+
 ## Configure and connect
 
 Casper reads optional JSON files, in this order. A later file replaces a server with
@@ -260,6 +291,7 @@ pick `2 Add it` (see [Secrets and docs servers](#secrets-and-docs-servers)).
 /mcp writes off                # writes off for every server (ctrl+o does the same)
 /mcp forget <name>             # forget a remembered server
 /mcp junos-show <name> on|off  # let plain Junos show commands run without asking
+/mcp sandbox <name> on|off     # run Casper's network server in the sandbox (on by default) or not
 /mcp docs                      # docs servers; add a docs-only copy
 ```
 
@@ -774,11 +806,14 @@ server does**.
 - The name checks are word lists. They read tool names, not what a tool does. A tool
   that changes things under a read name, marked `readOnlyHint: true`, runs without
   asking. The Junos show check reads the command text the same way.
-- Stdio servers run with your user's permissions.
-- MCP servers are not in the shell sandbox. The AI's shell is, where the sandbox can
-  run, and it can't read `~/.claude.json` or `~/.mcp.json` there. Without the sandbox
-  (Windows, Linux without bubblewrap, `--no-sandbox`), the AI's shell could read MCP
-  configuration or go around this interface. See [SECURITY.md](SECURITY.md).
+- Stdio servers run with your user's permissions, except Casper's own network server,
+  which runs in the sandbox on macOS and Linux
+  ([It runs in the sandbox](#it-runs-in-the-sandbox)). Every other server is outside the
+  sandbox: Casper doesn't know what it needs.
+- The AI's shell is in the sandbox, where the sandbox can run, and it can't read
+  `~/.claude.json` or `~/.mcp.json` there. Without the sandbox (Windows, Linux without
+  bubblewrap, `--no-sandbox`), the AI's shell could read MCP configuration or go around
+  this interface. See [SECURITY.md](SECURITY.md).
 - Only connect servers you trust, and give them logins with only the rights they
   need. Tool descriptions and results are outside content, not instructions.
 

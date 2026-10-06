@@ -8,6 +8,7 @@ import { inspectProject } from "../src/project/inspect";
 import { editUserConfig } from "../src/config/user-write";
 import { runSettings, settingRows, type SettingsHost } from "../src/app/settings";
 import { posixOnly } from "./support/platform";
+import type { MCPStatus } from "../src/mcp/manager";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
@@ -139,4 +140,25 @@ test("/details <level> is remembered like /effort; --session keeps it to this se
     expect(await readFile(config, "utf8")).toBe("display: detailed\n");
     expect(output).toContain("[details] quiet: the model's words, failures and receipts. For this session only.\n");
   } finally { await app.close(); }
+});
+
+test("an MCP server in the sandbox gets its own line; turning it off goes through the server, not config.yaml", async () => {
+  const { home, project, config } = await place();
+  const calls: [string, boolean][] = [];
+  let state: "on" | "off" = "on";
+  const mcp = {
+    status: () => [
+      { name: "network", sandbox: { state } }, { name: "docs", sandbox: { state: "none" as const } }, { name: "web" },
+    ] as unknown as MCPStatus[],
+    setSandbox: async (name: string, on: boolean) => { calls.push([name, on]); state = on ? "on" : "off"; return undefined; },
+  };
+  const host = { ...fakeHost(home, project, ["Sandbox for MCP server network", "Turn it off", "Done"]), mcp: () => mcp };
+  await runSettings(host);
+  expect(calls).toEqual([["network", false]]);
+  expect(host.asked[0]).toContain("Sandbox for MCP server network");
+  expect(host.asked[0]).not.toContain("docs");
+  expect(host.asked[1]).toStartWith("MCP server network runs in the sandbox.");
+  expect(host.asked[1]).toContain("1 Keep it on\n2 Turn it off");
+  expect(host.text()).toContain("[settings] Sandbox for MCP server network: off. Saved in ~/.casper/mcp-sandbox.json.");
+  await expect(readFile(config, "utf8")).rejects.toThrow();
 });
