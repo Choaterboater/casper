@@ -17,6 +17,20 @@ export function waitForFile(file: string, ms?: number): Promise<boolean> {
   return waitUntil(() => Bun.file(file).exists(), ms);
 }
 
+/**
+ * Waits for a file a child writes holding a process number, and returns it (0 at the deadline). The writer creates the
+ * file before it writes the number, so the file can exist and still be empty; `Number("")` is 0, and `process.kill(0, 0)`
+ * signals the reader's own process group, so a pid read too early always looks alive.
+ */
+export async function waitForPid(file: string, ms?: number): Promise<number> {
+  let pid = 0;
+  await waitUntil(async () => {
+    pid = Number(await Bun.file(file).text().catch(() => ""));
+    return Number.isInteger(pid) && pid > 0;
+  }, ms);
+  return Number.isInteger(pid) && pid > 0 ? pid : 0;
+}
+
 /** Whether a process with this number is still there (it may have exited and not been reaped yet). */
 function exists(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch { return false; }
