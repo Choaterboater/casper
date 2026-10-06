@@ -4,11 +4,100 @@
 published, and what the installers promise. **When you'd use it:** to see what is new
 before you upgrade, or when you build or publish a release yourself.
 
-Casper distributes an unsigned **v0.2.23 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.23`,
+Casper distributes an unsigned **v0.2.24 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.24`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.24: builders the AI starts, plain words, an off switch for every default, and fewer tokens
+
+The AI can now split a big job across builders on its own, you can steer a task with plain words
+instead of commands, every default has an off switch in `/settings`, and every request carries
+about 800 fewer fixed tokens.
+
+**Builders the AI starts itself, as Claude Code and omp do.** For a job with separate parts, the AI
+starts up to 3 builders at once with the `delegate` tool's new `builder` role. Each works in its own
+copy of your project (a Git worktree) that starts from your folder as it is now, unsaved work
+included, with its commands in Casper's sandbox. They don't talk to each other. When a builder
+finishes, its change is applied to your folder uncommitted, through the same path as the main AI's
+edits, so the checks, the receipt and dev servers see it, and one `/undo` takes the whole task back.
+Nothing is forced: if you changed a file meanwhile, that builder's work stays in its copy, `/crew`
+lists it, and the AI is told. A builder that was stopped or failed keeps its copy. Anything that
+would need your OK is not run and is listed in its report. A change containing a hidden-secret
+marker is never applied, and the spend pause counts builders while they run. Your words steer it:
+"run a crew", "use a crew", "split this up" or "do these in parallel" ask for builders; "by
+yourself" or "no helpers" mean none for that request. Words *about* crews ("run the crew tests")
+don't count. The status bar shows `2 builders · $0.12`, and their cost counts toward the task.
+`/settings` (Helpers that build) turns it off; a project file can turn builders off for itself,
+never back on for you. Outside a Git repository, or with no sandbox, builders aren't offered and
+Casper says why. `/crew` stays as the manual way. See [CREWS.md](CREWS.md).
+
+**Plain words for things people typed commands for.** Every slash command works as before.
+- **Just ask.** A read-only `casper_session` tool answers "which model am I on?", "how much have I
+  spent?" and "what changed last task?": model and effort, usage and cost, context, the last task,
+  background tasks, and MCP on or off. No secrets, hosts or private paths; no network call; no cost.
+- **Words at the start of your request, for that task only.** `think hard:` (or `ultrathink` as its
+  own word) is top effort, `quick:` is low effort, `big model:` uses your big model, `fast model:` your
+  fast one, `plan first:` is `/plan`. Casper reads them only from what you typed, never from pasted
+  text, files or the AI; it strips them, says what each did in one line, and says again when it goes
+  back. Words never grant permission.
+- **`/model` during a task** takes effect from the AI's next step, as `/effort` already did.
+- **Side questions.** A line starting with `?`, such as `? what does ECONNRESET mean`, goes to your
+  fast model on the side with no tools, while idle or during a task. The answer isn't added to the
+  conversation and the working AI never sees it. `/usage` counts it, and `/settings` turns it off.
+
+**Every default has an off switch, in one list.** `/settings` first shows every setting with its
+state in 80 columns, then the numbered list. New rows: the browser tool (`browser: off`), the diagram
+tool (`visualize: off`), suggestions (now applied without a restart), the prompt cache
+(`cache: auto|long|short|off`), page checks for every project (`pages: off`, which a project file
+can't turn back on), and whether Casper sends its name to OpenRouter (`telemetry: off`; only the app
+name and site are sent, nothing about your code). Page checks and `/browser` and `/visualize` still
+work with the AI's tool off. A project file, or a profile it picks, can't turn any of these back on.
+See [CONFIGURATION.md](CONFIGURATION.md).
+
+**Fewer fixed tokens on every request.** Casper without MCP sends 3,996 tokens before your task, down
+from 4,782 (−16%); with its network server, 4,824 from 5,709. The browser and the reader have shorter
+descriptions, the diagram tool arrives with a diagram word instead of on every request, and the
+check advice is said once. Every instruction the model acts on stays, and a budget test now fails if
+the fixed part grows.
+
+**The home-folder question lists your recent projects first.** Started in your home folder, Casper
+asks "Work in which project?" with the projects from your latest saved conversations first, then the
+others by newest change, instead of an alphabetical list.
+
+**`/mcp setup ssh`.** Adds an MCP server that runs on another machine over ssh (a build box, a lab
+host) with no config editing: pick a host from your `~/.ssh/config` or type one, give the command,
+and Casper shows the exact ssh line before it saves it to your own `~/.casper/mcp.json`. It connects
+with writes off, like every server. A server preset may now raise a tool's change kind, never lower it.
+
+**One question before two risky opens.** The AI's browser asks before opening a cloud metadata address
+(`169.254.169.254` and its other spellings): `1 No · 2 Yes, this once · 3 Yes, for this session`. On
+Windows, a picture on another computer's share (`\\nas\shots\pic.png`) asks `1 No · 2 Yes, this once`,
+because opening it sends your Windows login hash there. Your LAN and loopback are untouched, and the
+automatic page check is not the AI's browser.
+
+**Safer, from an independent review, part 2.** The part 0.2.23 didn't list:
+- **Casper's own files are private to the AI.** The read tool and the sandboxed shell can't open
+  `~/.casper/mcp.json` and profiles, saved conversations, `models.json`, or the MCP consent and skill
+  trust records.
+- **Secret scrub gaps closed:** key bodies read without their BEGIN line, PGP private keys, `.pgpass`
+  passwords, Docker login `auth` values and Authorization headers in any case. The scrub now also
+  covers MCP results, browser page text, `lsp` results, reference excerpts and check replies.
+  Quoted search words and ordinary words after "password" stay readable.
+- **Pasted text and pictures:** Ctrl+V text can't put terminal control codes into the editor, pasted
+  pictures have a 20 MB cap, and page screenshots are labelled `[screenshot N]` so they never clash
+  with your `[image N]`.
+- `lsp` rename counts as an edit, so it goes through the same gates.
+
+**For contributors.** Every test file cleans up its temp folder with `removeTempDir`, which retries
+Windows `EBUSY` (a process, often git's launcher, can still hold a file there for a moment), so
+Windows CI stops failing on random tests while they delete their folder.
+
+**Known, not done yet.** A spend pause can't stop a builder in the middle of a tool call; a repository
+with no commits still offers builders; `/model` during work skips the "context goes to <provider>"
+note; if the `/model` picker is still open when a `big model:` task ends, switching back can fail
+(Casper says so plainly).
 
 ## v0.2.23: casper doctor, a network server in the sandbox, a reader for untrusted text, crews and pictures
 
