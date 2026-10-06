@@ -11,6 +11,8 @@ async function root() {
   cleanup.push(() => rm(dir, { recursive: true, force: true }));
   return dir;
 }
+// The wait for each answer and for diagnostics. A real server on a busy machine (the full suite runs files in
+// parallel) took over 5 s for its first diagnostics; every wait ends as soon as the answer comes.
 function manager(dir: string, name: string, args: string[], languages: Record<string, string>, timeoutMs = 15_000) {
   const value = new LSPManager(dir, { servers: [{ name, source: "test", command: process.execPath, args, languages }], diagnostics: [] }, timeoutMs);
   cleanup.push(() => value.close());
@@ -33,14 +35,17 @@ test("real TypeScript LSP resolves symbols/references and renames across files w
   await writeFile(path.join(dir, "unrelated.ts"), "export const unrelated = { greet: 'unchanged' };\n");
   const tsc = [process.execPath, path.join(import.meta.dir, "../node_modules/typescript/bin/tsc"), "--noEmit", "-p", dir];
   await check(tsc, dir);
-  const lsp = manager(dir, "ts", [path.join(import.meta.dir, "../node_modules/typescript-language-server/lib/cli.mjs"), "--stdio"], { ".ts": "typescript" }, 5000);
+  const lsp = manager(dir, "ts", [path.join(import.meta.dir, "../node_modules/typescript-language-server/lib/cli.mjs"), "--stdio"], { ".ts": "typescript" });
   await lsp.connect("ts");
   expect(await lsp.query("ts", "symbols", { path: "a.ts" })).not.toEqual([]);
-  expect(await lsp.query("ts", "definition", { path: "b.ts", position: { line: 1, character: 23 } })).not.toEqual([]);
-  expect(await lsp.query("ts", "references", { path: "a.ts", position: { line: 0, character: 18 } })).toHaveLength(3);
+  // Asked while a.ts is the only open file. Opening b.ts makes Casper re-send every open file and wait for new
+  // reports, and this server never publishes a clean file's empty list twice, so a follow-up report can time out
+  // (docs/LSP.md, by design). Asked after b.ts, the result depended on whether the first report came in time.
   const baseline = await lsp.diagnostics("ts", "a.ts");
   expect(baseline.status).toBe("unversioned"); // TLS does not publish document versions.
   expect(baseline.diagnostics).toEqual([]);
+  expect(await lsp.query("ts", "definition", { path: "b.ts", position: { line: 1, character: 23 } })).not.toEqual([]);
+  expect(await lsp.query("ts", "references", { path: "a.ts", position: { line: 0, character: 18 } })).toHaveLength(3);
   const result = await lsp.rename("ts", "a.ts", { line: 0, character: 18 }, "welcome", async (preview) => {
     expect(preview.files.map((file) => file.path)).toEqual(["a.ts", "b.ts"]);
     return true;
