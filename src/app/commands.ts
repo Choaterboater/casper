@@ -57,6 +57,8 @@ import { readFile, stat } from "node:fs/promises";
 import type { SessionWorkspaceManager } from "../sessions/manager";
 import { formatProjectContext } from "../project/context";
 import { runSecurityReview, type SecurityAIReview, type SecurityReviewHost } from "./security-review";
+import { runCrewCommand } from "../crew/command";
+import { crewShell } from "../crew/shell";
 import { sandboxReport, sandboxStatusLine } from "./sandbox";
 import type { SessionYes } from "./session-yes";
 import { webStatusLine } from "../web/tools";
@@ -518,6 +520,10 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     }
     if (/^\/skills(?:\s|$)/.test(prompt)) {
       await handleSkillsCommand(host, prompt);
+      return;
+    }
+    if (/^\/crew(?:\s|$)/.test(prompt)) {
+      await runCrew(host, prompt.slice(5).trim());
       return;
     }
     if (/^\/security-review(?:\s|$)/.test(prompt)) {
@@ -1282,4 +1288,21 @@ export async function noChecksNote(model: ProjectModel, root: string, homeDir: s
   const lines = [`No checks found in ${folder}.`];
   for (const child of children) lines.push(`Tests found in ${child.relative}: /project ${child.relative}`);
   return `[verify] ${lines.join(" ")}\n`;
+}
+
+/** /crew: the person's own job for one builder in its own copy (src/crew/command.ts). Never started by the AI. */
+async function runCrew(host: CommandHost, argument: string): Promise<void> {
+  const context = host.projectContext;
+  if (!context) { host.output.write("[crew] Open a project first.\n"); return; }
+  const sandbox = host.sandbox;
+  await runCrewCommand({
+    root: host.activeWorkspaceRoot(), homeDir: host.homeDir(),
+    write: (text) => { if (!host.closing) host.output.write(text); },
+    canAsk: () => host.interactive && host.terminal.canAsk && !host.closing,
+    pick: (question, options, signal) => host.terminal.pick(question, options, signal),
+    ...(host.commandAbort ? { signal: host.commandAbort.signal } : {}),
+    projectContext: formatProjectContext(context),
+    runBuilder: (options) => host.subagents.runBuilder(options),
+    shell: (copy, note) => sandbox ? crewShell(sandbox, copy, note) : undefined,
+  }, argument);
 }

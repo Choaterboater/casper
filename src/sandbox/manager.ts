@@ -128,6 +128,15 @@ export class ShellSandbox {
     for (const folder of options.allowWrites ?? []) this.sessionWrites.push(realpathLongest(path.resolve(folder)));
   }
 
+  /**
+   * The same sandbox around a crew copy: its root (where commands may write) is the copy, and nobody can be asked,
+   * so a host or a write outside the copy that would ask is refused instead. Your settings and the hosts you
+   * allowed for this project still count; a yes you gave for this session does not.
+   */
+  forCopy(root: string, note: (line: string) => void = () => {}): ShellSandbox {
+    return new ShellSandbox({ ...this.options, root: () => root, askHost: () => undefined, askWrite: () => undefined, note });
+  }
+
   /** Whether and why the sandbox holds commands on this machine. */
   static detect(options: Pick<ShellSandboxOptions, "platform" | "settings" | "noSandboxFlag" | "problem" | "agentDir">): SandboxState {
     if (options.noSandboxFlag) return { kind: "off", reason: "--no-sandbox" };

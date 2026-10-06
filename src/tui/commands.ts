@@ -45,6 +45,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "secrets", description: "Show what Casper hides from the AI" },
   { name: "visualize", description: "Inspect providers or render repository dependencies" },
   { name: "delegate", description: "Ask a bounded read-only subagent (uses a model)" },
+  { name: "crew", description: "A builder does a job in its own copy of the project; you apply it (uses a model)" },
   { name: "login", description: "Set up provider credentials in a private login flow" },
   { name: "exit", description: "Leave Casper" },
 ];

@@ -28,7 +28,7 @@ Casper, `/help <word>` only the lines that mention a word (`/help mcp`), and
 
 ### Commands
 
-These commands run on your machine. Only `/compact`, `/delegate` and
+These commands run on your machine. Only `/compact`, `/delegate`, `/crew <job>` and
 `/verify repair` send a model request. `/model` may fetch provider model lists
 over the network, and `/references add` downloads files after asking you.
 
@@ -74,6 +74,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/secrets` | What Casper hides from the AI ([SECRETS.md](SECRETS.md)) |
 | `/visualize [repo [dir]]` | Diagrams ([VISUALIZATION.md](VISUALIZATION.md)) |
 | `/delegate <explorer\|reviewer> <goal>` | A read-only helper AI on one goal (uses a model; [DELEGATION.md](DELEGATION.md)) |
+| `/crew <job>` | A builder AI does the job in its own copy of the project (uses a model), then 1 Keep the copy · 2 Apply to my folder · 3 Throw it away; bare `/crew` lists copies still here ([CREWS.md](CREWS.md)) |
 | `/exit`, `/quit` | Exit |
 
 An unknown `/` command is rejected on your machine. It is never sent to a model.
