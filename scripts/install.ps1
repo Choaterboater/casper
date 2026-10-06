@@ -3,7 +3,8 @@
 #   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.22/install.ps1 | iex
 #
 # Downloads the self-contained casper-windows-x64.exe (casper-windows-arm64.exe on an ARM64
-# PC), verifies its SHA-256 against the release's SHA256SUMS, installs it under %LOCALAPPDATA%\Programs\casper and adds that
+# PC), verifies its SHA-256 against the release's SHA256SUMS (and SHA256SUMS against the release signature, when
+# ssh-keygen can check it), installs it under %LOCALAPPDATA%\Programs\casper and adds that
 # directory to the user PATH. Re-running the same command updates in place.
 #
 # Environment only: this script takes no flags. install.sh also accepts --dir,
@@ -32,6 +33,44 @@ $BaseUrl = if ($env:CASPER_BASE_URL) { $env:CASPER_BASE_URL } else { 'https://gi
 $InstallDir = if ($env:CASPER_INSTALL_DIR) { $env:CASPER_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\casper' }
 $Version = $env:CASPER_VERSION
 $ExpectedSha = $env:CASPER_SHA256
+# The public half of the Casper release key. SHA256SUMS.sig is an SSH signature over SHA256SUMS made with the private
+# half, which only the release workflow holds. Empty until the key exists; then no signature is checked.
+# scripts/release-key.ts sets it.
+$ReleaseKey = ''
+
+# SHA256SUMS must carry the release key's signature, as in install.sh. A bad one is always refused. A missing one is
+# refused from the release's own address; from another CASPER_BASE_URL (a local build, a mirror) it is said and the
+# SHA-256 still checked. Without an ssh-keygen that can check it (OpenSSH 8.1 or newer), that is said too.
+function Test-CasperSignature([string]$SumsPath) {
+  if (-not $ReleaseKey) { return }
+  $SigPath = "$SumsPath.sig"
+  try {
+    Invoke-WebRequest -Uri "$BaseUrl/SHA256SUMS.sig" -OutFile $SigPath -UseBasicParsing
+  } catch {
+    if (-not $env:CASPER_BASE_URL) {
+      throw 'This release has no signature (SHA256SUMS.sig), so it may not be a Casper release. Nothing installed. Set CASPER_SHA256 if you verified the file out of band.'
+    }
+    Write-Host "No signature (SHA256SUMS.sig) at $BaseUrl; checking SHA-256 only."
+    return
+  }
+  $Keygen = Get-Command ssh-keygen -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $Keygen) { Write-Host 'Install OpenSSH (ssh-keygen) to also check the release signature.'; return }
+  $Allowed = Join-Path $Tmp 'allowed_signers'
+  [IO.File]::WriteAllText($Allowed, "casper-release $ReleaseKey`n")
+  $OutPath = Join-Path $Tmp 'verify-out.txt'
+  $ErrPath = Join-Path $Tmp 'verify-err.txt'
+  # SHA256SUMS goes in as a file, byte for byte: a PowerShell pipe would change its text before ssh-keygen saw it.
+  $Arguments = @('-Y', 'verify', '-f', ('"{0}"' -f $Allowed), '-I', 'casper-release', '-n', 'casper-release', '-s', ('"{0}"' -f $SigPath))
+  $Check = Start-Process -FilePath $Keygen.Source -ArgumentList $Arguments -RedirectStandardInput $SumsPath `
+    -RedirectStandardOutput $OutPath -RedirectStandardError $ErrPath -NoNewWindow -Wait -PassThru
+  if ($Check.ExitCode -eq 0) { Write-Host 'Verified: signed with the Casper release key.'; return }
+  $Said = "$(Get-Content -Raw -ErrorAction SilentlyContinue $OutPath) $(Get-Content -Raw -ErrorAction SilentlyContinue $ErrPath)"
+  if ($Said -match 'option -- Y|illegal option|unknown option') {
+    Write-Host 'This ssh-keygen is too old to check the release signature (OpenSSH 8.1 or newer can).'
+    return
+  }
+  throw "The release signature doesn't match the Casper release key. Nothing installed."
+}
 
 # The release file for this PC. $Machine is the PC's own value from the registry. The process
 # values can differ from it: a 32-bit shell sees x86 (the real one is in PROCESSOR_ARCHITEW6432),
@@ -61,11 +100,14 @@ try {
 
   if (-not $ExpectedSha) {
     $SumsPath = Join-Path $Tmp 'SHA256SUMS'
-    try {
-      Invoke-WebRequest -Uri "$BaseUrl/SHA256SUMS" -OutFile $SumsPath -UseBasicParsing
+    $HaveSums = $true
+    try { Invoke-WebRequest -Uri "$BaseUrl/SHA256SUMS" -OutFile $SumsPath -UseBasicParsing } catch { $HaveSums = $false }
+    if ($HaveSums) {
+      # Outside the try above: a refused signature must stop the install, not read as a missing list.
+      Test-CasperSignature $SumsPath
       $ExpectedSha = (Get-Content $SumsPath | Where-Object { $_ -match "\s\*?$([regex]::Escape($Artifact))$" } |
         Select-Object -First 1) -split '\s+' | Select-Object -First 1
-    } catch { $ExpectedSha = $null }
+    }
   }
   if (-not $ExpectedSha) {
     throw "Could not obtain a SHA-256 for $Artifact. Refusing to install an unverified binary; set CASPER_SHA256 if you verified it out of band."

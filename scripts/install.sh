@@ -4,7 +4,8 @@
 #   curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.22/install.sh | sh
 #
 # Downloads the self-contained binary for this platform, verifies its SHA-256 against
-# the release's SHA256SUMS, installs it into CASPER_INSTALL_DIR (default ~/.local/bin)
+# the release's SHA256SUMS (and SHA256SUMS against the release signature, when ssh-keygen
+# can check it), installs it into CASPER_INSTALL_DIR (default ~/.local/bin)
 # and runs `casper --version`. Re-running the same command updates in place.
 #
 # Environment:
@@ -28,6 +29,10 @@ VERSION="${CASPER_VERSION:-}"
 EXPECTED_SHA="${CASPER_SHA256:-}"
 FORCE=0
 PRINT_TARGET=0
+# The public half of the Casper release key. SHA256SUMS.sig is an SSH signature over
+# SHA256SUMS made with the private half, which only the release workflow holds. Empty
+# until the key exists; then no signature is checked. scripts/release-key.ts sets it.
+RELEASE_KEY=''
 
 usage() {
   cat <<'USAGE'
@@ -136,9 +141,43 @@ digest() { # digest <file>
 echo "Downloading ${artifact} from ${BASE_URL}"
 fetch "${BASE_URL}/${artifact}" "$tmp/$artifact"
 
+# SHA256SUMS must carry the release key's signature. A bad one is always refused. A missing
+# one is refused from the release's own address; from another CASPER_BASE_URL (a local
+# build, a mirror) it is said and the SHA-256 still checked. Without an ssh-keygen that can
+# check it (OpenSSH 8.1 or newer), that is said too and the install goes on.
+check_signature() {
+  [ -n "$RELEASE_KEY" ] || return 0
+  if ! fetch "${BASE_URL}/SHA256SUMS.sig" "$tmp/SHA256SUMS.sig" 2>/dev/null; then
+    if [ -z "${CASPER_BASE_URL:-}" ]; then
+      echo "This release has no signature (SHA256SUMS.sig), so it may not be a Casper release. Nothing installed." >&2
+      echo "Pass --sha256 <hex> if you verified the file out of band." >&2
+      exit 1
+    fi
+    echo "No signature (SHA256SUMS.sig) at ${BASE_URL}; checking SHA-256 only."
+    return 0
+  fi
+  if ! command -v ssh-keygen >/dev/null 2>&1; then
+    echo "Install OpenSSH (ssh-keygen) to also check the release signature."
+    return 0
+  fi
+  printf 'casper-release %s\n' "$RELEASE_KEY" > "$tmp/allowed_signers"
+  if checked="$(ssh-keygen -Y verify -f "$tmp/allowed_signers" -I casper-release -n casper-release -s "$tmp/SHA256SUMS.sig" < "$tmp/SHA256SUMS" 2>&1)"; then
+    echo "Verified: signed with the Casper release key."
+  else
+    case "$checked" in
+      *"option -- Y"*|*"illegal option"*|*"unknown option"*)
+        echo "This ssh-keygen is too old to check the release signature (OpenSSH 8.1 or newer can)." ;;
+      *)
+        echo "The release signature doesn't match the Casper release key. Nothing installed." >&2
+        exit 1 ;;
+    esac
+  fi
+}
+
 # Verification is not optional: an unverified binary is never installed.
 if [ -z "$EXPECTED_SHA" ]; then
   if fetch "${BASE_URL}/SHA256SUMS" "$tmp/SHA256SUMS" 2>/dev/null; then
+    check_signature
     EXPECTED_SHA="$(awk -v name="$artifact" '$2 == name || $2 == "*" name { print $1 }' "$tmp/SHA256SUMS" | head -n 1)"
   fi
 fi
