@@ -30,6 +30,8 @@ release targets with `bun run build:release -- --all`. [Host testing](docs/PLATF
 The optional [evaluation suite](docs/EVALUATION.md) runs real model tasks and may cost
 provider usage: `bun tools/eval.ts --list` shows the tasks.
 
+New here? [How Casper is built](docs/ARCHITECTURE.md): the main pieces, how one request runs, and where to start a change.
+
 Project notes: [design decision](docs/adr/0001-casper-own-product.md),
 [eval results](docs/evals/), [pre-release review](docs/PRE_RELEASE_REVIEW.md).
 
