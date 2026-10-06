@@ -7,7 +7,7 @@ import path from "node:path";
 import { DebugSession } from "../src/debug/session";
 import { needsSymlinks } from "./support/platform";
 import { rejection } from "./support/settle";
-import { processGone, waitForFile } from "./support/wait";
+import { processGone, waitForPid } from "./support/wait";
 
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -155,8 +155,8 @@ test("cancelling immediately after adapter launch drains its separately grouped 
     const controller = new AbortController();
     const work = f.session.run({ action: "start", target: "example" }, controller.signal);
     void work.catch(() => {});
-    await waitForFile(path.join(f.root, "debuggee-pid"));
-    const pid = Number(await readFile(path.join(f.root, "debuggee-pid"), "utf8"));
+    const pid = await waitForPid(path.join(f.root, "debuggee-pid"));
+    expect(pid).toBeGreaterThan(0);
     expect(() => process.kill(pid, 0)).not.toThrow();
     controller.abort();
     await expect(work).rejects.toThrow();
