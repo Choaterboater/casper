@@ -54,7 +54,9 @@ export function splitShell(text: string): ShellLine {
     if (quote) {
       if (char === quote) quote = undefined;
       else if (quote === "\"" && (char === "`" || (char === "$" && text[index + 1] === "("))) { simple = false; current += char; }
-      else if (char === "\\" && quote === "\"" && index + 1 < text.length) current += text[++index];
+      // As bash reads it: inside double quotes a backslash escapes only $ ` " \ and a newline, and stays otherwise
+      // ("..\.ssh" stays ..\.ssh, which Git Bash on Windows reads as a path).
+      else if (char === "\\" && quote === "\"" && index + 1 < text.length && "$`\"\\\n".includes(text[index + 1]!)) { index++; if (text[index] !== "\n") current += text[index]; }
       else current += char;
       continue;
     }

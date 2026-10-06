@@ -279,7 +279,8 @@ function shellWords(text: string): string[] {
     const char = text[index]!;
     if (quote) {
       if (char === quote) quote = undefined;
-      else if (char === "\\" && quote === "\"" && index + 1 < text.length) current += text[++index];
+      // As bash reads it: inside double quotes a backslash escapes only $ ` " \ and a newline.
+      else if (char === "\\" && quote === "\"" && index + 1 < text.length && "$`\"\\\n".includes(text[index + 1]!)) { index++; if (text[index] !== "\n") current += text[index]; }
       else current += char;
       continue;
     }
@@ -426,8 +427,11 @@ function privateWord(command: string, context: PathContext, home: string): strin
     // `ssh -G host` prints what ~/.ssh/config says for it.
     if (path.basename(words[0]!) === "ssh" && words.some((word) => /^-[46AaCfGgKkMNnqsTtVvXxYy]*G[46AaCfGgKkMNnqsTtVvXxYy]*$/.test(word))) return "~/.ssh";
     const tree = readsTree(words);
+    const git = /^git(?:\.exe)?$/i.test(path.basename(words[0]!));
     for (const raw of words.slice(1)) {
-      const word = raw.startsWith("-") ? raw.includes("=") ? raw.slice(raw.indexOf("=") + 1) : "" : raw.replace(/^[A-Za-z_][A-Za-z0-9_]*=/, "");
+      let word = raw.startsWith("-") ? raw.includes("=") ? raw.slice(raw.indexOf("=") + 1) : "" : raw.replace(/^[A-Za-z_][A-Za-z0-9_]*=/, "");
+      // git show HEAD:secrets/x, :secrets/x, :0:secrets/x print that file from git's own copy.
+      if (git && word.includes(":") && !word.includes("://")) { const rest = word.replace(/^:\d:/, ""); word = rest.slice(rest.indexOf(":") + 1); }
       if (!word || !/^[.~/$]|\//.test(word)) continue;
       const expanded = expand(word);
       if (expanded === undefined) continue;

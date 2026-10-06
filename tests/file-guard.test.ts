@@ -162,6 +162,17 @@ test("review: a denyRead folder inside the project blocks reads of it, not a sea
   expect(privatePathCommand("cat secrets/key.pem", denied)).toContain("private");
 });
 
+test("git's <rev>:<path> naming a denyRead file is refused like cat of it; other files pass", async () => {
+  await mkdir(path.join(project, "secrets"), { recursive: true });
+  const denied = { ...context, denyRead: [path.join(project, "secrets")] };
+  for (const command of ["git show HEAD:secrets/key.pem", "git show :secrets/key.pem", "git cat-file -p main:secrets/key.pem", "git show :0:secrets/key.pem"]) {
+    expect({ command, refused: Boolean(privatePathCommand(command, denied)) }).toEqual({ command, refused: true });
+  }
+  for (const command of ["git show HEAD:src/a.ts", "git show HEAD~1 --stat", "git clone https://example.com/x.git"]) {
+    expect({ command, refused: Boolean(privatePathCommand(command, denied)) }).toEqual({ command, refused: false });
+  }
+});
+
 /** The 8.3 short name Windows keeps for a long folder name, or undefined where there is none (8.3 names off, or
  * not Windows). A user folder like C:\Users\runneradmin is also C:\Users\RUNNER~1, and TEMP often uses that form. */
 function shortName(folder: string): string | undefined {

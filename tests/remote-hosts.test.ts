@@ -135,3 +135,11 @@ test("an approved ssh that writes a known-hosts file of its choosing stays in th
   ]) expect([command, runsAlone(command, root)]).toEqual([command, false]);
   expect(runsAlone("ssh -o StrictHostKeyChecking=accept-new build-server uptime", root)).toBe(true);
 });
+
+test("inside double quotes a backslash stays unless it escapes a special character, as bash reads it", () => {
+  const words = (command: string) => splitShell(command).segments[0]!.words;
+  expect(words('cat "..\\..\\.ssh\\config"')).toEqual(["cat", "..\\..\\.ssh\\config"]);
+  expect(words('cat "C:\\Windows\\win.ini"')).toEqual(["cat", "C:\\Windows\\win.ini"]);
+  expect(words('echo "a\\"b" "c\\\\d" "e\\$f"')).toEqual(["echo", 'a"b', "c\\d", "e$f"]);
+  expect(words("cat ..\\x 'a\\b'")).toEqual(["cat", "..x", "a\\b"]);
+});
