@@ -12,7 +12,7 @@ import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { MCPManager } from "../src/mcp/manager";
-import { askForLogin, askToForgetLogin, loginExpired, loginLines, loginMissing, loginMissingAnswer, type LoginHost } from "../src/mcp/network/ask-login";
+import { askForLogin, askToForgetLogin, askWhichLogin, loginExpired, loginLines, loginMissing, loginMissingAnswer, type LoginHost } from "../src/mcp/network/ask-login";
 import { LOGIN_FILE, readLogins, saveLogin, type NetworkProduct } from "../src/mcp/network/logins";
 import { networkServerEntry } from "../src/mcp/network/server";
 import { withLoginDisplay } from "../src/tui/login";
@@ -459,14 +459,14 @@ test("a login value the server echoes in a successful result is hidden from the 
 });
 
 test("a mistyped region is asked again, so one typo never throws the person's yes away", async () => {
-  const run = await brokerRun({ interactive: true, tool: "central_list_sites", answers: ["2", "16", "3"], secrets: ["cid-EXAMPLE-1", "sec-EXAMPLE-2"] });
-  expect(run.prompts[2]).toBe("That isn't one of them. Type a number from 1 to 15.\n");
+  const run = await brokerRun({ interactive: true, tool: "central_list_sites", answers: ["2", "17", "3"], secrets: ["cid-EXAMPLE-1", "sec-EXAMPLE-2"] });
+  expect(run.prompts[2]).toBe("That isn't one of them. Type a number from 1 to 16.\n");
   expect((await readLogins(run.home)).central).toEqual({ CENTRAL_BASE_URL: "https://us4.api.central.arubanetworks.com", CENTRAL_CLIENT_ID: "cid-EXAMPLE-1", CENTRAL_CLIENT_SECRET: "sec-EXAMPLE-2" });
   expect(run.output).not.toContain("Not added.");
 });
 
 test("after three wrong numbers nothing is saved, and the next try still asks (it isn't Not now)", async () => {
-  const run = await brokerRun({ interactive: true, tool: "central_list_sites", answers: ["2", "16", "0", "us1"] });
+  const run = await brokerRun({ interactive: true, tool: "central_list_sites", answers: ["2", "17", "0", "us1"] });
   expect(run.output).toContain("Not added. Type /mcp login central any time.");
   expect(await readLogins(run.home)).toEqual({});
   expect(run.notNow.has("central")).toBe(false);
@@ -479,4 +479,40 @@ test("a server matched only by its tool list never gets the login question; its 
   expect(run.restarts).toEqual([]);
   expect(run.transcript).toContain("login_missing");
   expect(await readLogins(run.home)).toEqual({});
+});
+
+test("/mcp login with no name asks which product, 1 = Not now; a one-shot run only lists", async () => {
+  const home = await tempHome();
+  const asked: string[] = [];
+  const picked: NetworkProduct[] = [];
+  let said = "";
+  const host: LoginHost = {
+    homeDir: home, interactive: true, canAsk: () => true, privateInput: async () => undefined,
+    chooseAnswer: async (preview) => { asked.push(preview); return "3"; }, write: (text) => { said += text; },
+    restart: async () => {}, access: () => undefined,
+  };
+  expect(await askWhichLogin(host, undefined, async (product) => { picked.push(product); })).toBe("central");
+  expect(said).toContain("Central: not set up");
+  expect(asked[0]).toContain("Add or replace which login?");
+  expect(asked[0]).toContain("1 Not now");
+  expect(asked[0]).toContain("2 Mist");
+  expect(asked[0]).toContain("3 Central");
+  expect(asked[0]).toContain("4 ClearPass");
+  expect(picked).toEqual(["central"]);
+  // 1 (or no answer) adds nothing.
+  expect(await askWhichLogin({ ...host, chooseAnswer: async () => "1" }, undefined, async (product) => { picked.push(product); })).toBeUndefined();
+  expect(await askWhichLogin({ ...host, chooseAnswer: async () => undefined }, undefined, async (product) => { picked.push(product); })).toBeUndefined();
+  // A one-shot run lists the products and never asks.
+  let asks = 0;
+  expect(await askWhichLogin({ ...host, interactive: false, canAsk: () => false, chooseAnswer: async () => { asks++; return "2"; } }, undefined,
+    async (product) => { picked.push(product); })).toBeUndefined();
+  expect(asks).toBe(0);
+  expect(picked).toEqual(["central"]);
+});
+
+test("Central and Mist: the last choice lets you type any address (an internal or new cluster)", async () => {
+  const run = await brokerRun({ interactive: true, tool: "central_list_sites", answers: ["2", "16"],
+    secrets: ["apigw.example.net/", "client_EXAMPLE", "secret_EXAMPLE_1"], reach: { central: { access: "read-only" } } });
+  expect((await readLogins(run.home)).central?.CENTRAL_BASE_URL).toBe("https://apigw.example.net");
+  expect(run.prompts).toContain("Central API address (https://…)");
 });

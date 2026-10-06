@@ -22,7 +22,7 @@ import { READ_ONLY_LOGIN_ENABLE_TEXT } from "../mcp/access";
 import { ownSettingsNote, writesTitle, WRITES_OFF_MEANING } from "../mcp/presets";
 import type { MCPConfiguration } from "../mcp/config";
 import { addUserServer, DOCS_TOOL_NAMES, docsOnlyDefinition, docsPinned, isDocsOnlyDefinition, MCP_FILE_LABEL } from "../mcp/docs";
-import { askForLogin, askToForgetLogin, loginLines, type LoginHost } from "../mcp/network/ask-login";
+import { askForLogin, askToForgetLogin, askWhichLogin, type LoginHost } from "../mcp/network/ask-login";
 import { getsLogins, isNetworkProduct } from "../mcp/network/logins";
 import { networkSetupLine, runNetworkSetup, type SetupHost } from "../mcp/network/setup";
 import type { Scrubber } from "../secrets/netconan";
@@ -834,7 +834,7 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       const login = host.networkLoginHost();
       // Casper's network server (its own entry, or one you added that runs casper-network-mcp), if there is one.
       const server = mcp.status().map((status) => status.name).find((server) => getsLogins(mcp.definition(server)));
-      if (!name || !isNetworkProduct(name)) host.output.write(`${(await loginLines(login, server)).join("\n")}\n`);
+      if (!name || !isNetworkProduct(name)) await askWhichLogin(login, server, (product) => askForLogin(login, server, product, { explicit: true }));
       else if (extra[0] === "forget") await askToForgetLogin(login, server, name);
       else await askForLogin(login, server, name, { explicit: true });
       host.updateFooter();

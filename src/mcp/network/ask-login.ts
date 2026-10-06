@@ -129,23 +129,31 @@ const FIELD_TRIES = 3;
 /** A field's value; "wrong" after FIELD_TRIES answers that weren't one of its numbers; undefined when cancelled or empty. */
 async function askField(host: LoginHost, field: LoginField): Promise<string | "wrong" | undefined> {
   if (field.choices) {
-    const digits = field.choices.map((_choice, index) => String(index + 1));
-    let preview = `${field.label}:\n${numberedLines(field.choices.map((choice) => choice.label))}`;
+    const labels = [...field.choices.map((choice) => choice.label), ...(field.other ? ["Other — type the address"] : [])];
+    const digits = labels.map((_label, index) => String(index + 1));
+    let preview = `${field.label}:\n${numberedLines(labels)}`;
     for (let tries = 0; tries < FIELD_TRIES; tries++) {
       const answer = await host.chooseAnswer(preview, `Type 1-${digits.length}: `, digits);
       if (answer === undefined) return undefined;
-      if (digits.includes(answer)) return field.choices[Number(answer) - 1]!.value;
+      const picked = field.choices[Number(answer) - 1];
+      if (picked && digits.includes(answer)) return picked.value;
+      // An internal or new cluster that isn't listed: typed like ClearPass's address.
+      if (field.other && answer === digits.at(-1)) return askAddress(host, field.other);
       // A typo (16, 0, "us1") asks again, so it never throws away the person's yes.
       preview = `That isn't one of them. Type a number from 1 to ${digits.length}.\n`;
     }
     return "wrong";
   }
+  if (/BASE_URL$/.test(field.env)) return askAddress(host, field.label);
+  try { return (await host.privateInput(field.label))?.trim() || undefined; } catch { return undefined; }
+}
+
+/** A typed address: without its scheme it is taken as https; a trailing slash is dropped. */
+async function askAddress(host: LoginHost, label: string): Promise<string | undefined> {
   let value: string | undefined;
-  try { value = (await host.privateInput(field.label))?.trim(); } catch { return undefined; }
+  try { value = (await host.privateInput(label))?.trim(); } catch { return undefined; }
   if (!value) return undefined;
-  // An address typed without its scheme is taken as https; a trailing slash is dropped.
-  if (/BASE_URL$/.test(field.env)) value = (/^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`).replace(/\/+$/, "");
-  return value;
+  return (/^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`).replace(/\/+$/, "");
 }
 
 /** The question, each field, then the save. Not now when the person says so or leaves a field empty. */
@@ -239,6 +247,19 @@ export async function loginLines(host: Pick<LoginHost, "homeDir" | "access">, se
     const reach = loginReach(check, product);
     return `${PRODUCT_LABELS[product]}: ${reach ? `${reach} (checked)` : "set up"}`;
   });
+}
+
+/** /mcp login with no name: each product and its state, then 1 Not now · 2 Mist · 3 Central · 4 ClearPass. The picked
+ * product goes to `add` (the same steps as /mcp login <product>). A one-shot run only lists. */
+export async function askWhichLogin(host: LoginHost, server: string | undefined, add: (product: NetworkProduct) => Promise<unknown>): Promise<NetworkProduct | undefined> {
+  host.write(`${(await loginLines(host, server)).join("\n")}\n`);
+  if (!host.interactive || !host.canAsk()) return undefined;
+  const choices = ["Not now", ...NETWORK_PRODUCTS.map((product) => PRODUCT_LABELS[product])];
+  const digits = choices.map((_, index) => String(index + 1));
+  const answer = await host.chooseAnswer(`Add or replace which login?\n${numberedLines(choices)}`, `Type 1-${digits.length}: `, digits);
+  const product = answer && answer !== "1" ? NETWORK_PRODUCTS[Number(answer) - 2] : undefined;
+  if (product) await add(product);
+  return product;
 }
 
 /** /mcp login <product> forget: 1 Keep it · 2 Forget the <product> login, then the server restarts without it. */

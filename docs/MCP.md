@@ -102,8 +102,11 @@ file and set no variable.
    login and checks what it can do with `access_check`, for example
    `Mist login: can change Branch-12 (checked)`. Mist and ClearPass logins are checked;
    casper-network-mcp can't check a Central login yet, so it shows
-   `Central login: saved (not checked)`.
+   `Central login: saved (not checked)`. The last Mist cloud and Central region choice is
+   `Other — type the address`, for an internal or new cluster that isn't listed.
    `/mcp login mist` adds or replaces it any time; `/mcp login mist forget` removes it.
+   `/mcp login` on its own shows each login and asks which to add or replace
+   (`1 Not now · 2 Mist · 3 Central · 4 ClearPass`).
 
    When the product turns a saved login down (an expired ClearPass token, a revoked Mist
    token: the server answers `login_expired`, or, in casper-network-mcp 0.1.0, passes the
