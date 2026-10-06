@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { METADATA_HOSTS, MetadataGuard, metadataHost, type MetadataWire } from "../src/browser/metadata";
@@ -8,6 +8,7 @@ import { BrowserSession, type MetadataApproval } from "../src/browser/session";
 import { NO, YES_ONCE, YES_SESSION } from "../src/app/safe-choices";
 import { SessionYes } from "../src/app/session-yes";
 import { metadataQuestion } from "../src/app/task-tools";
+import { removeTempDir } from "./support/temp-dir";
 
 /**
  * The AI's browser asks once before it reaches a cloud metadata address (a page there can hand out a cloud machine's
@@ -100,7 +101,7 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 /** A page on 127.0.0.1, and [::1] standing in for a metadata address: both served here, and hits lists what was reached. */
 async function fixture(answer: (request: MetadataApproval) => boolean) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-metadata-test-")));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const project = path.join(root, "project"), state = path.join(root, "state");
   await mkdir(project); await mkdir(state);
   const hits: string[] = [];
