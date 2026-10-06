@@ -723,6 +723,9 @@ export class MCPManager {
       throw new NotExecutedError("could not prepare the call");
     }
     const callSignal = AbortSignal.any([...(signal ? [signal] : []), entry.abort.signal, clock.signal]);
+    // Whatever stops the call first stops the clock: on a busy machine the limit can pass before the error below is
+    // handled, and a cancel that came first must not be reported as a timeout.
+    callSignal.addEventListener("abort", () => clock.dispose(), { once: true });
     const running: RunningApprovedCall | undefined = options.approved ? {
       ...options.approved, tool: name, client, generation: entry.generation, signal: callSignal, clock, questions: 0,
     } : undefined;

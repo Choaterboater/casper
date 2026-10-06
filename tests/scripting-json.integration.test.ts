@@ -4,7 +4,7 @@ import path from "node:path";
 import { notesServer } from "./support/notes-server";
 import { sandboxAvailable } from "./support/platform";
 import { cleanUpAfterEach, fixture, events, fixProject, lastUser, REVIEW, reviewOn, asked, shellCheckTest } from "./support/scripting";
-import { waitUntil } from "./support/wait";
+import { processGone } from "./support/wait";
 
 cleanUpAfterEach();
 
@@ -168,7 +168,6 @@ test("--json --verify: the model records a smoke check, edits, and Casper replay
   } else {
     // A stopped process can still be listed for a moment (on Windows a kill only starts its exit), so wait for it to
     // be gone, with a deadline. One that was never stopped is still there at the deadline.
-    const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
-    for (const pid of pids) expect(await waitUntil(() => !alive(pid), 5_000)).toBe(true);
+    for (const pid of pids) expect(await processGone(pid)).toBe(true);
   }
 }, 60_000);

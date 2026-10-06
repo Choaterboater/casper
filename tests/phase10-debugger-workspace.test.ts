@@ -9,7 +9,7 @@ import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import type { RuntimeSession, RuntimeSessionInfo } from "../src/runtime/types";
-import { waitUntil } from "./support/wait";
+import { processGone } from "./support/wait";
 
 const exec = promisify(execFile);
 test("a live debugger is revoked before exposing a new workspace or model task", async () => {
@@ -34,7 +34,7 @@ test("a live debugger is revoked before exposing a new workspace or model task",
     // moment on a busy machine: wait for it, with a deadline. Casper waits for this call, so nothing stops it later.
     const dead = async (cwd: string) => {
       const pid = Number(await readFile(path.join(cwd, "debuggee-pid"), "utf8"));
-      return waitUntil(() => { try { process.kill(pid, 0); return false; } catch { return true; } }, 5_000);
+      return processGone(pid);
     };
     const session: RuntimeSession = {
       getSessionInfo: () => ({ ...info }), getState: () => ({ cwd: info.cwd, isStreaming: false }),

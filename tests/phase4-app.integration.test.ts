@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { PassThrough } from "node:stream";
 import os from "node:os";
 import path from "node:path";
@@ -9,13 +9,14 @@ import { SkillRegistry } from "../src/skills/registry";
 import { discoverMCPConfiguration } from "../src/mcp/config";
 import type { AgentRuntime, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 import { waitForFile } from "./support/wait";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-phase4-app-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home");
   const project = path.join(root, "project");
   await mkdir(path.join(project, ".casper"), { recursive: true });
@@ -151,6 +152,7 @@ test("interactive MCP errors leave the session usable, and EOF ends the input lo
   const input = new PassThrough();
   let questions = 0;
   let output = "";
+  const eof = Promise.withResolvers<void>();
   const app = new CasperApp({
     input, runtimeFactory: () => { throw new Error("No model should start"); },
     loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
@@ -161,13 +163,15 @@ test("interactive MCP errors leave the session usable, and EOF ends the input lo
       if (text === "> ") queueMicrotask(() => {
         const next = ["/mcp connect nonexistent", "/mcp"][questions++];
         if (next) input.write(next + "\n");
-        else input.end();
+        else { input.end(); eof.resolve(); }
       });
     } },
   });
   cleanup.push(() => app.close());
   const outcome = app.runInteractive(project).then(() => "ended", () => "rejected");
-  expect(await Promise.race([outcome, Bun.sleep(1000).then(() => "stuck")])).toBe("ended");
+  // The time limit starts at EOF: on a busy machine the app's start alone took over a second.
+  await Promise.race([eof.promise, outcome]);
+  expect(await Promise.race([outcome, Bun.sleep(5_000).then(() => "stuck")])).toBe("ended");
   expect(questions).toBe(3);
   expect(output).toContain("Unknown MCP server");
 });
@@ -175,15 +179,19 @@ test("interactive MCP errors leave the session usable, and EOF ends the input lo
 test("interactive EOF while idle does not leave runInteractive pending", async () => {
   const { home, project } = await fixture();
   const input = new PassThrough();
+  const eof = Promise.withResolvers<void>();
   const app = new CasperApp({
     input,
     loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
     loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
     loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
-    output: { write: (text) => { if (text === "> ") queueMicrotask(() => input.end()); } },
+    output: { write: (text) => { if (text === "> ") queueMicrotask(() => { input.end(); eof.resolve(); }); } },
   });
   cleanup.push(() => app.close());
-  expect(await Promise.race([app.runInteractive(project).then(() => "ended"), Bun.sleep(500).then(() => "stuck")])).toBe("ended");
+  const outcome = app.runInteractive(project).then(() => "ended");
+  // The time limit starts at EOF: on a busy machine the app's start alone took over half a second.
+  await Promise.race([eof.promise, outcome]);
+  expect(await Promise.race([outcome, Bun.sleep(5_000).then(() => "stuck")])).toBe("ended");
 });
 
 test("interactive approval shows exact arguments and permits only an explicit yes", async () => {
