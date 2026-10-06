@@ -16,6 +16,11 @@ The main model can also start a helper itself, with the `delegate` tool. It
 passes a `role` (`explorer` or `reviewer`), a `goal`, and optional `context`.
 Both ways make a model request, so they use your provider account.
 
+The same tool has a third role, `builder`: a helper that edits and runs
+commands in its own copy of the project, whose change lands in your folder when
+it ends. The AI uses it for a big job with separate parts. See
+[CREWS.md](CREWS.md); everything below is about the read-only roles.
+
 ## What a helper can do
 
 - It gets only four tools: `read`, `grep`, `find` and `ls`.
@@ -27,7 +32,7 @@ Both ways make a model request, so they use your provider account.
 - If you switch workspace, Casper waits for running helpers to finish first.
 
 For a helper that edits and runs commands in its own copy of the project, see
-[CREWS.md](CREWS.md) (`/crew`).
+[CREWS.md](CREWS.md) (builders, and `/crew`).
 
 "Read-only" here means Casper gives the helper only read tools. It is **not an
 operating-system sandbox** and not a spending cap. A helper's report is advice,

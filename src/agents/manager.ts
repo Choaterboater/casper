@@ -320,7 +320,7 @@ export class SubagentManager {
     let built = 0;
     const offered = Boolean(builders && !builders.off);
     const buildText = !builders ? "" : offered
-      ? ` Role builder (for a job with independent parts, not small tasks): edits and runs commands in its own copy of the project; when it ends its change is applied here, uncommitted, unless a file it touched changed here meanwhile. Give each builder separate files. At most ${BUILDER_LIMITS.maxConcurrent} at once.`
+      ? ` Role builder (a job with separate parts, not small tasks): edits and runs commands in its own copy; its change lands here when it ends, unless a file it touched changed here meanwhile. Up to ${BUILDER_LIMITS.maxConcurrent} at once.`
       : ` No builders here: ${builders.off}.`;
     return {
       name: "delegate",

@@ -163,7 +163,7 @@ test("turned off, or the request says by yourself: builder calls get one plain l
     } } satisfies AgentRuntime;
   const { casper } = await app(repo, home, main, () => reader);
   await casper.runOnce("Change b.txt", repo);
-  expect(description).toContain("No builders here: turned off in /settings (Helpers that build).");
+  expect(description).toContain("No builders here: turned off in /settings.");
   expect(data(texts[0]!).error).toContain("No builders here: turned off");
   expect(data(texts[1]!).status).toBe("completed");
   expect(await readFile(path.join(repo, "b.txt"), "utf8")).toBe("b.txt\n");
@@ -193,7 +193,7 @@ test("outside a Git repository builders are not offered and the tool says why on
   const { casper } = await app(repo, home, main);
   await casper.runOnce("Change b.txt in parallel", repo);
   expect((delegate!.inputSchema as { properties: { role: { enum: string[] } } }).properties.role.enum).toEqual(["explorer", "reviewer"]);
-  expect(delegate!.description).toContain("No builders here: this folder is not a Git repository.");
+  expect(delegate!.description).toContain("No builders here: not a Git repository.");
   expect(main.prompts[0]).not.toContain(builderSteerLine("split")!);
   expect(data((await build(delegate!, "write b.txt")).text).error).toContain("not a Git repository");
 }, 30_000);

@@ -23,7 +23,8 @@ Settings (saved in ~/.casper/config.yaml for you). Pick one to change:
   8 Show the AI the pages  ask once a session
   9 Work shown             normal
  10 Untrusted-text reader  on
- 11 Playwright tests       on
+ 11 Helpers that build     on
+ 12 Playwright tests       on
 ```
 
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
@@ -59,6 +60,13 @@ costs nothing until the AI calls it (then one small request on your `fast` model
 model when none is set). Turn it off with `/settings` (it writes `reader: off`). `reader: { untrusted:
 ["logs/**"] }` names paths the AI should read only this way; a project file (or a profile it picks) may add
 paths there but can't turn the reader on or off. See [READER.md](READER.md).
+
+### Helpers that build
+
+For a big job with separate parts the AI may start builders: each works in its own copy of the
+project and its change lands in your folder when it ends (see [CREWS.md](CREWS.md)). They are on;
+turn them off with `/settings` (it writes `delegate: { build: false }`). A project file may turn them
+off for itself, never back on for you.
 
 ## Config files
 
@@ -113,7 +121,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`,
-`showPages`, `suggestions`, `updates`, `sideQuestions`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`)
+`showPages`, `suggestions`, `updates`, `sideQuestions`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in

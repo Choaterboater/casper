@@ -52,13 +52,13 @@ export const SOLO_REFUSAL = "The request said to work alone: no builders this ta
 
 /** Why builders can't run here, or undefined when they can. */
 export async function builderAvailability(input: { root: string; homeDir: string; off: boolean; sandbox: "ready" | "none" | "asks" }): Promise<string | undefined> {
-  if (input.off) return "turned off in /settings (Helpers that build)";
-  if (input.sandbox === "none") return "this session's shell is not ready for them";
-  if (input.sandbox === "asks") return "no sandbox runs here, so their commands could not run";
+  if (input.off) return "turned off in /settings";
+  if (input.sandbox === "none") return "the shell is not ready";
+  if (input.sandbox === "asks") return "no sandbox runs here";
   const manager = await GitWorktreeManager.open(input.root, input.homeDir);
-  if (!manager) return "this folder is not a Git repository";
+  if (!manager) return "not a Git repository";
   const root = await realpath(input.root).catch(() => path.resolve(input.root));
-  return root === manager.primaryWorkspace ? undefined : "builders start from the project's main folder, not a branch copy";
+  return root === manager.primaryWorkspace ? undefined : "not the project's main folder";
 }
 
 /** Applies and copy-making take turns per repository: one builder's change lands before the next copy is made. */
