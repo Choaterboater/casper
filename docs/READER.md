@@ -24,7 +24,7 @@ It is on by default and costs nothing until the AI calls it. Each call is one sm
 4. Casper checks the answer against the schema. Anything that isn't one JSON object that matches
    it gets one retry, with the problems in plain words, then a plain error. The error never holds
    the text or the reader's answer.
-5. The AI gets `{ from, data, note }`.
+5. The AI gets `{ from, data, note }` (plus `sourceCut` when an MCP result was cut; see below).
 
 ## The schema
 
@@ -36,10 +36,13 @@ The AI writes a JSON Schema with `"type": "object"` at the top. Casper tightens 
 - `$ref`, `anyOf`, `oneOf`, `allOf`, pattern properties and several types per field are refused.
 - A plain string that reads like orders to an AI, a shell command or a tool name
   (`ignore previous instructions`, `rm -rf`, `curl`, `casper_...`) is refused, like a wrong type.
+  Full-width and other look-alike letters are read as plain ones for this check. A plain string
+  with characters people can't see (zero-width, tag characters, bidi marks) is refused the same way.
   Enum values are not checked this way; they can only be what the schema lists.
 
 Longer free text, such as an email body, needs `"x-casper-quoted": true` on that string (up to 8000
-characters). It comes back wrapped with where it came from:
+characters). Characters people can't see are taken out of it. It comes back wrapped with where it
+came from:
 
 ```json
 { "from": "inbox/4411.eml",
@@ -50,6 +53,11 @@ characters). It comes back wrapped with where it came from:
 Text over 64 KB is read in parts, by lines. That needs a top-level list in the schema: the lists
 from each part are joined, and other fields come from the first part. Text over 200 KB is refused;
 read a smaller part, such as the last lines of a log.
+
+An MCP result is cut to 200 KB and 1000 items per list before the reader sees it (the AI's own MCP
+calls get 16 KB and 50 items). When it was cut, the answer has `sourceCut`: which lists were cut
+(shown and total) and the next-page cursor when the server gave one, so the AI knows the answer may
+miss items.
 
 ## Settings
 

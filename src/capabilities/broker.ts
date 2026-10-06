@@ -154,6 +154,11 @@ const LIST_ABOUT_CHARS = 80;
 const CURSOR_PATTERN = /^\d{1,9}\.\d{1,6}$/;
 const ROUTER_HINT = "This server has its own search. Call its find_tool with a few words; it cannot list everything.";
 const EMPTY_SEARCH_HINT = 'Nothing matched. Try one plain word (like site or vlan), or query "*" to list every tool.';
+/** How big a result invoke hands back. The AI gets 16 KB and 50 items per list; the reader asks for more, since
+ * the text goes to its own model and not into the AI's context. */
+export interface InvokeBound { maxBytes: number; maxItems: number }
+const AI_BOUND: InvokeBound = { maxBytes: 16_384, maxItems: 50 };
+
 /** Index locally; send schemas only for selected tools or explicit inspection. */
 export class CapabilityBroker {
   private capabilities = new Map<string, Capability>();
@@ -268,7 +273,7 @@ export class CapabilityBroker {
    *   size check -> validate (WP3) -> hidden/argGuard (WP4) -> secret-marker gate (WP6)
    *   -> approval plan (WP2) -> call (call clock) -> scrub (WP6) -> bound the result.
    */
-  async invoke(id: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<BoundedCapabilityResult> {
+  async invoke(id: string, args: Record<string, unknown>, signal?: AbortSignal, bound: InvokeBound = AI_BOUND): Promise<BoundedCapabilityResult> {
     const combined = signal ? AbortSignal.any([signal, this.closed.signal]) : this.closed.signal;
     notCancelled(combined);
     this.sync();
@@ -413,7 +418,7 @@ export class CapabilityBroker {
     const scrubbed = await this.scrub(raw, combined, capability.descriptor.source);
     if (planMode(plan) === "preview") this.previews.set(this.previewSlot(capability, plan), { text: previewText(scrubbed.value), at: Date.now() });
     // 8. Bound: per-list limits, the next-page cursor kept, duplicate text dropped.
-    const result = boundCapabilityResult(scrubbed.value, 16_384, 50, { mcp: true });
+    const result = boundCapabilityResult(scrubbed.value, bound.maxBytes, bound.maxItems, { mcp: true });
     const note = scrubNote(scrubbed);
     if (scrubbed.hidden > 0) result.secretsHidden = scrubbed.hidden;
     if (note) result.summary = `${result.summary} ${note}`;

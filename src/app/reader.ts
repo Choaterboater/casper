@@ -1,4 +1,4 @@
-import type { CapabilityBroker } from "../capabilities/broker";
+import type { CapabilityBroker, InvokeBound } from "../capabilities/broker";
 import { DEFAULT_READER, type ReaderSettings } from "../config/load";
 import type { ProjectContext } from "../project/context";
 import { MAX_TEXT_BYTES } from "../reader/quarantine";
@@ -56,6 +56,6 @@ export function appReaderTool(source: AppReaderSource): RuntimeTool | undefined 
       });
       return { output: Buffer.concat(chunks).toString("utf8"), exitCode };
     } } : {}),
-    ...(source.broker ? { callMcp: (id: string, args: Record<string, unknown>, signal?: AbortSignal) => source.broker!.invoke(id, args, signal) } : {}),
+    ...(source.broker ? { callMcp: (id: string, args: Record<string, unknown>, signal?: AbortSignal, bound?: InvokeBound) => source.broker!.invoke(id, args, signal, bound) } : {}),
   });
 }

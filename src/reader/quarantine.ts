@@ -2,7 +2,7 @@
  * The quarantined reader: a separate model call with no tools reads untrusted text (a log, an email, a web form)
  * and fills the caller's JSON Schema. Only JSON that passes the tightened schema comes back; anything else is a
  * plain error that never holds the text or the reader's answer. Strings are length-capped, plain strings that look
- * like instructions or commands are refused, and fields marked quoted come back as { quoted, from }.
+ * like instructions or commands, or hold hidden characters, are refused, and fields marked quoted come back as { quoted, from }.
  * It lowers the risk of prompt injection; it does not remove it (a fooled reader can still pick a wrong value).
  */
 import type { ErrorObject, ValidateFunction } from "ajv";
@@ -60,8 +60,23 @@ const STEERING: RegExp[] = [
   /\$\(|`[^`]*`|\beval\s*\(|\bexec\s*\(/i,
 ];
 
+/** Characters people cannot see but a model may read: format characters (zero-width, bidi, the tag block),
+ * control characters other than tab and newline, variation selectors and the blank Hangul fillers. */
+const HIDDEN = /[\p{Cf}\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}\u115F\u1160\u3164\uFFA0]|[^\P{Cc}\t\n\r]/gu;
+
+export function hasHiddenCharacters(text: string): boolean {
+  return text.search(HIDDEN) !== -1;
+}
+
+/** Takes out hidden characters (tab, newline and carriage return stay). */
+export function withoutHiddenCharacters(text: string): string {
+  return text.replace(HIDDEN, "");
+}
+
+/** Checked in NFKC form, so full-width and other look-alike letters read as plain ones. */
 export function looksLikeInstructions(text: string): boolean {
-  return STEERING.some((pattern) => pattern.test(text));
+  const plain = text.normalize("NFKC");
+  return STEERING.some((pattern) => pattern.test(plain));
 }
 
 // Loaded on the first read: sessions that never call the reader never load Ajv.
@@ -181,9 +196,11 @@ export async function readUntrusted(input: ReadUntrustedInput): Promise<ReadUntr
       else if (check(parsed.value)) {
         const steering: string[] = [];
         walkStrings(parsed.value, schema, "", (value, node, path) => {
-          if (node[QUOTED_KEY] !== true && node.enum === undefined && node.const === undefined && looksLikeInstructions(value)) steering.push(path);
+          if (node[QUOTED_KEY] === true || node.enum !== undefined || node.const !== undefined) return;
+          if (hasHiddenCharacters(value)) steering.push(`"${path}" has hidden characters`);
+          else if (looksLikeInstructions(value)) steering.push(`"${path}" reads like instructions or a command`);
         });
-        found = steering.slice(0, MAX_PROBLEMS).map((path) => `"${path}" reads like instructions or a command`);
+        found = steering.slice(0, MAX_PROBLEMS);
         if (!found.length) { answer = parsed.value; break; }
       } else found = problems(check.errors ?? []);
       if (attempt === 0) retry = `\n\nYour last answer did not match: ${found.join("; ")}. Answer again with only the JSON object, using only values from the text.`;
@@ -205,7 +222,7 @@ export async function readUntrusted(input: ReadUntrustedInput): Promise<ReadUntr
   const wrapped = walkStrings(data, schema, "", (value, node) => {
     if (node[QUOTED_KEY] !== true) return value;
     quoted = true;
-    return { quoted: value, from: input.source };
+    return { quoted: withoutHiddenCharacters(value), from: input.source };
   });
   return { ok: true, data: wrapped, parts: pieces.length, secretsHidden: scrubbed.hidden, quoted, usage: usage ?? null, calls };
 }
