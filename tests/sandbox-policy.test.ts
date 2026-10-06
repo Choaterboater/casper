@@ -5,7 +5,7 @@ import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
 import { PRIVATE_PATHS, PROTECTED_WRITE_PATHS } from "../src/platform/project-paths";
 import { within } from "../src/platform/project-paths";
-import { cachePaths, clangModuleCache, hostListed, REGISTRY_HOSTS, sandboxPolicy } from "../src/sandbox/policy";
+import { cachePaths, clangModuleCache, hostListed, REGISTRY_HOSTS, sandboxPolicy, writeFileToOffer, writeFolderToOffer } from "../src/sandbox/policy";
 import { SandboxStore } from "../src/sandbox/store";
 import { posixOnly } from "./support/platform";
 import { waitUntil } from "./support/wait";
@@ -266,4 +266,23 @@ posixOnly("on macOS a tool run with network none gets a profile with no network 
   expect(none).toContain("curl http://127.0.0.1:8080/");
   // A line it can't read is refused, never run with the network.
   expect(() => withoutNetwork("sh -c 'curl example.com'")).toThrow("can't be kept off the network");
+});
+
+test("a store moved with CASPER_AGENT_DIR is read-only to commands, like ~/.casper; never home or the project itself", async () => {
+  const { base, home, root } = await fixture();
+  const agentDir = path.join(base, "agent-store");
+  await mkdir(path.join(agentDir, "sessions"), { recursive: true });
+  const policy = sandboxPolicy({ root, home, agentDir, tempDirs: [TMP], platform: "linux" });
+  expect(policy.denyWrite).toContain(agentDir);
+  expect(policy.denyRead).toContain(path.join(agentDir, "auth.json"));
+  expect(writeFolderToOffer(path.join(agentDir, "settings.json"), policy, { root, home })).toBeUndefined();
+  expect(writeFileToOffer(path.join(agentDir, "sessions", "s.jsonl"), policy, { root, home })).toBeUndefined();
+  for (const odd of [home, base, path.parse(base).root]) {
+    expect(sandboxPolicy({ root, home, agentDir: odd, tempDirs: [TMP], platform: "linux" }).denyWrite).not.toContain(odd);
+  }
+});
+
+test("Claude Code's debug folder, which the sandbox runtime would let commands write, is not writable", async () => {
+  const { home, root } = await fixture();
+  expect(sandboxPolicy({ root, home, tempDirs: [TMP], platform: "darwin" }).denyWrite).toContain(path.join(home, ".claude", "debug"));
 });

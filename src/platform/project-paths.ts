@@ -262,7 +262,7 @@ export function fileToolGate(toolName: string, input: Record<string, unknown> | 
 const WRITE_WORDS = /(?:^|[\s;&|(`])(?:tee|cp|mv|ln|install|chmod|chown|touch|dd|rsync|curl|wget|unzip|tar|rm|mkdir|truncate|patch|sed\s+(?:-\w*i|--in-place)|perl\s+-\w*i|python[\d.]*|node|bun|ruby|perl|sh|bash|zsh|git\s+(?:apply|checkout|restore))(?=\s|$)/;
 const REDIRECT = /(?:^|[^<>&\d])>{1,2}(?!&)|&>/;
 /** git config keys that make git run a program, or point it somewhere else. */
-const RISKY_GIT_KEY = /^(?:core\.(?:hookspath|fsmonitor|sshcommand|pager|editor|askpass|gitproxy|worktree|attributesfile|excludesfile)$|alias\.|filter\.|pager\.|diff\..+\.(?:textconv|command)$|merge\..+\.driver$|(?:difftool|mergetool|browser|man)\..+\.(?:cmd|path)$|interactive\.difffilter$|credential(?:\.|$)|include\.|includeif\.|gpg\.|sequence\.editor$|uploadpack\.|receivepack\.|protocol\.|url\.|remote\..+\.(?:uploadpack|receivepack|proxy)$)/i;
+const RISKY_GIT_KEY = /^(?:core\.(?:hookspath|fsmonitor|sshcommand|pager|editor|askpass|gitproxy|worktree|attributesfile|excludesfile)$|alias\.|filter\.|pager\.|diff\.external$|diff\..+\.(?:textconv|command)$|merge\..+\.driver$|(?:difftool|mergetool|browser|man)\..+\.(?:cmd|path)$|interactive\.difffilter$|credential(?:\.|$)|include\.|includeif\.|gpg\.|sequence\.editor$|uploadpack\.|receivepack\.|protocol\.|url\.|remote\..+\.(?:uploadpack|receivepack|proxy)$)/i;
 /** git options before the command word that take the next word as their value. */
 const GIT_VALUE_OPTIONS = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--exec-path", "--super-prefix"]);
 /** git config options that take the next word as their value. */
@@ -326,15 +326,16 @@ function riskyGitConfig(text: string, depth = 0): string | undefined {
 }
 
 /**
- * A shell command that would change git's own files: a write to .git/hooks, .git/config or a
- * core.hooksPath folder, or `git config` setting a key that makes git run a program. A text check,
+ * A shell command that would change git's own files: a write to .git/hooks, .git/config, a
+ * core.hooksPath folder or a rebase or cherry-pick to-do (an `exec` line there runs on the next
+ * `--continue`, outside the sandbox), or `git config` setting a key that makes git run a program. A text check,
  * not a sandbox: a script can still get past it until the shell sandbox ships.
  */
 export function gitInternalsCommand(command: string, root: string, home = os.homedir()): string | undefined {
   const config = riskyGitConfig(command);
   if (config) return config;
   const hooks = hooksPathTargets(root, home).flatMap((target) => [target, displayPath(target, root, home)]);
-  const names = [/(?:^|[\s'"=:(/\\])\.git(?:[\\/]+(?:hooks|config(?:\.worktree)?|info)\b|[\\/]*(?=$|[\s'";&|)]))/, ...hooks.filter((name) => name && name !== ".").map((name) => new RegExp(`(?:^|[\\s'"=:(])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[\\\\/]|\\s|$|['"])`))];
+  const names = [/(?:^|[\s'"=:(/\\])\.git(?:[\\/]+(?:hooks|config(?:\.worktree)?|info|rebase-merge|rebase-apply|sequencer)\b|[\\/]*(?=$|[\s'";&|)]))/, ...hooks.filter((name) => name && name !== ".").map((name) => new RegExp(`(?:^|[\\s'"=:(])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[\\\\/]|\\s|$|['"])`))];
   const named = names.map((pattern) => pattern.exec(command)?.[0]?.trim().replace(/^['"=:(/\\]/, "")).find(Boolean);
   if (named && (REDIRECT.test(command) || WRITE_WORDS.test(command))) {
     return `Not run: this command changes ${named.replace(/[\\/]+$/, "")}, git's own files. Casper doesn't let the AI change them. Ask the user to run it.`;

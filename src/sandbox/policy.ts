@@ -78,6 +78,10 @@ export const UV_PYTHONS = ".local/share/uv";
 /** Casper's own records the shell must not read: approvals, remembered hosts, lab answers, undo copies. */
 export const CASPER_PRIVATE_PATHS: readonly string[] = [".casper/projects", ".casper/mcp-consent.json", ".casper/skills-trust.json"];
 
+/** Folders in your home the sandbox runtime makes writable on its own (its HOME_CONVENIENCE_WRITE_DIRS) that belong to
+ * another program and are not in Casper's list of writable places. (~/.npm/_logs is inside ~/.npm, a package cache.) */
+export const RUNTIME_EXTRA_WRITES: readonly string[] = [".claude/debug"];
+
 /** git's own files in a git folder that change what git runs. */
 export const GIT_OWN_FILES: readonly string[] = ["hooks", "config", "config.worktree", "info"];
 
@@ -214,6 +218,10 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
     ...submodules.flatMap((found) => found.pointers).flatMap(spellings),
     ...inHome(PROTECTED_WRITE_PATHS),
     ...inHome(PRIVATE_PATHS),
+    ...inHome(RUNTIME_EXTRA_WRITES),
+    // A store moved with CASPER_AGENT_DIR is held like ~/.casper: its settings pick the model, its sessions are replayed.
+    // Not when it is home, / or holds the project: that would make them read-only too.
+    ...(input.agentDir && !within(path.resolve(input.agentDir), home) && !within(path.resolve(input.agentDir), root) ? spellings(input.agentDir) : []),
     ...(input.project?.denyWrite ?? []).map((entry) => resolveEntry(entry, root, home)).flatMap(spellings),
   ]);
   const denyRead = unique([

@@ -97,6 +97,16 @@ test("shell commands that write git hooks or risky git settings are refused; rea
   }
 });
 
+test("a shell write into git's rebase or cherry-pick to-do, or git config diff.external, is refused; reading them passes", () => {
+  for (const risky of ["printf 'exec touch x\\n' >> .git/rebase-merge/git-rebase-todo", "echo 'exec id' > .git/sequencer/todo",
+    "cp evil .git/rebase-apply/patch", "git config diff.external ./tool", "git config --local diff.external /tmp/x"]) {
+    expect([risky, gitInternalsCommand(risky, project, home)]).toEqual([risky, expect.stringMatching(/^Not run:/)]);
+  }
+  for (const safe of ["cat .git/rebase-merge/git-rebase-todo", "git rebase --continue", "git config --get diff.external"]) {
+    expect([safe, gitInternalsCommand(safe, project, home)]).toEqual([safe, undefined]);
+  }
+});
+
 test("a session in Casper's own worktree folder can still edit its project files", async () => {
   const tree = path.join(home, ".casper/worktrees/abc123/fix-login");
   await mkdir(path.join(tree, "src"), { recursive: true });
