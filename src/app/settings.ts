@@ -65,6 +65,7 @@ export function settingRows(context: ProjectContext): Setting[] {
   const spend = context.spend ?? DEFAULT_SPEND_LIMITS;
   const display = context.display ?? "normal";
   const e2e = context.verification.e2e !== false;
+  const build = context.delegate?.build !== false;
   const amount = (dollars: number | undefined) => dollars === undefined ? "off" : `at ${formatLimit(dollars)} a task`;
   const money = (key: "noteAt" | "pauseAt", label: string, verbs: [off: string, on: string], about: string): Setting => {
     const now = spend[key];
@@ -101,6 +102,11 @@ export function settingRows(context: ProjectContext): Setting[] {
       question: `The untrusted-text reader (casper_read_untrusted) is ${reader.enabled ? "on" : "off"}. It reads logs, mail and forms with a separate model that has no tools, and costs tokens only when the AI uses it.`,
       keep: `Keep it ${reader.enabled ? "on" : "off"}`,
       choices: [reader.enabled ? { label: "Turn it off", keys: readerKeys, value: false, shown: "off" } : { label: "Turn it on", keys: readerKeys, value: true, shown: "on" }] },
+    { label: "Helpers that build", value: build ? "on" : "off",
+      question: `Helpers that build are ${build ? "on" : "off"}. For a big job with separate parts the AI may start up to 3 builders; each works in its own copy of the project and its change lands in your folder when it ends. They use tokens.`,
+      keep: `Keep them ${build ? "on" : "off"}`,
+      choices: [build ? { label: "Turn them off", keys: ["delegate", "build"], value: false, shown: "off" }
+        : { label: "Turn them on", keys: ["delegate", "build"], value: true, shown: "on" }] },
     { label: "Playwright tests", value: e2e ? "on" : "off",
       question: `Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are ${e2e ? "on" : "off"}.`,
       keep: `Keep them ${e2e ? "on" : "off"}`,

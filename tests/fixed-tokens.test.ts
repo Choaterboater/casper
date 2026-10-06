@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +20,8 @@ const BUDGET = {
   fixed: 12_200,
   preamble: 1_200,
   tools: { browser: 3_500, casper_read_untrusted: 1_100, casper_check: 950, delegate: 950, casper_session: 350 } as Record<string, number>,
+  /** In a Git repository delegate also offers builders (about 50 tokens more). */
+  delegateWithBuilders: 1_150,
 };
 
 const cleanup: Array<() => unknown> = [];
@@ -41,7 +44,7 @@ class CaptureRuntime implements AgentRuntime {
 }
 
 /** A small TypeScript project with test and build scripts, Chrome present, checks on. */
-async function firstRequest(task: string) {
+async function firstRequest(task: string, options: { git?: boolean } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-fixed-tokens-"));
   cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"), project = path.join(root, "project");
@@ -50,6 +53,7 @@ async function firstRequest(task: string) {
   await writeFile(path.join(project, "package.json"), JSON.stringify({ name: "demo-app", type: "module", scripts: { test: "bun test", build: "tsc -p ." } }));
   await writeFile(path.join(project, "tsconfig.json"), "{}\n");
   await writeFile(path.join(project, "src/math.ts"), "export function add(a: number, b: number): number { return a + b; }\n");
+  if (options.git) execFileSync("git", ["init", "-q", "-b", "main"], { cwd: project });
   const previous = browserDefaults.installed;
   browserDefaults.installed = async () => true;
   cleanup.push(() => { browserDefaults.installed = previous; });
@@ -61,6 +65,7 @@ async function firstRequest(task: string) {
     loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
     loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
     loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
+    ...(options.git ? { noSandbox: true } : {}),
   });
   cleanup.push(() => app.close());
   await app.runOnce(task, project);
@@ -83,6 +88,13 @@ test("each tool's text stays within its own budget", async () => {
   const { toolText } = await firstRequest("Add a sum function to src/math.ts");
   const sizes = Object.fromEntries((JSON.parse(toolText) as Array<{ function: { name: string } }>).map((tool) => [tool.function.name, JSON.stringify(tool).length]));
   for (const [name, limit] of Object.entries(BUDGET.tools)) expect({ name, size: sizes[name]! < limit }).toEqual({ name, size: true });
+});
+
+test("with builders offered (a Git repository) delegate stays within its budget", async () => {
+  const { toolText } = await firstRequest("Add a sum function to src/math.ts", { git: true });
+  const delegate = (JSON.parse(toolText) as Array<{ function: { name: string; description: string } }>).find((tool) => tool.function.name === "delegate")!;
+  expect(delegate.function.description).toContain("Role builder");
+  expect(JSON.stringify(delegate).length).toBeLessThan(BUDGET.delegateWithBuilders);
 });
 
 test("check advice is said once: in casper_check, not again in every task's text", async () => {

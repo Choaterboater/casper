@@ -448,25 +448,30 @@
         <h2 id="coming-h">Planned, not started</h2>
         <aside class="callout soon">
           <strong class="callout-title">Not in any release yet</strong>
-          <p>Nothing else in this section is in v0.2.23: the first part of Crews shipped in it, and the rest has
-          not been started. Names, commands and details may change, or move to a later version, before
+          <p>Nothing else in this section is in v0.2.23: the first part of Crews shipped in it, AI-started
+          builders are built but not released, and the rest has not been started. Names, commands and details may change, or move to a later version, before
           they ship.</p>
         </aside>
 
         <div class="stack">
         <article class="card" id="v030" aria-labelledby="v030-h">
           <h3 id="v030-h">v0.3 · Crews <span class="badge soon">first part shipped in v0.2.23</span></h3>
-          <p>Big jobs get a team. You start it; the AI never spends on a crew by itself.</p>
+          <p>Big jobs get a team. The AI splits a big job itself, as Claude Code and omp do; <code>/crew</code>
+          is the manual way.</p>
           <ul>
             <li><strong>A builder in its own copy</strong> <span class="badge">in v0.2.23</span>.
             <code>/crew &lt;job&gt;</code>: a builder does the job in its own copy of the project, in the
             same sandbox, and your folder stays as it is. Then 1 Keep the copy · 2 Apply to my folder ·
             3 Throw it away. See <code>docs/CREWS.md</code>.</li>
-            <li><strong>Split, build, review, fix.</strong> Next: a crew splits a big job into parts, with a
-            builder and a reviewer for each part and a fixer, then merges and runs the full tests.</li>
-            <li><strong>See it work.</strong> The status bar shows the crew
-            (<code>crew 2/3 building · 1 reviewing · $0.40</code>); <code>/crew</code> shows each
-            part. Keep chatting; it reports when the parts land.</li>
+            <li><strong>The AI starts builders itself</strong> <span class="badge">built, not released</span>.
+            For a job with separate parts the AI starts up to 3 builders at once, each in its own copy of
+            your folder as it is (unsaved files too); each
+            change lands in your folder when its builder ends, uncommitted, and one <code>/undo</code> takes
+            the task back. A change that touches a file changed after its copy started stays in its copy for
+            <code>/crew</code>. "run a crew" or "split this up" asks for them, "by yourself" keeps them out; /settings
+            turns them off. The footer shows them (<code>2 builders · $0.12</code>).</li>
+            <li><strong>Review, fix.</strong> Next: a reviewer for each part and a fixer, then the full
+            tests.</li>
             <li><strong>Your limits apply to the crew.</strong> A limit said in the request ("keep it
             under $2") holds for the whole crew, and the cost is shown as it goes.</li>
           </ul>

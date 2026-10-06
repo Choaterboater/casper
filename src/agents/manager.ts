@@ -4,6 +4,7 @@ import os from "node:os";
 import type { AgentRuntime, RuntimeEvent, RuntimeSession, RuntimeShell, RuntimeStartOptions, RuntimeTool } from "../runtime/types";
 import { isOutside } from "../platform/inside";
 import type { PromptCacheSetting } from "../runtime/cache";
+import { hiddenSecretGate } from "../secrets/gate";
 
 export const SUBAGENT_LIMITS = Object.freeze({
   maxConcurrent: 2,
@@ -31,7 +32,8 @@ export const SECURITY_REVIEW_LIMITS = Object.freeze({
 });
 
 /** A crew builder: one part of a job, in its own copy of the project. Fixed bounds, like the helpers'; tests and
- * embedders may tighten the deadline, never widen it, and the model can't start one (it is not a tool). */
+ * embedders may tighten the deadline, never widen it. The person starts one with /crew; the AI with delegate's role
+ * builder, when the session offers builders (src/crew/auto.ts). */
 export const BUILDER_LIMITS = Object.freeze({
   maxConcurrent: 3,
   timeoutMs: 20 * 60_000,
@@ -41,6 +43,8 @@ export const BUILDER_LIMITS = Object.freeze({
   contextBytes: 32_768,
   responseBytes: 16_384,
   totalTextBytes: 1_048_576,
+  /** Builders the AI may start in one task (delegate role builder), besides its read-only helpers. */
+  maxPerTask: 6,
 });
 
 export type SubagentRole = "explorer" | "reviewer" | "builder";
@@ -69,6 +73,8 @@ export interface BuilderRunOptions {
   shell?: RuntimeShell;
   /** The folder the copy was made from: your private paths inside it are private in the copy too. */
   main?: string;
+  /** Before each tool call (the task's spend pause): a reason stops the builder there. */
+  beforeToolWait?: RuntimeStartOptions["beforeToolWait"];
   signal?: AbortSignal;
 }
 
@@ -114,12 +120,30 @@ export interface SubagentManagerOptions {
   onActivity?: (activity: HelperActivity) => void;
 }
 
-/** One helper (a delegated child) that is running now. */
-export interface HelperRun { id: number; role: SubagentRole; goal: string; startedAt: number }
+/** One helper (a delegated child) that is running now; `spent` is what its model responses cost so far. */
+export interface HelperRun { id: number; role: SubagentRole; goal: string; startedAt: number; spent?: SubagentUsage }
+
+/** What a builder the AI started did, for the delegate result (src/crew/auto.ts). */
+export interface BuildOutcome {
+  /** Shown to the main AI: what changed, what was skipped and why, and the cost. */
+  report: Record<string, unknown>;
+  isError: boolean;
+  usage: SubagentUsage | null;
+}
+
+/** The delegate tool's builder mode: a helper that edits in its own copy, its change applied when it ends. */
+export interface DelegateBuilders {
+  /** Why builders are not offered here (not a Git repository, no sandbox, turned off); unset when they are. */
+  off?: string;
+  /** Why not now (the request said to work alone), asked at each call. */
+  refuse?(): string | undefined;
+  run(job: { goal: string; context?: string; signal?: AbortSignal }): Promise<BuildOutcome>;
+}
 
 export type HelperActivity =
   | { kind: "start"; run: HelperRun }
   | { kind: "tool"; run: HelperRun; event: Extract<RuntimeEvent, { type: "tool_start" | "tool_end" }> }
+  | { kind: "usage"; run: HelperRun }
   | { kind: "end"; run: HelperRun; status: SubagentStatus };
 
 /** What the security review's child gets: its own prompt, a read gate and the full scrubber (the caller's). */
@@ -151,7 +175,7 @@ interface ChildSpec {
   scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
   beforeToolGate?: RuntimeStartOptions["beforeToolGate"];
   /** A builder: writable tools in its copy, with this shell. */
-  builder?: { shell?: RuntimeShell; main?: string };
+  builder?: { shell?: RuntimeShell; main?: string; beforeToolWait?: RuntimeStartOptions["beforeToolWait"] };
   signal?: AbortSignal;
 }
 
@@ -212,9 +236,12 @@ function builderPrompt(options: BuilderRunOptions): string {
   ].filter(Boolean).join("\n\n");
 }
 
-/** A builder's edit and write tools stay in its copy, whatever the sandbox does (on Windows, or --no-sandbox). */
+/** A builder's edit and write tools stay in its copy, whatever the sandbox does (on Windows, or --no-sandbox), and,
+ * as in the main session, nothing it writes or runs carries the hidden-secret marker back over a real secret. */
 function copyGate(copy: string): NonNullable<RuntimeStartOptions["beforeToolGate"]> {
   return (toolName, input) => {
+    const hidden = hiddenSecretGate(toolName, input);
+    if (hidden) return hidden;
     if (toolName !== "edit" && toolName !== "write") return undefined;
     const typed = typeof input?.path === "string" ? input.path : "";
     const expanded = typed === "~" || typed.startsWith("~/") ? path.join(os.homedir(), typed.slice(1)) : typed;
@@ -251,7 +278,7 @@ async function settleWithin(work: Promise<unknown>, ms: number): Promise<void> {
 }
 
 interface ActiveRun {
-  cancel(): void;
+  cancel(reason?: string): void;
   drained: Promise<unknown>;
   info: HelperRun;
 }
@@ -281,7 +308,12 @@ export class SubagentManager {
   get isBusy(): boolean { return this.active.size > 0; }
 
   /** The helpers running now, oldest first (/tasks). */
-  runs(): HelperRun[] { return [...this.active].map((run) => ({ ...run.info })); }
+  runs(): HelperRun[] { return [...this.active].map((run) => ({ ...run.info, ...(run.info.spent ? { spent: { ...run.info.spent } } : {}) })); }
+
+  /** Stop every running builder (the task's spend pause said stop); each keeps its copy. */
+  stopBuilders(reason: string): void {
+    for (const run of this.active) if (run.info.role === "builder") run.cancel(reason);
+  }
 
   /** Stop one running helper (/tasks). False when it already ended. */
   cancelRun(id: number): boolean {
@@ -291,18 +323,25 @@ export class SubagentManager {
   }
   private nextRunId = 1;
 
-  /** Each prepared parent task gets one tool with its own non-resettable dispatch budget. */
-  createTool(getContext: () => { cwd: string; projectContext: string }, onUsage?: (usage: SubagentUsage | null) => void): RuntimeTool {
+  /** Each prepared parent task gets one tool with its own non-resettable dispatch budget. With `builders`, the
+   * role builder starts a helper that edits in its own copy of the project (its own slots and budget). */
+  createTool(getContext: () => { cwd: string; projectContext: string }, onUsage?: (usage: SubagentUsage | null) => void,
+    builders?: DelegateBuilders): RuntimeTool {
     let dispatched = 0;
+    let built = 0;
+    const offered = Boolean(builders && !builders.off);
+    const buildText = !builders ? "" : offered
+      ? ` Role builder (a job with separate parts, not small tasks): edits and runs commands in its own copy; its change lands here when it ends, unless a file it touched changed here meanwhile. Up to ${BUILDER_LIMITS.maxConcurrent} at once.`
+      : ` No builders here: ${builders.off}.`;
     return {
       name: "delegate",
-      description: `Delegate only when an independent read-only explorer (locate files and evidence) or reviewer (find defects in specified code/plan) adds value, with one narrow goal per call; a broad audit exhausts the child's budget and yields only a partial report. Provide a self-contained goal and optional context; children do not inherit conversation history. Only read/grep/find/ls, no shell, edits, MCP/LSP, or recursion. At most ${SUBAGENT_LIMITS.maxDelegationsPerTask} per task, ${SUBAGENT_LIMITS.maxConcurrent} at once; each child has a small time and tool-call budget. Results are advisory, capped at 16 KiB, with incomplete/error status disclosed.`,
+      description: `Delegate only when an independent read-only explorer (locate files and evidence) or reviewer (find defects in specified code/plan) adds value, with one narrow goal per call; a broad audit exhausts the child's budget and yields only a partial report. Provide a self-contained goal and optional context; children do not inherit conversation history. Only read/grep/find/ls, no shell, edits, MCP/LSP, or recursion. At most ${SUBAGENT_LIMITS.maxDelegationsPerTask} per task, ${SUBAGENT_LIMITS.maxConcurrent} at once; each child has a small time and tool-call budget. Results are advisory, capped at 16 KiB, with incomplete/error status disclosed.${buildText}`,
       inputSchema: {
         type: "object", additionalProperties: false, required: ["role", "goal"],
         properties: {
-          role: { type: "string", enum: ["explorer", "reviewer"] },
-          goal: { type: "string", minLength: 1, maxLength: SUBAGENT_LIMITS.goalBytes },
-          context: { type: "string", maxLength: SUBAGENT_LIMITS.contextBytes },
+          role: { type: "string", enum: offered ? ["explorer", "reviewer", "builder"] : ["explorer", "reviewer"] },
+          goal: { type: "string", minLength: 1, maxLength: offered ? BUILDER_LIMITS.goalBytes : SUBAGENT_LIMITS.goalBytes },
+          context: { type: "string", maxLength: offered ? BUILDER_LIMITS.contextBytes : SUBAGENT_LIMITS.contextBytes },
         },
       },
       execute: async (args, signal) => {
@@ -310,6 +349,7 @@ export class SubagentManager {
           if (!args || Array.isArray(args) || typeof args !== "object" || Object.keys(args).some((key) => !["role", "goal", "context"].includes(key))) {
             throw new Error("Invalid delegate arguments; only role, goal, and context are accepted");
           }
+          if (args.role === "builder") return await this.dispatchBuilder(builders, args, signal, () => built, (change) => { built += change; }, onUsage);
           const role = validateRole(args.role);
           const goal = requireString(args.goal, "goal", SUBAGENT_LIMITS.goalBytes);
           const context = args.context === undefined || args.context === "" ? undefined : requireString(args.context, "context", SUBAGENT_LIMITS.contextBytes);
@@ -333,6 +373,34 @@ export class SubagentManager {
         }
       },
     };
+  }
+
+  /** Builders started from the delegate tool and not yet done (copy made, working, or being applied). */
+  private autoBuilds = 0;
+
+  private async dispatchBuilder(builders: DelegateBuilders | undefined, args: Record<string, unknown>, signal: AbortSignal | undefined,
+    built: () => number, count: (change: number) => void, onUsage?: (usage: SubagentUsage | null) => void) {
+    if (!builders) throw new Error("role must be explorer or reviewer");
+    if (builders.off) throw new Error(`No builders here: ${builders.off}. Do the work yourself, or use an explorer or reviewer.`);
+    const refused = builders.refuse?.();
+    if (refused) throw new Error(refused);
+    const goal = requireString(args.goal, "goal", BUILDER_LIMITS.goalBytes);
+    const context = args.context === undefined || args.context === "" ? undefined : requireString(args.context, "context", BUILDER_LIMITS.contextBytes);
+    if (this.closed) throw new Error("Subagent manager is closed");
+    if (built() >= BUILDER_LIMITS.maxPerTask) throw new Error(`Builder budget used up for this task (${BUILDER_LIMITS.maxPerTask}); do the rest yourself`);
+    const running = [...this.active].filter((run) => run.info.role === "builder").length;
+    if (this.autoBuilds >= BUILDER_LIMITS.maxConcurrent || running >= BUILDER_LIMITS.maxConcurrent) {
+      throw new Error(`${BUILDER_LIMITS.maxConcurrent} builders are already working; wait for one to finish`);
+    }
+    // Reserved before anything async, so a fourth call in the same turn is turned away (and not counted).
+    this.autoBuilds++;
+    count(1);
+    let outcome: BuildOutcome;
+    try { outcome = await builders.run({ goal, ...(context ? { context } : {}), ...(signal ? { signal } : {}) }); }
+    catch (error) { count(-1); throw error; }
+    finally { this.autoBuilds--; }
+    onUsage?.(outcome.usage);
+    return { text: JSON.stringify(boundCapabilityResult(outcome.report)), ...(outcome.isError ? { isError: true } : {}) };
   }
 
   async run(input: SubagentRunOptions): Promise<SubagentResult> {
@@ -367,7 +435,7 @@ export class SubagentManager {
   }
 
   /**
-   * A crew builder, only ever started by Casper for a job the person gave (/crew): a child with the main model that
+   * A crew builder, started by Casper for /crew or the delegate tool's role builder: a child with the main model that
    * may edit and run commands in its own copy of the project (`cwd`), with the session's sandbox around it and
    * nobody to ask. It gets the built-in tools only: no MCP, delegate or crew. Builders have their own slots.
    */
@@ -383,7 +451,8 @@ export class SubagentManager {
       maxTurns: BUILDER_LIMITS.maxTurns, maxToolCalls: BUILDER_LIMITS.maxToolCalls, timeoutMs: this.builderTimeoutMs,
       responseBytes: BUILDER_LIMITS.responseBytes, totalTextBytes: BUILDER_LIMITS.totalTextBytes,
       reportTurn: true, scrubToolOutput: this.options.scrubToolOutput, beforeToolGate: copyGate(cwd),
-      builder: { ...(input.shell ? { shell: input.shell } : {}), ...(input.main ? { main: path.resolve(input.main) } : {}) },
+      builder: { ...(input.shell ? { shell: input.shell } : {}), ...(input.main ? { main: path.resolve(input.main) } : {}),
+        ...(input.beforeToolWait ? { beforeToolWait: input.beforeToolWait } : {}) },
     });
   }
 
@@ -440,6 +509,10 @@ export class SubagentManager {
         turns++;
         if (!event.usage) result.usage = null;
         else if (result.usage) result.usage = { tokens: result.usage.tokens + event.usage.tokens, estimatedCost: result.usage.estimatedCost + event.usage.estimatedCost };
+        if (event.usage) {
+          info.spent = { tokens: (info.spent?.tokens ?? 0) + event.usage.tokens, estimatedCost: (info.spent?.estimatedCost ?? 0) + event.usage.estimatedCost };
+          report({ kind: "usage", run: info });
+        }
       }
       if (controller.signal.aborted) return;
       if (event.type === "assistant_response_start") {
@@ -483,7 +556,7 @@ export class SubagentManager {
 
     // Reserve synchronously, before even loading the runtime. Keep the slot until
     // late startup/abort/disposal drains, even when the caller has timed out.
-    const active: ActiveRun = { cancel: onCancel, drained: Promise.resolve(), info };
+    const active: ActiveRun = { cancel: (reason) => stop("cancelled", reason ?? "Delegation cancelled"), drained: Promise.resolve(), info };
     this.active.add(active);
     report({ kind: "start", run: info });
     const work = Promise.resolve().then(async () => {
@@ -514,7 +587,14 @@ export class SubagentManager {
         };
         if (options.builder) {
           if (!runtime.startBuilder) throw new Error("Runtime does not support crew builders");
-          session = await runtime.startBuilder({ ...common, ...(options.builder.shell ? { shell: options.builder.shell } : {}) });
+          const wait = options.builder.beforeToolWait;
+          session = await runtime.startBuilder({ ...common, ...(options.builder.shell ? { shell: options.builder.shell } : {}),
+            // A stop there ends the builder as stopped, so its half-done work is kept, not applied.
+            ...(wait ? { beforeToolWait: async (toolName: string, signal?: AbortSignal) => {
+              const reason = await wait(toolName, signal);
+              if (reason) stop("cancelled", "Stopped at this task's spend limit");
+              return reason;
+            } } : {}) });
         } else {
           if (!runtime.startReadOnly) throw new Error("Runtime does not support enforced read-only subagents");
           session = await runtime.startReadOnly({ ...common, ...(options.modelRole ? { modelRole: options.modelRole } : {}) });

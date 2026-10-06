@@ -24,10 +24,15 @@ import { phase } from "./footer";
 import { appReaderTool } from "./reader";
 import { casperSessionTool } from "./session-tool";
 import { projectPrivatePaths } from "./wiring";
-import { appAgentDir } from "./runtime-start";
+import { appAgentDir, observeEdit } from "./runtime-start";
+import { autoBuilders, builderAvailability } from "../crew/auto";
+import { crewShell } from "../crew/shell";
+import { spendGate } from "./spend-gate";
 
 export async function prepareCapabilities(app: CasperApp, task: string): Promise<void> {
   app.browserInstalled ??= browserDefaults.installed().catch(() => false);
+  // Builders are offered (or not) for the whole task; the tool is made once per task.
+  if (!app.delegateToolForTask) app.buildersOff = await buildersOff(app);
   const nextTools = await assembleTaskTools(task, {
     broker: app.broker!, delegate: delegateTool(app), ask: askToolFor(app), session: sessionTool(app),
     check: app.checkTask?.tool(), lsp: app.lsp!, confirmRename: app.confirmRename,
@@ -67,7 +72,16 @@ export function delegateTool(app: CasperApp): RuntimeTool {
   app.delegateToolForTask ??= app.subagents.createTool(() => ({
     cwd: app.activeWorkspaceRoot(),
     projectContext: formatProjectContext(app.projectContext!),
-  }), (usage) => app.observations.recordDelegatedUsage(usage));
+  }), (usage) => app.observations.recordDelegatedUsage(usage), autoBuilders({
+    root: app.activeWorkspaceRoot(), homeDir: app.homeDir(),
+    projectContext: formatProjectContext(app.projectContext!),
+    // The task's spend pause sees a builder's spend while it works, and holds its tool calls too. The question
+    // follows the task's own stop, not one builder's, since the AI may be waiting on the same answer.
+    runBuilder: (options) => app.subagents.runBuilder({ ...options, beforeToolWait: () => spendGate(app) }),
+    shell: (copy, note) => app.sandbox ? crewShell(app.sandbox, copy, note) : undefined,
+    observeEdit: (file) => observeEdit(app, file),
+    say: (line) => { if (!app.closing) { app.events.ensureLineBreak(); app.output.write(`[crew] ${terminalText(line)}\n`); } },
+  }, app.buildersOff, app.builderSteer));
   return app.delegateToolForTask;
 }
 
@@ -77,6 +91,13 @@ export function metadataQuestion(sessionYes: SessionYes): NonNullable<BrowserSes
   return ({ address, url }, signal) => sessionYes.approve(`browser-metadata:${address}`,
     `The AI's browser wants to open ${url.slice(0, 300)}\n${address} is a cloud metadata address: on a cloud machine it can hand out that machine's cloud login.\n`,
     `Open ${address}?`, signal);
+}
+
+/** Why the AI can't start builders here now: turned off, no sandbox to hold their commands, or not a Git repository. */
+export async function buildersOff(app: CasperApp): Promise<string | undefined> {
+  const sandbox = app.sandbox;
+  return builderAvailability({ root: app.activeWorkspaceRoot(), homeDir: app.homeDir(), off: app.projectContext?.delegate?.build === false,
+    sandbox: !sandbox?.store ? "none" : sandbox.asksFirst ? "asks" : "ready" }).catch(() => "Casper could not read this folder's Git state");
 }
 
 export function browserSession(app: CasperApp): BrowserSession {

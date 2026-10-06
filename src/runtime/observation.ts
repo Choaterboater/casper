@@ -24,6 +24,8 @@ export interface ToolObservationOutput { text: string; truncated: boolean }
 /** The AI's native tools that change files, as the ask-before-changes gate names them: edit, write and an lsp rename. */
 export function fileChangeTool(toolName: string, input: Record<string, unknown> | undefined): string | undefined {
   if (toolName === "edit" || toolName === "write") return toolName;
+  // A builder's change lands in the project when it ends.
+  if (toolName === "delegate" && input?.role === "builder") return "a builder";
   return toolName === "lsp" && input?.operation === "rename" ? "lsp rename" : undefined;
 }
 

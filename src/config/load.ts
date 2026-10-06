@@ -80,6 +80,9 @@ export interface LoadedConfiguration {
   /** `showPages: ask|on|off`: whether a model that sees pictures is shown the page screenshots after a UI change
    * (user or profile only; it costs tokens). Unset: ask once a session. */
   showPages?: ShowPagesSetting;
+  /** `delegate.build: false`: the AI starts no builders (helpers that edit in their own copy). Yours (user or
+   * profile); a project file can turn them off for itself, never back on. Unset: on. */
+  delegate?: { build: false };
   /** Per-task spend limits in dollars (a note, then a pause); unset turns one off. User or profile only. */
   spend: SpendLimits;
   visualize: VisualizationSettings;
@@ -245,7 +248,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "cache", "display", "showPages", "spend", "sandbox", "shell", "web", "reader", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "cache", "display", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -256,6 +259,7 @@ function unknownKeys(document: Mapping, label: string): string[] {
   check(document, "", [...TOP_LEVEL_KEYS]);
   check(document.policy, "policy.", Object.keys(POLICY_KEYS));
   check(document.spend, "spend.", ["noteAt", "pauseAt"]);
+  check(document.delegate, "delegate.", ["build"]);
   for (const [name, keys] of Object.entries(POLICY_KEYS)) {
     check(document[name], `${name}.`, keys);
     if (isMapping(document.policy)) check(document.policy[name], `policy.${name}.`, keys);
@@ -695,6 +699,17 @@ export async function loadConfiguration(
       display = document.display as DisplayLevel;
     }
   }
+  // Builders spend your tokens: on unless you turn them off; a project file may turn them off, never on for you.
+  let build = true;
+  for (const [document, label] of [[globalDocument, labels.global], [userProfileDocument, labels.userProfile], [projectDocument, labels.project]] as const) {
+    if (document.delegate === undefined || document.delegate === null) continue;
+    if (!isMapping(document.delegate)) throw new Error(`${label}: delegate must be a mapping (delegate.build)`);
+    const value = document.delegate.build === "off" ? false : document.delegate.build === "on" ? true : document.delegate.build;
+    if (value === undefined || value === null) continue;
+    if (typeof value !== "boolean") throw new Error(`${label}: delegate.build must be true or false`);
+    if (document === projectDocument) build &&= value;
+    else build = value;
+  }
   // What a task may spend before Casper says so or asks: the user's money, so a project file never sets it.
   if (projectDocument.spend !== undefined) throw new Error("spend is a user setting (~/.casper/config.yaml); a project cannot change spend limits");
   const spend: SpendLimits = { ...DEFAULT_SPEND_LIMITS };
@@ -792,6 +807,7 @@ export async function loadConfiguration(
     ...(cache ? { cache } : {}),
     ...(display ? { display } : {}),
     ...(showPages ? { showPages } : {}),
+    ...(build ? {} : { delegate: { build: false } }),
     spend,
     services,
     smoke: parseSmoke(projectDocument.smoke, Object.keys(services), labels.project),

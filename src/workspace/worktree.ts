@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { access, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -31,6 +31,10 @@ const SESSION_BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 /** A crew copy's branch: casper/crew-<id>-<part>. */
 const CREW_BRANCH = /^casper\/crew-[a-z0-9]{6}-[1-9]$/;
 export const isCrewBranch = (branch: string): boolean => CREW_BRANCH.test(branch);
+/** The subject of the commit a builder's copy starts from when your folder had unsaved changes (never on a branch of yours). */
+const FOLDER_START = "Casper: the folder as it was when a builder started";
+/** Git's identity for that commit; it is Casper's, never yours. */
+const CASPER_IDENTITY = { GIT_AUTHOR_NAME: "Casper", GIT_AUTHOR_EMAIL: "casper@localhost", GIT_COMMITTER_NAME: "Casper", GIT_COMMITTER_EMAIL: "casper@localhost" };
 
 export interface WorktreeRelation {
   kind: "git-worktree";
@@ -38,6 +42,8 @@ export interface WorktreeRelation {
   path: string;
   branch: string;
   baseCommit: string;
+  /** Set when baseCommit is a commit of your folder as it was (unsaved changes included): your HEAD then. */
+  startHead?: string;
 }
 
 export interface WorktreePlan extends WorktreeRelation {
@@ -123,6 +129,22 @@ async function gitWithInput(cwd: string, args: string[], input: string | Buffer)
     child.stdin.once("error", reject);
     child.stdin.end(input);
   });
+}
+
+/** A copy of Git's index with the index's own times (milliseconds, never later than the real ones). */
+async function copyIndex(index: string, target: string): Promise<void> {
+  const { atime, mtime } = await stat(index);
+  await copyFile(index, target);
+  await utimes(target, atime, mtime);
+}
+
+/** The files `git apply --check` names as not applying, in its order, once each. */
+function clashingFiles(text: string): string[] {
+  const files = new Set<string>();
+  for (const match of text.matchAll(/^(?:git apply failed \(\w+\): )?error: (?:patch failed: (.+):\d+|(.+): (?:already exists in working directory|does not exist in index|No such file or directory|does not match index))$/gm)) {
+    files.add(match[1] ?? match[2]!);
+  }
+  return [...files];
 }
 
 function parseWorktrees(output: string): WorktreeEntry[] {
@@ -211,9 +233,11 @@ export class GitWorktreeManager {
 
   /**
    * A crew copy: part `part` of crew `crewId`, on branch casper/crew-<id>-<part> from HEAD. Unlike an experiment,
-   * your folder may have uncommitted changes; they stay in your folder and are not in the copy.
+   * your folder may have uncommitted changes; they stay in your folder and are not in the copy. With `fromFolder`
+   * (the AI's builders) the copy starts from your folder as it is instead: unsaved and new files included, in a
+   * commit of Casper's own that no branch of yours points at.
    */
-  async planCrew(crewId: string, part: number, sourceWorkspace: string): Promise<WorktreePlan> {
+  async planCrew(crewId: string, part: number, sourceWorkspace: string, options: { fromFolder?: boolean } = {}): Promise<WorktreePlan> {
     const source = await realpath(sourceWorkspace).catch(() => path.resolve(sourceWorkspace));
     await this.assertSameRepository(source);
     if (source !== this.primaryWorkspace) throw new Error("A crew starts from the main folder of the project");
@@ -226,10 +250,36 @@ export class GitWorktreeManager {
       git(source, ["rev-parse", "HEAD"]).catch(() => { throw new Error("A crew needs at least one commit in this project"); }),
       git(source, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
     ]);
+    const start = options.fromFolder && status ? await this.folderCommit(source, head.trim()) : undefined;
     return {
       kind: "git-worktree", sourceWorkspace: source, mainWorkspace: this.primaryWorkspace,
-      path: path.join(this.managedRoot, slug(name)), branch, baseCommit: head.trim(), sourceStatus: status,
+      path: path.join(this.managedRoot, slug(name)), branch, sourceStatus: status,
+      ...(start && start !== head.trim() ? { baseCommit: start, startHead: head.trim() } : { baseCommit: head.trim() }),
     };
+  }
+
+  /** The tree of your folder as it is now (unsaved and new files, not ignored ones), from a copy of Git's index so
+   * yours is not touched and unchanged files are not read again. The copy keeps the index's own time: Git reads a
+   * file again when it changed in the same second the index was written (its guard against a same-size rewrite
+   * that whole-second times can't see), and a copy stamped "now" would make every such file look unchanged. */
+  private async folderTree(workspace: string): Promise<string> {
+    const temp = await mkdtemp(path.join(os.tmpdir(), "casper-folder-index-"));
+    const env = { ...process.env, GIT_INDEX_FILE: path.join(temp, "index") };
+    try {
+      const index = path.resolve(workspace, (await git(workspace, ["rev-parse", "--git-path", "index"])).trim());
+      await copyIndex(index, env.GIT_INDEX_FILE).catch(() => git(workspace, ["read-tree", "HEAD"], { env }));
+      await git(workspace, ["add", "--all", "--", "."], { env });
+      return (await git(workspace, ["write-tree"], { env })).trim();
+    } finally {
+      await rm(temp, { recursive: true, force: true });
+    }
+  }
+
+  /** A commit of your folder as it is, on top of HEAD; HEAD itself when nothing differs. */
+  private async folderCommit(workspace: string, head: string): Promise<string> {
+    const tree = await this.folderTree(workspace);
+    if (tree === (await git(workspace, ["rev-parse", `${head}^{tree}`])).trim()) return head;
+    return (await git(workspace, ["commit-tree", "--no-gpg-sign", tree, "-p", head, "-m", FOLDER_START], { env: { ...process.env, ...CASPER_IDENTITY } })).trim();
   }
 
   /** The crew copies of this project that are still here (kept to look at, or left by a crash), oldest name first. */
@@ -243,25 +293,51 @@ export class GitWorktreeManager {
       // it off one could, and its commits must stay in the patch.
       const base = (await git(this.primaryWorkspace, ["merge-base", "HEAD", `refs/heads/${entry.branch}`]).catch(() => "")).trim();
       if (!/^[0-9a-f]{40,64}$/i.test(base)) continue;
-      copies.push({ kind: "git-worktree", mainWorkspace: this.primaryWorkspace, path: entry.path, branch: entry.branch, baseCommit: base });
+      // A copy that started from your folder as it was starts at Casper's commit of it, right after your HEAD.
+      const first = (await git(this.primaryWorkspace, ["log", "--reverse", "--format=%H%x00%P%x00%s", `${base}..refs/heads/${entry.branch}`]).catch(() => ""))
+        .split("\n", 1)[0]!.split("\0");
+      const start = first[2] === FOLDER_START && first[1] === base && /^[0-9a-f]{40,64}$/i.test(first[0] ?? "") ? first[0]! : undefined;
+      copies.push({ kind: "git-worktree", mainWorkspace: this.primaryWorkspace, path: entry.path, branch: entry.branch,
+        ...(start ? { baseCommit: start, startHead: base } : { baseCommit: base }) });
     }
     return copies.sort((a, b) => a.branch.localeCompare(b.branch));
   }
 
   /**
-   * A crew's reviewed work onto your folder, uncommitted. Your own changes to other files stay. Nothing is applied
-   * when you made a commit since the crew started, or when a file it changed was changed by you too.
+   * A crew's reviewed work onto your folder, uncommitted. Your own changes stay. Nothing is applied when you made a
+   * commit since the crew started, or when its lines clash with yours. With `wholeFiles` (the AI's builders, applied
+   * with no question) nothing is applied when a file it changed was changed in your folder after its copy started.
    */
-  async applyCrew(relation: WorktreeRelation, candidate: WorktreePatch): Promise<void> {
+  async applyCrew(relation: WorktreeRelation, candidate: WorktreePatch, options: { wholeFiles?: boolean } = {}): Promise<void> {
     this.assertManagedRelation(relation);
     if (!isCrewBranch(relation.branch)) throw new Error("Not a crew copy");
     await this.assertRegistered(relation);
     const head = (await git(relation.mainWorkspace, ["rev-parse", "HEAD"])).trim();
-    if (head !== relation.baseCommit) throw new Error("Your folder has a new commit since the crew started; nothing was applied");
+    if (head !== (relation.startHead ?? relation.baseCommit)) throw new Error("Your folder has a new commit since the crew started; nothing was applied");
     if (candidate.patch.length === 0) return;
+    // A whole file, not only the lines: a change next to yours in the same file is not merged in either.
+    const changed = options.wholeFiles ? await this.changedInFolder(relation, candidate.files) : [];
+    if (changed.length) {
+      throw new Error(`${changed.slice(0, 5).join(", ")}${changed.length > 5 ? ` and ${changed.length - 5} more` : ""} changed in your folder too; nothing was applied`);
+    }
     try { await gitWithInput(relation.mainWorkspace, ["apply", "--check", "--binary", "--whitespace=nowarn", "-"], candidate.patch); }
-    catch { throw new Error("A file the crew changed was changed in your folder too; nothing was applied"); }
+    catch (error) {
+      const clash = clashingFiles(error instanceof Error ? error.message : String(error));
+      throw new Error(clash.length
+        ? `${clash.slice(0, 5).join(", ")}${clash.length > 5 ? ` and ${clash.length - 5} more` : ""} changed in your folder too; nothing was applied`
+        : "A file the crew changed was changed in your folder too; nothing was applied");
+    }
     await gitWithInput(relation.mainWorkspace, ["apply", "--binary", "--whitespace=nowarn", "-"], candidate.patch);
+  }
+
+  /** Which of these files in your folder differ from where the copy started (changed by you, the AI or another
+   * builder since): new and deleted files too. */
+  async changedInFolder(relation: WorktreeRelation, files: readonly string[]): Promise<string[]> {
+    if (!files.length) return [];
+    const now = await this.folderTree(relation.mainWorkspace);
+    const output = await git(relation.mainWorkspace, ["diff-tree", "-r", "--name-only", "-z", "--no-renames", relation.baseCommit, now, "--",
+      ...files.map((file) => `:(literal)${file}`)]);
+    return output.split("\0").filter(Boolean);
   }
 
   async create(plan: WorktreePlan): Promise<WorktreeRelation> {
@@ -289,7 +365,7 @@ export class GitWorktreeManager {
       git(plan.sourceWorkspace, ["rev-parse", "HEAD"]),
       git(plan.sourceWorkspace, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
     ]);
-    if (currentHead.trim() !== plan.baseCommit || status !== (plan.sourceStatus ?? "")) {
+    if (currentHead.trim() !== (plan.startHead ?? plan.baseCommit) || status !== (plan.sourceStatus ?? "")) {
       throw new Error("Source workspace changed after approval; refusing to create the worktree");
     }
     const branchExists = await git(plan.sourceWorkspace, ["show-ref", "--verify", "--quiet", `refs/heads/${plan.branch}`]).then(() => true, () => false);
@@ -310,6 +386,7 @@ export class GitWorktreeManager {
         path: plan.path,
         branch: plan.branch,
         baseCommit: plan.baseCommit,
+        ...(plan.startHead ? { startHead: plan.startHead } : {}),
       };
     } catch (error) {
       // Never delete a same-named branch created by a concurrent process. Only
@@ -519,7 +596,7 @@ export class GitWorktreeManager {
     if (!SESSION_BRANCH_PATTERN.test(sessionName) || path.basename(plan.path) !== slug(sessionName)
       || path.resolve(plan.sourceWorkspace) !== this.primaryWorkspace
       || plan.mainWorkspace !== this.primaryWorkspace
-      || !/^[0-9a-f]{40,64}$/i.test(plan.baseCommit)) {
+      || !/^[0-9a-f]{40,64}$/i.test(plan.baseCommit) || (plan.startHead !== undefined && !/^[0-9a-f]{40,64}$/i.test(plan.startHead))) {
       throw new Error("Invalid managed worktree plan");
     }
   }
@@ -529,7 +606,7 @@ export class GitWorktreeManager {
     this.assertManagedPath(relation.path, !isMain);
     const sessionName = relation.branch.startsWith("casper/") ? relation.branch.slice("casper/".length) : "";
     if (relation.mainWorkspace !== this.primaryWorkspace
-      || !/^[0-9a-f]{40,64}$/i.test(relation.baseCommit)
+      || !/^[0-9a-f]{40,64}$/i.test(relation.baseCommit) || (relation.startHead !== undefined && !/^[0-9a-f]{40,64}$/i.test(relation.startHead))
       || (!isMain && (!SESSION_BRANCH_PATTERN.test(sessionName) || path.basename(relation.path) !== slug(sessionName)))) {
       throw new Error("Invalid managed worktree relation");
     }

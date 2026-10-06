@@ -48,6 +48,7 @@ import { ChangeBaseline } from "./verify/proof";
 import type { NetworkToolContext } from "./verify/registry";
 import type { NextItem } from "./tui/next-row";
 import { TaskUndo } from "./app/undo";
+import type { BuilderSteer } from "./crew/auto";
 import { SuggestionController } from "./app/suggestions";
 import type { SecurityAIReview, SecurityReviewHost } from "./app/security-review";
 import type { ChecksPlan, VerificationMode } from "./verify/mode";
@@ -397,7 +398,11 @@ export class CasperApp {
     cache: () => this.projectContext?.cache,
     privatePaths: () => projectPrivatePaths(this),
     // Inside tmux or iTerm2 each helper's steps show in the view-only steps pane; nowhere else.
-    onActivity: (activity) => this.terminal.logHelper(helperActivityLine(activity, this.projectContext ? this.activeWorkspaceRoot() : undefined)),
+    onActivity: (activity) => {
+      if (activity.kind !== "usage") this.terminal.logHelper(helperActivityLine(activity, this.projectContext ? this.activeWorkspaceRoot() : undefined));
+      // The footer counts running builders and what they have spent so far.
+      if (activity.run.role === "builder" && activity.kind !== "tool") updateFooter(this);
+    },
     });
     this.lifecycle.add({ name: "subagents", close: () => this.subagents.close() });
     this.inspectProjectFn = options.inspectProject ?? inspectProject;
@@ -706,6 +711,10 @@ export class CasperApp {
    * boundaries (a new request, or an explicit /verify repair task) — never for repair rounds
    * of the current task. */
   delegateToolForTask?: RuntimeTool;
+  /** What this request's words say about builders ("in parallel", "by yourself"); set at each task's start. */
+  builderSteer?: BuilderSteer;
+  /** Why the AI can't start builders in this workspace now (src/crew/auto.ts); unset when it can. */
+  buildersOff?: string;
 
   /** A rename is a normal edit inside the project: no box, like the AI's other edits (undo covers it). It is noted
    * like one, so dev servers, checks and the receipt see it. */
