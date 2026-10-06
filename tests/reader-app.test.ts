@@ -147,3 +147,21 @@ test("the reader's file source keeps Casper's saved conversations and login priv
   }
   expect(completions).toHaveLength(0);
 });
+
+test("browser: off in your config: a web task on a machine with Chrome offers no browser tool", async () => {
+  const { home, project } = await folders();
+  await writeFile(path.join(home, ".casper", "config.yaml"), "browser: off\n");
+  const run = await session(home, project);
+  run.app.browserInstalled = Promise.resolve(true);
+  await run.app.runOnce("fix the css layout on the home page", project);
+  expect(run.tools().map((tool) => tool.name)).not.toContain("browser");
+  await run.app.runOnce("/status");
+  expect(run.text()).toContain("AI's browser tool off (/settings)");
+  await run.app.close();
+  await writeFile(path.join(home, ".casper", "config.yaml"), "");
+  const on = await session(home, project);
+  on.app.browserInstalled = Promise.resolve(true);
+  await on.app.runOnce("fix the css layout on the home page", project);
+  expect(on.tools().map((tool) => tool.name)).toContain("browser");
+  await on.app.close();
+});

@@ -38,6 +38,10 @@ export interface ProjectContext {
   /** Per-task spend limits (a note, then a pause); see src/task/spend.ts. */
   spend?: LoadedConfiguration["spend"];
   visualize: VisualizationSettings;
+  /** `browser: off` in the user's config: the AI's browser tool is never offered. Unset: on. */
+  browser?: boolean;
+  /** `visualize: off` in the user's config: the AI's diagram tool is never offered. Unset: on. */
+  diagrams?: boolean;
   /** Managed services declared in .casper/project.yaml (see docs/SERVICES.md). */
   services?: LoadedConfiguration["services"];
   /** Configured smoke checks, run after every change (see docs/VERIFICATION.md). */
@@ -129,6 +133,8 @@ export async function loadProjectContext(
     ...(configuration.delegate ? { delegate: configuration.delegate } : {}),
     spend: configuration.spend,
     visualize: configuration.visualize,
+    ...(configuration.browser !== undefined ? { browser: configuration.browser } : {}),
+    ...(configuration.diagrams !== undefined ? { diagrams: configuration.diagrams } : {}),
     services: configuration.services,
     smoke: configuration.smoke,
     ...(configuration.pages ? { pages: configuration.pages } : {}),

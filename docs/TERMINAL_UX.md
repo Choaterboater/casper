@@ -50,7 +50,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/plan <request>` | Plan first: the model writes a plan and cases to test, you edit it, then build |
 | `/suggestions [on\|off]` | List the suggested next steps, or turn them on or off |
 | `/details [quiet\|normal\|detailed]` | How much work shows, remembered like `/effort` (`--session` for this session only); Ctrl+T shows the last step in full |
-| `/settings` | Turn web lookups, the new-version notice, side questions, built-in skills, spend notes and pause, showing the AI the pages, the work shown and Playwright tests on or off by number ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
+| `/settings` | Shows every switch and where it stands at a glance, then turns one on or off by number: web lookups, the AI's browser and diagram tools, the new-version notice, side questions with ?, built-in skills, spend notes and pause, showing the AI the pages, the work shown, the untrusted-text reader, helpers that build and Playwright tests ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
 | `/output [n\|all]` | Full command and output of a recent tool call from the last task |
 | `/receipt [n\|list]` | The last task's receipt in detail, a saved one, or the last 10 |
 | `/verify [checks]`, `/verify repair`, `/verify add <name>` | Run the project's checks; repair failures; save a check Casper found ([VERIFICATION.md](VERIFICATION.md)) |

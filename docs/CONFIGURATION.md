@@ -12,21 +12,29 @@ You don't need to edit a file to change Casper's switches. `/settings` lists the
 writes your answer into `~/.casper/config.yaml` for you, keeping your comments and other settings:
 
 ```text
-Settings (saved in ~/.casper/config.yaml for you). Pick one to change:
+Settings (saved in ~/.casper/config.yaml for you):
+  Web lookups: on (DuckDuckGo) · Browser tool: on · Diagram tool: on
+  New-version notice: on · Built-in skills: on · Spend notes: at $1 a task
+  Spend pause: off · Show the AI the pages: ask once a session
+  Work shown: normal · Untrusted-text reader: on · Playwright tests: on
+Pick one to change:
   1 Done                   nothing changes
   2 Web lookups            on (DuckDuckGo)
-  3 New-version notice     on
-  4 Side questions with ?  on
-  5 Built-in skills        on
-  6 Spend notes            at $1 a task
-  7 Spend pause            off
-  8 Show the AI the pages  ask once a session
-  9 Work shown             normal
- 10 Untrusted-text reader  on
- 11 Helpers that build     on
- 12 Playwright tests       on
+  3 Browser tool           on
+  4 Diagram tool           on
+  5 New-version notice     on
+  6 Side questions with ?  on
+  7 Built-in skills        on
+  8 Spend notes            at $1 a task
+  9 Spend pause            off
+ 10 Show the AI the pages  ask once a session
+ 11 Work shown             normal
+ 12 Untrusted-text reader  on
+ 13 Helpers that build     on
+ 14 Playwright tests       on
 ```
 
+The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
 A change applies from now on (built-in skills from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Where Casper can't ask (a one-shot
@@ -67,6 +75,22 @@ For a big job with separate parts the AI may start builders: each works in its o
 project and its change lands in your folder when it ends (see [CREWS.md](CREWS.md)). They are on;
 turn them off with `/settings` (it writes `delegate: { build: false }`). A project file may turn them
 off for itself, never back on for you.
+
+### Browser tool
+
+The AI's own browser opens pages and reads them when a task needs it (see [BROWSER.md](BROWSER.md)).
+It is on. Turn it off with `/settings` (it writes `browser: off`): the AI is never offered the
+`browser` tool. The page checks after a change still run, since they are Casper's own check, not
+the AI's browser; `/browser`, typed by you, still works. A project file (or a profile it picks)
+can't turn it on or off.
+
+### Diagram tool
+
+The AI draws a diagram when a task asks for a map, chart or flow (see
+[VISUALIZATION.md](VISUALIZATION.md)). It is on. Turn it off with `/settings` (it writes
+`visualize: off`, or `visualize.enabled: false` when your `visualize:` lists providers): the AI is
+never offered the `visualize` tool. `/visualize`, typed by you, still works. A project file may pick
+`visualize.providers` but can't turn the tool on or off.
 
 ## Config files
 
@@ -169,7 +193,8 @@ policy:
   against them. Both are project-only (they are an error in a global or profile file), and invalid
   values stop loading with their dotted path. See [SERVICES.md](SERVICES.md) and
   [VERIFICATION.md](VERIFICATION.md#smoke-checks).
-- `visualize:` controls diagrams; see [VISUALIZATION.md](VISUALIZATION.md).
+- `visualize:` picks the diagram providers; see [VISUALIZATION.md](VISUALIZATION.md). Turning the AI's
+  diagram tool on or off is yours only (see [Diagram tool](#diagram-tool)).
 
 ### Detected check commands
 

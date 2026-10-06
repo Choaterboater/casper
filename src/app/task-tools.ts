@@ -39,7 +39,7 @@ export async function prepareCapabilities(app: CasperApp, task: string): Promise
     references: app.references!, ...(app.web ? { web: webTools(app.web, app.commandAbort?.signal) } : {}), visualization: app.visualization!, projectRoot: app.activeWorkspaceRoot(), privatePaths: projectPrivatePaths(app),
     reader: appReaderTool({ context: app.projectContext, session: () => app.session, shell: app.shell, broker: app.broker, root: app.activeWorkspaceRoot(), home: app.homeDir(), agentDir: appAgentDir(app), privatePaths: projectPrivatePaths(app), onUsage: (usage) => app.observations.recordModelCall(usage), signal: app.commandAbort?.signal }),
     browserReady: app.browser?.status().state === "ready", browserInstalled: await app.browserInstalled, browser: () => browserSession(app),
-    browserSignal: app.commandAbort?.signal,
+    browserSignal: app.commandAbort?.signal, browserOff: app.projectContext?.browser === false, diagramOff: app.projectContext?.diagrams === false,
     services: { declared: Object.keys(app.projectContext?.services ?? {}).length > 0, live: app.services?.live({ detected: false }) ?? false },
     serviceTool: () => serviceTool(() => serviceManager(app), app.commandAbort?.signal, () => app.smokeTask,
       app.shell?.approve ? (command, signal, options) => app.shell!.approve!(command, signal, options) : undefined),

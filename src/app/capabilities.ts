@@ -37,6 +37,10 @@ export interface TaskCapabilitySource {
   /** Lazily creates (or returns) the owned browser session; called only when the browser tool runs. */
   browser: () => BrowserSession;
   browserSignal?: AbortSignal;
+  /** browser: off in your own config: the AI's browser tool is never offered (page checks still run). */
+  browserOff?: boolean;
+  /** visualize: off in your own config: the visualize tool is never offered (/visualize still works). */
+  diagramOff?: boolean;
   /** Whether the project declares services and whether one is starting or ready. */
   services: { declared: boolean; live: boolean };
   /** Builds the service tool (its manager is created on first use); called only when it is included. */
@@ -63,9 +67,9 @@ export function diagramRequested(task: string): boolean {
  * connects or disconnects); find_capability reaches the rest. */
 export async function assembleTaskTools(task: string, source: TaskCapabilitySource): Promise<RuntimeTool[]> {
   const kept = (name: string) => source.offered?.has(name) ?? false;
-  const browser = source.browserInstalled || browserRequested(task, source.browserReady) || kept("browser");
+  const browser = !source.browserOff && (source.browserInstalled || browserRequested(task, source.browserReady) || kept("browser"));
   const service = serviceRequested(task, source.services) || kept("service");
-  const diagram = diagramRequested(task) || kept("visualize");
+  const diagram = !source.diagramOff && (diagramRequested(task) || kept("visualize"));
   return [
     ...await source.broker.prepare(task),
     source.delegate,

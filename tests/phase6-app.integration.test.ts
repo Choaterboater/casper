@@ -191,3 +191,19 @@ test("regression: closing during /visualize repo cancels the scan instead of wri
   await closed;
   await expect(readdir(path.join(home, ".casper", "visualizations", "project"))).rejects.toThrow(/ENOENT/);
 });
+
+test("visualize: off in your config: a diagram word offers no visualize tool, and /visualize you type still works", async () => {
+  const { home, project } = await fixture("visualize:\n  enabled: true\n  providers: [mermaid]\n");
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await writeFile(path.join(home, ".casper", "config.yaml"), "visualize: off\n");
+  const runtime = new ToolRuntime();
+  const output: string[] = [];
+  const app = makeApp(runtime, home, output);
+  await app.start(project);
+  await app.runOnce("map out the authentication flow");
+  expect(runtime.surfaces[0]).not.toContain("visualize");
+  expect(runtime.results).toHaveLength(0);
+  output.length = 0;
+  await app.runOnce("/visualize repo auth");
+  expect(output.join("")).toContain("n0 --> n1");
+});

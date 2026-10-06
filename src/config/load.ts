@@ -86,6 +86,11 @@ export interface LoadedConfiguration {
   /** Per-task spend limits in dollars (a note, then a pause); unset turns one off. User or profile only. */
   spend: SpendLimits;
   visualize: VisualizationSettings;
+  /** `browser: off`: the AI's browser tool is never offered (user or profile only). Unset: on. Page checks don't use it. */
+  browser?: boolean;
+  /** `visualize: off` (or visualize.enabled: false): the AI's diagram tool is never offered (user or profile only).
+   * Unset: on. /visualize, typed by you, still works. */
+  diagrams?: boolean;
   /** Declared managed services (project layer only), by name. */
   services: Record<string, ServiceSpec>;
   /** Configured smoke checks against those services (project layer only). */
@@ -248,7 +253,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "cache", "display", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "cache", "display", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -535,6 +540,28 @@ function webUserLayer(document: Mapping, label: string, into: WebSettings, warni
   }
 }
 
+/** `browser:` on or off, from your own file or a profile. */
+function browserLayer(document: Mapping, label: string): boolean | undefined {
+  const value = document.browser;
+  if (value === undefined || value === null) return undefined;
+  if (value === false || value === "off") return false;
+  if (value === true || value === "on") return true;
+  throw new Error(`${label}: browser must be on or off`);
+}
+
+/** The on/off part of `visualize:` (on, off, or visualize.enabled). Providers and outputDir are read by
+ * resolveVisualizationSettings. A project file may pick providers, never turn the AI's diagram tool on or off. */
+function diagramLayer(document: Mapping, label: string, warnings: string[], project: boolean): boolean | undefined {
+  const value = document.visualize;
+  const scalar = value === false || value === "off" || value === true || value === "on";
+  const setting = scalar ? value : isMapping(value) ? value.enabled : undefined;
+  if (setting === undefined || setting === null) return undefined;
+  if (project) { warnings.push(`${label}: visualize on or off is your own setting (~/.casper/config.yaml); a project can only pick visualize.providers (ignored)`); return undefined; }
+  if (setting === false || setting === "off") return false;
+  if (setting === true || setting === "on") return true;
+  throw new Error(`${label}: visualize.enabled must be true or false`);
+}
+
 const READER_KEYS = ["enabled", "untrusted"];
 
 /** `reader:` on, off, or { enabled, untrusted }. Later layers win for enabled and add paths. A project file may only
@@ -795,6 +822,16 @@ export async function loadConfiguration(
   // A profile the repository picked is held like a project file: it can add untrusted paths, not turn the reader off.
   if (pickedByProject) readerLayer(profileDocument, labels.profile, reader, sandboxWarnings, true);
   readerLayer(projectDocument, labels.project, reader, sandboxWarnings, true);
+  // The AI's browser and its diagram tool are yours to turn off; a repository never turns them back on.
+  if (projectDocument.browser !== undefined) throw new Error("browser is a user setting (~/.casper/config.yaml); a project cannot turn the AI's browser on or off");
+  let browser: boolean | undefined;
+  let diagrams: boolean | undefined;
+  for (const [document, label] of [[globalDocument, labels.global], [userProfileDocument, labels.userProfile]] as const) {
+    browser = browserLayer(document, label) ?? browser;
+    diagrams = diagramLayer(document, label, sandboxWarnings, false) ?? diagrams;
+  }
+  if (pickedByProject) diagramLayer(profileDocument, labels.profile, sandboxWarnings, true);
+  diagramLayer(projectDocument, labels.project, sandboxWarnings, true);
   const lab = mergeLabSettings(parseLabSettings(globalDocument.lab, "user", `${labels.global}: lab`), parseLabSettings(userProfileDocument.lab, "profile", `${labels.userProfile}: lab`));
   return {
     skills: { maxActive, imports, bundled },
@@ -821,6 +858,8 @@ export async function loadConfiguration(
         { document: projectDocument, source: "project" },
       ],
     }),
+    ...(browser !== undefined ? { browser } : {}),
+    ...(diagrams !== undefined ? { diagrams } : {}),
     profileName: selectedProfile,
     policy: mergePolicy(
       policyLayer(globalDocument, labels.global),

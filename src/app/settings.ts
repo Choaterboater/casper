@@ -43,6 +43,18 @@ async function readerKeys(home: string): Promise<string[]> {
   return isMap(await userConfigValue(home, ["reader"])) ? ["reader", "enabled"] : ["reader"];
 }
 
+/** visualize: on/off goes into visualize.enabled when your visualize: is a mapping (providers are listed), so they stay. */
+async function visualizeKeys(home: string): Promise<string[]> {
+  return isMap(await userConfigValue(home, ["visualize"])) ? ["visualize", "enabled"] : ["visualize"];
+}
+
+/** A plain on/off row: 1 keeps it as it is, 2 flips it. */
+function onOffRow(label: string, on: boolean, question: string, keys: Choice["keys"]): Setting {
+  const now = on ? "on" : "off";
+  return { label, value: now, question: `${question} It is ${now}.`, keep: `Keep it ${now}`,
+    choices: [{ label: on ? "Turn it off" : "Turn it on", keys, value: !on, shown: on ? "off" : "on" }] };
+}
+
 const SHOW_PAGES_WORDS: Record<ShowPagesSetting, { value: string; choice: string }> = {
   ask: { value: "ask once a session", choice: "Ask once a session" },
   on: { value: "always", choice: "Always show them" },
@@ -78,6 +90,10 @@ export function settingRows(context: ProjectContext): Setting[] {
     { label: "Web lookups", value: web.enabled ? `on (${PROVIDER_LABELS[web.provider]})` : "off",
       question: `Web lookups are ${web.enabled ? `on (${PROVIDER_LABELS[web.provider]})` : "off"}.`, keep: `Keep them ${web.enabled ? "on" : "off"}`,
       choices: [web.enabled ? { label: "Turn them off", keys: webKeys, value: false, shown: "off" } : { label: "Turn them on", keys: webKeys, value: true, shown: "on" }] },
+    onOffRow("Browser tool", context.browser !== false,
+      "The AI's own browser opens pages and reads them when a task needs it. The page checks after a change still run when it is off.", ["browser"]),
+    onOffRow("Diagram tool", context.diagrams !== false,
+      "The AI draws a diagram when you ask for a map, chart or flow. /visualize, typed by you, still works when it is off.", visualizeKeys),
     { label: "New-version notice", value: context.updates === false ? "off" : "on",
       question: `The line that says a newer Casper is out is ${context.updates === false ? "off" : "on"}.`, keep: `Keep it ${context.updates === false ? "off" : "on"}`,
       choices: [context.updates === false ? { label: "Turn it on", keys: ["updates"], value: true, shown: "on" } : { label: "Turn it off", keys: ["updates"], value: false, shown: "off" }] },
@@ -126,6 +142,18 @@ export function mcpSandboxRows(mcp: Pick<MCPManager, "status" | "setSandbox"> | 
   });
 }
 
+/** Every row and where it stands, as "Label: value" joined by " · ", wrapped between rows to fit 80 columns. */
+export function atAGlance(rows: readonly Pick<Setting, "label" | "value">[], width = 80): string {
+  const lines: string[] = [];
+  let line = "";
+  for (const item of rows.map((row) => `${row.label}: ${row.value}`)) {
+    if (line && `  ${line} · ${item}`.length > width) { lines.push(`  ${line}`); line = item; }
+    else line = line ? `${line} · ${item}` : item;
+  }
+  if (line) lines.push(`  ${line}`);
+  return lines.join("\n");
+}
+
 /**
  * /settings: Casper's off switches as one numbered list, so nobody edits a config file. 1 is Done; a pick asks
  * with 1 Keep first, writes the answer into ~/.casper/config.yaml and lists the settings again.
@@ -140,7 +168,7 @@ export async function runSettings(host: SettingsHost, signal?: AbortSignal): Pro
       host.output.write(`Settings (${USER_CONFIG}):\n${rows.map((row) => `  ${row.label.padEnd(width)}${row.value}`).join("\n")}\nRun /settings in a Casper session to change one by number.\n`);
       return;
     }
-    const picked = await host.ask(`Settings (saved in ${USER_CONFIG} for you). Pick one to change:`,
+    const picked = await host.ask(`Settings (saved in ${USER_CONFIG} for you):\n${atAGlance(rows)}\nPick one to change:`,
       [{ label: "Done", description: "nothing changes" }, ...rows.map((row) => ({ label: row.label, description: row.value }))], signal);
     const row = rows.find((candidate) => candidate.label === picked);
     if (!row || signal?.aborted) return;
