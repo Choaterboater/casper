@@ -103,7 +103,8 @@ describe("proxy", () => {
   });
 });
 
-test("Linux: no network of its own, the home folder hidden, its folders bound back, no Unix sockets for the server", async () => {
+// The two Linux tests build bubblewrap's command line from POSIX paths; it only ever runs on Linux, so not on Windows.
+test.skipIf(process.platform === "win32")("Linux: no network of its own, the home folder hidden, its folders bound back, no Unix sockets for the server", async () => {
   const root = await tempRoot();
   const home = path.join(root, "home");
   const venv = path.join(home, "venv");
@@ -120,7 +121,7 @@ test("Linux: no network of its own, the home folder hidden, its folders bound ba
   expect(script).toMatch(/\nexec \/x\/apply-seccomp .*bin\/server --read-only$/);
 });
 
-test("Linux: the seccomp helper and socat are bound back when they sit in a hidden folder, and run by their real path", async () => {
+test.skipIf(process.platform === "win32")("Linux: the seccomp helper and socat are bound back when they sit in a hidden folder, and run by their real path", async () => {
   const root = await tempRoot();
   const home = path.join(root, "home");
   const bin = path.join(home, ".casper/bin");
