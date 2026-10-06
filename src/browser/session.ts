@@ -10,6 +10,7 @@ import type { Browser, Page } from "puppeteer-core";
 import type { ArtifactDirectory } from "../visualize/artifacts";
 import { isolatedEnvironment } from "../platform/environment";
 import { discoverBrowser } from "./discovery";
+import { MetadataGuard, type Lookup } from "./metadata";
 import { actionUsage, browserArguments, text, webURL, type BrowserAction } from "./arguments";
 import { ownSpawnedTree, type OwnedProcesses, ProcessCleanupError, terminateTree } from "../platform/processes";
 
@@ -21,7 +22,16 @@ export interface BrowserSessionOptions {
   confirm?: (request: BrowserApproval, signal: AbortSignal) => Promise<boolean>;
   /** Page navigation deadline (default 10 s); a test seam, never model-supplied. */
   navigationTimeoutMs?: number;
+  /**
+   * Asked once before the AI's browser reaches a cloud metadata address (metadata.ts), by the page itself, a
+   * redirect, a frame or a fetch. Without it nobody can say yes, and those addresses are not opened.
+   */
+  confirmMetadata?: (request: MetadataApproval, signal: AbortSignal) => Promise<boolean>;
+  /** Test seams, never model-supplied: the metadata addresses and the name lookup. */
+  metadataHosts?: readonly string[];
+  lookup?: Lookup;
 }
+export interface MetadataApproval { address: string; url: string }
 export interface BrowserApproval { action: string; url: string; selector: string; target: string; value?: string; reason: string; impact: string }
 const INTERACTIONS = ["click", "fill", "press"];
 const DANGEROUS = /\b(delete|remove|destroy|purchase|pay|checkout|buy|send|publish|deploy|sign.?in|log.?in|password|credit.?card)\b/i;
@@ -185,6 +195,11 @@ export class BrowserSession {
   /** Page loads that took pictures, for their file names. */
   private pageLoads = 0;
   private readonly scenarios = new Map<string, { scenario: BrowserScenario; check: BrowserCheck; fingerprint?: string; revision: number }>();
+  /** Metadata addresses the person said yes to for the action now running (a session yes is kept by confirmMetadata). */
+  private readonly metadataAllowed = new Set<string>();
+  private guard?: MetadataGuard;
+  /** The running action's deadline, held while a question waits for the person. */
+  private deadline?: { hold: () => void; resume: () => void };
   constructor(private readonly options: BrowserSessionOptions) {}
 
   assertCleanup(): void { if (this.cleanupError) throw this.cleanupError; }
@@ -218,7 +233,9 @@ export class BrowserSession {
     combined.throwIfAborted();
     const stop = () => { void this.close().catch(() => {}); };
     combined.addEventListener("abort", stop, { once: true });
-    const timer = setTimeout(stop, input.action === "check" || input.action === "replay" ? 30_000 : 15_000);
+    const limit = input.action === "check" || input.action === "replay" ? 30_000 : 15_000;
+    let timer = setTimeout(stop, limit);
+    this.deadline = { hold: () => clearTimeout(timer), resume: () => { clearTimeout(timer); timer = setTimeout(stop, limit); } };
     try {
       if (input.action === "check" || input.action === "replay") return await this.check(input, combined);
       if (input.action === "serve") return await this.serve(input, combined);
@@ -229,11 +246,15 @@ export class BrowserSession {
       combined.throwIfAborted();
       if (url) {
         this.logs.length = 0; this.requests.length = 0; this.dropped = 0;
-        await page.goto(url, { waitUntil: "domcontentloaded", timeout: this.options.navigationTimeoutMs ?? 10_000 });
-        combined.throwIfAborted();
-        return { url: page.url(), title: (await page.title()).slice(0, 512) };
+        await this.askMetadata(url, combined);
+        const notOpened = await this.navigate(page, url, combined);
+        // Loaded again after a yes, the page can still report the error page it replaced for a moment: ask the page.
+        const here = page.url().startsWith("chrome-error:") ? await page.evaluate(() => location.href).catch(() => page.url()) : page.url();
+        return { url: here, title: (await page.title()).slice(0, 512), ...notOpened };
       }
-      if (interaction) return await this.interact(input, combined);
+      if (interaction) return { ...await this.interact(input, combined), ...await this.metadataAfter(page, combined) };
+      // The page reached for a metadata address since the last action (a script, a timer): asked about here.
+      const held = await this.metadataAfter(page, combined);
       if (input.action === "viewport") { const size = viewport({ width: input.width, height: input.height }); await page.setViewport(size); return { viewport: size }; }
       if (input.action === "inspect") {
         const observation = await page.evaluate(() => ({ title: document.title.slice(0, 512),
@@ -244,7 +265,7 @@ export class BrowserSession {
             label: (el.getAttribute("aria-label") ?? el.textContent ?? "").slice(0, 128),
             selector: el.id ? `#${CSS.escape(el.id)}` : undefined,
           })) }));
-        return observation;
+        return { ...observation, ...held };
       }
       if (this.screenshotCount >= 16) throw new Error("Browser screenshot limit reached (16 per session)");
       const bytes = await page.screenshot({ type: "png", fullPage: false });
@@ -253,8 +274,65 @@ export class BrowserSession {
       const saved = await this.savePicture(`${this.screenshotCount + 1}.png`, bytes, combined);
       this.screenshotCount++;
       return { path: saved, bytes: bytes.byteLength,
-        url: page.url(), viewport: page.viewport(), guidance: "Use the native read tool on this PNG to view it. Capture alone is not verification or proof the model viewed it." };
-    } finally { clearTimeout(timer); combined.removeEventListener("abort", stop); }
+        url: page.url(), viewport: page.viewport(), guidance: "Use the native read tool on this PNG to view it. Capture alone is not verification or proof the model viewed it.", ...held };
+    } finally { clearTimeout(timer); this.deadline = undefined; this.metadataAllowed.clear(); combined.removeEventListener("abort", stop); }
+  }
+
+  /** The person's answer for one metadata address; the action's deadline waits for it. No one to ask is a no. */
+  private async metadataYes(address: string, url: string, signal: AbortSignal): Promise<boolean> {
+    if (this.metadataAllowed.has(address)) return true;
+    this.deadline?.hold();
+    try {
+      const yes = await this.options.confirmMetadata?.({ address, url }, signal) ?? false;
+      signal.throwIfAborted();
+      if (yes) this.metadataAllowed.add(address);
+      return yes;
+    } finally { this.deadline?.resume(); }
+  }
+
+  /** Before the AI's browser opens a URL itself: one question when it is a cloud metadata address. */
+  private async askMetadata(url: string, signal: AbortSignal): Promise<void> {
+    const address = await this.metadataGuard().address(url);
+    if (address && !await this.metadataYes(address, url, signal)) {
+      throw new Error(`Not opened: ${address} is a cloud metadata address, and the person said no (or nobody was there to ask)`);
+    }
+  }
+
+  /** Opens a URL; a redirect or page part held back at a metadata address is asked about, then loaded again. */
+  private async navigate(page: Page, url: string, signal: AbortSignal): Promise<{ notOpened?: string[]; note?: string }> {
+    this.guard?.take();
+    try { await page.goto(url, { waitUntil: "domcontentloaded", timeout: this.options.navigationTimeoutMs ?? 10_000 }); }
+    catch (error) { if (!this.guard?.blocked.some(entry => entry.mainFrame)) throw error; }
+    signal.throwIfAborted();
+    return this.metadataAfter(page, signal, url);
+  }
+
+  /**
+   * What the page tried to reach at a metadata address while it loaded or acted: one question per address. On a yes
+   * the page loads again (at the held-back address when the page itself went there); on a no it stays held back.
+   */
+  private async metadataAfter(page: Page, signal: AbortSignal, reload?: string): Promise<{ notOpened?: string[]; note?: string }> {
+    const notOpened: string[] = [];
+    for (let round = 0; round < 3; round++) {
+      const blocked = this.guard?.take() ?? [];
+      if (!blocked.length) break;
+      let again: string | undefined;
+      for (const address of [...new Set(blocked.map(entry => entry.address))]) {
+        const first = blocked.find(entry => entry.address === address)!;
+        const top = blocked.find(entry => entry.address === address && entry.mainFrame);
+        if (!await this.metadataYes(address, first.url, signal)) { notOpened.push(address); continue; }
+        again = top?.url ?? again ?? reload;
+      }
+      if (!again) break;
+      try { await page.goto(again, { waitUntil: "domcontentloaded", timeout: this.options.navigationTimeoutMs ?? 10_000 }); }
+      catch (error) { if (!this.guard?.blocked.some(entry => entry.mainFrame)) throw error; }
+      signal.throwIfAborted();
+    }
+    return notOpened.length ? { notOpened: [...new Set(notOpened)], note: "Cloud metadata address not opened: the person said no, or nobody was there to ask." } : {};
+  }
+
+  private metadataGuard(): MetadataGuard {
+    return this.guard ??= new MetadataGuard({ allowed: address => this.metadataAllowed.has(address), hosts: this.options.metadataHosts, lookup: this.options.lookup });
   }
 
   /** Saves a PNG in this run's folder outside the project (0700 folders, 0600 files); its full path. */
@@ -421,6 +499,7 @@ export class BrowserSession {
     let id: string;
     if (input.action === "check") {
       const scenario = parseScenario(input.scenario);
+      await this.askMetadata(scenario.url, signal);
       if (this.scenarios.size >= 8) throw new Error("Browser scenario limit reached (8 per session)");
       id = randomUUID();
       this.scenarios.set(id, { scenario, revision: this.revision, check: { id, name: scenario.name,
@@ -429,6 +508,7 @@ export class BrowserSession {
     } else {
       id = text(input.id, "id", 64);
       if (!this.scenarios.has(id)) throw new Error("Unknown browser check id; replay an id a check returned in this session, or record a check first");
+      await this.askMetadata(this.scenarios.get(id)!.scenario.url, signal);
     }
     const entry = this.scenarios.get(id)!;
     const { scenario } = entry;
@@ -441,8 +521,13 @@ export class BrowserSession {
       const page = await this.newPage();
       this.logs.length = 0; this.requests.length = 0; this.dropped = 0;
       await page.setViewport(scenario.viewport);
-      await page.goto(scenario.url, { waitUntil: "domcontentloaded", timeout: this.options.navigationTimeoutMs ?? 10_000 });
-      for (const step of scenario.steps) { signal.throwIfAborted(); await this.interact({ ...step }, signal); }
+      const notOpened = await this.navigate(page, scenario.url, signal);
+      if (notOpened.notOpened) throw new Error(`The page reached for a cloud metadata address (${notOpened.notOpened.join(", ")}) and the person said no`);
+      for (const step of scenario.steps) {
+        signal.throwIfAborted(); await this.interact({ ...step }, signal);
+        const after = await this.metadataAfter(page, signal);
+        if (after.notOpened) throw new Error(`The page reached for a cloud metadata address (${after.notOpened.join(", ")}) and the person said no`);
+      }
       for (const assertion of scenario.assertions) {
         signal.throwIfAborted();
         const evaluate = () => page.evaluate(a => {
@@ -568,6 +653,8 @@ export class BrowserSession {
       this.page.on("error", () => { this.invalidate(); void this.close(); });
       this.page.on("response", response => this.request(response.url(), { status: response.status() }));
       this.page.on("requestfailed", request => this.request(request.url(), { error: "Network request failed" }));
+      const cdp = await this.page.createCDPSession();
+      await this.metadataGuard().attach({ send: (method, params) => cdp.send(method as never, params as never), on: (event, handler) => cdp.on(event as never, handler) });
       return this.page;
   }
   private log(entry: { type: string; text: string }): void {

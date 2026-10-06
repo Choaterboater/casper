@@ -3,7 +3,8 @@
  * Moved from src/app.ts. */
 
 import type { CasperApp } from "../app";
-import { BrowserSession } from "../browser/session";
+import { BrowserSession, type BrowserSessionOptions } from "../browser/session";
+import type { SessionYes } from "./session-yes";
 import { browserDefaults } from "../browser/discovery";
 import { ServiceManager } from "../services/manager";
 import { SmokeChecks, type SmokeReport } from "../services/smoke";
@@ -56,10 +57,19 @@ export function delegateTool(app: CasperApp): RuntimeTool {
   return app.delegateToolForTask;
 }
 
+/** One question per cloud metadata address the AI's browser reaches: 1 No · 2 Yes, this once · 3 Yes, for this
+ * session, where a session yes covers that address only (a yes to other browser actions never does). */
+export function metadataQuestion(sessionYes: SessionYes): NonNullable<BrowserSessionOptions["confirmMetadata"]> {
+  return ({ address, url }, signal) => sessionYes.approve(`browser-metadata:${address}`,
+    `The AI's browser wants to open ${url.slice(0, 300)}\n${address} is a cloud metadata address: on a cloud machine it can hand out that machine's cloud login.\n`,
+    `Open ${address}?`, signal);
+}
+
 export function browserSession(app: CasperApp): BrowserSession {
   if (!app.browser || app.browser.status().state === "closed") app.browser = new BrowserSession({
     projectRoot: app.activeWorkspaceRoot(), stateDirectory: app.projectContext!.stateDirectory,
     confirm: (request, signal) => app.sessionYes.approve("browser", `Browser action:\n${formatTerminalJSON(request)}\n`, "Allow this browser action?", signal),
+    confirmMetadata: metadataQuestion(app.sessionYes),
   });
   // Capture the instance: the field is cleared after explicit closes (revoke, /clear),
   // but the registered close must still close the session it was registered for.
