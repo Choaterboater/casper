@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -12,6 +12,7 @@ import { checkResultForModel } from "../src/verify/model-output";
 import { fromNetworkResult } from "../src/verify/registry";
 import type { NetworkCheckResult, NetworkCheckSpec } from "../src/network/spec";
 import { fakeTool, networkFixture, RECORD_CALL, RECORD_FILE, writeProjectFile, type NetworkFixture } from "./support/network-fakes";
+import { removeTempDir } from "./support/temp-dir";
 
 let fixture: NetworkFixture | undefined;
 afterEach(async () => { await fixture?.cleanup(); fixture = undefined; });
@@ -93,5 +94,5 @@ test.skipIf(!hasHierConfig)("the embedded script makes a real diff (runs only wh
     const value = JSON.parse(run.stdout);
     expect(value.change_lines).toBeGreaterThan(0);
     expect(value.remediation).toContain("vlan 20");
-  } finally { await rm(dir, { recursive: true, force: true }); }
+  } finally { await removeTempDir(dir); }
 });

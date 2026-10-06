@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
@@ -11,6 +11,7 @@ import { MODEL_FINDING_LABEL } from "../src/security/review";
 import { SkillRegistry } from "../src/skills/registry";
 import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeReadOnlyStartOptions, RuntimeSession, RuntimeStartOptions } from "../src/runtime/types";
 import { fakeTools, fixtureRepo, gitIn } from "./fixtures/security-tools/setup";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -58,12 +59,12 @@ class Parent implements AgentRuntime {
 
 async function setup() {
   const root = await fixtureRepo("casper-ai-app-");
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   gitIn(root, "checkout", "-qb", "feature");
   await writeFile(path.join(root, "app", "extra.py"), "import subprocess\n\ndef run(cmd):\n    return subprocess.check_output(cmd, shell=True)\n");
   gitIn(root, "add", "-A"); gitIn(root, "commit", "-qm", "extra");
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-ai-app-home-"));
-  cleanup.push(() => rm(home, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(home));
   const tools = await fakeTools(home);
   let output = "";
   const parent = new Parent();

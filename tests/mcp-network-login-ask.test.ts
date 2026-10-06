@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -18,13 +18,14 @@ import { networkServerEntry } from "../src/mcp/network/server";
 import { withLoginDisplay } from "../src/tui/login";
 import { allowSlowServerStopsOnWindows, fakeServerProgram } from "./support/fake-program";
 import { withLoginSurface } from "./support/login-surface";
+import { removeTempDir } from "./support/temp-dir";
 
 allowSlowServerStopsOnWindows();
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 async function tempHome(): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "casper-login-ask-"));
-  cleanup.push(() => rm(dir, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(dir));
   return dir;
 }
 const textResult = (value: unknown) => ({ content: [{ type: "text", text: JSON.stringify(value) }] });

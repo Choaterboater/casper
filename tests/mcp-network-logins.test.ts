@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { MCPServerDefinition } from "../src/mcp/config";
@@ -14,12 +14,13 @@ import { scrubToolOutput } from "../src/secrets/tool-output";
 import { scrubText } from "../src/secrets/scrub";
 import { allowSlowServerStopsOnWindows, fakeProgram, fakeServerProgram } from "./support/fake-program";
 import { needsPosixModes, needsSymlinks, posixModes } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 async function tempHome(): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "casper-network-logins-"));
-  cleanup.push(() => rm(dir, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(dir));
   return dir;
 }
 const key = randomBytes(32);

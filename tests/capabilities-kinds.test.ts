@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { buildPlan, planLabel } from "../src/capabilities/approval";
@@ -11,6 +11,7 @@ import { networkServerEntry } from "../src/mcp/network/server";
 import { toolLabel } from "../src/capabilities/labels";
 import type { MCPTool } from "../src/mcp/manager";
 import { allowSlowServerStopsOnWindows, fakeServerProgram } from "./support/fake-program";
+import { removeTempDir } from "./support/temp-dir";
 
 function kind(name: string, meta?: unknown, annotations?: MCPTool["annotations"]) {
   const tool = { name, annotations, ...(meta === undefined ? {} : { _meta: { "casper/change-kind": meta } }) };
@@ -154,7 +155,7 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 
 async function troubleshootRun(preset: "network" | "hpe", tool = "cx_show", options: { destructive?: boolean } = {}) {
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-hit-kinds-"));
-  cleanup.push(() => rm(home, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(home));
   const calls = path.join(home, "calls.log");
   // The same stand-in, installed where Casper installs its network server, or under hpe-networking-mcp's program name.
   const where = preset === "network" ? networkServerEntry(home).command : path.join(home, "bin/hpe-mcp-router");
@@ -219,7 +220,7 @@ test("review: an approved LLDP check on the network preset runs pinned, with no 
 
 test("review: a later find_tool that names a lower kind never lowers the kept one", async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-hit-kinds-"));
-  cleanup.push(() => rm(home, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(home));
   const entry = networkServerEntry(home).command;
   await mkdir(path.dirname(entry), { recursive: true });
   const hit = (kind: string) => [{ name: "mist_update_device", product: "mist", summary: "Update a device.", kind, label: "write" }];
@@ -247,7 +248,7 @@ test("review: a troubleshoot hit through a tool the server marks destructive nev
 
 async function hitServer(hits: unknown[], later?: unknown[]) {
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-hit-kinds-"));
-  cleanup.push(() => rm(home, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(home));
   const entry = networkServerEntry(home).command;
   await mkdir(path.dirname(entry), { recursive: true });
   await writeFile(path.join(home, "hits.json"), JSON.stringify(hits));

@@ -8,6 +8,7 @@ import { SkillRegistry } from "../src/skills/registry";
 import { classifyTask } from "../src/task/classify";
 import { needsFifos, needsSymlinks, posixModes, posixOnly } from "./support/platform";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -32,7 +33,7 @@ const candidate = {
 };
 async function fixture(respond?: (payload: Payload, index: number) => Response | Promise<Response>) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-learn-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"); const project = path.join(root, "source repo");
   const cwd = path.join(root, "caller"); const agent = path.join(home, ".pi/agent");
   await mkdir(agent, { recursive: true }); await mkdir(project); await mkdir(cwd);
@@ -115,7 +116,8 @@ test("learn produces an unpromoted draft with host-checked provenance, inspectab
   expect(Object.keys(state)[0]).toEndWith("/learning-candidates.jsonl");
   // Mode bits are a POSIX guarantee; Windows synthesizes them (tests/support/platform.ts).
   if (posixModes) expect((await stat(path.join(f.home, ".casper", Object.keys(state)[0]!))).mode & 0o777).toBe(0o600);
-}, 30_000);
+  // Three CLI runs: about 4 s on Windows CI, but up to 20 s on a slow runner (it failed at 30 s), so 2x that.
+}, 60_000);
 
 test("digest-bound human promotion makes one candidate a searchable reference without another model call", async () => {
   const f = await fixture();
@@ -263,7 +265,7 @@ needsSymlinks("promotion rejects symlinked artifact roots without writing throug
   const f = await fixture();
   const draft = JSON.parse((await f.run(["learn", f.project])).stdout).draft;
   const outside = await mkdtemp(path.join(os.tmpdir(), "casper-promoted-outside-"));
-  cleanup.push(() => rm(outside, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(outside));
   await symlink(outside, path.join(f.home, ".casper", "promoted-references"), "dir");
   const result = await f.run(["learn", "promote", f.project, draft.id, draft.sha256, "1", "reference"]);
   expect(result.exit).toBe(1);

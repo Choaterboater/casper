@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { writeFileSync } from "node:fs";
 import { mkdtemp, writeFile, readFile, mkdir, rm, realpath, symlink, chmod } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -23,9 +24,12 @@ async function fixture(mode = "normal", timeout = 2000) {
   cleanup.push(() => manager.close());
   return { root, manager };
 }
-function connection(root: string, mode = "normal") {
+/** A connection whose requests time out after 200 ms. A fresh Bun child can take longer than that to start on a busy
+ * Windows runner, so the first request waits for the server with its own longer limit. */
+async function connection(root: string, mode = "normal") {
   const value = new LSPConnection(process.execPath, [serverFile, mode], root, 200);
   cleanup.push(() => value.close());
+  expect(await value.request("echo", { value: "up" }, undefined, 10_000)).toEqual({ value: "up" });
   return value;
 }
 const position = { line: 0, character: 1 };
@@ -59,7 +63,7 @@ describe("Phase 5 LSP", () => {
 
   test("requests timeout, cancel, survive late work, and close is shared", async () => {
     const { root } = await fixture();
-    const rpc = connection(root);
+    const rpc = await connection(root);
     await expect(rpc.request("late", { stale: true })).rejects.toThrow("timed out");
     await Bun.sleep(150);
     await expect(rpc.request("hang")).rejects.toThrow("timed out");
@@ -77,8 +81,7 @@ describe("Phase 5 LSP", () => {
 
   test("stubborn shutdown and initialization failure are bounded", async () => {
     const { root } = await fixture();
-    const rpc = connection(root, "stubborn");
-    await rpc.request("echo");
+    const rpc = await connection(root, "stubborn");
     const start = Date.now();
     await rpc.close();
     expect(Date.now() - start).toBeLessThan(800);
@@ -105,7 +108,7 @@ describe("Phase 5 LSP", () => {
   });
 
   test.each(["silent", "stale", "unversioned", "pull", "pull-fail"])("diagnostics never confuse %s with verified clean", async (mode) => {
-    const { manager } = await fixture(mode, 400);
+    const { manager } = await fixture(mode);
     await manager.connect("fixture");
     const report = await manager.diagnostics("fixture", "a.ts");
     expect(report.status).toBe(mode === "pull" ? "fresh" : mode === "pull-fail" ? "unavailable" : mode === "unversioned" ? "unversioned" : "timeout");
@@ -192,10 +195,16 @@ describe("Phase 5 LSP", () => {
   test("a file changed while diagnostics are pending cannot be reported fresh", async () => {
     const { manager, root } = await fixture("delayed");
     await manager.connect("fixture");
-    const pending = manager.diagnostics("fixture", "a.ts");
-    await Bun.sleep(30);
-    await writeFile(path.join(root, "a.ts"), "BROKEN");
-    expect((await pending).status).toBe("unavailable");
+    // Change the file just after Casper opens it, before any reply can be read. A fixed sleep here lost the race to
+    // the server's reply on a busy Windows runner.
+    const original = LSPConnection.prototype.notify;
+    const notification = spyOn(LSPConnection.prototype, "notify").mockImplementation(function (this: LSPConnection, method, params) {
+      original.call(this, method, params);
+      if (method === "textDocument/didOpen") writeFileSync(path.join(root, "a.ts"), "BROKEN");
+    });
+    try { expect((await manager.diagnostics("fixture", "a.ts")).status).toBe("unavailable"); }
+    finally { notification.mockRestore(); }
+    expect(await readFile(path.join(root, "a.ts"), "utf8")).toBe("BROKEN");
   });
 
   test("server death after writes reports changed paths and unavailable diagnostics", async () => {

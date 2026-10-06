@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DEAD_PROXY } from "../src/mcp/check/sandbox";
 import { SecurityCheck, type SecurityReport } from "../src/security/run";
 import { RUFF_SECURITY_RULES, toolArgs } from "../src/security/tools";
 import { fakeTools, fixtureRepo, SEMGREP_RUNS } from "./fixtures/security-tools/setup";
+import { removeTempDir } from "./support/temp-dir";
 
 let root: string;
 let home: string;
@@ -25,7 +26,7 @@ beforeAll(async () => {
     baseEnv: { PATH: process.env.PATH, MIST_APITOKEN: "abc123", CENTRAL_CLIENT_ID: "cid", HTTPS_PROXY: "http://corp:8080" },
   }).run();
 });
-afterAll(async () => { await rm(root, { recursive: true, force: true }); await rm(home, { recursive: true, force: true }); });
+afterAll(async () => { await removeTempDir(root); await removeTempDir(home); });
 
 test("every tool ran with its offline flags and with its own inline ignores turned off", async () => {
   expect(report.tools.map((tool) => [tool.id, tool.status])).toEqual([
