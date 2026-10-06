@@ -23,7 +23,7 @@ without checking where the download came from.
 In PowerShell (a normal window, not "Run as administrator"):
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.23/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.24/install.ps1 | iex
 ```
 
 What the installer does:
@@ -54,11 +54,11 @@ casper --help
 Get-Command casper | Select-Object Source
 ```
 
-`casper --version` should print `casper 0.2.23 (<path to casper.exe>)`. The `Source`
+`casper --version` should print `casper 0.2.24 (<path to casper.exe>)`. The `Source`
 line should point into the install folder, not an old checkout or some other program
 called casper.
 
-The command above always installs **v0.2.23**. Running it again reinstalls v0.2.23.
+The command above always installs **v0.2.24**. Running it again reinstalls v0.2.24.
 To get a newer preview, run `casper update`; it renames `casper.exe` to `casper.old.exe`
 and installs the new one with that release's own installer.
 

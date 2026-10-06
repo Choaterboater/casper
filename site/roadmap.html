@@ -57,6 +57,7 @@
         <ul>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0224">v0.2.24: builders the AI starts, plain words, an off switch for every default</a></li>
               <li><a href="#v0223">v0.2.23: casper doctor, a sandboxed network server, a reader for untrusted text</a></li>
               <li><a href="#v0222">v0.2.22: one box for every yes, a network server Casper sets up</a></li>
               <li><a href="#v0221">v0.2.21: a clearer screen, pages at phone width</a></li>
@@ -98,8 +99,38 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <article class="card" id="v0224" aria-labelledby="v0224-h">
+          <h3 id="v0224-h">v0.2.24 · Builders the AI starts, plain words, an off switch for every default <span class="badge ok">current preview</span></h3>
+          <p>The AI splits a big job across builders itself, you steer a task with plain words, every
+          default can be turned off in <code>/settings</code>, and every request carries about 790 fewer
+          fixed tokens.</p>
+          <ul>
+            <li><strong>Builders the AI starts.</strong> For a job with separate parts the AI starts up to
+            3 builders at once, each in its own copy of your folder as it is (unsaved files too). Each
+            change lands in your folder when its builder ends, uncommitted, and one <code>/undo</code>
+            takes the task back. A change that touches a file you changed meanwhile stays in its copy for
+            <code>/crew</code>. "run a crew" or "split this up" asks for them, "by yourself" keeps them out;
+            <code>/settings</code> turns them off.</li>
+            <li><strong>Plain words.</strong> Ask "which model am I on?" or "what have I spent?" and the
+            AI answers from <code>casper_session</code>. <code>think hard:</code>, <code>quick:</code>,
+            <code>big model:</code>, <code>fast model:</code> and <code>plan first:</code> at the start of
+            a request apply to that task only. <code>/model</code> works during a task. A line starting
+            with <code>?</code> is a side question to your fast model, with no tools.</li>
+            <li><strong>An off switch for every default.</strong> <code>/settings</code> shows every
+            setting with its state at a glance and now covers the browser tool, the diagram tool,
+            suggestions, the prompt cache, page checks and whether Casper sends its name to OpenRouter. A
+            project file can't turn any of them back on.</li>
+            <li><strong>Fewer tokens.</strong> 3,996 fixed tokens per request without MCP, down from
+            4,782.</li>
+            <li><strong>Recent projects first</strong> in the home-folder question, and
+            <code>/mcp setup ssh</code> to add an MCP server that runs on another machine, writes off.</li>
+            <li><strong>Safer.</strong> One question before the AI's browser opens a cloud metadata
+            address and before Windows opens a picture on another computer's share.</li>
+          </ul>
+        </article>
+
         <article class="card" id="v0223" aria-labelledby="v0223-h">
-          <h3 id="v0223-h">v0.2.23 · Casper doctor, a sandboxed network server, a reader for untrusted text <span class="badge ok">current preview</span></h3>
+          <h3 id="v0223-h">v0.2.23 · Casper doctor, a sandboxed network server, a reader for untrusted text</h3>
           <p>Casper checks its own setup, its network server runs in the sandbox, the AI reads untrusted
           text at arm's length, the AI can see pictures and the pages it built, and
           <code>/mcp login</code> asks which product.</p>
@@ -441,21 +472,21 @@
           preview.</p>
         </aside>
 
-        <p>Nothing right now: everything built so far shipped in v0.2.23.</p>
+        <p>Nothing right now: everything built so far shipped in v0.2.24.</p>
       </section>
 
       <section id="coming" aria-labelledby="coming-h">
         <h2 id="coming-h">Planned, not started</h2>
         <aside class="callout soon">
           <strong class="callout-title">Not in any release yet</strong>
-          <p>Nothing else in this section is in v0.2.23: the first part of Crews shipped in it, AI-started
-          builders are built but not released, and the rest has not been started. Names, commands and details may change, or move to a later version, before
+          <p>Nothing else in this section is in v0.2.24: the first part of Crews shipped in v0.2.23, AI-started
+          builders in v0.2.24, and the rest has not been started. Names, commands and details may change, or move to a later version, before
           they ship.</p>
         </aside>
 
         <div class="stack">
         <article class="card" id="v030" aria-labelledby="v030-h">
-          <h3 id="v030-h">v0.3 · Crews <span class="badge soon">first part shipped in v0.2.23</span></h3>
+          <h3 id="v030-h">v0.3 · Crews <span class="badge soon">first parts shipped in v0.2.23 and v0.2.24</span></h3>
           <p>Big jobs get a team. The AI splits a big job itself, as Claude Code and omp do; <code>/crew</code>
           is the manual way.</p>
           <ul>
@@ -463,7 +494,7 @@
             <code>/crew &lt;job&gt;</code>: a builder does the job in its own copy of the project, in the
             same sandbox, and your folder stays as it is. Then 1 Keep the copy · 2 Apply to my folder ·
             3 Throw it away. See <code>docs/CREWS.md</code>.</li>
-            <li><strong>The AI starts builders itself</strong> <span class="badge">built, not released</span>.
+            <li><strong>The AI starts builders itself</strong> <span class="badge">in v0.2.24</span>.
             For a job with separate parts the AI starts up to 3 builders at once, each in its own copy of
             your folder as it is (unsaved files too); each
             change lands in your folder when its builder ends, uncommitted, and one <code>/undo</code> takes
@@ -622,7 +653,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.23</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.24</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
