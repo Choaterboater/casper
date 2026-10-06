@@ -114,8 +114,16 @@ export async function snapshotTree(root: string, signal?: AbortSignal, options: 
     }
     await digestAll(files);
   }
+  // Casper's own folder is skipped, but the project's settings file in it is the project's: a change to it is listed.
+  if (!digests.has(PROJECT_FILE)) {
+    const digest = await digestEntry(path.join(root, PROJECT_FILE), chunks[0]!);
+    if (digest !== undefined) digests.set(PROJECT_FILE, digest);
+  }
   return digests;
 }
+
+/** The project's Casper settings: inside the skipped .casper folder, yet listed like any project file. */
+const PROJECT_FILE = ".casper/project.yaml";
 
 async function digestEntry(target: string, chunk: Buffer): Promise<string | undefined> {
   try {

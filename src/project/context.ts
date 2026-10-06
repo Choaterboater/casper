@@ -1,4 +1,7 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import os from "node:os";
+import path from "node:path";
 import { loadConfiguration, type AskQuestions, type Autonomy, type CasperPolicy, type GitActionPolicy, type LoadedConfiguration } from "../config/load";
 import type { VisualizationSettings } from "../visualize/router";
 import type { ProjectInfo } from "./inspect";
@@ -43,6 +46,9 @@ export interface ProjectContext {
   };
   /** Configuration keys that were ignored, by file (see LoadedConfiguration.warnings). */
   warnings?: string[];
+  /** A digest of .casper/project.yaml as it was read for this context (undefined when there is none): a task that
+   * rewrites it does not change the checks it runs (see projectAfterSetup in app.ts). */
+  projectFile?: string;
   /** The user's lab list (lab.hosts), from ~/.casper/config.yaml or the profile only. */
   lab?: LabSettings;
   /** The profile whose own lab list is in force, when it has one (/lab import adds there). */
@@ -65,6 +71,8 @@ export async function loadProjectContext(
   options: LoadProjectContextOptions = {},
 ): Promise<ProjectContext> {
   const homeDir = options.homeDir ?? os.homedir();
+  const projectFile = await readFile(path.join(info.root, ".casper", "project.yaml"))
+    .then((bytes) => createHash("sha256").update(bytes).digest("hex"), () => undefined);
   const configuration = await loadConfiguration({
     projectRoot: info.root,
     homeDir,
@@ -123,6 +131,7 @@ export async function loadProjectContext(
     sandbox: configuration.sandbox,
     web: configuration.web,
     reader: configuration.reader,
+    ...(projectFile ? { projectFile } : {}),
   };
 }
 

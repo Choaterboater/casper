@@ -212,12 +212,18 @@ export async function saveFoundCheck(app: CasperApp, name: string): Promise<void
   }
 }
 
-/** The project read again after the model changed a top-level file or .casper/project.yaml, when that changed
- * which checks it has; undefined when nothing relevant changed or it can't be read. */
+/** The project read again after the model changed a top-level file, when that changed which checks it has;
+ * undefined when nothing relevant changed or it can't be read. A task that rewrote .casper/project.yaml keeps the
+ * checks and settings it started with: the file is read again when Casper next starts. */
 export async function projectAfterSetup(app: CasperApp, context: ProjectContext, changed: string[]): Promise<ProjectContext | undefined> {
   if (!changed.some((file) => !file.includes("/") || file === ".casper/project.yaml")) return undefined;
   let fresh: ProjectContext;
   try { fresh = await app.loadProjectContextFn(context.info); } catch { return undefined; }
+  if (fresh.projectFile !== context.projectFile) {
+    app.events.ensureLineBreak();
+    app.output.write("[project] .casper/project.yaml changed in this task; Casper keeps the checks it started with until it starts again\n");
+    return undefined;
+  }
   const checks = (c: ProjectContext) => JSON.stringify([c.model.commands, c.model.namedChecks ?? {}, c.verification.checks ?? null]);
   if (checks(fresh) === checks(context)) return undefined;
   app.projectContext = fresh;

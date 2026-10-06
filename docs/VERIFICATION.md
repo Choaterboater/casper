@@ -794,7 +794,9 @@ file; the project file wins (see [CONFIGURATION.md](CONFIGURATION.md)).
   with `/verify add <name>`. `lab.hosts` (optional: it only marks devices as lab) is your own
   setting in `~/.casper/config.yaml`; a project file cannot set it.
 - Commands and declared scopes are read at startup and do not change during repair. Restart
-  Casper after changing configuration or manifests.
+  Casper after changing configuration or manifests. A task that rewrites `.casper/project.yaml`
+  keeps the checks and settings it started with (`[project] .casper/project.yaml changed in this
+  task; …`); the receipt lists the file and `/undo` puts it back.
 - Casper runs the checks one at a time, at the project root, with the platform shell and your
   environment (from v0.2.16, minus AI provider keys). It does not install dependencies or fall back to another tool when one is missing.
 - The model's `casper_check` tool takes only a check name (`typecheck`, `lint`, `test`, `build`,

@@ -289,3 +289,21 @@ posixOnly("a lock left by a Casper that stopped is taken over at once, not waite
   tree(await store.snapshot());
   expect(Date.now() - started).toBeLessThan(10_000);
 }, 40_000);
+
+test("the project's .casper/project.yaml is copied and goes back; the rest of .casper is never copied", async () => {
+  for (const git of [true, false]) {
+    const { root, store } = await setup({ git });
+    await mkdir(path.join(root, ".casper"), { recursive: true });
+    await writeFile(path.join(root, ".casper/project.yaml"), 'verify:\n  test: "bun test"\n');
+    await writeFile(path.join(root, ".casper/rules.md"), "rules\n");
+    const before = tree(await store.snapshot());
+    await writeFile(path.join(root, ".casper/project.yaml"), 'verify:\n  test: "true"\n');
+    await writeFile(path.join(root, ".casper/rules.md"), "other\n");
+    const after = tree(await store.snapshot());
+    expect((await store.changes(before, after)).map((change) => change.path)).toEqual([".casper/project.yaml"]);
+    const applied = await store.apply((await store.plan(after, before)).ready, before);
+    expect(applied.restored).toEqual([".casper/project.yaml"]);
+    expect(await readFile(path.join(root, ".casper/project.yaml"), "utf8")).toBe('verify:\n  test: "bun test"\n');
+    expect(await readFile(path.join(root, ".casper/rules.md"), "utf8")).toBe("other\n");
+  }
+});
