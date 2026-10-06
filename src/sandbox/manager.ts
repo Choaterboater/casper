@@ -242,6 +242,9 @@ export class ShellSandbox {
   /** Run `id` has ended: the sandbox cleans up after it (see SandboxEngine.finished). Safe to call more than once. */
   finished(id: string | undefined): void {
     if (id) { this.runHosts.delete(id); this.engine.finished(id); }
+    // A commondir the run wrote is gone when it ends, even if the watch missed it (macOS can drop an event that
+    // comes just after a watch starts).
+    for (const dotGit of this.gitGuards.keys()) this.guardGit(path.dirname(dotGit));
   }
 
   /** You said yes to these hosts for the command `id` (Casper's own "Reach <host>?" question): the proxy lets that
