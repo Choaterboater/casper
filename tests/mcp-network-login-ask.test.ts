@@ -459,14 +459,14 @@ test("a login value the server echoes in a successful result is hidden from the 
 });
 
 test("a mistyped region is asked again, so one typo never throws the person's yes away", async () => {
-  const run = await brokerRun({ interactive: true, tool: "central_list_sites", answers: ["2", "17", "3"], secrets: ["cid-EXAMPLE-1", "sec-EXAMPLE-2"] });
-  expect(run.prompts[2]).toBe("That isn't one of them. Type a number from 1 to 16.\n");
+  const run = await brokerRun({ interactive: true, tool: "central_list_sites", answers: ["2", "18", "3"], secrets: ["cid-EXAMPLE-1", "sec-EXAMPLE-2"] });
+  expect(run.prompts[2]).toBe("That isn't one of them. Type a number from 1 to 17.\n");
   expect((await readLogins(run.home)).central).toEqual({ CENTRAL_BASE_URL: "https://us4.api.central.arubanetworks.com", CENTRAL_CLIENT_ID: "cid-EXAMPLE-1", CENTRAL_CLIENT_SECRET: "sec-EXAMPLE-2" });
   expect(run.output).not.toContain("Not added.");
 });
 
 test("after three wrong numbers nothing is saved, and the next try still asks (it isn't Not now)", async () => {
-  const run = await brokerRun({ interactive: true, tool: "central_list_sites", answers: ["2", "17", "0", "us1"] });
+  const run = await brokerRun({ interactive: true, tool: "central_list_sites", answers: ["2", "18", "0", "us1"] });
   expect(run.output).toContain("Not added. Type /mcp login central any time.");
   expect(await readLogins(run.home)).toEqual({});
   expect(run.notNow.has("central")).toBe(false);
@@ -511,8 +511,13 @@ test("/mcp login with no name asks which product, 1 = Not now; a one-shot run on
 });
 
 test("Central and Mist: the last choice lets you type any address (an internal or new cluster)", async () => {
-  const run = await brokerRun({ interactive: true, tool: "central_list_sites", answers: ["2", "16"],
+  const run = await brokerRun({ interactive: true, tool: "central_list_sites", answers: ["2", "17"],
     secrets: ["apigw.example.net/", "client_EXAMPLE", "secret_EXAMPLE_1"], reach: { central: { access: "read-only" } } });
   expect((await readLogins(run.home)).central?.CENTRAL_BASE_URL).toBe("https://apigw.example.net");
   expect(run.prompts).toContain("Central API address (https://…)");
+});
+
+test("Central lists its internal cluster by name", async () => {
+  const run = await brokerRun({ interactive: true, tool: "central_list_sites", answers: ["2", "15"], secrets: ["cid-EXAMPLE-1", "sec-EXAMPLE-2"] });
+  expect((await readLogins(run.home)).central?.CENTRAL_BASE_URL).toBe("https://internal.api.central.arubanetworks.com");
 });

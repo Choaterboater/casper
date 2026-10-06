@@ -103,7 +103,7 @@ file and set no variable.
    `Mist login: can change Branch-12 (checked)`. Mist and ClearPass logins are checked;
    casper-network-mcp can't check a Central login yet, so it shows
    `Central login: saved (not checked)`. The last Mist cloud and Central region choice is
-   `Other — type the address`, for an internal or new cluster that isn't listed.
+   `Other — type the address`, for a cluster that isn't listed (Central also lists its internal cluster).
    `/mcp login mist` adds or replaces it any time; `/mcp login mist forget` removes it.
    `/mcp login` on its own shows each login and asks which to add or replace
    (`1 Not now · 2 Mist · 3 Central · 4 ClearPass`).
