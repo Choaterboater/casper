@@ -13,13 +13,15 @@ writes your answer into `~/.casper/config.yaml` for you, keeping your comments a
 
 ```text
 Settings (saved in ~/.casper/config.yaml for you). Pick one to change:
-  1 Done                nothing changes
-  2 Web lookups         on (DuckDuckGo)
-  3 New-version notice  on
-  4 Built-in skills     on
-  5 Spend notes         at $1 a task
-  6 Spend pause         off
-  7 Work shown          normal
+  1 Done                   nothing changes
+  2 Web lookups            on (DuckDuckGo)
+  3 New-version notice     on
+  4 Built-in skills        on
+  5 Spend notes            at $1 a task
+  6 Spend pause            off
+  7 Show the AI the pages  ask once a session
+  8 Work shown             normal
+  9 Playwright tests       on
 ```
 
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.

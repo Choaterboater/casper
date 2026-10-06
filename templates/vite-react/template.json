@@ -1,0 +1,18 @@
+{
+  "id": "vite-react",
+  "version": 1,
+  "kind": "Vite React app",
+  "title": "Web app (Vite, React, TypeScript)",
+  "description": "A Vite + React + TypeScript app from create-vite, with a small theme of its own, a page test and a typecheck.",
+  "defaultName": "my-vite-app",
+  "tool": "bun",
+  "init": ["bun", "create", "vite", ".", "--template", "react-ts", "--no-interactive"],
+  "add": [],
+  "addDev": ["@happy-dom/global-registrator", "@types/bun"],
+  "replace": ["README.md", "index.html", "src/App.tsx", "src/App.css", "src/index.css"],
+  "packageJson": {
+    "name": "{{name}}",
+    "scripts": { "test": "bun test", "typecheck": "tsc -b" }
+  },
+  "ready": true
+}

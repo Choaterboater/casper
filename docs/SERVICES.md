@@ -159,6 +159,36 @@ installs packages for it. That slot lives for the session like a declared servic
 shows in `/services`. It is Casper's own: a running page-check server never adds the
 service tool to the AI's later tasks.
 
+## Preview on your phone
+
+New in v0.2.23. `/preview` starts the project's web app (its `services.web`, or the dev server Casper
+found for page checks) listening on your network, and prints the address a phone on the same Wi-Fi can
+open. You typed it, so it asks nothing:
+
+```text
+[preview] On your network: http://192.168.1.20:41733 · open it on a phone on the same Wi-Fi. Anyone on this network can open it; it stops when you leave Casper (or /preview stop).
+```
+
+It runs in its own `preview` slot with `HOST` set to `0.0.0.0` (Casper changes its own `--host
+127.0.0.1` flags to match), so the page checks' loopback server is left as it is. A declared command
+that sets its own address instead of `$HOST` only answers on this computer, and `/preview` says so.
+
+**A public link** needs a tunnel tool you already have: `cloudflared` (a free quick tunnel, no account)
+or Tailscale Funnel. Casper never installs one. When one is on `PATH`, `/preview` asks once:
+
+```text
+Share a public link too? Anyone with the link can open your app while Casper runs.
+  1 No                                            keep it on your network
+  2 Yes, make a public link (cloudflared)         until you leave Casper or /preview stop
+```
+
+On 2 Casper starts the tunnel as a `public-link` service (outside the shell sandbox, since its job is to
+reach the internet) and prints the `https://…trycloudflare.com` or `https://….ts.net` link. Vite accepts
+those host names in the preview. Without a person to ask (a script), there is no public link.
+`/preview stop` stops both and forgets them; leaving Casper does too. Both are Casper's own: the AI's
+service tool doesn't list them and can't start, restart or call them, so only `/preview` (and a new
+yes for the link) brings them back.
+
 ## Lifetime
 
 Services belong to the session, not to one task. They keep running between prompts, so a

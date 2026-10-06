@@ -2,7 +2,7 @@
  * Page check results and their plain receipt lines. Kept apart from the page checks themselves (Chrome, the dev
  * server) so the receipt can print them without loading a browser.
  */
-import type { PhoneFit } from "../browser/session";
+import type { A11yFindings, PhoneFit } from "../browser/session";
 import type { SkippedPage } from "./pages";
 
 const NO_CHROME = "console not checked: no Chrome found (install Chrome or set CASPER_BROWSER_EXECUTABLE)";
@@ -30,6 +30,8 @@ export interface PageResult {
   phoneChecked?: boolean;
   /** At phone width it scrolls sideways or squashes a text field (only when it does). */
   phone?: PhoneFit;
+  /** Accessibility notes ("2 inputs have no label"), only when there are some. They never fail the page. */
+  a11y?: string[];
   /** Pictures of the page at desktop and phone width (PNG paths outside the project). Never evidence. */
   screenshots?: { desktop?: string; phone?: string };
 }
@@ -86,6 +88,18 @@ function phoneProblem(phone: PhoneFit): string {
   return more.length ? `${said}, and ${plural(more.length, "more field")}` : said;
 }
 
+/** Plain notes for a page's accessibility findings, most serious first. Empty when there are none. */
+export function a11yNotes(found: A11yFindings): string[] {
+  const notes: string[] = [];
+  const has = (count: number, word: string) => `${plural(count, word)} ${count === 1 ? "has" : "have"}`;
+  if (found.inputs) notes.push(`${has(found.inputs, "input")} no label`);
+  if (found.buttons) notes.push(`${has(found.buttons, "button")} no name`);
+  if (found.images) notes.push(`${has(found.images, "image")} no alt text`);
+  if (found.contrast.count) notes.push(`${has(found.contrast.count, "text item")} very low contrast (${found.contrast.worst}:1)`);
+  if (!found.lang) notes.push("the page has no lang");
+  return notes;
+}
+
 /** What the failed verdict names: "/dashboard has 2 console errors". Undefined when no page failed. */
 export function pageFailureSummary(report: PageReport): string | undefined {
   const failed = report.pages.find(page => page.status === "fail");
@@ -114,7 +128,7 @@ function screenshotLine(page: PageResult): string[] {
 
 /** Every line of a report: one per page and where its pictures are, the skipped pages, and why the check did not run. */
 export function formatPageReport(report: PageReport): string[] {
-  const lines = report.pages.flatMap((page) => [formatPageLine(page), ...screenshotLine(page)]);
+  const lines = report.pages.flatMap((page) => [formatPageLine(page), ...screenshotLine(page), ...(page.a11y?.length ? [`  • ${page.path}: ${page.a11y.join(" · ")}`] : [])]);
   if (report.reason && !report.pages.length) {
     const tail = report.logTail?.split("\n").slice(-5).map(line => `    ${line}`).join("\n");
     lines.push(formatPagesNotChecked(report.reason) + (tail ? `. Last lines:\n${tail}` : ""));

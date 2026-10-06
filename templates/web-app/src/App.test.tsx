@@ -21,10 +21,17 @@ function render(): HTMLElement {
 
 test("the page shows its heading", () => {
   const page = render();
-  expect(page.querySelector("h1")?.textContent).toBe("Bun + React");
+  expect(page.querySelector("h1")?.textContent).toBe("{{name}}");
 });
 
-test("the page has the API tester form", () => {
+test("every field in the form has a label", () => {
   const page = render();
-  expect(page.querySelector("form")).not.toBeNull();
+  const fields = [...page.querySelectorAll("input, select")];
+  expect(fields.length).toBeGreaterThan(0);
+  for (const field of fields) expect(page.querySelector(`label[for="${field.id}"]`)).not.toBeNull();
+});
+
+test("before a request, the answer area says what will show there", () => {
+  const page = render();
+  expect(page.textContent).toContain("No answer yet");
 });

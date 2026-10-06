@@ -183,7 +183,7 @@ export class SmokeChecks {
   /** Validates and records a model check, and runs it once for its baseline. */
   async record(input: unknown, signal: AbortSignal): Promise<SmokeResult> {
     if (this.recorded.length >= MAX_SMOKE_CHECKS) throw new Error(`At most ${MAX_SMOKE_CHECKS} checks are recorded per task; replay an existing one`);
-    const check = parseSmokeCheck(input, "check", this.manager().names());
+    const check = parseSmokeCheck(input, "check", this.manager().aiNames());
     const id = `smoke-${this.recorded.length + 1}`;
     const afterEdits = await this.changed();
     const result = await this.execute(check, signal);

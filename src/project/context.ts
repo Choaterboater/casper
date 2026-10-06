@@ -4,6 +4,7 @@ import type { VisualizationSettings } from "../visualize/router";
 import type { ProjectInfo } from "./inspect";
 import { loadProjectModel, projectStateDirectory, type ProjectModel } from "./model";
 import { detectMigrations } from "../verify/migrations";
+import { detectE2e } from "../verify/e2e";
 import { detectAnsible } from "../network/ansible";
 import type { LabSettings } from "../network/spec";
 import type { NamedCheckSpec } from "../verify/named";
@@ -75,7 +76,10 @@ export async function loadProjectContext(
   const migrations = await detectMigrations(info.root).catch(() => undefined);
   // So are Ansible playbooks: the language and platforms, and ready-made checks to offer (never saved or run on their own).
   const ansible = await detectAnsible(info.root).catch(() => undefined);
+  // And Playwright tests the project already has, unless verification.e2e is false (/settings).
+  const e2e = configuration.verification.e2e === false ? undefined : await detectE2e(info.root, detected.packageManager).catch(() => undefined);
   let model = migrations ? { ...detected, migrations } : detected;
+  if (e2e && !model.namedChecks?.e2e) model = { ...model, e2e };
   if (ansible) {
     const found: Record<string, NamedCheckSpec> = {};
     for (const [name, spec] of Object.entries(ansible.checks)) if (!model.namedChecks?.[name]) found[name] = spec;

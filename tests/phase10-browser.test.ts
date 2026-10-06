@@ -246,6 +246,19 @@ browserTest("the page load looks at phone width: a too-wide page and a squashed 
   expect((await f.session.load(`${f.url}/`, new AbortController().signal)).phone).toEqual({ viewport: 390, pageWidth: 390, squashed: [] });
 }, 30_000);
 
+browserTest("the page load notes accessibility basics: alt, labels, button names, very low contrast, lang", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, `<!doctype html><html><meta name="viewport" content="width=device-width"><title>a11y</title>
+    <img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="20" height="20"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="" width="20" height="20">
+    <input id="email" placeholder="Email"><input id="name" aria-label="Name"><label>City <input id="city"></label><input type="hidden" name="t">
+    <button></button><button aria-label="Close"></button><button><svg width="10" height="10"></svg></button><button>Save</button>
+    <p style="color:#bbb;background:#fff">faint words</p><p style="color:#222;background:#fff">plain words</p></html>`);
+  const bad = await f.session.load(`${f.url}/`, new AbortController().signal);
+  expect(bad.a11y).toEqual({ lang: false, images: 1, inputs: 1, buttons: 2, contrast: { count: 1, worst: 1.9 } });
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><title>ok</title><label for="q">Search</label><input id="q"><button>Go</button><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="Logo"><p>words</p></html>`);
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).a11y).toEqual({ lang: true, images: 0, inputs: 0, buttons: 0, contrast: { count: 0, worst: 0 } });
+}, 30_000);
+
 browserTest("a page check saves a desktop and a phone picture outside the project, private, and none unless asked", async () => {
   const f = await fixture();
   const plain = await f.session.load(`${f.url}/`, new AbortController().signal);

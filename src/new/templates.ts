@@ -81,7 +81,7 @@ export function allTemplates(): TemplateManifest[] {
 }
 
 /** Menu order: everyday network work first. */
-const ORDER = ["python-cli", "network-mcp", "mist-python", "web-app", "noc-dashboard", "aoscx-ansible", "junos-ansible"];
+const ORDER = ["python-cli", "network-mcp", "mist-python", "web-app", "vite-react", "noc-dashboard", "aoscx-ansible", "junos-ansible"];
 
 /** The templates `casper new` offers. */
 export function listTemplates(): TemplateManifest[] {

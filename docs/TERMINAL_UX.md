@@ -49,7 +49,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/plan <request>` | Plan first: the model writes a plan and cases to test, you edit it, then build |
 | `/suggestions [on\|off]` | List the suggested next steps, or turn them on or off |
 | `/details [quiet\|normal\|detailed]` | How much work shows, remembered like `/effort` (`--session` for this session only); Ctrl+T shows the last step in full |
-| `/settings` | Turn web lookups, the new-version notice, built-in skills, spend notes and pause, and the work shown on or off by number ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
+| `/settings` | Turn web lookups, the new-version notice, built-in skills, spend notes and pause, showing the AI the pages, the work shown and Playwright tests on or off by number ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
 | `/output [n\|all]` | Full command and output of a recent tool call from the last task |
 | `/receipt [n\|list]` | The last task's receipt in detail, a saved one, or the last 10 |
 | `/verify [checks]`, `/verify repair`, `/verify add <name>` | Run the project's checks; repair failures; save a check Casper found ([VERIFICATION.md](VERIFICATION.md)) |
@@ -63,6 +63,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/lsp` | Language servers ([LSP.md](LSP.md)) |
 | `/browser` | A disposable browser; screenshots ([BROWSER.md](BROWSER.md)) |
 | `/services` | Dev servers the project declares ([SERVICES.md](SERVICES.md)) |
+| `/preview` | Your web app on a phone on the same Wi-Fi; a public link only after a yes ([SERVICES.md](SERVICES.md#preview-on-your-phone)) |
 | `/tasks [stop <n>\|all]` | What runs in the background; stop one |
 | `/pane [on\|off]` | The steps split beside Casper inside tmux or iTerm2 (only on a window 120+ columns wide); saved for every session. See [TMUX.md](TMUX.md) |
 | `/debug` | The local debugger ([DEBUGGER.md](DEBUGGER.md)) |

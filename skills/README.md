@@ -5,6 +5,15 @@ These `SKILL.md` files are built into the `casper` binary (text imports in
 [docs/SKILLS.md](../docs/SKILLS.md). Each file is still a normal Agent Skill: other tools ignore the
 `casper-skill` block.
 
+## Rules for a web skill (`skills/web/<name>/SKILL.md`)
+
+- `name` starts with `web-`; `description` is one line of at most 200 characters; the body is at
+  most 6 KiB. The loader refuses anything else.
+- Guidance only: it never tells the AI to install a package or add a design system, and it says
+  the repo's own style wins. `scoreWebSkill` in `src/skills/bundled.ts` picks it (UI work in a
+  project with no styles yet); `tests/web-skill.test.ts` checks the text and the picking.
+- Casper's own words. Borrow an idea only from a source whose licence allows it, and credit it here.
+
 ## Rules for a network skill (`skills/network/<platform>/SKILL.md`)
 
 The loader refuses a file that breaks the first group, so a broken skill is a test and build

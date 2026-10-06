@@ -56,6 +56,11 @@ function showBody(bytes: Buffer, complete: boolean, contentType: string): string
 export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSignal, smoke?: () => SmokeChecks | undefined,
   approve?: (command: string, signal: AbortSignal, options?: { reached?: boolean }) => Promise<string | undefined>): RuntimeTool {
   const describe = (services: ServiceManager, name: string) => services.status().find(service => service.name === name)!;
+  /** The /preview app and public link start only after the person asks (and, for the link, says yes). */
+  const allowed = (services: ServiceManager, name: string) => {
+    if (services.casperOnly(name)) throw new Error(`${name} is Casper's own: only the person starts it, with /preview`);
+    return name;
+  };
 
   /** A request goes to a managed service's origin (by name and path, or by its URL) or to another loopback URL; nothing else. */
   async function request(services: ServiceManager, args: Record<string, unknown>, signal: AbortSignal) {
@@ -70,19 +75,20 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
       }
       const owner = services.status().find(service => service.origin && new URL(service.origin).port === url.port);
       if (name !== undefined && owner?.name !== name) throw new Error(`url is not ${name}'s address; give service and path instead`);
-      name = owner?.name;
+      name = owner && allowed(services, owner.name);
     } else {
       const target = string(args.path, "path");
       // URL parsing reads a backslash as a slash (`/\host/x` would name a host), so it is refused, not rewritten.
       if (!/^\/(?!\/)[^\\]*$/.test(target)) throw new Error("path must start with a single / and contain no \\ (use url for a full loopback URL)");
       if (name === undefined) {
-        const names = services.names();
+        const names = services.aiNames();
         if (names.length !== 1) throw new Error(`Name the service: ${names.join(", ") || "none declared or started"}`);
         name = names[0]!;
       }
       url = new URL(target, "http://127.0.0.1");
     }
     if (name !== undefined) {
+      allowed(services, name);
       // Never test stale code: edits since the start (or a crash) restart the service first.
       ({ restarted } = await services.ensureFresh(name, signal));
       const origin = services.origin(name);
@@ -111,7 +117,7 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
   async function run(services: ServiceManager, args: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
     const start = async (name: string) => { const { restarted } = await services.ensureFresh(name, signal); return { restarted, service: describe(services, name) }; };
     const action = args.action;
-    if (action === "status") return { services: services.status() };
+    if (action === "status") return { services: services.status().filter(service => !services.casperOnly(service.name)) };
     if (action === "request") return request(services, args, signal);
     if (action === "check" || action === "replay") {
       const checks = smoke?.();
@@ -139,8 +145,8 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
       return start((await services.startCommand(command, { ready: spec, timeoutMs, ...(approve ? { approve: (inner: AbortSignal) => approve(command, inner, { reached: true }) } : {}) }, signal)).name);
     }
     const name = string(args.service, "service");
-    if (action === "start") return start(name);
-    if (action === "restart") return { service: await services.restart(name, signal) };
+    if (action === "start") return start(allowed(services, name));
+    if (action === "restart") return { service: await services.restart(allowed(services, name), signal) };
     if (action === "stop") { const stopped = await services.stop(name); return { stopped, service: describe(services, name) }; }
     if (action === "logs") {
       const lines = Math.min(200, Math.max(1, Number.isInteger(args.lines) ? Number(args.lines) : 40));

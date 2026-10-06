@@ -110,6 +110,22 @@ test("at phone width, a page wider than the screen or a squashed text field fail
   expect(pageFailureSummary(report)).toBe("/wide doesn't fit a phone screen");
 }, 30_000);
 
+test("accessibility findings are notes under the page line; they never fail the page", async () => {
+  const f = await fixture();
+  const opener = fakeOpener(url => url.pathname === "/signup"
+    ? { a11y: { lang: false, images: 1, inputs: 2, buttons: 1, contrast: { count: 3, worst: 2.1 } } }
+    : { a11y: { lang: true, images: 0, inputs: 0, buttons: 0, contrast: { count: 0, worst: 0 } } });
+  const report = await new PageChecks(() => f.manager, f.service, opener, { open: ["/signup", "/ok"], skipped: [] }).run(signal());
+  expect(report.status).toBe("pass");
+  expect(report.pages[0]!.a11y).toEqual(["2 inputs have no label", "1 button has no name", "1 image has no alt text", "3 text items have very low contrast (2.1:1)", "the page has no lang"]);
+  expect(formatPageReport(report)).toEqual([
+    "✓ /signup loads · 0 console errors",
+    "  • /signup: 2 inputs have no label · 1 button has no name · 1 image has no alt text · 3 text items have very low contrast (2.1:1) · the page has no lang",
+    "✓ /ok loads · 0 console errors",
+  ]);
+  expect(pageFailureSummary(report)).toBeUndefined();
+}, 30_000);
+
 test("secrets in console text never reach the report", async () => {
   const f = await fixture();
   const opener = fakeOpener(() => ({ consoleErrors: ["auth failed for token ghp_abcdefghijklmnopqrstuvwxyz0123456789"] }));

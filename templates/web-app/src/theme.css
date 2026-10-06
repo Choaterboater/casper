@@ -1,0 +1,64 @@
+/*
+ * The app's look in one place: colors, type sizes, spacing and corners.
+ * Change a value here and every page follows. Tailwind reads these through @theme,
+ * so `bg-paper`, `text-ink`, `border-line`, `text-accent` and `rounded` use them.
+ */
+
+:root {
+  --paper: #f6f4ef;      /* page background: warm off-white */
+  --surface: #ffffff;    /* fields and raised areas */
+  --ink: #1c1b19;        /* body text */
+  --muted: #5d5a53;      /* secondary text (6.2:1 on paper) */
+  --line: #d9d5cc;       /* borders and rules */
+  --accent: #0d5c63;     /* links, buttons, focus (7:1 on paper) */
+  --accent-ink: #ffffff; /* text on the accent */
+  --danger: #a3261b;     /* errors */
+  --ok: #2f6b2f;         /* success */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #161614;
+    --surface: #1f1e1b;
+    --ink: #ecebe6;
+    --muted: #a8a59c;
+    --line: #3a3833;
+    --accent: #5fb3b9;
+    --accent-ink: #0b1a1b;
+    --danger: #ef8a7f;
+    --ok: #8cc58c;
+  }
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+}
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Type scale: each step is 1.2 times the one before. */
+  --text-sm: 0.833rem;
+  --text-base: 1rem;
+  --text-lg: 1.2rem;
+  --text-xl: 1.44rem;
+  --text-2xl: 1.728rem;
+  --text-3xl: 2.074rem;
+
+  /* Spacing: Tailwind's steps are multiples of this (p-4 is 1rem). */
+  --spacing: 0.25rem;
+
+  /* Corners: small and plain. */
+  --radius-sm: 3px;
+  --radius: 6px;
+  --radius-lg: 10px;
+}

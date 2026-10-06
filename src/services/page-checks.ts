@@ -7,7 +7,7 @@ import type { ServiceSpec } from "./config";
 import { detectWebService, isDetectedWebService, type DetectedWebService, type DetectInput } from "./detect";
 import type { ServiceManager } from "./manager";
 import { changedPages, type PagePlan, type PagesSetting } from "./pages";
-import { formatOpeningLine, formatServerLine, pageStatus, type PageReport, type PageResult, type PageStatus } from "./page-report";
+import { a11yNotes, formatOpeningLine, formatServerLine, pageStatus, type PageReport, type PageResult, type PageStatus } from "./page-report";
 
 export * from "./page-report";
 
@@ -149,6 +149,9 @@ function judge(path: string, origin: string, load: PageLoad, serverError: string
     ...(load.overlay ? { overlay: hide(load.overlay).slice(0, ERROR_TEXT) } : {}), ...(serverError ? { serverError: hide(serverError) } : {}),
     ...(load.screenshots && (load.screenshots.desktop || load.screenshots.phone) ? { screenshots: { ...load.screenshots } } : {}) };
   if (load.status === null) return { ...result, status: "incomplete", reason: "it did not answer" };
+  // Accessibility notes ride along; they never change the page's status.
+  const notes = load.a11y ? a11yNotes(load.a11y) : [];
+  if (notes.length) result.a11y = notes;
   if (load.phone) {
     result.phoneChecked = true;
     const { viewport, pageWidth, squashed } = load.phone;

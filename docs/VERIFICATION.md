@@ -621,6 +621,19 @@ receipt says `• The AI looked at 2 screenshots of the pages (advice, not a che
 thinks of a picture is never evidence and never makes a change **Verified**. A model that can't see
 pictures is never sent them.
 
+**Accessibility notes.** New in v0.2.23. While a page is open at desktop width, Casper also counts a
+few common misses with its own small rules (no third-party script): images with no `alt` (`alt=""`
+is fine for decoration), fields with no label (a placeholder is not a label), buttons with no name,
+text below 3:1 contrast against its background, and a page with no `lang`. They show as one note
+under the page line and never fail the page or start a repair:
+
+```text
+✓ /signup loads · 0 console errors
+  • /signup: 2 inputs have no label · 1 image has no alt text · the page has no lang
+```
+
+They cost no model tokens and need Chrome; `pages: off` turns them off with the rest of the check.
+
 **Chrome.** Pages are opened in a fresh headless Chrome (`CASPER_BROWSER_EXECUTABLE`, else an installed
 Chrome or Chromium; Casper never downloads one). Without Chrome, Casper only fetches the page and says so:
 `✓ /dashboard answers (HTTP 200) · console not checked: no Chrome found (install Chrome or set
@@ -646,6 +659,27 @@ The dev server runs the project's code with Casper's reduced environment (no pro
 HOME), in the shell sandbox where it can run: its files are held, but it keeps the machine's network so
 the page can load (on macOS it reaches only listed hosts), and a page it serves can still reach the
 network. Where no sandbox runs it has your permissions: set `pages: off` in a project you don't trust.
+
+## End-to-end tests (Playwright)
+
+New in v0.2.23. When a project already has Playwright tests, Casper finds an `e2e` check and runs
+it after each change, next to typecheck, lint and test, through `/verify e2e`, and through the AI's
+`casper_check`. It is found from the project's own files each time it is opened:
+
+- `@playwright/test` is in package.json, and
+- a `test:e2e`, `e2e`, `test:playwright` or `playwright` script runs with the project's package
+  manager (`bun run test:e2e`), or else a `playwright.config.*` runs `npx --no-install playwright test`.
+
+When the `test` script already runs Playwright there is no second check. The tests start their own
+server the way the project's Playwright config says (`webServer`).
+
+Casper never installs Playwright or its browsers. Without `node_modules/@playwright/test` the check
+only skips and says so; without the browsers a run is a skip too: `Playwright's browsers aren't
+downloaded. Run npx playwright install yourself; Casper doesn't download browsers`. Neither goes to
+the AI as a failure to fix.
+
+Turn it off with `/settings` → Playwright tests (it writes `verification.e2e: false`; a project
+file can set it too). A project that names its own `verify.checks.e2e` keeps that one instead.
 
 ## SQL migrations check
 
@@ -691,7 +725,8 @@ Casper knows four checks: `typecheck`, `lint`, `test` and `build`. For each one 
 
 From v0.2.16 a project can also name its own checks under
 `verify.checks.<name>` (see [Configuration](#configuration)), Casper finds a `migrations` check
-(see [SQL migrations check](#sql-migrations-check)), and it finds ready-made checks for Ansible
+(see [SQL migrations check](#sql-migrations-check)), from v0.2.23 an `e2e` check for the project's
+own Playwright tests (see [End-to-end tests](#end-to-end-tests-playwright)), and it finds ready-made checks for Ansible
 playbooks (see [NETWORK-CHECKS.md](NETWORK-CHECKS.md)).
 
 From v0.2.19 a Python project with `test*.py` files that use `unittest`, and no pytest, gets
@@ -735,6 +770,7 @@ repair:
 | `verification.review` | any config file | `false` |
 | `verification.checklist` | any config file | unset (interactive code changes only) |
 | `verification.acceptance` | any config file | `false` |
+| `verification.e2e` | any config file | `true` (the found Playwright check runs) |
 | `repair.maxAttempts` | any config file | `3`, 0 to 10 |
 
 "Any config file" means `~/.casper/config.yaml`, the profile's `config.yaml` or the project

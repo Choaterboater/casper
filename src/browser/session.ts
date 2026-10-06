@@ -46,9 +46,24 @@ export interface PageLoad {
   overlay?: string;
   /** The same page at phone width. Absent for the HTTP-only fallback. */
   phone?: PhoneFit;
+  /** Accessibility basics at desktop width. Absent for the HTTP-only fallback, or when the page could not be read. */
+  a11y?: A11yFindings;
   /** Pictures of the visible page at desktop and phone width (PNG paths outside the project), when asked for and
    * they could be saved (not on Windows yet). */
   screenshots?: { desktop?: string; phone?: string };
+}
+/** Counts of common accessibility misses on a loaded page. They are notes for the person, never a failure. */
+export interface A11yFindings {
+  /** The page names its language (`<html lang>`). */
+  lang: boolean;
+  /** Visible images with no alt attribute (alt="" is fine: decoration). */
+  images: number;
+  /** Visible fields with no label, aria-label, aria-labelledby or title (a placeholder is not a label). */
+  inputs: number;
+  /** Visible buttons with no name: no text, aria-label, title, or alt/title inside. */
+  buttons: number;
+  /** Text items below 3:1 against their background, and the lowest ratio seen (0 when none). */
+  contrast: { count: number; worst: number };
 }
 /** How a page fits a phone screen: its width against the screen's, and the text fields too squashed to show a line. */
 export interface PhoneFit { viewport: number; pageWidth: number; squashed: string[] }
@@ -71,6 +86,66 @@ const FIELD_HEIGHTS = () => {
     const id = field.id ? `#${field.id}` : field.getAttribute("name") ? `[name="${field.getAttribute("name")}"]` : field.classList[0] ? `.${field.classList[0]}` : "";
     return [{ name: `${field.tagName.toLowerCase()}${id}`.slice(0, 80), height: Math.round(box.height), textFits: inner.height >= font * 0.8 && inner.width >= font * 2 }];
   });
+};
+/** Runs in the page: a few built-in accessibility rules (no third-party script). Bounded to the first 400 text items. */
+const A11Y_NOTES = (): A11yFindings => {
+  const visible = (element: Element) => (element as HTMLElement).checkVisibility?.({ checkOpacity: true, checkVisibilityCSS: true }) ?? true;
+  const text = (value: string | null | undefined) => (value ?? "").replace(/\s+/g, " ").trim();
+  const labelledBy = (element: Element) => text((element.getAttribute("aria-labelledby") ?? "").split(/\s+/).filter(Boolean)
+    .map(id => document.getElementById(id)?.textContent ?? "").join(" "));
+  const ariaName = (element: Element) => text(element.getAttribute("aria-label")) || labelledBy(element) || text(element.getAttribute("title"));
+  const images = Array.from(document.querySelectorAll("img")).filter(image => visible(image) && !image.hasAttribute("alt")).length;
+  const skip = ["hidden", "submit", "button", "reset", "image"];
+  const inputs = Array.from(document.querySelectorAll("input, select, textarea")).filter(field => {
+    if (field instanceof HTMLInputElement && skip.includes(field.type)) return false;
+    if (!visible(field)) return false;
+    const labels = (field as HTMLInputElement).labels;
+    return !(labels && Array.from(labels).some(label => text(label.textContent))) && !ariaName(field);
+  }).length;
+  const buttons = Array.from(document.querySelectorAll('button, [role="button"], input[type="button"]')).filter(button => {
+    if (!visible(button)) return false;
+    if (button instanceof HTMLInputElement) return !text(button.value) && !ariaName(button);
+    const inner = Array.from(button.querySelectorAll("img[alt], svg title, [aria-label]"))
+      .map(child => child.getAttribute("alt") ?? child.getAttribute("aria-label") ?? child.textContent).some(value => text(value));
+    return !text((button as HTMLElement).innerText ?? button.textContent) && !ariaName(button) && !inner;
+  }).length;
+  const rgba = (value: string): [number, number, number, number] | undefined => {
+    const match = /rgba?\(([\d.]+)[, ]+([\d.]+)[, ]+([\d.]+)(?:[,/ ]+([\d.]+%?))?\)/.exec(value);
+    if (!match) return undefined;
+    const alpha = match[4] === undefined ? 1 : match[4].endsWith("%") ? parseFloat(match[4]) / 100 : parseFloat(match[4]);
+    return [Number(match[1]), Number(match[2]), Number(match[3]), alpha];
+  };
+  const luminance = ([r, g, b]: number[]) => {
+    const channel = (value: number) => { const c = value / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * channel(r!) + 0.7152 * channel(g!) + 0.0722 * channel(b!);
+  };
+  /** The color behind an element: the first painted background up the tree, else white; undefined over an image. */
+  const background = (start: Element): number[] | undefined => {
+    for (let element: Element | null = start; element; element = element.parentElement) {
+      const style = getComputedStyle(element);
+      if (style.backgroundImage && style.backgroundImage !== "none") return undefined;
+      const color = rgba(style.backgroundColor);
+      if (color && color[3] > 0) return color[3] >= 1 ? color.slice(0, 3) : color.slice(0, 3).map(value => value * color[3] + 255 * (1 - color[3]));
+    }
+    return [255, 255, 255];
+  };
+  let count = 0, worst = 0, seen = 0;
+  for (const element of Array.from(document.body?.querySelectorAll("*") ?? [])) {
+    if (seen >= 400) break;
+    if (!Array.from(element.childNodes).some(node => node.nodeType === Node.TEXT_NODE && text(node.textContent))) continue;
+    if (["SCRIPT", "STYLE", "NOSCRIPT", "TITLE", "OPTION"].includes(element.tagName) || !visible(element)) continue;
+    if ((element as HTMLButtonElement).disabled) continue;
+    seen++;
+    const style = getComputedStyle(element);
+    const fore = rgba(style.color), back = background(element);
+    if (!fore || !back) continue;
+    const blended = fore.slice(0, 3).map((value, index) => value * fore[3] + back[index]! * (1 - fore[3]));
+    const [high, low] = [luminance(blended), luminance(back)].sort((a, b) => b - a) as [number, number];
+    const ratio = (high + 0.05) / (low + 0.05);
+    if (ratio < 3) { count++; worst = worst === 0 ? ratio : Math.min(worst, ratio); }
+  }
+  return { lang: Boolean(text(document.documentElement.getAttribute("lang"))), images, inputs, buttons,
+    contrast: { count, worst: Math.round(worst * 10) / 10 } };
 };
 const LOAD_LIMIT = 10;
 /** Page checks save at most this many pictures per session: 5 pages, desktop and phone, a few rounds. */
@@ -298,6 +373,8 @@ export class BrowserSession {
       // A picture of the page as a person sees it first, for the receipt and, when you allow it, the AI.
       const shot = options.screenshots ? ++this.pageLoads : 0;
       const desktopPicture = shot ? await this.pagePicture(page, `page-${shot}-desktop.png`, combined) : undefined;
+      // Accessibility basics, at desktop width: notes for the person, never a failure. A page that can't be read gives none.
+      const a11y = await page.evaluate(A11Y_NOTES).catch(() => undefined);
       // The same page on a phone: layouts that only break there (a column that squashes an input, a wide table)
       // never show at the desktop size above. Each text field is compared with its own desktop height.
       const desktop = await page.evaluate(FIELD_HEIGHTS);
@@ -314,7 +391,7 @@ export class BrowserSession {
       const phonePicture = shot ? await this.pagePicture(page, `page-${shot}-phone.png`, combined) : undefined;
       const screenshots = { ...(desktopPicture ? { desktop: desktopPicture } : {}), ...(phonePicture ? { phone: phonePicture } : {}) };
       return { status: response?.status() ?? null, consoleChecked: true, consoleErrors, pageErrors, failedRequests,
-        ...(overlay ? { overlay: overlay.slice(0, LOAD_TEXT) } : {}), phone, ...(desktopPicture || phonePicture ? { screenshots } : {}) };
+        ...(overlay ? { overlay: overlay.slice(0, LOAD_TEXT) } : {}), phone, ...(a11y ? { a11y } : {}), ...(desktopPicture || phonePicture ? { screenshots } : {}) };
     } finally {
       combined.removeEventListener("abort", stop);
       await context?.close().catch(() => {});

@@ -53,6 +53,7 @@ export function settingRows(context: ProjectContext): Setting[] {
   const web = context.web ?? DEFAULT_WEB;
   const spend = context.spend ?? DEFAULT_SPEND_LIMITS;
   const display = context.display ?? "normal";
+  const e2e = context.verification.e2e !== false;
   const amount = (dollars: number | undefined) => dollars === undefined ? "off" : `at ${formatLimit(dollars)} a task`;
   const money = (key: "noteAt" | "pauseAt", label: string, verbs: [off: string, on: string], about: string): Setting => {
     const now = spend[key];
@@ -79,6 +80,11 @@ export function settingRows(context: ProjectContext): Setting[] {
     { label: "Work shown", value: display, question: `Work shown: ${display} (${DISPLAY_WORDS[display]}).`, keep: `Keep ${display}`,
       choices: (["quiet", "normal", "detailed"] as const).filter((level) => level !== display)
         .map((level) => ({ label: `${level[0]!.toUpperCase()}${level.slice(1)}`, keys: ["display"], value: level, shown: level })) },
+    { label: "Playwright tests", value: e2e ? "on" : "off",
+      question: `Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are ${e2e ? "on" : "off"}.`,
+      keep: `Keep them ${e2e ? "on" : "off"}`,
+      choices: [e2e ? { label: "Turn them off", keys: ["verification", "e2e"], value: false, shown: "off" }
+        : { label: "Turn them on", keys: ["verification", "e2e"], value: true, shown: "on" }] },
   ];
 }
 

@@ -110,7 +110,7 @@ posixOnly("bun init runs without BUN_OPTIONS, and the package name and scripts a
   const initEnv = await fakes.savedEnv("bun-init");
   expect(initEnv.BUN_OPTIONS).toBeUndefined();
   expect(initEnv.NODE_OPTIONS).toBeUndefined();
-  expect(await fakes.calls()).toContain("bun init --react -y");
+  expect(await fakes.calls()).toContain("bun init --react=tailwind -y");
   const pkg = JSON.parse(await readFile(path.join(fakes.parent, "web-one/package.json"), "utf8"));
   expect(pkg.name).toBe("web-one");
   expect(pkg.scripts).toEqual({ dev: "bun --hot src/index.ts", test: "bun test", typecheck: "tsc --noEmit" });

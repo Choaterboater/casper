@@ -9,6 +9,7 @@ test("build requests map to a template and a folder name", () => {
   expect(newProjectSuggestion("Create a CLI that renames photos by date")).toMatchObject({ template: "python-cli", name: "renames-photos" });
   expect(newProjectSuggestion("make a NOC dashboard for our branches")).toMatchObject({ template: "noc-dashboard" });
   expect(newProjectSuggestion("build a React web app for tickets")).toMatchObject({ template: "web-app" });
+  expect(newProjectSuggestion("build a Vite React app for tickets")).toMatchObject({ template: "vite-react" });
   expect(newProjectSuggestion("write a playbook that shows interfaces on our Junos boxes")).toMatchObject({ template: "junos-ansible" });
   expect(newProjectSuggestion("write an ansible playbook for the Aruba CX switches")).toMatchObject({ template: "aoscx-ansible" });
   expect(newProjectSuggestion("can you build me a tool to count clients")).toMatchObject({ template: "python-cli", name: "clients" });

@@ -27,7 +27,8 @@ compiled binary carries them.
 | python-cli | uv | pytest, ruff |
 | network-mcp | uv | pytest (in-memory MCP client, respx), ruff; passes `casper mcp check --quick` |
 | mist-python | uv | pytest against recorded sample answers (pytest-recording, `--record-mode=none`), ruff |
-| web-app | bun (`bun init --react`) | bun test with happy-dom, `tsc --noEmit` |
+| web-app | bun (`bun init --react=tailwind`), with its own small theme in `src/theme.css` | bun test with happy-dom, `tsc --noEmit` |
+| vite-react | bun (`bun create vite --template react-ts`), same small theme as plain CSS variables | bun test with happy-dom, `tsc -b`, oxlint |
 | noc-dashboard | uv | pytest with Streamlit AppTest over sample data, ruff |
 | aoscx-ansible | uv (`--bare`) | pytest file checks, ruff |
 | junos-ansible | uv (`--bare`) | pytest file checks, plus the render check once collections are installed, ruff |

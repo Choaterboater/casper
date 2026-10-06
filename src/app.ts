@@ -138,6 +138,7 @@ import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestio
 import { listLines } from "./new/command";
 import { defaultNameFor } from "./new/templates";
 import { runSettings } from "./app/settings";
+import { runPreview } from "./services/preview";
 import { editUserConfig } from "./config/user-write";
 import { explainModelError } from "./runtime/model-errors";
 import { tildePath, type NewProjectOptions, type NewProjectResult } from "./new/scaffold";
@@ -1131,6 +1132,7 @@ export class CasperApp {
     if (/^\/pane(?:\s|$)/.test(prompt)) return this.paneCommand(prompt.slice(5).trim()).then(() => undefined);
     if (/^\/details(?:\s|$)/.test(prompt)) return this.detailsCommand(prompt.slice(8).trim()).then(() => undefined);
     if (prompt.trim() === "/settings") return this.settingsCommand().then(() => undefined);
+    if (/^\/preview(?:\s|$)/.test(prompt)) return this.previewCommand(prompt.slice(8).trim()).then(() => undefined);
     if (/^\/new(?:\s|$)/.test(prompt)) return this.newProjectCommand(prompt.slice(4).trim()).then(() => undefined);
     if (/^\/suggestions(?:\s|$)/.test(prompt)) {
       return this.suggestions.command(prompt.slice(12).trim(), this.projectContext).then((text) => { this.output.write(text); return undefined; });
@@ -1308,6 +1310,22 @@ export class CasperApp {
       },
       ask: async (question, options, signal) => (await this.terminal.ask(question, options, false, signal))?.[0],
     }, this.commandAbort?.signal);
+  }
+
+  /** /preview [stop]: the web app on your network, and a public link only after a numbered yes. No model call. */
+  private async previewCommand(args: string): Promise<void> {
+    const context = this.projectContext;
+    return runPreview({
+      output: this.output, canAsk: this.interactive && this.terminal.canAsk,
+      ask: async (question, options, signal) => (await this.terminal.ask(question, options, false, signal))?.[0],
+      manager: () => this.serviceManager(),
+      webService: async () => {
+        const found = context ? await detectWebService(this.activeWorkspaceRoot(), { frameworks: context.model.frameworks,
+          packageManager: context.model.packageManager, services: context.services ?? {} }).catch(() => undefined) : undefined;
+        if (isDetectedWebService(found)) return { spec: found.spec, label: redactPreview(terminalText(found.label)).slice(0, 120) };
+        return { reason: found?.reason ? `Can't start the web app: ${found.reason}` : "Casper found no web app here to preview. Ask Casper to build one, or to start yours." };
+      },
+    }, args, this.commandAbort?.signal);
   }
 
   /** The banner's checks line; none when there is nothing to check yet and checking is on (/status still says it). */

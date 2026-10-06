@@ -663,7 +663,11 @@ export async function loadConfiguration(
   let review: boolean | undefined;
   let acceptance: boolean | "warn" | undefined;
   let checklist: boolean | undefined;
+  let e2e: boolean | undefined;
   for (const document of [globalDocument, profileDocument, projectDocument]) {
+    const e2eSetting = isMapping(document.verification) ? document.verification.e2e : undefined;
+    if (e2eSetting !== undefined && e2eSetting !== null && typeof e2eSetting !== "boolean") throw new Error("verification.e2e must be true or false");
+    e2e = typeof e2eSetting === "boolean" ? e2eSetting : e2e;
     const reviewSetting = isMapping(document.verification) ? document.verification.review : undefined;
     if (reviewSetting !== undefined && typeof reviewSetting !== "boolean") throw new Error("verification.review must be true or false");
     review = reviewSetting ?? review;
@@ -720,7 +724,7 @@ export async function loadConfiguration(
   const lab = mergeLabSettings(parseLabSettings(globalDocument.lab, "user", `${labels.global}: lab`), parseLabSettings(profileDocument.lab, "profile", `${labels.profile}: lab`));
   return {
     skills: { maxActive, imports, bundled },
-    verification: { timeoutMs, ...(mode ? { mode } : {}), ...(checks ? { checks } : {}), ...(review !== undefined ? { review } : {}), ...(acceptance !== undefined ? { acceptance } : {}),
+    verification: { timeoutMs, ...(mode ? { mode } : {}), ...(checks ? { checks } : {}), ...(review !== undefined ? { review } : {}), ...(acceptance !== undefined ? { acceptance } : {}), ...(e2e !== undefined ? { e2e } : {}),
       ...(checklist !== undefined ? { checklist } : {}) },
     repair: { maxAttempts, ...(bigModelLastTry !== undefined ? { bigModelLastTry } : {}) },
     ...(suggestions !== undefined ? { suggestions } : {}),

@@ -6,7 +6,7 @@ const UI_DIRECTORIES = ["src/components", "components", "app/components", "src/u
 const STYLE_FILES = [
   "tailwind.config.ts", "tailwind.config.js", "tailwind.config.mjs", "tailwind.config.cjs",
   "postcss.config.js", "postcss.config.mjs", "postcss.config.cjs",
-  "src/index.css", "src/styles.css", "src/app/globals.css", "app/globals.css",
+  "src/index.css", "src/theme.css", "src/styles.css", "src/app/globals.css", "app/globals.css",
   "styles/globals.css", "src/styles/globals.css",
   "tokens.css", "tokens.json", "design-tokens.json", "design-tokens.css",
   "src/styles/tokens.css", "src/styles/tokens.json",
