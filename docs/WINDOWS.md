@@ -65,9 +65,11 @@ and installs the new one with that release's own installer.
 ## 2. Automated checks (CI)
 
 `.github/workflows/windows-preview.yml` runs on `windows-latest` with Bun **1.4.0** and
-the locked dependencies. It runs when started by hand, on every pull request, and when
-relevant files change on `main`. It never publishes a release. Every step must pass,
-the full suite included. Its steps:
+the locked dependencies. It runs when started by hand, and on every pull request and push
+to `main` that changes code, tests, scripts or the workflow (`src`, `scripts`, `tools`,
+`tests`, `evals`, the Windows docs, package and lock files, and the workflow itself). It
+never publishes a release. The run fails if any step fails, the full suite included, and
+the owner merges only after it is green. Its steps:
 
 | Step | What it checks |
 | --- | --- |
