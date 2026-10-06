@@ -447,17 +447,41 @@ export class PiModels {
   /** A one-off request outside the transcript: the configured `review` role's model when set (so a check can
    * come from a different model than the one that did the work), else the conversation's; effort is the
    * caller's `effort` when given, else the role's suffix, else the conversation's, mapped to what the model
-   * supports. `maxTokens` caps the answer. */
-  async complete(session: AgentSession, input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null }> {
+   * supports. `maxTokens` caps the answer. `role: "fast"` asks for the fast model instead (the conversation's
+   * when none is set or it is not signed in). */
+  async complete(session: AgentSession, input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number; role?: "fast" }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null }> {
     const none = { tokens: 0, estimatedCost: 0 };
     const roles = this.getRoles();
+    if (input.role === "fast") {
+      // The fast model when it is set and signed in; otherwise the conversation's model, never an error.
+      const fast = this.usableRole("fast", roles);
+      return this.completeWith(fast?.model ?? session.model, fast?.effort, session, input, none);
+    }
     const role = roles.review ? resolveModelSelection("@review", this.catalog.getModels(), roles, this.defaultReference()) : undefined;
     const model = role ? this.catalog.getModel(role.reference.provider, role.reference.id) : session.model;
     if (!model) return { text: "", error: role ? `the review model ${role.reference.provider}/${role.reference.id} is not in the catalog` : "no model selected", usage: none };
     if (role && (this.staleAuth.has(model.provider) || !this.catalog.hasConfiguredAuth(model.provider))) {
       return { text: "", error: `credentials missing for the review model's provider ${model.provider}`, usage: none };
     }
-    const requested = input.effort ?? (role?.effort && role.effort !== "auto" ? role.effort : session.thinkingLevel);
+    return this.completeWith(model, role?.effort, session, input, none);
+  }
+
+  /** A role's model when it is set, in the catalog and signed in; undefined otherwise. */
+  private usableRole(name: "fast", roles: ModelRoles): { model: NonNullable<AgentSession["model"]>; effort?: string } | undefined {
+    if (!roles[name]) return undefined;
+    let resolved: ResolvedModelSelection;
+    try { resolved = resolveModelSelection(`@${name}`, this.catalog.getModels(), roles, this.defaultReference()); }
+    catch { return undefined; }
+    const model = this.catalog.getModel(resolved.reference.provider, resolved.reference.id);
+    if (!model || this.staleAuth.has(model.provider) || !this.catalog.hasConfiguredAuth(model.provider)) return undefined;
+    return { model, ...(resolved.effort ? { effort: resolved.effort } : {}) };
+  }
+
+  private async completeWith(model: AgentSession["model"], roleEffort: string | undefined, session: AgentSession,
+    input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number },
+    none: { tokens: number; estimatedCost: number }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null }> {
+    if (!model) return { text: "", error: "no model selected", usage: none };
+    const requested = input.effort ?? (roleEffort && roleEffort !== "auto" ? roleEffort : session.thinkingLevel);
     const level = requested && requested !== "off" ? nearestEffort(requested, getSupportedThinkingLevels(model)) : undefined;
     const response = await this.catalog.completeSimple(model, {
       systemPrompt: input.systemPrompt,
