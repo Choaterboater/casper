@@ -98,6 +98,10 @@ export async function runCrewCommand(host: CrewHost, argument: string): Promise<
     say(host, "A crew needs a Git repository: each builder works in its own copy. Ask for the job as usual and Casper does it as one task.");
     return;
   }
+  if (!(await manager.hasCommits())) {
+    say(host, "A crew needs a commit to start from, and this repository has no commits yet: each builder works in a copy of one. Make a first commit, or ask for the job as usual and Casper does it as one task.");
+    return;
+  }
   const typed = /^(apply|drop)\s+(\d+)$/i.exec(argument.trim());
   if (!argument.trim() || typed) return copies(host, manager, typed ? { action: typed[1]!.toLowerCase() as "apply" | "drop", number: Number(typed[2]) } : undefined);
   await startCrew(host, manager, argument.trim());

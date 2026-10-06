@@ -61,6 +61,15 @@ test("/crew outside a Git repository says so in one line and starts nothing", as
   expect(crew.jobs).toHaveLength(0);
 });
 
+test("/crew in a repository with no commits says so and starts nothing", async () => {
+  const { home, repo } = await repository(false);
+  await git(repo, "init", "-b", "main");
+  const crew = host(repo, home, async () => {});
+  await runCrewCommand(crew.value, "add a flag");
+  expect(crew.text()).toContain("no commits yet");
+  expect(crew.jobs).toHaveLength(0);
+});
+
 test("/crew runs a builder in its own copy; your folder changes only when you pick Apply", async () => {
   const { home, repo } = await repository();
   await writeFile(path.join(repo, "mine.txt"), "yours\n");

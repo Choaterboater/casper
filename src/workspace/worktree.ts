@@ -201,6 +201,11 @@ export class GitWorktreeManager {
     );
   }
 
+  /** False in a repository with no commits yet: a copy has nothing to start from. */
+  hasCommits(): Promise<boolean> {
+    return git(this.primaryWorkspace, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]).then(() => true, () => false);
+  }
+
   async plan(sessionBranch: string, sourceWorkspace: string): Promise<WorktreePlan> {
     const source = await realpath(sourceWorkspace).catch(() => path.resolve(sourceWorkspace));
     await this.assertSameRepository(source);

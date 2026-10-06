@@ -59,6 +59,7 @@ export async function builderAvailability(input: { root: string; homeDir: string
   if (input.sandbox === "asks") return "no sandbox runs here";
   const manager = await GitWorktreeManager.open(input.root, input.homeDir);
   if (!manager) return "not a Git repository";
+  if (!(await manager.hasCommits())) return "the repository has no commits yet";
   const root = await realpath(input.root).catch(() => path.resolve(input.root));
   return root === manager.primaryWorkspace ? undefined : "not the project's main folder";
 }
