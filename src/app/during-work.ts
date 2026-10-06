@@ -121,6 +121,7 @@ export async function setModelDuringWork(app: CasperApp, argument: string): Prom
     }
     const label = `${result.status.provider}/${result.status.model}`;
     app.output.write(`[model] ${terminalText(label)} from the model's next step${result.savedDefault ? "; saved" : " (this conversation)"}\n`);
+    app.output.write(`[model] The model's next step sends this conversation's context to ${terminalText(result.status.provider ?? "its provider")}.\n`);
     updateFooter(app);
   } catch (error) {
     if (yielded.signal.aborted) app.output.write("[model] Model unchanged.\n");
