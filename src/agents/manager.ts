@@ -296,7 +296,7 @@ export class SubagentManager {
     let dispatched = 0;
     return {
       name: "delegate",
-      description: `Delegate only when an independent read-only explorer (locate files and evidence) or reviewer (find defects in specified code/plan) adds value, with one narrow goal per call; a broad audit exhausts the child's budget and yields only a partial report. Provide a self-contained goal and optional context; children do not inherit conversation history. Only read/grep/find/ls, no shell, edits, MCP/LSP, or recursion. At most ${SUBAGENT_LIMITS.maxDelegationsPerTask} delegations per parent task, ${SUBAGENT_LIMITS.maxConcurrent} concurrent, ${SUBAGENT_LIMITS.timeoutMs / 1000} seconds/${SUBAGENT_LIMITS.maxTurns} turns/${SUBAGENT_LIMITS.maxToolCalls} tool calls each. Results are advisory, capped at 16 KiB, with incomplete/error status disclosed.`,
+      description: `Delegate only when an independent read-only explorer (locate files and evidence) or reviewer (find defects in specified code/plan) adds value, with one narrow goal per call; a broad audit exhausts the child's budget and yields only a partial report. Provide a self-contained goal and optional context; children do not inherit conversation history. Only read/grep/find/ls, no shell, edits, MCP/LSP, or recursion. At most ${SUBAGENT_LIMITS.maxDelegationsPerTask} per task, ${SUBAGENT_LIMITS.maxConcurrent} at once; each child has a small time and tool-call budget. Results are advisory, capped at 16 KiB, with incomplete/error status disclosed.`,
       inputSchema: {
         type: "object", additionalProperties: false, required: ["role", "goal"],
         properties: {
@@ -313,7 +313,7 @@ export class SubagentManager {
           const role = validateRole(args.role);
           const goal = requireString(args.goal, "goal", SUBAGENT_LIMITS.goalBytes);
           const context = args.context === undefined || args.context === "" ? undefined : requireString(args.context, "context", SUBAGENT_LIMITS.contextBytes);
-          if (dispatched >= SUBAGENT_LIMITS.maxDelegationsPerTask) throw new Error("Delegation budget exhausted for this parent task");
+          if (dispatched >= SUBAGENT_LIMITS.maxDelegationsPerTask) throw new Error(`Delegation budget exhausted for this parent task (at most ${SUBAGENT_LIMITS.maxDelegationsPerTask} per task)`);
           dispatched++;
           let result: SubagentResult;
           // run() throws only before a child starts (busy, closed, bad context): that call is not
