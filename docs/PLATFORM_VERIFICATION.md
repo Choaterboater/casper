@@ -5,9 +5,9 @@ what proof to keep. **When you'd use it:** before you change a "not tested yet" 
 in [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md) to "tested on this machine".
 
 Tests that passed on macOS do not prove anything about Linux or Windows. So far,
-Windows CI covers install and startup only, and there is no recorded full run on a
-real Linux machine or of the interactive screen on Windows. A workflow that is set up
-but has no recorded run is not proof. Windows-only details are in [WINDOWS.md](WINDOWS.md).
+there is no recorded full run on a real Linux machine. On Windows, CI drives the
+interactive screen in a real Windows console (ConPTY), but no person has checked it in
+Windows Terminal yet. A workflow that is set up but has no recorded run is not proof. Windows-only details are in [WINDOWS.md](WINDOWS.md).
 
 You need a source checkout for everything below, not the installed `casper` program.
 None of these steps needs a model account, and none of them makes a paid model call.
@@ -36,10 +36,12 @@ or needs model credentials. The sign-in tests use fake provider answers.
 | Workflow | What it runs | Evidence it keeps |
 | --- | --- | --- |
 | [Linux preview](../.github/workflows/linux-preview.yml) | Ubuntu 24.04, Bun 1.4.0, records `python3` and its PTY modules; locked install; platform probe; typecheck; focused platform/terminal/login/model/debugger suite; full `bun run test` (files in parallel) | `linux-preview-evidence`: host, install, probe, typecheck, focused and full-suite logs, kept 14 days, uploaded even when a check fails |
-| [Windows preview](../.github/workflows/windows-preview.yml) | `windows-latest`, Bun 1.4.0, locked install; typecheck; platform probe; focused platform/terminal/login/model suite; release-compile test; release build; installer test under Windows PowerShell 5.1 and PowerShell 7; full `bun run test` (files in parallel); eval bench tests (`bun run test:evals`) | `windows-verification`: host and per-step logs, full-suite and eval logs included, uploaded even on failure; the built files go to `windows-preview` |
+| [Windows preview](../.github/workflows/windows-preview.yml) | `windows-latest`, Bun 1.4.0, locked install; typecheck; platform probe; focused platform/terminal/login/model suite; ConPTY screen test (`tests/windows-screen.test.ts`, on the source and again on the built `.exe`); release-compile test; release build; installer test under Windows PowerShell 5.1 and PowerShell 7; full `bun run test` (files in parallel); eval bench tests (`bun run test:evals`) | `windows-verification`: host and per-step logs, full-suite and eval logs included, uploaded even on failure; the built files go to `windows-preview` |
 
 On Linux the Python PTY tests run (Windows skips them). A PTY is a fake terminal a
-test can type into. These cover the real login and model pickers and the debugger
+test can type into. Windows has its own: `tests/windows-screen.test.ts` starts Casper in
+a Windows pseudo-console (ConPTY, through Bun's `terminal` spawn option, no extra
+package), sends keys the way Windows Terminal does, resizes it and reads the screen. These cover the real login and model pickers and the debugger
 command line. The full suite also covers process cleanup, FIFOs (named pipes), file
 permissions and the native shell. On Linux, once the install step works, every later
 step still runs even if an earlier one failed, and a failed step still fails the job.
@@ -162,8 +164,8 @@ change your real accounts, saved settings or installed `casper`.
    again and try Ctrl+C. Enter may open the next screen for a provider, but
    **do not paste a real secret or finish a login**. Check that the
    prompt still works after you cancel, and that the shell works normally after exit.
-   Linux PTY tests cover the later private-input screens; Windows still
-   needs its own proof for those.
+   Linux PTY tests cover the later private-input screens; on Windows the ConPTY
+   test covers the hidden API key box, but a person still needs to look at it.
 4. Keep screenshots (with private data removed) and exact steps for any problem with
    layout, selection, keyboard input or cleanup. This check is about how the screen
    behaves offline. It does not test a real sign-in or real coding work.
@@ -191,7 +193,7 @@ OS can still be a test bug.
 
 | macOS/Linux only because | Test files |
 | --- | --- |
-| Python 3 PTY tests | `daily-terminal`, `terminal-ux`, `terminal-layout`, `login`, `model-selection`, `phase10-debugger-app` |
+| Python 3 PTY tests (Windows runs `windows-screen` through ConPTY instead) | `daily-terminal`, `terminal-ux`, `terminal-layout`, `login`, `model-selection`, `phase10-debugger-app` |
 | Native shell commands the pinned Pi runs, whose text Casper reads — `rm`, `ln -s`, `test -f … && rm …`, `kill -TERM $$` | `phase8-pi*.integration` (4 gates + 2 `!caseInsensitiveFilesystem \|\| !POSIX`), `work-driven-checks` (signal stop, cancel with `& wait`), `phase3-app` (process group, a child that ignores TERM, tests that match the configured command in the model's reported text), `pi-gate.integration`, `secrets-pi.integration` (hiding device secrets in file reads and command output) |
 | Shell scripts and shebang runs | `release-install` (the POSIX installer and its `#!/bin/sh` stand-in), `cli-flags` (`--version` through a PATH-style link; the source CLI run through its shebang) |
 | Creating symbolic links | `phase2-skills`, `phase5-lsp`, `phase6-review`, `phase6-visualize`, `phase9-learn`, `phase9-memory`, `phase9-references`, `phase10-browser`, `phase10-debugger`, `phase8-pi*.integration`, `work-driven-checks`, `model-selection`, `eval-suite`, `context-files` |

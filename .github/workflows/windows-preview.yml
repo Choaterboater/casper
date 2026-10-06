@@ -66,6 +66,11 @@ jobs:
         run: |
           bun test tests/platform-processes.test.ts tests/login-picker.test.ts tests/login.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts tests/model-selection.test.ts tests/daily-terminal.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts tests/terminal-discovery.test.ts tests/network-update-swap.test.ts tests/undo.test.ts tests/project-root-path.test.ts tests/login-browser.test.ts tests/receipt.test.ts tests/undo-app.integration.test.ts 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/source-tests.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Screen in a real Windows console (ConPTY)
+        # Starts Casper in a pseudo-console, types keys as Windows Terminal sends them, resizes, and reads the screen.
+        run: |
+          bun test tests/windows-screen.test.ts 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/conpty-screen.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Standalone compilation regressions
         run: |
           bun test tests/release-compile.test.ts 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/release-compile.log
@@ -73,6 +78,12 @@ jobs:
       - name: Build release candidates without publishing
         run: |
           bun run build:release 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/build-release.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Screen of the built casper-windows-x64.exe (ConPTY)
+        env:
+          WINDOWS_SCREEN_BINARY: dist/release/casper-windows-x64.exe
+        run: |
+          bun test tests/windows-screen.test.ts 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/conpty-screen-exe.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Windows PowerShell 5.1 installer
         shell: powershell
