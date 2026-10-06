@@ -27,20 +27,20 @@ to one model company. Many things cost zero tokens: the checks, `/verify`, `/mcp
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.22/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.23/install.sh | sh
 ```
 
-Windows x64, in PowerShell:
+Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.22/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.23/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
-[release key](docs/RELEASE.md#the-release-key), the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.2.22**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.22`,
+[release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
+if anything is wrong. These commands pin **v0.2.23**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.23`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 ## Get started
@@ -63,7 +63,7 @@ From the shell:
 ```sh
 casper "Explain this project"
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.2.22 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.2.23 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
@@ -137,8 +137,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 
 ## What's new
 
-v0.2.22: one box for every yes, and a network server Casper sets up.
-[Release notes](docs/RELEASE.md#v0222-one-box-for-every-yes-and-a-network-server-casper-sets-up) ·
+v0.2.23: `casper doctor`, a network server in the sandbox, a reader for untrusted text, and pictures.
+[Release notes](docs/RELEASE.md#v0223-casper-doctor-a-network-server-in-the-sandbox-a-reader-for-untrusted-text-and-pictures) ·
 [Roadmap](https://choaterboater.github.io/casper/roadmap.html).
 
 ## Contributing

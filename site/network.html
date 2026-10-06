@@ -111,7 +111,8 @@ Type 1 or 2:</code></pre></div>
           <li><code>1</code> is kept: Casper doesn't offer again. <code>/mcp</code> shows how to set it up later.</li>
           <li>The first time the AI uses Mist, Central or ClearPass, Casper asks you for that login: <code>1 Not now · 2 Add a login</code>. You type it hidden; the AI never sees it. Use a narrow login, not an admin one.</li>
           <li>Casper then checks what the login can do, for example <code>Mist login: can change Branch-12 (checked)</code>. Mist and ClearPass logins are checked; a Central login shows <code>saved (not checked)</code> for now. Every change asks you in the change box, which names the product: <code>Change in Mist: …</code>.</li>
-          <li>Logins live only in Casper's own private file (<code>~/.casper/network-logins.json</code>). <code>/mcp login mist</code> replaces one; <code>/mcp login mist forget</code> removes it.</li>
+          <li>Logins live only in Casper's own private file (<code>~/.casper/network-logins.json</code>). <code>/mcp login mist</code> replaces one; <code>/mcp login mist forget</code> removes it. <code>/mcp login</code> on its own asks which: <code>1 Not now · 2 Mist · 3 Central · 4 ClearPass</code>.</li>
+          <li>The Mist cloud and Central region lists end with <code>Other — type the address</code>, for a cluster that isn't listed. Central also lists its internal cluster.</li>
           <li>A one-shot run never installs and never asks for a login. It says what to type in the terminal instead.</li>
         </ul>
 
@@ -509,7 +510,7 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.22</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.23</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

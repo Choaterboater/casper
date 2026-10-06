@@ -11,7 +11,7 @@ Casper on Windows is a **preview for Windows x64 and ARM64**. In short:
   PowerShell 5.1 and PowerShell 7. The full test suite and the eval tests pass there too.
 - **Not yet tested on a real Windows desktop:** the interactive screen (pickers,
   resizing, sign-in screens), process cleanup, the browser and the debugger.
-- **Windows ARM64** (from the release after v0.2.22): `casper-windows-arm64.exe` is
+- **Windows ARM64** (from v0.2.23): `casper-windows-arm64.exe` is
   built, started and installed in CI on a GitHub ARM64 runner. Nothing else runs there.
 
 You do not need Bun or a source checkout to use the released program. The program is
@@ -23,7 +23,7 @@ without checking where the download came from.
 In PowerShell (a normal window, not "Run as administrator"):
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.22/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.23/install.ps1 | iex
 ```
 
 What the installer does:
@@ -54,11 +54,11 @@ casper --help
 Get-Command casper | Select-Object Source
 ```
 
-`casper --version` should print `casper 0.2.22 (<path to casper.exe>)`. The `Source`
+`casper --version` should print `casper 0.2.23 (<path to casper.exe>)`. The `Source`
 line should point into the install folder, not an old checkout or some other program
 called casper.
 
-The command above always installs **v0.2.22**. Running it again reinstalls v0.2.22.
+The command above always installs **v0.2.23**. Running it again reinstalls v0.2.23.
 To get a newer preview, run `casper update`; it renames `casper.exe` to `casper.old.exe`
 and installs the new one with that release's own installer.
 

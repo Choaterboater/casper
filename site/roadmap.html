@@ -48,8 +48,6 @@
         ships with the next preview.</p>
         <p><span class="badge soon">planned, not started</span> means it is the next thing planned, with a
         version number. Nobody has started building it yet, and the details may still change.</p>
-        <p><span class="badge soon">built, not released</span> means it is in the code on the main branch
-        and comes with the next release.</p>
         <p><span class="badge">idea, not scheduled</span> means it is agreed as a direction, but
         has no version and nobody is building it yet.</p>
       </aside>
@@ -59,6 +57,7 @@
         <ul>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0223">v0.2.23: casper doctor, a sandboxed network server, a reader for untrusted text</a></li>
               <li><a href="#v0222">v0.2.22: one box for every yes, a network server Casper sets up</a></li>
               <li><a href="#v0221">v0.2.21: a clearer screen, pages at phone width</a></li>
               <li><a href="#v0220">v0.2.20: fewer layers</a></li>
@@ -72,11 +71,7 @@
               <li><a href="#v010">v0.1.0: the first preview</a></li>
             </ul>
           </li>
-          <li><a href="#next">Next release, built, not released</a>
-            <ul>
-              <li><a href="#doctor">Casper doctor</a></li>
-            </ul>
-          </li>
+          <li><a href="#next">Next release, built, not released</a></li>
           <li><a href="#coming">Planned, not started</a>
             <ul>
               <li><a href="#v030">v0.3: crews</a></li>
@@ -86,7 +81,7 @@
             <ul>
               <li><a href="#packs">Vendor packs</a></li>
               <li><a href="#ops-chat">Ask about your infrastructure</a></li>
-              <li><a href="#quarantine">Reading untrusted text safely</a></li>
+              <li><a href="#quarantine">Saved readers</a></li>
               <li><a href="#schedule">Scheduled jobs with an AI on call</a></li>
               <li><a href="#terminal-check">Terminal check</a></li>
               <li><a href="#community">Community lessons</a></li>
@@ -103,8 +98,56 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <article class="card" id="v0223" aria-labelledby="v0223-h">
+          <h3 id="v0223-h">v0.2.23 · Casper doctor, a sandboxed network server, a reader for untrusted text <span class="badge ok">current preview</span></h3>
+          <p>Casper checks its own setup, its network server runs in the sandbox, the AI reads untrusted
+          text at arm's length, the AI can see pictures and the pages it built, and
+          <code>/mcp login</code> asks which product.</p>
+          <ul>
+            <li><strong>Casper doctor.</strong> <code>casper doctor</code> (or <code>/doctor</code>) checks
+            the version, the <code>casper</code> on PATH, config files (by file and line), sign-in, MCP and
+            language servers, security tools, the sandbox, disk space and the network server, with no
+            model and no tokens. It fixes what it can, each after <code>1 Not now · 2 …</code>. Exit 0
+            nothing to fix, 1 something to fix.</li>
+            <li><strong>The network server in the sandbox.</strong> On macOS and Linux, Casper's own
+            network server reaches only your saved logins' hosts, writes only its cache, and can't read
+            <code>~/.ssh</code>, <code>~/.casper</code> or your projects. On by default;
+            <code>/mcp sandbox network off</code> turns it off. Other MCP servers, and Windows, run as
+            before.</li>
+            <li><strong>A reader for untrusted text.</strong> <code>casper_read_untrusted</code>: a model
+            call with no tools reads a log, an email or a web form, and the AI gets only JSON in the shape
+            it asked for. It lowers the risk of hidden orders; it doesn't remove it. On by default, no cost
+            until the AI calls it; <code>/settings</code> turns it off.</li>
+            <li><strong><code>/mcp login</code> asks.</strong> On its own it asks
+            <code>1 Not now · 2 Mist · 3 Central · 4 ClearPass</code>. The Mist cloud and Central region
+            lists end with <code>Other — type the address</code>, and Central lists its internal
+            cluster.</li>
+            <li><strong>Pictures.</strong> <kbd>Ctrl+V</kbd> pastes a picture into the request; a model
+            that can't see it asks <code>1 Send without it · 2 Switch … for this request</code>.</li>
+            <li><strong>The AI sees the pages.</strong> Page checks save a desktop and a phone screenshot.
+            A model that can see pictures looks once, after <code>1 No · 2 Yes, show the AI the
+            pages</code>; what it thinks is advice, never a check. Page checks also note accessibility
+            basics, never as a failure.</li>
+            <li><strong>Web projects.</strong> <code>casper new web-app</code> starts with Tailwind and a
+            small theme of its own; new <code>casper new vite-react</code>. A built-in frontend skill
+            guides UI work when the project has no look of its own yet.</li>
+            <li><strong>Playwright and <code>/preview</code>.</strong> A project's own Playwright tests run
+            as a check (Casper never installs Playwright). <code>/preview</code> opens the web app on a
+            phone on your Wi-Fi; a public link only after <code>1 No · 2 Yes</code>.</li>
+            <li><strong>Windows ARM64.</strong> Its own file, <code>casper-windows-arm64.exe</code>, picked
+            by <code>install.ps1</code>. Built, started and installed in CI; not tried on a real ARM64 PC.</li>
+            <li><strong>Signed releases, not switched on.</strong> The installers and <code>casper
+            update</code> can check a signature over the release's file list, but no release key is set
+            up yet, so this release is not signed. The programs are not code-signed either.</li>
+            <li><strong>Fixes and code health.</strong> Two races fixed (two <code>casper learn</code> runs
+            at once, a macOS sandbox file event). <code>app.ts</code> is split into 14 modules, and
+            <code>bun run lint</code> runs oxlint. The full test suite passes on Windows CI and blocks a
+            merge.</li>
+          </ul>
+        </article>
+
         <article class="card" id="v0222" aria-labelledby="v0222-h">
-          <h3 id="v0222-h">v0.2.22 · One box for every yes, a network server Casper sets up <span class="badge ok">current preview</span></h3>
+          <h3 id="v0222-h">v0.2.22 · One box for every yes, a network server Casper sets up</h3>
           <p>Every question that lets something happen is the same numbered box, Casper sets up its
           own network server, and device checks ask before they touch anything.</p>
           <ul>
@@ -394,34 +437,14 @@
           preview.</p>
         </aside>
 
-        <div class="stack">
-        <article class="card" id="doctor" aria-labelledby="doctor-h">
-          <h3 id="doctor-h">Casper doctor · Casper checks and fixes its own setup <span class="badge soon">built, not released</span></h3>
-          <p><code>casper doctor</code> (or <code>/doctor</code> in a session) looks over Casper itself
-          and your setup, fixes what it safely can, and names the rest in one plain line each. No model
-          and no tokens.</p>
-          <ul>
-            <li><strong>Casper itself.</strong> A newer version, or a <code>casper</code> link on PATH that
-            is broken or points at an older copy.</li>
-            <li><strong>Your setup.</strong> Config files that do not load (by file and line), a model
-            sign-in that has run out, MCP and language servers that can't start (with the install page for
-            a missing <code>uvx</code>, <code>npx</code> or <code>docker</code>), missing security tools, a
-            sandbox that can't hold commands (with the install line), disk space, and the network server
-            with its saved logins.</li>
-            <li><strong>Fixes it can make.</strong> Run <code>casper update</code>, install the security
-            tools (checked by hash), set up the network server again. Each one asks first:
-            <code>1 Not now · 2 …</code>.</li>
-            <li><strong>For scripts.</strong> Exit 0 nothing to fix, 1 something to fix.</li>
-          </ul>
-        </article>
-        </div>
+        <p>Nothing right now: everything built so far shipped in v0.2.23.</p>
       </section>
 
       <section id="coming" aria-labelledby="coming-h">
         <h2 id="coming-h">Planned, not started</h2>
         <aside class="callout soon">
           <strong class="callout-title">Not in any release yet</strong>
-          <p>Nothing in this section is in v0.2.22, and none of it has been started. Names, commands and
+          <p>Nothing in this section is in v0.2.23, and none of it has been started. Names, commands and
           details may change, or move to a later version, before they ship.</p>
         </aside>
 
@@ -500,17 +523,12 @@
         </article>
 
         <article class="card" id="quarantine" aria-labelledby="quarantine-h">
-          <h3 id="quarantine-h">Reading untrusted text safely · tools that only hand back strict JSON <span class="badge soon">built, not released</span></h3>
-          <p>Some text should never steer the AI: a WordPress log, an email from a stranger, a web
-          form. A quarantined reader reads it in a sandbox, with no tools, and returns only JSON
-          that matches a schema you set (for example sender, subject, asks for a payment: yes/no).
-          The main AI sees that JSON, never the text, so instructions hidden in the text can't reach it.</p>
+          <h3 id="quarantine-h">Saved readers · the untrusted-text reader for other tools <span class="badge">idea, not scheduled</span></h3>
+          <p>The reader for untrusted text shipped in v0.2.23 (<code>casper_read_untrusted</code>): a
+          separate model call with no tools reads a log, an email or a web form, and the AI gets only
+          JSON that matches its schema, never the text. It lowers the risk of hidden orders; it doesn't
+          remove it.</p>
           <ul>
-            <li><strong>Built:</strong> <code>casper_read_untrusted</code>, a built-in tool. A separate
-            model call with no tools (your fast model) reads a file, a read-only command or an MCP tool,
-            and the AI gets only JSON that matches its schema; anything else is a plain error. Long free
-            text comes back only when marked quoted, wrapped with its source. On by default, no cost
-            until the AI calls it; <code>/settings</code> turns it off.</li>
             <li><strong>To add:</strong> saved readers (a schema with a name) and the same reader as an
             MCP server, so Claude Code and other tools can use it.</li>
           </ul>
@@ -592,7 +610,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.22</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.23</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
