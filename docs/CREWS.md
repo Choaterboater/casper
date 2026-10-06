@@ -5,7 +5,7 @@ itself. It starts builders, each in its own copy of the project (a Git
 worktree), and their changes land in your folder when they end. `/crew` is the
 manual way: you give one builder a job and decide what happens to its work.
 **When you'd use it:** you don't have to do anything; ask for the job as usual.
-Say "split this up" or "use builders" to ask for builders, "by yourself" to keep
+Say "run a crew" or "split this up" to ask for builders, "by yourself" to keep
 the AI from using them.
 
 Status: v0.3 Crews, built, not released. The AI starts builders itself; `/crew`
@@ -44,9 +44,10 @@ another builder), when you made a commit since, when it would write
 finish. Then the copy is kept, the AI is told, and Casper says so in one line; `/crew` lists the copy to apply or throw away. A builder that changed
 nothing leaves no copy.
 
-**Steer it with words.** "split this up", "use builders", "use a crew" or "do
-these in parallel" in a request adds one line to that task asking the AI to
-split the work across builders.
+**Steer it with words.** "run a crew", "use a crew", "do this as a crew",
+"split this up", "use builders" or "do these in parallel" in a request adds one
+line to that task asking the AI to split the work across builders. Words about
+crews themselves ("the crew list", "run the crew tests") don't count.
 "no helpers" or "by yourself" means no builders for that request.
 
 **Turn it off.** `/settings` → Helpers that build → Turn them off (it writes

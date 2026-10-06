@@ -206,11 +206,16 @@ test("request words steer builders", () => {
   expect(builderSteer("use builders for the three parts")).toBe("split");
   expect(builderSteer("do these in parallel")).toBe("split");
   expect(builderSteer("work in parallel on the docs and the tests")).toBe("split");
+  expect(builderSteer("run a crew to add the login page")).toBe("split");
+  expect(builderSteer("have the crew do the docs and the API")).toBe("split");
+  expect(builderSteer("do this as a crew")).toBe("split");
+  expect(builderSteer("crew it: tests, docs and the page")).toBe("split");
   // Words about the code, not about how Casper works.
   expect(builderSteer("make the fetches run in parallel")).toBeUndefined();
   expect(builderSteer("run the tests in parallel")).toBeUndefined();
   expect(builderSteer("the crew list shows the wrong count")).toBeUndefined();
   expect(builderSteer("fix /crew apply")).toBeUndefined();
+  expect(builderSteer("run the crew tests")).toBeUndefined();
   expect(builderSteer("split this up but no helpers")).toBe("solo");
   expect(builderSteer("do it by yourself")).toBe("solo");
   expect(builderSteer("rename the function")).toBeUndefined();

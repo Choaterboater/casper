@@ -223,7 +223,7 @@ See docs/BROWSER.md for limits, input freshness, supported assertions and remain
 Services from .casper/project.yaml run the project's code in the shell sandbox (files held; the network is not limited, so you can reach them); they stay up between prompts and stop on exit, /clear, /resume, /branch and /switch. Ctrl+C cancels only a startup. See docs/SERVICES.md.
 /branch, /switch and making or removing a workspace ask you first.
 Helpers from /delegate get read/grep/find/ls only; no edit/write/bash/MCP/LSP and no helpers of their own.
-For a big job with separate parts the AI starts builders itself (up to 3 at once; "split this up" asks for it, "by yourself" stops it, /settings turns it off).
+For a big job with separate parts the AI starts builders itself (up to 3 at once; "run a crew" or "split this up" asks for it, "by yourself" stops it, /settings turns it off).
 A builder edits and runs commands only in its own copy (a Git worktree), in the same sandbox; what would ask you is not run and is listed. No MCP, no helpers.
 An AI-started builder's change lands in your folder when it ends, uncommitted (/undo takes it back with the task); one that touches a file changed meanwhile stays in its copy for /crew. See docs/CREWS.md.
 Limits: 2 at once, 4 per request; 180 seconds/12 turns/48 tool calls each.

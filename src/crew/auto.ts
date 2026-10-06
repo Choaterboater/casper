@@ -36,7 +36,7 @@ export type BuilderSteer = "split" | "solo" | undefined;
 
 const SOLO = /\b(?:no helpers?|without (?:any )?helpers?|no builders?|by yourself|on your own|do it yourself|yourself only)\b/i;
 /** Words about how Casper works, not about the code ("run the tests in parallel", "the crew list" are not). */
-const SPLIT = /\bsplit (?:this|it|the (?:work|job))(?: up)?\b|\bsplit up\b|\b(?:use|start|with) (?:a |the |some )?(?:crew|builders?)\b|\b(?:work|do (?:this|these|them|it|the parts|both|all))(?: all)? in parallel\b/i;
+const SPLIT = /\bsplit (?:this|it|the (?:work|job))(?: up)?\b|\bsplit up\b|\b(?:use|start|run|with|send(?: it| this)? to|have) (?:a |the |some |my )?(?:crew|builders?)\b(?!\s*(?:-|\/)|\s+(?:tests?|list|command|copy|copies|code|file|files|docs?|page|output|count|bug|feature|settings?|row|module|folder|branch|status|report)\b)|\bas a crew\b|\bcrew it\b|\b(?:work|do (?:this|these|them|it|the parts|both|all))(?: all)? in parallel\b/i;
 
 export function builderSteer(request: string): BuilderSteer {
   if (SOLO.test(request)) return "solo";
