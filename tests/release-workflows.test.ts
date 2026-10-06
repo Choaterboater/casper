@@ -1,7 +1,11 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { parse } from "yaml";
+import { verifySshSignature } from "../src/update/signature";
+import { sshKeygenVerifies } from "./support/release-signing";
 
 /**
  * Casper's own CI: every action is pinned to a commit, and the job that may write a release runs
@@ -14,6 +18,8 @@ const files = readdirSync(DIR).filter((name) => /\.ya?ml$/.test(name));
 interface Step { uses?: string; run?: string; name?: string; with?: Record<string, unknown> }
 interface Job { permissions?: Record<string, string>; steps: Step[]; needs?: string | string[] }
 interface Workflow { permissions?: Record<string, string>; jobs: Record<string, Job> }
+const temps: string[] = [];
+afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
 const load = (name: string): Workflow => parse(readFileSync(path.join(DIR, name), "utf8")) as Workflow;
 
 test("every action in every workflow is pinned to a full commit", () => {
@@ -109,4 +115,62 @@ test("the full suite runs files in parallel, slowest first, with the eval tests 
     expect(runs.some((run) => run.startsWith("bun run test 2>&1"))).toBe(true);
     expect(runs.some((run) => /^bun test 2>&1/.test(run))).toBe(false);
   }
+});
+
+test("the build lists both installers in SHA256SUMS, and only the publish job's signing step sees the release key", () => {
+  const workflow = load("publish-release.yml");
+  const verify = workflow.jobs.build!.steps.find((step) => step.name === "Verify the build");
+  expect(verify?.run).toMatch(/casper-windows-arm64\.exe install\.sh install\.ps1; do/);
+  const users = files.flatMap((name) => readFileSync(path.join(DIR, name), "utf8").includes("secrets.RELEASE_SIGNING_KEY") ? [name] : []);
+  expect(users).toEqual(["publish-release.yml"]);
+  const steps = workflow.jobs.publish!.steps;
+  const signing = steps.filter((step) => JSON.stringify(step).includes("secrets.RELEASE_SIGNING_KEY"));
+  expect(signing.map((step) => step.name)).toEqual(["Sign SHA256SUMS with the release key"]);
+  // Signed after the provenance and before anything is published.
+  const at = (find: (step: Step) => boolean) => steps.findIndex(find);
+  expect(at((step) => step.uses?.startsWith("actions/attest-build-provenance@") ?? false)).toBeLessThan(at((step) => step === signing[0]));
+  expect(at((step) => step === signing[0])).toBeLessThan(at((step) => /gh release create/.test(step.run ?? "")));
+});
+
+/** Runs the workflow's signing step in a temp folder, the way the runner would. */
+async function runSigningStep(pinned: string, secret: string) {
+  const step = load("publish-release.yml").jobs.publish!.steps.find((each) => each.name === "Sign SHA256SUMS with the release key")!;
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-sign-step-"));
+  temps.push(root);
+  await mkdir(path.join(root, "dist/release"), { recursive: true });
+  await writeFile(path.join(root, "dist/release/SHA256SUMS"), `${"a".repeat(64)}  casper-linux-x64\n`);
+  await writeFile(path.join(root, "dist/release/install.sh"), `#!/bin/sh\nRELEASE_KEY='${pinned}'\n`);
+  const child = Bun.spawn(["bash", "-e", "-c", step.run!], { cwd: root, env: { PATH: process.env.PATH ?? "/usr/bin:/bin", RUNNER_TEMP: root, RELEASE_SIGNING_KEY: secret }, stdout: "pipe", stderr: "pipe" });
+  const [stdout, exitCode] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+  const signature = await readFile(path.join(root, "dist/release/SHA256SUMS.sig"), "utf8").catch(() => undefined);
+  const leftovers = (await readdir(root)).filter((name) => name === "release-key");
+  return { stdout, exitCode, signature, sums: await readFile(path.join(root, "dist/release/SHA256SUMS"), "utf8"), leftovers };
+}
+
+/** A throwaway OpenSSH key pair made by ssh-keygen in a temp folder (tests only). */
+async function throwawayKey(): Promise<{ privateKey: string; publicKey: string }> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "casper-throwaway-key-"));
+  temps.push(dir);
+  const made = Bun.spawnSync(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "test", "-f", path.join(dir, "key")], { stdout: "pipe", stderr: "pipe" });
+  expect(made.exitCode).toBe(0);
+  return { privateKey: await readFile(path.join(dir, "key"), "utf8"), publicKey: (await readFile(path.join(dir, "key.pub"), "utf8")).trim().split(" ").slice(0, 2).join(" ") };
+}
+
+test.skipIf(process.platform === "win32" || !sshKeygenVerifies())("the signing step signs with the secret, checks it against the pinned key, and stops on any mismatch", async () => {
+  // No key yet: a warning, nothing signed, the release goes on.
+  const none = await runSigningStep("", "");
+  expect(none.exitCode).toBe(0);
+  expect(none.stdout).toContain("No release key yet");
+  expect(none.signature).toBeUndefined();
+
+  const key = await throwawayKey(), other = await throwawayKey();
+  const good = await runSigningStep(key.publicKey, key.privateKey);
+  expect(good.exitCode).toBe(0);
+  expect(verifySshSignature(good.sums, good.signature!, key.publicKey)).toBe(true);
+  expect(good.leftovers).toEqual([]);
+
+  // A secret that is not the pinned key's other half, a pinned key with no secret, or a secret with no pinned key: stop.
+  expect((await runSigningStep(key.publicKey, other.privateKey)).exitCode).not.toBe(0);
+  expect((await runSigningStep(key.publicKey, "")).exitCode).not.toBe(0);
+  expect((await runSigningStep("", key.privateKey)).exitCode).not.toBe(0);
 });
