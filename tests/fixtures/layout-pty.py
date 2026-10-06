@@ -146,6 +146,18 @@ class Session:
         os.close(self.master)
 
 
+def settle(s, checks, timeout=15):
+    """Pump until every check holds or the deadline passes, then return the checks for check() to report. A busy
+    machine redraws late, so a fixed pause before checking fails a layout that is right."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            if all(ok for ok, _ in checks()): break
+        except AssertionError: pass  # footer_row(): the footer is mid-redraw
+        s.pump(0.03)
+    return checks()
+
+
 def check(name, s, checks):
     failures = [message for ok, message in checks if not ok]
     print(f"{name}: {'FAIL' if failures else 'ok'} (2J={s.vt.clear_screen_count} 3J={s.vt.clear_scrollback_count} scrollback={len(s.vt.scrollback)})")
@@ -180,36 +192,41 @@ def main():
         startup_clears = s.vt.clear_screen_count
         # Fill past the screen height so every later interaction happens at the bottom edge.
         for i in range(4):
-            s.send(f"prompt {i}\n"); s.until_count("Demo complete. No real tools ran.", i + 1); s.pump(0.4)
-        ok &= check("scrolled transcript", s, [one_prompt_box(s),
+            s.send(f"prompt {i}\n"); s.until_count("Demo complete. No real tools ran.", i + 1)
+        ok &= check("scrolled transcript", s, settle(s, lambda: [one_prompt_box(s),
             ("prompt 3" in s.vt.screen(), "latest prompt echoed on screen"),
             ("CASPER · OFFLINE" in s.vt.everything(), "banner retained in scrollback"),
-            (s.vt.clear_scrollback_count == 0, "scrollback must not be wiped while chatting")])
+            (s.vt.clear_scrollback_count == 0, "scrollback must not be wiped while chatting"),
+            (s.footer_row() == ROWS - 1, "transcript should have reached the bottom edge")]))
         footer = s.footer_row()
         assert footer == ROWS - 1, f"transcript should have reached the bottom edge, footer at row {footer}"
         for _ in range(3):
-            s.send("/"); s.until("Change model"); s.send("\x7f"); s.pump(0.3)
-        ok &= check("command popup opened and closed three times", s, [one_prompt_box(s),
+            s.send("/"); s.until("Change model"); s.send("\x7f")
+            settle(s, lambda: [("Change model" not in s.vt.screen(), "popup closed")])
+        ok &= check("command popup opened and closed three times", s, settle(s, lambda: [one_prompt_box(s),
             (s.footer_row() == footer, f"footer moved {footer} -> {s.footer_row()}: content crept upward"),
-            ("Change model" not in s.vt.screen(), "popup rows restored to transcript")])
+            ("Change model" not in s.vt.screen(), "popup rows restored to transcript")]))
         s.send("/effort\n"); s.until("Effort · offline synthetic choices")
         ok &= check("picker open", s, [
             ("Effort · offline synthetic choices" in s.vt.screen(), "picker visible"),
             ("prompt 0" in s.vt.everything(), "transcript retained while picker is open"),
             # Casper clears the viewport once at startup; pickers must never clear mid-session.
             (s.vt.clear_screen_count == startup_clears, "opening a picker must not clear the screen")])
-        s.send("\x1b[B\n"); s.until("effort=high"); s.pump(0.3)
-        ok &= check("picker closed", s, [one_prompt_box(s),
+        s.send("\x1b[B\n"); s.until("effort=high")
+        ok &= check("picker closed", s, settle(s, lambda: [one_prompt_box(s),
             (s.footer_row() == footer, f"footer moved {footer} -> {s.footer_row()} after picker"),
             ("CASPER · OFFLINE" in s.vt.everything(), "banner retained after picker"),
-            (s.vt.clear_scrollback_count == 0, "picker must not wipe terminal scrollback")])
-        s.send("draft text stays"); s.pump(0.2)
-        s.resize(20, 60); s.pump(0.6)
-        ok &= check("resize", s, [one_prompt_box(s),
+            (s.vt.clear_scrollback_count == 0, "picker must not wipe terminal scrollback")]))
+        s.send("draft text stays"); s.until("draft text stays")
+        # Casper answers a resize by clearing the screen and drawing it again: wait for that clear, then the redraw.
+        cleared = s.vt.clear_screen_count
+        s.resize(20, 60)
+        settle(s, lambda: [(s.vt.clear_screen_count > cleared, "redrawn after resize")])
+        ok &= check("resize", s, settle(s, lambda: [one_prompt_box(s),
             ("draft text stays" in s.vt.screen(), "draft survives resize"),
-            ("CASPER · OFFLINE" in s.vt.everything(), "banner reprinted after resize")])
+            ("CASPER · OFFLINE" in s.vt.everything(), "banner reprinted after resize")]))
         s.send("\x15/exit\n")
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + 30  # A clean exit on a busy machine can take several seconds.
         while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)
         ok &= check("exit", s, [(s.process.poll() == 0, f"exit code {s.process.poll()}")])
         assert b"\x1b[?1049h" not in s.raw, "alternate screen used"

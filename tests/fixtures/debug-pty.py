@@ -17,6 +17,12 @@ def alive(pid):
     except ProcessLookupError: return False
 
 
+def gone(pid, timeout=10):
+    deadline = time.monotonic() + timeout
+    while alive(pid) and time.monotonic() < deadline: time.sleep(0.05)
+    return not alive(pid)
+
+
 def case(bun, repo, root, ending):
     def setup(home, project):
         (project / "program.py").write_text("answer = 42\n")
@@ -36,12 +42,10 @@ def case(bun, repo, root, ending):
         s.send("\r")
         s.until("Debugger launch denied")
         assert not (root / "project/adapter-started").exists()
-        seen = len(s.raw)
+        s.until_ready()
         s.send("\x01\x0b/debug start example\r")
         # Wait for a second actual question, not the old transcript line.
-        deadline = time.monotonic() + 5
-        while b"Launch this debugger target?" not in s.raw[seen:] and time.monotonic() < deadline: s.pump(0.03)
-        assert b"Launch this debugger target?" in s.raw[seen:]
+        s.until_new("Launch this debugger target?")
         time.sleep(0.5)
         s.send("2")
         s.until('"state":"stopped"')
@@ -49,14 +53,14 @@ def case(bun, repo, root, ending):
         adapter = int((root / "project/adapter-started").read_text())
         assert alive(debuggee) and alive(adapter), "missing positive process control"
         assert not (root / "home/.pi/agent/auth.json").exists(), "debugging initialized provider auth"
+        s.until_ready()
         if ending == "sigterm": s.process.terminate()
         elif ending == "eof": s.send("\x04")
-        else: s.send("/debug stop\n"); s.until('"state":"closed"'); s.send("/exit\n")
-        deadline = time.monotonic() + 5
-        while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.03)
-        assert s.process.poll() in (0, 143, -signal.SIGTERM), (s.process.poll(), s.screen.text())
-        assert not alive(debuggee), "debuggee survived shutdown"
-        assert not alive(adapter), "adapter survived shutdown"
+        else: s.send("/debug stop\n"); s.until('"state":"closed"'); s.until_ready(); s.send("/exit\n")
+        assert s.wait_exit() in (0, 143, -signal.SIGTERM), (s.process.poll(), s.screen.text())
+        # A killed process stays visible to kill(pid, 0) until it is reaped, which a busy machine can delay.
+        assert gone(debuggee), f"debuggee survived shutdown ({ending})\n" + s.screen.text()[-1500:]
+        assert gone(adapter), f"adapter survived shutdown ({ending})"
     finally:
         s.close()
         if debuggee and alive(debuggee): os.killpg(debuggee, signal.SIGKILL)

@@ -5,7 +5,6 @@ import pathlib
 import re
 import signal
 import sys
-import time
 
 sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("login_pty", pathlib.Path(__file__).with_name("login-pty.py"))
@@ -43,8 +42,7 @@ def run_case(bun, repo, root, provider, browser=False, action="save", no_color=F
             elif action == "sigterm": s.process.terminate()
             else: s.send("\n")
         if action in ("eof", "sigterm"):
-            deadline = time.monotonic() + 5
-            while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)
+            s.wait_exit()
             assert s.process.poll() in (0, -signal.SIGTERM, 143), s.screen.text()
             assert json.loads(auth.read_text()) == {}
             return
@@ -58,13 +56,14 @@ def run_case(bun, repo, root, provider, browser=False, action="save", no_color=F
             assert saved[provider]["type"] == ("oauth" if browser or provider == "github-copilot" else "api_key")
             if not browser and provider != "github-copilot": assert saved[provider]["key"] == secret
         assert not (s.root / "home/.casper/agent/sessions").exists()
-        s.send("\x1b[A"); s.pump(0.08)
-        assert re.search(r"❯ /login\s*\n\s*─", s.screen.text()), s.screen.text()
+        s.send("\x1b[A")
+        s.until_true(lambda text: re.search(r"❯ /login\s*\n\s*─", text) is not None)
         assert secret.encode() not in s.raw
         assert b"synthetic-anthropic-private-access" not in s.raw
         assert b"synthetic-copilot-private-access" not in s.raw
         assert b"synthetic-openrouter-oauth-key" not in s.raw
         if no_color: assert not re.search(rb"\x1b\[(?:[0-9:]*;)*(?:3[0-9]|4[0-9]|9[0-7]|10[0-7])(?:[;:][0-9;:]*)?m", s.raw)
+        s.until_ready()
         s.send("\x01\x0b/exit\n"); module.wait_exit(s)
     finally:
         (s.root / "transcript.txt").write_bytes(s.raw)

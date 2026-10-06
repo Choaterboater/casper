@@ -133,6 +133,19 @@ class Session:
             if self.screen.text().count(text) > before: return
         raise AssertionError("Missing new screen text: " + repr(text) + "\nSCREEN:\n" + self.screen.text()[-6000:])
 
+    def until_ready(self, timeout=15):
+        """Wait until Casper reads the next command. Enter before that only keeps the line as a draft, and a local
+        command's output (or a stale "│ idle") shows before Casper is back at the prompt. The footer's idle dot (○)
+        replaces the spinner only when it is; the WRITES badge may lead the footer."""
+        self.until_true(lambda text: "○" in text.rstrip().splitlines()[-1].split("│")[0], timeout)
+
+    def wait_exit(self, timeout=30):
+        """Wait for Casper to exit and return its exit code (None if it is still running at the deadline). On a busy
+        machine a clean exit can take several seconds, so the deadline is long; it costs nothing when exit is quick."""
+        deadline = time.monotonic() + timeout
+        while self.process.poll() is None and time.monotonic() < deadline: self.pump(0.05)
+        return self.process.poll()
+
     # A physical Enter sends CR in raw mode; LF is Ctrl+J (multiline input).
     def send(self, text): os.write(self.master, text.replace("\n", "\r").encode())
     def release(self, name): (self.root / name).touch()
@@ -155,26 +168,27 @@ def connect_with_writes(s):
     time.sleep(0.5)  # A box ignores keys for a moment after it opens.
     s.send("1")  # 1 No: one key, no Enter
     s.until("fixture is connected for this session only")
+    s.until_ready()
     s.send("/mcp writes fixture\n")
     s.until("fixture writes are off.")
     time.sleep(0.5)
     s.send("2")  # 2 Enable for this server
     s.until("Writes on for fixture. Each change still asks you.")
     s.until("WRITES: fixture · ctrl+o")
+    s.until_ready()
 
 def exercise(bun, repo, root, no_color):
     s = Session(bun, repo, root, no_color)
     try:
         s.until("/help · /status · /login")
-        s.until("❯")
+        s.until("│ idle")  # Casper sets this just before it reads the first command; the editor shows earlier.
         startup = s.screen.text()
         assert "mcp       " not in startup and "visualize " not in startup and "indexed" not in startup
         s.send("stream\n")
         s.until("First bold and code")
         assert "[model] scripted/terminal-fixture" in s.screen.text()
         s.send("/sta")
-        s.pump()
-        assert "… /sta" in s.screen.text(), s.screen.text()
+        s.until("… /sta")
         s.release("stream-step")
         s.until("• read · src/example.ts")
         assert "… /sta" in s.screen.text(), s.screen.text()
@@ -264,11 +278,9 @@ def exercise(bun, repo, root, no_color):
         # ctrl+o turns writes off at once, and the footer badge goes away.
         s.send("\x0f")
         s.until("[mcp] Writes off for fixture. Every change asks you again.")
-        s.pump(0.3)
-        assert "WRITES" not in s.screen.text().splitlines()[-1], s.screen.text()[-500:]
+        s.until_true(lambda text: "WRITES" not in text.rstrip().splitlines()[-1])
         # The cancelled task may still be closing: wait for the idle footer before the next command.
-        deadline = time.monotonic() + 5
-        while not s.screen.text().rstrip().endswith("idle") and time.monotonic() < deadline: s.pump(0.05)
+        s.until_true(lambda text: text.rstrip().endswith("idle"))
         s.send("/login\n")
         s.until("This runtime does not support login")
         assert not any(request.startswith("/") for request in s.requests())
@@ -277,9 +289,7 @@ def exercise(bun, repo, root, no_color):
         s.until("[cancel] Stopped before it started")
         assert s.requests() == before
         s.send("/exit\n")
-        deadline = time.monotonic() + 5
-        while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)
-        assert s.process.poll() == 0, "Exit did not finish:\n" + s.screen.text()[-2000:]
+        assert s.wait_exit() == 0, "Exit did not finish:\n" + s.screen.text()[-2000:]
         has_color = bool(re.search(rb"\x1b\[(?:1;36|32|33|36)m", s.raw))
         assert has_color != no_color, "color/NO_COLOR policy failed"
     finally:
@@ -297,9 +307,7 @@ def exercise_eof(bun, repo, root):
         s.release("approval-eof")
         s.until_new("Press 1-4")
         s.send("\x04")
-        deadline = time.monotonic() + 5
-        while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)
-        assert s.process.poll() == 0, "EOF at approval did not close"
+        assert s.wait_exit() == 0, "EOF at approval did not close"
         result = (s.root / "approvals.jsonl").read_text()
         assert '"isError":true' in result, result
     finally: s.close()
@@ -325,9 +333,7 @@ def exercise_dumb(bun, repo, root):
             if text[text.rindex("Approval result: denied"):].rstrip().endswith(">"): break
         else: raise AssertionError("No prompt after the approval task\nSCREEN:\n" + s.screen.text()[-3000:])
         s.send("\x15/exit\n")  # Clear the cooked draft before submitting exit.
-        deadline = time.monotonic() + 5
-        while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)
-        assert s.process.poll() == 0, "Plain terminal did not exit"
+        assert s.wait_exit() == 0, "Plain terminal did not exit"
         assert s.requests() == ["approval-dumb"]
         assert b"\x1b[" not in s.raw, "TERM=dumb emitted terminal escapes"
     finally: s.close()
