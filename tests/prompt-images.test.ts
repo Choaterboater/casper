@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { attachImages, imageMimeType, MAX_IMAGES, startsWithImageFile } from "../src/app/images";
+import { attachImages, imageMimeType, MAX_IMAGES, shareHost, startsWithImageFile } from "../src/app/images";
 import { removeTempDir } from "./support/temp-dir";
 
 const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
@@ -74,6 +74,63 @@ test("Windows paths with a drive letter are read", async () => {
   // Written the way a Windows terminal pastes a dropped file (quoted); `resolve` stands in for the Windows disk.
   const windows = await attachImages(`"C:\\Users\\me\\w.png" fix it`, { cwd: dir, home: dir, platform: "win32", resolve: () => shot });
   expect(windows.text.split("\n")[0]).toBe("[image 1] fix it");
+});
+
+test("Windows network paths name their computer; local paths name none", () => {
+  expect(shareHost("\\\\nas\\shots\\pic.png")).toBe("nas");
+  expect(shareHost("//nas/shots/pic.png")).toBe("nas");
+  expect(shareHost("\\\\?\\UNC\\files.example\\s\\pic.png")).toBe("files.example");
+  expect(shareHost("\\\\10.0.0.5\\c$\\pic.png")).toBe("10.0.0.5");
+  for (const local of ["C:\\Users\\me\\pic.png", "\\\\?\\C:\\pic.png", "\\\\.\\C:\\pic.png", "~\\pic.png", "/home/me/pic.png", "pic.png"]) expect(shareHost(local)).toBeUndefined();
+});
+
+/**
+ * Windows: opening \\host\share\pic.png sends your Windows login (a hash of it) to that computer, so a picture
+ * path like that in a request or pasted text is attached only on a yes. `resolve` stands in for the Windows disk:
+ * a picture that was opened is attached, so an empty list shows it was never read.
+ */
+test("Windows: a picture on another computer's share asks once per computer, and a no leaves it as words", async () => {
+  const dir = await folder();
+  const shot = path.join(dir, "w.png");
+  await writeFile(shot, PNG);
+  const typed = "what is \\\\nas\\shots\\a.png and \\\\NAS\\shots\\b.png and \\\\other\\c.png";
+  const asked: Array<[string, string]> = [];
+  const no = await attachImages(typed, { cwd: dir, home: dir, platform: "win32", resolve: () => shot, confirmShare: async (file, host) => { asked.push([file, host]); return false; } });
+  expect(asked).toEqual([["\\\\nas\\shots\\a.png", "nas"], ["\\\\other\\c.png", "other"]]);
+  expect(no.images).toEqual([]);
+  expect(no.text).toBe(typed);
+  expect(no.notes).toEqual([
+    "\\\\nas\\shots\\a.png is on another computer (nas); not opened, so not attached",
+    "\\\\NAS\\shots\\b.png is on another computer (NAS); not opened, so not attached",
+    "\\\\other\\c.png is on another computer (other); not opened, so not attached",
+  ]);
+
+  asked.length = 0;
+  const yes = await attachImages(typed, { cwd: dir, home: dir, platform: "win32", resolve: () => shot, confirmShare: async (file, host) => { asked.push([file, host]); return host !== "other"; } });
+  expect(asked.map(([, host]) => host)).toEqual(["nas", "other"]);
+  expect(yes.images.length).toBe(2);
+  expect(yes.text.split("\n")[0]).toBe("what is [image 1] and [image 2] and \\\\other\\c.png");
+
+  // Quoted (a dropped file) and long-form paths ask too; with nobody to ask (one-shot) nothing is opened.
+  for (const form of ['"\\\\nas\\my shots\\d.png"', "\\\\?\\UNC\\nas\\e.png"]) {
+    const quiet = await attachImages(`see ${form}`, { cwd: dir, home: dir, platform: "win32", resolve: () => shot });
+    expect(quiet.images).toEqual([]);
+    expect(quiet.notes[0]).toContain("is on another computer (nas)");
+  }
+});
+
+test("Windows: a local picture path and a pasted picture never ask", async () => {
+  const dir = await folder();
+  const shot = path.join(dir, "w.png");
+  await writeFile(shot, PNG);
+  const pasted = new Map([[1, { data: PNG.toString("base64"), mimeType: "image/png" }]]);
+  const never = async () => { throw new Error("asked"); };
+  const result = await attachImages(`[image 1] and "C:\\Users\\me\\w.png" and ~\\w.png`, { cwd: dir, home: dir, platform: "win32", pasted, resolve: () => shot, confirmShare: never });
+  expect(result.images.length).toBe(3);
+  expect(result.notes).toEqual([]);
+  // On macOS and Linux a path like //nas/x.png is on this machine.
+  const posix = await attachImages("see //nas/w.png", { cwd: dir, home: dir, platform: "linux", resolve: () => shot, confirmShare: never });
+  expect(posix.images.length).toBe(1);
 });
 
 test("at most MAX_IMAGES pictures go with one request", async () => {

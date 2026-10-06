@@ -148,6 +148,19 @@ scripts can themselves cause side effects; localhost and HTTP methods do not
 establish safety. Labels and model-declared impact are not complete effect
 analysis. Page content is untrusted data, not instructions or consent.
 
+**One exception: cloud metadata addresses ask first.** On a cloud machine, a page at
+`169.254.169.254` (AWS, Azure, GCP, Oracle), `fd00:ec2::254`, `metadata.google.internal`,
+`169.254.170.2` (ECS) or `100.100.100.200` (Alibaba) can hand out that machine's cloud login.
+Before the AI's browser reaches one, by opening it, a check's URL, a redirect, a link it clicks,
+a frame, a picture or a fetch, or a page whose name points there, Casper asks once:
+`Open 169.254.169.254?` with `1 No · 2 Yes, this once · 3 Yes, for this session` (3 covers that
+address only; a yes to other browser actions never does). On a yes the page loads again; on a
+no it stays unopened and the result says `notOpened`. A run that can't ask doesn't open it.
+LAN, private, loopback and other link-local addresses open as before, with no question. Only
+page loads and those addresses pass through Casper on their way out; other traffic does not.
+The automatic page check after a change is not the AI's browser: it loads the project's own
+pages as before, with no question.
+
 `serve` is the browser tool's own small way to start a dev server. For a server
 that should stay up between requests, declare a [managed service](SERVICES.md)
 instead.
