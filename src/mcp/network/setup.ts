@@ -105,12 +105,12 @@ function stdioWords(definition: MCPServerDefinition): string[] {
 }
 
 /** The entry Casper wrote: exactly its installed program. Only this one is ever updated. */
-function isCaspersEntry(definition: MCPServerDefinition, homeDir: string): boolean {
+export function isCaspersEntry(definition: MCPServerDefinition, homeDir: string): boolean {
   return definition.transport.type === "stdio" && definition.transport.command === networkServerEntry(homeDir).command;
 }
 
 /** Any casper-network-mcp (however it runs) or hpe-networking-mcp server: a network server is already there. */
-function isNetworkServer(definition: MCPServerDefinition): boolean {
+export function isNetworkServer(definition: MCPServerDefinition): boolean {
   return stdioWords(definition).some((word) => /casper[-_]network[-_]mcp/.test(word)) || matchPreset(definition)?.preset.id === "hpe-networking-mcp";
 }
 

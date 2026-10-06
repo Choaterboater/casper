@@ -54,7 +54,7 @@ export interface CliOptions {
   folderCandidate?: boolean;
 }
 
-export type SubcommandName = "learn" | "mcp-check" | "new" | "security" | "update";
+export type SubcommandName = "doctor" | "learn" | "mcp-check" | "new" | "security" | "update";
 
 /**
  * Casper's subcommands, matched in this order before anything is a prompt. Each one matches only its exact
@@ -62,6 +62,8 @@ export type SubcommandName = "learn" | "mcp-check" | "new" | "security" | "updat
  * subcommand takes its own flags, so leading options are a usage mistake.
  */
 export const SUBCOMMANDS: ReadonlyArray<{ name: SubcommandName; matches(args: readonly string[]): boolean; withOptions: string }> = [
+  // `doctor` alone or with flags only: `casper doctor the failing test` stays a prompt.
+  { name: "doctor", matches: (args) => args[0] === "doctor" && args.slice(1).every((arg) => arg.startsWith("-")), withOptions: "doctor takes its own flags. " },
   { name: "learn", matches: (args) => args[0] === "learn", withOptions: "learn cannot be combined with options" },
   // Only exactly `mcp check`: `casper mcp docs are wrong` stays a prompt.
   { name: "mcp-check", matches: (args) => args[0] === "mcp" && args[1] === "check", withOptions: "mcp check takes its own flags. " },
@@ -72,7 +74,7 @@ export const SUBCOMMANDS: ReadonlyArray<{ name: SubcommandName; matches(args: re
 ];
 
 const USAGES: Record<SubcommandName, () => string> = {
-  learn: () => "", "mcp-check": () => MCP_CHECK_USAGE, new: () => NEW_USAGE, security: () => SECURITY_USAGE, update: () => UPDATE_USAGE,
+  doctor: () => DOCTOR_USAGE, learn: () => "", "mcp-check": () => MCP_CHECK_USAGE, new: () => NEW_USAGE, security: () => SECURITY_USAGE, update: () => UPDATE_USAGE,
 };
 
 /** Every leading option the parser accepts; /help all must document each one. */
@@ -403,4 +405,18 @@ export function parseUpdateArgs(rest: readonly string[]): UpdateCommand {
     result.check = true;
   }
   return result;
+}
+
+export const DOCTOR_USAGE = "Usage: casper doctor";
+/** What `casper doctor` does, for casper doctor --help and /help all. */
+export const DOCTOR_HELP = "Check Casper's own setup (no model, no tokens): version, config files, sign-in, MCP and language servers, security tools, sandbox, disk, network server. Fixes it can make (update, security tools, network server) each ask first: 1 Not now. Exit 0 nothing to fix, 1 something to fix, 64 usage mistake";
+
+/** `rest` starts with "doctor". Only --help; anything else is a usage error (exit 64). */
+export function parseDoctorArgs(rest: readonly string[]): { help: boolean } {
+  let help = false;
+  for (const arg of rest.slice(1)) {
+    if (arg === "--help" || arg === "-h") { help = true; continue; }
+    throw new UsageError(`Unknown option ${arg}. ${DOCTOR_USAGE}`);
+  }
+  return { help };
 }
