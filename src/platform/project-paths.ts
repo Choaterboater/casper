@@ -18,7 +18,12 @@ export const PRIVATE_PATHS: readonly string[] = [
   ".claude/.credentials.json", ".casper/agent/auth.json", ".casper/mcp-consent.key", ".casper/network-logins.json", ".pi/agent/auth.json", "Library/Keychains",
   ".config/gcloud", ".azure", ".oci", ".terraform.d/credentials.tfrc.json", ".pgpass", ".npmrc", ".pypirc", ".config/hub",
   ".password-store", ".local/share/keyrings",
+  // Casper's own: MCP servers (their tokens), profiles (each may hold an mcp.json) and every project's saved conversations.
+  ".casper/mcp.json", ".casper/profiles", ".casper/agent/sessions",
 ];
+
+/** Casper's own records: approvals, lab answers, remembered hosts, undo copies; MCP consent and skill trust. */
+export const CASPER_PRIVATE_PATHS: readonly string[] = [".casper/projects", ".casper/mcp-consent.json", ".casper/skills-trust.json"];
 
 /** Home files the AI may read but never change: Casper's and Pi's own state, shell start-up files, git's settings. */
 export const PROTECTED_WRITE_PATHS: readonly string[] = [
@@ -104,13 +109,29 @@ export interface PrivatePlace {
   /** Whether a search of a folder that holds it is refused too. Not for a denyRead folder inside the project:
    * a search of the project still runs (the sandbox hides that folder from shell commands). */
   below: boolean;
+  /** A part of the place that is not private, by its path inside the place (the browser's pictures under ~/.casper/projects). */
+  open?: (inside: string) => boolean;
+}
+
+/** The browser tool's pictures, <project state>/browser/..., which it tells the AI to read. */
+function browserPictures(inside: string): boolean {
+  const parts = inside.split(/[\\/]/);
+  return parts.length > 2 && parts[1] === "browser" && !parts.includes("..");
 }
 
 export function privatePlaces(context: PathContext): PrivatePlace[] {
   const home = context.home ?? os.homedir();
   const why = "keys and logins";
   const places: PrivatePlace[] = PRIVATE_PATHS.map((entry) => ({ shown: `~/${entry}`, paths: variants(path.join(home, entry)), why, below: true }));
-  if (context.agentDir) places.push({ shown: "Casper's login file (auth.json)", paths: variants(path.join(context.agentDir, "auth.json")), why, below: true });
+  for (const entry of CASPER_PRIVATE_PATHS) {
+    const absolute = path.join(home, entry);
+    places.push({ shown: `~/${entry}`, paths: variants(absolute), why: "Casper's own records", below: true,
+      ...(entry === ".casper/projects" ? { open: browserPictures } : {}) });
+  }
+  if (context.agentDir) {
+    places.push({ shown: "Casper's login file (auth.json)", paths: variants(path.join(context.agentDir, "auth.json")), why, below: true });
+    places.push({ shown: "Casper's saved conversations folder", paths: variants(path.join(context.agentDir, "sessions")), why: "Casper's own records", below: true });
+  }
   for (const entry of context.denyRead ?? []) {
     const inside = within(context.root, entry);
     const relative = (from: string) => path.relative(from, entry).split(path.sep).join("/");
@@ -127,7 +148,8 @@ export function privatePlace(absolute: string, context: PathContext): string | u
 
 function privatePlaceFor(absolute: string, context: PathContext): PrivatePlace | undefined {
   const candidates = variants(absolute);
-  return privatePlaces(context).find((place) => place.paths.some((entry) => candidates.some((candidate) => within(entry, candidate))));
+  return privatePlaces(context).find((place) => place.paths.some((entry) => candidates.some((candidate) => within(entry, candidate)
+    && !place.open?.(path.relative(entry, candidate)))));
 }
 
 /** Why a shown private place is private ("keys and logins" unless it is the project's own denyRead). */

@@ -31,6 +31,8 @@ test("the policy hides every private place, writes only the project, temp and ca
   const policy = sandboxPolicy({ root, home, tempDirs: [TMP], platform: "linux" });
   for (const entry of PRIVATE_PATHS) expect(policy.denyRead).toContain(path.join(home, entry));
   expect(policy.denyRead).toContain(path.join(home, ".casper", "projects"));
+  for (const entry of [".casper/mcp.json", ".casper/profiles", ".casper/agent/sessions"]) expect(policy.denyRead).toContain(path.join(home, entry));
+  expect(sandboxPolicy({ root, home, tempDirs: [TMP], platform: "linux", agentDir: path.join(home, "elsewhere") }).denyRead).toContain(path.join(home, "elsewhere", "sessions"));
   expect(policy.allowWrite).toEqual([root, TMP, ...cachePaths("linux").map((entry) => path.join(home, entry))]);
   for (const name of ["hooks", "config", "config.worktree"]) expect(policy.denyWrite).toContain(path.join(root, ".git", name));
   for (const entry of PROTECTED_WRITE_PATHS) expect(policy.denyWrite).toContain(path.join(home, entry));

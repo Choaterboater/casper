@@ -813,9 +813,10 @@ server does**.
   ([It runs in the sandbox](#it-runs-in-the-sandbox)). Every other server is outside the
   sandbox: Casper doesn't know what it needs.
 - The AI's shell is in the sandbox, where the sandbox can run, and it can't read
-  `~/.claude.json` or `~/.mcp.json` there. Without the sandbox (Windows, Linux without
-  bubblewrap, `--no-sandbox`), the AI's shell could read MCP configuration or go around
-  this interface. See [SECURITY.md](SECURITY.md).
+  `~/.claude.json`, `~/.mcp.json`, `~/.casper/mcp.json` or a profile's `mcp.json` there
+  (the AI's file tools can't open them either). Without the sandbox (Windows, Linux
+  without bubblewrap, `--no-sandbox`), the AI's shell could read MCP configuration or go
+  around this interface. See [SECURITY.md](SECURITY.md).
 - Only connect servers you trust, and give them logins with only the rights they
   need. Tool descriptions and results are outside content, not instructions.
 
