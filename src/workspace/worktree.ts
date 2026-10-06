@@ -9,6 +9,21 @@ import { isOutside } from "../platform/inside";
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Like Promise.all, but waits for every call to end before failing with the first error (in order). With
+ * Promise.all a failing git call returned while another git was still running in the folder; on Windows that
+ * folder can't be removed or renamed until it ends.
+ */
+async function allDone<T extends readonly unknown[] | []>(work: T): Promise<{ -readonly [K in keyof T]: Awaited<T[K]> }> {
+  const settled = await Promise.allSettled(work as readonly unknown[]);
+  const values: unknown[] = [];
+  for (const result of settled) {
+    if (result.status === "rejected") throw result.reason;
+    values.push(result.value);
+  }
+  return values as { -readonly [K in keyof T]: Awaited<T[K]> };
+}
+
 export const MAX_EXPERIMENT_PATCH_BYTES = 512 * 1024;
 export const MAX_EXPERIMENT_FILES = 200;
 const STDERR_LIMIT = 16 * 1024;
@@ -143,7 +158,7 @@ export class GitWorktreeManager {
     let commonDir: string;
     let entries: WorktreeEntry[];
     try {
-      const [commonDirOutput, worktreeOutput] = await Promise.all([
+      const [commonDirOutput, worktreeOutput] = await allDone([
         git(projectRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
         git(projectRoot, ["worktree", "list", "--porcelain"]),
       ]);
@@ -207,7 +222,7 @@ export class GitWorktreeManager {
     const branch = `casper/${name}`;
     const existing = await git(source, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]).then(() => true, () => false);
     if (existing) throw new Error(`Git branch ${JSON.stringify(branch)} already exists`);
-    const [head, status] = await Promise.all([
+    const [head, status] = await allDone([
       git(source, ["rev-parse", "HEAD"]).catch(() => { throw new Error("A crew needs at least one commit in this project"); }),
       git(source, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
     ]);
@@ -270,7 +285,7 @@ export class GitWorktreeManager {
   private async createOwned(plan: WorktreePlan): Promise<WorktreeRelation> {
     this.assertManagedPlan(plan);
     await this.assertSameRepository(plan.sourceWorkspace);
-    const [currentHead, status] = await Promise.all([
+    const [currentHead, status] = await allDone([
       git(plan.sourceWorkspace, ["rev-parse", "HEAD"]),
       git(plan.sourceWorkspace, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
     ]);
@@ -347,7 +362,7 @@ export class GitWorktreeManager {
       });
       // Independent, read-only views over the prepared temporary index can run
       // together, avoiding two process-latency round trips.
-      const [patch, names, statOutput] = await Promise.all([
+      const [patch, names, statOutput] = await allDone([
         patchWork,
         git(relation.path, ["diff", "--name-only", "-z", "--no-ext-diff", "--no-textconv", relation.baseCommit, "--"], { env }),
         git(relation.path, ["diff", "--stat", "--no-ext-diff", "--no-textconv", "--no-color", relation.baseCommit, "--"], { env, maxBuffer: 64 * 1024 }),
@@ -376,7 +391,7 @@ export class GitWorktreeManager {
   async apply(relation: WorktreeRelation, candidate: WorktreePatch): Promise<void> {
     this.assertManagedRelation(relation);
     await this.assertRegistered(relation);
-    const [headOutput, status] = await Promise.all([
+    const [headOutput, status] = await allDone([
       git(relation.mainWorkspace, ["rev-parse", "HEAD"]),
       git(relation.mainWorkspace, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
     ]);
@@ -410,7 +425,7 @@ export class GitWorktreeManager {
         if (status) throw new Error("Managed worktree has unreviewed changes; refusing destructive cleanup");
       }
     }
-    const [, worktreeOutput] = await Promise.all([
+    const [, worktreeOutput] = await allDone([
       this.assertSameRepository(relation.mainWorkspace),
       git(relation.mainWorkspace, ["worktree", "list", "--porcelain"]),
     ]);
@@ -460,7 +475,7 @@ export class GitWorktreeManager {
 
   private async assertRegistered(relation: WorktreeRelation): Promise<void> {
     this.assertManagedPath(relation.path, relation.path !== relation.mainWorkspace);
-    const [, worktreeOutput] = await Promise.all([
+    const [, worktreeOutput] = await allDone([
       this.assertSameRepository(relation.mainWorkspace),
       git(relation.mainWorkspace, ["worktree", "list", "--porcelain"]),
     ]);
@@ -478,7 +493,7 @@ export class GitWorktreeManager {
     // Git on Windows prints C:/... with forward slashes; resolve before comparing with Casper's own paths.
     const admin = path.resolve((await git(relation.path, ["rev-parse", "--absolute-git-dir"])).trim());
     if (path.dirname(admin) !== path.join(this.commonDir, "worktrees")) throw new Error("Unexpected linked-worktree administration path");
-    const [backlink, head, canonical] = await Promise.all([
+    const [backlink, head, canonical] = await allDone([
       readFile(path.join(admin, "gitdir"), "utf8"),
       git(relation.path, ["symbolic-ref", "HEAD"]),
       realpath(relation.path),
