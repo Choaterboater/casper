@@ -459,6 +459,13 @@ you may add test files" is still a code change.
    round (within `repair.maxAttempts`) asking the model to add a test that fails without the
    change, then reruns the checks and the comparison.
 
+When the change rewrote what the `test` command runs (the package.json script it runs, with its
+pre and post scripts, `bunfig.toml` `[test]`, jest or vitest config, pytest settings, a root
+`conftest.py`, the Makefile for `make`, or a script file the command names outside the tests),
+its pass is not your tests passing: Casper does not compare, and the receipt says
+`the test command's definition changed in this task (package.json scripts.test)`. The independent
+acceptance check is not run either, for the same reason.
+
 An unproven change is not verified: its outcome is `not_verified` (`--require-verification` exits
 3). A change Casper could not compare keeps its check result and says why. Test-only, docs-only or
 data-only changes, and refactor, docs, inspection, diagram and configuration requests, need no

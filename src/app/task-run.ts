@@ -25,6 +25,7 @@ import { DEFAULT_SPEND_LIMITS, SpendGuard, requestSpendLimit } from "../task/spe
 import { VerificationTask } from "../verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "../verify/proof";
 import { independentAcceptance } from "../verify/acceptance";
+import { definitionChangedReason, definitionChanges, testDefinition } from "../verify/test-definition";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "../task/review";
 import { extractChecklist, formatChecklistPrompt, normalizeCases } from "../task/checklist";
 import { isOutside } from "../platform/inside";
@@ -134,6 +135,10 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   const [before, undoStart] = await Promise.all([app.snapshotWorkspace(workspaceRoot, app.commandAbort?.signal),
     app.taskUndo.begin(workspaceRoot, session, app.commandAbort?.signal)]);
   edits.before = before;
+  // What the test command means before the change (package.json scripts, runner settings): a change that rewrites
+  // it is not proven or acceptance-checked by it.
+  const definitionCommand = context.model.commands.test?.trim();
+  const definitionBefore = definitionCommand ? await testDefinition(workspaceRoot, definitionCommand).catch(() => undefined) : undefined;
   // The risky lines already in the project's config files, so the receipt lists only the ones this task adds.
   const riskyBefore = before ? await riskyBaseline(workspaceRoot, [...before.keys()]).catch(() => undefined) : undefined;
   let thrownError: string | undefined;
@@ -287,23 +292,29 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         // A model that sees pictures may look at the changed pages once (showPages); its fixes are checked again.
         ({ verification, shown: pagesShown } = await lookAtPages(app, session, prompt, autoChecks.run, verification, workspaceRoot));
         const changedCode = Boolean(before && afterModel && changesCode(diffSnapshots(before, afterModel)));
+        const redefined = testCommand && definitionBefore
+          ? definitionChanges(definitionBefore, await testDefinition(workspaceRoot, testCommand).catch(() => new Map<string, string>())) : [];
+        if (proving && changedCode && redefined.length && verification.status === "pass") {
+          proof = { status: "unavailable", check: "test", reason: definitionChangedReason(redefined) };
+        }
         if (verification.status === "pass" && !(proving && changedCode)) {
           proofSkipped = !verification.results.length && verification.pages && !verification.smoke?.checks.length
             ? verification.pages.pages.every((page) => page.consoleChecked) ? PAGES_ONLY_PROOF : PAGES_ANSWER_ONLY_PROOF
             : proofSkipReason({ intent: classification.intent, testCommand, snapshot: before !== undefined, changedCode,
               testsAddedNow: !testCommand && Boolean(context.model.commands.test?.trim()) });
         }
-        if (proving && verification.status === "pass" && changedCode) {
+        if (proving && verification.status === "pass" && changedCode && !redefined.length) {
           const initialReview = parseChecklist(app.lastAnswer);
           ({ verification, proof, review } = await finishChange(app, { baseline, baselineUnavailable, before, root: workspaceRoot,
-            command: testCommand!, request: prompt, checks: autoChecks.run, verification, session, initialReview }));
+            command: testCommand!, request: prompt, checks: autoChecks.run, verification, session, initialReview, definitionBefore }));
         }
         // Not tied to the proof: any code change whose checks pass (server tasks and configure requests too).
         const acceptanceMode = context.verification.acceptance;
         if ((acceptanceMode === true || acceptanceMode === "warn") && testCommand && changedCode && verification.status === "pass" && proof?.status !== "unproven"
           && !app.closing && !app.commandAbort?.signal.aborted && !app.taskRuntimeFailed && app.taskTurnLimit === undefined && app.taskSpendStop === undefined) {
-          acceptance = await acceptChange(app, { session, before: before!, root: workspaceRoot, command: testCommand, request: prompt,
-            mode: acceptanceMode === "warn" ? "warn" : "verdict" });
+          acceptance = redefined.length ? { status: "error", reason: definitionChangedReason(redefined), mode: acceptanceMode === "warn" ? "warn" : "verdict" }
+            : await acceptChange(app, { session, before: before!, root: workspaceRoot, command: testCommand, request: prompt,
+              mode: acceptanceMode === "warn" ? "warn" : "verdict" });
         }
       }
     } else if (!stopped && app.checkTask && (app.checkTask.checks.length || app.smokeTask?.recordedCount)) {
@@ -548,7 +559,7 @@ export async function acceptChange(app: CasperApp, input: { session: RuntimeSess
 export async function finishChange(app: CasperApp, input: {
   baseline?: ChangeBaseline; baselineUnavailable?: string; before: Map<string, string>; root: string; command: string;
   request: string; checks: readonly CheckName[]; verification: VerificationReport; session: RuntimeSession;
-  initialReview?: { done: string[]; open: string[] };
+  initialReview?: { done: string[]; open: string[] }; definitionBefore?: Map<string, string>;
 }): Promise<{ verification: VerificationReport; proof?: ChangeProof; review?: RequirementsReview }> {
   const context = app.projectContext!;
   const stopped = () => app.closing || Boolean(app.commandAbort?.signal.aborted) || app.taskRuntimeFailed || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined;
@@ -595,12 +606,16 @@ export async function finishChange(app: CasperApp, input: {
 export async function proveChange(app: CasperApp, input: {
   baseline?: ChangeBaseline; baselineUnavailable?: string; before: Map<string, string>; root: string; command: string;
   request: string; checks: readonly CheckName[]; verification: VerificationReport; session: RuntimeSession;
+  definitionBefore?: Map<string, string>;
 }): Promise<{ verification: VerificationReport; proof?: ChangeProof }> {
   const context = app.projectContext!;
   const compare = async (): Promise<ChangeProof | undefined> => {
     const now = await app.snapshotWorkspace(input.root);
     if (!now) return { status: "unavailable", check: "test", reason: "Casper could not compare the workspace" };
     const changes = diffSnapshots(input.before, now);
+    // The proof round may have rewritten what the test command runs: its pass would not be your tests passing.
+    const redefined = input.definitionBefore ? definitionChanges(input.definitionBefore, await testDefinition(input.root, input.command).catch(() => new Map<string, string>())) : [];
+    if (redefined.length) return { status: "unavailable", check: "test", reason: definitionChangedReason(redefined) };
     if (!input.baseline) {
       return changes.added.length || changes.modified.length || changes.removed.length
         ? { status: "unavailable", check: "test", reason: input.baselineUnavailable ?? "Casper could not copy the workspace" } : undefined;
