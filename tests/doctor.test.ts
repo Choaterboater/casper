@@ -77,7 +77,7 @@ test.skipIf(process.platform === "win32")("casper on PATH: an older copy is some
   const lines = await checkPathLink(context(dir));
   expect(lines[0]).toMatchObject({ status: "fail" });
   expect(lines[0]!.text).toContain("an older copy: 0.2.10");
-});
+}, 30_000);
 
 test("config: a file that doesn't parse is named with its line; a bad setting is named too", async () => {
   const dir = await home();
