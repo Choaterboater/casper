@@ -662,9 +662,12 @@ parses `inputSchemaJson` to get the full schema. Sending it as a string keeps
 lists such as `enum` and `required` whole. Direct and `call_capability` calls check
 against the same schema and go through the same safety checks.
 
-**Names.** Tool names sent to the AI provider are cleaned and get a short hash, and
-Casper keeps the exact server/tool mapping. Two servers that both have a `status`
-tool don't clash. When a server has its own router (`find_tool` +
+**Names.** Tool names sent to the AI provider are cleaned and get a short hash
+(8 hex characters, 24 if two tools would share one), and Casper keeps the exact
+server/tool mapping. Two servers that both have a `status` tool don't clash.
+A direct tool's description loses the shared indent of a Python docstring, and its
+schema loses the `title` notes pydantic adds to each field (a field named `title`
+stays). Neither changes what is checked; both are sent with every request. When a server has its own router (`find_tool` +
 `invoke_read_tool`), Casper uses it rather than flattening the router's whole
 catalog. `invoke_tool` can also be picked but still counts as `destructive`.
 
