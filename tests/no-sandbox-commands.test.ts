@@ -249,13 +249,27 @@ test("a whole-folder search that prints contents asks when the folder holds a .e
   } finally { await rm(base, { recursive: true, force: true }); }
 });
 
-test("an option that takes a value never hides another option behind it: -U --no-index, --abbrev --contents= ask", () => {
+test("an option that takes a value never hides another option behind it: -n --output, -U --no-index, --abbrev --contents= ask", () => {
   for (const command of ["git diff -U --no-index -U ../x README.md", "git log -U --output=../x", "git blame --abbrev --contents=../x README.md",
     "git log -n --output=x", "git show -n --ext-diff HEAD", "head -n --files0-from=list x", "git diff -U --output x"]) {
     expect({ command, read: readOnlyCommand(command) }).toEqual({ command, read: false });
   }
-  for (const command of ["head -n -5 README.md", "tail -n +5 README.md", "git log -n 3", "git diff -U 5", "git blame -L 1,20 README.md"]) {
+  for (const command of ["head -n -5 README.md", "tail -n +5 README.md", "git log -n 3", "git diff -U5", "git diff --unified=5",
+    "git blame --abbrev=7 README.md", "git blame -L 1,20 README.md"]) {
     expect({ command, read: readOnlyCommand(command) }).toEqual({ command, read: true });
+  }
+});
+
+test("git's -U, --unified and --abbrev take only a joined value: the next word is a file and is checked", async () => {
+  const { home, project } = await fixture();
+  await mkdir(path.join(project, "secrets"));
+  const where = { root: project, home, denyRead: [path.join(project, "secrets")] };
+  for (const command of ["git blame --abbrev secrets/k.txt", "git blame --abbrev .env", "git log -U secrets/k.txt", "git show -U HEAD:.env",
+    "git show -U HEAD:secrets/k.txt", "git diff -U .env", "git show --unified HEAD:.env", "git describe --abbrev HEAD:secrets/k.txt"]) {
+    expect({ command, read: readOnlyCommand(command, where) }).toEqual({ command, read: false });
+  }
+  for (const command of ["git show -U HEAD:src/a.ts", "git blame --abbrev src/a.ts", "git log -U5 src/a.ts"]) {
+    expect({ command, read: readOnlyCommand(command, where) }).toEqual({ command, read: true });
   }
 });
 

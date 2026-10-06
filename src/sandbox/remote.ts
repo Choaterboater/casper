@@ -427,7 +427,15 @@ export function targetLabel(target: RemoteTarget): string {
 }
 
 /** ssh -o settings that run a program on this machine, write a file of its choosing here, or open a way in for other commands. */
-const LOCAL_EFFECT_OPTION = /^\s*(?:userknownhostsfile|globalknownhostsfile|proxycommand|localcommand|permitlocalcommand|knownhostscommand|proxyusefdpass|controlmaster|controlpath|controlpersist|localforward|remoteforward|dynamicforward|tunnel|tunneldevice|forwardagent|forwardx11|forwardx11trusted|include|sessiontype|stdinnull|forkafterauthentication|securitykeyprovider|pkcs11provider|identityagent|remotecommand|canonicalizehostname)\b/i;
+const LOCAL_EFFECT_OPTION = /^\s*(?:proxycommand|localcommand|permitlocalcommand|knownhostscommand|proxyusefdpass|controlmaster|controlpath|controlpersist|localforward|remoteforward|dynamicforward|tunnel|tunneldevice|forwardagent|forwardx11|forwardx11trusted|include|sessiontype|stdinnull|forkafterauthentication|securitykeyprovider|pkcs11provider|identityagent|remotecommand|canonicalizehostname)\b/i;
+/** -o UserKnownHostsFile names a file ssh adds new hosts to. /dev/null, none and NUL write nothing (a common lab
+ * pattern), so only another file counts. GlobalKnownHostsFile is only ever read. */
+function writesKnownHosts(value: string): boolean {
+  const match = /^\s*userknownhostsfile\b\s*=?\s*(.*)$/is.exec(value);
+  if (!match) return false;
+  const files = match[1]!.trim().split(/\s+/);
+  return !files.every((file) => /^(?:\/dev\/null|none|nul)$/i.test(file));
+}
 /** ssh and scp flags that run a program here, forward ports or the agent, go to the background or print the settings. */
 const LOCAL_EFFECT_FLAG = new Set(["-D", "-L", "-R", "-W", "-w", "-f", "-N", "-M", "-S", "-O", "-E", "-A", "-X", "-Y", "-G", "-F", "-I", "-e", "-3"]);
 
@@ -447,7 +455,7 @@ export function runsAlone(command: string, root: string): boolean {
   if (!parsed.targets.length || parsed.targets.some((target) => target.unclear) || (parsed.tool !== "ssh" && parsed.tool !== "scp") || path.basename(words[0]!) !== parsed.tool) return false;
   for (const [flag, value] of parsed.values) {
     if (flag.startsWith("--") || LOCAL_EFFECT_FLAG.has(flag)) return false;
-    if (flag === "-o" && LOCAL_EFFECT_OPTION.test(value)) return false;
+    if (flag === "-o" && (LOCAL_EFFECT_OPTION.test(value) || writesKnownHosts(value))) return false;
   }
   if (parsed.tool === "scp") {
     for (const arg of parsed.args) {

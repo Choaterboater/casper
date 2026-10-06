@@ -123,7 +123,7 @@ const DIFF_LONG = ["--stat", "--stat=", "--shortstat", "--numstat", "--name-only
   "--cached", "--staged", "--word-diff", "--word-diff=", "--color-words", "--ignore-all-space", "--ignore-space-change", "--ignore-blank-lines",
   "--minimal", "--patience", "--histogram", "--diff-algorithm=", "--no-renames", "--find-renames", "--find-copies", "--check", "--exit-code",
   "--quiet", "--no-ext-diff", "--no-textconv", "--full-index", "--abbrev", "--abbrev=", "--relative", "--merge-base", "--compact-summary",
-  "--dirstat", "--unified=", "--diff-filter=", "--ignore-submodules", ...COLOR];
+  "--dirstat", "--unified", "--unified=", "--diff-filter=", "--ignore-submodules", ...COLOR];
 const LOG_LONG = ["--oneline", "--graph", "--all", "--decorate", "--decorate=", "--no-decorate", "--reverse", "--first-parent", "--merges",
   "--no-merges", "--abbrev-commit", "--follow", "--topo-order", "--date-order", "--left-right", "--cherry-pick", "--boundary", "--full-history",
   "--source", "--branches", "--tags", "--remotes", "--no-walk", "--walk-reflogs", "--format=", "--pretty", "--pretty=", "--date=", "--author=",
@@ -131,21 +131,22 @@ const LOG_LONG = ["--oneline", "--graph", "--all", "--decorate", "--decorate=", 
   "--regexp-ignore-case", "--simplify-by-decoration"];
 
 /** git subcommands that only read, and their options. No -c, -C, --output, --ext-diff, --textconv, -O or --no-index:
- * those set a program to run, write a file or read outside the project. */
+ * those set a program to run, write a file or read outside the project. -U, --unified and --abbrev take a value only
+ * when it is joined (-U5, --abbrev=7), as git reads them: the word after them is a file and is checked. */
 const GIT_READERS: Record<string, Spec> = {
   status: { short: "sbvz", optional: "u", long: ["--short", "--branch", "--porcelain", "--porcelain=", "--long", "--show-stash", "--ahead-behind",
     "--no-ahead-behind", "--renames", "--no-renames", "--untracked-files", "--untracked-files=", "--ignored", "--verbose"] },
-  diff: { short: "pusbwRMz", value: "U", long: DIFF_LONG },
-  log: { short: "psuwgiEFPMz", value: "nSGU", number: true, long: [...DIFF_LONG, ...LOG_LONG] },
-  show: { short: "psuwMz", value: "nU", number: true, long: [...DIFF_LONG, ...LOG_LONG] },
+  diff: { short: "pusbwRMz", optional: "U", long: DIFF_LONG },
+  log: { short: "psuwgiEFPMz", value: "nSG", optional: "U", number: true, long: [...DIFF_LONG, ...LOG_LONG] },
+  show: { short: "psuwMz", value: "n", optional: "U", number: true, long: [...DIFF_LONG, ...LOG_LONG] },
   "rev-parse": { short: "q", long: ["--show-toplevel", "--abbrev-ref", "--abbrev-ref=", "--short", "--short=", "--git-dir", "--is-inside-work-tree",
     "--is-inside-git-dir", "--verify", "--symbolic-full-name", "--show-prefix", "--show-cdup", "--quiet", "--absolute-git-dir", "--git-common-dir",
     "--is-bare-repository"] },
   "ls-files": { short: "cdmoisuktvzf", long: ["--cached", "--deleted", "--modified", "--others", "--ignored", "--stage", "--unmerged",
     "--exclude-standard", "--full-name", "--error-unmatch", "--directory", "--no-empty-directory", "--eol", "--deduplicate"] },
   blame: { short: "wMCesltfnpb", value: "L", long: ["--porcelain", "--line-porcelain", "--show-email", "--show-name", "--show-number", "--root",
-    "--abbrev=", "--date="] },
-  describe: { long: ["--tags", "--always", "--long", "--all", "--dirty", "--dirty=", "--exact-match", "--first-parent", "--abbrev=", "--match=",
+    "--abbrev", "--abbrev=", "--date="] },
+  describe: { long: ["--tags", "--always", "--long", "--all", "--dirty", "--dirty=", "--exact-match", "--first-parent", "--abbrev", "--abbrev=", "--match=",
     "--exclude=", "--candidates="] },
   shortlog: { short: "sne", long: ["--summary", "--numbered", "--email", "--no-merges", "--all", "--format=", "--since=", "--until=", "--author=",
     "--group="] },

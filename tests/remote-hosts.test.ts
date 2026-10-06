@@ -126,14 +126,20 @@ test("ssh -o Hostname= names the machine ssh really reaches, not the alias's add
   expect(remoteTargets("ssh -o HostName=$H build-server id", home)[0]?.unclear).toBe(true);
 });
 
-test("an approved ssh that writes a known-hosts file of its choosing stays in the sandbox", () => {
+test("an approved ssh that writes a known-hosts file of its choosing stays in the sandbox; /dev/null runs alone", () => {
   const root = path.join(home, "project");
   for (const command of [
     `ssh -o UserKnownHostsFile=${path.join(home, ".gitconfig")} -o StrictHostKeyChecking=no build-server true`,
-    "ssh -o GlobalKnownHostsFile=/tmp/x build-server true", "ssh -oUserKnownHostsFile=x build-server true",
-    "scp -o UserKnownHostsFile=x build-server:/etc/hosts ./hosts",
+    "ssh -oUserKnownHostsFile=x build-server true", "scp -o UserKnownHostsFile=x build-server:/etc/hosts ./hosts",
+    "ssh -o 'UserKnownHostsFile /dev/null x' build-server true",
   ]) expect([command, runsAlone(command, root)]).toEqual([command, false]);
-  expect(runsAlone("ssh -o StrictHostKeyChecking=accept-new build-server uptime", root)).toBe(true);
+  // /dev/null and none write nothing, and ssh only ever reads GlobalKnownHostsFile: a routine lab ssh keeps your keys.
+  for (const command of [
+    "ssh -o StrictHostKeyChecking=accept-new build-server uptime",
+    "ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no build-server true",
+    "ssh -o 'UserKnownHostsFile none' build-server true", "ssh -o UserKnownHostsFile=NUL build-server true",
+    "ssh -o GlobalKnownHostsFile=/dev/null build-server true", "ssh -o GlobalKnownHostsFile=/tmp/x build-server true",
+  ]) expect([command, runsAlone(command, root)]).toEqual([command, true]);
 });
 
 test("inside double quotes a backslash stays unless it escapes a special character, as bash reads it", () => {
