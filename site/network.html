@@ -126,7 +126,7 @@ Type 1 or 2:</code></pre></div>
           <p>Write <code>${NAME}</code> instead of a token. Casper fills it from your shell only when the server connects. A missing variable fails the connection, and <code>/mcp</code> names the variable, never a value. Every snippet below is an example: paths and names are yours to change.</p>
         </aside>
 
-        <p class="prose">Casper spots some network servers by <em>what they run</em> (never by the name you give them) and adds a <strong>preset</strong>: extra rules on top. A preset can send the server's own read-only switch, hide tools while writes are off, or add a hint. It never loosens anything.</p>
+        <p class="prose">Casper spots some network servers by <em>what they run</em> (never by the name you give them) and adds a <strong>preset</strong>: extra rules on top. A preset can send the server's own read-only switch, hide tools for a read-only login, or add a hint. It never loosens anything.</p>
 
         <h3 id="setup-hpe">hpe-networking-mcp (Aruba Central, Mist, ClearPass, AOS 8 and more)</h3>
         <div class="cmd"><span class="cmd-label">~/.casper/mcp.json</span><pre><code>{
@@ -158,7 +158,7 @@ Type 1 or 2:</code></pre></div>
 }</code></pre></div>
         <ul class="prose">
           <li>Casper knows it by <code>jmcp.py</code>, <code>junos-mcp-server</code>, or its tool names.</li>
-          <li>There is no read-only setting to pin, so Casper hides <code>load_and_commit_config</code> and <code>render_and_apply_j2_template</code> while writes are off, and lets only plain show commands through (<a href="#junos">more below</a>).</li>
+          <li>There is no read-only setting to pin, so <code>load_and_commit_config</code> and <code>render_and_apply_j2_template</code> ask in the change box (a read-only login hides them), and with writes off only plain show commands go through (<a href="#junos">more below</a>).</li>
           <li>Junos commits can be slow, so a Junos call may go 400 s without an answer unless you set <code>callTimeout</code>.</li>
         </ul>
 
@@ -194,14 +194,14 @@ Type 1 or 2:</code></pre></div>
 }</code></pre></div>
         <ul class="prose">
           <li>Casper knows it by <code>netbox</code> in the command, <code>NETBOX_*</code> env, or <code>netbox</code> in the URL. The env names depend on the NetBox server you use.</li>
-          <li>No read-only setting exists, so Casper hides write and delete tools while writes are off and tells you: <code>Use a read-only NetBox API token for this server.</code></li>
+          <li>No read-only setting exists, so write and delete tools ask in the change box (a read-only login hides them) and Casper tells you: <code>Use a read-only NetBox API token for this server.</code></li>
         </ul>
 
         <details>
           <summary>Other servers Casper has presets for</summary>
           <div class="table-wrap"><table>
             <caption>From docs/MCP.md, "Presets". Every server, preset or not, starts with writes off.</caption>
-            <thead><tr><th scope="col">Server</th><th scope="col">Pinned while writes are off</th><th scope="col">Hidden while writes are off</th></tr></thead>
+            <thead><tr><th scope="col">Server</th><th scope="col">Pinned while writes are off</th><th scope="col">Hidden for a read-only login</th></tr></thead>
             <tbody>
               <tr><td>centralmcp (<code>aruba-*</code>)</td><td><code>CENTRALMCP_READONLY=1</code></td><td>write and delete tools</td></tr>
               <tr><td>central-mcp-server</td><td>nothing (no setting exists); must be pinned to a version, or be a local checkout, to be remembered</td><td>tools not marked read-only</td></tr>

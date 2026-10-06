@@ -17,8 +17,10 @@ writes only the project and temp and can't read your private folders, but it kee
 the machine's network so you can reach it (on macOS it reaches only listed hosts). On
 Linux it can't open a Unix socket, so a service that drives Docker
 (`docker compose up`) needs `sandbox: off` in `~/.casper/config.yaml`. Where no
-sandbox runs (Windows, bubblewrap missing, `--no-sandbox`) it runs with your
-permissions. See [SECURITY.md](SECURITY.md).
+sandbox runs (Windows, bubblewrap missing, `--no-sandbox`, or after the sandbox could
+not start this session: the `[sandbox]` note) it runs with your permissions, and a dev
+server the page check starts is started again after each edit in that state without a
+question. See [SECURITY.md](SECURITY.md).
 
 ## Declaring services
 
@@ -200,4 +202,5 @@ Stopping sends TERM, then KILL, to the service's own process group (on Windows, 
 verified descendants). This is Casper's process ownership: it is bounded and it checks
 identity, but it is not atomic. When Casper cannot confirm that a service's processes
 stopped, it says so (`process cleanup unconfirmed`). It then blocks further work until
-you inspect those processes. It never claims the cleanup succeeded.
+you inspect those processes. On macOS and Linux this is best effort: a child that left
+the service's process group (a daemon it started) is not checked, so it may still run.

@@ -380,11 +380,11 @@ Remember; the order changed so Enter is always the safe choice.)
 
 Casper recognises some network servers by what they run (never by their name) and
 adds restrictions. A preset can pin read-only settings (send the server's own
-read-only switch), raise a tool's label, hide tools while writes are off, refuse
+read-only switch), raise a tool's label, hide tools for a read-only login, refuse
 arguments and add notes to the approval box. It never lowers a label, never skips
 an approval and never calls a server read-only.
 
-| Server | Recognised by | Pinned while writes are off | Hidden while writes are off |
+| Server | Recognised by | Pinned while writes are off | Hidden for a read-only login (with writes off they stay listed and every change asks in the box) |
 | --- | --- | --- | --- |
 | casper-network-mcp (Casper's network server) | `casper-network-mcp` or `casper_network_mcp` in the command, or its router tools | `--read-only` (added once); your saved logins are added to its environment when it starts | nothing: `invoke_tool` stays visible so a change can reach the box. Casper judges each `invoke_tool` call by the real tool it runs |
 | hpe-networking-mcp | `tool_router.py`, `hpe-mcp-router`, `hpe_networking_mcp`, `HPE_MCP_*` env, or its router tools | `HPE_MCP_ACCESS_PROFILE=safe-read-only`, `HPE_MCP_READONLY=1`, `HPE_MCP_PRODUCT_ACCESS=read-only`, every `HPE_MCP_*_WRITES=0` | `invoke_tool`, `invoke_tools_batch`, write and delete tools |

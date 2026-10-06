@@ -45,7 +45,8 @@ through. Check what a tool returns before you share it.
   scrubbed for `.cfg`, `.conf` and `.set` files, and for files under a folder named
   `configs`, `backups` or `oxidized`. Source code and data files (`.ts`, `.py`,
   `.json`, `.yaml`, `.md` and so on) are never changed by the device rules, even
-  under those folders, so test files stay as they are.
+  under those folders. The always-on rules below still apply to them, so a literal
+  token or password in a test fixture is hidden.
 - **`.env`, INI and credential files: always (from v0.2.16).** In
   `.env`, `.env.*`, `*.env`, `.envrc`, `.netrc`, `.npmrc`, `.pypirc`, `.pgpass`
   (`pgpass.conf`), `.dockercfg`, Docker's `config.json`, `credentials*`, `secrets.*`,
