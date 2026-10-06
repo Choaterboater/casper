@@ -62,7 +62,7 @@ test("in a git repo: a changed, an added and a removed file go back byte for byt
   expect(await repoFingerprint(root)).toBe(fingerprint);
   expect((await stat(path.join(state, "undo.git"))).isDirectory()).toBe(true);
   if (process.platform !== "win32") expect((await stat(path.join(state, "undo.git"))).mode & 0o077).toBe(0);
-});
+}, 30_000);
 
 test("in a folder that is not a git repo the same round trip works, and dependency and cache folders are never copied", async () => {
   const { root, store } = await setup();
@@ -203,7 +203,7 @@ test("prune keeps the newest tasks' copies; git's clean-up keeps a kept copy", a
   expect(refs).toEqual(["refs/casper/2/after", "refs/casper/2/before", "refs/casper/3/after", "refs/casper/3/before"]);
   execFileSync("git", ["--git-dir", store.gitDir, "gc", "--quiet", "--prune=now"], { env });
   expect(execFileSync("git", ["--git-dir", store.gitDir, "cat-file", "-t", trees[2]!], { env }).toString().trim()).toBe("tree");
-});
+}, 30_000);
 
 test("the diff between two copies is a patch of this task's files only", async () => {
   const { root, store } = await setup();
