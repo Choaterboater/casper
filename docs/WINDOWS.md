@@ -79,6 +79,7 @@ the owner merges only after it is green. Its steps:
 | `bun test tests/release-compile.test.ts` | The compiled program starts and reads images with no Bun on `PATH` |
 | `bun run build:release` | Builds the release files; publishes nothing |
 | `scripts/test-install-windows.ps1` under PowerShell 5.1 and 7 | Installs from a local copy of the release files: `PATH` (saved and current), `--version`, `--help`, `--licenses`, `/project`, an inline diagram, that a bad checksum or wrong version leaves the old program untouched, and that the installer waits for a `casper.exe` or staged download another process holds for a moment |
+| `scripts/test-install-signature-windows.ps1` under PowerShell 5.1 and 7 | The release signature check, with throwaway keys made for the run: a list signed with the pinned key installs; another key, a changed list or a broken signature is refused and the old program stays; a missing signature is refused from the release address and said from another; an old `ssh-keygen` is named; a 32-bit Windows PowerShell checks too |
 | `bun run test` | The full suite, files in parallel, as on Linux and macOS. Tests that need a PTY, POSIX signals or file modes, or a tool that is not installed, skip |
 | `bun run test:evals` | The evaluation bench's own tests, as on Linux |
 

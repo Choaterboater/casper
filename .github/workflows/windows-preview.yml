@@ -92,6 +92,7 @@ jobs:
           try {
             $PSVersionTable | Format-Table
             ./scripts/test-install-windows.ps1
+            ./scripts/test-install-signature-windows.ps1
           } finally { Stop-Transcript }
       - name: PowerShell 7 installer
         shell: pwsh
@@ -100,6 +101,7 @@ jobs:
           try {
             $PSVersionTable | Format-Table
             ./scripts/test-install-windows.ps1
+            ./scripts/test-install-signature-windows.ps1
           } finally { Stop-Transcript }
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

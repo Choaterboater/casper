@@ -924,7 +924,9 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
   `ssh-keygen`, or one too old, the installer says so and the SHA-256 still decides. Too
   old is asked of `ssh-keygen` alone, before the check, never read from the check's own
   output (which can echo text from the signature file); once it can check, any failure is
-  a refusal. An out-of-band `--sha256` skips the list and so its signature.
+  a refusal. An out-of-band `--sha256` skips the list and so its signature. `install.ps1`
+  also finds Windows' own `ssh-keygen` from a 32-bit PowerShell, and Windows CI runs every
+  case with throwaway keys (`scripts/test-install-signature-windows.ps1`).
 - **Checks where it was built, with gh.** When `gh` is installed and signed in, the
   binary's GitHub build provenance must match (`gh attestation verify --repo
   Choaterboater/casper`): `Verified: built by GitHub Actions from Choaterboater/casper.`,
@@ -1075,7 +1077,8 @@ dependencies on a Windows runner, typechecks, tests standalone startup and nativ
 image reads, builds the Windows executable, and tests served installation under
 **Windows PowerShell 5.1 and PowerShell 7**. It checks PATH updates, version/help,
 embedded licenses, project inspection, inline diagrams, and rejection of bad
-checksums/version pins without replacing an existing installation.
+checksums/version pins without replacing an existing installation, and the release
+signature check with throwaway keys.
 
 The [published-release workflow](../.github/workflows/verify-release.yml) ("Verify
 published Windows installer") installs on Windows from the real public GitHub URL,
