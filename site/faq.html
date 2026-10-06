@@ -130,8 +130,9 @@
             <code>&lt;secret hidden&gt;</code> before the AI sees them. This is best effort. It knows
             common formats only, and it will miss some.</li>
             <li>Requests Casper sends to OpenRouter carry a fixed app name (Casper), so usage is filed
-            under Casper's app. No prompt, file or user data is in those headers. Set
-            <code>CASPER_TELEMETRY=0</code> to turn them off.</li>
+            under Casper's app. No prompt, file or user data is in those headers. Turn
+            off <b>Send Casper's name to OpenRouter</b> in <code>/settings</code>, or set
+            <code>CASPER_TELEMETRY=0</code>.</li>
             <li>Checks, <code>/verify</code>, <code>/diff</code>, <code>/receipt</code> and reference
             search run locally, with no model call.</li>
           </ul>

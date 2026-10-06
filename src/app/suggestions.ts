@@ -43,6 +43,8 @@ export class SuggestionController {
       this.states.set(root, state);
       for (const notice of state.notices) this.write(`${notice}\n`);
     }
+    // suggestions: false from /settings applies now, not from the next start.
+    state.useConfig(context.suggestions === false);
     return state;
   }
 
@@ -126,7 +128,7 @@ export class SuggestionController {
     if ((action !== "on" && action !== "off") || rest.length || (name !== undefined && !this.ids().includes(name))) {
       return `Usage: /suggestions [on|off] [${this.ids().join("|")}]\n`;
     }
-    if (action === "on" && state.offByConfig) return "[suggestions] suggestions: false in your config.yaml keeps them off; change it there.\n";
+    if (action === "on" && state.offByConfig) return "[suggestions] suggestions: false in your config.yaml keeps them off; /settings turns them on.\n";
     await state.setOff(action === "off", name);
     return `[suggestions] ${name ?? "All suggestions"} ${action === "off" ? "off" : "on"}${name ? "" : " everywhere"}.\n`;
   }

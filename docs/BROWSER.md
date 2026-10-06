@@ -42,6 +42,12 @@ playwright, or when a browser you opened with `/browser open` is ready. Once
 offered, the tool stays for the session. Having the tool starts nothing: ordinary
 chat and `/browser` status do not start a browser or a model.
 
+To turn the AI's browser off, pick **Browser tool** in `/settings` (it writes
+`browser: off` in `~/.casper/config.yaml`). The model is then never offered the
+`browser` tool. The page checks after a change still run (they are Casper's own
+check, not the AI's browser), and `/browser`, typed by you, still works. A
+project file can't turn it back on.
+
 ```text
 /browser                              status (starts nothing)
 /browser open http://127.0.0.1:3000   open a page in a throwaway browser

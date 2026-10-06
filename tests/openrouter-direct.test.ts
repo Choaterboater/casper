@@ -1,11 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
 import type { AgentSession, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { classifyEffort } from "../src/runtime/auto-effort";
-import { OPENROUTER_ATTRIBUTION } from "../src/runtime/openrouter-attribution";
+import { CasperApp } from "../src/app";
+import { loadProjectContext } from "../src/project/context";
+import { applyOpenRouterAttribution, casperTelemetryEnabled, OPENROUTER_ATTRIBUTION, openRouterRequestHeaders, useTelemetrySetting } from "../src/runtime/openrouter-attribution";
 import { PiModels } from "../src/runtime/pi-models";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -53,4 +55,48 @@ test("a one-off model call (checklist, review) carries Casper's OpenRouter attri
     expect(result.text).toBe("ok");
   }
   expect(sent).toEqual([OPENROUTER_ATTRIBUTION, undefined]);
+});
+
+test("telemetry: off in your own config: no app-name headers on an OpenRouter request; CASPER_TELEMETRY=0 still works", async () => {
+  delete process.env.CASPER_TELEMETRY;
+  const sent: unknown[] = [];
+  const catalog: Pick<ModelRuntime, "completeSimple"> = {
+    async completeSimple(model, _context, options) { sent.push(options?.headers); return reply(model as Model, '{"effort":"low"}'); },
+  };
+  let own: boolean | undefined = false;
+  const stop = useTelemetrySetting(() => own);
+  try {
+    await classifyEffort({ catalog, model: openrouter, supported: ["low", "high"], request: "hi" });
+    // The conversation's headers: the engine's own attribution is taken out too, other headers stay.
+    const merged: Record<string, string | null> = { "HTTP-Referer": "https://pi.dev", "X-OpenRouter-Title": "pi", "X-OpenRouter-Categories": "cli-agent", "X-Custom": "kept" };
+    applyOpenRouterAttribution(merged);
+    expect(merged).toEqual({ "HTTP-Referer": null, "X-OpenRouter-Title": null, "X-OpenRouter-Categories": null, "X-Custom": "kept" });
+    own = undefined;
+    await classifyEffort({ catalog, model: openrouter, supported: ["low", "high"], request: "hi" });
+    const attributed: Record<string, string | null> = { "HTTP-Referer": "https://pi.dev", "X-OpenRouter-Title": "pi" };
+    applyOpenRouterAttribution(attributed);
+    expect(attributed).toEqual(OPENROUTER_ATTRIBUTION);
+    // The environment variable keeps working when your config says nothing (or on).
+    own = true;
+    process.env.CASPER_TELEMETRY = "0";
+    await classifyEffort({ catalog, model: openrouter, supported: ["low", "high"], request: "hi" });
+  } finally { stop(); }
+  expect(sent).toEqual([undefined, OPENROUTER_ATTRIBUTION, undefined]);
+  expect(casperTelemetryEnabled("1")).toBe(true);
+});
+
+test("a session reads telemetry: off from your own config, and closing it stops reading it", async () => {
+  delete process.env.CASPER_TELEMETRY;
+  const dir = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-telemetry-app-"))); dirs.push(dir);
+  const home = path.join(dir, "home"), project = path.join(dir, "project");
+  await mkdir(path.join(home, ".casper"), { recursive: true }); await mkdir(project, { recursive: true });
+  await writeFile(path.join(home, ".casper", "config.yaml"), "telemetry: off\n");
+  const app = new CasperApp({ output: { write: () => {} }, runtimeFactory() { throw new Error("No model expected"); }, sessionHomeDir: home,
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }) });
+  try {
+    await app.runOnce("/settings", project);
+    expect(casperTelemetryEnabled()).toBe(false);
+    expect(openRouterRequestHeaders(openrouter)).toEqual({});
+  } finally { await app.close(); }
+  expect(casperTelemetryEnabled()).toBe(true);
 });

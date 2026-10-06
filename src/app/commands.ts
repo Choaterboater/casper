@@ -432,7 +432,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       host.output.write(` skills    ${skillCountLine(host)}; imports: ${host.projectContext!.skills.imports?.join(", ") || "none"} (/skills diagnostics)\n`);
       host.output.write(` mcp       ${host.mcp!.status().length} configured (/mcp for connection status)\n`);
       host.output.write(` lsp       ${host.lsp!.status().length} configured (/lsp for connection status)\n`);
-      host.output.write(` browser   ${host.browser?.status().state ?? "idle"}; disposable local browser (/browser)\n`);
+      host.output.write(` browser   ${host.browser?.status().state ?? "idle"}; disposable local browser (/browser)${host.projectContext!.browser === false ? "; AI's browser tool off (/settings)" : ""}\n`);
       host.output.write(` web       ${webStatusLine(host.projectContext!.web)}\n`);
       host.output.write(` reader    ${readerStatusLine(host.projectContext!.reader)}\n`);
       const services = host.services?.status() ?? [];
@@ -444,7 +444,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       host.output.write(" policy    native coding tools enabled (/permissions)\n");
       host.output.write(` shell     ${host.sandbox ? sandboxStatusLine(host.sandbox) : "not started"}\n`);
       host.output.write(` checks    ${describeChecksPlan(await host.checksPlan(host.projectContext!))}\n`);
-      host.output.write(` visualize ${host.visualization!.providerNames().join(", ")} (/visualize)\n`);
+      host.output.write(` visualize ${host.visualization!.providerNames().join(", ")} (/visualize)${host.projectContext!.diagrams === false ? "; AI's diagram tool off (/settings)" : ""}\n`);
       host.output.write(" memory    explicit facts and local task summaries (/memory)\n references read-only local sources (/references)\n");
       host.output.write(` undo      ${await undoCopiesLine(host.projectContext!.stateDirectory, host.homeDir())}\n`);
       return;

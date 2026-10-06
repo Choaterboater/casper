@@ -38,12 +38,20 @@ export interface ProjectContext {
   /** Per-task spend limits (a note, then a pause); see src/task/spend.ts. */
   spend?: LoadedConfiguration["spend"];
   visualize: VisualizationSettings;
+  /** `browser: off` in the user's config: the AI's browser tool is never offered. Unset: on. */
+  browser?: boolean;
+  /** `visualize: off` in the user's config: the AI's diagram tool is never offered. Unset: on. */
+  diagrams?: boolean;
   /** Managed services declared in .casper/project.yaml (see docs/SERVICES.md). */
   services?: LoadedConfiguration["services"];
   /** Configured smoke checks, run after every change (see docs/VERIFICATION.md). */
   smoke?: LoadedConfiguration["smoke"];
   /** The pages: setting: pages the page check always opens, or off (see docs/VERIFICATION.md). */
   pages?: LoadedConfiguration["pages"];
+  /** `pages: off` in the user's config: no page checks in any project. Unset: on. */
+  pageChecks?: boolean;
+  /** `telemetry: off` in the user's config: no OpenRouter app-name headers. Unset: on. */
+  telemetry?: boolean;
   rules: {
     profile: string | null;
     project: string | null;
@@ -129,9 +137,13 @@ export async function loadProjectContext(
     ...(configuration.delegate ? { delegate: configuration.delegate } : {}),
     spend: configuration.spend,
     visualize: configuration.visualize,
+    ...(configuration.browser !== undefined ? { browser: configuration.browser } : {}),
+    ...(configuration.diagrams !== undefined ? { diagrams: configuration.diagrams } : {}),
     services: configuration.services,
     smoke: configuration.smoke,
     ...(configuration.pages ? { pages: configuration.pages } : {}),
+    ...(configuration.pageChecks !== undefined ? { pageChecks: configuration.pageChecks } : {}),
+    ...(configuration.telemetry !== undefined ? { telemetry: configuration.telemetry } : {}),
     rules: {
       profile: configuration.profileRules,
       project: configuration.projectRules,

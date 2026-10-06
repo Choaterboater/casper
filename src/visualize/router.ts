@@ -175,7 +175,8 @@ export function resolveVisualizationSettings(options: ResolveVisualizationSettin
   let outputDir: string | null = path.join(homeDir, ".casper", "visualizations", slug(options.projectName));
   for (const { document, source } of options.layers) {
     const section = document.visualize;
-    if (section === undefined) continue;
+    // `visualize: on|off` only turns the AI's diagram tool on or off (src/config/load.ts); providers stay.
+    if (section === undefined || section === null || typeof section === "boolean" || section === "on" || section === "off") continue;
     if (typeof section !== "object" || section === null || Array.isArray(section)) throw new Error("visualize must be a mapping");
     const settings = section as Record<string, unknown>;
     if (settings.providers !== undefined) {

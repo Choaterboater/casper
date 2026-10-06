@@ -47,17 +47,18 @@ test("the settings list shows each switch and where it stands", async () => {
   await writeFile(config, "web: off\nupdates: false\nspend:\n  pauseAt: 5\n");
   const context = await loadProjectContext(await inspectProject(project), { homeDir: home });
   expect(settingRows(context).map((row) => `${row.label}: ${row.value}`)).toEqual([
-    "Web lookups: off", "New-version notice: off", "Side questions with ?: on", "Built-in skills: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task", "Show the AI the pages: ask once a session",
-    "Work shown: normal", "Untrusted-text reader: on", "Helpers that build: on", "Playwright tests: on",
+    "Web lookups: off", "Browser tool: on", "Diagram tool: on", "New-version notice: off", "Suggestions: on", "Side questions with ?: on", "Built-in skills: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task",
+    "Prompt cache: auto", "Page checks: on", "Show the AI the pages: ask once a session",
+    "Work shown: normal", "Untrusted-text reader: on", "Helpers that build: on", "Playwright tests: on", "Send Casper's name to OpenRouter: on",
   ]);
-  expect(settingRows(context).at(-1)!.question).toBe("Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are on.");
-  const questions = settingRows(context).map((row) => row.question);
-  expect(questions[4]).toStartWith("Spend notes come at $1 a task. ");
-  expect(questions[5]).toStartWith("Spend pause comes at $5 a task. ");
+  expect(settingRows(context).find((row) => row.label === "Playwright tests")!.question).toBe("Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are on.");
+  const question = (label: string, rows = settingRows(context)) => rows.find((row) => row.label === label)!.question;
+  expect(question("Spend notes")).toStartWith("Spend notes come at $1 a task. ");
+  expect(question("Spend pause")).toStartWith("Spend pause comes at $5 a task. ");
   await writeFile(config, "spend:\n  noteAt: false\n  pauseAt: false\n");
-  const off = settingRows(await loadProjectContext(await inspectProject(project), { homeDir: home })).map((row) => row.question);
-  expect(off[4]).toStartWith("Spend notes are off. ");
-  expect(off[5]).toStartWith("Spend pause is off. ");
+  const off = settingRows(await loadProjectContext(await inspectProject(project), { homeDir: home }));
+  expect(question("Spend notes", off)).toStartWith("Spend notes are off. ");
+  expect(question("Spend pause", off)).toStartWith("Spend pause is off. ");
 });
 
 function fakeHost(home: string, project: string, answers: string[]): SettingsHost & { text: () => string; asked: string[] } {
@@ -79,7 +80,7 @@ test("/settings: 1 is Done, a pick asks with 1 Keep first, and the answer is sav
   const { home, project, config } = await place();
   const host = fakeHost(home, project, ["Web lookups", "Turn them off", "Spend pause", "$5 a task", "Done"]);
   await runSettings(host);
-  expect(host.asked[0]!.split("\n").slice(1, 3)).toEqual(["1 Done", "2 Web lookups"]);
+  expect(host.asked[0]).toContain("Pick one to change:\n1 Done\n2 Web lookups\n");
   expect(host.asked[1]).toBe("Web lookups are on (DuckDuckGo).\n1 Keep them on\n2 Turn them off");
   expect(host.asked[3]).toStartWith("Spend pause is off. ");
   expect(host.asked[3]!.split("\n")[1]).toBe("1 Keep it off");

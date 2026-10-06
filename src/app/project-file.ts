@@ -41,9 +41,12 @@ export async function writeProjectFile<T>(app: CasperApp, root: string, write: (
 
 function withOwnSettings(context: ProjectContext, fresh: ProjectContext): ProjectContext {
   const next: ProjectContext = { ...context, web: fresh.web, spend: fresh.spend };
-  for (const key of ["updates", "display", "showPages", "delegate", "cache", "lab", "labProfile"] as const) {
+  for (const key of ["updates", "display", "showPages", "delegate", "cache", "lab", "labProfile", "suggestions", "browser", "diagrams", "pageChecks", "telemetry"] as const) {
     if (fresh[key] === undefined) delete next[key];
     else (next as unknown as Record<string, unknown>)[key] = fresh[key];
   }
+  // Your pages: off wins over the project's list; turned back on, the changed pages are checked until a restart.
+  if (fresh.pageChecks === false) next.pages = "off";
+  else if (context.pageChecks === false) delete next.pages;
   return next;
 }

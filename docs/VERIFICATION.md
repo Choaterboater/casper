@@ -657,11 +657,16 @@ A dev server that stops before it is ready, or doesn't answer on its port in tim
 incomplete, with the server's last lines. When the command checks still fail after the last repair, the
 pages never opened: `• Pages not checked: command checks failed`.
 
-**Settings** (`.casper/project.yaml` only; your own config can't set them):
+**Turning them off for every project.** Pick **Page checks** in `/settings` (it writes `pages: off`
+in `~/.casper/config.yaml`). In your own config `pages:` is only on or off. A project file can still
+turn them off for itself, but its list of pages doesn't turn them back on for you, and neither does
+a profile it picks.
+
+**Settings** (`.casper/project.yaml`; the list of pages is the project's):
 
 ```yaml
 pages: [/, /dashboard]   # always open these after a code change (at most 8)
-# pages: off             # never open pages
+# pages: off             # never open pages in this project
 services:
   web: { command: bun run dev, port: auto, ready: { http: / } }   # how to start the dev server, if Casper can't tell
 ```
@@ -670,7 +675,8 @@ Only routes are found from files; for single-page apps and Streamlit, list the p
 The dev server runs the project's code with Casper's reduced environment (no provider keys, a separate
 HOME), in the shell sandbox where it can run: its files are held, but it keeps the machine's network so
 the page can load (on macOS it reaches only listed hosts), and a page it serves can still reach the
-network. Where no sandbox runs it has your permissions: set `pages: off` in a project you don't trust.
+network. Where no sandbox runs it has your permissions: set `pages: off` in a project you don't trust,
+or turn **Page checks** off in `/settings` for every project.
 
 ## End-to-end tests (Playwright)
 

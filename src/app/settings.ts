@@ -3,6 +3,7 @@ import type { ProjectContext } from "../project/context";
 import { DEFAULT_READER, DEFAULT_WEB, SHOW_PAGES_SETTINGS, type ShowPagesSetting } from "../config/load";
 import { editUserConfig, USER_CONFIG, userConfigValue } from "../config/user-write";
 import { DEFAULT_SPEND_LIMITS, formatLimit } from "../task/spend";
+import { PROMPT_CACHE_SETTINGS, type PromptCacheSetting } from "../runtime/cache";
 import { PROVIDER_LABELS } from "../web/providers";
 import type { DisplayLevel } from "../tui/display";
 import type { OutputWriter } from "./commands";
@@ -24,6 +25,8 @@ export interface SettingsHost {
 }
 
 interface Choice { label: string; keys: string[] | ((home: string) => Promise<string[]>); value: unknown; shown: string;
+  /** A few plain words beside the choice. */
+  description?: string;
   /** Saved some other way than in config.yaml (the MCP sandbox, in ~/.casper/mcp-sandbox.json). */
   apply?: () => Promise<unknown> }
 interface Setting { label: string; value: string; question: string; keep: string; choices: Choice[]; savedIn?: string }
@@ -41,6 +44,35 @@ async function webKeys(home: string): Promise<string[]> {
 /** reader: on/off goes into reader.enabled when your reader: is a mapping (paths are listed), so the paths stay. */
 async function readerKeys(home: string): Promise<string[]> {
   return isMap(await userConfigValue(home, ["reader"])) ? ["reader", "enabled"] : ["reader"];
+}
+
+/** visualize: on/off goes into visualize.enabled when your visualize: is a mapping (providers are listed), so they stay. */
+async function visualizeKeys(home: string): Promise<string[]> {
+  return isMap(await userConfigValue(home, ["visualize"])) ? ["visualize", "enabled"] : ["visualize"];
+}
+
+/** A plain on/off row: 1 keeps it as it is, 2 flips it. `them` for a plural (suggestions, page checks). */
+function onOffRow(label: string, on: boolean, question: string, keys: Choice["keys"], them = false): Setting {
+  const now = on ? "on" : "off";
+  const it = them ? "them" : "it";
+  return { label, value: now, question: `${question} ${them ? "They are" : "It is"} ${now}.`, keep: `Keep ${it} ${now}`,
+    choices: [{ label: on ? `Turn ${it} off` : `Turn ${it} on`, keys, value: !on, shown: on ? "off" : "on" }] };
+}
+
+const CACHE_WORDS: Record<PromptCacheSetting, string> = {
+  auto: "the long cache where it costs no more, the short one elsewhere",
+  long: "about an hour (a day where offered); writing it can cost more",
+  short: "a few minutes",
+  off: "no cache: every request costs more",
+};
+
+/** How long the provider keeps the conversation's start so the next request costs less (cache:). */
+function cacheRow(now: PromptCacheSetting): Setting {
+  return { label: "Prompt cache", value: now,
+    question: `Prompt cache: ${now} (${CACHE_WORDS[now]}). The provider keeps the start of the conversation so the next request costs less. A change applies from the next start.`,
+    keep: `Keep ${now}`,
+    choices: PROMPT_CACHE_SETTINGS.filter((setting) => setting !== now)
+      .map((setting) => ({ label: `${setting[0]!.toUpperCase()}${setting.slice(1)}`, description: CACHE_WORDS[setting], keys: ["cache"], value: setting, shown: setting })) };
 }
 
 const SHOW_PAGES_WORDS: Record<ShowPagesSetting, { value: string; choice: string }> = {
@@ -78,9 +110,15 @@ export function settingRows(context: ProjectContext): Setting[] {
     { label: "Web lookups", value: web.enabled ? `on (${PROVIDER_LABELS[web.provider]})` : "off",
       question: `Web lookups are ${web.enabled ? `on (${PROVIDER_LABELS[web.provider]})` : "off"}.`, keep: `Keep them ${web.enabled ? "on" : "off"}`,
       choices: [web.enabled ? { label: "Turn them off", keys: webKeys, value: false, shown: "off" } : { label: "Turn them on", keys: webKeys, value: true, shown: "on" }] },
+    onOffRow("Browser tool", context.browser !== false,
+      "The AI's own browser opens pages and reads them when a task needs it. The page checks after a change still run when it is off.", ["browser"]),
+    onOffRow("Diagram tool", context.diagrams !== false,
+      "The AI draws a diagram when you ask for a map, chart or flow. /visualize, typed by you, still works when it is off.", visualizeKeys),
     { label: "New-version notice", value: context.updates === false ? "off" : "on",
       question: `The line that says a newer Casper is out is ${context.updates === false ? "off" : "on"}.`, keep: `Keep it ${context.updates === false ? "off" : "on"}`,
       choices: [context.updates === false ? { label: "Turn it on", keys: ["updates"], value: true, shown: "on" } : { label: "Turn it off", keys: ["updates"], value: false, shown: "off" }] },
+    onOffRow("Suggestions", context.suggestions !== false,
+      "The numbered next steps under a task's receipt (zero tokens).", ["suggestions"], true),
     { label: "Side questions with ?", value: context.sideQuestions === false ? "off" : "on",
       question: context.sideQuestions === false ? "Side questions are off: a line that starts with ? goes to the AI as an ordinary request."
         : "Side questions are on: a line that starts with ? (? what does ECONNRESET mean) goes to your fast model on the side, with no tools, and the task's AI never sees it. Each one uses a few tokens.",
@@ -94,6 +132,10 @@ export function settingRows(context: ProjectContext): Setting[] {
         : { label: "Turn them off", keys: ["skills", "bundled"], value: false, shown: "off" }] },
     money("noteAt", "Spend notes", ["are", "come"], "A quiet line says what a task has spent; it never stops the task."),
     money("pauseAt", "Spend pause", ["is", "comes"], "The task stops and asks before it spends more."),
+    cacheRow(context.cache ?? "auto"),
+    onOffRow("Page checks", context.pageChecks !== false,
+      "After a UI change Casper opens the changed pages in its own browser and checks they load, in every project. A project file can turn them off for itself, not back on.",
+      ["pages"], true),
     showPagesRow(context.showPages ?? "ask"),
     { label: "Work shown", value: display, question: `Work shown: ${display} (${DISPLAY_WORDS[display]}).`, keep: `Keep ${display}`,
       choices: (["quiet", "normal", "detailed"] as const).filter((level) => level !== display)
@@ -112,6 +154,9 @@ export function settingRows(context: ProjectContext): Setting[] {
       keep: `Keep them ${e2e ? "on" : "off"}`,
       choices: [e2e ? { label: "Turn them off", keys: ["verification", "e2e"], value: false, shown: "off" }
         : { label: "Turn them on", keys: ["verification", "e2e"], value: true, shown: "on" }] },
+    onOffRow("Send Casper's name to OpenRouter", context.telemetry !== false,
+      "On OpenRouter requests Casper sends only the app name and site, so OpenRouter files the use under Casper (kept out of its public rankings for now); nothing about your code. CASPER_TELEMETRY=0 turns it off too.",
+      ["telemetry"]),
   ];
 }
 
@@ -124,6 +169,18 @@ export function mcpSandboxRows(mcp: Pick<MCPManager, "status" | "setSandbox"> | 
       keep: `Keep it ${on ? "on" : "off"}`,
       choices: [{ label: on ? "Turn it off" : "Turn it on", keys: [], value: !on, shown: on ? "off" : "on", apply: () => mcp!.setSandbox(status.name, !on) }] };
   });
+}
+
+/** Every row and where it stands, as "Label: value" joined by " · ", wrapped between rows to fit 80 columns. */
+export function atAGlance(rows: readonly Pick<Setting, "label" | "value">[], width = 80): string {
+  const lines: string[] = [];
+  let line = "";
+  for (const item of rows.map((row) => `${row.label}: ${row.value}`)) {
+    if (line && `  ${line} · ${item}`.length > width) { lines.push(`  ${line}`); line = item; }
+    else line = line ? `${line} · ${item}` : item;
+  }
+  if (line) lines.push(`  ${line}`);
+  return lines.join("\n");
 }
 
 /**
@@ -140,11 +197,12 @@ export async function runSettings(host: SettingsHost, signal?: AbortSignal): Pro
       host.output.write(`Settings (${USER_CONFIG}):\n${rows.map((row) => `  ${row.label.padEnd(width)}${row.value}`).join("\n")}\nRun /settings in a Casper session to change one by number.\n`);
       return;
     }
-    const picked = await host.ask(`Settings (saved in ${USER_CONFIG} for you). Pick one to change:`,
+    const picked = await host.ask(`Settings (saved in ${USER_CONFIG} for you):\n${atAGlance(rows)}\nPick one to change:`,
       [{ label: "Done", description: "nothing changes" }, ...rows.map((row) => ({ label: row.label, description: row.value }))], signal);
     const row = rows.find((candidate) => candidate.label === picked);
     if (!row || signal?.aborted) return;
-    const answer = await host.ask(row.question, [{ label: row.keep }, ...row.choices.map((choice) => ({ label: choice.label }))], signal);
+    const answer = await host.ask(row.question, [{ label: row.keep },
+      ...row.choices.map((choice) => ({ label: choice.label, ...(choice.description ? { description: choice.description } : {}) }))], signal);
     const choice = row.choices.find((candidate) => candidate.label === answer);
     if (!choice || signal?.aborted) continue;
     const home = host.homeDir();
