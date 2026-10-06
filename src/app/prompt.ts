@@ -1,4 +1,5 @@
 import { formatProjectContext, type ProjectContext } from "../project/context";
+import { readerPromptLine } from "./reader";
 
 export const DEFAULT_SYSTEM_PROMPT_APPEND = [
   // The only identity line in the system prompt; the runtime adds none of its own.
@@ -20,5 +21,6 @@ export const DEFAULT_SYSTEM_PROMPT_APPEND = [
 
 /** The runtime's persistent system prompt: Casper's discipline plus deterministic project context. */
 export function systemPromptAppend(context: ProjectContext): string {
-  return [DEFAULT_SYSTEM_PROMPT_APPEND, formatProjectContext(context)].join("\n\n");
+  const reader = readerPromptLine(context.reader);
+  return [reader ? `${DEFAULT_SYSTEM_PROMPT_APPEND}\n${reader}` : DEFAULT_SYSTEM_PROMPT_APPEND, formatProjectContext(context)].join("\n\n");
 }

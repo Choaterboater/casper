@@ -477,6 +477,11 @@ test("results bound array items and serialized bytes, preserve Unicode and error
   const output = await broker.invoke("mcp:generic:large_read", {});
   expect(Buffer.byteLength(JSON.stringify(output))).toBeLessThanOrEqual(16_384);
   expect(output.truncated).toBe(true);
+  // The reader asks for a bigger bound: more of the same list, still within it, the cursor kept.
+  const wide = await broker.invoke("mcp:generic:large_read", {}, undefined, { maxBytes: 200 * 1024, maxItems: 1000 });
+  expect(Buffer.byteLength(JSON.stringify(wide))).toBeLessThanOrEqual(200 * 1024);
+  expect(Buffer.byteLength(JSON.stringify(wide))).toBeGreaterThan(16_384);
+  expect(wide.nextCursor?.value).toBe("provider-read-cursor");
   expect((await broker.invoke("mcp:generic:error_read", {})).isError).toBe(true);
 });
 

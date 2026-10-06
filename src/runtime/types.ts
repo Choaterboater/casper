@@ -295,8 +295,9 @@ export interface RuntimeSession {
   getUsage?(): RuntimeUsage;
   /** One model call outside the conversation, with the conversation's model and effort unless `effort`
    * asks for another (mapped to what the model supports); `maxTokens` caps the answer. Nothing is added
-   * to the transcript. `usage` is null when the provider reported none. */
-  complete?(input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null }>;
+   * to the transcript. `usage` is null when the provider reported none. `role: "fast"` uses your fast model when it
+   * is set and signed in, else the conversation's model; unset, the review model when set. */
+  complete?(input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number; role?: "fast" }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null }>;
   listConversations?(): Promise<RuntimeConversation[]>;
   clearConversation?(): Promise<void>;
   /** `keepUnwritten: false` drops a new conversation that has no saved response yet instead of

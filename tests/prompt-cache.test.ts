@@ -190,16 +190,16 @@ async function surfaces(installed: boolean, prompts: string[]) {
 
 test("every turn of a session offers the same tools, the browser included from the start when Chrome is there", async () => {
   const seen = await surfaces(true, ["explain how login works", "map out the login flow", "check the website layout", "fix the parser"]);
-  expect(seen[0]).toEqual(["delegate", "ask", "web_search", "web_fetch", "browser", "visualize"]);
+  expect(seen[0]).toEqual(["delegate", "ask", "web_search", "web_fetch", "casper_read_untrusted", "browser", "visualize"]);
   for (const surface of seen) expect(surface).toEqual(seen[0]!);
 });
 
 test("without Chrome the browser tool arrives with the first browser task and then stays", async () => {
   const seen = await surfaces(false, ["explain how login works", "check the website layout", "fix the parser"]);
   expect(seen).toEqual([
-    ["delegate", "ask", "web_search", "web_fetch", "visualize"],
-    ["delegate", "ask", "web_search", "web_fetch", "browser", "visualize"],
-    ["delegate", "ask", "web_search", "web_fetch", "browser", "visualize"],
+    ["delegate", "ask", "web_search", "web_fetch", "casper_read_untrusted", "visualize"],
+    ["delegate", "ask", "web_search", "web_fetch", "casper_read_untrusted", "browser", "visualize"],
+    ["delegate", "ask", "web_search", "web_fetch", "casper_read_untrusted", "browser", "visualize"],
   ]);
 });
 

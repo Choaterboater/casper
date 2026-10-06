@@ -51,6 +51,8 @@ export interface ProjectContext {
   sandbox?: LoadedConfiguration["sandbox"];
   /** Web lookups: yours only (web: in ~/.casper/config.yaml). Unset: on, with DuckDuckGo. */
   web?: LoadedConfiguration["web"];
+  /** The untrusted-text reader: on/off yours only; untrusted paths from you or the project. Unset: on, no paths. */
+  reader?: LoadedConfiguration["reader"];
 }
 
 export interface LoadProjectContextOptions {
@@ -120,6 +122,7 @@ export async function loadProjectContext(
     ...(configuration.labProfile ? { labProfile: configuration.labProfile } : {}),
     sandbox: configuration.sandbox,
     web: configuration.web,
+    reader: configuration.reader,
   };
 }
 

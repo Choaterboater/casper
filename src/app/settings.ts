@@ -1,6 +1,6 @@
 import { isMap } from "yaml";
 import type { ProjectContext } from "../project/context";
-import { DEFAULT_WEB, SHOW_PAGES_SETTINGS, type ShowPagesSetting } from "../config/load";
+import { DEFAULT_READER, DEFAULT_WEB, SHOW_PAGES_SETTINGS, type ShowPagesSetting } from "../config/load";
 import { editUserConfig, USER_CONFIG, userConfigValue } from "../config/user-write";
 import { DEFAULT_SPEND_LIMITS, formatLimit } from "../task/spend";
 import { PROVIDER_LABELS } from "../web/providers";
@@ -38,6 +38,11 @@ async function webKeys(home: string): Promise<string[]> {
   return isMap(await userConfigValue(home, ["web"])) ? ["web", "enabled"] : ["web"];
 }
 
+/** reader: on/off goes into reader.enabled when your reader: is a mapping (paths are listed), so the paths stay. */
+async function readerKeys(home: string): Promise<string[]> {
+  return isMap(await userConfigValue(home, ["reader"])) ? ["reader", "enabled"] : ["reader"];
+}
+
 const SHOW_PAGES_WORDS: Record<ShowPagesSetting, { value: string; choice: string }> = {
   ask: { value: "ask once a session", choice: "Ask once a session" },
   on: { value: "always", choice: "Always show them" },
@@ -56,6 +61,7 @@ function showPagesRow(now: ShowPagesSetting): Setting {
 /** Each off switch Casper has, where it stands now, and the numbered answers for it (1 keeps it as it is). */
 export function settingRows(context: ProjectContext): Setting[] {
   const web = context.web ?? DEFAULT_WEB;
+  const reader = context.reader ?? DEFAULT_READER;
   const spend = context.spend ?? DEFAULT_SPEND_LIMITS;
   const display = context.display ?? "normal";
   const e2e = context.verification.e2e !== false;
@@ -85,6 +91,10 @@ export function settingRows(context: ProjectContext): Setting[] {
     { label: "Work shown", value: display, question: `Work shown: ${display} (${DISPLAY_WORDS[display]}).`, keep: `Keep ${display}`,
       choices: (["quiet", "normal", "detailed"] as const).filter((level) => level !== display)
         .map((level) => ({ label: `${level[0]!.toUpperCase()}${level.slice(1)}`, keys: ["display"], value: level, shown: level })) },
+    { label: "Untrusted-text reader", value: reader.enabled ? "on" : "off",
+      question: `The untrusted-text reader (casper_read_untrusted) is ${reader.enabled ? "on" : "off"}. It reads logs, mail and forms with a separate model that has no tools, and costs tokens only when the AI uses it.`,
+      keep: `Keep it ${reader.enabled ? "on" : "off"}`,
+      choices: [reader.enabled ? { label: "Turn it off", keys: readerKeys, value: false, shown: "off" } : { label: "Turn it on", keys: readerKeys, value: true, shown: "on" }] },
     { label: "Playwright tests", value: e2e ? "on" : "off",
       question: `Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are ${e2e ? "on" : "off"}.`,
       keep: `Keep them ${e2e ? "on" : "off"}`,

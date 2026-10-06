@@ -21,7 +21,8 @@ Settings (saved in ~/.casper/config.yaml for you). Pick one to change:
   6 Spend pause            off
   7 Show the AI the pages  ask once a session
   8 Work shown             normal
-  9 Playwright tests       on
+  9 Untrusted-text reader  on
+ 10 Playwright tests       on
 ```
 
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
@@ -38,6 +39,15 @@ refused and never sent, and secrets on a page are hidden before the AI sees it. 
 `/settings` (it writes `web: off`). Brave Search (`web: { provider: brave }`, with your key saved
 as `brave` in `~/.casper/agent/auth.json`) and your own SearXNG (`web: { provider: searxng,
 searxngUrl: <address> }`) are the other choices. A project file can't change `web:`.
+
+### Untrusted-text reader
+
+`casper_read_untrusted` lets the AI read a log, an email or a web form through a separate model call
+with no tools; the AI gets back only JSON in the shape it asked for, never the text. It is on, and
+costs nothing until the AI calls it (then one small request on your `fast` model, or the session's
+model when none is set). Turn it off with `/settings` (it writes `reader: off`). `reader: { untrusted:
+["logs/**"] }` names paths the AI should read only this way; a project file may add paths there but
+can't turn the reader on or off. See [READER.md](READER.md).
 
 ## Config files
 
@@ -294,7 +304,8 @@ ID, `provider/id`, `@default` (your saved default model), or another role, optio
 - An effort level a model lacks runs as the nearest level above it, else below (so `max` on a
   model without `max` runs at its highest level). Automatic effort never picks `off` or `max`.
 
-Where roles are used: explorer subagents use `fast`, reviewer subagents and the
+Where roles are used: explorer subagents and the [untrusted-text reader](READER.md) use `fast` (the
+reader falls back to the session's model), reviewer subagents and the
 [acceptance check](VERIFICATION.md#independent-acceptance-check-experimental) use `review`, and
 roles that are not set fall back to Casper's startup default. See [DELEGATION.md](DELEGATION.md).
 
