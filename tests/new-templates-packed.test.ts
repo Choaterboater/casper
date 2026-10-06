@@ -1,13 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { GENERATED_FILE, readTemplate, readTemplates, renderGenerated } from "../scripts/pack-templates";
 import { getTemplate, renderFiles, renderValues, targetPath } from "../src/new/templates";
 import { needsSymlinks } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 let scratch: string | undefined;
-afterEach(async () => { if (scratch) await rm(scratch, { recursive: true, force: true }); scratch = undefined; });
+afterEach(async () => { if (scratch) await removeTempDir(scratch); scratch = undefined; });
 
 const manifest = (id: string) => JSON.stringify({
   id, version: 1, kind: "thing", title: "Thing", description: "A thing.", defaultName: "my-thing",

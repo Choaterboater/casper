@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
@@ -10,6 +10,7 @@ import { SkillRegistry } from "../src/skills/registry";
 import { classifyTask, formatTaskPrompt } from "../src/task/classify";
 import { TaskObservations } from "../src/task/observations";
 import { formatTaskResult } from "../src/task/result";
+import { removeTempDir } from "./support/temp-dir";
 
 const bash = (command: string, isError = false) => ({
   type: "tool_end" as const, toolName: "bash", toolCallId: "call", input: { command }, isError, output: { text: "ok", truncated: false },
@@ -136,7 +137,7 @@ test("the task result carries this task's usage; automatic-effort classification
       await app.runOnce("explain the project again", root);
       expect(app.getLastTaskResult()?.usage).toEqual({ turns: 1, tokens: null, estimatedCost: null });
     } finally { await app.close(); }
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTempDir(root); }
 });
 
 const model: ProjectModel = {
@@ -186,7 +187,7 @@ test("--verify (auto mode) asks the first turn for the checklist by default, and
     await run(true);
     expect(prompts[2]!.includes("Casper initial classification")).toBe(false);
     expect(prompts[2]!.trim().endsWith("fix the failing test")).toBe(true);
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTempDir(root); }
 });
 
 test("a known test runner the model ran is kept only as a suggestion, and only when it passed with no test command set", () => {
@@ -285,7 +286,7 @@ test("a question-only task that changed another machine over ssh still prints th
       await app.runOnce("check the lab host uptime", root);
       expect(written).toContain("• Changed on build-server (from the commands Casper saw): turned a service on or off at boot (systemctl enable --now sampleapp)");
     } finally { await app.close(); }
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTempDir(root); }
 });
 
 test("commands run over ssh with no change Casper can read still get a receipt line; a refused or blocked one does not", async () => {

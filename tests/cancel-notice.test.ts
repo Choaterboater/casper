@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -7,6 +7,7 @@ import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEventListener } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
+import { removeTempDir } from "./support/temp-dir";
 
 test("a user cancel prints one cancel notice and the receipt, with no [error] lines", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-cancel-notice-"));
@@ -63,6 +64,6 @@ test("a user cancel prints one cancel notice and the receipt, with no [error] li
     await interactive;
   } finally {
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });

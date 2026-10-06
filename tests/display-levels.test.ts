@@ -1,5 +1,5 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { RuntimeEventView } from "../src/app/events";
@@ -8,6 +8,7 @@ import { loadProjectContext } from "../src/project/context";
 import type { RuntimeEvent } from "../src/runtime/types";
 import { inlineDiff, nextDisplay, type DisplayLevel } from "../src/tui/display";
 import type { InteractiveTerminal } from "../src/tui/terminal";
+import { removeTempDir } from "./support/temp-dir";
 
 const ambientTerm = process.env.TERM;
 process.env.TERM = "xterm-256color";
@@ -102,7 +103,7 @@ test("/details with no word goes round quiet, normal, detailed", () => {
 
 test("display: loads from your own config or a profile and is refused in a project file", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-display-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"), project = path.join(root, "project");
   await mkdir(path.join(home, ".casper", "profiles", "work"), { recursive: true });
   await mkdir(path.join(project, ".casper"), { recursive: true });

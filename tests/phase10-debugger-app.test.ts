@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -9,12 +9,13 @@ import { SkillRegistry } from "../src/skills/registry";
 import { posixOnly } from "./support/platform";
 import { PTY_TEST_MS, runPtyFixture } from "./support/pty";
 import { processGone } from "./support/wait";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 async function fixture(commands: string[] = []) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-debug-app-")));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"), project = path.join(root, "project"); await mkdir(home); await mkdir(project);
   await mkdir(path.join(project, ".casper")); await writeFile(path.join(project, "program.py"), "answer = 42\n");
   await writeFile(path.join(project, ".casper/debug.json"), JSON.stringify({ targets: { example: {
@@ -39,7 +40,7 @@ async function fixture(commands: string[] = []) {
 // python3 runs the standard-library PTY fixture; Windows has no equivalent here.
 posixOnly("production debugger CLI preserves fresh consent and cleans up on EOF/SIGTERM", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-debug-pty-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const { exit, stdout, stderr } = await runPtyFixture("debug-pty.py", [root]);
   expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
   expect(stdout).toContain("DEBUG PTY PASS");

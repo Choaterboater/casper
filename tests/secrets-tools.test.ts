@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Scrubber } from "../src/secrets/netconan";
@@ -7,6 +7,7 @@ import { hiddenSecretGate, NOT_RUN_REASON, NOT_WRITTEN_REASON } from "../src/sec
 import { scrubToolOutput } from "../src/secrets/tool-output";
 import { SCRUBBED_TOOLS } from "../src/runtime/pi";
 import { fileChangeTool } from "../src/runtime/observation";
+import { removeTempDir } from "./support/temp-dir";
 
 const scrubber = new Scrubber({ env: { CASPER_NETCONAN: "off" } });
 let root: string; let logins: string;
@@ -16,7 +17,7 @@ beforeAll(async () => {
   logins = path.join(root, "network-logins.json");
   await writeFile(logins, JSON.stringify({ mist: { MIST_API_TOKEN: MIST, MIST_HOST: "api.mist.com" } }));
 });
-afterAll(() => rm(root, { recursive: true, force: true }));
+afterAll(() => removeTempDir(root));
 
 test("browser page text and lsp results are scrubbed like other tool output", async () => {
   expect([...SCRUBBED_TOOLS]).toEqual(expect.arrayContaining(["browser", "lsp"]));

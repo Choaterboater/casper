@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -8,6 +8,7 @@ import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { fakeWriter, interactiveTerminal } from "./support/tty";
+import { removeTempDir } from "./support/temp-dir";
 
 // The rich-surface path is gated on `TERM !== "dumb"`.
 const ambientTerm = process.env.TERM;
@@ -131,7 +132,7 @@ async function checklistApp(config = "verification:\n  checklist: true\n", cases
   };
   return { app, input, prompts, screen, run, plain, checklistCalls: () => checklistCalls, close: async () => {
     input.write("/exit\r"); await interactive; await app.close(); input.destroy();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   } };
 }
 

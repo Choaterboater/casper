@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
@@ -8,6 +8,7 @@ import type { AgentRuntime, RuntimeEventListener } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { formatReceipt } from "../src/task/result";
 import { checkCommand } from "./support/check-command";
+import { removeTempDir } from "./support/temp-dir";
 
 // Found in a real-terminal test: a provider error right after an edit left the edit unchecked.
 for (const check of ["pass", "fail"] as const) test(`a model that fails after editing still gets its edits checked, without a repair (${check})`, async () => {
@@ -57,7 +58,7 @@ for (const check of ["pass", "fail"] as const) test(`a model that fails after ed
     expect(app.getLastTaskResult()?.verification?.repairAttempts).toBe(0);
   } finally {
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 }, 30_000);
 
@@ -105,7 +106,7 @@ test("a provider failure that clears on the automatic retry finishes the task no
     expect(output).not.toContain("the model run failed");
   } finally {
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 }, 30_000);
 
@@ -154,7 +155,7 @@ test("in the terminal, a second provider failure asks whether to retry or stop",
     await interactive;
     await app.close();
     input.destroy();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 }, 30_000);
 
@@ -204,6 +205,6 @@ test("a check that was already failing before the change is named as such; in th
     await interactive;
     await app.close();
     input.destroy();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 }, 30_000);

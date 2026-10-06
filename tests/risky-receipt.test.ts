@@ -1,12 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isConfigFile, riskyBaseline, riskyLinesIn } from "../src/network/risky-receipt";
 import { formatReceipt, formatTaskResult, type TaskResult } from "../src/task/result";
+import { removeTempDir } from "./support/temp-dir";
 
 const dirs: string[] = [];
-afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of dirs.splice(0)) await removeTempDir(dir); });
 
 test("dangerous lines in the config files a task changed are listed with their reasons; other files are not read", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-risky-"));

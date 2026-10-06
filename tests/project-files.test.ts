@@ -1,12 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
-import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile, lstat } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, symlink, writeFile, lstat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { readProjectText, removeProjectFile, writeProjectFile } from "../src/platform/files";
 import { posixOnly } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const dirs: string[] = [];
-afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => removeTempDir(dir))); });
 
 async function folders() {
   const base = await mkdtemp(path.join(os.tmpdir(), "casper-project-files-"));

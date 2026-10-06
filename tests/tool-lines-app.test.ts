@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -8,6 +8,7 @@ import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEvent, RuntimeEventListener } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { fakeWriter } from "./support/tty";
+import { removeTempDir } from "./support/temp-dir";
 
 const ambientTerm = process.env.TERM;
 process.env.TERM = "xterm-256color";
@@ -73,6 +74,6 @@ test("a tool that ends after its turn still prints its line before the prompt re
     input.write("/exit\r");
     await interactive;
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });

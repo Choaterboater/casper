@@ -1,13 +1,14 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-import { chmod, link, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, mkdtemp, readFile, realpath, stat, symlink, writeFile } from "node:fs/promises";
 import { posixOnly } from "./support/platform";
 import { PTY_TEST_MS, runPtyFixture } from "./support/pty";
 import { isolatedEnvironment } from "../src/platform/environment";
 import os from "node:os";
 import path from "node:path";
+import { removeTempDir } from "./support/temp-dir";
 
 const roots: string[] = [];
-afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
+afterEach(async () => { for (const root of roots.splice(0)) await removeTempDir(root); });
 const repo = path.resolve(import.meta.dir, "..");
 // Every test spawns a fresh Bun child running the real login flow; the 5 s default has
 // tripped on the Windows CI runner, and so has 15 s: on a loaded 4-core runner a test that

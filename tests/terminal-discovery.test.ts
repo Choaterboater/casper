@@ -1,14 +1,15 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { SkillRegistry } from "../src/skills/registry";
 import { loadConfiguration } from "../src/config/load";
 import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
+import { removeTempDir } from "./support/temp-dir";
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(roots.splice(0).map((root) => removeTempDir(root))); });
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-discovery-")); roots.push(root);
   const homeDir = path.join(root, "home"), projectRoot = path.join(root, "project");

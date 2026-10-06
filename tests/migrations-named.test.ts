@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { stringify } from "yaml";
@@ -12,6 +12,7 @@ import { formatTaskPrompt } from "../src/task/classify";
 import { describeChecksPlan, planAutoChecks, selectedChecks } from "../src/verify/mode";
 import { autoDetectedChecks } from "../src/verify/migrations-check";
 import { defaultVerifyNames, VerifierRegistry } from "../src/verify/registry";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -22,7 +23,7 @@ const sqlitePkg = JSON.stringify({ name: "noc", dependencies: { "better-sqlite3"
 
 async function project(files: Record<string, string>) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-migrations-named-")));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   const home = path.join(root, "home"), dir = path.join(root, "project");
   await mkdir(home); await mkdir(path.join(dir, ".casper"), { recursive: true });
   for (const [name, text] of Object.entries(files)) { await mkdir(path.dirname(path.join(dir, name)), { recursive: true }); await writeFile(path.join(dir, name), text); }

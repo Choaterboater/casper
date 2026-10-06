@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
@@ -7,6 +7,7 @@ import type { ProjectModel } from "../src/project/model";
 import { SkillRegistry, formatSelectedSkills } from "../src/skills/registry";
 import { classifyTask } from "../src/task/classify";
 import { needsSymlinks } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const temporary: string[] = [];
 const task = "Add a TypeScript MCP tool with bounded output";
@@ -41,7 +42,7 @@ async function load(registry: SkillRegistry, request = task) {
 }
 
 afterEach(async () => {
-  await Promise.all(temporary.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  await Promise.all(temporary.splice(0).map((directory) => removeTempDir(directory)));
 });
 
 describe("Phase 2 skills", () => {

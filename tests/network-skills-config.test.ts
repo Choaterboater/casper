@@ -8,6 +8,7 @@ import { loadProjectContext } from "../src/project/context";
 import { loadProjectModel } from "../src/project/model";
 import { SkillRegistry, skillRegistryOptions } from "../src/skills/registry";
 import type { AgentRuntime, RuntimeEventListener, RuntimeSession, RuntimeStartOptions } from "../src/runtime/types";
+import { removeTempDir } from "./support/temp-dir";
 
 const temporary: string[] = [];
 
@@ -22,7 +23,7 @@ async function fixture() {
 }
 
 afterEach(async () => {
-  await Promise.all(temporary.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  await Promise.all(temporary.splice(0).map((directory) => removeTempDir(directory)));
 });
 
 describe("skills.bundled", () => {

@@ -1,14 +1,15 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { MCPServerDefinition } from "../src/mcp/config";
 import { ConsentStore, canonical, definitionHash, definitionIdentity } from "../src/mcp/consent";
 import { matchPreset } from "../src/mcp/presets";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: string[] = [];
-afterEach(async () => { for (const dir of cleanup.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of cleanup.splice(0)) await removeTempDir(dir); });
 async function home() {
   const dir = await mkdtemp(path.join(os.tmpdir(), "casper-consent-"));
   cleanup.push(dir);

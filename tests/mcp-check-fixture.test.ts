@@ -1,15 +1,16 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fixtureTools } from "./fixtures/mcp-check-server";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 
 const fixture = path.resolve(import.meta.dir, "fixtures/mcp-check-server.ts");
 const temps: string[] = [];
-afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });
 
 test("the check fixture's modes carry the tool shapes later checks grade", () => {
   const byName = (mode: string) => Object.fromEntries(fixtureTools(mode).map((tool) => [tool.name, tool]));

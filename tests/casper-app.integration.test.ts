@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -16,6 +16,7 @@ import type {
   RuntimeStartOptions,
 } from "../src/runtime/types";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 
 const execFileAsync = promisify(execFile);
 const tempDirs: string[] = [];
@@ -68,7 +69,7 @@ class FakeRuntime implements AgentRuntime {
 }
 
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((dir) => removeTempDir(dir)));
 });
 
 describe("CasperApp", () => {

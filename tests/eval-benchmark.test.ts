@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
@@ -10,6 +10,7 @@ import type { HarnessObservation } from "../evals/harness";
 import { scoreQuality } from "../evals/quality";
 import { gradePreparedEval, prepareEvalTask, type EvalTask } from "../evals/runner";
 import { EVAL_TASKS, findEvalTask } from "../evals/tasks";
+import { removeTempDir } from "./support/temp-dir";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -20,7 +21,7 @@ const DONE = "Implemented the change. All visible tests pass.";
 /** Copy the reference solution's candidate paths into the workspace. */
 async function solve(task: EvalTask, workdir: string): Promise<void> {
   for (const top of task.candidatePaths) {
-    await rm(path.join(workdir, top), { recursive: true, force: true });
+    await removeTempDir(path.join(workdir, top));
     await cp(path.join(repoRoot, "evals/fixtures", task.fixture, top), path.join(workdir, top), { recursive: true });
   }
 }
@@ -28,7 +29,7 @@ async function solve(task: EvalTask, workdir: string): Promise<void> {
 /** Prepare, let `edit` act as the model, grade through the real grader and measure quality. */
 async function measured(task: EvalTask, edit: (workdir: string) => Promise<void>, answer = DONE) {
   const { root, workdir } = await prepareEvalTask(task, repoRoot);
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   await edit(workdir);
   const graded = await gradePreparedEval(root, { startedAt: new Date().toISOString(), wallClockMs: 1000, execution: "completed", modelCalls: 3, answer, interventions: [] });
   const run: HarnessObservation = { answer, termination: "completed", exitCode: 0, wallClockMs: 1000, turns: 3, tokens: 900, estimatedCost: 0.01, receiptOutcome: null, sessionId: null, errors: [] };
@@ -324,7 +325,7 @@ test("infrastructure runs are counted apart and left out of every quality denomi
 test("the benchmark reruns an infrastructure failure once, fresh, and records it as infra only if the rerun fails too", async () => {
   const task = findEvalTask("core-log-parser")!;
   const scratch = await mkdtemp(path.join(os.tmpdir(), "casper-bench-infra-"));
-  cleanup.push(() => rm(scratch, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(scratch));
   const cli = (failures: number, counter: string) => [process.execPath, path.join(import.meta.dir, "fixtures/eval-infra-cli.ts"),
     path.join(repoRoot, "evals/fixtures", task.fixture, "src"), path.join(scratch, counter), String(failures)];
   const options = { repoRoot, tasks: [task], harnesses: ["casper" as const], model: "test/model", effort: "medium" as const, repeat: 1, concurrency: 1,
@@ -417,7 +418,7 @@ test("a job that cannot run is a recorded failure, and the other jobs still fini
 test("--stop-when-decided: once the rule cannot be met no job starts, a running one is killed and dropped; kept workspaces skip node_modules", async () => {
   const task = findEvalTask("core-log-parser")!;
   const scratch = await mkdtemp(path.join(os.tmpdir(), "casper-bench-stop-"));
-  cleanup.push(() => rm(scratch, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(scratch));
   const state = path.join(scratch, "state");
   const keep = path.join(scratch, "kept");
   const started = performance.now();
@@ -442,7 +443,7 @@ test("--stop-when-decided: once the rule cannot be met no job starts, a running 
 test("tools/eval.ts --harness runs the benchmark, prints the rubric table and saves one new results document", async () => {
   const task = findEvalTask("core-log-parser")!;
   const host = await mkdtemp(path.join(os.tmpdir(), "casper-bench-cli-"));
-  cleanup.push(() => rm(host, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(host));
   // An isolated Casper store with one scripted provider: the model resolves, and only its entry is seeded.
   const agent = path.join(host, ".casper/agent");
   await mkdir(agent, { recursive: true });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
@@ -7,6 +7,7 @@ import type { ProjectInfo } from "../src/project/inspect";
 import { loadProjectModel } from "../src/project/model";
 import { classifyTask, formatTaskPrompt } from "../src/task/classify";
 import { formatProjectContext, loadProjectContext } from "../src/project/context";
+import { removeTempDir } from "./support/temp-dir";
 
 const tempDirs: string[] = [];
 
@@ -17,7 +18,7 @@ async function temporaryDirectory(prefix: string): Promise<string> {
 }
 
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((directory) => removeTempDir(directory)));
 });
 
 describe("Phase 1 project context", () => {

@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -11,12 +11,13 @@ import { hasSignIn } from "../src/tui/model-preference";
 import { posixOnly } from "./support/platform";
 import { PTY_TEST_MS, runPtyFixture } from "./support/pty";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 
 // readline delivers a written line on a later turn of the event loop; no wall-clock wait involved.
 const delivered = () => new Promise(resolve => setImmediate(resolve));
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(roots.splice(0).map((root) => removeTempDir(root))); });
 
 test("tool display gives targets/status, redacts common credentials and never invents verifier evidence", () => {
   const input = { command: 'TOKEN=secret curl -H "Authorization: Bearer hidden" https://user:pass@host/path --password "private value"' };

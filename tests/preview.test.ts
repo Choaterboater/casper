@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ServiceManager } from "../src/services/manager";
 import { SmokeChecks } from "../src/services/smoke";
 import { serviceTool } from "../src/services/tool";
 import { findTunnel, lanAddress, previewSpec, PUBLIC_SLOT, runPreview, tunnelSpec, tunnelUrl, type PreviewHost, type Tunnel } from "../src/services/preview";
+import { removeTempDir } from "./support/temp-dir";
 
 /** /preview: on your network by default; a public link only after a numbered yes, through a tunnel tool you have. */
 
@@ -42,7 +43,7 @@ test("tunnel commands and the link in their output", () => {
 
 posixOnly("a tunnel tool is found on PATH, cloudflared first; none is none", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "casper-preview-path-"));
-  cleanups.push(() => rm(dir, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(dir));
   expect(await findTunnel(dir)).toBeUndefined();
   for (const tool of ["tailscale", "cloudflared"]) { await writeFile(path.join(dir, tool), "#!/bin/sh\n"); await chmod(path.join(dir, tool), 0o755); }
   expect(await findTunnel(dir)).toEqual({ tool: "cloudflared", path: path.join(dir, "cloudflared") });
@@ -60,7 +61,7 @@ exec sleep 60
 
 async function fixture(answers: string[], options: { tunnel?: boolean; canAsk?: boolean } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-preview-")));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   await writeFile(path.join(root, "server.ts"), SERVER);
   await mkdir(path.join(root, "bin"));
   await writeFile(path.join(root, "bin/cloudflared"), TUNNEL);

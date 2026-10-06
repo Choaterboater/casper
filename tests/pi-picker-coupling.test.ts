@@ -2,12 +2,13 @@ import { expect, test } from "bun:test";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { getKeybindings, KeybindingsManager, setKeybindings, TUI_KEYBINDINGS, type TUI } from "@earendil-works/pi-tui";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ModelBrowser, type ModelBrowserCatalog } from "../src/runtime/pi-model-browser";
 import { pickPiModel } from "../src/runtime/pi-model-picker";
 import type { RuntimePickerView } from "../src/runtime/types";
+import { removeTempDir } from "./support/temp-dir";
 
 /** These tests pin the contract `src/runtime/pi-model-picker.ts` leans on: Casper's ModelBrowser
  * rows/footer/keys, the `app.models.save` session-only keybinding registration, and the
@@ -292,6 +293,6 @@ test("the /model live catalog refresh goes to the network only when PI_OFFLINE i
   } finally {
     globalThis.fetch = savedFetch;
     if (savedOffline === undefined) delete process.env.PI_OFFLINE; else process.env.PI_OFFLINE = savedOffline;
-    await rm(dir, { recursive: true, force: true });
+    await removeTempDir(dir);
   }
 });

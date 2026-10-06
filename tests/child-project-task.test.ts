@@ -1,6 +1,6 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -9,6 +9,7 @@ import { loadProjectContext, type ProjectContext } from "../src/project/context"
 import type { AgentRuntime, RuntimeEventListener, RuntimeSession } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { childProjectOf } from "../src/project/child";
+import { removeTempDir } from "./support/temp-dir";
 
 setDefaultTimeout(30_000);
 const ambientTerm = process.env.TERM;
@@ -78,7 +79,7 @@ test.skipIf(!python)("work that lands in a project inside the folder runs that p
     // One-shot can't ask: it says the command to use.
     expect(output).toContain("[folder] The work is in ~/Documents/sample-tools. To work there: cd ~/Documents/sample-tools && casper\n");
     expect(app.getLastTaskResult()?.verification?.status).toBe("pass");
-  } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
+  } finally { await app.close(); await removeTempDir(root); }
 });
 
 function interactive(home: string, runtime: AgentRuntime) {
@@ -122,7 +123,7 @@ test.skipIf(!python)("after the receipt: 1 Stay here · 2 Switch there; Enter st
     await running;
     await harness.app.close();
     harness.input.destroy();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -150,6 +151,6 @@ test.skipIf(!python)("Enter at \"The work is in ...\" stays in the folder and ke
     await running;
     await harness.app.close();
     harness.input.destroy();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -10,6 +10,7 @@ import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import type { RuntimeSession, RuntimeSessionInfo } from "../src/runtime/types";
 import { processGone } from "./support/wait";
+import { removeTempDir } from "./support/temp-dir";
 
 const exec = promisify(execFile);
 test("a live debugger is revoked before exposing a new workspace or model task", async () => {
@@ -68,5 +69,5 @@ test("a live debugger is revoked before exposing a new workspace or model task",
     expect(beforePrompt).toBe(true);
     expect(info.cwd).toContain(path.join(".casper", "worktrees"));
     expect(output).toContain('"state":"idle"');
-  } finally { await app?.close(); await rm(root, { recursive: true, force: true }); }
+  } finally { await app?.close(); await removeTempDir(root); }
 }, 30_000);

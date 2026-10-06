@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ProjectModel } from "../src/project/model";
 import { allBundledSkills, bundledSkills, MAX_BUNDLED_ACTIVE, scoreSkillRule, STOP_AND_ASK_LINE } from "../src/skills/bundled";
 import { formatSelectedSkills, SkillRegistry, skillRegistryOptions } from "../src/skills/registry";
 import { classifyTask, type TaskIntent } from "../src/task/classify";
+import { removeTempDir } from "./support/temp-dir";
 
 interface Fixture {
   pick: Array<{ prompt: string; frameworks?: string[]; expect: string[] }>;
@@ -46,7 +47,7 @@ async function names(registry: SkillRegistry, prompt: string, frameworks: string
 }
 
 afterEach(async () => {
-  await Promise.all(temporary.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  await Promise.all(temporary.splice(0).map((directory) => removeTempDir(directory)));
 });
 
 describe("picking bundled network skills (local word match, no model call)", () => {

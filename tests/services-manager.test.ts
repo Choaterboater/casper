@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { freePort, portInUse } from "../src/platform/managed-process";
 import { OwnedProcesses, osSupportsProcessGroups, ProcessCleanupError, type ProcessPlatform } from "../src/platform/processes";
 import type { ServiceSpec } from "../src/services/config";
 import { ServiceManager } from "../src/services/manager";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -23,7 +24,7 @@ const gone = (pid: number) => until(() => !alive(pid));
 
 async function project() {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-services-")));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   return root;
 }
 

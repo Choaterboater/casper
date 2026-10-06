@@ -1,14 +1,15 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, realpath, rm, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { LSPManager } from "../src/lsp/manager";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
 async function root() {
   const dir = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-real-lsp-")));
-  cleanup.push(() => rm(dir, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(dir));
   return dir;
 }
 // The wait for each answer and for diagnostics. A real server on a busy machine (the full suite runs files in

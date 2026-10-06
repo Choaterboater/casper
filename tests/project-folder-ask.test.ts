@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -10,11 +10,12 @@ import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import type { AgentRuntime, RuntimeSession } from "../src/runtime/types";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 
 /** Windows can keep a folder busy for a moment after the last thing in it closes: retry the cleanup briefly there. */
 async function removeTree(root: string): Promise<void> {
   for (let attempt = 0; ; attempt++) {
-    try { await rm(root, { recursive: true, force: true }); return; }
+    try { await removeTempDir(root); return; }
     catch (error) {
       if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EBUSY" || attempt >= 40) throw error;
       await Bun.sleep(25);
@@ -49,7 +50,7 @@ test("hasProjectSignals detects git and project markers, false for empty dirs", 
     expect(await hasProjectSignals(withPackage)).toBe(true);
     expect(await hasProjectSignals(withGit)).toBe(true);
     expect(await hasProjectSignals(empty)).toBe(false);
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTempDir(root); }
 });
 
 test("findProjectCandidates finds marked dirs two levels down and skips heavy dirs", async () => {
@@ -66,7 +67,7 @@ test("findProjectCandidates finds marked dirs two levels down and skips heavy di
     expect(candidates).toContain(app);
     expect(candidates).not.toContain(skipped);
     expect(candidates.some(dir => dir.includes(".hidden-project"))).toBe(false);
-  } finally { await rm(home, { recursive: true, force: true }); }
+  } finally { await removeTempDir(home); }
 });
 
 test("findProjectCandidates also looks one level into common code folders under home", async () => {
@@ -87,7 +88,7 @@ test("findProjectCandidates also looks one level into common code folders under 
     await mkdir(path.join(home, "Downloads", "unpacked", ".git"), { recursive: true });
     const candidates = await findProjectCandidates(home, { homeDir: home, limit: 20 });
     expect(candidates).toEqual([...expected, path.join(home, "Documents", "docapp"), path.join(home, "direct")].sort((a, b) => a.localeCompare(b)));
-  } finally { await rm(home, { recursive: true, force: true }); }
+  } finally { await removeTempDir(home); }
 });
 
 function interactiveHarness(home: string, project: string) {
@@ -147,7 +148,7 @@ test("launching from the home folder asks which project to open and opens the ch
     await interactive;
     await harness.app.close();
     harness.input.destroy();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -167,7 +168,7 @@ test("escaping the folder question keeps the home folder as the workspace", asyn
     await interactive;
     await harness.app.close();
     harness.input.destroy();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -192,7 +193,7 @@ test("folder selection rejects sibling paths that only share the home prefix", a
     await interactive;
     await harness.app.close();
     harness.input.destroy();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -209,7 +210,7 @@ test("without a rich terminal the home-folder hint gives a command that actually
     expect(stdout).toContain("[folder] Opened in your home folder. To work in a project: casper ~/Projects/myapp");
     expect(stdout).not.toContain("restart");
     expect(stdout).not.toContain("pass a path");
-  } finally { await rm(home, { recursive: true, force: true }); }
+  } finally { await removeTempDir(home); }
 });
 
 test("launching from a folder of projects asks which one to open; a project or a git subfolder never asks", async () => {
@@ -252,7 +253,7 @@ test("launching from a folder of projects asks which one to open; a project or a
     await running;
     await direct.app.close();
     direct.input.destroy();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -300,7 +301,7 @@ test("a typed folder name that isn't there offers Stay first, then Make it here 
     await running;
     await again.app.close();
     again.input.destroy();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -332,7 +333,7 @@ test("/project <name> opens a project folder inside this one before the model st
     await interactive;
     await harness.app.close();
     harness.input.destroy();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 

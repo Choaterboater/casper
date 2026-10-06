@@ -1,8 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 
 /** The real source CLI and real Pi against a local model server that reports a priced, expensive turn. */
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -27,7 +28,7 @@ function answer(text: string): Response {
 
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-spend-real-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"); const project = path.join(root, "project"); const agent = path.join(home, ".pi/agent");
   await mkdir(agent, { recursive: true }); await mkdir(project); await mkdir(path.join(home, ".casper"));
   await writeFile(path.join(project, "notes.txt"), "keep me\n");

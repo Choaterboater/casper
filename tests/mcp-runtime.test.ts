@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -16,6 +16,7 @@ import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { fixtureServer } from "./fixtures/mcp-server";
 import { rejection } from "./support/settle";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: (() => Promise<unknown> | unknown)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -36,7 +37,7 @@ function setEnv(name: string, value: string) {
 }
 async function tempRoot(prefix: string) {
   const root = await mkdtemp(path.join(os.tmpdir(), prefix));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   return root;
 }
 
@@ -140,7 +141,7 @@ test("an imported server's folder that links into the project still starts outsi
     expect(startFolder(path.join(home, "repo-link", "tools"), "imported", project, home, { name: "junos", diagnostics })).toBe(home);
     expect(startFolder("~/repo-link", "imported", project, home, { name: "junos", diagnostics })).toBe(home);
     expect(diagnostics).toHaveLength(2);
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTempDir(root); }
 });
 
 // Absolute paths in the host's own form: on Windows "/home/me" resolves to a folder on the current drive.
@@ -483,5 +484,5 @@ test("/mcp connect to a server that can't start says why once, with no second ge
     expect(error?.message).toBe("missing did not start: Command not found: casper-no-such-cmd");
     expect(output).not.toContain("Command not found");
     expect(error?.message).not.toContain("no tools exposed");
-  } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
+  } finally { await app.close(); await removeTempDir(root); }
 });

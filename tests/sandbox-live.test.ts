@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import os from "node:os";
@@ -12,6 +12,7 @@ import { runtimeEngine } from "../src/sandbox/runtime";
 import { useSandbox } from "../src/sandbox/manager";
 import { runCommandCheck } from "../src/verify/command";
 import { needsSandbox, sandboxAvailable } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 /**
  * The real sandbox on this machine (bubblewrap on Linux, sandbox-exec on macOS). Skipped where it can't run;
@@ -62,7 +63,7 @@ afterAll(async () => {
   for (const [name, value] of Object.entries(savedProxy)) if (value !== undefined) process.env[name] = value;
   await sandbox?.close();
   await new Promise((resolve) => server ? server.close(resolve) : resolve(undefined));
-  if (base) await rm(base, { recursive: true, force: true });
+  if (base) await removeTempDir(base);
 });
 
 async function run(command: string, network: "ask" | "host" | "none" = "ask", readOnlyProject = false) {

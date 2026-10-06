@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CapabilityBroker, type ApprovalAnswer, type ConfirmCapability } from "../src/capabilities/broker";
@@ -7,6 +7,7 @@ import type { MCPServerDefinition } from "../src/mcp/config";
 import { ConsentStore } from "../src/mcp/consent";
 import { MCPManager, type MCPManagerOptions } from "../src/mcp/manager";
 import { posixModes } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const network = path.join(import.meta.dir, "fixtures/mcp-network-server.ts");
 const cleanup: (() => Promise<unknown>)[] = [];
@@ -14,7 +15,7 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 
 async function tempDir() {
   const dir = await mkdtemp(path.join(os.tmpdir(), "casper-setup-manager-"));
-  cleanup.push(() => rm(dir, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(dir));
   return dir;
 }
 function server(name: string, env: Record<string, string>, args: string[] = [], scope: MCPServerDefinition["scope"] = "user"): MCPServerDefinition {

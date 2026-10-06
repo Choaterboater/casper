@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DebugSession } from "../src/debug/session";
+import { removeTempDir } from "./support/temp-dir";
 
 const extensions = path.join(os.homedir(), ".vscode/extensions");
 const discovered = (await readdir(extensions).catch(() => [])).filter(name => name.startsWith("ms-python.debugpy-")).sort().at(-1);
@@ -52,5 +53,5 @@ for (const finish of ["exit", "stop", "crash"] as const) realTest(`real installe
     await session.close();
     await until(() => { try { process.kill(pid, 0); return false; } catch { return true; } });
     expect(session.status().ownedProcessCleanup).toBe("stopped");
-  } finally { await session.close(); await rm(root, { recursive: true, force: true }); }
+  } finally { await session.close(); await removeTempDir(root); }
 }, 25_000);

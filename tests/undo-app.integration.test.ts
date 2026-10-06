@@ -11,9 +11,10 @@ import type { AgentRuntime, RuntimeEventListener } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { taskExitCode } from "../src/task/result";
 import { posixOnly } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(roots.splice(0).map((root) => removeTempDir(root))); });
 
 interface Turn { (project: string, edited: (file: string) => Promise<unknown>): Promise<void> }
 

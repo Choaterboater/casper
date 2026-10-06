@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { removeTempDir } from "./support/temp-dir";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -7,7 +8,7 @@ import {
 } from "../src/mcp/import";
 
 const cleanup: string[] = [];
-afterEach(async () => { for (const dir of cleanup.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of cleanup.splice(0)) await removeTempDir(dir); });
 async function tempHome() {
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-import-"));
   cleanup.push(home);

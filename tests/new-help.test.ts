@@ -7,6 +7,7 @@ import { EMPTY_TEMPLATE, listTemplates } from "../src/new/templates";
 import { CLI_HELP_TEXT, FULL_HELP_TEXT } from "../src/tui/help";
 import { makeNewFakes, type NewFakes } from "./support/new-fakes";
 import { posixOnly } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 setDefaultTimeout(30_000);
 let fakes: NewFakes | undefined;
@@ -59,7 +60,7 @@ test("/new with a lone kind word where Casper can't ask builds that kind under i
     await app.runOnce("/new python-cli", root);
     expect(output).not.toContain("needs a template and a name");
     expect(built).toEqual([{ template: "python-cli", name: "my-tool" }]);
-  } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
+  } finally { await app.close(); await removeTempDir(root); }
 });
 
 test("/new --help in a session prints the help and asks nothing", async () => {
@@ -77,5 +78,5 @@ test("/new --help in a session prints the help and asks nothing", async () => {
     expect(output).toContain("web-app");
     expect(output).not.toContain("needs a template");
     expect(built).toEqual([]);
-  } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
+  } finally { await app.close(); await removeTempDir(root); }
 });

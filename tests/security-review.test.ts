@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { droppedLine, formatModelFinding, MODEL_FINDING_LABEL, reviewMayRead, validateModelFindings } from "../src/security/review";
+import { removeTempDir } from "./support/temp-dir";
 
 const temps: string[] = [];
-afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });
 
 test("a model finding is kept only with a real in-repo file:line and a concrete example input", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-security-review-"));

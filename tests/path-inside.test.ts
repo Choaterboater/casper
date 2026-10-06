@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { riskyLinesIn } from "../src/network/risky-receipt";
 import { isOutside } from "../src/platform/inside";
 import { within } from "../src/platform/project-paths";
 import { relativePath } from "../src/security/parse";
+import { removeTempDir } from "./support/temp-dir";
 
 describe("inside the project", () => {
   test("only a real step up counts as outside", () => {
@@ -33,7 +34,7 @@ describe("inside the project", () => {
     try {
       await writeFile(path.join(root, "..switch.cfg"), "hostname sw1\nreload\n");
       expect(await riskyLinesIn(root, ["..switch.cfg"])).toEqual([{ file: "..switch.cfg", line: 2, text: "reload", reason: "reboots the switch" }]);
-    } finally { await rm(root, { recursive: true, force: true }); }
+    } finally { await removeTempDir(root); }
   });
 
   test("no code tests for a step out by hand: each uses the one shared check", async () => {

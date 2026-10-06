@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
@@ -7,6 +7,7 @@ import { ServiceManager } from "../src/services/manager";
 import { SmokeChecks } from "../src/services/smoke";
 import { prepareWorkdir, referenceChanges } from "../evals/runner";
 import { findEvalTask } from "../evals/tasks";
+import { removeTempDir } from "./support/temp-dir";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -41,9 +42,9 @@ const catchableSigterm = await sigtermReachesHandler();
 test.each(["solved fixture", "core-rest-validation start"])("the notes fixture server becomes ready and answers GET /notes (%s)", async (which) => {
   const task = findEvalTask("core-rest-validation")!;
   const workdir = await prepareWorkdir(which === "solved fixture" ? { ...task, setup: undefined } : task, repoRoot);
-  cleanup.push(() => rm(workdir, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(workdir));
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-notes-server-home-"));
-  cleanup.push(() => rm(home, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(home));
   const config = await loadConfiguration({ projectRoot: workdir, homeDir: home });
   expect(config.warnings ?? []).toEqual([]);
   expect(config.services.api).toMatchObject({ port: "auto", ready: { http: "/notes" } });
@@ -91,8 +92,8 @@ function runsServerFrom(pid: number, evaluator: string): boolean {
 async function lifecycleAcceptance(source: string) {
   const task = findEvalTask("core-service-lifecycle")!;
   const evaluator = await prepareWorkdir({ ...task, setup: undefined }, repoRoot);
-  cleanup.push(() => rm(evaluator, { recursive: true, force: true }));
-  await rm(path.join(evaluator, "src"), { recursive: true, force: true });
+  cleanup.push(() => removeTempDir(evaluator));
+  await removeTempDir(path.join(evaluator, "src"));
   await cp(path.join(source, "src"), path.join(evaluator, "src"), { recursive: true });
   // Bun prints no `(pass)` lines when it detects an AI agent (AGENT=1, CLAUDECODE=1, ...), and the results are read from them.
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(AGENT|AI_AGENT|CLAUDECODE|OMPCODE|CURSOR_AGENT|GEMINI_CLI|CODEX_\w+)$/.test(name)));
@@ -110,7 +111,7 @@ async function lifecycleAcceptance(source: string) {
 /** The solved fixture with `edits` applied to its `src/` files, each replacement required to match. */
 async function variant(edits: Record<string, [string, string][]>): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-lifecycle-variant-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   await cp(path.join(repoRoot, "evals/fixtures/notes-api/src"), path.join(root, "src"), { recursive: true });
   for (const [file, replacements] of Object.entries(edits)) {
     // A checkout with CRLF line endings (core.autocrlf) must still match the LF replacements.
@@ -131,7 +132,7 @@ test("the lifecycle task's hidden acceptance passes on the solved fixture and fa
   expect({ exit: solved.exitCode, results: solved.results, survivors: solved.survivors, tail: solved.tail })
     .toEqual({ exit: 0, results: results([]), survivors: [], tail: "" });
   const start = await prepareWorkdir(findEvalTask("core-service-lifecycle")!, repoRoot);
-  cleanup.push(() => rm(start, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(start));
   const unsolved = await lifecycleAcceptance(start);
   expect({ exit: unsolved.exitCode, results: unsolved.results }).toEqual({ exit: 1, results: results([0, 1, 2, 3]) });
   // Failing tests still stop every server they started (the setup's server never exits on its own).

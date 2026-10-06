@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
@@ -9,12 +9,13 @@ import { cachePaths, clangModuleCache, hostListed, REGISTRY_HOSTS, sandboxPolicy
 import { SandboxStore } from "../src/sandbox/store";
 import { posixOnly } from "./support/platform";
 import { waitUntil } from "./support/wait";
+import { removeTempDir } from "./support/temp-dir";
 
 /** A temp folder as the policy stores it: resolved, so C:\tmp-fixture on Windows. */
 const TMP = path.resolve("/tmp-fixture");
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(roots.splice(0).map((root) => removeTempDir(root))); });
 
 async function fixture() {
   const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-sandbox-policy-")));

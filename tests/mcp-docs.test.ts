@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { MCPServerDefinition } from "../src/mcp/config";
 import { addUserServer, docsOnlyDefinition, docsPinned, isDocsServer } from "../src/mcp/docs";
 import { matchPreset } from "../src/mcp/presets";
 import { posixModes } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -44,7 +45,7 @@ test("docs tools get a place only for hpe-networking-mcp recognised by what it r
 
 test("the ~/.casper/mcp.json writer keeps existing entries, refuses a used name and a broken file, and creates the file 0600", async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-mcp-docs-"));
-  cleanup.push(() => rm(home, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(home));
   const entry = docsOnlyDefinition(router)!;
   const file = await addUserServer(home, "hpe-docs", entry);
   if (posixModes) expect((await stat(file)).mode & 0o777).toBe(0o600);

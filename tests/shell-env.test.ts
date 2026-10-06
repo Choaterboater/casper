@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ManagedProcess } from "../src/platform/managed-process";
 import { PROVIDER_KEY_NAMES, withoutProviderKeys } from "../src/platform/environment";
 import { runCommandCheck } from "../src/verify/command";
 import { POSIX } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const saved = { ...process.env };
 afterEach(() => { for (const name of ["OPENROUTER_API_KEY", "MIST_API_TOKEN", "CASPER_TEST_SECRET_TOKEN"]) { if (saved[name] === undefined) delete process.env[name]; else process.env[name] = saved[name]; } });
@@ -45,7 +46,7 @@ test("a dev server or service gets no provider key even when its config sets one
       expect(text).not.toContain("sk-openai-fixture");
       expect(text).toContain("APP_MODE=dev");
     } finally { await managed.close(); }
-  } finally { await rm(dir, { recursive: true, force: true }); }
+  } finally { await removeTempDir(dir); }
 });
 
 test("PROVIDER_KEY_NAMES matches the names Pi reads, so a Pi update can't drift", async () => {

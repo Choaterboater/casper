@@ -1,9 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ServiceSpec } from "../src/services/config";
 import { ServiceManager } from "../src/services/manager";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -13,7 +14,7 @@ const spec = (extra: Partial<ServiceSpec> = {}): ServiceSpec => ({ command: `"${
 
 async function manager(services: Record<string, ServiceSpec> = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-slot-")));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   const services_ = new ServiceManager({ projectRoot: root, services });
   cleanups.push(() => services_.close().catch(() => {}));
   return services_;

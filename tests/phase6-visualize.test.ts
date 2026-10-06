@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { MermaidProvider } from "../src/visualize/mermaid";
@@ -11,12 +11,13 @@ import { GRAPH_LIMITS, parseVisualizationGraph, spanningTree, type Visualization
 import { classifyTask } from "../src/task/classify";
 import { artifactFilesystemSupported } from "../src/visualize/artifacts";
 import { needsSymlinks } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
 async function tempDir(prefix: string): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), prefix));
-  cleanup.push(() => rm(dir, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(dir));
   return dir;
 }
 

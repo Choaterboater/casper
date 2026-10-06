@@ -1,7 +1,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { RuntimeEventView } from "../src/app/events";
@@ -10,6 +10,7 @@ import { withLoginDisplay } from "../src/tui/login";
 import { getCapabilities, resetCapabilitiesCache, setCapabilityOverrides, visibleWidth } from "@earendil-works/pi-tui";
 import { posixOnly } from "./support/platform";
 import { PTY_TEST_MS, runPtyFixture } from "./support/pty";
+import { removeTempDir } from "./support/temp-dir";
 
 // The rich-surface path is gated on `TERM !== "dumb"`; a harness or CI shell that
 // exports TERM=dumb must not silently downgrade these fixtures to readline input.
@@ -279,7 +280,7 @@ posixOnly("offline interactive demo supports model/effort popovers and a real te
     const { exit, stdout, stderr } = await runPtyFixture("daily-pty.py", [root]);
     expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
     expect(stdout).toContain("DAILY PTY PASS");
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTempDir(root); }
 }, PTY_TEST_MS);
 
 test("one-shot TTY output stays immediate and separates the final assistant line", () => {

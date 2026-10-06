@@ -1,15 +1,16 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { attachImages, imageMimeType, MAX_IMAGES, startsWithImageFile } from "../src/app/images";
+import { removeTempDir } from "./support/temp-dir";
 
 const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
 const JPEG = Buffer.from("ffd8ffe000104a464946", "hex");
 // Real files in the temp folder use this machine's path form, so those tests read paths the way this system writes them.
 const HOST = process.platform;
 const dirs: string[] = [];
-afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of dirs.splice(0)) await removeTempDir(dir); });
 
 async function folder(): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "casper-images-"));

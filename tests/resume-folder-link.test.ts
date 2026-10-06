@@ -1,8 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -16,7 +17,7 @@ const linksWork = await (async () => {
     await mkdir(path.join(root, "real"));
     await symlink(path.join(root, "real"), path.join(root, "link"), linkType);
     return true;
-  } catch { return false; } finally { await rm(root, { recursive: true, force: true }); }
+  } catch { return false; } finally { await removeTempDir(root); }
 })();
 
 // On Windows the folder a program starts in keeps the spelling it was given: a junction, a link or a short
@@ -24,7 +25,7 @@ const linksWork = await (async () => {
 // real path, so a second start must not move the conversation list to a folder with no conversations in it.
 test.skipIf(!linksWork)("/resume lists the saved conversations when Casper starts through a linked folder", async () => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-resume-link-")));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"); const real = path.join(root, "project"); const project = path.join(root, "linked");
   const agent = path.join(home, ".pi/agent");
   await mkdir(agent, { recursive: true }); await mkdir(path.join(home, ".casper")); await mkdir(real);

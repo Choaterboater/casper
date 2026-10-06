@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { BrowserSession } from "../src/browser/session";
 import { browserTool } from "../src/browser/tools";
 import { needsSymlinks, posixModes } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const executable = process.env.CASPER_BROWSER_EXECUTABLE ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const browserTest = existsSync(executable) ? test : test.skip;
@@ -13,7 +14,7 @@ const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 async function fixture(options: { executablePath?: string; confirm?: (request: unknown, signal: AbortSignal) => Promise<boolean>; navigationTimeoutMs?: number } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-browser-test-")));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const project = path.join(root, "project"), state = path.join(root, "state");
   await mkdir(project); await mkdir(state);
   const sourceFile = path.join(project, "index.html");

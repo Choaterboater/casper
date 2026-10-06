@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createSessionSandbox, outsideWritesReceipt, runtimeShell, SANDBOX_REFUSED, writeAllowedLine, writeCantAsk, writeDeclined, writeOnceLine, type SandboxHost } from "../src/app/sandbox";
@@ -11,6 +11,7 @@ import { SandboxStore } from "../src/sandbox/store";
 import { formatReceipt, formatTaskResult } from "../src/task/result";
 import { fakeEngine } from "./support/sandbox-fakes";
 import { posixOnly } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 /**
  * Writes outside the project, by the AI's shell or its edit and write tools: one question per folder (1 No · 2 Yes,
@@ -22,7 +23,7 @@ import { posixOnly } from "./support/platform";
 // (posixOnly below) can't ask on Windows. The write and edit tool route asks there too and runs everywhere.
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(roots.splice(0).map((root) => removeTempDir(root))); });
 
 async function fixture() {
   const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-sandbox-writes-")));

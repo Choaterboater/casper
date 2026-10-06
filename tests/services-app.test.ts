@@ -11,6 +11,7 @@ import { SkillRegistry } from "../src/skills/registry";
 import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { COMMANDS } from "../src/tui/commands";
 import { FULL_HELP_TEXT, HELP_TEXT } from "../src/tui/help";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -44,7 +45,7 @@ class ScriptedRuntime implements AgentRuntime {
 
 async function fixture(env: Record<string, string> = {}, options: { input?: PassThrough; declare?: boolean; noSandbox?: boolean } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-services-app-")));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   const home = path.join(root, "home"), project = path.join(root, "project");
   await mkdir(home); await mkdir(path.join(project, ".casper"), { recursive: true });
   const marker = path.join(root, "grandchild.pid");

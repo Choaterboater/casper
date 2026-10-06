@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -16,6 +16,7 @@ import { INSTALL_CHOICES, OSV_UPDATE_QUESTION } from "../src/security/install";
 import { tasksChoices, type BackgroundTask } from "../src/app/background";
 import { SHOW_PAGES_CHOICES } from "../src/services/page-look";
 import { copiesChoices, crewChoices } from "../src/crew/command";
+import { removeTempDir } from "./support/temp-dir";
 
 const running = (name: string): BackgroundTask => ({ kind: "dev server", name, status: "running", stop: async () => "" });
 
@@ -145,7 +146,7 @@ test("Enter at the empty-folder question builds nothing: Not now is choice 1", a
     expect(await newProjectInEmptyFolder(flow, path.join(home, "demo"))).toBeUndefined();
     expect(asked[0]!.labels[0]).toBe("Not now");
     expect(created()).toBe(0);
-  } finally { await rm(home, { recursive: true, force: true }); }
+  } finally { await removeTempDir(home); }
 });
 
 test("a request typed at the empty-folder question works in this folder: it is the first request, not a wrong answer", async () => {
@@ -163,7 +164,7 @@ test("a request typed at the empty-folder question works in this folder: it is t
     const slip: NewProjectFlow = { ...flow, pick: async () => "webb" };
     expect(await newProjectInEmptyFolder(slip, path.join(home, "demo"), (text) => requests.push(text))).toBeUndefined();
     expect(requests.length).toBe(1);
-  } finally { await rm(home, { recursive: true, force: true }); }
+  } finally { await removeTempDir(home); }
 });
 
 test("Enter at the build-request question, and at its Other kind list, keeps the folder", async () => {
@@ -186,7 +187,7 @@ test("Enter at the build-request question, and at its Other kind list, keeps the
     expect(other.asked[1]!.question).toBe("What are you building?");
     expect(other.asked[1]!.labels[0]).toBe("Use this folder");
     expect(other.created()).toBe(0);
-  } finally { await rm(home, { recursive: true, force: true }); }
+  } finally { await removeTempDir(home); }
 });
 
 test("Enter at \"sample-tools isn't a folder in Documents\" makes nothing: Stay is choice 1", async () => {
@@ -197,5 +198,5 @@ test("Enter at \"sample-tools isn't a folder in Documents\" makes nothing: Stay 
     expect(asked[0]!.question).toBe("sample-tools isn't a folder in Documents. Make it?");
     expect(asked[0]!.labels).toEqual(["Stay in Documents", "Make sample-tools here"]);
     expect(created()).toBe(0);
-  } finally { await rm(home, { recursive: true, force: true }); }
+  } finally { await removeTempDir(home); }
 });

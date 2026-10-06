@@ -1,14 +1,15 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { NotExecutedError } from "../src/capabilities/result";
 import type { ReaderComplete } from "../src/reader/quarantine";
 import { READER_TOOL, readerTool, type ReaderToolOptions } from "../src/reader/tool";
 import { INJECTIONS } from "./fixtures/reader-injections";
+import { removeTempDir } from "./support/temp-dir";
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(roots.splice(0).map((dir) => removeTempDir(dir))); });
 
 async function project() {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-reader-tool-")); roots.push(root);

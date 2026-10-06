@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -9,6 +9,7 @@ import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEventListener } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { checkCommand } from "./support/check-command";
+import { removeTempDir } from "./support/temp-dir";
 
 /** An interactive app on the plain terminal. The fake model edits calc.py; `shell` makes it also run that command
  * through bash first. */
@@ -74,7 +75,7 @@ async function fixture(options: { projectYaml: string; shell?: string }) {
   };
   const receipt = /(?:✓ Verified|• Not verified|• Not checked|• Checks passed|✗ Failed|• No files changed|✓ Changed)[\s\S]*\n> $/;
   return { app, project, home, prompts, send, receipt, output: () => output, close: async () => {
-    input.end(); await interactive; await app.close(); await rm(root, { recursive: true, force: true });
+    input.end(); await interactive; await app.close(); await removeTempDir(root);
   } };
 }
 
@@ -186,5 +187,5 @@ test("a one-shot run never shows suggestions", async () => {
     expect(output).toContain("Not proven");
     expect(output).not.toContain("Next:");
     expect(output).not.toContain("Add a test that proves");
-  } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
+  } finally { await app.close(); await removeTempDir(root); }
 }, 60_000);

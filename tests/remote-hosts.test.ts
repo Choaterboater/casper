@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { remoteTargets, runsAlone, splitShell, targetLabel } from "../src/sandbox/remote";
 import { remoteChanges } from "../src/task/remote-changes";
+import { removeTempDir } from "./support/temp-dir";
 
 /**
  * Where the AI's shell commands go: ssh, scp, sftp, rsync, nc, telnet and socat, with ~/.ssh/config aliases resolved
@@ -16,7 +17,7 @@ beforeAll(async () => {
   await mkdir(path.join(home, ".ssh"));
   await writeFile(path.join(home, ".ssh/config"), "Host build-server\n  HostName 198.51.100.20\n  User root\n  Port 2222\n\nHost *.lab\n  User admin\n");
 });
-afterAll(() => rm(home, { recursive: true, force: true }));
+afterAll(() => removeTempDir(home));
 
 const hosts = (command: string) => remoteTargets(command, home).map(({ tool, typed, host, user, port }) => ({ tool, typed, host, ...(user ? { user } : {}), ...(port ? { port } : {}) }));
 

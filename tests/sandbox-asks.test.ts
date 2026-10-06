@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createSessionSandbox, runtimeShell, SHELL_CANT_ASK, SHELL_DECLINED, writeCantAsk, type SandboxHost } from "../src/app/sandbox";
@@ -11,6 +11,7 @@ import { ShellSandbox } from "../src/sandbox/manager";
 import { SandboxStore } from "../src/sandbox/store";
 import { fakeEngine } from "./support/sandbox-fakes";
 import { posixModes, posixOnly } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 /**
  * The questions the sandbox asks: a host that is not listed, and (when no sandbox can run) each command the AI's
@@ -19,7 +20,7 @@ import { posixModes, posixOnly } from "./support/platform";
  */
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(roots.splice(0).map((root) => removeTempDir(root))); });
 
 async function fixture() {
   const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-sandbox-asks-")));

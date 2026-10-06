@@ -3,6 +3,7 @@ import { isSecretFile, isSecretName, scrubAssignments, scrubPlainSecrets, secret
 import { Scrubber } from "../src/secrets/netconan";
 import { scrubProseSecrets } from "../src/secrets/prose";
 import { scrubToolOutput } from "../src/secrets/tool-output";
+import { removeTempDir } from "./support/temp-dir";
 
 const scrubber = new Scrubber({ env: { CASPER_NETCONAN: "off" } });
 const DOTENV = "# Mist\nMIST_APITOKEN=abc123\nexport CENTRAL_CLIENT_SECRET=\"s3cr3t value\"\nMIST_HOST=api.mist.com\nDB_PASSWORD=hunter2 # local\n";
@@ -118,7 +119,7 @@ test("keys in Casper's login file are hidden wherever they show up", async () =>
     expect(result!.texts[0]).toBe("key <secret hidden> and <secret hidden>");
     // A missing login file hides nothing extra.
     expect(await scrubToolOutput(scrubber, "bash", { command: "echo" }, ["sk-or-v1-0123456789abcdef"], undefined, { configs: false, env: {}, loginFile: path.join(dir, "none.json") })).toBeUndefined();
-  } finally { await rm(dir, { recursive: true, force: true }); }
+  } finally { await removeTempDir(dir); }
 });
 
 test("service tool JSON is checked string by string", async () => {

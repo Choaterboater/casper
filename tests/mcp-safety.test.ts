@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { MCPManager, type MCPManagerOptions, type ServerQuestion, type ServerQuestionAnswer } from "../src/mcp/manager";
@@ -9,6 +9,7 @@ import { formatApproval } from "../src/capabilities/approval";
 import { numberPrompt } from "../src/tui/terminal";
 import { rejection } from "./support/settle";
 import { waitUntil } from "./support/wait";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: (() => Promise<unknown> | unknown)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -16,7 +17,7 @@ const fixturePath = path.join(import.meta.dir, "fixtures/mcp-server.ts");
 
 async function callsFile(): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-safety-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   return path.join(root, "calls.jsonl");
 }
 async function calls(file: string): Promise<Record<string, unknown>[]> {

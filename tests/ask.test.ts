@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -12,6 +12,7 @@ import { InteractiveTerminal } from "../src/tui/terminal";
 import { fakeWriter, interactiveTerminal } from "./support/tty";
 import { ASK_BUDGET, askTool, type AskChannel } from "../src/tui/ask";
 import { formatTaskPrompt, underSpecifiedTarget } from "../src/task/classify";
+import { removeTempDir } from "./support/temp-dir";
 
 // The rich-surface path is gated on `TERM !== "dumb"`; a harness or CI shell that
 // exports TERM=dumb must not silently downgrade these fixtures to readline input.
@@ -311,7 +312,7 @@ test("an asked question is recorded on its own lines, and the ask tool leaves on
     await interactive;
     await app.close();
     input.destroy();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 }, 15_000);
 

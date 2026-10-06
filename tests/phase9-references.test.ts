@@ -6,12 +6,13 @@ import path from "node:path";
 import { discoverReferenceConfiguration } from "../src/references/config";
 import { ReferenceLibrary } from "../src/references/library";
 import { needsFifos, needsSymlinks } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-references-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home");
   const repo = path.join(root, "reference");
   const project = path.join(root, "project");

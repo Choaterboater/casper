@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CapabilityBroker, type ConfirmCapability } from "../src/capabilities/broker";
 import type { MCPServerDefinition } from "../src/mcp/config";
 import { MCPManager } from "../src/mcp/manager";
 import type { RuntimeTool } from "../src/runtime/types";
+import { removeTempDir } from "./support/temp-dir";
 
 const network = path.join(import.meta.dir, "fixtures/mcp-network-server.ts");
 const cleanup: (() => Promise<unknown>)[] = [];
@@ -52,7 +53,7 @@ test("a secret under a key like psk is hidden; hpe-networking-mcp's hpe_mcp_secr
 
 test("a change that still has <secret hidden> in it is refused before anyone is asked, and nothing is sent", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-secret-gate-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const calls = path.join(root, "calls.log");
   let asked = 0;
   const { broker } = await connected(server("lab", { FIXTURE_MODE: "config", FIXTURE_CALLS_FILE: calls }), async () => { asked++; return true; });

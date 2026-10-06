@@ -1,9 +1,10 @@
 import { afterEach, expect } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { posixOnly } from "./support/platform";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -24,7 +25,7 @@ function calls(tools: Array<{ name: string; args: unknown }>): Response {
 posixOnly("the beforeChanges gate blocks a native write until the gate opens", async () => {
   let step = 0;
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-pi-gate-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"); const project = path.join(root, "project"); const agent = path.join(home, ".pi/agent");
   await mkdir(agent, { recursive: true }); await mkdir(project);
   const payloads: Payload[] = [];
@@ -63,7 +64,7 @@ posixOnly("the beforeChanges gate blocks a native write until the gate opens", a
 posixOnly("beforeToolGate is consulted for every tool, reading included", async () => {
   let step = 0;
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-pi-gate-all-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"); const project = path.join(root, "project"); const agent = path.join(home, ".pi/agent");
   await mkdir(agent, { recursive: true }); await mkdir(project);
   await writeFile(path.join(project, "notes.txt"), "secret plan\n");

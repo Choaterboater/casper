@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { RuntimeEventView } from "../src/app/events";
 import { explainModelError } from "../src/runtime/model-errors";
 import { formatReceipt } from "../src/task/result";
+import { removeTempDir } from "./support/temp-dir";
 
 test("provider errors are sorted by cause", () => {
   const cases: Array<[string, string | undefined]> = [
@@ -106,7 +107,7 @@ test("a run that fails on a rejected key ends with /login as the next step", asy
     expect(app.getLastTaskResult()?.modelError).toBe("key");
     expect(output).toContain("Next: /login to sign in again");
     expect(output).not.toContain("try another model");
-  } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
+  } finally { await app.close(); await removeTempDir(root); }
 });
 
 test("a model error thrown to the prompt loop gets the plain cause line too", async () => {
@@ -147,5 +148,5 @@ test("a model error thrown to the prompt loop gets the plain cause line too", as
     expect(output).not.toContain("[error] 401 Unauthorized");
     input.end();
     await interactive;
-  } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
+  } finally { await app.close(); await removeTempDir(root); }
 });

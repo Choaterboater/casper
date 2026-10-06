@@ -1,12 +1,13 @@
 import { afterEach, expect, setDefaultTimeout } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { formatNewProjectReceipt } from "../src/new/receipt";
 import { createProject, missingToolMessage, tildePath } from "../src/new/scaffold";
 import { makeNewFakes, type NewFakes } from "./support/new-fakes";
 import { posixOnly, posixSymlinks } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 setDefaultTimeout(30_000);
 
@@ -234,5 +235,5 @@ posixSymlinks("a folder under a home reached through a link is still shown with 
     expect(tildePath(path.join(home, "Projects"), home)).toBe("~/Projects");
     expect(tildePath(home, home)).toBe("~");
     expect(tildePath(path.join(base, "elsewhere"), home)).toBe(path.join(base, "elsewhere"));
-  } finally { await rm(base, { recursive: true, force: true }); }
+  } finally { await removeTempDir(base); }
 });

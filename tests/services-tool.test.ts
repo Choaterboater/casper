@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CORE_PACK, NETWORK_PACK } from "../evals/packs";
 import type { ServiceSpec } from "../src/services/config";
 import { ServiceManager } from "../src/services/manager";
 import { serviceRequested, serviceTool } from "../src/services/tool";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -23,7 +24,7 @@ const gone = (pid: number) => until(() => !alive(pid));
 
 async function fixture(spec: Partial<ServiceSpec> = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-service-tool-")));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   await mkdir(path.join(root, "src"));
   const marker = path.join(root, "grandchild.pid");
   const manager = new ServiceManager({ projectRoot: root, services: {

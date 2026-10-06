@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
@@ -9,9 +9,10 @@ import { editUserConfig } from "../src/config/user-write";
 import { runSettings, settingRows, type SettingsHost } from "../src/app/settings";
 import { posixOnly } from "./support/platform";
 import type { MCPStatus } from "../src/mcp/manager";
+import { removeTempDir } from "./support/temp-dir";
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(roots.splice(0).map((dir) => removeTempDir(dir))); });
 async function place() {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-settings-")); roots.push(root);
   const home = path.join(root, "home"); const project = path.join(root, "project");

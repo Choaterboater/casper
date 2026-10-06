@@ -9,6 +9,7 @@ import { formatVerificationResult } from "../src/verify/evidence";
 import { VerifierRegistry } from "../src/verify/registry";
 import { verifyAndRepair } from "../src/verify/repair-loop";
 import { CHECK_LIMIT_MS, checkCommand } from "./support/check-command";
+import { removeTempDir } from "./support/temp-dir";
 
 const dirs: string[] = [];
 async function fixture(config = "") {
@@ -21,7 +22,7 @@ async function fixture(config = "") {
   return { root, homeDir, context };
 }
 
-afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => removeTempDir(dir))); });
 
 describe("Phase 3 verification", () => {
   test("project verify commands override model commands, invalidate cache, and retain detected fallbacks", async () => {

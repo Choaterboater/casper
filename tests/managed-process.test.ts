@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readdir, readFile, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { freePort, ManagedProcess, ManagedProcessError, portInUse, type ManagedProcessOptions } from "../src/platform/managed-process";
 import { OwnedProcesses, osSupportsProcessGroups, ProcessCleanupError, type ProcessPlatform } from "../src/platform/processes";
 import { BrowserServer } from "../src/browser/server";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -21,7 +22,7 @@ const gone = (pid: number) => until(() => { try { process.kill(pid, 0); return f
 
 async function fixture(env: Record<string, string>, options: Partial<ManagedProcessOptions> | ((origin: string) => Partial<ManagedProcessOptions>) = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-managed-test-")));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   const port = await freePort();
   const marker = path.join(root, "grandchild.pid");
   const managed = new ManagedProcess({ command: COMMAND, cwd: root, env: { PORT: String(port), HOST: "127.0.0.1", SPAWN_CHILD: marker, ...env },
@@ -129,7 +130,7 @@ test("an unconfirmed cleanup raises the process cleanup error", async () => {
 
 test("a browser server closed while its port is probed never spawns the development server", async () => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-managed-test-")));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   const port = await freePort();
   const server = new BrowserServer();
   cleanups.push(() => server.close().catch(() => {}));

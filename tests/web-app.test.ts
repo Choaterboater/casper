@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
@@ -10,11 +10,12 @@ import type { AgentRuntime, RuntimeTool } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { formatToolActivity } from "../src/tui/format";
 import type { WebHttpRequest } from "../src/web/lookup";
+import { removeTempDir } from "./support/temp-dir";
 
 /** Web lookups as a session offers them: on by default with no question, off with web: off in your own config. */
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(roots.splice(0).map((root) => removeTempDir(root))); });
 
 async function folders() {
   const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-web-app-")));

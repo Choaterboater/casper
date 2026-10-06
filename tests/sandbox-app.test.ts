@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp, type CasperAppOptions } from "../src/app";
@@ -8,11 +8,12 @@ import type { AgentRuntime, RuntimeStartOptions } from "../src/runtime/types";
 import { currentSandbox } from "../src/sandbox/manager";
 import { SkillRegistry } from "../src/skills/registry";
 import { fakeEngine } from "./support/sandbox-fakes";
+import { removeTempDir } from "./support/temp-dir";
 
 /** The sandbox as a session shows it: the banner's shell line, /sandbox, /status, the receipt and the AI's bash. */
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(roots.splice(0).map((root) => removeTempDir(root))); });
 
 async function fixture(options: Partial<CasperAppOptions> = {}, edit = true) {
   const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-sandbox-app-")));

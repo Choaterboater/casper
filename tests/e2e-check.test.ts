@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadProjectContext } from "../src/project/context";
@@ -8,11 +8,12 @@ import { detectE2e, E2E_CHECK, e2eResult } from "../src/verify/e2e";
 import { autoDetectedChecks } from "../src/verify/migrations-check";
 import { planAutoChecks } from "../src/verify/mode";
 import { defaultVerifyNames, VerifierRegistry } from "../src/verify/registry";
+import { removeTempDir } from "./support/temp-dir";
 
 /** Playwright end-to-end tests the project already has: found from its files, run as the `e2e` check. Casper never installs them. */
 
 const temporary: string[] = [];
-afterEach(async () => { await Promise.all(temporary.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(temporary.splice(0).map((dir) => removeTempDir(dir))); });
 
 async function project(files: Record<string, string>, installed = false): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-e2e-"));

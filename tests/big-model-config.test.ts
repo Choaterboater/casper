@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
+import { removeTempDir } from "./support/temp-dir";
 
 async function folders() {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-big-model-config-"));
@@ -39,7 +40,7 @@ test("repair.bigModelLastTry and suggestions load from the user's config and a p
     await expect(loadConfiguration({ projectRoot, homeDir })).rejects.toThrow("repair.bigModelLastTry must be true or false");
   } finally {
     if (previous === undefined) delete process.env.CASPER_PROFILE; else process.env.CASPER_PROFILE = previous;
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -56,6 +57,6 @@ test("a project cannot choose to spend on the big model or turn suggestions on o
     await writeFile(path.join(projectRoot, ".casper/project.yaml"), "updates: false\n");
     await expect(loadConfiguration({ projectRoot, homeDir })).rejects.toThrow("updates is a user setting");
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });

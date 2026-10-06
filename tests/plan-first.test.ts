@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -9,6 +9,7 @@ import { bundledFlows, findFlow } from "../src/flows/catalog";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEventListener, RuntimeStartOptions } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
+import { removeTempDir } from "./support/temp-dir";
 
 // The rich-surface path is gated on `TERM !== "dumb"`.
 const ambientTerm = process.env.TERM;
@@ -96,7 +97,7 @@ async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boo
   if (tty) await screen.until((output) => output.includes(process.env.TERM === "dumb" ? "> " : "idle"));
   return { app, input, screen, prompts, gate, project, plain: () => plain, checklistCalls: () => checklistCalls, close: async () => {
     if (interactive) { if (plainTerminal) input.end(); else input.write("/exit\r"); await interactive; }
-    await app.close(); input.destroy(); await rm(root, { recursive: true, force: true });
+    await app.close(); input.destroy(); await removeTempDir(root);
   } };
 }
 

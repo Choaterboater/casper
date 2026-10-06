@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { formatTerminalJSON } from "../src/tui/json";
 import os from "node:os";
@@ -8,6 +8,7 @@ import { DebugSession } from "../src/debug/session";
 import { needsSymlinks } from "./support/platform";
 import { rejection } from "./support/settle";
 import { processGone, waitForPid } from "./support/wait";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -18,7 +19,7 @@ async function fixture(confirm: (preview: string, signal: AbortSignal) => Promis
     // Teardown fallback for a deliberately broken production cleanup in fault probes.
     const pid = Number(await readFile(path.join(root, "debuggee-pid"), "utf8").catch(() => "0"));
     if (pid > 0) { try { process.kill(-pid, "SIGKILL"); } catch {} }
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   });
   await mkdir(path.join(root, ".casper"));
   await writeFile(path.join(root, "program.py"), "answer = 42\nprint(answer)\n");

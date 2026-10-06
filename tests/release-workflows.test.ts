@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parse } from "yaml";
 import { verifySshSignature } from "../src/update/signature";
 import { sshKeygenVerifies } from "./support/release-signing";
+import { removeTempDir } from "./support/temp-dir";
 
 /**
  * Casper's own CI: every action is pinned to a commit, and the job that may write a release runs
@@ -19,7 +20,7 @@ interface Step { uses?: string; run?: string; name?: string; with?: Record<strin
 interface Job { permissions?: Record<string, string>; steps: Step[]; needs?: string | string[] }
 interface Workflow { permissions?: Record<string, string>; jobs: Record<string, Job> }
 const temps: string[] = [];
-afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });
 const load = (name: string): Workflow => parse(readFileSync(path.join(DIR, name), "utf8")) as Workflow;
 
 test("every action in every workflow is pinned to a full commit", () => {

@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { observeHarness, runHarness } from "../evals/harness";
+import { removeTempDir } from "./support/temp-dir";
 
 test("Casper observations use the last complete answer, not deltas or its verification claim", () => {
   const result = observeHarness("casper", [
@@ -101,7 +102,7 @@ test("a route pins every harness's model to the same OpenRouter hosts, without f
       await runHarness(name, { command: [process.execPath, path.join(import.meta.dir, "fixtures/eval-harness-cli.ts")],
         cwd: workdir, prompt: "inspect models", model: "openrouter/z-ai/glm-5.3-flash", effort: "medium", timeoutMs: 5000, route: ["Together", "Novita"] });
       written.push(JSON.parse(await readFile(path.join(workdir, "models.json"), "utf8")));
-    } finally { await rm(workdir, { recursive: true, force: true }); }
+    } finally { await removeTempDir(workdir); }
   }
   // OpenRouter pins a conversation to one host; hosts differ tenfold in speed, so both harnesses get the same ones.
   expect(written[0]).toEqual({ providers: { openrouter: { modelOverrides: { "z-ai/glm-5.3-flash": {
@@ -132,8 +133,8 @@ test.each(["casper", "pi", "omp"] as const)("%s keeps a saved conversation in th
     // The caller owns the home: it survives the run.
     expect(await stat(home).then(() => true, () => false)).toBe(true);
   } finally {
-    await rm(workdir, { recursive: true, force: true });
-    await rm(home, { recursive: true, force: true });
+    await removeTempDir(workdir);
+    await removeTempDir(home);
   }
 });
 
@@ -166,7 +167,7 @@ test.each(["casper", "pi", "omp"] as const)("%s receives explicit identical task
     if (name !== "casper") expect(observed.piDir).toBe(path.join(observed.home, name === "omp" ? ".omp/agent" : ".pi/agent"));
   } finally {
     if (previous === undefined) delete process.env.EVAL_HARNESS_SECRET; else process.env.EVAL_HARNESS_SECRET = previous;
-    await rm(workdir, { recursive: true, force: true });
+    await removeTempDir(workdir);
   }
 });
 
@@ -186,8 +187,8 @@ test.each([["casper-no-review", "review: false"], ["casper-review", "review: tru
     expect(observed.casperDir).toBe(path.join(home, ".casper/agent"));
     expect(await readFile(path.join(home, ".casper/config.yaml"), "utf8")).toBe(`verification:\n  ${setting}\n`);
   } finally {
-    await rm(workdir, { recursive: true, force: true });
-    await rm(home, { recursive: true, force: true });
+    await removeTempDir(workdir);
+    await removeTempDir(home);
   }
 });
 
@@ -200,7 +201,7 @@ test.each(["casper", "pi", "omp"] as const)("%s stops a hung CLI at its deadline
     });
     expect(result.termination).toBe("timeout");
     expect(result.wallClockMs).toBeLessThan(3000);
-  } finally { await rm(workdir, { recursive: true, force: true }); }
+  } finally { await removeTempDir(workdir); }
 });
 
 test.each(["casper", "pi"] as const)("%s copies only the selected provider and preserves the caller's seed files", async name => {
@@ -220,7 +221,7 @@ test.each(["casper", "pi"] as const)("%s copies only the selected provider and p
     expect(JSON.parse(await readFile(path.join(root, "seed.json"), "utf8")))
       .toEqual({ providers: ["test"], catalog: '{"synthetic":true}' });
     expect(await readFile(authPath, "utf8")).toBe(auth);
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTempDir(root); }
 });
 
 test("OMP gets only the selected provider's credential in its own store, and no Pi model catalog", async () => {
@@ -251,7 +252,7 @@ test("OMP gets only the selected provider's credential in its own store, and no 
         seed: { authPath }, session: { home, id: "bench-1", resume } })).toMatchObject({ termination: "completed" });
     }
     expect(JSON.parse(await readFile(path.join(root, "seed.json"), "utf8")).credentials).toHaveLength(1);
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTempDir(root); }
 });
 
 test("Casper's own failed verdict is a finished run, not a failed one: the tree is graded like Pi's", () => {
@@ -287,7 +288,7 @@ test("a Casper run whose checks failed is still completed through the CLI; its s
       cwd: workdir, prompt: "checks fail", model: "test/model", effort: "medium", timeoutMs: 2000,
     });
     expect(result).toMatchObject({ termination: "completed", exitCode: 1, errors: [] });
-  } finally { await rm(workdir, { recursive: true, force: true }); }
+  } finally { await removeTempDir(workdir); }
 });
 
 test("a clean exit without a completed assistant exchange is not success", () => {

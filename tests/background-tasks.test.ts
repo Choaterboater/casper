@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { stringify } from "yaml";
@@ -10,6 +10,7 @@ import { SubagentManager, type HelperActivity } from "../src/agents/manager";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeReadOnlyStartOptions, RuntimeSession } from "../src/runtime/types";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -141,7 +142,7 @@ const SERVER = path.join(import.meta.dir, "fixtures", "service-server.ts");
 
 test("/tasks in Casper lists a running dev server with plain words and stops it", async () => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-tasks-app-")));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   const home = path.join(root, "home"), project = path.join(root, "project");
   await mkdir(home); await mkdir(path.join(project, ".casper"), { recursive: true });
   await writeFile(path.join(project, ".casper", "project.yaml"), stringify({ services: { api: {

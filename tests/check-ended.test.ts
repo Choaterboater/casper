@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { checkEvent } from "../src/app/json-events";
@@ -7,12 +7,13 @@ import { formatReceipt } from "../src/task/result";
 import { checkEnded, runCommandCheck } from "../src/verify/command";
 import type { VerificationResult } from "../src/verify/evidence";
 import { checkCommand } from "./support/check-command";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); });
 async function root(): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "casper-ended-"));
-  cleanup.push(() => rm(dir, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(dir));
   return dir;
 }
 

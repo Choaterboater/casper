@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { deflateSync } from "node:zlib";
@@ -7,6 +7,7 @@ import { compileExecutable } from "../scripts/compile";
 import { CASPER_VERSION } from "../src/version";
 import { cleanEnv } from "./support/env";
 import { needsSandbox } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 // Bun 1.4 copies a read-only runtime (Homebrew's 0555 bun) into the build's cwd as
 // `.<hash>-00000000.bun-build` and never unlinks it; the compile must not leave one here.
@@ -15,7 +16,7 @@ const bunBuildLeaks = async () => (await readdir(process.cwd())).filter((name) =
 // Windows keeps a just-exited .exe locked for a moment, so removing its folder can fail with EBUSY or EPERM.
 async function removeDir(dir: string): Promise<void> {
   for (let attempt = 0; ; attempt++) {
-    try { return await rm(dir, { recursive: true, force: true }); } catch (error) {
+    try { return await removeTempDir(dir); } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (attempt >= 20 || (code !== "EBUSY" && code !== "EPERM")) throw error;
       await Bun.sleep(250);

@@ -1,16 +1,17 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ProjectModel } from "../src/project/model";
 import { MAX_BUNDLED_BODY_BYTES, scoreWebSkill, STOP_AND_ASK_LINE, webSkills } from "../src/skills/bundled";
 import { formatSelectedSkills, SkillRegistry } from "../src/skills/registry";
 import { classifyTask } from "../src/task/classify";
+import { removeTempDir } from "./support/temp-dir";
 
 /** The bundled frontend skill: picked only for UI work in a project with no look of its own yet. */
 
 const temporary: string[] = [];
-afterEach(async () => { await Promise.all(temporary.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(temporary.splice(0).map((dir) => removeTempDir(dir))); });
 
 function model(architecture: Record<string, string> = {}, frameworks: string[] = [], languages = ["typescript"]): ProjectModel {
   return {

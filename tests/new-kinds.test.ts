@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { lstat, mkdtemp, readdir, rm } from "node:fs/promises";
+import { lstat, mkdtemp, readdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { askBuildRequest, newProjectFromQuestions, type NewProjectFlow } from "../src/app/new-project";
@@ -9,6 +9,7 @@ import { formatNewProjectReceipt } from "../src/new/receipt";
 import { createProject, type NewProjectOptions, type NewProjectResult } from "../src/new/scaffold";
 import { makeNewFakes, type NewFakes } from "./support/new-fakes";
 import { posixOnly } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 /**
  * "What are you building?" asks the kind first (Network, MCP server, Web app or dashboard, Python tool, My own),
@@ -19,7 +20,7 @@ let fakes: NewFakes | undefined;
 let home: string | undefined;
 afterEach(async () => {
   await fakes?.cleanup(); fakes = undefined;
-  if (home) await rm(home, { recursive: true, force: true }); home = undefined;
+  if (home) await removeTempDir(home); home = undefined;
 });
 
 /** A flow that answers each question from `answers` in turn (by label), and records what it was asked. */

@@ -1,13 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { snapshotTree } from "../src/task/changes";
 import { taskOutcome, formatReceipt, formatTaskResult, type TaskResult } from "../src/task/result";
 import { acceptanceTarget, failedTestNames, independentAcceptance, type AcceptanceCompletion } from "../src/verify/acceptance";
+import { removeTempDir } from "./support/temp-dir";
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(roots.splice(0).map((root) => removeTempDir(root))); });
 
 async function project(withTests = true): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-acceptance-")); roots.push(root);

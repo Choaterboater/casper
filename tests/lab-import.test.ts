@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { addLabHosts, labImportList, parseLabFile } from "../src/network/lab-import";
+import { removeTempDir } from "./support/temp-dir";
 
 const dirs: string[] = [];
-afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of dirs.splice(0)) await removeTempDir(dir); });
 async function home() { const dir = await mkdtemp(path.join(os.tmpdir(), "casper-lab-import-")); dirs.push(dir); return dir; }
 
 test("a lab file is JSON with hosts, or one host per line; each entry is checked like lab.hosts", () => {

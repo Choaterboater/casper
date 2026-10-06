@@ -16,12 +16,13 @@ import { verifyAndRepair } from "../src/verify/repair-loop";
 import { runCommandCheck } from "../src/verify/command";
 import { checkCommand } from "./support/check-command";
 import { needsFifos, needsSymlinks, posixModes } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-memory-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(home); await mkdir(project);
   const context = await loadProjectContext({ root: project, cwd: project, gitBranch: null, name: "project", isGit: false }, { homeDir: home });

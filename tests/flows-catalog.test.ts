@@ -1,15 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { bundledFlows, findFlow, formatFlowPrompt, loadFlowCatalog, MAX_FLOW_BODY_BYTES, parseFlow } from "../src/flows/catalog";
 import type { ProjectModel } from "../src/project/model";
 import { SkillRegistry } from "../src/skills/registry";
 import { classifyTask } from "../src/task/classify";
+import { removeTempDir } from "./support/temp-dir";
 
 const temporary: string[] = [];
 afterEach(async () => {
-  await Promise.all(temporary.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  await Promise.all(temporary.splice(0).map((directory) => removeTempDir(directory)));
 });
 
 async function fixture() {

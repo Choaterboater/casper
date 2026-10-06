@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { DetectedWebService } from "../src/services/detect";
 import { ServiceManager } from "../src/services/manager";
 import { formatPageLine, formatPageReport, HttpPageOpener, pageFailureSummary, PageChecks, serverTraceback, type PageLoad, type PageOpener } from "../src/services/page-checks";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -22,7 +23,7 @@ console.log("listening", server.port);
 
 async function fixture(options: { command?: string; frameworks?: string[]; timeoutMs?: number } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-pages-")));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   await writeFile(path.join(root, "server.ts"), SERVER);
   const manager = new ServiceManager({ projectRoot: root, services: {} });
   cleanups.push(() => manager.close().catch(() => {}));
