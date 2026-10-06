@@ -1,7 +1,7 @@
 /**
  * Builders the AI starts itself (the delegate tool's role builder), as Claude Code and omp do: each works in its own
- * crew copy with the same limits and sandbox as a /crew builder, and when it ends its change is applied to your
- * folder, uncommitted, with no question. Every applied file is noted like the AI's own edit, so checks, dev servers,
+ * crew copy with the same limits and sandbox as a /crew builder. The copy starts from your folder as it is (unsaved
+ * and new files included), and when the builder ends its change is applied to your folder, uncommitted, with no question. Every applied file is noted like the AI's own edit, so checks, dev servers,
  * the receipt and /undo see it (one /undo takes the whole task back). A change that touches a file changed in your
  * folder since the copy started is not forced in: the copy is kept (/crew lists it) and the AI is told.
  */
@@ -10,6 +10,7 @@ import { realpath } from "node:fs/promises";
 import path from "node:path";
 import type { BuilderRunOptions, BuildOutcome, DelegateBuilders, SubagentResult } from "../agents/manager";
 import type { RuntimeShell } from "../runtime/types";
+import { LINE_MARKER, SECRET_MARKER } from "../secrets/scrub";
 import { redactPreview } from "../tui/format";
 import { GitWorktreeManager, type WorktreePatch, type WorktreeRelation } from "../workspace/worktree";
 import { costText } from "./command";
@@ -34,7 +35,8 @@ export interface AutoBuildHost {
 export type BuilderSteer = "split" | "solo" | undefined;
 
 const SOLO = /\b(?:no helpers?|without (?:any )?helpers?|no builders?|by yourself|on your own|do it yourself|yourself only)\b/i;
-const SPLIT = /(?<![/\w-])crew\b|\bsplit (?:this|it|the (?:work|job))(?: up)?\b|\bsplit up\b|\bin parallel\b/i;
+/** Words about how Casper works, not about the code ("run the tests in parallel", "the crew list" are not). */
+const SPLIT = /\bsplit (?:this|it|the (?:work|job))(?: up)?\b|\bsplit up\b|\b(?:use|start|with) (?:a |the |some )?(?:crew|builders?)\b|\b(?:work|do (?:this|these|them|it|the parts|both|all))(?: all)? in parallel\b/i;
 
 export function builderSteer(request: string): BuilderSteer {
   if (SOLO.test(request)) return "solo";
@@ -87,7 +89,7 @@ export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; c
   const manager = await GitWorktreeManager.open(host.root, host.homeDir);
   if (!manager) throw new Error("No builders here: this folder is not a Git repository");
   const id = randomBytes(3).toString("hex");
-  const copy = await inTurn(manager.commonDir, async () => manager.create(await manager.planCrew(id, 1, host.root)));
+  const copy = await inTurn(manager.commonDir, async () => manager.create(await manager.planCrew(id, 1, host.root, { fromFolder: true })));
   const notRun: string[] = [];
   const note = (line: string) => { if (notRun.length < 12 && !notRun.includes(line)) notRun.push(shown(line)); };
   const shell = host.shell(copy.path, note);
@@ -128,6 +130,8 @@ export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; c
   }
   // Only a builder that finished lands by itself; a stopped one may have left half a change.
   if (result.status !== "completed") return keep(`the builder ${result.status === "cancelled" ? "was stopped" : `did not finish (${result.status.replace("_", " ")})`}`, work);
+  // It only ever saw the marker where a secret is: written back, it would replace the real one with no look first.
+  if (writesMarker(work.patch)) return keep(`its change has ${SECRET_MARKER} in it, which would replace a real secret`, work);
   const applied = await inTurn(manager.commonDir, () => apply(manager, copy, work));
   if (typeof applied === "string") return keep(applied, work);
   for (const file of work.files) host.observeEdit(path.join(manager.primaryWorkspace, file));
@@ -136,8 +140,14 @@ export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; c
   return outcome({ applied: work.files, stat: work.stat });
 }
 
+/** Whether a line the patch adds has the hidden-secret marker. */
+function writesMarker(patch: Buffer): boolean {
+  return patch.toString("utf8").split("\n").some((line) => line.startsWith("+") && !line.startsWith("+++ ")
+    && (line.includes(SECRET_MARKER) || line.includes(LINE_MARKER)));
+}
+
 /** Undefined when applied; else why not. */
 async function apply(manager: GitWorktreeManager, copy: WorktreeRelation, work: WorktreePatch): Promise<string | undefined> {
-  try { await manager.applyCrew(copy, work); return undefined; }
+  try { await manager.applyCrew(copy, work, { wholeFiles: true }); return undefined; }
   catch (error) { return message(error); }
 }

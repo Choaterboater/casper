@@ -4,6 +4,7 @@ import os from "node:os";
 import type { AgentRuntime, RuntimeEvent, RuntimeSession, RuntimeShell, RuntimeStartOptions, RuntimeTool } from "../runtime/types";
 import { isOutside } from "../platform/inside";
 import type { PromptCacheSetting } from "../runtime/cache";
+import { hiddenSecretGate } from "../secrets/gate";
 
 export const SUBAGENT_LIMITS = Object.freeze({
   maxConcurrent: 2,
@@ -72,6 +73,8 @@ export interface BuilderRunOptions {
   shell?: RuntimeShell;
   /** The folder the copy was made from: your private paths inside it are private in the copy too. */
   main?: string;
+  /** Before each tool call (the task's spend pause): a reason stops the builder there. */
+  beforeToolWait?: RuntimeStartOptions["beforeToolWait"];
   signal?: AbortSignal;
 }
 
@@ -172,7 +175,7 @@ interface ChildSpec {
   scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
   beforeToolGate?: RuntimeStartOptions["beforeToolGate"];
   /** A builder: writable tools in its copy, with this shell. */
-  builder?: { shell?: RuntimeShell; main?: string };
+  builder?: { shell?: RuntimeShell; main?: string; beforeToolWait?: RuntimeStartOptions["beforeToolWait"] };
   signal?: AbortSignal;
 }
 
@@ -233,9 +236,12 @@ function builderPrompt(options: BuilderRunOptions): string {
   ].filter(Boolean).join("\n\n");
 }
 
-/** A builder's edit and write tools stay in its copy, whatever the sandbox does (on Windows, or --no-sandbox). */
+/** A builder's edit and write tools stay in its copy, whatever the sandbox does (on Windows, or --no-sandbox), and,
+ * as in the main session, nothing it writes or runs carries the hidden-secret marker back over a real secret. */
 function copyGate(copy: string): NonNullable<RuntimeStartOptions["beforeToolGate"]> {
   return (toolName, input) => {
+    const hidden = hiddenSecretGate(toolName, input);
+    if (hidden) return hidden;
     if (toolName !== "edit" && toolName !== "write") return undefined;
     const typed = typeof input?.path === "string" ? input.path : "";
     const expanded = typed === "~" || typed.startsWith("~/") ? path.join(os.homedir(), typed.slice(1)) : typed;
@@ -272,7 +278,7 @@ async function settleWithin(work: Promise<unknown>, ms: number): Promise<void> {
 }
 
 interface ActiveRun {
-  cancel(): void;
+  cancel(reason?: string): void;
   drained: Promise<unknown>;
   info: HelperRun;
 }
@@ -303,6 +309,11 @@ export class SubagentManager {
 
   /** The helpers running now, oldest first (/tasks). */
   runs(): HelperRun[] { return [...this.active].map((run) => ({ ...run.info, ...(run.info.spent ? { spent: { ...run.info.spent } } : {}) })); }
+
+  /** Stop every running builder (the task's spend pause said stop); each keeps its copy. */
+  stopBuilders(reason: string): void {
+    for (const run of this.active) if (run.info.role === "builder") run.cancel(reason);
+  }
 
   /** Stop one running helper (/tasks). False when it already ended. */
   cancelRun(id: number): boolean {
@@ -440,7 +451,8 @@ export class SubagentManager {
       maxTurns: BUILDER_LIMITS.maxTurns, maxToolCalls: BUILDER_LIMITS.maxToolCalls, timeoutMs: this.builderTimeoutMs,
       responseBytes: BUILDER_LIMITS.responseBytes, totalTextBytes: BUILDER_LIMITS.totalTextBytes,
       reportTurn: true, scrubToolOutput: this.options.scrubToolOutput, beforeToolGate: copyGate(cwd),
-      builder: { ...(input.shell ? { shell: input.shell } : {}), ...(input.main ? { main: path.resolve(input.main) } : {}) },
+      builder: { ...(input.shell ? { shell: input.shell } : {}), ...(input.main ? { main: path.resolve(input.main) } : {}),
+        ...(input.beforeToolWait ? { beforeToolWait: input.beforeToolWait } : {}) },
     });
   }
 
@@ -544,7 +556,7 @@ export class SubagentManager {
 
     // Reserve synchronously, before even loading the runtime. Keep the slot until
     // late startup/abort/disposal drains, even when the caller has timed out.
-    const active: ActiveRun = { cancel: onCancel, drained: Promise.resolve(), info };
+    const active: ActiveRun = { cancel: (reason) => stop("cancelled", reason ?? "Delegation cancelled"), drained: Promise.resolve(), info };
     this.active.add(active);
     report({ kind: "start", run: info });
     const work = Promise.resolve().then(async () => {
@@ -575,7 +587,14 @@ export class SubagentManager {
         };
         if (options.builder) {
           if (!runtime.startBuilder) throw new Error("Runtime does not support crew builders");
-          session = await runtime.startBuilder({ ...common, ...(options.builder.shell ? { shell: options.builder.shell } : {}) });
+          const wait = options.builder.beforeToolWait;
+          session = await runtime.startBuilder({ ...common, ...(options.builder.shell ? { shell: options.builder.shell } : {}),
+            // A stop there ends the builder as stopped, so its half-done work is kept, not applied.
+            ...(wait ? { beforeToolWait: async (toolName: string, signal?: AbortSignal) => {
+              const reason = await wait(toolName, signal);
+              if (reason) stop("cancelled", "Stopped at this task's spend limit");
+              return reason;
+            } } : {}) });
         } else {
           if (!runtime.startReadOnly) throw new Error("Runtime does not support enforced read-only subagents");
           session = await runtime.startReadOnly({ ...common, ...(options.modelRole ? { modelRole: options.modelRole } : {}) });

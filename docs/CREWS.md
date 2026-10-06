@@ -5,7 +5,7 @@ itself. It starts builders, each in its own copy of the project (a Git
 worktree), and their changes land in your folder when they end. `/crew` is the
 manual way: you give one builder a job and decide what happens to its work.
 **When you'd use it:** you don't have to do anything; ask for the job as usual.
-Say "in parallel" or "split this up" to ask for builders, "by yourself" to keep
+Say "split this up" or "use builders" to ask for builders, "by yourself" to keep
 the AI from using them.
 
 Status: v0.3 Crews, built, not released. The AI starts builders itself; `/crew`
@@ -17,8 +17,10 @@ This works the way Claude Code's agent tool and omp's task tool do: the main AI
 decides when a job has independent parts, and starts a builder for each one
 with its `delegate` tool. Nothing asks you first.
 
-1. Each builder gets its own copy of the project from your last commit, on the
-   branch `casper/crew-<id>-1`, under `~/.casper/worktrees/`. Your
+1. Each builder gets its own copy of your folder as it is now: your unsaved
+   and new files are in it, and so is what the AI and earlier builders changed
+   in this task. It is on the branch `casper/crew-<id>-1`, under
+   `~/.casper/worktrees/`. Your
    `node_modules`, `.venv` and `vendor` are linked in, not installed.
 2. It works with your main model, in the same sandbox as the AI's own commands,
    only in its copy (see [What a builder can do](#what-a-builder-can-do)).
@@ -31,17 +33,20 @@ with its `delegate` tool. Nothing asks you first.
 
 Up to 3 builders work at once, and 6 per request. The footer shows them while
 they work: `│ 2 builders · $0.12`. What each one spent joins the task's total
-(and the receipt) when it ends.
+(and the receipt) when it ends, and counts toward the spend pause while it
+works: at the pause their tool calls wait for the answer too, and "Stop here"
+stops them, each copy kept.
 
 **Not forced in.** A builder's change is not applied when a file it changed
-was also changed in your folder since its copy started (by you, the AI, or
-another builder), when you made a commit since, or when the builder was stopped
-or did not finish. Then the copy is kept, the AI is told, and Casper says so in
-one line; `/crew` lists the copy to apply or throw away. A builder that changed
+was also changed in your folder after its copy started (by you, the AI, or
+another builder), when you made a commit since, when it would write
+`<secret hidden>` into a file, or when the builder was stopped or did not
+finish. Then the copy is kept, the AI is told, and Casper says so in one line; `/crew` lists the copy to apply or throw away. A builder that changed
 nothing leaves no copy.
 
-**Steer it with words.** "crew", "split this up" or "in parallel" in a request
-adds one line to that task asking the AI to split the work across builders.
+**Steer it with words.** "split this up", "use builders", "use a crew" or "do
+these in parallel" in a request adds one line to that task asking the AI to
+split the work across builders.
 "no helpers" or "by yourself" means no builders for that request.
 
 **Turn it off.** `/settings` → Helpers that build → Turn them off (it writes
@@ -75,9 +80,9 @@ What should happen to the crew's work?
 ```
 
 Enter picks 1. Where Casper can't ask (one-shot, `--json`, a pipe), the copy is
-kept; `/crew` lists it. **Apply** follows the same rule as above: nothing is
-applied when a file the copy changed was changed in your folder too, or you
-made a commit since. `/undo` does not cover `/crew apply`.
+kept; `/crew` lists it. **Apply** goes by lines: your own unsaved changes stay,
+and nothing is applied when the copy's lines clash with yours, or you made a
+commit since. `/undo` does not cover `/crew apply`.
 
 ## What a builder can do
 

@@ -14,6 +14,8 @@ import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
 import type { AgentRuntime, RuntimeBuilderStartOptions, RuntimeEvent, RuntimeEventListener, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
+import { NOT_RUN_REASON, NOT_WRITTEN_REASON } from "../src/secrets/gate";
+import { SPEND_STOP_REASON } from "../src/task/spend";
 import { removeTempDir } from "./support/temp-dir";
 
 const execFileAsync = promisify(execFile);
@@ -106,7 +108,7 @@ test("the AI starts two builders at once; both changes land, count as the task's
     results.push(...await Promise.all([build(delegate, "write b.txt"), build(delegate, "write c.txt")]));
   });
   const { casper, output } = await app(repo, home, main);
-  await casper.runOnce("Change b and c in parallel", repo);
+  await casper.runOnce("Split this up: change b and c", repo);
   expect(main.prompts[0]).toContain(builderSteerLine("split")!);
   for (const result of results) expect(result.isError).toBeUndefined();
   const reports = results.map((result) => data(result.text));
@@ -201,9 +203,15 @@ test("outside a Git repository builders are not offered and the tool says why on
 test("request words steer builders", () => {
   expect(builderSteer("Use a crew for this")).toBe("split");
   expect(builderSteer("split this up please")).toBe("split");
-  expect(builderSteer("run the three parts in parallel")).toBe("split");
+  expect(builderSteer("use builders for the three parts")).toBe("split");
+  expect(builderSteer("do these in parallel")).toBe("split");
+  expect(builderSteer("work in parallel on the docs and the tests")).toBe("split");
+  // Words about the code, not about how Casper works.
+  expect(builderSteer("make the fetches run in parallel")).toBeUndefined();
+  expect(builderSteer("run the tests in parallel")).toBeUndefined();
+  expect(builderSteer("the crew list shows the wrong count")).toBeUndefined();
   expect(builderSteer("fix /crew apply")).toBeUndefined();
-  expect(builderSteer("in parallel but no helpers")).toBe("solo");
+  expect(builderSteer("split this up but no helpers")).toBe("solo");
   expect(builderSteer("do it by yourself")).toBe("solo");
   expect(builderSteer("rename the function")).toBeUndefined();
 });
@@ -249,6 +257,12 @@ test("a builder's private paths stay private in its copy, and it gets the sessio
   expect(shells).toEqual([options.cwd]);
   expect(options.privatePaths).toEqual(expect.arrayContaining([path.join(repo, "secret.txt"), path.join(options.cwd, "secret.txt")]));
   expect(options.shell).toBeDefined();
+  // The same hidden-secret check as the main session: the marker never goes back into a file.
+  expect(options.beforeToolGate!("write", { path: "b.txt", content: "password <secret hidden>" })).toBe(NOT_WRITTEN_REASON);
+  expect(options.beforeToolGate!("edit", { path: "b.txt", edits: [{ oldText: "x", newText: "<line hidden: secret>" }] })).toBe(NOT_WRITTEN_REASON);
+  expect(options.beforeToolGate!("bash", { command: "sed -i 's/x/<secret hidden>/' b.txt" })).toBe(NOT_RUN_REASON);
+  expect(options.beforeToolGate!("write", { path: "/elsewhere/b.txt", content: "x" })).toContain("outside your copy");
+  expect(options.beforeToolGate!("write", { path: "b.txt", content: "x" })).toBeUndefined();
   expect(outcome.report.applied).toEqual(["b.txt"]);
   expect(edits).toEqual([path.join(repo, "b.txt")]);
 }, 30_000);
@@ -275,3 +289,96 @@ test("the footer shows running builders and what they spent so far", () => {
   expect(buildersText({ subagents: { runs: () => [run("builder", 0.05), run("builder", 0.07), run("explorer", 1)] } } as never)).toBe(" │ 2 builders · $0.12");
   expect(buildersText({ subagents: { runs: () => [run("builder", 0)] } } as never)).toBe(" │ 1 builder · 500 tok");
 });
+
+const done = (options: BuilderRunOptions): SubagentResult => ({ role: "builder", cwd: options.cwd, goal: options.goal, status: "completed", response: "done",
+  toolsUsed: [], toolErrors: [], truncated: false, usage: null });
+const quietHost = (repo: string, home: string, runBuilder: AutoBuildHost["runBuilder"]): AutoBuildHost => ({ root: repo, homeDir: home, projectContext: "rules",
+  runBuilder, shell: () => ({ wrap: async (command) => ({ command }), close: async () => {} }), observeEdit: () => {}, say: () => {} });
+
+test("a change that would write the hidden-secret marker into a file is kept in its copy, not applied", async () => {
+  const { home, repo } = await repository();
+  await writeFile(path.join(repo, "switch.cfg"), "hostname core\npassword real-one\n");
+  await git(repo, "add", "-A"); await git(repo, "commit", "-m", "config");
+  const outcome = await runAutoBuilder(quietHost(repo, home, async (options) => {
+    await writeFile(path.join(options.cwd, "switch.cfg"), "hostname edge\npassword <secret hidden>\n");
+    return done(options);
+  }), { goal: "rename the switch" });
+  expect(outcome.isError).toBe(true);
+  expect((outcome.report.kept as { why: string }).why).toContain("<secret hidden>");
+  expect(await readFile(path.join(repo, "switch.cfg"), "utf8")).toBe("hostname core\npassword real-one\n");
+}, 30_000);
+
+test("builders start from the folder as it is: your unsaved and new files are in the copy, and its change lands on top", async () => {
+  const { home, repo } = await repository();
+  await writeFile(path.join(repo, "a.txt"), "a.txt\nyours\n");
+  await writeFile(path.join(repo, "types.txt"), "new type\n");
+  let seen = "";
+  const outcome = await runAutoBuilder(quietHost(repo, home, async (options) => {
+    seen = await readFile(path.join(options.cwd, "types.txt"), "utf8");
+    await writeFile(path.join(options.cwd, "a.txt"), `${await readFile(path.join(options.cwd, "a.txt"), "utf8")}builder\n`);
+    await writeFile(path.join(options.cwd, "b.txt"), "uses the new type\n");
+    return done(options);
+  }), { goal: "use the new type" });
+  expect(seen).toBe("new type\n");
+  expect(outcome.report.applied).toEqual(["a.txt", "b.txt"]);
+  expect(await readFile(path.join(repo, "a.txt"), "utf8")).toBe("a.txt\nyours\nbuilder\n");
+  expect(await readFile(path.join(repo, "types.txt"), "utf8")).toBe("new type\n");
+  expect((await git(repo, "log", "--oneline")).trim().split("\n")).toHaveLength(1);
+  expect(await git(repo, "worktree", "list")).not.toContain("casper/crew-");
+}, 30_000);
+
+/** A builder that spends `cost` on its first response, then asks to run a tool. */
+class SpendingBuilder implements AgentRuntime {
+  static waits: Array<string | undefined> = [];
+  constructor(private readonly cost: number) {}
+  async start(): Promise<RuntimeSession> { throw new Error("not the main session"); }
+  async startBuilder(options: RuntimeBuilderStartOptions): Promise<RuntimeSession> {
+    const listeners = new Set<RuntimeEventListener>();
+    const emit = (event: RuntimeEvent) => { for (const listener of listeners) listener(event); };
+    return {
+      prompt: async () => {
+        emit({ type: "assistant_response_start" });
+        await writeFile(path.join(options.cwd, "b.txt"), "half done\n");
+        emit({ type: "assistant_response_end", stopReason: "toolUse", usage: { tokens: 1000, estimatedCost: this.cost } });
+        SpendingBuilder.waits.push(await options.beforeToolWait?.("bash", options.signal));
+        emit({ type: "assistant_response_start" });
+        emit({ type: "assistant_text_delta", delta: "Done." });
+        emit({ type: "assistant_response_end", stopReason: "stop", usage: { tokens: 10, estimatedCost: 0 } });
+      },
+      abort: async () => {}, subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+      getState: () => ({ cwd: options.cwd, isStreaming: false }),
+    };
+  }
+  async dispose() {}
+}
+
+test("a running builder's spend counts toward the task's pause: crossing it stops the builder and keeps its copy", async () => {
+  const { home, repo } = await repository();
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await writeFile(path.join(home, ".casper", "config.yaml"), "spend:\n  pauseAt: 5\n");
+  SpendingBuilder.waits = [];
+  let result: { text: string; isError?: boolean } | undefined;
+  const main = new Main(async (delegate) => { result = await build(delegate, "write b.txt"); });
+  const { casper, output } = await app(repo, home, main, () => new SpendingBuilder(6));
+  await casper.runOnce("Change b.txt", repo);
+  expect(SpendingBuilder.waits).toEqual([SPEND_STOP_REASON]);
+  const report = data(result!.text);
+  expect(report.applied).toEqual([]);
+  expect(report.kept.why).toContain("was stopped");
+  expect(await readFile(path.join(repo, "b.txt"), "utf8")).toBe("b.txt\n");
+  expect(output()).toContain("[spend] This task has used $6.00");
+  expect(casper.getLastTaskResult()?.spendLimit).toBeDefined();
+}, 30_000);
+
+test("under the pause a builder's tool calls are not held", async () => {
+  const { home, repo } = await repository();
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await writeFile(path.join(home, ".casper", "config.yaml"), "spend:\n  pauseAt: 5\n");
+  SpendingBuilder.waits = [];
+  let result: { text: string; isError?: boolean } | undefined;
+  const main = new Main(async (delegate) => { result = await build(delegate, "write b.txt"); });
+  const { casper } = await app(repo, home, main, () => new SpendingBuilder(1));
+  await casper.runOnce("Change b.txt", repo);
+  expect(SpendingBuilder.waits).toEqual([undefined]);
+  expect(data(result!.text).applied).toEqual(["b.txt"]);
+}, 30_000);

@@ -27,6 +27,7 @@ import { projectPrivatePaths } from "./wiring";
 import { appAgentDir, observeEdit } from "./runtime-start";
 import { autoBuilders, builderAvailability } from "../crew/auto";
 import { crewShell } from "../crew/shell";
+import { spendGate } from "./spend-gate";
 
 export async function prepareCapabilities(app: CasperApp, task: string): Promise<void> {
   app.browserInstalled ??= browserDefaults.installed().catch(() => false);
@@ -74,7 +75,9 @@ export function delegateTool(app: CasperApp): RuntimeTool {
   }), (usage) => app.observations.recordDelegatedUsage(usage), autoBuilders({
     root: app.activeWorkspaceRoot(), homeDir: app.homeDir(),
     projectContext: formatProjectContext(app.projectContext!),
-    runBuilder: (options) => app.subagents.runBuilder(options),
+    // The task's spend pause sees a builder's spend while it works, and holds its tool calls too. The question
+    // follows the task's own stop, not one builder's, since the AI may be waiting on the same answer.
+    runBuilder: (options) => app.subagents.runBuilder({ ...options, beforeToolWait: () => spendGate(app) }),
     shell: (copy, note) => app.sandbox ? crewShell(app.sandbox, copy, note) : undefined,
     observeEdit: (file) => observeEdit(app, file),
     say: (line) => { if (!app.closing) { app.events.ensureLineBreak(); app.output.write(`[crew] ${terminalText(line)}\n`); } },

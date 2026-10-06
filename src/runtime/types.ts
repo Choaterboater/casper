@@ -97,6 +97,8 @@ export interface RuntimeReadOnlyStartOptions {
 export interface RuntimeBuilderStartOptions extends Omit<RuntimeReadOnlyStartOptions, "modelRole"> {
   /** Its bash: the session's sandbox around the copy, with nobody to ask (what would ask is refused). */
   shell?: RuntimeShell;
+  /** Before each tool call, after the gates (the task's spend pause); a reason ends the builder's run. */
+  beforeToolWait?: RuntimeStartOptions["beforeToolWait"];
 }
 
 export interface RuntimeStatus {

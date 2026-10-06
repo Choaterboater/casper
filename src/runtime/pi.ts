@@ -627,6 +627,7 @@ export class PiRuntime implements AgentRuntime {
     return this.create({ cwd: options.cwd, systemPromptAppend: options.systemPromptAppend, tools: [],
       ...(options.shell ? { shell: options.shell } : {}),
       ...(options.beforeToolGate ? { beforeToolGate: options.beforeToolGate } : {}),
+      ...(options.beforeToolWait ? { beforeToolWait: options.beforeToolWait } : {}),
       ...(options.scrubToolOutput ? { scrubToolOutput: options.scrubToolOutput } : {}),
       ...(options.privatePaths?.length ? { privatePaths: options.privatePaths } : {}) }, options, false);
   }

@@ -464,10 +464,11 @@
             same sandbox, and your folder stays as it is. Then 1 Keep the copy · 2 Apply to my folder ·
             3 Throw it away. See <code>docs/CREWS.md</code>.</li>
             <li><strong>The AI starts builders itself</strong> <span class="badge">built, not released</span>.
-            For a job with separate parts the AI starts up to 3 builders at once, each in its own copy; each
+            For a job with separate parts the AI starts up to 3 builders at once, each in its own copy of
+            your folder as it is (unsaved files too); each
             change lands in your folder when its builder ends, uncommitted, and one <code>/undo</code> takes
-            the task back. A change that touches a file changed meanwhile stays in its copy for
-            <code>/crew</code>. "in parallel" asks for builders, "by yourself" keeps them out; /settings
+            the task back. A change that touches a file changed after its copy started stays in its copy for
+            <code>/crew</code>. "split this up" or "use builders" asks for them, "by yourself" keeps them out; /settings
             turns them off. The footer shows them (<code>2 builders · $0.12</code>).</li>
             <li><strong>Review, fix.</strong> Next: a reviewer for each part and a fixer, then the full
             tests.</li>
