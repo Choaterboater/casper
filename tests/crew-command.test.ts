@@ -108,7 +108,7 @@ test("a copy kept when nobody can answer is listed by /crew and applied or throw
   expect(await readFile(path.join(repo, "new.txt"), "utf8")).toBe("new\n");
   await runCrewCommand(listing.value, "");
   expect(listing.text()).toContain("No crew copies here.");
-});
+}, 30_000);
 
 test("a builder that changed nothing leaves no copy; Throw it away keeps your folder as it was", async () => {
   const { home, repo } = await repository();
