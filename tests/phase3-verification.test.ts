@@ -8,7 +8,7 @@ import { runCommandCheck } from "../src/verify/command";
 import { formatVerificationResult } from "../src/verify/evidence";
 import { VerifierRegistry } from "../src/verify/registry";
 import { verifyAndRepair } from "../src/verify/repair-loop";
-import { checkCommand } from "./support/check-command";
+import { CHECK_LIMIT_MS, checkCommand } from "./support/check-command";
 
 const dirs: string[] = [];
 async function fixture(config = "") {
@@ -133,10 +133,10 @@ verification:
     expect(report.results[1].status).toBe("skip");
     const missing = await verifyAndRepair({ registry, checks: ["typecheck", "build"], cwd: root, request: "test" });
     expect(missing.status).toBe("incomplete");
-    const pwd = await runCommandCheck({ name: "test", command: checkCommand("cwd"), cwd: root, timeoutMs: 1000 });
+    const pwd = await runCommandCheck({ name: "test", command: checkCommand("cwd"), cwd: root, timeoutMs: CHECK_LIMIT_MS });
     // The same folder, in whatever spelling the child sees: macOS adds /private, and a Windows TEMP can be an 8.3 name.
   expect(await realpath(pwd.stdout.trim())).toBe(await realpath(root));
-    const noisy = await runCommandCheck({ name: "test", command: checkCommand("stdout:HEAD", "pad:100000", "stdout:TAIL", "stderr:error-tail"), cwd: root, timeoutMs: 2000 });
+    const noisy = await runCommandCheck({ name: "test", command: checkCommand("stdout:HEAD", "pad:100000", "stdout:TAIL", "stderr:error-tail"), cwd: root, timeoutMs: CHECK_LIMIT_MS });
     expect(noisy.status).toBe("pass");
     expect(noisy.truncated).toBe(true);
     expect(noisy.stdout.length).toBeLessThan(8300);
@@ -148,20 +148,20 @@ verification:
 
   test("preserves exact UTF-8 evidence below the truncation limit", async () => {
     const { root } = await fixture();
-    const result = await runCommandCheck({ name: "test", command: checkCommand(`stdout:${"a".repeat(4095)}étail`), cwd: root, timeoutMs: 1000 });
+    const result = await runCommandCheck({ name: "test", command: checkCommand(`stdout:${"a".repeat(4095)}étail`), cwd: root, timeoutMs: CHECK_LIMIT_MS });
     expect(result.truncated).toBe(false);
     expect(result.stdout).toBe("a".repeat(4095) + "étail");
   });
 
   test("reports unavailable tools and spawn errors as failures, not passes or hidden skips", async () => {
     const { root } = await fixture();
-    const missing = await runCommandCheck({ name: "lint", command: "casper-nonexistent-tool-34562", cwd: root, timeoutMs: 1000 });
+    const missing = await runCommandCheck({ name: "lint", command: "casper-nonexistent-tool-34562", cwd: root, timeoutMs: CHECK_LIMIT_MS });
     expect(missing.status).toBe("fail");
     expect(missing.exitCode).not.toBe(0);
-    const spawn = await runCommandCheck({ name: "test", command: checkCommand(), cwd: path.join(root, "absent"), timeoutMs: 1000 });
+    const spawn = await runCommandCheck({ name: "test", command: checkCommand(), cwd: path.join(root, "absent"), timeoutMs: CHECK_LIMIT_MS });
     expect(spawn.status).toBe("fail");
     expect(spawn.reason).toContain("Could not execute");
-    const invalid = await runCommandCheck({ name: "test", command: "echo\u0000bad", cwd: root, timeoutMs: 1000 });
+    const invalid = await runCommandCheck({ name: "test", command: "echo\u0000bad", cwd: root, timeoutMs: CHECK_LIMIT_MS });
     expect(invalid.status).toBe("fail");
     expect(invalid.reason).toContain("Could not execute");
   });

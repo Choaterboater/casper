@@ -20,3 +20,9 @@ export function checkCommand(...actions: string[]): string {
   const words = [`"${process.execPath}"`, `"${checkScript}"`, ...(actions.length ? actions : ["exit:0"]).map((action) => action.includes(" ") ? `"${action}"` : action)];
   return words.join(" ");
 }
+/**
+ * The time limit for a fixture check that is meant to finish: a hang guard, never what a test measures. Each
+ * check starts a fresh Bun process, and on a busy machine (the full suite runs files in parallel) that alone
+ * can take more than a second, so a 1-2 s limit turned a passing check into "Timed out".
+ */
+export const CHECK_LIMIT_MS = 20_000;

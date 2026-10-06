@@ -1,4 +1,4 @@
-import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -22,7 +22,6 @@ async function removeTree(root: string): Promise<void> {
   }
 }
 
-setDefaultTimeout(15_000);
 // The ask flow renders only on a rich terminal; this suite must not depend on the ambient TERM.
 const ambientTerm = process.env.TERM;
 const ambientNoColor = process.env.NO_COLOR;

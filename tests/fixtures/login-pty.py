@@ -33,9 +33,8 @@ def success(bun, repo, root, no_color):
         s.send("/login\n" + draft + "\x1b[D\x1b[D")
         s.until("Type a number")
         for key, selected in (("\x1b[B", "2 OpenRouter"), ("\x1b[B", "3 Anthropic"), ("\x1b[A", "2 OpenRouter"), ("\x1b[A", "1 OpenRouter")):
-            s.send(key); s.pump(0.1)
+            s.send(key); s.until("→ " + selected)
             screen = s.screen.text()
-            assert "→ " + selected in screen, screen
             assert "\\u{d}" not in screen, screen
             for label in ("OpenAI Codex", "GitHub Copilot"):
                 assert screen.count(label) == 1, screen

@@ -7,6 +7,7 @@ import path from "node:path";
 import { DebugSession } from "../src/debug/session";
 import { needsSymlinks } from "./support/platform";
 import { rejection } from "./support/settle";
+import { waitForFile } from "./support/wait";
 
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -154,8 +155,7 @@ test("cancelling immediately after adapter launch drains its separately grouped 
     const controller = new AbortController();
     const work = f.session.run({ action: "start", target: "example" }, controller.signal);
     void work.catch(() => {});
-    const deadline = Date.now() + 3000;
-    while (!await Bun.file(path.join(f.root, "debuggee-pid")).exists() && Date.now() < deadline) await Bun.sleep(5);
+    await waitForFile(path.join(f.root, "debuggee-pid"));
     const pid = Number(await readFile(path.join(f.root, "debuggee-pid"), "utf8"));
     expect(() => process.kill(pid, 0)).not.toThrow();
     controller.abort();
@@ -163,7 +163,8 @@ test("cancelling immediately after adapter launch drains its separately grouped 
     await f.session.close();
     expect(() => process.kill(pid, 0)).toThrow();
   }
-}, 10_000);
+  // Eight adapter and debuggee launches: about 2 s alone, past 10 s in a full parallel suite.
+}, 30_000);
 
 test("debugger request deadlines are enforced without caller cancellation", async () => {
   const f = await fixture(async () => true, "hang");

@@ -9,6 +9,7 @@ import { readPaneSetting, savePaneSetting } from "../src/tui/pane-setting";
 import type { ActivityPane } from "../src/tui/side-pane";
 import { InteractiveTerminal, type TerminalHost } from "../src/tui/terminal";
 import { richApp } from "./support/app";
+import { waitUntil } from "./support/wait";
 
 process.env.TERM = "xterm-256color";
 const roots: string[] = [];
@@ -83,7 +84,7 @@ test("on iTerm2 Casper asks once before the first task (1 keeps one window) and 
     await app.until(text => text.includes("Show Casper's steps in a split"));
     app.input.write("1");
     await app.until(text => text.includes("✓ No, keep one window"));
-    for (let i = 0; i < 50 && await readPaneSetting(app.home) === undefined; i++) await Bun.sleep(20);
+    await waitUntil(async () => await readPaneSetting(app.home) !== undefined);
     expect(await readPaneSetting(app.home)).toBe("off");
     const asked = app.screen().split("Show Casper's steps in a split").length;
     app.input.write("say hi again\r");
