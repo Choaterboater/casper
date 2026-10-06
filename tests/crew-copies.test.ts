@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
 import { execFile } from "node:child_process";
-import { lstat, mkdir, mkdtemp, readFile, readlink, realpath, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readlink, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { DEPENDENCY_FOLDERS, linkDependencies, unlinkDependencies } from "../src/crew/copies";
 import { GitWorktreeManager } from "../src/workspace/worktree";
+import { removeTempDir } from "./support/temp-dir";
 
 const execFileAsync = promisify(execFile);
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -14,7 +15,7 @@ const git = async (cwd: string, ...args: string[]) => String((await execFileAsyn
 
 async function repository() {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-crew-copies-")));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"); const repo = path.join(root, "repo");
   await mkdir(home); await mkdir(repo);
   await git(repo, "init", "-b", "main");

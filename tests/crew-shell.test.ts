@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { crewShell } from "../src/crew/shell";
@@ -10,13 +10,14 @@ import { ShellSandbox } from "../src/sandbox/manager";
 import { runtimeEngine, type SandboxEngine } from "../src/sandbox/runtime";
 import { SandboxStore } from "../src/sandbox/store";
 import { needsSandbox } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
 
 async function folders() {
   const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-crew-shell-")));
-  cleanup.push(() => rm(base, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(base));
   const home = path.join(base, "home"), main = path.join(base, "main"), copy = path.join(base, "copy"), state = path.join(base, "state");
   for (const folder of [home, main, copy, state]) await mkdir(folder, { recursive: true });
   return { home, main, copy, store: new SandboxStore(state) };

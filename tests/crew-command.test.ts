@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -11,6 +11,7 @@ import { APPLY_COPY, CREW_QUESTION, DROP_COPY, KEEP_COPY, runCrewCommand, type C
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeBuilderStartOptions, RuntimeEventListener, RuntimeSession } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
+import { removeTempDir } from "./support/temp-dir";
 
 const execFileAsync = promisify(execFile);
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -19,7 +20,7 @@ const git = async (cwd: string, ...args: string[]) => String((await execFileAsyn
 
 async function repository(init = true) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-crew-command-")));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"); const repo = path.join(root, "repo");
   await mkdir(home); await mkdir(repo);
   await writeFile(path.join(repo, "a.txt"), "a\n");
