@@ -11,14 +11,32 @@ import { VerificationTask } from "./task";
 const execFileAsync = promisify(execFile);
 
 async function changedFiles(cwd: string, signal?: AbortSignal): Promise<string> {
+  // A real 2 s limit: execFile's `timeout` only sends SIGTERM and then waits for the child however long it takes,
+  // and its `signal` stops listening once git exits, then waits for git's output pipes to close, which may never
+  // happen (a helper still holds them, or an end of output Bun misses). So the limit is raced here, not left to execFile.
+  const limit = AbortSignal.timeout(2000);
+  const stop = signal ? AbortSignal.any([signal, limit]) : limit;
+  let onStop = () => {};
+  const stopped = new Promise<never>((_, reject) => { onStop = () => reject(new Error("git status stopped")); });
+  stopped.catch(() => {});
+  const pending = execFileAsync("git", safeGitArgs(["status", "--short", "--untracked-files=normal"]),
+    { cwd, maxBuffer: 16_384, killSignal: "SIGKILL", signal: stop });
+  const child = pending.child;
+  const kill = () => {
+    onStop();
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+    try { child.kill("SIGKILL"); } catch { /* already gone */ }
+  };
+  if (stop.aborted) kill();
+  else stop.addEventListener("abort", kill, { once: true });
   try {
-    // A real 2 s limit: execFile's `timeout` only sends SIGTERM and then waits for the child however long it takes.
-    const limit = AbortSignal.timeout(2000);
-    const { stdout } = await execFileAsync("git", safeGitArgs(["status", "--short", "--untracked-files=normal"]),
-      { cwd, maxBuffer: 16_384, killSignal: "SIGKILL", signal: signal ? AbortSignal.any([signal, limit]) : limit });
+    const { stdout } = await Promise.race([pending, stopped]);
     return stdout.trim() || "No Git changes reported.";
   } catch {
     return "Git changed-file context unavailable (not a repository or output limit exceeded).";
+  } finally {
+    stop.removeEventListener("abort", kill);
   }
 }
 
