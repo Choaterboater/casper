@@ -8,6 +8,7 @@ import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { posixOnly } from "./support/platform";
 import { PTY_TEST_MS, runPtyFixture } from "./support/pty";
+import { processGone } from "./support/wait";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -62,5 +63,5 @@ test("interactive debugger commands use fresh approval, no model and close owned
   expect(f.output()).toContain('"state":"closed"');
   expect(f.starts()).toBe(0);
   const pid = Number(await readFile(path.join(f.project, "debuggee-pid"), "utf8"));
-  expect(() => process.kill(pid, 0)).toThrow();
+  expect(await processGone(pid)).toBe(true);
 });

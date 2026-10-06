@@ -5,6 +5,7 @@ import path from "node:path";
 import { LSPManager } from "../src/lsp/manager";
 import { LSPConnection, MessageReader } from "../src/lsp/protocol";
 import { snapshot, MAX_FILE_BYTES } from "../src/lsp/workspace";
+import { processGone } from "./support/wait";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const work of cleanup.splice(0).reverse()) await work(); });
@@ -97,7 +98,7 @@ test("repeated concurrent starts, queued cancellation, and teardown leave no fix
   }
   const pids = (await readFile(path.join(root, "started"), "utf8")).trim().split("\n").map(Number);
   expect(pids).toHaveLength(10);
-  for (const pid of pids) expect(() => process.kill(pid, 0)).toThrow();
+  for (const pid of pids) expect(await processGone(pid)).toBe(true);
 }, 15_000);
 
 test("batched pull diagnostics are concurrent but never exceed eight in flight", async () => {

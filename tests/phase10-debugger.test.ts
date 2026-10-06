@@ -7,7 +7,7 @@ import path from "node:path";
 import { DebugSession } from "../src/debug/session";
 import { needsSymlinks } from "./support/platform";
 import { rejection } from "./support/settle";
-import { waitForFile } from "./support/wait";
+import { processGone, waitForFile } from "./support/wait";
 
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -48,7 +48,7 @@ test("DAP launch configures before awaiting launch, inspects stopped values and 
   const pid = Number(await readFile(path.join(f.root, "debuggee-pid"), "utf8"));
   expect(() => process.kill(pid, 0)).not.toThrow();
   await f.session.close();
-  expect(() => process.kill(pid, 0)).toThrow();
+  expect(await processGone(pid)).toBe(true);
   expect(f.session.status().state).toBe("closed");
 });
 
@@ -92,7 +92,7 @@ test("protocol errors, unsupported adapters and cancellation drain startup witho
     await expect(work).rejects.toThrow();
     await f.session.close();
     const pid = Number(await readFile(path.join(f.root, "adapter-started"), "utf8"));
-    expect(() => process.kill(pid, 0)).toThrow();
+    expect(await processGone(pid)).toBe(true);
     expect(f.session.status().ownedProcessCleanup).toBe("stopped");
   }
 });
@@ -135,7 +135,7 @@ test("reverse requests cannot execute commands, and forged process IDs cannot ki
   const pid = Number(await readFile(path.join(f.root, "debuggee-pid"), "utf8"));
   expect(() => process.kill(pid, 0)).not.toThrow();
   await f.session.close();
-  expect(() => process.kill(pid, 0)).toThrow();
+  expect(await processGone(pid)).toBe(true);
   expect(() => process.kill(unrelated.pid!, 0)).not.toThrow();
 });
 
@@ -145,7 +145,7 @@ test("an adapter ignoring disconnect cannot leave its TERM-resistant debuggee ru
   const pid = Number(await readFile(path.join(f.root, "debuggee-pid"), "utf8"));
   expect(() => process.kill(pid, 0)).not.toThrow();
   await f.session.close();
-  expect(() => process.kill(pid, 0)).toThrow();
+  expect(await processGone(pid)).toBe(true);
   expect(f.session.status().ownedProcessCleanup).toBe("stopped");
 });
 
@@ -161,7 +161,7 @@ test("cancelling immediately after adapter launch drains its separately grouped 
     controller.abort();
     await expect(work).rejects.toThrow();
     await f.session.close();
-    expect(() => process.kill(pid, 0)).toThrow();
+    expect(await processGone(pid)).toBe(true);
   }
   // Eight adapter and debuggee launches: about 2 s alone, past 10 s in a full parallel suite.
 }, 30_000);
@@ -170,7 +170,7 @@ test("debugger request deadlines are enforced without caller cancellation", asyn
   const f = await fixture(async () => true, "hang");
   await expect(f.session.run({ action: "start", target: "example" })).rejects.toThrow("timed out");
   const pid = Number(await readFile(path.join(f.root, "adapter-started"), "utf8"));
-  expect(() => process.kill(pid, 0)).toThrow();
+  expect(await processGone(pid)).toBe(true);
   expect(f.session.status().state).toBe("failed");
 }, 10_000);
 
