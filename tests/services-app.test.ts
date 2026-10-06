@@ -81,8 +81,8 @@ test("/services lists, starts, shows logs, restarts and stops a declared service
   expect(f.text()).toContain(`api  ready  ${url}`);
   expect((await fetch(`${url}/health`)).status).toBe(200);
   const first = pid(f.text()), grandchild = await f.grandchild();
-  await f.app.runOnce("/services logs api");
-  expect(f.text()).toContain("listening");
+  // The server answers /health before its "listening" line has come through the output pipe: ask again until it has.
+  await until(async () => { const start = f.text().length; await f.app.runOnce("/services logs api"); return f.text().slice(start).includes("listening"); });
   await f.app.runOnce("/services restart api");
   const second = pid(f.text());
   expect(second).not.toBe(first);
