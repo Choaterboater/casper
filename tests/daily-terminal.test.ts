@@ -56,7 +56,8 @@ test("live work status appears in a box before response text and clears when it 
     events.handle({ type: "assistant_response_start", provider: "openai-codex", model: "gpt-6-luna" });
     await screen.until(output => Bun.stripANSI(output).includes(" Working "));
     expect(Bun.stripANSI(screen.output)).toContain("Waiting for openai-codex/gpt-6-luna · 0s");
-    await screen.until(output => Bun.stripANSI(output).includes("Waiting for openai-codex/gpt-6-luna · 1s"));
+    // The clock counts up. On a busy machine its first tick can come after 2 s, so any second past 0 will do.
+    await screen.until(output => /Waiting for openai-codex\/gpt-6-luna · [1-9]\d*s/.test(Bun.stripANSI(output)));
     events.handle({ type: "tool_start", toolName: "write", toolCallId: "write-1", input: { path: "src/app.ts" } });
     // The running step lives in the Working box, not on the main screen.
     await screen.until(output => Bun.stripANSI(output).includes("│ • write · src/app.ts"));
