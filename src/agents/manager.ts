@@ -1,5 +1,8 @@
 import { boundCapabilityResult } from "../capabilities/result";
-import type { AgentRuntime, RuntimeEvent, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../runtime/types";
+import path from "node:path";
+import os from "node:os";
+import type { AgentRuntime, RuntimeEvent, RuntimeSession, RuntimeShell, RuntimeStartOptions, RuntimeTool } from "../runtime/types";
+import { isOutside } from "../platform/inside";
 import type { PromptCacheSetting } from "../runtime/cache";
 
 export const SUBAGENT_LIMITS = Object.freeze({
@@ -27,7 +30,20 @@ export const SECURITY_REVIEW_LIMITS = Object.freeze({
   promptBytes: 98_304,
 });
 
-export type SubagentRole = "explorer" | "reviewer";
+/** A crew builder: one part of a job, in its own copy of the project. Fixed bounds, like the helpers'; tests and
+ * embedders may tighten the deadline, never widen it, and the model can't start one (it is not a tool). */
+export const BUILDER_LIMITS = Object.freeze({
+  maxConcurrent: 3,
+  timeoutMs: 20 * 60_000,
+  maxTurns: 60,
+  maxToolCalls: 240,
+  goalBytes: 16_384,
+  contextBytes: 32_768,
+  responseBytes: 16_384,
+  totalTextBytes: 1_048_576,
+});
+
+export type SubagentRole = "explorer" | "reviewer" | "builder";
 export type SubagentStatus = "completed" | "failed" | "cancelled" | "timed_out" | "limited";
 
 export interface SubagentRunOptions {
@@ -40,6 +56,17 @@ export interface SubagentRunOptions {
    * child found instead of an empty report. Callers that reject a limited run anyway, such as
    * learn, leave it off and get budgets exactly as asked. */
   reportTurn?: boolean;
+  signal?: AbortSignal;
+}
+
+/** One builder: the job, its copy (`cwd`) and the shell its commands run in there. */
+export interface BuilderRunOptions {
+  cwd: string;
+  goal: string;
+  projectContext: string;
+  context?: string;
+  /** The session's sandbox around the copy, with nobody to ask (see src/crew/shell.ts). */
+  shell?: RuntimeShell;
   signal?: AbortSignal;
 }
 
@@ -75,6 +102,8 @@ export interface SubagentManagerOptions {
   scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
   /** Tests may tighten the security review's deadline, never relax it. */
   reviewTimeoutMs?: number;
+  /** Tests may tighten a builder's deadline, never relax it. */
+  builderTimeoutMs?: number;
   /** The user's cache setting (`cache: off` turns a child's cache off too). */
   cache?: () => PromptCacheSetting | undefined;
   /** The project's sandbox.denyRead (absolute): a helper's file tools refuse them like the main session's. */
@@ -109,7 +138,8 @@ interface ChildSpec {
   cwd: string;
   prompt: string;
   systemPromptAppend: string;
-  modelRole: "fast" | "review";
+  /** Unset: the startup default (a builder works with the main model). */
+  modelRole?: "fast" | "review";
   maxTurns: number;
   maxToolCalls: number;
   timeoutMs: number;
@@ -118,6 +148,8 @@ interface ChildSpec {
   reportTurn?: boolean;
   scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
   beforeToolGate?: RuntimeStartOptions["beforeToolGate"];
+  /** A builder: writable tools in its copy, with this shell. */
+  builder?: { shell?: RuntimeShell };
   signal?: AbortSignal;
 }
 
@@ -162,6 +194,35 @@ function prompt(options: SubagentRunOptions): string {
   ].filter(Boolean).join("\n\n");
 }
 
+function builderPrompt(options: BuilderRunOptions): string {
+  return [
+    "Casper crew builder task (a fresh context, not the parent conversation):",
+    `- your copy of the project: ${options.cwd}`,
+    "- work only in this copy: read, edit and run commands here; nothing outside it",
+    "- do not commit, push, or change git branches; Casper takes your changes from the copy",
+    "- do not install or add dependencies; if one is missing, say so in your report",
+    "- anything that needs the person's OK is not run; you are told why. Go on without it and list it in your report",
+    "- run the project's fast checks for what you changed when it has them",
+    `- budget: ${BUILDER_LIMITS.maxTurns} model turns, ${BUILDER_LIMITS.maxToolCalls} tool calls`,
+    "End with a short report: what you changed (files), which checks you ran and their results, and what is left or was skipped. Do not claim checks you did not run.",
+    options.context ? `Context:\n${options.context}` : undefined,
+    `Job:\n${options.goal}`,
+  ].filter(Boolean).join("\n\n");
+}
+
+/** A builder's edit and write tools stay in its copy, whatever the sandbox does (on Windows, or --no-sandbox). */
+function copyGate(copy: string): NonNullable<RuntimeStartOptions["beforeToolGate"]> {
+  return (toolName, input) => {
+    if (toolName !== "edit" && toolName !== "write") return undefined;
+    const typed = typeof input?.path === "string" ? input.path : "";
+    const expanded = typed === "~" || typed.startsWith("~/") ? path.join(os.homedir(), typed.slice(1)) : typed;
+    const relative = path.relative(copy, path.resolve(copy, expanded));
+    return typed && !isOutside(relative)
+      ? undefined
+      : `Not done: ${typed || "that path"} is outside your copy of the project (${copy}). Work only in the copy.`;
+  };
+}
+
 function terminalSafe(value: string): string {
   return value.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/gu,
     (character) => `\\u{${character.codePointAt(0)!.toString(16)}}`);
@@ -202,13 +263,15 @@ export class SubagentManager {
   private readonly timeoutMs: number;
   private readonly cleanupGraceMs: number;
   private readonly reviewTimeoutMs: number;
+  private readonly builderTimeoutMs: number;
 
   constructor(private readonly options: SubagentManagerOptions) {
     this.timeoutMs = options.timeoutMs ?? SUBAGENT_LIMITS.timeoutMs;
     this.cleanupGraceMs = options.cleanupGraceMs ?? SUBAGENT_LIMITS.cleanupGraceMs;
     this.reviewTimeoutMs = options.reviewTimeoutMs ?? SECURITY_REVIEW_LIMITS.timeoutMs;
+    this.builderTimeoutMs = options.builderTimeoutMs ?? BUILDER_LIMITS.timeoutMs;
     for (const [value, max] of [[this.timeoutMs, SUBAGENT_LIMITS.timeoutMs], [this.cleanupGraceMs, SUBAGENT_LIMITS.cleanupGraceMs],
-      [this.reviewTimeoutMs, SECURITY_REVIEW_LIMITS.timeoutMs]] as const) {
+      [this.reviewTimeoutMs, SECURITY_REVIEW_LIMITS.timeoutMs], [this.builderTimeoutMs, BUILDER_LIMITS.timeoutMs]] as const) {
       if (!Number.isInteger(value) || value < 1 || value > max) throw new Error("Invalid subagent deadline");
     }
   }
@@ -301,9 +364,34 @@ export class SubagentManager {
     });
   }
 
+  /**
+   * A crew builder, only ever started by Casper for a job the person gave (/crew): a child with the main model that
+   * may edit and run commands in its own copy of the project (`cwd`), with the session's sandbox around it and
+   * nobody to ask. It gets the built-in tools only: no MCP, delegate or crew. Builders have their own slots.
+   */
+  async runBuilder(input: BuilderRunOptions): Promise<SubagentResult> {
+    const goal = requireString(input.goal, "goal", BUILDER_LIMITS.goalBytes);
+    const context = input.context === undefined || input.context === "" ? undefined : requireString(input.context, "context", BUILDER_LIMITS.contextBytes);
+    const projectContext = requireString(input.projectContext, "projectContext", SUBAGENT_LIMITS.projectContextBytes);
+    const cwd = path.resolve(requireString(input.cwd, "cwd", 4096));
+    const options = { ...input, cwd, goal, context, projectContext };
+    return this.runChild({
+      role: "builder", goal, cwd, prompt: builderPrompt(options), signal: input.signal,
+      systemPromptAppend: `You are a Casper crew builder: you do one job in your own copy of the project. Be concise.\n\n${projectContext}`,
+      maxTurns: BUILDER_LIMITS.maxTurns, maxToolCalls: BUILDER_LIMITS.maxToolCalls, timeoutMs: this.builderTimeoutMs,
+      responseBytes: BUILDER_LIMITS.responseBytes, totalTextBytes: BUILDER_LIMITS.totalTextBytes,
+      reportTurn: true, scrubToolOutput: this.options.scrubToolOutput, beforeToolGate: copyGate(cwd),
+      builder: { ...(input.shell ? { shell: input.shell } : {}) },
+    });
+  }
+
   private async runChild(options: ChildSpec): Promise<SubagentResult> {
     if (this.closed) throw new Error("Subagent manager is closed");
-    if (this.active.size >= SUBAGENT_LIMITS.maxConcurrent) throw new Error("Subagent concurrency limit reached; wait for an active run");
+    const builders = [...this.active].filter((run) => run.info.role === "builder").length;
+    if (options.builder ? builders >= BUILDER_LIMITS.maxConcurrent : this.active.size - builders >= SUBAGENT_LIMITS.maxConcurrent) {
+      throw new Error(options.builder ? `${BUILDER_LIMITS.maxConcurrent} builders are already working; wait for one to finish`
+        : "Subagent concurrency limit reached; wait for an active run");
+    }
     const result: SubagentResult = { role: options.role, goal: options.goal, cwd: options.cwd, status: "completed", response: "", toolsUsed: [], toolErrors: [], truncated: false,
       usage: { tokens: 0, estimatedCost: 0 } };
     if (options.signal?.aborted) return { ...result, status: "cancelled", reason: "Delegation cancelled before startup" };
@@ -405,10 +493,8 @@ export class SubagentManager {
       this.ownedRuntimes.add(runtime);
       try {
         controller.signal.throwIfAborted();
-        if (!runtime.startReadOnly) throw new Error("Runtime does not support enforced read-only subagents");
-        session = await runtime.startReadOnly({
+        const common = {
           cwd: options.cwd, signal: controller.signal,
-          modelRole: options.modelRole,
           maxTurns: options.maxTurns, maxToolCalls: options.maxToolCalls,
           reportTurn: options.reportTurn,
           ...(options.scrubToolOutput ? { scrubToolOutput: options.scrubToolOutput } : {}),
@@ -416,7 +502,14 @@ export class SubagentManager {
           ...(this.options.cache?.() ? { cache: this.options.cache() } : {}),
           ...(this.options.privatePaths?.().length ? { privatePaths: this.options.privatePaths() } : {}),
           systemPromptAppend: options.systemPromptAppend,
-        });
+        };
+        if (options.builder) {
+          if (!runtime.startBuilder) throw new Error("Runtime does not support crew builders");
+          session = await runtime.startBuilder({ ...common, ...(options.builder.shell ? { shell: options.builder.shell } : {}) });
+        } else {
+          if (!runtime.startReadOnly) throw new Error("Runtime does not support enforced read-only subagents");
+          session = await runtime.startReadOnly({ ...common, ...(options.modelRole ? { modelRole: options.modelRole } : {}) });
+        }
         controller.signal.throwIfAborted();
         unsubscribe = session.subscribe(observe);
         await session.prompt(options.prompt, controller.signal, { request: options.goal });
