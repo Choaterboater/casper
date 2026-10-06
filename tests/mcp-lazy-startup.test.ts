@@ -6,6 +6,12 @@ import { cleanEnv } from "./support/env";
 import { removeTempDir } from "./support/temp-dir";
 
 const source = path.resolve(import.meta.dir, "..");
+// A cold child on a slow Windows runner can take well over the 20 s the old guard allowed, so the
+// guard is only a hang backstop; the test limit sits above it so the guard reports first.
+const CHILD_LIMIT_MS = 90_000;
+const TEST_LIMIT_MS = 120_000;
+// How long a child may wait for a module import to reach its lazy boundary (a real signal, not a pause).
+const BOUNDARY_WAIT_MS = 30_000;
 // Each test's code is source text inside a template literal, so "[\\\\/]" there reaches the regex as
 // [\\/]: it matches module paths written with "/" (POSIX) or "\" (Windows).
 async function freshProcess(code: string) {
@@ -22,8 +28,8 @@ async function freshProcess(code: string) {
       const project = ${JSON.stringify(project)};
       ${code}
     `], { cwd: project, env: cleanEnv({ HOME: home, CASPER_PROFILE: "default", PI_OFFLINE: "1", PI_TELEMETRY: "0" }), stdout: "pipe", stderr: "pipe" });
-    // A hang guard: a run takes 1-3 s on a Windows CI runner, and a slow one passed 5 s.
-    const timer = setTimeout(() => child.kill("SIGKILL"), 20_000);
+    // A hang guard: a normal run takes 1-3 s, but a cold Windows CI runner has been seen past 20 s.
+    const timer = setTimeout(() => child.kill("SIGKILL"), CHILD_LIMIT_MS);
     try {
       const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       expect({ exit, stderr, stdout }).toEqual({ exit: 0, stderr: "", stdout: "passed\n" });
@@ -49,7 +55,7 @@ test("local app commands and unapproved preparation do not load MCP SDK or Ajv",
     assert.deepEqual(loaded, [], "local commands must not initialize MCP/Ajv modules");
     console.log("passed");
   `);
-});
+}, TEST_LIMIT_MS);
 
 test("a cold approved connection loads the real SDK and retains schema validation and cleanup", async () => {
   await freshProcess(`
@@ -71,7 +77,7 @@ test("a cold approved connection loads the real SDK and retains schema validatio
     assert.equal(manager.status()[0].state, "disconnected");
     console.log("passed");
   `);
-});
+}, TEST_LIMIT_MS);
 
 for (const action of ["cancel", "close", "refresh"] as const) {
   test(`${action} during validator import blocks approval and invocation`, async () => {
@@ -97,7 +103,7 @@ for (const action of ["cancel", "close", "refresh"] as const) {
       const pending = broker.invoke("mcp:fixture:set_value", {}, abort.signal).then(() => "executed", () => "rejected");
       let timer;
       try {
-        await Promise.race([loading, new Promise((_, reject) => timer = setTimeout(() => reject(new Error("Validator import was not deferred")), 1000))]);
+        await Promise.race([loading, new Promise((_, reject) => timer = setTimeout(() => reject(new Error("Validator import was not deferred")), ${BOUNDARY_WAIT_MS}))]);
       } finally { clearTimeout(timer); }
       if (${JSON.stringify(action)} === "cancel") abort.abort();
       else if (${JSON.stringify(action)} === "close") await broker.close();
@@ -109,7 +115,7 @@ for (const action of ["cancel", "close", "refresh"] as const) {
       await broker.close();
       console.log("passed");
     `);
-  });
+  }, TEST_LIMIT_MS);
 }
 
 for (const moduleFile of ["index", "stdio"] as const) for (const action of ["close", "disconnect", "timeout"] as const) {
@@ -135,7 +141,7 @@ for (const moduleFile of ["index", "stdio"] as const) for (const action of ["clo
       const pending = manager.connect("fixture");
       let timer;
       try {
-        await Promise.race([loading, new Promise((_, reject) => timer = setTimeout(() => reject(new Error("SDK import did not reach the lazy boundary")), 1000))]);
+        await Promise.race([loading, new Promise((_, reject) => timer = setTimeout(() => reject(new Error("SDK import did not reach the lazy boundary")), ${BOUNDARY_WAIT_MS}))]);
       } finally { clearTimeout(timer); }
       assert.equal(manager.status()[0].state, "connecting");
       let closing;
@@ -153,5 +159,5 @@ for (const moduleFile of ["index", "stdio"] as const) for (const action of ["clo
       await manager.close();
       console.log("passed");
     `);
-  }, 60_000);
+  }, TEST_LIMIT_MS);
 }
