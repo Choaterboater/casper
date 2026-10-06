@@ -31,7 +31,10 @@ through. Check what a tool returns before you share it.
   - any key ending in `_password`, `_secret`, `_psk`, `_passphrase` or `_community`;
   - device keys such as `pre_shared_key`, `tacacs_key`, `radius_key`, `wep_key` and
     `secret_key`;
-  - login tokens (`token`, `api_token`, `bearer_token`).
+  - login tokens (`token`, `api_token`, `bearer_token`);
+  - the secret names file and command output use too (`aws_secret_access_key`,
+    `credentials`, `apitoken`, `bearer` ...), so a JSON config saved to disk and the
+    same JSON from a server hide the same values.
 
   `next_cursor`, `cursor`, `list_key`, `key`, `public_key`, paging tokens
   (`next_token`, `page_token`) and anything under `_pagination` are left alone, so
@@ -42,16 +45,21 @@ through. Check what a tool returns before you share it.
   `.json`, `.yaml`, `.md` and so on) are never changed by the device rules, even
   under those folders, so test files stay as they are.
 - **`.env`, INI and credential files: always (from v0.2.16).** In
-  `.env`, `.env.*`, `*.env`, `.envrc`, `.netrc`, `.npmrc`, `.pypirc`, `.pgpass`,
-  `credentials*`, `secrets.*`, `*.ini`, `*.properties`, `*.tfvars`, `*.tfstate`,
-  `*.pem`, `*.key` and `id_rsa`-style files, every value whose name looks secret is
-  hidden, and so are private keys: `MIST_APITOKEN=<secret hidden>`. Names and other
-  settings (`MIST_HOST=api.mist.com`) stay, so the AI still knows what the file holds.
+  `.env`, `.env.*`, `*.env`, `.envrc`, `.netrc`, `.npmrc`, `.pypirc`, `.pgpass`
+  (`pgpass.conf`), `.dockercfg`, Docker's `config.json`, `credentials*`, `secrets.*`,
+  `*.ini`, `*.properties`, `*.tfvars`, `*.tfstate`, `*.pem`, `*.key` and `id_rsa`-style
+  files, every value whose name looks secret is hidden, and so are private keys
+  (PEM and PGP): `MIST_APITOKEN=<secret hidden>`. A `.pgpass` line keeps its host, port,
+  database and user and hides the password; a Docker `"auth"` value (user:password) is
+  hidden. A key file read from part way down (no BEGIN line) still hides the key's body.
+  Names and other settings (`MIST_HOST=api.mist.com`) stay, so the AI still knows what
+  the file holds.
 - **Secret-named values in any output: always (from v0.2.16).** In what `read`,
   `grep`, `bash`, `powershell` and the `service` tool (dev server logs and replies)
   return, a value after a secret-looking name (`password=hunter2`,
   `"client_secret": "..."`, `api_key: ...`, `SLACK_WEBHOOK_URL=...`,
-  `SENTRY_DSN=...`, `Authorization: Bearer ...`) is hidden when it looks like a real
+  `SENTRY_DSN=...`, `Authorization: Bearer ...`, in any case: `authorization: bearer ...`,
+  git's `extraheader = AUTHORIZATION: basic ...`) is hidden when it looks like a real
   value, and so is the password inside an address
   (`postgres://app:<secret hidden>@db/app`). Code such as `token = getToken()` or
   `password: str` is left alone.
@@ -200,6 +208,10 @@ Casper.
   format Casper doesn't know reaches the AI. Lab logins written with no spaces
   (`root/Example-Pass1`) or in a sentence ("use root and Example-Pass1") are not hidden,
   because they look like a path or plain words.
+- A private key's body in command output is recognised by its BEGIN or END line; a
+  piece of one with neither (`head -n 20 key.pem | tail -n 5`) is not. In a key file
+  (`*.pem`, `*.key`, `id_rsa`) every long base64 line is hidden, so a certificate read
+  from part way down a `.pem` is hidden too.
 - Lines longer than 4 KB (minified code, one-line JSON) are checked in 4 KB pieces
   that overlap by 512 characters, so a huge line can't stall Casper. A secret and the
   words before it, up to 512 characters together, always sit whole in one piece and

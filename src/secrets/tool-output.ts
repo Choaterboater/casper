@@ -1,7 +1,7 @@
 import { scrubNote, type Scrubber } from "./netconan";
 import { KIND_ORDER, type SecretKind } from "./patterns";
 import path from "node:path";
-import { isSecretFile, loginFileValues, networkLoginValues, scrubPlainSecrets } from "./files";
+import { isKeyFile, isPgpassFile, isSecretFile, loginFileValues, networkLoginValues, scrubPlainSecrets } from "./files";
 import { casperAgentDir } from "../runtime/agent-store";
 import { scrubText, shouldScrubCommandOutput, shouldScrubRead, type ScrubTextResult } from "./scrub";
 
@@ -37,9 +37,13 @@ export async function scrubToolOutput(scrubber: Pick<Scrubber, "scrubText">, too
   const configs = options.configs ?? true;
   let device: boolean;
   let secretFile = false;
+  let keyFile = false;
+  let pgpass = false;
   if (toolName === "read") {
     if (typeof input.path !== "string") return undefined;
     secretFile = isSecretFile(input.path);
+    keyFile = isKeyFile(input.path);
+    pgpass = isPgpassFile(input.path);
     device = configs && (shouldScrubRead(input.path) || (isSavedCommandOutput(input.path) && shouldScrubCommandOutput(texts.join("\n"))));
   } else if (["bash", "powershell", "grep", "service"].includes(toolName)) {
     // service: a dev server's logs, crash tails and HTTP replies are command output too.
@@ -61,7 +65,7 @@ export async function scrubToolOutput(scrubber: Pick<Scrubber, "scrubText">, too
       for (const kind of result.kinds) kinds.add(kind);
       next = result.text;
     }
-    const plainOptions = { secretFile, values, ...(options.env ? { env: options.env } : {}) };
+    const plainOptions = { secretFile, keyFile, pgpass, values, ...(options.env ? { env: options.env } : {}) };
     // The service tool answers in JSON: check each string as it reads, not with its \n escapes.
     const plain = toolName === "service" ? scrubJsonStrings(next, (value) => scrubPlainSecrets(value, plainOptions)) : scrubPlainSecrets(next, plainOptions);
     hidden += plain.hidden;
