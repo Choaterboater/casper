@@ -259,9 +259,23 @@ export class GitWorktreeManager {
     const head = (await git(relation.mainWorkspace, ["rev-parse", "HEAD"])).trim();
     if (head !== relation.baseCommit) throw new Error("Your folder has a new commit since the crew started; nothing was applied");
     if (candidate.patch.length === 0) return;
+    // A whole file, not only the lines: a change next to yours in the same file is not merged in either.
+    const changed = await this.changedInFolder(relation, candidate.files);
+    if (changed.length) {
+      throw new Error(`${changed.slice(0, 5).join(", ")}${changed.length > 5 ? ` and ${changed.length - 5} more` : ""} changed in your folder too; nothing was applied`);
+    }
     try { await gitWithInput(relation.mainWorkspace, ["apply", "--check", "--binary", "--whitespace=nowarn", "-"], candidate.patch); }
     catch { throw new Error("A file the crew changed was changed in your folder too; nothing was applied"); }
     await gitWithInput(relation.mainWorkspace, ["apply", "--binary", "--whitespace=nowarn", "-"], candidate.patch);
+  }
+
+  /** Which of these files in your folder differ from the copy's starting commit (changed by you, the AI or
+   * another builder since). A new file that is already there is caught by git apply's own check. */
+  async changedInFolder(relation: WorktreeRelation, files: readonly string[]): Promise<string[]> {
+    if (!files.length) return [];
+    const output = await git(relation.mainWorkspace, ["diff", "--name-only", "-z", "--no-ext-diff", "--no-textconv", relation.baseCommit, "--",
+      ...files.map((file) => `:(literal)${file}`)]);
+    return output.split("\0").filter(Boolean);
   }
 
   async create(plan: WorktreePlan): Promise<WorktreeRelation> {

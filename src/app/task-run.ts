@@ -2,6 +2,7 @@
  * the review and the proof that the tests fail without the change, then the receipt and the row of next steps.
  * Moved from src/app.ts. */
 
+import { builderSteer, builderSteerLine } from "../crew/auto";
 import type { CasperApp } from "../app";
 import os from "node:os";
 import { riskyBaseline, riskyLinesIn } from "../network/risky-receipt";
@@ -97,6 +98,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   app.asksThisTask = 0;
   // A new request gets a fresh delegation budget (the budget belongs to the parent task).
   app.delegateToolForTask = undefined;
+  app.builderSteer = builderSteer(prompt);
   app.editGateActive = app.interactive && app.terminal.rich
     && context.policy.behavior.askQuestions === "beforeChanges"
     && (classification.intent === "implement" || classification.intent === "configure")
@@ -253,6 +255,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving,
           reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
         planBlock,
+        // "in parallel", "by yourself": one line, only where builders are offered.
+        app.buildersOff === undefined ? builderSteerLine(app.builderSteer) ?? "" : "",
         checklist ? formatChecklistPrompt(checklist) : "",
         // A flow the user picked from the row: guidance for this one request.
         options.flow ? formatFlowPrompt(options.flow, prompt) : "",

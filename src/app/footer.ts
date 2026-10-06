@@ -9,7 +9,7 @@ import { sessionTitle, windowTitle } from "../tui/session-title";
 import { DISPLAY_LEVELS, nextDisplay, type DisplayLevel } from "../tui/display";
 import { formatEffort, noModelFooter, terminalText } from "../tui/format";
 import type { RuntimeSession } from "../runtime/types";
-import { formatFooterSpend } from "../task/spend";
+import { formatCost, formatFooterSpend, formatTokens } from "../task/spend";
 import { phaseEvent, type PhaseEvent } from "./json-events";
 import { editUserConfig } from "../config/user-write";
 
@@ -36,8 +36,18 @@ export function updateFooter(app: CasperApp): void {
     const session = { tokens: app.spentBefore.tokens + spent.tokens, cost: app.spentBefore.cost + spent.cost };
     const shown = formatFooterSpend(spent, session, app.commandActive, status?.priced, status?.billing);
     const task = shown ? ` │ ${shown}` : "";
-    app.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${task} │ ${app.commandActive ? "working" : "idle"}`, project.root);
+    app.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${task}${buildersText(app)} │ ${app.commandActive ? "working" : "idle"}`, project.root);
   } catch { app.terminal.setStatus("Session status unavailable · /status", app.projectContext.info.root); }
+}
+
+/** " │ 2 builders · $0.12" while builders work (what they spent so far joins the task when each ends). */
+export function buildersText(app: Pick<CasperApp, "subagents">): string {
+  const builders = app.subagents.runs().filter((run) => run.role === "builder");
+  if (!builders.length) return "";
+  const tokens = builders.reduce((sum, run) => sum + (run.spent?.tokens ?? 0), 0);
+  const cost = builders.reduce((sum, run) => sum + (run.spent?.estimatedCost ?? 0), 0);
+  const spent = cost > 0 ? ` · ${formatCost(cost)}` : tokens ? ` · ${formatTokens(tokens)}` : "";
+  return ` │ ${builders.length} builder${builders.length === 1 ? "" : "s"}${spent}`;
 }
 
 export function conversationName(app: CasperApp): string {

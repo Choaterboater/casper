@@ -62,7 +62,7 @@ export function copiesChoices(count: number): Choice[] {
 const say = (host: CrewHost, line: string) => host.write(`[crew] ${line}\n`);
 const shown = (text: string) => redactPreview(text).replace(/\s+/g, " ").trim();
 
-function costText(result: SubagentResult): string {
+export function costText(result: Pick<SubagentResult, "usage">): string {
   if (!result.usage) return "cost not reported";
   return `${result.usage.tokens.toLocaleString("en-US")} tokens${result.usage.estimatedCost > 0 ? ` · about ${formatCost(result.usage.estimatedCost)}` : ""}`;
 }

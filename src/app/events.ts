@@ -489,6 +489,7 @@ export class RuntimeEventView {
 export function helperActivityLine(activity: HelperActivity, root?: string): string {
   const who = `helper ${activity.run.role}`;
   if (activity.kind === "start") return `${who} started: ${redactPreview(activity.run.goal).replace(/\s+/g, " ").slice(0, 100)}`;
+  if (activity.kind === "usage") return `${who} · ${(activity.run.spent?.tokens ?? 0).toLocaleString("en-US")} tokens so far`;
   if (activity.kind === "end") return `${who} ${activity.status === "completed" ? "finished" : `stopped (${activity.status.replace("_", " ")})`}`;
   return `${who} · ${formatToolActivity(activity.event.type === "tool_end" ? { ...activity.event, output: undefined } : activity.event, undefined, root ? { root } : {})}`;
 }

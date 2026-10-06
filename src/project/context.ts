@@ -33,6 +33,8 @@ export interface ProjectContext {
   display?: LoadedConfiguration["display"];
   /** `showPages:` in the user's config (ask, on or off). Unset: ask once a session. */
   showPages?: LoadedConfiguration["showPages"];
+  /** `delegate.build: false`: the AI starts no builders. Unset: on. */
+  delegate?: LoadedConfiguration["delegate"];
   /** Per-task spend limits (a note, then a pause); see src/task/spend.ts. */
   spend?: LoadedConfiguration["spend"];
   visualize: VisualizationSettings;
@@ -124,6 +126,7 @@ export async function loadProjectContext(
     ...(configuration.cache ? { cache: configuration.cache } : {}),
     ...(configuration.display ? { display: configuration.display } : {}),
     ...(configuration.showPages ? { showPages: configuration.showPages } : {}),
+    ...(configuration.delegate ? { delegate: configuration.delegate } : {}),
     spend: configuration.spend,
     visualize: configuration.visualize,
     services: configuration.services,
