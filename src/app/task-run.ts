@@ -132,9 +132,11 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   // Receipts describe the tree, not tool names: a read-only shell run is not a write. Undo's own copy is made
   // alongside, with the conversation's position (the plan turn and repairs are part of the task).
   app.snapshotFailure = undefined;
+  app.snapshotBase = undefined;
   const [before, undoStart] = await Promise.all([app.snapshotWorkspace(workspaceRoot, app.commandAbort?.signal),
     app.taskUndo.begin(workspaceRoot, session, app.commandAbort?.signal)]);
   edits.before = before;
+  app.snapshotBase = before;
   // What the test command means before the change (package.json scripts, runner settings): a change that rewrites
   // it is not proven or acceptance-checked by it.
   const definitionCommand = context.model.commands.test?.trim();

@@ -183,6 +183,9 @@ export class TaskObservations {
   /** Every tool call of the task, oldest first (the first TOOL_CALL_LIMIT). */
   get toolCalls(): ToolCallLine[] { return this.calls.map(call => ({ ...call, ...(call.input ? { input: { ...call.input } } : {}) })); }
 
+  /** Files the task's own tools wrote, as the tools named them. */
+  edited(): string[] { return [...this.edits]; }
+
   /** `changedPaths` undefined means the workspace snapshot failed or was skipped; only then can
    * a mutation-capable tool call leave writes unconfirmed. */
   snapshot(changedPaths: string[] | undefined, changedDuringChecks: string[] = []): TaskObservationSnapshot {

@@ -884,7 +884,9 @@ optional `exclude` paths.
 
 **Changed files.** In a git work tree the list of changed files comes from git: tracked files plus
 untracked files git does not ignore, so an ignored `.venv` or build folder of any size never slows
-the receipt (an edit to an ignored file, such as `.env`, is not listed). A nested repository or
+the receipt. A file git ignores is still listed when the AI's own `edit` or `write` changed it, and
+a file listed at the start of the task stays listed while it exists, so adding it to `.gitignore`
+does not make it look removed (an ignored file a shell command changed is not listed). A nested repository or
 submodule is walked, and so is a folder git lists nothing for (one an enclosing repository
 ignores). Outside git, Casper walks the folder. Either way dependency trees, virtual environments
 and caches are left out, and the limit is 20,000 files.

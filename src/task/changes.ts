@@ -75,7 +75,7 @@ export interface TreeChanges {
  * Symlinks are never followed (`link:<target>`), oversized files are identified by
  * `size:<bytes>:<mtime>`, unreadable ones by `error:<code>`. Throws when aborted or when the tree
  * exceeds the file limit (SNAPSHOT_FILE_LIMIT). */
-export async function snapshotTree(root: string, signal?: AbortSignal, options: { fileLimit?: number; git?: boolean } = {}): Promise<Map<string, string>> {
+export async function snapshotTree(root: string, signal?: AbortSignal, options: { fileLimit?: number; git?: boolean; include?: Iterable<string> } = {}): Promise<Map<string, string>> {
   const limit = options.fileLimit ?? SNAPSHOT_FILE_LIMIT;
   const digests = new Map<string, string>();
   const chunks = Array.from({ length: CONCURRENCY }, () => Buffer.allocUnsafe(CHUNK));
@@ -115,9 +115,13 @@ export async function snapshotTree(root: string, signal?: AbortSignal, options: 
     await digestAll(files);
   }
   // Casper's own folder is skipped, but the project's settings file in it is the project's: a change to it is listed.
-  if (!digests.has(PROJECT_FILE)) {
-    const digest = await digestEntry(path.join(root, PROJECT_FILE), chunks[0]!);
-    if (digest !== undefined) digests.set(PROJECT_FILE, digest);
+  // `include` names files to list even when git ignores them: those listed before a task (a file the task added to
+  // .gitignore is not removed) and those the task's own tools wrote (an ignored file the AI wrote is a change).
+  for (const relative of new Set([PROJECT_FILE, ...listed ? options.include ?? [] : []])) {
+    if (digests.has(relative) || !relative || path.isAbsolute(relative) || relative.split(/[\\/]/).includes("..")) continue;
+    signal?.throwIfAborted();
+    const digest = await digestEntry(path.join(root, relative), chunks[0]!);
+    if (digest !== undefined) digests.set(relative, digest);
   }
   return digests;
 }
