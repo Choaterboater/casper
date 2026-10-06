@@ -333,6 +333,19 @@ test("a machine on your lab list doesn't ask before ssh; /lab ssh off makes it a
   await sandbox.close();
 });
 
+test("a lab-listed alias does not let ssh -o HostName= reach another machine without a question", async () => {
+  const { home, project, context } = await labFixture();
+  const terminal = host([undefined, undefined]);
+  terminal.value.labHosts = () => ["build-server"];
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
+  const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+  expect(await shell.approve!("ssh -o Hostname=203.0.113.9 build-server uptime")).toContain("Not run: the user said no");
+  expect(await shell.approve!("scp -oHostName=203.0.113.9 build-server:/etc/hosts ./hosts")).toContain("Not run: the user said no");
+  expect(terminal.asked).toHaveLength(2);
+  expect(terminal.asked[0]!.question).toContain("203.0.113.9");
+  await sandbox.close();
+});
+
 test("a run that can't ask takes --allow-host, --allow-write and --allow-reach for this run, and its refusals name them", async () => {
   const { home, project, context } = await labFixture();
   const engine = fakeEngine();

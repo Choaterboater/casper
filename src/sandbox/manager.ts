@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, lstatSync, rmSync, watch, type FSWatcher } from "node:fs";
+import { existsSync, lstatSync, readFileSync, rmSync, watch, type FSWatcher } from "node:fs";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { linuxSandboxProblem, quote, ripgrepPath } from "./linux";
-import { realpathLongest, within } from "../platform/project-paths";
+import { gitDirs, realpathLongest, within } from "../platform/project-paths";
 import { hostListed, hostName, sandboxPolicy, systemTempDirs, writeFileToOffer, writeFolderToOffer, type SandboxPolicy, type SandboxProjectSettings, type SandboxUserSettings } from "./policy";
 import { runtimeEngine, type SandboxEngine } from "./runtime";
 import type { SandboxStore } from "./store";
@@ -125,6 +125,8 @@ export class ShellSandbox {
   private parentDenyRead: string[] = [];
   /** The session's sandbox: builders' commands running now, by run id. */
   private readonly crewRuns = new Map<string, ShellSandbox>();
+  /** The exec lines in git's to-do files when each running command started, by run id. */
+  private readonly todoExecs = new Map<string, Map<string, Set<string>>>();
 
   constructor(private readonly options: ShellSandboxOptions) {
     this.engine = options.engine ?? sandboxDefaults.engine?.() ?? runtimeEngine();
@@ -221,7 +223,9 @@ export class ShellSandbox {
       this.options.note?.(`[sandbox] The sandbox could not start (${this.startError}). Shell commands now ask first.`);
       throw new Error(`the sandbox could not start (${this.startError})`);
     }
-    for (const folder of [this.options.root(), ...(options.extraWrite ?? [])]) this.guardGit(folder);
+    const folders = [this.options.root(), ...(options.extraWrite ?? [])];
+    for (const folder of folders) this.guardGit(folder);
+    this.todoExecs.set(id, todoExecs(folders));
     const policy = this.policy(options);
     // "Yes, this once" for a shell write: this command may write there, the one after asks again.
     this.nextWrites.length = 0;
@@ -266,10 +270,28 @@ export class ShellSandbox {
 
   /** Run `id` has ended: the sandbox cleans up after it (see SandboxEngine.finished). Safe to call more than once. */
   finished(id: string | undefined): void {
-    if (id) { this.runHosts.delete(id); this.parent?.crewRuns.delete(id); this.engine.finished(id); }
+    if (id) { this.runHosts.delete(id); this.parent?.crewRuns.delete(id); this.engine.finished(id); this.sayNewExecs(id); }
     // A commondir the run wrote is gone when it ends, even if the watch missed it (macOS can drop an event that
     // comes just after a watch starts).
     for (const dotGit of this.gitGuards.keys()) this.guardGit(path.dirname(dotGit));
+  }
+
+  /**
+   * git runs a to-do's exec lines on the next `git rebase --continue` (or cherry-pick's), which you run outside the
+   * sandbox. git writes the to-do itself, so a command's text can't show one being added: each line a command
+   * added is said once. Not removed, so the AI's own `git rebase --exec` keeps working.
+   */
+  private sayNewExecs(id: string): void {
+    const before = this.todoExecs.get(id);
+    if (!before) return;
+    this.todoExecs.delete(id);
+    const folders = [...new Set([...this.gitGuards.keys()].map((dotGit) => path.dirname(dotGit)).concat(this.options.root()))];
+    for (const [file, lines] of todoExecs(folders)) {
+      const added = [...lines].filter((line) => !before.get(file)?.has(line));
+      if (!added.length) continue;
+      const shown = added.map((line) => line.length > 120 ? `${line.slice(0, 117)}...` : line).join("; ");
+      this.options.note?.(`[sandbox] A command added to git's to-do (${file}): ${shown}. git runs it outside the sandbox on your next --continue, so look at it first.`);
+    }
   }
 
   /** You said yes to these hosts for the command `id` (Casper's own "Reach <host>?" question): the proxy lets that
@@ -478,4 +500,22 @@ export function describeSandbox(state: SandboxState, hosts?: number): string {
   if (state.kind === "off") return `not sandboxed (${state.reason ?? "off"})`;
   if (state.kind === "unsupported") return `not sandboxed (${state.reason === "Windows" ? "Windows has no sandbox yet" : state.reason ?? "this system"}) · Casper asks before AI shell commands that change things`;
   return `not sandboxed (${state.reason ?? "no sandbox"}) · Casper asks before AI shell commands that change things`;
+}
+
+/** git's to-do files that can hold exec lines: a rebase's and a cherry-pick or revert's. */
+const TODO_FILES = [["rebase-merge", "git-rebase-todo"], ["sequencer", "todo"]];
+
+/** The exec (x) lines in each to-do file of these folders' git folders. */
+function todoExecs(folders: readonly string[]): Map<string, Set<string>> {
+  const found = new Map<string, Set<string>>();
+  for (const dir of new Set(folders.flatMap((folder) => gitDirs(folder)))) {
+    for (const parts of TODO_FILES) {
+      const file = path.join(dir, ...parts);
+      let text: string;
+      try { text = readFileSync(file, "utf8"); } catch { continue; }
+      const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => /^(?:exec|x)\s/.test(line));
+      if (lines.length) found.set(file, new Set(lines));
+    }
+  }
+  return found;
 }

@@ -14,3 +14,14 @@ test("git commands that set aside or discard uncommitted work are blocked; readi
   ]) expect({ command, blocked: Boolean(blockedGitCommand(command)) }).toEqual({ command, blocked: false });
   expect(blockedGitCommand("git stash push -m tmp")).toBe("git stash push -m tmp");
 });
+
+test("another spelling of git or a global option before the subcommand doesn't get past the guard", () => {
+  for (const command of ["git -P clean -fdx", "git -p reset --hard", "git -P stash", "git --no-pager stash", "/usr/bin/git clean -fdx",
+    "\\git clean -fdx", "'git' clean -fdx", "\"git\" reset --hard", "git --git-dir .git --work-tree . clean -fd", "nice git clean -fdx",
+    "nohup git stash", "echo hi & git clean -fdx", "git.exe clean -fd", "C:/Program\\ Files/Git/bin/git.exe stash"]) {
+    expect({ command, blocked: Boolean(blockedGitCommand(command)) }).toEqual({ command, blocked: true });
+  }
+  for (const command of ["git -P status", "git -p log", "/usr/bin/git status", "git --no-pager diff", "echo git -P clean", "digit clean"]) {
+    expect({ command, blocked: Boolean(blockedGitCommand(command)) }).toEqual({ command, blocked: false });
+  }
+});

@@ -123,7 +123,7 @@ const DIFF_LONG = ["--stat", "--stat=", "--shortstat", "--numstat", "--name-only
   "--cached", "--staged", "--word-diff", "--word-diff=", "--color-words", "--ignore-all-space", "--ignore-space-change", "--ignore-blank-lines",
   "--minimal", "--patience", "--histogram", "--diff-algorithm=", "--no-renames", "--find-renames", "--find-copies", "--check", "--exit-code",
   "--quiet", "--no-ext-diff", "--no-textconv", "--full-index", "--abbrev", "--abbrev=", "--relative", "--merge-base", "--compact-summary",
-  "--dirstat", "--unified=", "--diff-filter=", "--ignore-submodules", ...COLOR];
+  "--dirstat", "--unified", "--unified=", "--diff-filter=", "--ignore-submodules", ...COLOR];
 const LOG_LONG = ["--oneline", "--graph", "--all", "--decorate", "--decorate=", "--no-decorate", "--reverse", "--first-parent", "--merges",
   "--no-merges", "--abbrev-commit", "--follow", "--topo-order", "--date-order", "--left-right", "--cherry-pick", "--boundary", "--full-history",
   "--source", "--branches", "--tags", "--remotes", "--no-walk", "--walk-reflogs", "--format=", "--pretty", "--pretty=", "--date=", "--author=",
@@ -131,21 +131,22 @@ const LOG_LONG = ["--oneline", "--graph", "--all", "--decorate", "--decorate=", 
   "--regexp-ignore-case", "--simplify-by-decoration"];
 
 /** git subcommands that only read, and their options. No -c, -C, --output, --ext-diff, --textconv, -O or --no-index:
- * those set a program to run, write a file or read outside the project. */
+ * those set a program to run, write a file or read outside the project. -U, --unified and --abbrev take a value only
+ * when it is joined (-U5, --abbrev=7), as git reads them: the word after them is a file and is checked. */
 const GIT_READERS: Record<string, Spec> = {
   status: { short: "sbvz", optional: "u", long: ["--short", "--branch", "--porcelain", "--porcelain=", "--long", "--show-stash", "--ahead-behind",
     "--no-ahead-behind", "--renames", "--no-renames", "--untracked-files", "--untracked-files=", "--ignored", "--verbose"] },
-  diff: { short: "pusbwRMz", value: "U", long: DIFF_LONG },
-  log: { short: "psuwgiEFPMz", value: "nSGU", number: true, long: [...DIFF_LONG, ...LOG_LONG] },
-  show: { short: "psuwMz", value: "nU", number: true, long: [...DIFF_LONG, ...LOG_LONG] },
+  diff: { short: "pusbwRMz", optional: "U", long: DIFF_LONG },
+  log: { short: "psuwgiEFPMz", value: "nSG", optional: "U", number: true, long: [...DIFF_LONG, ...LOG_LONG] },
+  show: { short: "psuwMz", value: "n", optional: "U", number: true, long: [...DIFF_LONG, ...LOG_LONG] },
   "rev-parse": { short: "q", long: ["--show-toplevel", "--abbrev-ref", "--abbrev-ref=", "--short", "--short=", "--git-dir", "--is-inside-work-tree",
     "--is-inside-git-dir", "--verify", "--symbolic-full-name", "--show-prefix", "--show-cdup", "--quiet", "--absolute-git-dir", "--git-common-dir",
     "--is-bare-repository"] },
   "ls-files": { short: "cdmoisuktvzf", long: ["--cached", "--deleted", "--modified", "--others", "--ignored", "--stage", "--unmerged",
     "--exclude-standard", "--full-name", "--error-unmatch", "--directory", "--no-empty-directory", "--eol", "--deduplicate"] },
   blame: { short: "wMCesltfnpb", value: "L", long: ["--porcelain", "--line-porcelain", "--show-email", "--show-name", "--show-number", "--root",
-    "--abbrev=", "--date="] },
-  describe: { long: ["--tags", "--always", "--long", "--all", "--dirty", "--dirty=", "--exact-match", "--first-parent", "--abbrev=", "--match=",
+    "--abbrev", "--abbrev=", "--date="] },
+  describe: { long: ["--tags", "--always", "--long", "--all", "--dirty", "--dirty=", "--exact-match", "--first-parent", "--abbrev", "--abbrev=", "--match=",
     "--exclude=", "--candidates="] },
   shortlog: { short: "sne", long: ["--summary", "--numbered", "--email", "--no-merges", "--all", "--format=", "--since=", "--until=", "--author=",
     "--group="] },
@@ -164,8 +165,9 @@ const GIT_READERS: Record<string, Spec> = {
   "cat-file": { short: "ptse" },
 };
 
-/** Files a read must not print to the AI, project or not: keys, logins and .env files. */
-const PRIVATE_NAME = /(?:^|\/)(?:\.env(?:\..*)?|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?|\.netrc|\.npmrc|\.pypirc|\.git-credentials|credentials(?:\.\w+)?)$/;
+/** Files a read must not print to the AI, project or not: keys, logins, .env files and secrets files. Not *.ini,
+ * *.properties or a plain *.pem (CA bundles): most repos have those, and every search of the project would ask. */
+const PRIVATE_NAME = /(?:^|\/)(?:\.env(?:\..*)?|[^/]*\.env|\.envrc|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?|\.netrc|_netrc|\.npmrc|\.pypirc|\.pgpass|\.dockercfg|\.git-credentials|[^/]*credentials(?:\.\w+)?|\.?secrets?\.(?:ya?ml|json|toml|env|txt)|[^/]*\.(?:key|p12|pfx|ppk|tfvars|tfstate(?:\.backup)?|ovpn)|[^/]*key[^/]*\.pem)$/i;
 
 /** True when an unquoted * ? [ or { would make the shell pick the files: `cat .en*` can't be checked by its text. */
 function hasGlob(text: string): boolean {
@@ -233,16 +235,32 @@ function holdsPrivateFile(folder: string): boolean {
   return false;
 }
 
-/** Checks one program's words against its spec. */
-function allowed(spec: Spec, args: readonly string[], place: Place): boolean {
+/** The file a git word names: `HEAD:src/a.ts`, `:src/a.ts` and `:0:src/a.ts` read that path from git's own copy.
+ * Undefined for pathspec magic (`:(glob).env`, `:!src`), which this check can't follow. */
+function gitWordPath(word: string): string | undefined {
+  if (/^:[(!^/]/.test(word)) return undefined;
+  const staged = /^:\d:/.exec(word);
+  if (staged) return word.slice(staged[0].length) || ".";
+  const colon = word.indexOf(":");
+  return colon < 0 ? word : word.slice(colon + 1) || ".";
+}
+
+/** Checks one program's words against its spec. `git`: its words may name a file as <rev>:<path>. */
+function allowed(spec: Spec, args: readonly string[], place: Place, git = false): boolean {
   const options = new Set<string>();
   const words: string[] = [];
   const files: string[] = [];
   const longs = spec.long ?? [];
   let index = 0;
+  // A value given as the next word is never an option: `git diff -U --no-index` would hide --no-index from this
+  // check while git reads it. A number (head -n -5, tail -n +5) is fine.
   const takeValue = (name: string, joined: string | undefined): boolean => {
     let value = joined;
-    if (value === undefined) { value = args[++index]; if (value === undefined) return true; }
+    if (value === undefined) {
+      value = args[++index];
+      if (value === undefined) return true;
+      if (value.startsWith("-") && !/^[-+]\d+$/.test(value)) return false;
+    }
     if (spec.pathOptions?.includes(name)) files.push(value);
     return true;
   };
@@ -260,7 +278,7 @@ function allowed(spec: Spec, args: readonly string[], place: Place): boolean {
         if (!longs.includes(`${name}=`)) return false;
         takeValue(name, arg.slice(equals + 1));
       } else if (longs.includes(name)) continue;
-      else if (longs.includes(`${name}=`)) takeValue(name, undefined);
+      else if (longs.includes(`${name}=`)) { if (!takeValue(name, undefined)) return false; }
       else return false;
       continue;
     }
@@ -271,7 +289,7 @@ function allowed(spec: Spec, args: readonly string[], place: Place): boolean {
       options.add(name);
       if (spec.short?.includes(letter)) continue;
       const rest = letters.slice(at + 1);
-      if (spec.value?.includes(letter)) { takeValue(name, rest || undefined); break; }
+      if (spec.value?.includes(letter)) { if (!takeValue(name, rest || undefined)) return false; break; }
       if (spec.optional?.includes(letter)) break;
       return false;
     }
@@ -283,7 +301,9 @@ function allowed(spec: Spec, args: readonly string[], place: Place): boolean {
   if (spec.maxWords !== undefined && words.length > spec.maxWords) return false;
   if (!files.every((file) => fileOk(file, place, false))) return false;
   if (kind === "text") return true;
-  const paths = spec.pattern && !spec.pattern.some((option) => options.has(option)) ? words.slice(1) : words;
+  const given = spec.pattern && !spec.pattern.some((option) => options.has(option)) ? words.slice(1) : words;
+  const paths = git ? given.map(gitWordPath) : given;
+  if (!paths.every((word): word is string => word !== undefined)) return false;
   const recursive = typeof spec.recursive === "function" ? spec.recursive(options) : Boolean(spec.recursive);
   return (paths.length ? paths : recursive ? ["."] : []).every((word) => fileOk(word, place, recursive, Boolean(spec.contents)));
 }
@@ -322,7 +342,7 @@ function readerSegment(words: string[], place: Place): boolean {
     while (args[index] === "--no-pager" || args[index] === "-P") index++;
     const sub = args[index];
     const spec = sub === undefined ? undefined : Object.hasOwn(GIT_READERS, sub) ? GIT_READERS[sub] : undefined;
-    return Boolean(spec) && allowed(spec!, args.slice(index + 1), place);
+    return Boolean(spec) && allowed(spec!, args.slice(index + 1), place, true);
   }
   const spec = Object.hasOwn(READERS, name) ? READERS[name] : undefined;
   return Boolean(spec) && allowed(spec!, args, place);
@@ -350,7 +370,8 @@ const NO_PREFIX = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "python",
   "awk", "gawk", "mawk", "nawk", "sed", "find", "tar", "zip", "less", "more", "man", "vi", "vim", "nvim", "emacs", "nano", "ed", "ex", "gdb",
   "lldb", "strace", "ltrace", "chroot", "unshare", "nsenter", "open", "xdg-open", "parallel", "flock", "unbuffer", "entr", "watchexec",
   "nodemon", "concurrently", "cross-env", "dotenv", "direnv", "nix", "nix-shell", "osascript", "tsx", "ts-node", "cscript", "wscript", "mshta",
-  "rundll32", "start", "command", "busybox", "stdbuf", "setsid", "caffeinate", "ionice", "script"]);
+  "rundll32", "start", "command", "busybox", "stdbuf", "setsid", "caffeinate", "ionice", "script", "su", "runuser", "pkexec", "pypy", "luajit",
+  "tmux", "screen", "crontab", "at", "batch"]);
 /** Tools whose second word is a subcommand: the prefix keeps it (git commit, npm test, cargo build), and the tool
  * alone gets none. */
 const SUBCOMMANDS = new Set(["git", "npm", "pnpm", "yarn", "bun", "cargo", "go", "docker", "podman", "kubectl", "pip", "pip3", "uv", "poetry",

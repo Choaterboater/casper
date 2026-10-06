@@ -115,3 +115,37 @@ test("an alias and its address are one machine on the receipt, named by both", (
     changes: ["turned a service on or off at boot (systemctl enable --now sampleapp)", "restarted or shut down the machine (reboot)"] }]);
   expect(remoteChanges("ssh root@$H uptime", home)).toEqual([{ host: "$H", address: "$H", changes: [] }]);
 });
+
+test("ssh -o Hostname= names the machine ssh really reaches, not the alias's address", () => {
+  expect(hosts("ssh -o Hostname=203.0.113.9 build-server uptime")).toEqual([{ tool: "ssh", typed: "203.0.113.9", host: "203.0.113.9", user: "root", port: 2222 }]);
+  expect(hosts("ssh -oHostName=evil.example.com build-server id").map((target) => target.host)).toEqual(["evil.example.com"]);
+  expect(hosts("ssh -o 'HostName 203.0.113.9' build-server id").map((target) => target.host)).toEqual(["203.0.113.9"]);
+  expect(hosts("scp -o Hostname=203.0.113.9 build-server:/etc/shadow ./x").map((target) => target.host)).toEqual(["203.0.113.9"]);
+  expect(hosts("sftp -o HostName=203.0.113.9 build-server").map((target) => target.host)).toEqual(["203.0.113.9"]);
+  expect(hosts("rsync -e 'ssh -o HostName=203.0.113.9' dist/ build-server:/srv/").map((target) => target.host)).toEqual(["203.0.113.9"]);
+  expect(remoteTargets("ssh -o HostName=$H build-server id", home)[0]?.unclear).toBe(true);
+});
+
+test("an approved ssh that writes a known-hosts file of its choosing stays in the sandbox; /dev/null runs alone", () => {
+  const root = path.join(home, "project");
+  for (const command of [
+    `ssh -o UserKnownHostsFile=${path.join(home, ".gitconfig")} -o StrictHostKeyChecking=no build-server true`,
+    "ssh -oUserKnownHostsFile=x build-server true", "scp -o UserKnownHostsFile=x build-server:/etc/hosts ./hosts",
+    "ssh -o 'UserKnownHostsFile /dev/null x' build-server true",
+  ]) expect([command, runsAlone(command, root)]).toEqual([command, false]);
+  // /dev/null and none write nothing, and ssh only ever reads GlobalKnownHostsFile: a routine lab ssh keeps your keys.
+  for (const command of [
+    "ssh -o StrictHostKeyChecking=accept-new build-server uptime",
+    "ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no build-server true",
+    "ssh -o 'UserKnownHostsFile none' build-server true", "ssh -o UserKnownHostsFile=NUL build-server true",
+    "ssh -o GlobalKnownHostsFile=/dev/null build-server true", "ssh -o GlobalKnownHostsFile=/tmp/x build-server true",
+  ]) expect([command, runsAlone(command, root)]).toEqual([command, true]);
+});
+
+test("inside double quotes a backslash stays unless it escapes a special character, as bash reads it", () => {
+  const words = (command: string) => splitShell(command).segments[0]!.words;
+  expect(words('cat "..\\..\\.ssh\\config"')).toEqual(["cat", "..\\..\\.ssh\\config"]);
+  expect(words('cat "C:\\Windows\\win.ini"')).toEqual(["cat", "C:\\Windows\\win.ini"]);
+  expect(words('echo "a\\"b" "c\\\\d" "e\\$f"')).toEqual(["echo", 'a"b', "c\\d", "e$f"]);
+  expect(words("cat ..\\x 'a\\b'")).toEqual(["cat", "..x", "a\\b"]);
+});

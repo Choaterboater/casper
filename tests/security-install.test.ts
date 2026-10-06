@@ -182,6 +182,17 @@ function lockedSpec(version: string): LockedSpec {
   };
 }
 
+test("a hash-locked install uses uv's cache in ~/.casper, never the shared one shell commands may write", async () => {
+  const home = await temp("casper-locked-home-");
+  const envs: Array<string | undefined> = [];
+  const calls: string[][] = [];
+  const record = fakeRun(calls);
+  const result = await installLockedSpec(lockedSpec("0.1.0"), { homeDir: home, env: { PATH: await fakeUvDir(), UV_CACHE_DIR: path.join(home, ".cache/uv") },
+    run: async (run) => { envs.push(run.env.UV_CACHE_DIR); return record(run); } });
+  expect(result.ok).toBe(true);
+  expect(envs).toEqual([path.join(home, ".casper", "uv-cache"), path.join(home, ".casper", "uv-cache")]);
+});
+
 /** uv as a fake: `pip install` writes the entry next to the venv's python (wherever the venv is being built), or exits 1. */
 function fakeRun(calls: string[][], options: { pipExit?: number } = {}): ToolRunner {
   return async (run) => {

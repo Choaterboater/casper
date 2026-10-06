@@ -8,6 +8,8 @@ import { parseVisualizationGraph, VISUALIZATION_TYPES } from "./types";
 export interface VisualizationToolOptions {
   router: VisualizationRouter;
   projectRoot: string;
+  /** The project's sandbox.denyRead (absolute): not scanned for the AI. */
+  privatePaths?: readonly string[];
 }
 
 /** Tool-facing envelope: primary content inline, secondary artifacts by path only. */
@@ -60,7 +62,7 @@ export function visualizationTools(options: VisualizationToolOptions): RuntimeTo
         if (source === "repo") {
           if (args.graph !== undefined) throw new Error("repo source does not accept a graph");
           if (args.scope !== undefined && typeof args.scope !== "string") throw new Error("scope must be a string");
-          const repo = await buildRepoGraph({ root: projectRoot, scope: args.scope as string | undefined, signal });
+          const repo = await buildRepoGraph({ root: projectRoot, scope: args.scope as string | undefined, signal, privatePaths: options.privatePaths ?? [] });
           const rendered = await router.render(repo.graph, signal);
           return { text: JSON.stringify(boundCapabilityResult(describeVisualization(rendered, [`Scanned ${repo.filesScanned} files at ${repo.granularity} granularity.`, ...repo.notes]))) };
         }

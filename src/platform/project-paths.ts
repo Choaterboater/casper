@@ -40,10 +40,19 @@ export interface PathContext {
 
 const UNICODE_SPACES = /[  -   　]/g;
 
+/** Git Bash, MSYS, Cygwin and WSL drive paths (/c/Users, /mnt/c/Users, /cygdrive/c/Users) as Windows names them
+ * (C:\Users). Pi's tools do this on Windows before opening a path, so the checks must too. */
+export function windowsShellPath(input: string): string {
+  if (!input.startsWith("/") || input.startsWith("//") || input.includes("\\")) return input;
+  const match = /^\/(?:mnt\/|cygdrive\/)?([a-z])(?:\/(.*))?$/i.exec(input);
+  return match ? `${match[1]!.toUpperCase()}:\\${match[2]?.replaceAll("/", "\\") ?? ""}` : input;
+}
+
 /** The absolute path a native tool will use for `input`: the same steps as Pi's resolveToCwd. */
 export function resolveToolPath(input: string, cwd: string, home = os.homedir()): string {
   let normal = input.replace(UNICODE_SPACES, " ");
   if (normal.startsWith("@")) normal = normal.slice(1);
+  if (process.platform === "win32") normal = windowsShellPath(normal);
   if (normal === "~") return home;
   if (normal.startsWith("~/") || (process.platform === "win32" && normal.startsWith("~\\"))) return path.join(home, normal.slice(2));
   if (/^file:\/\//.test(normal)) { try { return fileURLToPath(normal); } catch { /* keep as typed */ } }
@@ -232,12 +241,18 @@ const READ_TOOLS = new Set(["read", "grep", "find", "ls"]);
 const WRITE_TOOLS = new Set(["edit", "write"]);
 
 /**
- * The file tool gate for the AI's native read, grep, find, ls, edit and write. Returns the refusal
+ * The file tool gate for the AI's native read, grep, find, ls, edit and write, and the lsp tool's path. Returns the refusal
  * the AI sees, or undefined to let the call run.
  */
 export function fileToolGate(toolName: string, input: Record<string, unknown> | undefined, context: PathContext): string | undefined {
-  if (!input || (!READ_TOOLS.has(toolName) && !WRITE_TOOLS.has(toolName))) return undefined;
   const home = context.home ?? os.homedir();
+  // The lsp tool sends the file's text to the language server and returns its symbols: a private file is refused as
+  // read refuses it. (It never leaves the project; the LSP layer checks that.)
+  if (toolName === "lsp" && input && typeof input.path === "string" && input.path) {
+    const place = privatePlace(resolveToolPath(input.path, context.root, home), context);
+    return place ? `Not read: ${place} is private (${whyPrivate(place, context)}). Casper keeps it from the AI.` : undefined;
+  }
+  if (!input || (!READ_TOOLS.has(toolName) && !WRITE_TOOLS.has(toolName))) return undefined;
   const given = typeof input.path === "string" && input.path ? input.path : toolName === "read" || WRITE_TOOLS.has(toolName) ? undefined : ".";
   if (given === undefined) return undefined;
   const absolute = resolveToolPath(given, context.root, home);
@@ -251,8 +266,8 @@ export function fileToolGate(toolName: string, input: Record<string, unknown> | 
     if (kind === "gitInternal") return `Not done: ${gitInternalPart(candidate, context.root, home)} belongs to git itself. Casper doesn't let the AI change it.`;
     if (kind === "protected") return `Not done: ${displayPath(candidate, context.root, home)} holds your shell, git or Casper settings. Casper doesn't let the AI change it.`;
   }
-  // grep reads every file under its folder, hidden ones too.
-  if (toolName === "grep") {
+  // grep reads every file under its folder, hidden ones too; find lists their names (fd --hidden).
+  if (toolName === "grep" || toolName === "find") {
     const below = privatePlaceBelow(absolute, context);
     if (below) return `Not searched: ${displayPath(absolute, context.root, home)} holds private files (${below}). Search a narrower folder.`;
   }
@@ -262,7 +277,7 @@ export function fileToolGate(toolName: string, input: Record<string, unknown> | 
 const WRITE_WORDS = /(?:^|[\s;&|(`])(?:tee|cp|mv|ln|install|chmod|chown|touch|dd|rsync|curl|wget|unzip|tar|rm|mkdir|truncate|patch|sed\s+(?:-\w*i|--in-place)|perl\s+-\w*i|python[\d.]*|node|bun|ruby|perl|sh|bash|zsh|git\s+(?:apply|checkout|restore))(?=\s|$)/;
 const REDIRECT = /(?:^|[^<>&\d])>{1,2}(?!&)|&>/;
 /** git config keys that make git run a program, or point it somewhere else. */
-const RISKY_GIT_KEY = /^(?:core\.(?:hookspath|fsmonitor|sshcommand|pager|editor|askpass|gitproxy|worktree|attributesfile|excludesfile)$|alias\.|filter\.|pager\.|diff\..+\.(?:textconv|command)$|merge\..+\.driver$|(?:difftool|mergetool|browser|man)\..+\.(?:cmd|path)$|interactive\.difffilter$|credential(?:\.|$)|include\.|includeif\.|gpg\.|sequence\.editor$|uploadpack\.|receivepack\.|protocol\.|url\.|remote\..+\.(?:uploadpack|receivepack|proxy)$)/i;
+const RISKY_GIT_KEY = /^(?:core\.(?:hookspath|fsmonitor|sshcommand|pager|editor|askpass|gitproxy|worktree|attributesfile|excludesfile)$|alias\.|filter\.|pager\.|diff\.external$|diff\..+\.(?:textconv|command)$|merge\..+\.driver$|(?:difftool|mergetool|browser|man)\..+\.(?:cmd|path)$|interactive\.difffilter$|credential(?:\.|$)|include\.|includeif\.|gpg\.|sequence\.editor$|uploadpack\.|receivepack\.|protocol\.|url\.|remote\..+\.(?:uploadpack|receivepack|proxy)$)/i;
 /** git options before the command word that take the next word as their value. */
 const GIT_VALUE_OPTIONS = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--exec-path", "--super-prefix"]);
 /** git config options that take the next word as their value. */
@@ -279,7 +294,8 @@ function shellWords(text: string): string[] {
     const char = text[index]!;
     if (quote) {
       if (char === quote) quote = undefined;
-      else if (char === "\\" && quote === "\"" && index + 1 < text.length) current += text[++index];
+      // As bash reads it: inside double quotes a backslash escapes only $ ` " \ and a newline.
+      else if (char === "\\" && quote === "\"" && index + 1 < text.length && "$`\"\\\n".includes(text[index + 1]!)) { index++; if (text[index] !== "\n") current += text[index]; }
       else current += char;
       continue;
     }
@@ -325,15 +341,16 @@ function riskyGitConfig(text: string, depth = 0): string | undefined {
 }
 
 /**
- * A shell command that would change git's own files: a write to .git/hooks, .git/config or a
- * core.hooksPath folder, or `git config` setting a key that makes git run a program. A text check,
+ * A shell command that would change git's own files: a write to .git/hooks, .git/config, a
+ * core.hooksPath folder or a rebase or cherry-pick to-do (an `exec` line there runs on the next
+ * `--continue`, outside the sandbox), or `git config` setting a key that makes git run a program. A text check,
  * not a sandbox: a script can still get past it until the shell sandbox ships.
  */
 export function gitInternalsCommand(command: string, root: string, home = os.homedir()): string | undefined {
   const config = riskyGitConfig(command);
   if (config) return config;
   const hooks = hooksPathTargets(root, home).flatMap((target) => [target, displayPath(target, root, home)]);
-  const names = [/(?:^|[\s'"=:(/\\])\.git(?:[\\/]+(?:hooks|config(?:\.worktree)?|info)\b|[\\/]*(?=$|[\s'";&|)]))/, ...hooks.filter((name) => name && name !== ".").map((name) => new RegExp(`(?:^|[\\s'"=:(])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[\\\\/]|\\s|$|['"])`))];
+  const names = [/(?:^|[\s'"=:(/\\])\.git(?:[\\/]+(?:hooks|config(?:\.worktree)?|info|rebase-merge|rebase-apply|sequencer)\b|[\\/]*(?=$|[\s'";&|)]))/, ...hooks.filter((name) => name && name !== ".").map((name) => new RegExp(`(?:^|[\\s'"=:(])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[\\\\/]|\\s|$|['"])`))];
   const named = names.map((pattern) => pattern.exec(command)?.[0]?.trim().replace(/^['"=:(/\\]/, "")).find(Boolean);
   if (named && (REDIRECT.test(command) || WRITE_WORDS.test(command))) {
     return `Not run: this command changes ${named.replace(/[\\/]+$/, "")}, git's own files. Casper doesn't let the AI change them. Ask the user to run it.`;
@@ -426,8 +443,11 @@ function privateWord(command: string, context: PathContext, home: string): strin
     // `ssh -G host` prints what ~/.ssh/config says for it.
     if (path.basename(words[0]!) === "ssh" && words.some((word) => /^-[46AaCfGgKkMNnqsTtVvXxYy]*G[46AaCfGgKkMNnqsTtVvXxYy]*$/.test(word))) return "~/.ssh";
     const tree = readsTree(words);
+    const git = /^git(?:\.exe)?$/i.test(path.basename(words[0]!));
     for (const raw of words.slice(1)) {
-      const word = raw.startsWith("-") ? raw.includes("=") ? raw.slice(raw.indexOf("=") + 1) : "" : raw.replace(/^[A-Za-z_][A-Za-z0-9_]*=/, "");
+      let word = raw.startsWith("-") ? raw.includes("=") ? raw.slice(raw.indexOf("=") + 1) : "" : raw.replace(/^[A-Za-z_][A-Za-z0-9_]*=/, "");
+      // git show HEAD:secrets/x, :secrets/x, :0:secrets/x print that file from git's own copy.
+      if (git && word.includes(":") && !word.includes("://")) { const rest = word.replace(/^:\d:/, ""); word = rest.slice(rest.indexOf(":") + 1); }
       if (!word || !/^[.~/$]|\//.test(word)) continue;
       const expanded = expand(word);
       if (expanded === undefined) continue;

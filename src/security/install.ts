@@ -262,7 +262,9 @@ function venvEntry(dir: string, entry: string, platform: NodeJS.Platform): strin
  * makes it count; on any failure the folder is removed and the error thrown.
  */
 async function buildLockedVenv(build: LockedBuild, dir: string, uv: string, options: InstallOptions): Promise<void> {
-  const env = installEnv(options.env ?? process.env);
+  // uv installs from its unpacked cache without hashing it again, and shell commands may write the shared
+  // ~/.cache/uv: a cache in ~/.casper, which they can't write, keeps the hash lock meaningful.
+  const env = { ...installEnv(options.env ?? process.env), UV_CACHE_DIR: path.join(options.homeDir, ".casper", "uv-cache") };
   const platform = options.platform ?? process.platform;
   const run = options.run ?? runTool;
   const { label, version, source } = build;

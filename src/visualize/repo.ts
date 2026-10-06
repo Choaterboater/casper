@@ -2,6 +2,7 @@ import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { GRAPH_LIMITS, parseVisualizationGraph, type GraphEdge, type GraphNode, type VisualizationGraph } from "./types";
 import { isOutside } from "../platform/inside";
+import { realpathLongest, within } from "../platform/project-paths";
 
 const IGNORED_DIRECTORIES = new Set(["node_modules", ".git", "dist", "build", "out", "coverage", ".next", ".turbo", ".cache", "vendor", "target", "__pycache__"]);
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"];
@@ -32,6 +33,8 @@ export interface RepoGraphOptions {
   /** Collapse to directories when the file graph exceeds this many nodes. */
   maxFileNodes?: number;
   signal?: AbortSignal;
+  /** The project's sandbox.denyRead (absolute): the AI's scan skips these folders and refuses a scope inside one. */
+  privatePaths?: readonly string[];
 }
 
 export interface RepoGraph {
@@ -61,6 +64,10 @@ export async function buildRepoGraph(options: RepoGraphOptions): Promise<RepoGra
   const scopeDir = await realpath(requestedScope).catch(() => undefined);
   if (!scopeDir) throw new Error(`Visualization scope is not a directory: ${options.scope}`);
   assertInside(scopeDir);
+  const privatePaths = (options.privatePaths ?? []).flatMap((entry) => [path.resolve(entry), realpathLongest(entry)]);
+  const isPrivate = (target: string) => privatePaths.some((entry) => within(entry, target));
+  if (isPrivate(scopeDir)) throw new Error("Visualization scope is private (this project's sandbox.denyRead)");
+  let skippedPrivate = 0;
   const relativeScope = path.relative(root, scopeDir);
   const scopeInfo = await stat(scopeDir).catch(() => undefined);
   if (!scopeInfo?.isDirectory()) throw new Error(`Visualization scope is not a directory: ${options.scope}`);
@@ -79,6 +86,7 @@ export async function buildRepoGraph(options: RepoGraphOptions): Promise<RepoGra
       if (entry.isDirectory()) {
         // The explicitly requested scope is always scanned; only descendants are filtered.
         if (IGNORED_DIRECTORIES.has(entry.name) || entry.name.startsWith(".")) continue;
+        if (isPrivate(full)) { skippedPrivate++; continue; }
         await walk(full);
       } else if (entry.isFile() && SOURCE_EXTENSIONS.includes(path.extname(entry.name)) && !/\.d\.[cm]?ts$/.test(entry.name)) {
         files.push(full);
@@ -113,6 +121,7 @@ export async function buildRepoGraph(options: RepoGraphOptions): Promise<RepoGra
 
   const notes: string[] = [];
   if (truncated) notes.push(`Scan stopped at ${maxFiles} files; the graph is partial.`);
+  if (skippedPrivate) notes.push(`${skippedPrivate} private folder(s) were not scanned.`);
   if (oversized) notes.push(`${oversized} file(s) over 1 MiB were not parsed for imports.`);
   if (external) notes.push(`${external} package import(s) omitted (only relative imports are drawn).`);
   if (unresolved) notes.push(`${unresolved} relative import(s) could not be resolved to a scanned file.`);

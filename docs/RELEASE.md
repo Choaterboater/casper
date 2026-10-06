@@ -971,7 +971,7 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
   Casper before replacing its exe.
 - **`casper update` reuses it.** A release binary asks GitHub for the newest release
   (previews included), downloads that release's installer, checks it against GitHub's
-  published digest for the file and its pinned download address, and runs it on the
+  published digest for the file (with neither that nor a list naming it, it is not run) and its pinned download address, and runs it on the
   folder of the running program with the new version pinned. Once there is a release
   key, Casper first checks `SHA256SUMS.sig` itself (no `ssh-keygen` needed) and that the
   signed list names the installer with a matching digest; when `gh` is signed in, it

@@ -248,3 +248,60 @@ test("a whole-folder search that prints contents asks when the folder holds a .e
     }
   } finally { await rm(base, { recursive: true, force: true }); }
 });
+
+test("an option that takes a value never hides another option behind it: -n --output, -U --no-index, --abbrev --contents= ask", () => {
+  for (const command of ["git diff -U --no-index -U ../x README.md", "git log -U --output=../x", "git blame --abbrev --contents=../x README.md",
+    "git log -n --output=x", "git show -n --ext-diff HEAD", "head -n --files0-from=list x", "git diff -U --output x"]) {
+    expect({ command, read: readOnlyCommand(command) }).toEqual({ command, read: false });
+  }
+  for (const command of ["head -n -5 README.md", "tail -n +5 README.md", "git log -n 3", "git diff -U5", "git diff --unified=5",
+    "git blame --abbrev=7 README.md", "git blame -L 1,20 README.md"]) {
+    expect({ command, read: readOnlyCommand(command) }).toEqual({ command, read: true });
+  }
+});
+
+test("git's -U, --unified and --abbrev take only a joined value: the next word is a file and is checked", async () => {
+  const { home, project } = await fixture();
+  await mkdir(path.join(project, "secrets"));
+  const where = { root: project, home, denyRead: [path.join(project, "secrets")] };
+  for (const command of ["git blame --abbrev secrets/k.txt", "git blame --abbrev .env", "git log -U secrets/k.txt", "git show -U HEAD:.env",
+    "git show -U HEAD:secrets/k.txt", "git diff -U .env", "git show --unified HEAD:.env", "git describe --abbrev HEAD:secrets/k.txt"]) {
+    expect({ command, read: readOnlyCommand(command, where) }).toEqual({ command, read: false });
+  }
+  for (const command of ["git show -U HEAD:src/a.ts", "git blame --abbrev src/a.ts", "git log -U5 src/a.ts"]) {
+    expect({ command, read: readOnlyCommand(command, where) }).toEqual({ command, read: true });
+  }
+});
+
+test("a git reader's <rev>:<path> is checked as that path: a private or denyRead file asks", async () => {
+  const { home, project } = await fixture();
+  await mkdir(path.join(project, "secrets"));
+  const where = { root: project, home, denyRead: [path.join(project, "secrets")] };
+  for (const command of ["git show HEAD:secrets/token.txt", "git show HEAD:.env", "git show :.env", "git show :0:.env", "git cat-file -p HEAD:.env",
+    "git cat-file -p HEAD:secrets/token.txt", "git diff HEAD:secrets/a HEAD:src/a", "git diff -- ':(glob).env'", "git log -p -- ':!src'",
+    "git show HEAD:../outside.txt"]) {
+    expect({ command, read: readOnlyCommand(command, where) }).toEqual({ command, read: false });
+  }
+  for (const command of ["git show HEAD:src/a.ts", "git show HEAD~1 --stat", "git cat-file -p HEAD:README.md", "git show HEAD", "git log -p -5 --stat"]) {
+    expect({ command, read: readOnlyCommand(command, where) }).toEqual({ command, read: true });
+  }
+});
+
+test("key and secret files ask like .env: *.key, *.env, .envrc, .pgpass, credentials and secrets files", async () => {
+  const { home, project } = await fixture();
+  for (const name of ["certs/server.key", "config/dev.env", ".envrc", "secrets.yaml", "terraform.tfvars", "terraform.tfstate", ".pgpass",
+    "aws.credentials", "client.ovpn", "certs/server-key.pem", "certs/privkey.pem", "store.p12", "SERVER.KEY", ".dockercfg", "_netrc"]) {
+    expect({ name, read: readOnlyCommand(`cat ${name}`, { root: project, home }) }).toEqual({ name, read: false });
+  }
+  for (const name of ["real.env.txt", "certs/ca.pem", "tox.ini", "src/secrets.ts", "keyboard.ts", "docs/keys.md"]) {
+    expect({ name, read: readOnlyCommand(`cat ${name}`, { root: project, home }) }).toEqual({ name, read: true });
+  }
+});
+
+test("programs that run another command get no prefix: su, runuser, pkexec, tmux, screen, crontab, at, pypy", () => {
+  for (const command of ["su -c id", "runuser -u x id", "pkexec id", "tmux new -d 'x'", "screen -dm x", "crontab f", "at now", "batch",
+    "pypy3 -c 1", "luajit x.lua"]) {
+    expect({ command, prefix: commandPrefix(command) }).toEqual({ command, prefix: undefined });
+  }
+  expect(commandPrefix("rm -rf build")).toBe("rm");
+});
