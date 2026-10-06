@@ -136,6 +136,15 @@ export const NETWORK_SETUP_UV_CHOICES = ["Not now", "Install uv, then set it up"
 /** "Casper's network server has an update (0.1.0 → 0.2.0 …)": only "2" downloads it; "Not now" keeps the old one. */
 export const NETWORK_UPDATE_CHOICES = ["Not now", "Update it"] as const;
 
+/** /mcp setup ssh "Which ssh host?": Not now, the hosts from ~/.ssh/config, then Type a host (Casper says the line to type). */
+export function sshHostChoices(hosts: readonly string[]): string[] {
+  return ["Not now", ...hosts, "Type a host"];
+}
+/** /mcp setup ssh "Name it?": Not now, the default name (the host), then Type a name. Only "2" writes the entry. */
+export function sshNameChoices(name: string): string[] {
+  return ["Not now", name, "Type a name"];
+}
+
 /** "Mist isn't set up yet. Casper will ask for a Mist API token …": only "2" asks for the login. */
 export const ADD_LOGIN_CHOICES = ["Not now", "Add a login"] as const;
 /** "The ClearPass login didn't work (… it may have expired). Replace it?": only "2" asks for the new login. */

@@ -265,3 +265,16 @@ posixOnly("/mcp says which servers run sandboxed; /mcp sandbox <name> off is kep
   expect(output).toContain("lab has no sandbox profile (Casper doesn't know what it needs), so it runs as it is.");
   expect(output).toContain("[mcp] network runs in the sandbox.");
 });
+
+test("/mcp setup ssh in the app: asks the host in the numbered box, keeps the typed line, refuses a dash host", async () => {
+  const { home, project } = await fixture({});
+  const { output } = await session(home, project, [
+    "/mcp setup ssh", "/mcp setup ssh lab-box", "/mcp setup ssh -oProxyCommand=x python3 -m my_server mcp", "/mcp setup ssh --name",
+  ], ["1"]);
+  expect(output).toContain("Which ssh host?");
+  expect(output).toContain("Nothing added. Type /mcp setup ssh any time.");
+  expect(output).toContain("Now type the command that starts the MCP server on lab-box: /mcp setup ssh lab-box <command>");
+  expect(output).toContain("That isn't an ssh host name (one that starts with - is never used). Nothing changed.");
+  expect(output).toContain("/mcp setup ssh [--name <name>] [host] [command]");
+  expect(await Bun.file(path.join(home, ".casper/mcp.json")).exists()).toBe(false);
+});

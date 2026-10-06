@@ -166,6 +166,53 @@ A server that runs through a package runner (`uvx casper-network-mcp`) or sets i
 runs as it is too. With no sandbox here (Windows, `--no-sandbox`, `sandbox: off`), or when the
 sandbox can't start, the server starts as before and `/mcp` says why.
 
+### A server on another machine (ssh)
+
+Some MCP servers run on another machine and talk over ssh (stdio). `/mcp setup ssh`
+adds one for you. You edit no file.
+
+1. Type `/mcp setup ssh`. Casper lists the hosts in `~/.ssh/config` (not the
+   patterns) and asks:
+
+   ```text
+   Which ssh host?
+     1 Not now
+     2 lab-box
+     3 Type a host
+   ```
+
+   `/mcp setup ssh lab-box` skips this. A host is a name, an address or `user@`
+   either; one that starts with `-` is refused.
+2. Casper has no plain text box, so the command that starts the server goes on the
+   same line: `/mcp setup ssh lab-box python3 -m my_server mcp`. Everything after the
+   host is the command, as typed. After a pick or Type a host, Casper says the line.
+3. Casper shows what it will write and asks for a name (the host by default):
+
+   ```text
+   Casper adds this to ~/.casper/mcp.json and connects it with writes off:
+     ssh lab-box python3 -m my_server mcp
+   Name it?
+     1 Not now
+     2 lab-box
+     3 Type a name
+   ```
+
+   `/mcp setup ssh --name lab lab-box python3 -m my_server mcp` skips this.
+4. Casper adds the entry to `~/.casper/mcp.json` (never over a name you already
+   have), remembers it, and connects it with writes off. If the server has an
+   `access_check`, Casper runs it, as for any server ([Access check](#access-check)).
+
+   ```json
+   {"command": "ssh", "args": ["-T", "-o", "BatchMode=yes", "--", "lab-box", "python3 -m my_server mcp"],
+    "env": {"SSH_AUTH_SOCK": "${SSH_AUTH_SOCK:-}"}}
+   ```
+
+   ssh must log in with no prompt (a key or your ssh agent). If the server doesn't
+   start, Casper says what to check, and `/mcp connect <name>` tries again.
+   `/mcp writes <name>` lets changes through; each one still asks.
+
+One-shot runs don't ask; they say to run casper and type `/mcp setup ssh`.
+
 ## Configure and connect
 
 Casper reads optional JSON files, in this order. A later file replaces a server with
@@ -284,6 +331,7 @@ pick `2 Add it` (see [Secrets and docs servers](#secrets-and-docs-servers)).
 ```text
 /mcp                           # status only; no connection, no model
 /mcp setup network             # set up Casper's network server (asks first)
+/mcp setup ssh [host] [command]  # add a server that runs on another machine over ssh
 /mcp login [mist|central|clearpass] [forget]  # add, replace or forget a network login
 /mcp connect local-docs        # allow and connect this server for this run of Casper
 /mcp disconnect local-docs     # disconnect and take back that permission
@@ -527,7 +575,8 @@ Each change also has a kind: configuration, troubleshooting, disruptive (reboot,
 bounce, disconnect), firmware, delete or admin (users, roles assigned, SSO, tokens).
 Casper reads it from the server's `_meta["casper/change-kind"]`, else from the tool's
 name; a router call uses the real tool. A server can name a kind stricter, never make
-a disruptive, firmware, delete or admin name into a safer one. Vendor developer-site categories
+a disruptive, firmware, delete or admin name into a safer one. A preset can raise a
+kind too (a teardown that isn't tagged counts as a delete), never lower one. Vendor developer-site categories
 are a reference only.
 
 **Firmware changes, deletes and admin changes are off by default on every server.**

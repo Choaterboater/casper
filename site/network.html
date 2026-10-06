@@ -163,6 +163,15 @@ Type 1 or 2:</code></pre></div>
           <li>Junos commits can be slow, so a Junos call may go 400 s without an answer unless you set <code>callTimeout</code>.</li>
         </ul>
 
+        <h3 id="setup-ssh">A server on another machine (ssh)</h3>
+        <div class="prose">
+          <p>For an MCP server that runs on another machine over ssh, type <code>/mcp setup ssh</code>. Casper lists the hosts in <code>~/.ssh/config</code> (<code>1 Not now</code> first), takes the command that starts the server on the same line (<code>/mcp setup ssh lab-box python3 -m my_server mcp</code>), asks for a short name, writes the entry to <code>~/.casper/mcp.json</code> for you and connects it with writes off.</p>
+        </div>
+        <ul class="prose">
+          <li>ssh runs with no prompts (<code>-T</code>, <code>BatchMode=yes</code>), so it needs a key or your ssh agent. A host that starts with <code>-</code> is refused.</li>
+          <li>If the server has an <code>access_check</code>, Casper runs it. <code>/mcp writes &lt;name&gt;</code> lets changes through, and each one still asks.</li>
+        </ul>
+
         <h3 id="setup-mist">Mist (hosted MCP)</h3>
         <div class="cmd"><span class="cmd-label">~/.casper/mcp.json</span><pre><code>{
   "mcpServers": {
