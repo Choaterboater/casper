@@ -94,6 +94,9 @@ a one-shot run) they say `not signed in · run casper in a terminal and type /lo
 
 If you start Casper in your home folder or a folder that only holds projects (such as
 `~/Projects`), it asks which project to open: press its number, or Esc to stay where you are.
+The projects you last had conversations in come first (the ones `/resume` keeps), so Enter
+usually opens the right one; the rest follow by when they last changed. Without a rich
+terminal Casper names the project you last worked in as a `casper <folder>` command instead.
 
 On a rich terminal at least 58 columns wide the transcript opens with the
 wordmark — the Casper ghost (bold white) beside a block-letter `CASPER` (accent)
