@@ -53,7 +53,12 @@ async function firstRequest(task: string, options: { git?: boolean } = {}) {
   await writeFile(path.join(project, "package.json"), JSON.stringify({ name: "demo-app", type: "module", scripts: { test: "bun test", build: "tsc -p ." } }));
   await writeFile(path.join(project, "tsconfig.json"), "{}\n");
   await writeFile(path.join(project, "src/math.ts"), "export function add(a: number, b: number): number { return a + b; }\n");
-  if (options.git) execFileSync("git", ["init", "-q", "-b", "main"], { cwd: project });
+  if (options.git) {
+    // Builders start from a commit, so a repository with none doesn't offer them.
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: project });
+    execFileSync("git", ["-c", "user.name=Casper Test", "-c", "user.email=casper@example.invalid", "add", "-A"], { cwd: project });
+    execFileSync("git", ["-c", "user.name=Casper Test", "-c", "user.email=casper@example.invalid", "commit", "-q", "-m", "base"], { cwd: project });
+  }
   const previous = browserDefaults.installed;
   browserDefaults.installed = async () => true;
   cleanup.push(() => { browserDefaults.installed = previous; });
