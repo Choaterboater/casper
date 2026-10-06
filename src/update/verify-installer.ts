@@ -32,6 +32,8 @@ export function checkInstaller(check: InstallerCheck): string | undefined {
   const listed = check.sums.split(/\r?\n/).map((line) => /^([0-9a-f]{64})\s+\*?(\S+)$/i.exec(line.trim())).find((match) => match?.[2] === script)?.[1];
   if (check.releaseKey && !listed) return `The signed list for Casper ${version} does not name ${script}, so it was not run.`;
   const published = check.published?.replace(/^sha256:/i, "");
+  // Nothing to check it against: not run.
+  if (!listed && !published) return `GitHub published no checksum for the Casper ${version} installer, so it was not run.`;
   if ((listed && listed.toLowerCase() !== digest) || (published && published.toLowerCase() !== digest)) {
     return "The downloaded installer did not match the release's checksum, so it was not run.";
   }

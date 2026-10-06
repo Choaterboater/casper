@@ -33,7 +33,12 @@ function fakeGitHub(releases: FakeRelease[] | (() => Response), files: Record<st
   const fetch: Fetcher = async (url) => {
     asked.push(url);
     if (url.startsWith("https://api.github.com/")) {
-      return typeof releases === "function" ? releases() : Response.json(releases.map((release) => ({ draft: false, prerelease: true, assets: [], ...release })));
+      // GitHub publishes a digest for every release file; a release given without assets gets the served installers'.
+      const published = (tag: string) => ["install.sh", "install.ps1"].flatMap((name) => {
+        const file = files[`${DOWNLOAD}/${tag}/${name}`];
+        return file === undefined ? [] : [{ name, digest: `sha256:${sha(file)}` }];
+      });
+      return typeof releases === "function" ? releases() : Response.json(releases.map((release) => ({ draft: false, prerelease: true, assets: published(release.tag_name), ...release })));
     }
     const file = files[url];
     return file === undefined ? new Response("missing", { status: 404 }) : new Response(file);
@@ -142,6 +147,19 @@ test("binary: a newer release runs that release's installer on this program's fo
   expect(lines).toEqual(["Updating Casper from 0.2.21 to 0.2.22.", "Casper is now 0.2.22."]);
   // The downloaded installer is gone afterwards.
   await expect(readFile(call.argv[1]!, "utf8")).rejects.toThrow();
+});
+
+test("binary: an installer GitHub published no digest for, with no signed list naming it, is never run", async () => {
+  const { executable } = await binaryInstall();
+  for (const assets of [[], [{ name: "install.sh" }]]) {
+    const github = fakeGitHub([{ tag_name: "v0.2.22", assets }], releaseFiles("0.2.22"));
+    const { run, calls } = recordingRunner();
+    const lines: string[] = [];
+    const result = await runUpdate({ check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: (line) => lines.push(line), fetch: github.fetch, run, platform: "linux" });
+    expect(result.exitCode).toBe(1);
+    expect(calls).toEqual([]);
+    expect(lines.at(-1)).toBe("GitHub published no checksum for the Casper 0.2.22 installer, so it was not run. Nothing was changed.");
+  }
 });
 
 test("binary: an installer that does not match its published digest is never run", async () => {
