@@ -36,6 +36,7 @@ over the network, and `/references add` downloads files after asking you.
 | --- | --- |
 | `/help`, `/help <word>`, `/help all` | Short help, the lines that mention a word (`/help mcp`), or the full reference |
 | `/status` | Project, model, sign-in and connections |
+| `/doctor` | Check Casper's own setup and fix what it can, each fix after a question (see [DOCTOR.md](DOCTOR.md)) |
 | `/model`, `/model big <model>` | Pick a model (remembered; `--session` for this conversation only); your big model for when repairs run out |
 | `/effort [level\|auto]` | Reasoning effort, or `auto` per request; Shift+Tab cycles it (see [Model and effort](#model-and-effort)) |
 | `/login [provider]` | Sign in to a provider (see [Provider login](#provider-login)) |
