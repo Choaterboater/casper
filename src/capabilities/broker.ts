@@ -196,6 +196,8 @@ export class CapabilityBroker {
    */
   /** Told when a change runs on the user's "Yes, for this session" without a box (for the transcript). */
   private readonly onSessionCovered?: (server: string, realTool: string) => void;
+  /** Every approved change call (a box's yes, a session answer, allow all), just before it is sent. */
+  private readonly onChangeCall?: (server: string, realTool: string) => void;
   private readonly onLoginMissing?: LoginMissingHandler;
   /** What each router server's find_tool said about its inner tools (kind, product), per server. Kept while the
    * server's definition stays the same, so the restart that turns writes on keeps them; a changed definition or a
@@ -203,7 +205,8 @@ export class CapabilityBroker {
   private readonly hits = new Map<string, { definition: string; tools: Map<string, RouterHit> }>();
   constructor(private readonly manager: MCPManager, private readonly confirm?: ConfirmCapability,
     options: { writesGate?: boolean; scrubber?: ResultScrubber; onSessionCovered?: (server: string, realTool: string) => void; confirmKind?: ConfirmKind;
-      onAllowAll?: (server: string, realTool: string) => void; onAllowAllStart?: (server: string) => void; onLoginMissing?: LoginMissingHandler } = {}) {
+      onAllowAll?: (server: string, realTool: string) => void; onAllowAllStart?: (server: string) => void; onLoginMissing?: LoginMissingHandler;
+      onChangeCall?: (server: string, realTool: string) => void } = {}) {
     if (options.onLoginMissing) this.onLoginMissing = options.onLoginMissing;
     if (options.onAllowAll) this.onAllowAll = options.onAllowAll;
     if (options.onAllowAllStart) this.onAllowAllStart = options.onAllowAllStart;
@@ -211,6 +214,7 @@ export class CapabilityBroker {
     if (options.confirmKind) this.confirmKind = options.confirmKind;
     this.scrubber = options.scrubber ?? BUILT_IN_SCRUBBER;
     if (options.onSessionCovered) this.onSessionCovered = options.onSessionCovered;
+    if (options.onChangeCall) this.onChangeCall = options.onChangeCall;
   }
 
   async prepare(task: string): Promise<RuntimeTool[]> {
@@ -390,6 +394,7 @@ export class CapabilityBroker {
       }
       if (allCovered) this.onAllowAll?.(plan.server, realToolOf(plan));
       else if (covered) this.onSessionCovered?.(plan.server, realToolOf(plan));
+      if (answer && label !== "read") this.onChangeCall?.(plan.server, realToolOf(plan));
       // 6. Call, under the per-server call clock. Only an approved call may carry server questions to the user.
       raw = await this.manager.call(capability.descriptor.source, capability.tool.name, frozenArgs, combined,
         approved ? { approved: { capabilityId: id, realTool: approved, label } } : {});

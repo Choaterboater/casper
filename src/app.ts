@@ -421,7 +421,7 @@ export class CasperApp {
         this.observations.observeToolEnd(event, this.projectContext?.model.commands);
         if (["bash", "edit", "write"].includes(event.toolName)) this.browser?.invalidate();
         // A shell command's files are unknown, so it marks every running service stale.
-        if (event.toolName === "bash") { this.services?.markEdited(); if (this.taskEdits) this.taskEdits.shell = true; }
+        if (event.toolName === "bash" || event.toolName === "powershell") { this.services?.markEdited(); if (this.taskEdits) this.taskEdits.shell = true; }
         // Successful native writes invalidate in afterFileEdit, before LSP awaits.
         // Failed writes may be partial; invalidate without claiming a completed edit.
         if (event.isError && ["edit", "write"].includes(event.toolName) && typeof event.input?.path === "string") {

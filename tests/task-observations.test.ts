@@ -304,3 +304,13 @@ test("commands run over ssh with no change Casper can read still get a receipt l
   // The blocked one is said as not run there.
   expect(receipt).toContain("• Not run on core1: 1 command Casper stopped before it reached it");
 });
+
+test("an approved MCP change or a powershell command leaves writes open when the tree can't be compared", () => {
+  const mcp = new TaskObservations();
+  mcp.recordChangeCall();
+  expect(mcp.snapshot(undefined).possibleMutations).toBe(true);
+  expect(mcp.snapshot([]).possibleMutations).toBe(false);
+  const shell = new TaskObservations();
+  shell.observeToolEnd({ ...bash("Set-Content x.txt hi"), toolName: "powershell" }, undefined);
+  expect(shell.snapshot(undefined).possibleMutations).toBe(true);
+});

@@ -30,7 +30,7 @@ function definition(name: string, mode: string, file: string): MCPServerDefiniti
 }
 async function setup(options: {
   mode?: string; name?: string; confirm?: ConfirmCapability; elicit?: MCPManagerOptions["elicit"]; manager?: MCPManagerOptions; writesGate?: boolean;
-  confirmKind?: ConfirmKind;
+  confirmKind?: ConfirmKind; onChangeCall?: (server: string, tool: string) => void;
 } = {}) {
   const file = await callsFile();
   const name = options.name ?? "network";
@@ -40,6 +40,7 @@ async function setup(options: {
   });
   const broker = new CapabilityBroker(mcp, options.confirm, {
     ...(options.writesGate ? { writesGate: true } : {}), ...(options.confirmKind ? { confirmKind: options.confirmKind } : {}),
+    ...(options.onChangeCall ? { onChangeCall: options.onChangeCall } : {}),
   });
   cleanup.push(() => broker.close());
   await mcp.connect(name);
@@ -519,4 +520,13 @@ test("review: a session answer never covers a risky kind; each one still shows t
   await broker.invoke(id("invite_user"), { email: "a@example.com" });
   await expect(broker.invoke(id("invite_user"), { email: "b@example.com" })).rejects.toThrow("you said no");
   expect(boxes).toHaveLength(3);
+});
+
+test("every approved change call is reported before it runs, also one a session answer covers", async () => {
+  const { confirm } = answering("yes-session");
+  const changes: string[] = [];
+  const { broker, id } = await setup({ confirm, writesGate: true, onChangeCall: (server, tool) => changes.push(`${server}:${tool}`) });
+  await broker.invoke(id("set_ssid"), { ssid: "corp" });
+  await broker.invoke(id("set_ssid"), { ssid: "guest" });
+  expect(changes).toEqual(["network:set_ssid", "network:set_ssid"]);
 });

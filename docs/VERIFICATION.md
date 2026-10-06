@@ -532,8 +532,8 @@ smoke runs inside the same check-and-repair loop as the command checks, after th
 - A model check whose baseline passed is shown as an observation and never makes the outcome
   verified. With no command checks and only such observations, the outcome is `not_verified`.
 - Casper does not take the model's word that it recorded before editing. A check recorded after
-  an edit in the task (a native edit or write, or a shell command after which the tree differs
-  from the task's start), or during a repair, review or proof round, has no before-the-change
+  an edit in the task (a native edit or write, or a shell command or approved MCP change after
+  which the tree differs from the task's start), or during a repair, review or proof round, has no before-the-change
   baseline. It is an observation too, and the receipt says `create note failed when recorded,
   after edits — an observation, not proof`.
 - A smoke failure left after the repairs makes the outcome `failed`.

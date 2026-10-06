@@ -132,7 +132,7 @@ export class TaskObservations {
     // workspace snapshot can settle either, so this merely flags that the question is open.
     // A look command (ls, cat, grep, find) or ssh to another machine leaves this folder's files alone.
     const looked = event.toolName === "bash" && typeof event.input?.command === "string" && leavesLocalFilesAlone(event.input.command);
-    if ((["bash", "edit", "write"].includes(event.toolName) && !looked) || (event.toolName === "lsp" && event.input?.operation === "rename")) this.mutationToolRan = true;
+    if ((["bash", "powershell", "edit", "write"].includes(event.toolName) && !looked) || (event.toolName === "lsp" && event.input?.operation === "rename")) this.mutationToolRan = true;
     if (event.input?.secretHidden) this.secretInCommand = true;
     // A command Casper or the sandbox refused did not reach the other machine.
     const refused = event.isError && /^(?:Not run:|\[shell\] Not run)|\[sandbox\] /.test(event.output?.text ?? "");
@@ -182,6 +182,9 @@ export class TaskObservations {
 
   /** Every tool call of the task, oldest first (the first TOOL_CALL_LIMIT). */
   get toolCalls(): ToolCallLine[] { return this.calls.map(call => ({ ...call, ...(call.input ? { input: { ...call.input } } : {}) })); }
+
+  /** An approved MCP change ran: like a shell command, it may have changed files Casper did not see. */
+  recordChangeCall(): void { this.mutationToolRan = true; }
 
   /** Files the task's own tools wrote, as the tools named them. */
   edited(): string[] { return [...this.edits]; }
