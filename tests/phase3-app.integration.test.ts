@@ -240,25 +240,24 @@ posixOnly("repair receives actual verifier failure; shell status remains a separ
   } finally { await app.close(); }
 });
 
-test("review: failed writes and late shell success cannot certify changed files", async () => {
-  for (const toolName of ["bash", "write", "edit", "lsp"]) {
-    const root = await fixture();
-    await writeFile(path.join(root, "fixed"), "");
-    await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(defaultCheck)}\nrepair:\n  maxAttempts: 0\n`);
-    const { app } = createApp(root, { autoVerify: true, selectCheckOnPrompt: () => true, respond: async (_prompt, emit) => {
-      emit({ type: "tool_start", toolName: "bash", toolCallId: "check", input: { command: "test -f fixed" } });
-      await rm(path.join(root, "fixed"));
-      emit({ type: "tool_end", toolName, isError: true, input: { path: "fixed", operation: "rename" } });
-      emit({ type: "tool_end", toolName: "bash", toolCallId: "check", input: { command: "test -f fixed" }, isError: false });
-    } });
-    try {
-      expect((await app.runOnce("/verify test", root))?.status).toBe("pass");
-      expect((await app.runOnce("Fix addition"))?.status).toBe("fail");
-      // The tree snapshot, not the failed write event, is what reports the removal.
-      expect(app.getLastTaskResult()).toMatchObject({ changedPaths: ["fixed"], possibleMutations: false });
-      expect(app.getLastTaskResult()?.observedEdits).toEqual([]);
-    } finally { await app.close(); }
-  }
+// One test per tool, each with its own time limit: the four apps one after another passed 30 s on a busy machine.
+test.each(["bash", "write", "edit", "lsp"])("review: a failed %s and late shell success cannot certify changed files", async (toolName) => {
+  const root = await fixture();
+  await writeFile(path.join(root, "fixed"), "");
+  await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(defaultCheck)}\nrepair:\n  maxAttempts: 0\n`);
+  const { app } = createApp(root, { autoVerify: true, selectCheckOnPrompt: () => true, respond: async (_prompt, emit) => {
+    emit({ type: "tool_start", toolName: "bash", toolCallId: "check", input: { command: "test -f fixed" } });
+    await rm(path.join(root, "fixed"));
+    emit({ type: "tool_end", toolName, isError: true, input: { path: "fixed", operation: "rename" } });
+    emit({ type: "tool_end", toolName: "bash", toolCallId: "check", input: { command: "test -f fixed" }, isError: false });
+  } });
+  try {
+    expect((await app.runOnce("/verify test", root))?.status).toBe("pass");
+    expect((await app.runOnce("Fix addition"))?.status).toBe("fail");
+    // The tree snapshot, not the failed write event, is what reports the removal.
+    expect(app.getLastTaskResult()).toMatchObject({ changedPaths: ["fixed"], possibleMutations: false });
+    expect(app.getLastTaskResult()?.observedEdits).toEqual([]);
+  } finally { await app.close(); }
 });
 
 test("review: a recovered Pi provider error is not a terminal task failure", async () => {
