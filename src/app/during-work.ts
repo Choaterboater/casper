@@ -11,6 +11,7 @@ import { updateFooter } from "./footer";
 import { backgroundTasks } from "./task-tools";
 import { handleSlashCommand } from "./command-loop";
 import { ensureRuntime } from "./runtime-start";
+import { askSideQuestion, sideQuestionsOn, sideQuestionText } from "./side-question";
 
 /** After a task: lines the AI never read join the queue. A stopped task runs nothing more: its queued lines go
  * back into the prompt (the rich terminal) for you to send or clear. */
@@ -52,8 +53,11 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
     return true;
   }
   if (line.startsWith("/")) return `${terminalText(line.split(/\s+/)[0]!)} waits until this task ends${plain ? "; type it again then" : " · draft kept"}`;
-  // A line that runs later as a request keeps what was pasted into it, so its words count only where typed.
   const pasted = app.terminal.takeSubmittedPastes();
+  // A side question gets its own answer now; the working AI never sees it.
+  const side = sideQuestionsOn(app) ? sideQuestionText(line, pasted) : undefined;
+  if (side !== undefined) { void askSideQuestion(app, side); return true; }
+  // A line that runs later as a request keeps what was pasted into it, so its words count only where typed.
   if (pasted.length) app.linePastes.set(line, pasted);
   void steerOrQueue(app, line);
   return true;

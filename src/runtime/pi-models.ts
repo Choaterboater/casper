@@ -451,7 +451,7 @@ export class PiModels {
    * caller's `effort` when given, else the role's suffix, else the conversation's, mapped to what the model
    * supports. `maxTokens` caps the answer. `role: "fast"` asks for the fast model instead (the conversation's
    * when none is set or it is not signed in). */
-  async complete(session: AgentSession, input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number; role?: "fast" }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null }> {
+  async complete(session: AgentSession, input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number; role?: "fast" }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null; model?: string }> {
     const none = { tokens: 0, estimatedCost: 0 };
     const roles = this.getRoles();
     if (input.role === "fast") {
@@ -481,8 +481,9 @@ export class PiModels {
 
   private async completeWith(model: AgentSession["model"], roleEffort: string | undefined, session: AgentSession,
     input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number },
-    none: { tokens: number; estimatedCost: number }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null }> {
+    none: { tokens: number; estimatedCost: number }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null; model?: string }> {
     if (!model) return { text: "", error: "no model selected", usage: none };
+    const name = `${model.provider}/${model.id}`;
     const requested = input.effort ?? (roleEffort && roleEffort !== "auto" ? roleEffort : session.thinkingLevel);
     const level = requested && requested !== "off" ? nearestEffort(requested, getSupportedThinkingLevels(model)) : undefined;
     const response = await this.catalog.completeSimple(model, {
@@ -495,7 +496,7 @@ export class PiModels {
     const usage = response.usage;
     const cost = usage?.cost?.total;
     const reported = usage && Number.isFinite(usage.totalTokens) ? { tokens: usage.totalTokens, estimatedCost: Number.isFinite(cost) && cost >= 0 ? cost : 0 } : null;
-    if (response.stopReason === "error" || response.stopReason === "aborted") return { text: "", error: response.errorMessage ?? response.stopReason, usage: reported };
-    return { text: response.content.filter((part) => part.type === "text").map((part) => part.text).join(""), usage: reported };
+    if (response.stopReason === "error" || response.stopReason === "aborted") return { text: "", error: response.errorMessage ?? response.stopReason, usage: reported, model: name };
+    return { text: response.content.filter((part) => part.type === "text").map((part) => part.text).join(""), usage: reported, model: name };
   }
 }

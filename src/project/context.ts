@@ -25,6 +25,8 @@ export interface ProjectContext {
   suggestions?: boolean;
   /** `updates: false` in the user's config: no new-version line at the start of a session. */
   updates?: boolean;
+  /** `sideQuestions: false` in the user's config: a line starting with `?` is an ordinary request. */
+  sideQuestions?: boolean;
   /** `cache:` in the user's config (auto, long, short or off). Unset: auto. */
   cache?: LoadedConfiguration["cache"];
   /** `display:` in the user's config (quiet, normal or detailed). Unset: normal. */
@@ -118,6 +120,7 @@ export async function loadProjectContext(
     repair: configuration.repair,
     ...(configuration.suggestions !== undefined ? { suggestions: configuration.suggestions } : {}),
     ...(configuration.updates !== undefined ? { updates: configuration.updates } : {}),
+    ...(configuration.sideQuestions !== undefined ? { sideQuestions: configuration.sideQuestions } : {}),
     ...(configuration.cache ? { cache: configuration.cache } : {}),
     ...(configuration.display ? { display: configuration.display } : {}),
     ...(configuration.showPages ? { showPages: configuration.showPages } : {}),

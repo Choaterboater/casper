@@ -25,7 +25,7 @@ const LEADING: ReadonlyArray<{ pattern: RegExp; effort?: WordEffort; role?: Word
 ];
 
 /** Which characters of `line` came from a paste: every place a pasted piece appears. */
-function pastedMask(line: string, pasted: readonly string[]): boolean[] {
+export function pastedMask(line: string, pasted: readonly string[]): boolean[] {
   const mask = Array.from({ length: line.length }, () => false);
   for (const piece of pasted) {
     if (!piece) continue;

@@ -58,6 +58,7 @@ export function sessionTool(app: CasperApp): RuntimeTool {
     lastTask: () => app.lastTaskResult ?? app.lastFinishedTask,
     tasks: () => backgroundTasks(app),
     mcp: () => app.mcp?.status() ?? [],
+    sideQuestions: () => app.sideQuestions,
   });
 }
 

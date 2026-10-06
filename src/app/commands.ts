@@ -77,6 +77,8 @@ export interface OutputWriter {
  * owner of all state; this interface makes the (wide) coupling explicit instead of private. */
 export interface CommandHost {
   readonly output: OutputWriter;
+  /** What side questions (`? …`) cost this session, for /usage. */
+  readonly sideQuestions?: { requests: number; tokens: number; estimatedCost: number; unknown: boolean };
   /** The session's shell sandbox (/sandbox, /status, /permissions). */
   readonly sandbox?: ShellSandbox;
   /** The saved default model and effort, for /status before the model starts. */
@@ -297,6 +299,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       } else {
         host.output.write(`Usage: ${usage ? `${formatTokenSplit(usage.tokens)} (${formatTerminalJSON(usage.tokens)})` : "unavailable"}\nCache: ${usage ? formatCacheHitRate(usage.tokens) : "unavailable"}\nCost: ${usage ? formatCostLong(usage, session.getStatus?.()) : "unavailable"}; covers all models used this session; not a bill or a subscription charge.\n`);
         const classifier = usage?.effortClassification;
+        const side = host.sideQuestions;
+        if (side?.requests) host.output.write(`Side questions (?): ${side.requests}; ${side.unknown ? "at least " : ""}${side.tokens} tokens; cost ${side.unknown && !side.estimatedCost ? "unknown" : `$${side.estimatedCost.toFixed(4)} estimate`}. Separate calls; not in the conversation totals above.\n`);
         if (classifier) host.output.write(`Auto-effort classifier (separate, since session load): ${classifier.requests} request(s); tokens ${formatTerminalJSON(classifier.tokens)}; cost ${classifier.estimatedCost === undefined ? "unknown" : `$${classifier.estimatedCost.toFixed(4)} estimate`}. Failed requests may consume unreported tokens; not included in conversation totals.\n`);
       }
       return;

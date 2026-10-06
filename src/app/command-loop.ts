@@ -21,6 +21,7 @@ import { newProjectFlowWithAbort, openProjectFolder, newProjectCommand } from ".
 import { rebindWorkspace } from "./session-branches";
 import { runModelTask, runSuggestion } from "./task-run";
 import { parseRequestWords } from "./request-words";
+import { askSideQuestion, sideQuestionsOn, sideQuestionText } from "./side-question";
 import { applyWeb } from "./wiring";
 import { checkSignIn } from "./runtime-start";
 import { reloadProject } from "./project-file";
@@ -76,6 +77,13 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promi
 
     if (prompt === "/quit" || prompt === "/exit") {
       break;
+    }
+
+    // A side question ("? what does ECONNRESET mean"): a separate answer, never part of the conversation.
+    const side = sideQuestionsOn(app) ? sideQuestionText(prompt, pasted) : undefined;
+    if (side !== undefined) {
+      await askSideQuestion(app, side);
+      continue;
     }
 
     try {
@@ -236,6 +244,7 @@ export async function previewCommand(app: CasperApp, args: string): Promise<void
 }
 
 export function cancelCurrent(app: CasperApp): void {
+  if (!app.commandActive && app.sideAbort) { app.sideAbort.abort(); return; }
   if (!app.commandActive) { app.cancelBeforeCommand = true; return; }
   if (app.commandAbort?.signal.aborted) return;
   app.commandAbort?.abort();

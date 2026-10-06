@@ -80,6 +80,12 @@ export function settingRows(context: ProjectContext): Setting[] {
     { label: "New-version notice", value: context.updates === false ? "off" : "on",
       question: `The line that says a newer Casper is out is ${context.updates === false ? "off" : "on"}.`, keep: `Keep it ${context.updates === false ? "off" : "on"}`,
       choices: [context.updates === false ? { label: "Turn it on", keys: ["updates"], value: true, shown: "on" } : { label: "Turn it off", keys: ["updates"], value: false, shown: "off" }] },
+    { label: "Side questions with ?", value: context.sideQuestions === false ? "off" : "on",
+      question: context.sideQuestions === false ? "Side questions are off: a line that starts with ? goes to the AI as an ordinary request."
+        : "Side questions are on: a line that starts with ? (? what does ECONNRESET mean) goes to your fast model on the side, with no tools, and the task's AI never sees it. Each one uses a few tokens.",
+      keep: `Keep them ${context.sideQuestions === false ? "off" : "on"}`,
+      choices: [context.sideQuestions === false ? { label: "Turn them on", keys: ["sideQuestions"], value: true, shown: "on" }
+        : { label: "Turn them off", keys: ["sideQuestions"], value: false, shown: "off" }] },
     { label: "Built-in skills", value: context.skills.bundled === false ? "off" : "on",
       question: `Casper's built-in skills (careful steps for network work and more) are ${context.skills.bundled === false ? "off" : "on"}. A change applies from the next start.`,
       keep: `Keep them ${context.skills.bundled === false ? "off" : "on"}`,
