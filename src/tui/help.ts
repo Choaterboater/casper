@@ -130,6 +130,7 @@ Local commands:
   /skills block <id>                Never use this skill
   /mcp                              Show MCP status, secrets hidden (no connection)
   /mcp setup network                Set up Casper's network server (Mist, Central, ClearPass): 1 Not now · 2 Set it up
+  /mcp setup ssh [host] [command]   Add an MCP server that runs on another machine over ssh; writes off
   /mcp login [mist|central|clearpass] [forget]  Add, replace or forget a network login; only you type it
   /mcp connect <name>               Connect this server; your own or imported ones can be remembered
   /mcp disconnect <name>            Disconnect and revoke consent for this process

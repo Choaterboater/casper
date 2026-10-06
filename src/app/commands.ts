@@ -25,6 +25,7 @@ import { addUserServer, DOCS_TOOL_NAMES, docsOnlyDefinition, docsPinned, isDocsO
 import { askForLogin, askToForgetLogin, askWhichLogin, type LoginHost } from "../mcp/network/ask-login";
 import { getsLogins, isNetworkProduct } from "../mcp/network/logins";
 import { networkSetupLine, runNetworkSetup, type SetupHost } from "../mcp/network/setup";
+import { parseSshSetup, runSshSetup } from "../mcp/ssh/setup";
 import type { Scrubber } from "../secrets/netconan";
 import { defaultRunGit, runReferenceAdd } from "../references/catalog";
 import { formatDuration } from "../mcp/clock";
@@ -808,7 +809,7 @@ async function handleDelegateCommand(host: CommandHost, prompt: string): Promise
     if (result.status !== "completed") throw new Error(`Delegation ${result.status}; see the bounded report above`);
   }
 
-const MCP_USAGE = "Usage: /mcp | /mcp setup network | /mcp login [mist|central|clearpass] [forget] | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp sandbox <name> on|off | /mcp docs";
+const MCP_USAGE = "Usage: /mcp | /mcp setup network | /mcp setup ssh [--name <name>] [host] [command] | /mcp login [mist|central|clearpass] [forget] | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp sandbox <name> on|off | /mcp docs";
 /** What "writes off" means, said once under the list: the server runs pinned and every change asks. */
 const WRITES_OFF_TEXT = `${WRITES_OFF_MEANING} Answer 2 or 3 in the change box to allow it, or /mcp writes <name> to turn writes on now.`;
 
@@ -833,6 +834,14 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       await handleMCPAllow(host, name, extra[0] === "off");
       return;
     } else if (action === "setup") {
+      if (name === "ssh") {
+        // The command after the host is kept as typed, so it is read from the line, not from its words.
+        const options = parseSshSetup(prompt.trim().replace(/^\S+\s+setup\s+ssh(?=\s|$)/, ""));
+        if ("error" in options) throw new Error(MCP_USAGE);
+        await runSshSetup({ ...host.networkSetupHost(), access: (server) => mcp.policy(server).access }, options);
+        host.updateFooter();
+        return;
+      }
       if (name !== "network" || extra.length) throw new Error(MCP_USAGE);
       // Only the person types this; the AI has no way to run a slash command.
       await runNetworkSetup(host.networkSetupHost(), { explicit: true });

@@ -60,7 +60,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/sandbox`, `/sandbox forget <host>` | What the shell sandbox holds; forget a host you allowed |
 | `/lab`, `/lab import <file>` | Your lab devices; add more from a file ([NETWORK-CHECKS.md](NETWORK-CHECKS.md)) |
 | `/skills` | Skills and whether you trust them ([SKILLS.md](SKILLS.md)) |
-| `/mcp` | MCP servers: set up Casper's network server (`/mcp setup network`) and its logins (`/mcp login`), connect, writes on or off, allow, forget, docs ([MCP.md](MCP.md)) |
+| `/mcp` | MCP servers: set up Casper's network server (`/mcp setup network`) and its logins (`/mcp login`), add a server over ssh (`/mcp setup ssh`), connect, writes on or off, allow, forget, docs ([MCP.md](MCP.md)) |
 | `/lsp` | Language servers ([LSP.md](LSP.md)) |
 | `/browser` | A disposable browser; screenshots ([BROWSER.md](BROWSER.md)) |
 | `/services` | Dev servers the project declares ([SERVICES.md](SERVICES.md)) |
