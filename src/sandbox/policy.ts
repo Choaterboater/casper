@@ -139,7 +139,7 @@ export interface SandboxPolicyInput {
   home?: string;
   /** Temp folders commands may write (the system temp folder and Casper's own). */
   tempDirs?: string[];
-  /** Pi's state folder: its auth.json is private. */
+  /** Pi's state folder: its auth.json, models.json and sessions are private. */
   agentDir?: string;
   user?: SandboxUserSettings;
   project?: SandboxProjectSettings;
@@ -229,7 +229,7 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
   const denyRead = unique([
     ...inHome(PRIVATE_PATHS),
     ...inHome(CASPER_PRIVATE_PATHS),
-    ...(input.agentDir ? [...spellings(path.join(input.agentDir, "auth.json")), ...spellings(path.join(input.agentDir, "sessions"))] : []),
+    ...["auth.json", "models.json", "sessions"].flatMap((name) => input.agentDir ? spellings(path.join(input.agentDir, name)) : []),
     ...(input.project?.denyRead ?? []).map((entry) => resolveEntry(entry, root, home)).flatMap(spellings),
     ...(input.denyRead ?? []).flatMap(spellings),
   ]);

@@ -186,6 +186,8 @@ export const PEM_BEGIN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----/;
 export const PEM_END = /-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----/;
 /** A line of a key's body: base64 (a PGP block ends with an "=AbCd" checksum line). */
 export const KEY_BODY_LINE = /^=?[A-Za-z0-9+/]{4,}={0,2}$/;
+/** A line-number prefix, maybe after a file name: grep -n "2:", cat -n "     2\t", Pi's grep "certs/key.pem:2: " and "key.pem-3- ". */
+export const LINE_PREFIX = /^(?:[^\s:]+[:-])?\s*\d+[:\t-]\s?/;
 
 /** Anchor lines for "this text is a device config". Two are needed. */
 export const CONFIG_ANCHORS: readonly RegExp[] = [

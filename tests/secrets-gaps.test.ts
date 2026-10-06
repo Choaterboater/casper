@@ -32,6 +32,40 @@ test("a key file read from part way down hides the key body, with or without its
   expect(await scrubToolOutput(scrubber, "bash", { command: "cat cert.pem" }, [cert], undefined, options)).toBeUndefined();
 });
 
+test("key body lines with a line-number or file-name prefix are hidden too", async () => {
+  const leaks = (text: string) => BODY.filter((line) => text.includes(line));
+  // grep -nv BEGIN key.pem: "2:MIIE..." lines and the END line.
+  const grepN = PEM.split("\n").slice(1).map((line, at) => line && `${at + 2}:${line}`).join("\n");
+  const one = await scrubToolOutput(scrubber, "bash", { command: "grep -nv BEGIN certs/key.pem" }, [grepN], undefined, options);
+  expect(leaks(one?.texts[0] ?? grepN)).toEqual([]);
+  expect(one!.texts[0]).toContain("2:");
+  // cat -n key.pem | tail -n +2: "     2\tMIIE..." lines.
+  const catN = PEM.split("\n").slice(1).map((line, at) => line && `${String(at + 2).padStart(6)}\t${line}`).join("\n");
+  const two = await scrubToolOutput(scrubber, "bash", { command: "cat -n certs/key.pem | tail -n +2" }, [catN], undefined, options);
+  expect(leaks(two?.texts[0] ?? catN)).toEqual([]);
+  // Pi's grep tool: "certs/key.pem:N: ..." lines that skip the all-caps BEGIN and END lines.
+  const piGrep = BODY.map((line, at) => `certs/key.pem:${at + 2}: ${line}`).join("\n");
+  for (const input of [{ pattern: "[a-z]", path: "certs/key.pem" }, { pattern: "[a-z]" }]) {
+    const three = await scrubToolOutput(scrubber, "grep", input, [piGrep], undefined, options);
+    expect(leaks(three?.texts[0] ?? piGrep)).toEqual([]);
+    expect(three!.texts[0]).toContain("certs/key.pem:2: ");
+  }
+  // A grep over source files that holds no key file stays as it is.
+  const source = BODY.map((line, at) => `src/data.ts:${at + 2}: ${line}`).join("\n");
+  expect(await scrubToolOutput(scrubber, "grep", { pattern: "[a-z]" }, [source], undefined, options)).toBeUndefined();
+});
+
+test("a read from inside the body of a deploy key or an Apple .p8 key hides the body", async () => {
+  const middle = BODY.slice(0, 3).join("\n");
+  for (const file of ["keys/id_ed25519_deploy", "keys/id_rsa-work", "AuthKey_ABC123.p8"]) {
+    const result = await scrubToolOutput(scrubber, "read", { path: file, offset: 2, limit: 3 }, [middle], undefined, options);
+    expect({ file, leaked: BODY.slice(0, 3).some((line) => (result?.texts[0] ?? middle).includes(line)) }).toEqual({ file, leaked: false });
+  }
+  // A public key stays readable.
+  const pub = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeFakeFakeFakeFakeFakeFakeFakeFake user@host\n";
+  expect(await scrubToolOutput(scrubber, "read", { path: "keys/id_ed25519_deploy.pub" }, [pub], undefined, options)).toBeUndefined();
+});
+
 test("a PGP private key block is a private key", async () => {
   const pgp = "-----BEGIN PGP PRIVATE KEY BLOCK-----\n\nlQdGBGXabcdEFGHijklMNOPqrstUVWXyz0123456789abcdefABCDEF\n=AbCd\n-----END PGP PRIVATE KEY BLOCK-----\n";
   const result = scrubText(pgp);

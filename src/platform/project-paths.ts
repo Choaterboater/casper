@@ -20,6 +20,8 @@ export const PRIVATE_PATHS: readonly string[] = [
   ".password-store", ".local/share/keyrings",
   // Casper's own: MCP servers (their tokens), profiles (each may hold an mcp.json) and every project's saved conversations.
   ".casper/mcp.json", ".casper/profiles", ".casper/agent/sessions",
+  // Provider settings, which may hold provider keys.
+  ".casper/agent/models.json", ".pi/agent/models.json",
 ];
 
 /** Casper's own records: approvals, lab answers, remembered hosts, undo copies; MCP consent and skill trust. */
@@ -130,6 +132,7 @@ export function privatePlaces(context: PathContext): PrivatePlace[] {
   }
   if (context.agentDir) {
     places.push({ shown: "Casper's login file (auth.json)", paths: variants(path.join(context.agentDir, "auth.json")), why, below: true });
+    places.push({ shown: "Casper's provider settings (models.json)", paths: variants(path.join(context.agentDir, "models.json")), why, below: true });
     places.push({ shown: "Casper's saved conversations folder", paths: variants(path.join(context.agentDir, "sessions")), why: "Casper's own records", below: true });
   }
   for (const entry of context.denyRead ?? []) {

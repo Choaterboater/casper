@@ -54,7 +54,9 @@ through. Check what a tool returns before you share it.
   files, every value whose name looks secret is hidden, and so are private keys
   (PEM and PGP): `MIST_APITOKEN=<secret hidden>`. A `.pgpass` line keeps its host, port,
   database and user and hides the password; a Docker `"auth"` value (user:password) is
-  hidden. A key file read from part way down (no BEGIN line) still hides the key's body.
+  hidden. A key file read from part way down (no BEGIN line) still hides the key's body,
+  and so does a search whose lines start with a line number or the key file's name
+  (`grep -n`, `cat -n`, the AI's `grep`).
   Names and other settings (`MIST_HOST=api.mist.com`) stay, so the AI still knows what
   the file holds.
 - **Secret-named values in any output: always (from v0.2.16).** In what `read`,
@@ -219,7 +221,7 @@ Casper.
   because they look like a path or plain words.
 - A private key's body in command output is recognised by its BEGIN or END line; a
   piece of one with neither (`head -n 20 key.pem | tail -n 5`) is not. In a key file
-  (`*.pem`, `*.key`, `id_rsa`) every long base64 line is hidden, so a certificate read
+  (`*.pem`, `*.key`, `*.p8`, `id_rsa`, `id_ed25519_deploy`) every long base64 line is hidden, so a certificate read
   from part way down a `.pem` is hidden too.
 - Lines longer than 4 KB (minified code, one-line JSON) are checked in 4 KB pieces
   that overlap by 512 characters, so a huge line can't stall Casper. A secret and the

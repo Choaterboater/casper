@@ -48,6 +48,10 @@ export async function scrubToolOutput(scrubber: Pick<Scrubber, "scrubText">, too
   } else if (["bash", "powershell", "grep", "service", "browser"].includes(toolName)) {
     // service: a dev server's logs, crash tails and HTTP replies are command output too; browser: a page's text.
     device = configs && shouldScrubCommandOutput(texts.join("\n"));
+    // A search that holds lines of a key file (Pi's grep on certs/key.pem, `grep -rn x .`): a key's body goes even without BEGIN or END.
+    if (["bash", "powershell", "grep"].includes(toolName)) {
+      keyFile = (toolName === "grep" && typeof input.path === "string" && isKeyFile(input.path)) || texts.some(namesKeyFile);
+    }
   } else if (toolName === "lsp") {
     // A language server's messages quote source (TypeScript puts literal types in them): the always-on pass only.
     device = false;
@@ -78,6 +82,12 @@ export async function scrubToolOutput(scrubber: Pick<Scrubber, "scrubText">, too
   if (!hidden && !failed) return undefined;
   const note = scrubNote({ hidden, kinds: KIND_ORDER.filter((kind) => kinds.has(kind)), ...(failed ? { netconan: "failed" } : {}) });
   return { texts: out, ...(note ? { note } : {}) };
+}
+
+/** Whether any line starts with a key file's name and a line number: "certs/key.pem:2: ...", "./id_rsa-3-...". */
+function namesKeyFile(text: string): boolean {
+  for (const match of text.matchAll(/^([^\s:]+?)(?::\d+:|-\d+-)/gm)) if (isKeyFile(match[1]!)) return true;
+  return false;
 }
 
 /** Scrub every string inside a JSON text; text that isn't JSON is scrubbed as it is. */

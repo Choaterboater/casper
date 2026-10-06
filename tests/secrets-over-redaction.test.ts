@@ -94,6 +94,15 @@ test("a value hidden inside a quoted argument keeps its closing quote; a search 
   // Still hidden: a value right after the name, and spaces on both sides of =.
   expect(hideCommandSecrets("export DB_PASSWORD=hunter2x").hidden).toBe(1);
   expect(scrubAssignments("password = hunter2x\n", false).hidden).toBe(1);
+  expect(hideCommandSecrets("grep -rn password= ./config").hidden).toBe(0);
+  expect(hideCommandSecrets("grep password= -r .").hidden).toBe(0);
+});
+
+test("a real value after 'name= ' (one space after =) is still hidden", () => {
+  for (const line of ["db = connect(user='app', password= 'Hunter2xyz')", "psycopg2.connect(password= \"Hunter2xyz\")", "DB_PASSWORD= Hunter2xyz"]) {
+    const out = scrubPlainSecrets(line, { env: {} }).text;
+    expect({ line, leaked: out.includes("Hunter2xyz") }).toEqual({ line, leaked: false });
+  }
 });
 
 test("the screen's redaction keeps ordinary words after token, secret and password", () => {

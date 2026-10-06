@@ -50,6 +50,12 @@ test("Casper's own MCP servers, profiles, saved conversations and records are pr
   }
   // CASPER_AGENT_DIR moves the saved conversations with it.
   expect(fileToolGate("read", { path: path.join(home, "agent/sessions/--p--/s.jsonl") }, context)).toContain("Casper's saved conversations folder is private");
+  // Provider settings with their own keys, wherever CASPER_AGENT_DIR puts them.
+  for (const entry of [".casper/agent/models.json", ".pi/agent/models.json"]) {
+    expect(fileToolGate("read", { path: path.join(home, entry) }, context)).toContain("is private");
+    expect(privatePathCommand(`cat ~/${entry}`, context)).toContain("is private");
+  }
+  expect(fileToolGate("read", { path: path.join(home, "agent/models.json") }, context)).toContain("Casper's provider settings (models.json) is private");
   // The browser tool tells the AI to read its pictures there.
   expect(fileToolGate("read", { path: path.join(home, ".casper/projects/p-1/browser/run/1.png") }, context)).toBeUndefined();
   expect(fileToolGate("read", { path: path.join(home, ".casper/config.yaml") }, context)).toBeUndefined();

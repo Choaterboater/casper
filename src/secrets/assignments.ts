@@ -91,8 +91,9 @@ function assignmentSpans(line: string, strict: boolean): Span[] {
     // Docker's "auth" (config.json, .dockercfg): a login only when it reads as one, or in a secret file.
     const auth = !named && snakeKey(name) === "auth";
     if (!raw || !indices || !(named || auth)) continue;
-    // `grep password= src/`: a word after "name= " (no space before =, one after) is an argument, not the value.
-    if (!strict && match[5] === "=" && !match[4] && match[6]) continue;
+    // `grep password= src/`: a path or option after "name= " (no space before =, one after) is an argument, not the value.
+    // A quoted word or any other word there is still a value: `connect(password= 'x')`, `DB_PASSWORD= x`.
+    if (!strict && match[5] === "=" && !match[4] && match[6] && /^(?:[-.]|[^\s"']*\/)/.test(raw)) continue;
     // "a == b" and "a := b" are comparisons or code, not stored values.
     if (line[indices[0]] === "=" || (match[5] === ":" && line[match.indices![5]![1]] === "=")) continue;
     // ok ? "pass" : "fail" is a ternary in grepped code: both sides are results, not a name and its value.

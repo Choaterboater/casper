@@ -23,9 +23,9 @@ export function isSecretFile(filePath: string): boolean {
   return SECRET_FILE_NAME.test(path.posix.basename(normal)) || /(?:^|\/)\.?docker\/config\.json$/i.test(normal);
 }
 
-/** Key files (*.pem, *.key, id_rsa ...): a run of long base64 lines in them is a key's body, even with no BEGIN line. */
+/** Key files (*.pem, *.key, *.p8, id_rsa, id_ed25519_deploy ...): a run of long base64 lines in them is a key's body, even with no BEGIN line. */
 export function isKeyFile(filePath: string): boolean {
-  return /(?:\.(?:pem|key)|^id_(?:rsa|dsa|ecdsa|ed25519))$/i.test(path.posix.basename(filePath.replaceAll("\\", "/")));
+  return /(?:\.(?:pem|key|p8)|^id_(?:rsa|dsa|ecdsa|ed25519)(?:[_-][^.]*)?)$/i.test(path.posix.basename(filePath.replaceAll("\\", "/")));
 }
 
 /** PostgreSQL's password file (host:port:database:user:password per line). */
@@ -143,6 +143,7 @@ export function scrubPlainSecrets(text: string, options: PlainScrubOptions = {})
   add(scrubExactValues(out, exact));
   // Private keys are hidden in any output, with or without the device config rules.
   if (options.secretFile || PEM_BEGIN.test(out) || PEM_END.test(out)) add(scrubText(out, { keyFile: options.keyFile === true }));
+  else if (options.keyFile) add(scrubText(out, { keyFile: true, keysOnly: true }));
   if (options.pgpass) add(scrubPgpass(out));
   add(scrubUrlPasswords(out));
   add(scrubAssignments(out, options.secretFile === true));

@@ -1,6 +1,6 @@
 import path from "node:path";
 import {
-  AUTH_SERVER_BLOCK, CONFIG_ANCHORS, JUNOS_SNMP_BLOCK, KEY_BODY_LINE, KIND_ORDER, KIND_WORDS, PEM_BEGIN, PEM_END, SECRET_RULES,
+  AUTH_SERVER_BLOCK, CONFIG_ANCHORS, JUNOS_SNMP_BLOCK, KEY_BODY_LINE, KIND_ORDER, LINE_PREFIX, KIND_WORDS, PEM_BEGIN, PEM_END, SECRET_RULES,
   keepLiterally, replaceSpans, windowedSpans, type SecretKind, type SecretRule,
 } from "./patterns";
 import { isSecretKeyName } from "./assignments";
@@ -63,7 +63,15 @@ function indentOf(line: string): number { return /^\s*/.exec(line)![0].length; }
  * RADIUS and TACACS server blocks ("key X" only counts inside them), Junos
  * curly "snmp { community NAME }", and PEM private keys.
  */
-export function scrubText(text: string, options: { keyFile?: boolean } = {}): ScrubTextResult {
+/** A key body line, with any line-number prefix (grep -n, cat -n) kept apart so it can stay. */
+function keyBodyLine(line: string): { prefix: string; body: string } | undefined {
+  const prefix = LINE_PREFIX.exec(line)?.[0] ?? "";
+  const body = line.slice(prefix.length).trim();
+  return KEY_BODY_LINE.test(body) ? { prefix, body } : undefined;
+}
+
+/** `keysOnly`: private keys only, not the device rules (grep output that holds a key file's lines). */
+export function scrubText(text: string, options: { keyFile?: boolean; keysOnly?: boolean } = {}): ScrubTextResult {
   const lines = text.split("\n");
   const kinds = new Set<SecretKind>();
   let hidden = 0;
@@ -95,8 +103,10 @@ export function scrubText(text: string, options: { keyFile?: boolean } = {}): Sc
     // An END line with no BEGIN before it (tail -n +2 key.pem): the base64 lines just above it are the key.
     if (PEM_END.test(line)) {
       let above = index - 1;
-      while (above >= 0 && KEY_BODY_LINE.test(lines[above]!.trim())) {
-        lines[above] = SECRET_MARKER + (lines[above]!.endsWith("\r") ? "\r" : "");
+      while (above >= 0) {
+        const part = keyBodyLine(lines[above]!);
+        if (!part) break;
+        lines[above] = part.prefix + SECRET_MARKER + (lines[above]!.endsWith("\r") ? "\r" : "");
         above--;
       }
       if (above < index - 1 && !inBody) { hidden++; kinds.add("private-key"); }
@@ -104,13 +114,15 @@ export function scrubText(text: string, options: { keyFile?: boolean } = {}): Sc
       continue;
     }
     if (options.keyFile && /-----(?:BEGIN|END) [A-Z0-9 ]+-----/.test(line)) { inOther = line.includes("-----BEGIN"); inBody = false; continue; }
-    if (options.keyFile && !inOther && KEY_BODY_LINE.test(line.trim()) && (inBody || line.trim().length >= 40)) {
+    const part = options.keyFile && !inOther ? keyBodyLine(line) : undefined;
+    if (part && (inBody || part.body.length >= 40)) {
       if (!inBody) { hidden++; kinds.add("private-key"); }
       inBody = true;
-      lines[index] = SECRET_MARKER + (carriage ? "\r" : "");
+      lines[index] = part.prefix + SECRET_MARKER + (carriage ? "\r" : "");
       continue;
     }
     inBody = false;
+    if (options.keysOnly) continue;
     const trimmed = line.trim();
     if (authIndent !== undefined && trimmed && (indentOf(line) <= authIndent || trimmed === "!")) authIndent = undefined;
     const auth = AUTH_SERVER_BLOCK.exec(line);
