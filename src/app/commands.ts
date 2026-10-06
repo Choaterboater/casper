@@ -59,6 +59,7 @@ import { runSecurityReview, type SecurityAIReview, type SecurityReviewHost } fro
 import { sandboxReport, sandboxStatusLine } from "./sandbox";
 import type { SessionYes } from "./session-yes";
 import { webStatusLine } from "../web/tools";
+import { readerStatusLine } from "./reader";
 import type { ShellSandbox } from "../sandbox/manager";
 import { allowKindsChoices, DOCS_COPY_CHOICES, SKILL_TRUST_CHOICES, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES } from "./safe-choices";
 import { KIND_TEXT, RISKY_KINDS } from "../capabilities/kinds";
@@ -425,6 +426,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       host.output.write(` lsp       ${host.lsp!.status().length} configured (/lsp for connection status)\n`);
       host.output.write(` browser   ${host.browser?.status().state ?? "idle"}; disposable local browser (/browser)\n`);
       host.output.write(` web       ${webStatusLine(host.projectContext!.web)}\n`);
+      host.output.write(` reader    ${readerStatusLine(host.projectContext!.reader)}\n`);
       const services = host.services?.status() ?? [];
       host.output.write(` services  ${Object.keys(host.projectContext!.services ?? {}).length} declared, ${services.filter(service => service.state === "ready").length} running (/services)\n`);
       host.output.write(` debugger  ${host.debugSession?.status().state ?? "idle"}; explicit local DAP (/debug)\n`);

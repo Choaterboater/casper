@@ -95,6 +95,8 @@ export interface LoadedConfiguration {
   sandbox: { user: SandboxUserSettings; project: SandboxProjectSettings };
   /** Web lookups, from ~/.casper/config.yaml or the profile only; never a project file. */
   web: WebSettings;
+  /** The untrusted-text reader (casper_read_untrusted): on/off is yours only; a project may add untrusted paths. */
+  reader: ReaderSettings;
   /** Unknown keys, by file; shown at startup and otherwise ignored. */
   warnings: string[];
 }
@@ -103,6 +105,12 @@ export interface LoadedConfiguration {
 export interface WebSettings { enabled: boolean; provider: "duckduckgo" | "brave" | "searxng"; searxngUrl?: string }
 
 export const DEFAULT_WEB: WebSettings = { enabled: true, provider: "duckduckgo" };
+
+/** casper_read_untrusted: on unless you turn it off (no cost until the AI calls it). `untrusted`: paths whose text
+ * the AI is told to read through it; empty changes nothing. */
+export interface ReaderSettings { enabled: boolean; untrusted: string[] }
+
+export const DEFAULT_READER: ReaderSettings = { enabled: true, untrusted: [] };
 
 export interface LoadConfigurationOptions {
   projectRoot: string;
@@ -235,7 +243,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "cache", "display", "showPages", "spend", "sandbox", "shell", "web", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "cache", "display", "showPages", "spend", "sandbox", "shell", "web", "reader", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -519,6 +527,29 @@ function webUserLayer(document: Mapping, label: string, into: WebSettings, warni
   }
 }
 
+const READER_KEYS = ["enabled", "untrusted"];
+
+/** `reader:` on, off, or { enabled, untrusted }. Later layers win for enabled and add paths. A project file may only
+ * add untrusted paths: turning the reader off or on is your choice. */
+function readerLayer(document: Mapping, label: string, into: ReaderSettings, warnings: string[], project: boolean): void {
+  const value = document.reader;
+  if (value === undefined || value === null) return;
+  if (value === false || value === "off" || value === true || value === "on") {
+    if (project) { warnings.push(`${label}: reader on or off is your own setting (~/.casper/config.yaml); a project can only add reader.untrusted (ignored)`); return; }
+    into.enabled = value === true || value === "on";
+    return;
+  }
+  if (!isMapping(value)) throw new Error(`${label}: reader must be on, off or a mapping`);
+  for (const key of Object.keys(value)) if (!READER_KEYS.includes(key)) warnings.push(`${label}: unknown key reader.${key} (ignored)`);
+  if (value.enabled !== undefined && value.enabled !== null) {
+    if (project) warnings.push(`${label}: reader.enabled is your own setting (~/.casper/config.yaml); a project can only add reader.untrusted (ignored)`);
+    else if (typeof value.enabled !== "boolean") throw new Error(`${label}: reader.enabled must be true or false`);
+    else into.enabled = value.enabled;
+  }
+  const paths = pathList(value.untrusted, `${label}: reader.untrusted`);
+  if (paths) into.untrusted = [...new Set([...into.untrusted, ...paths])];
+}
+
 /** A project can only add denies. Anything that would loosen the sandbox is named and ignored. */
 function sandboxProjectLayer(document: Mapping, label: string, warnings: string[]): SandboxProjectSettings {
   const project: SandboxProjectSettings = {};
@@ -721,6 +752,10 @@ export async function loadConfiguration(
   webUserLayer(globalDocument, labels.global, web, sandboxWarnings);
   webUserLayer(profileDocument, labels.profile, web, sandboxWarnings);
   if (web.provider === "searxng" && !web.searxngUrl) throw new Error(`${labels.global}: web.provider searxng needs web.searxngUrl (your SearXNG address)`);
+  const reader: ReaderSettings = { ...DEFAULT_READER, untrusted: [] };
+  readerLayer(globalDocument, labels.global, reader, sandboxWarnings, false);
+  readerLayer(profileDocument, labels.profile, reader, sandboxWarnings, false);
+  readerLayer(projectDocument, labels.project, reader, sandboxWarnings, true);
   const lab = mergeLabSettings(parseLabSettings(globalDocument.lab, "user", `${labels.global}: lab`), parseLabSettings(profileDocument.lab, "profile", `${labels.profile}: lab`));
   return {
     skills: { maxActive, imports, bundled },
@@ -753,6 +788,7 @@ export async function loadConfiguration(
     ),
     sandbox: { user: sandboxUser, project: sandboxProject },
     web,
+    reader,
     warnings: [
       ...sandboxWarnings,
       ...unknownKeys(globalDocument, labels.global),

@@ -46,7 +46,7 @@ test("the settings list shows each switch and where it stands", async () => {
   const context = await loadProjectContext(await inspectProject(project), { homeDir: home });
   expect(settingRows(context).map((row) => `${row.label}: ${row.value}`)).toEqual([
     "Web lookups: off", "New-version notice: off", "Built-in skills: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task", "Show the AI the pages: ask once a session",
-    "Work shown: normal", "Playwright tests: on",
+    "Work shown: normal", "Untrusted-text reader: on", "Playwright tests: on",
   ]);
   expect(settingRows(context).at(-1)!.question).toBe("Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are on.");
   const questions = settingRows(context).map((row) => row.question);
