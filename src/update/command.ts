@@ -1,14 +1,17 @@
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
 import { mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { safeGitArgs } from "../platform/git";
+import { RELEASE_KEY } from "./release-key";
+import { checkInstaller } from "./verify-installer";
 
 /**
  * `casper update`: no model, no tokens and no saved state.
  * - A release binary asks GitHub for the newest release (previews count; drafts do not) and, when it is newer,
- *   runs that release's own installer on the folder this program is in, pinned to the new version.
+ *   runs that release's own installer on the folder this program is in, pinned to the new version. The installer is
+ *   checked first (verify-installer.ts): against the signed SHA256SUMS once there is a release key, and against
+ *   GitHub's build provenance when gh is signed in.
  * - A source checkout never looks at releases: it pulls with git (fast-forward only) and, when the lockfile
  *   changed, runs `bun install --frozen-lockfile` in the checkout.
  * `--check` only says whether there is something newer. Exit 0 done or nothing to do, 1 not finished (the message
@@ -42,6 +45,8 @@ export interface UpdateOptions {
   run?: ProcessRunner;
   /** The bun that runs the checkout; `bun install` uses it. */
   bun?: string;
+  /** The release key SHA256SUMS must be signed with (tests pass a throwaway one); empty checks no signature. */
+  releaseKey?: string;
   signal?: AbortSignal;
 }
 
@@ -180,17 +185,13 @@ async function updateBinary(options: UpdateOptions, executable: string): Promise
       return response.ok ? await response.text() : undefined;
     } catch { return undefined; }
   };
-  const [installer, sums] = await Promise.all([download(script), download("SHA256SUMS")]);
+  const releaseKey = options.releaseKey ?? RELEASE_KEY;
+  const [installer, sums, signature] = await Promise.all([download(script), download("SHA256SUMS"), releaseKey ? download("SHA256SUMS.sig") : undefined]);
   if (installer === undefined || sums === undefined) { write(`Could not download the Casper ${version} installer from GitHub. ${NOTHING_CHANGED}`); return { exitCode: 1 }; }
-  // SHA256SUMS lists the binaries (which the installer checks itself); the installer is checked against it when it is
-  // listed, and against the digest GitHub publishes for the file.
-  const digest = createHash("sha256").update(installer).digest("hex");
-  const listed = sums.split(/\r?\n/).map((line) => /^([0-9a-f]{64})\s+\*?(\S+)$/i.exec(line.trim())).find((match) => match?.[2] === script)?.[1];
-  const published = newest.assets.find((asset) => asset.name === script)?.digest?.replace(/^sha256:/i, "");
-  if ((listed && listed.toLowerCase() !== digest) || (published && published.toLowerCase() !== digest)) {
-    write(`The downloaded installer did not match the release's checksum, so it was not run. ${NOTHING_CHANGED}`);
-    return { exitCode: 1 };
-  }
+  const refused = checkInstaller({ version, script, installer, sums, signature, releaseKey,
+    published: newest.assets.find((asset) => asset.name === script)?.digest });
+  if (refused) { write(`${refused} ${NOTHING_CHANGED}`); return { exitCode: 1 }; }
+  const listed = sums.split(/\r?\n/).some((line) => /^[0-9a-f]{64}\s+\*?(\S+)$/i.exec(line.trim())?.[1] === script);
   // Its own default download address names its release; one for another release is not run.
   if (!installer.includes(`${base}}`) && !installer.includes(`'${base}'`)) {
     write(`The downloaded installer is for a different release than ${version}, so it was not run. ${NOTHING_CHANGED}`);
@@ -205,6 +206,11 @@ async function updateBinary(options: UpdateOptions, executable: string): Promise
   try {
     const file = path.join(temp, script);
     await writeFile(file, installer);
+    // Where it was built: a release that lists its installers in SHA256SUMS has build provenance for them too.
+    if (listed && !(await builtByGitHub(run, file, options))) {
+      write(`The downloaded installer doesn't match a Casper build from GitHub, so it was not run. ${NOTHING_CHANGED}`);
+      return { exitCode: 1 };
+    }
     write(`Updating Casper from ${currentVersion} to ${version}.`);
     if (!windows) {
       const result = await run(["sh", file, "--dir", folder, "--version", version], { env, inherit: true, ...(options.signal ? { signal: options.signal } : {}) });
@@ -216,6 +222,14 @@ async function updateBinary(options: UpdateOptions, executable: string): Promise
       return result.code === 0;
     });
   } finally { await rm(temp, { recursive: true, force: true }); }
+}
+
+/** False only when gh is installed and signed in and says the file is not a build from the Casper repository. */
+async function builtByGitHub(run: ProcessRunner, file: string, options: UpdateOptions): Promise<boolean> {
+  const env = options.env ?? process.env;
+  const signal = options.signal ? { signal: options.signal } : {};
+  if ((await run(["gh", "auth", "status"], { env, timeoutMs: 30_000, ...signal })).code !== 0) return true;
+  return (await run(["gh", "attestation", "verify", file, "--repo", RELEASE_REPO], { env, timeoutMs: 120_000, ...signal })).code === 0;
 }
 
 function finished(write: (line: string) => void, ok: boolean, from: string, to: string): { exitCode: number } {
