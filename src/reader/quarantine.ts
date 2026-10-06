@@ -5,8 +5,7 @@
  * like instructions or commands are refused, and fields marked quoted come back as { quoted, from }.
  * It lowers the risk of prompt injection; it does not remove it (a fooled reader can still pick a wrong value).
  */
-import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
-import addFormats from "ajv-formats";
+import type { ErrorObject, ValidateFunction } from "ajv";
 import { randomBytes } from "node:crypto";
 import { scrubPlainSecrets } from "../secrets/files";
 import { scrubText } from "../secrets/scrub";
@@ -65,11 +64,13 @@ export function looksLikeInstructions(text: string): boolean {
   return STEERING.some((pattern) => pattern.test(text));
 }
 
-let ajv: Ajv | undefined;
-function compile(schema: Record<string, unknown>): ValidateFunction {
-  ajv ??= addFormats(new Ajv({ strict: false, allErrors: true, validateSchema: false }));
+// Loaded on the first read: sessions that never call the reader never load Ajv.
+let ajv: Promise<import("ajv").default> | undefined;
+async function compile(schema: Record<string, unknown>): Promise<ValidateFunction> {
+  ajv ??= Promise.all([import("ajv"), import("ajv-formats")]).then(([{ default: Ajv }, { default: addFormats }]) =>
+    addFormats(new Ajv({ strict: false, allErrors: true, validateSchema: false })));
   // Ajv caches by the schema object; each read compiles its own copy.
-  return ajv.compile(structuredClone(schema));
+  return (await ajv).compile(structuredClone(schema));
 }
 
 /** Ajv errors in plain words, from the schema's own field names only: never a value, never an extra field's name. */
@@ -148,7 +149,7 @@ export async function readUntrusted(input: ReadUntrustedInput): Promise<ReadUntr
     return { ok: false, reason: `the text is over ${Math.round((input.chunkBytes ?? CHUNK_BYTES) / 1024)} KB, so it is read in parts, and the schema has no top-level list to gather the parts in; add one or read a smaller part`, usage: none, calls: 0 };
   }
   let check: ValidateFunction;
-  try { check = compile(schema); } catch { return { ok: false, reason: "schema refused: it could not be compiled", usage: none, calls: 0 }; }
+  try { check = await compile(schema); } catch { return { ok: false, reason: "schema refused: it could not be compiled", usage: none, calls: 0 }; }
   const system = [SYSTEM_PROMPT, input.purpose ? `What to pull out: ${input.purpose.slice(0, 300)}` : "",
     pieces.length > 1 ? `The text is long, so you see one part of it at a time; fill the schema from this part only.` : "",
     `JSON Schema:\n${JSON.stringify(schema)}`].filter(Boolean).join("\n\n");
