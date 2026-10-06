@@ -50,8 +50,9 @@ jobs:
         run: |
           cd dist/release
           sha256sum -c SHA256SUMS
-          # Every platform's file is built and listed in SHA256SUMS (the installers pick one by name).
-          for file in casper-darwin-arm64 casper-darwin-x64 casper-linux-x64 casper-linux-arm64 casper-windows-x64.exe casper-windows-arm64.exe; do
+          # Every platform's file is built and listed in SHA256SUMS (the installers pick one by name), and so are the
+          # installers, which `casper update` checks against the signed list before it runs one.
+          for file in casper-darwin-arm64 casper-darwin-x64 casper-linux-x64 casper-linux-arm64 casper-windows-x64.exe casper-windows-arm64.exe install.sh install.ps1; do
             grep -qE "^[0-9a-f]{64}  $file\$" SHA256SUMS || { echo "SHA256SUMS does not list $file"; exit 1; }
           done
           ./casper-linux-x64 --version | grep -F "casper ${RELEASE_TAG#v} ("
@@ -98,6 +99,30 @@ jobs:
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-checksums: dist/release/SHA256SUMS
+      # The release key signs SHA256SUMS (an SSH signature, SHA256SUMS.sig); Casper and both installers pin its public
+      # half. The private half is only in this secret and only this step sees it. No key pinned and no secret: nothing
+      # is signed yet. One without the other stops the release.
+      - name: Sign SHA256SUMS with the release key
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          pinned="$(sed -n "s/^RELEASE_KEY='\(.*\)'\$/\1/p" dist/release/install.sh)"
+          if [ -z "$pinned" ] && [ -z "$RELEASE_SIGNING_KEY" ]; then
+            echo "::warning::No release key yet: SHA256SUMS is not signed. docs/RELEASE.md, 'The release key', says how to make one."
+            exit 0
+          fi
+          [ -n "$RELEASE_SIGNING_KEY" ] || { echo "install.sh pins a release key, but the RELEASE_SIGNING_KEY secret is not set."; exit 1; }
+          [ -n "$pinned" ] || { echo "The RELEASE_SIGNING_KEY secret is set, but no key is pinned: pin its public half with scripts/release-key.ts and commit."; exit 1; }
+          umask 077
+          key="$RUNNER_TEMP/release-key"
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$RELEASE_SIGNING_KEY" > "$key"
+          ssh-keygen -Y sign -q -f "$key" -n casper-release dist/release/SHA256SUMS
+          rm -f "$key"
+          # The signature must check out against the key users have, or nothing is published.
+          printf 'casper-release %s\n' "$pinned" > "$RUNNER_TEMP/allowed_signers"
+          ssh-keygen -Y verify -f "$RUNNER_TEMP/allowed_signers" -I casper-release -n casper-release \
+            -s dist/release/SHA256SUMS.sig < dist/release/SHA256SUMS
       - name: Check the files again, then publish the prerelease
         env:
           GH_TOKEN: ${{ github.token }}

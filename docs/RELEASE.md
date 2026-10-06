@@ -872,8 +872,10 @@ first `--all` needs network: Bun downloads the target runtimes into its cache.
 
 The directory also contains both installers (copies of `scripts/`, so one upload
 makes `<base>/install.sh` reachable), `SHA256SUMS` (in `sha256sum -c` format),
-`VERSION`, `LICENSE` and `THIRD_PARTY_NOTICES.txt`. Checksums cover the executables
-only: an installer cannot meaningfully verify itself. Each executable embeds the
+`VERSION`, `LICENSE` and `THIRD_PARTY_NOTICES.txt`. `SHA256SUMS` lists the executables
+and both installers: an installer cannot verify itself, but `casper update` checks the one
+it runs against the list. Once there is a release key, the publish job adds
+`SHA256SUMS.sig` (see [The release key](#the-release-key)). Each executable embeds the
 notices, available through `casper --licenses`, so copying the executable alone
 retains its notices. Third-party components keep their own licenses.
 
@@ -911,7 +913,22 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
   or written.
 - **Verify or refuse.** Downloads must match `SHA256SUMS` (or an explicit
   `--sha256`/`CASPER_SHA256` override for out-of-band verification); a missing or
-  mismatched digest aborts and nothing is installed. The shell installer's
+  mismatched digest aborts and nothing is installed.
+- **Checks the release signature.** Once a [release key](#the-release-key) is pinned,
+  `SHA256SUMS` must carry its signature, `SHA256SUMS.sig`, checked with `ssh-keygen -Y
+  verify` (OpenSSH 8.1 or newer: macOS, most Linux, Windows 10 and 11). A bad signature
+  is always refused: `The release signature doesn't match the Casper release key. Nothing
+  installed.`, and the old `casper` stays as it was. A missing one is refused from the
+  release's own address and said from another `CASPER_BASE_URL` (a local build or a
+  mirror: `No signature (SHA256SUMS.sig) at …; checking SHA-256 only.`). With no
+  `ssh-keygen`, or one too old, the installer says so and the SHA-256 still decides. Too
+  old is asked of `ssh-keygen` alone, before the check, never read from the check's own
+  output (which can echo text from the signature file); once it can check, any failure is
+  a refusal. An out-of-band `--sha256` skips the list and so its signature.
+- **Checks where it was built, with gh.** When `gh` is installed and signed in, the
+  binary's GitHub build provenance must match (`gh attestation verify --repo
+  Choaterboater/casper`): `Verified: built by GitHub Actions from Choaterboater/casper.`,
+  or `This download doesn't match a Casper build from GitHub. Nothing installed.` The shell installer's
   `CASPER_BASE_URL` accepts an `http(s)` URL, a `file://` URL or a local directory for
   offline/internal installs. PowerShell downloads through `Invoke-WebRequest`; use an
   HTTP(S) base URL there.
@@ -942,8 +959,8 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
 - **Flag parity is deliberately asymmetric.** `install.sh` accepts `--dir`,
   `--version`, `--sha256`, `--force`, `--print-target` and `--help` (and reads the
   same `CASPER_*` variables, plus `CASPER_OS`/`CASPER_ARCH` to override detection);
-  `install.ps1` takes no flags and reads `CASPER_BASE_URL`, `CASPER_INSTALL_DIR`, `CASPER_VERSION` and
-  `CASPER_SHA256` from the environment.
+  `install.ps1` takes no flags and reads `CASPER_BASE_URL`, `CASPER_INSTALL_DIR`, `CASPER_VERSION`,
+  `CASPER_SHA256` and `CASPER_ARCH` (`x64` or `arm64`) from the environment.
 - **Does not edit shell dotfiles.** macOS/Linux print the exact `export PATH=…` line
   when the install directory is not on `PATH`. Windows requires PowerShell 5.1 or
   newer, enables TLS 1.2, suppresses slow per-chunk download progress, and updates
@@ -953,7 +970,14 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
 - **`casper update` reuses it.** A release binary asks GitHub for the newest release
   (previews included), downloads that release's installer, checks it against GitHub's
   published digest for the file and its pinned download address, and runs it on the
-  folder of the running program with the new version pinned; on Windows the running
+  folder of the running program with the new version pinned. Once there is a release
+  key, Casper first checks `SHA256SUMS.sig` itself (no `ssh-keygen` needed) and that the
+  signed list names the installer with a matching digest; when `gh` is signed in, it
+  also checks the installer's build provenance. It then hands the installer the running
+  program's own file (`CASPER_OS`/`CASPER_ARCH`) and its SHA-256 from the list it checked
+  (`CASPER_SHA256`), so the installer fetches no list of its own; a signed list that does
+  not name that file installs nothing. Any failure says why in one line and
+  runs nothing; on Windows the running
   `casper.exe` is renamed to `casper.old.exe` first and put back if the installer fails.
   A token in `GITHUB_TOKEN` or `GH_TOKEN` is sent with the release lookup only (not the
   downloads), for GitHub's higher limit.
@@ -974,7 +998,8 @@ CASPER_BASE_URL=http://127.0.0.1:8731 sh scripts/install.sh --dir /tmp/casper-in
 ```
 
 A host-only build holds only your own platform's file, which is what `install.sh`
-picks on the same machine. Stop the local server (`kill %1`) when you are done.
+picks on the same machine. A local build has no `SHA256SUMS.sig`; from a
+`CASPER_BASE_URL` that is not the release's own address the installer says so and goes on. Stop the local server (`kill %1`) when you are done.
 
 The published shape itself is checkable the same way: serve `dist/release` and pipe the
 *served* installer into a shell, which is the documented one-liner minus the real host.
@@ -1082,7 +1107,8 @@ and Windows preview workflows and the Windows ARM64 workflow passed on this exac
 them first), and stops while
 the tag's section below still says "Not released yet". The **publish** job is the only one
 that can write; it runs no project code, signs GitHub build provenance over every file in
-`SHA256SUMS`, checks the files again and publishes the prerelease. Every action in every
+`SHA256SUMS`, signs `SHA256SUMS` with the release key (below), checks the files again and
+publishes the prerelease. Every action in every
 workflow is pinned to a full commit (`tests/release-workflows.test.ts` fails otherwise).
 
 The release notes come from this file: everything under the heading that starts with
@@ -1110,12 +1136,58 @@ below.
    source project. On Windows, verify the PowerShell installer and inline
    visualization separately on that host.
 
+## The release key
+
+`SHA256SUMS.sig` is an SSH signature over `SHA256SUMS`, made in the publish job with the
+release key. Its public half is pinned in three places (`src/update/release-key.ts`,
+`scripts/install.sh`, `scripts/install.ps1`); the private half is only in the
+`RELEASE_SIGNING_KEY` Actions secret. So someone who can replace release files, but does
+not have that secret, cannot make a list that `casper update` or the installers accept.
+
+Why SSH signatures: `ssh-keygen` already ships with macOS, most Linux and Windows 10 and
+11, so users install nothing; minisign or GPG would need an extra tool. Casper checks the
+signature in its own code. It is free.
+
+Until the key exists, the pinned key is empty and nothing is signed or checked; the publish
+job warns. **One-time setup (owner):**
+
+```sh
+ssh-keygen -t ed25519 -C casper-release -N '' -f ~/casper-release-key
+gh secret set RELEASE_SIGNING_KEY --repo Choaterboater/casper < ~/casper-release-key
+bun scripts/release-key.ts ~/casper-release-key.pub   # pins it in all three places
+bun run check                                           # then commit and merge
+```
+
+Then keep `~/casper-release-key` somewhere safe and offline (a password manager), and
+delete it from the laptop. The next release is signed; the publish job checks the signature
+against the pinned key and stops if the secret and the pinned key are not a pair, or if
+only one of them is set.
+
+**Changing or losing the key.** Each Casper trusts the key it was built with. To change
+keys, pin the new one with `bun scripts/release-key.ts` and update the secret in the same
+release: Casper builds before it still expect the old key, so their `casper update` refuses
+that release (`The release signature on Casper … doesn't match the Casper release key`), and
+those users run the install line from the README once. A lost key is the same. A leaked key
+is worse: change it at once and say so in the release notes.
+
+**What it does not cover.** The very first `curl … | sh` trusts the installer it downloads
+(as every curl-to-shell install does); the signature protects every `casper update` after
+that, and anyone who downloads by hand can check it with the key from
+`src/update/release-key.ts` in the repository (not from the download itself):
+
+```sh
+printf 'casper-release %s\n' 'ssh-ed25519 AAAA…' > allowed_signers
+ssh-keygen -Y verify -f allowed_signers -I casper-release -n casper-release \
+  -s SHA256SUMS.sig < SHA256SUMS && sha256sum -c --ignore-missing SHA256SUMS
+```
+
 ## Known preview limits
 
 - Some screen issues remain.
-- Binaries are not signed or notarized. SmartScreen (Windows) or Gatekeeper (macOS)
-  may warn. `install.sh` clears the macOS quarantine flag; neither installer signs
-  anything.
+- Binaries are not code-signed or notarized. SmartScreen (Windows) or Gatekeeper
+  (macOS) may warn. `install.sh` clears the macOS quarantine flag. The release key signs
+  the list of files, not the programs, so it does not stop these warnings; see
+  [Paid code signing](#paid-code-signing-owner-decision).
 - Windows x64 is tested in CI: install and startup under PowerShell 5.1 and 7, and the
   full test suite and eval tests. The run fails if the suite fails, and the owner merges
   only after it is green. Tests that need a PTY, POSIX signals or file modes, or a tool
@@ -1137,3 +1209,17 @@ below.
 - Installation does not install project language tools, browser/debugger adapters or
   Git Bash. Pi's model-facing Bash tool needs an available Bash on Windows; Casper's
   own verification commands use the Windows shell.
+
+### Paid code signing (owner decision)
+
+Not done; both cost money every year and the release key above is free. What each would
+change for users:
+
+| Option | Cost | What changes for users | What it takes |
+| --- | --- | --- | --- |
+| Apple Developer ID + notarization | about $99 a year (Apple Developer Program) | A downloaded `casper` opens with no Gatekeeper warning, also when someone downloads it by hand in a browser. Today `install.sh` already clears the quarantine flag, so users of the install line or `casper update` see no warning either way. | Sign both macOS files with `codesign` (hardened runtime; Bun needs JIT entitlements), send them to `notarytool` from a macOS job, keep the certificate and an app password as secrets. A bare program can't be stapled, so the first run checks with Apple online. |
+| Windows code-signing certificate | about $200–400 a year (OV) or a cloud service such as Azure Trusted Signing (about $10 a month) | SmartScreen shows a named publisher instead of "Unknown publisher"; a new certificate still warns until it builds reputation. `install.ps1` downloads with PowerShell, which adds no Mark of the Web, so install-line users rarely see SmartScreen today. | Sign both `.exe` files with `signtool` in the build; the key lives in a hardware token or the cloud service, not a plain secret. |
+
+Neither changes what the installers check. Recommendation: wait until people download the
+programs by hand often, or a company asks for signed programs; Apple first, as it is
+cheaper and the macOS warning is harder to get past.

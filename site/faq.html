@@ -330,6 +330,10 @@ lint could not start. Casper did not try to fix it. What now?
             effort), so the first run is not blocked.</li>
             <li>Both installers check the file's SHA-256 against the release's
             <code>SHA256SUMS</code>. A mismatch stops the install, and nothing is installed.</li>
+            <li>Once Casper has a release key, both installers and <code>casper update</code> also
+            check the release's signature over <code>SHA256SUMS</code>. A bad one stops the install, and
+            your old install stays. That signs the list of files, not the programs, so it does not stop
+            these warnings.</li>
             <li>Do not click past a warning you did not expect. Check the file came from
             <a href="https://github.com/Choaterboater/casper/releases">github.com/Choaterboater/casper/releases</a>.</li>
           </ul>

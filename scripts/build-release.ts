@@ -23,9 +23,9 @@ const outputDir = path.join(repoRoot, "dist/release");
 /**
  * The installers are published beside the artifacts they download, so uploading this
  * one directory makes the documented one-liner reachable: `curl -fsSL <base>/install.sh | sh`.
- * They are copies, not moved: `scripts/` stays the single source of truth, and neither
- * appears in `SHA256SUMS` — the sums file covers the binaries the installer verifies,
- * and an installer cannot meaningfully verify itself.
+ * They are copies, not moved: `scripts/` stays the single source of truth. Both are listed
+ * in `SHA256SUMS` after the binaries: an installer cannot verify itself, but `casper update`
+ * checks the one it runs against the signed list, and the build provenance covers them too.
  */
 const INSTALLERS = [
   { file: "install.sh", mode: 0o755 },
@@ -98,14 +98,15 @@ async function main(): Promise<void> {
   for (const file of ["LICENSE", "THIRD_PARTY_NOTICES.txt"]) {
     await copyFile(path.join(repoRoot, file), path.join(outputDir, file));
   }
-  // `sha256sum -c` compatible, so a downloader can verify with standard tools too.
-  await writeFile(path.join(outputDir, "SHA256SUMS"), `${checksums.join("\n")}\n`);
-  await writeFile(path.join(outputDir, "VERSION"), `${CASPER_VERSION}\n`);
   for (const installer of INSTALLERS) {
     const destination = path.join(outputDir, installer.file);
     await copyFile(path.join(repoRoot, "scripts", installer.file), destination);
     await chmod(destination, installer.mode);
+    checksums.push(`${new Bun.CryptoHasher("sha256").update(await Bun.file(destination).arrayBuffer()).digest("hex")}  ${installer.file}`);
   }
+  // `sha256sum -c` compatible, so a downloader can verify with standard tools too.
+  await writeFile(path.join(outputDir, "SHA256SUMS"), `${checksums.join("\n")}\n`);
+  await writeFile(path.join(outputDir, "VERSION"), `${CASPER_VERSION}\n`);
   process.stdout.write(`\n${targets.length} artifact(s) plus install.sh and install.ps1 in dist/release for casper ${CASPER_VERSION}\n`);
   process.stdout.write("Set the release-host default in scripts/install.sh and scripts/install.ps1 BEFORE building; upload the whole resulting directory.\n");
 }

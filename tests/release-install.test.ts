@@ -5,7 +5,8 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rm, stat,
 import os from "node:os";
 import path from "node:path";
 import { artifactName, hostTarget, TARGETS } from "../scripts/build-release";
-import { posixOnly } from "./support/platform";
+import { POSIX, posixOnly } from "./support/platform";
+import { sshKeygenVerifies, testReleaseKey } from "./support/release-signing";
 import { cleanEnv } from "./support/env";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
@@ -267,3 +268,121 @@ posixOnly("with gh, a matching build is installed and says where it was built; w
   // A CI runner has gh but no sign-in here (the installer gets a clean HOME).
   expect(plain.stdout).toMatch(/Checked SHA-256\. (?:Install gh|Sign in to gh \(gh auth login\)) to also check where it was built\./);
 });
+
+// --- The release signature: a throwaway key made for each test, never a real one ---
+
+/** A copy of install.sh that pins `publicKey`; with `releaseAddress`, the release folder is its own default address. */
+async function keyedInstaller(root: string, publicKey: string, releaseAddress?: string): Promise<string> {
+  let text = (await readFile(installer, "utf8")).replace(/^RELEASE_KEY='[^']*'$/m, `RELEASE_KEY='${publicKey}'`);
+  if (releaseAddress) text = text.replace(/^BASE_URL="\$\{CASPER_BASE_URL:-[^}]*\}"$/m, `BASE_URL="\${CASPER_BASE_URL:-${releaseAddress}}"`);
+  expect(text).toContain(publicKey);
+  const file = path.join(root, "install-keyed.sh");
+  await writeFile(file, text);
+  return file;
+}
+
+async function runInstaller(script: string, installDir: string, env: Record<string, string>, pathPrefix?: string) {
+  const child = Bun.spawn(["sh", script, "--dir", installDir], {
+    env: { PATH: `${pathPrefix ? `${pathPrefix}:` : ""}${process.env.PATH ?? "/usr/bin:/bin"}`, HOME: installDir, ...env }, stdout: "pipe", stderr: "pipe",
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  return { stdout, stderr, exitCode };
+}
+
+/** Each runs the installer up to four times, so it gets 30 s on a busy machine. */
+const signingTest = POSIX && sshKeygenVerifies() ? test : test.skip;
+
+signingTest("a release signed with the pinned key installs and says so", async () => {
+  const root = await tempDir("casper-install-signed-");
+  const release = await fakeRelease(root, artifactName(hostTarget()));
+  const key = testReleaseKey();
+  await writeFile(path.join(release, "SHA256SUMS.sig"), key.sign(await readFile(path.join(release, "SHA256SUMS"))));
+  const result = await runInstaller(await keyedInstaller(root, key.publicKey, release), path.join(root, "bin"), {});
+  expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 0, stderr: "" });
+  expect(result.stdout).toContain("Verified: signed with the Casper release key.");
+  expect(result.stdout).toContain(`Installed casper ${CASPER_VERSION}`);
+}, 30_000);
+
+signingTest("a bad signature is refused in plain words and the old casper stays as it was", async () => {
+  const root = await tempDir("casper-install-badsig-");
+  const release = await fakeRelease(root, artifactName(hostTarget()));
+  const sums = await readFile(path.join(release, "SHA256SUMS"));
+  const installDir = path.join(root, "bin");
+  await mkdir(installDir);
+  await writeFile(path.join(installDir, "casper"), "previous installation\n");
+  const key = testReleaseKey();
+  const script = await keyedInstaller(root, key.publicKey, release);
+  // Signed by another key, then a list changed after it was signed: both are refused, from any address.
+  for (const signature of [testReleaseKey().sign(sums), key.sign(`${sums}extra\n`)]) {
+    await writeFile(path.join(release, "SHA256SUMS.sig"), signature);
+    for (const env of [{}, { CASPER_BASE_URL: release }] as Array<Record<string, string>>) {
+      const result = await runInstaller(script, installDir, env);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("The release signature doesn't match the Casper release key. Nothing installed.");
+      expect(await readFile(path.join(installDir, "casper"), "utf8")).toBe("previous installation\n");
+      expect((await readdir(installDir)).sort()).toEqual(["casper"]);
+    }
+  }
+}, 30_000);
+
+posixOnly("a missing signature is refused from the release's own address, and said from another one", async () => {
+  const root = await tempDir("casper-install-nosig-");
+  const release = await fakeRelease(root, artifactName(hostTarget()));
+  const script = await keyedInstaller(root, testReleaseKey().publicKey, release);
+  const own = await runInstaller(script, path.join(root, "bin"), {});
+  expect(own.exitCode).toBe(1);
+  expect(own.stderr).toContain("This release has no signature (SHA256SUMS.sig), so it may not be a Casper release. Nothing installed.");
+  await expect(stat(path.join(root, "bin", "casper"))).rejects.toThrow();
+  const local = await runInstaller(script, path.join(root, "bin"), { CASPER_BASE_URL: release });
+  expect(local.exitCode).toBe(0);
+  expect(local.stdout).toContain(`No signature (SHA256SUMS.sig) at ${release}; checking SHA-256 only.`);
+  // A digest checked out of band needs no list and no signature.
+  const digest = (await readFile(path.join(release, "SHA256SUMS"), "utf8")).split(" ")[0]!;
+  const child = Bun.spawn(["sh", script, "--dir", path.join(root, "bin2"), "--sha256", digest], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: root }, stdout: "pipe", stderr: "pipe" });
+  expect(await child.exited).toBe(0);
+}, 30_000);
+
+posixOnly("an ssh-keygen too old to check signatures is named, and the SHA-256 still decides", async () => {
+  const root = await tempDir("casper-install-oldssh-");
+  const release = await fakeRelease(root, artifactName(hostTarget()));
+  const key = testReleaseKey();
+  await writeFile(path.join(release, "SHA256SUMS.sig"), key.sign(await readFile(path.join(release, "SHA256SUMS"))));
+  const bin = path.join(root, "old-ssh");
+  await mkdir(bin);
+  await writeFile(path.join(bin, "ssh-keygen"), "#!/bin/sh\necho 'ssh-keygen: illegal option -- Y' >&2\necho 'usage: ssh-keygen [-q]' >&2\nexit 1\n");
+  await chmod(path.join(bin, "ssh-keygen"), 0o755);
+  const result = await runInstaller(await keyedInstaller(root, key.publicKey, release), path.join(root, "bin"), {}, bin);
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain("This ssh-keygen is too old to check the release signature (OpenSSH 8.1 or newer can).");
+}, 30_000);
+
+signingTest("a forged signature whose text reads like an old ssh-keygen is still refused", async () => {
+  const root = await tempDir("casper-install-forged-");
+  const release = await fakeRelease(root, artifactName(hostTarget()));
+  const sums = await readFile(path.join(release, "SHA256SUMS"));
+  const key = testReleaseKey();
+  const script = await keyedInstaller(root, key.publicKey, release);
+  // ssh-keygen prints the hash name back ("unsupported hash algorithm \"illegal option\""); that must not read as "too old".
+  for (const signature of [key.sign(sums, "casper-release", "illegal option"), key.sign(sums, "casper-release", "unknown option -- Y")]) {
+    await writeFile(path.join(release, "SHA256SUMS.sig"), signature);
+    const result = await runInstaller(script, path.join(root, "bin"), {});
+    expect({ exitCode: result.exitCode, stdout: result.stdout.includes("too old") }).toEqual({ exitCode: 1, stdout: false });
+    expect(result.stderr).toContain("The release signature doesn't match the Casper release key. Nothing installed.");
+    await expect(stat(path.join(root, "bin", "casper"))).rejects.toThrow();
+  }
+}, 30_000);
+
+posixOnly("only a probe apart from the download decides ssh-keygen is too old", async () => {
+  const root = await tempDir("casper-install-probe-");
+  const release = await fakeRelease(root, artifactName(hostTarget()));
+  const key = testReleaseKey();
+  await writeFile(path.join(release, "SHA256SUMS.sig"), key.sign(await readFile(path.join(release, "SHA256SUMS"))));
+  const bin = path.join(root, "probe-ssh");
+  await mkdir(bin);
+  // Knows -Y, but the real check fails with words that look like an old one.
+  await writeFile(path.join(bin, "ssh-keygen"), "#!/bin/sh\nfor a in \"$@\"; do [ \"$a\" = -s ] && { echo 'illegal option' >&2; exit 255; }; done\necho 'Too few arguments for verify: missing namespace' >&2\nexit 1\n");
+  await chmod(path.join(bin, "ssh-keygen"), 0o755);
+  const result = await runInstaller(await keyedInstaller(root, key.publicKey, release), path.join(root, "bin"), {}, bin);
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("The release signature doesn't match the Casper release key. Nothing installed.");
+}, 30_000);
