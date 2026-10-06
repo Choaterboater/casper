@@ -50,10 +50,10 @@ export const COMMANDS: SlashCommand[] = [
   { name: "exit", description: "Leave Casper" },
 ];
 
-/** Commands that only show something (or set effort or the display level) and so run while a task works. */
+/** Commands that only show something (or set the model, effort or display level) and so run while a task works. */
 export const RUNS_DURING_WORK: ReadonlySet<string> = new Set([
   "help", "status", "usage", "context", "permissions", "effort", "diff", "tasks", "details", "receipt", "output",
-  "mcp", "tree", "project", "sandbox", "secrets", "skills", "lsp", "pane",
+  "mcp", "tree", "project", "sandbox", "secrets", "skills", "lsp", "pane", "model",
 ]);
 
 /** This exact line runs now during a task; every other line waits for the task to end. */
@@ -64,7 +64,9 @@ export function runsDuringWork(line: string): boolean {
     || /^\/details(?:\s+(?:quiet|normal|detailed))?(?:\s+--session)?$/.test(line)
     || /^\/tasks(?:\s+stop\s+(?:\d+|all))?$/.test(line)
     || /^\/pane(?:\s+(?:on|off))?$/.test(line)
-    || /^\/effort(?:\s+[^\s-]\S*(?:\s+--session)?)?$/.test(line);
+    || /^\/effort(?:\s+[^\s-]\S*(?:\s+--session)?)?$/.test(line)
+    // The picker or one model; role and big-model changes wait (they save settings).
+    || /^\/model(?:\s+--session)?(?:\s+(?!(?:roles?|big)(?:\s|$))[^\s-]\S*)?$/.test(line) || line === "/model roles";
 }
 
 /** Pi's command menu cuts a long description at the column, mid-word and with no mark. Trimmed here first: it ends at

@@ -44,7 +44,8 @@ export async function applyWords(app: CasperApp, session: RuntimeSession, words:
         if (!back) app.output.write(`[model] Casper could not switch to your ${name} ${terminalText(label)}; this task runs on ${terminalText(current ?? "your model")}.\n`);
         else {
           app.output.write(`[model] ${name} for this task: ${terminalText(label)} (you asked)\n`);
-          undo.unshift(() => restoreModel(app, session, back));
+          // A model you picked with /model during the task stays: only the word's own switch is put back.
+          undo.unshift(async () => { if (currentModel(session) === label) await restoreModel(app, session, back); });
         }
       }
     }

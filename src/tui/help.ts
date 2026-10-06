@@ -177,6 +177,7 @@ Local commands:
 
 Unknown slash commands are rejected locally, never sent to a model.
 /model: Enter selects and saves ~/.casper/settings.json; Ctrl+S selects for this session only. Exact IDs are remembered too; /model --session <id> opts out.
+During a task, /model and /effort apply from the model's next step; the step already running keeps its model and effort.
 /effort remembers supported levels per model; /effort <level> --session opts out.
 Shift+Tab cycles auto and the model's supported levels and saves the level it stops at, like /effort. One-off --effort never saves.
 /effort auto lets Casper pick per request: low for reading/explaining/diagrams, medium for tests and configuration, high for fixes, features and refactors, from the model's supported levels.

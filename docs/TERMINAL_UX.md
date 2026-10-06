@@ -272,7 +272,8 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
 - While a prompt runs or tool activity is on screen, the footer state dot and the Working
   panel title animate (braille spinner) so background work is visibly moving, and the
   footer appends elapsed time (`· 1m35s`); idle shows ○ with no timer.
-- `/model provider/id`: exact selection, remembered globally.
+- `/model provider/id`: exact selection, remembered globally. During a task it applies from the
+  model's next step, like `/effort` (see Input and commands).
 - `/model --session [provider/id]`: explicitly temporary selection/picker.
 - `/effort`: automatic or supported fixed-effort picker in an interactive terminal, otherwise a list.
   `auto` is always a choice. On a rich terminal, **Shift+Tab** cycles that same list and remembers
@@ -412,8 +413,11 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - Enter during work runs a command that only shows something at once: `/help`, `/status`,
   `/usage`, `/context`, `/permissions`, `/diff`, `/receipt`, `/output`, `/tasks` (and
   `/tasks stop <n>`), `/details`, `/mcp`, `/lsp`, `/skills`, `/sandbox`, `/secrets`, `/tree`,
-  `/project`, and `/effort` (a bare `/effort` opens its picker; an approval that arrives closes
-  it first). Typing `/` keeps the command menu; the commands that must wait are dimmed and say
+  `/project`, `/effort` (a bare `/effort` opens its picker; an approval that arrives closes
+  it first) and `/model` (the picker, `/model <provider/id>` or `/model --session <provider/id>`:
+  the model's next step uses it, `[model] <provider/id> from the model's next step; saved`; the step
+  already running keeps its model; an approval that arrives closes the picker first, and so does
+  the end of the model's work). `/model role` and `/model big` wait for the task. Typing `/` keeps the command menu; the commands that must wait are dimmed and say
   `waits for this task`. Any other command keeps its draft and says why for a moment
   (`/undo waits until this task ends · draft kept`).
 - Anything else you type during work goes to the AI. While the model is working it reads the

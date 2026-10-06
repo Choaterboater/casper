@@ -300,9 +300,10 @@ export class PiModels {
     selection.effort = effort;
     selection.auto = effort === "auto" ? { state: level ? "pending" : "unavailable" } : undefined;
   }
-  async setEffort(session: AgentSession, level: string, persist: boolean): Promise<RuntimeStatus> {
+  /** `midRun`: the model is working; the change applies from its next step. */
+  async setEffort(session: AgentSession, level: string, persist: boolean, midRun = false): Promise<RuntimeStatus> {
     this.assertReady(session);
-    if (this.busy || !session.isIdle) throw new Error("Wait for active work before changing effort.");
+    if (this.busy || (!midRun && !session.isIdle)) throw new Error("Wait for active work before changing effort.");
     const selection = this.selections.get(session)!;
     const model = session.model!;
     // A repeat of the current level (a wrapped Shift+Tab, or /effort of the same value) must not
@@ -383,8 +384,9 @@ export class PiModels {
     if (blocked) throw new Error(blocked);
   }
 
-  async select(session: AgentSession, options: RuntimeModelSelectionOptions): Promise<RuntimeModelSelection> {
-    if (this.busy || !session.isIdle) throw new Error("Wait for active work before changing models.");
+  /** `midRun`: the model is working; the new model takes its next step. */
+  async select(session: AgentSession, options: RuntimeModelSelectionOptions, midRun = false): Promise<RuntimeModelSelection> {
+    if (this.busy || (!midRun && !session.isIdle)) throw new Error("Wait for active work before changing models.");
     const signal = options.signal ? AbortSignal.any([options.signal, this.lifetime.signal]) : this.lifetime.signal;
     signal.throwIfAborted();
     this.selecting = true; this.selectionSignal = signal;

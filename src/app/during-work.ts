@@ -1,5 +1,5 @@
 /** Typing while a task runs: lines the AI reads at its next step or that queue as the next request, commands that
- * run now, and the effort level (Shift+Tab, /effort). Moved from src/app.ts. */
+ * run now, and the model and effort (/model, Shift+Tab, /effort). Moved from src/app.ts. */
 
 import type { CasperApp } from "../app";
 import { nextEffort } from "../tui/effort";
@@ -35,6 +35,8 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
   if (runsDuringWork(line)) {
     const effort = /^\/effort\s+(\S+)(?:\s+(--session))?$/.exec(line);
     if (effort) { void setEffortDuringWork(app, effort[1]!, !effort[2]); return true; }
+    const model = /^\/model(?:\s+(.+))?$/.exec(line);
+    if (model && line !== "/model roles") { void setModelDuringWork(app, (model[1] ?? "").trim()); return true; }
     const failed = (error: unknown) => { app.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); };
     if (line === "/tasks") {
       void runTasksCommand({ tasks: () => backgroundTasks(app), write: text => app.output.write(text), canAsk: () => false,
@@ -82,6 +84,35 @@ export async function setEffortDuringWork(app: CasperApp, level: string, persist
     app.output.write(`[effort] ${formatEffort(updated) ?? level} from the model's next step${persist ? "; saved" : " (this conversation)"}\n`);
     updateFooter(app);
   } catch (error) { app.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); }
+}
+
+/** /model during a task: the picker, or `/model [--session] <provider/id>`. The model's next step uses it; the step
+ * already running keeps its model. An approval or question that arrives closes the picker first; the picker also closes
+ * when the model's work ends (nothing would take the next step). */
+export async function setModelDuringWork(app: CasperApp, argument: string): Promise<void> {
+  const yielded = new AbortController();
+  let watch: ReturnType<typeof setInterval> | undefined;
+  try {
+    const session = app.session;
+    if (!session?.selectModel) throw new Error("model selection unavailable");
+    const sessionOnly = /^--session(?:\s|$)/.test(argument);
+    const query = (sessionOnly ? argument.slice(9) : argument).trim();
+    const picker = query ? undefined : app.terminal.exclusiveHost({ onYield: () => yielded.abort() });
+    if (!query && !picker) { app.output.write("[model] The picker needs the full terminal; type /model <provider/id>.\n"); return; }
+    if (picker) watch = setInterval(() => { if (!app.commandActive || !session.getState().isStreaming) yielded.abort(); }, 200);
+    const signal = app.commandAbort ? AbortSignal.any([yielded.signal, app.commandAbort.signal]) : yielded.signal;
+    const result = await session.selectModel({ ...(query ? { query } : {}), persist: !sessionOnly, signal, ...(picker ? { picker } : {}) });
+    if (!result.selected) {
+      app.output.write(result.models ? `[model] No model ${terminalText(query)}; model unchanged. /model lists them when this task ends.\n` : "[model] Model unchanged.\n");
+      return;
+    }
+    const label = `${result.status.provider}/${result.status.model}`;
+    app.output.write(`[model] ${terminalText(label)} from the model's next step${result.savedDefault ? "; saved" : " (this conversation)"}\n`);
+    updateFooter(app);
+  } catch (error) {
+    if (yielded.signal.aborted) app.output.write("[model] Model unchanged.\n");
+    else app.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`);
+  } finally { if (watch) clearInterval(watch); }
 }
 
 /** Shift+Tab. A held key walks the ring; the level the presses stop at is saved once, like `/effort`. During a task
