@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -14,6 +14,7 @@ import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { allowSlowServerStopsOnWindows, fakeServerProgram } from "./support/fake-program";
+import { removeTempDir } from "./support/temp-dir";
 
 /**
  * Casper's network server end to end: the real app, manager and broker, with tests/fixtures/fake-network-mcp.ts
@@ -57,7 +58,7 @@ async function networkSession(options: {
   env?: Record<string, string>;
 }) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-network-e2e-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home");
   const project = path.join(root, "project");
   await mkdir(path.join(project, ".casper"), { recursive: true });

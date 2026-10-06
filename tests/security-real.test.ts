@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { rm } from "node:fs/promises";
+import {  } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DEAD_PROXY } from "../src/mcp/check/sandbox";
@@ -9,6 +9,7 @@ import { findTool, osvDbState } from "../src/security/install";
 import { SecurityCheck } from "../src/security/run";
 import { SECURITY_TOOLS } from "../src/security/tools";
 import { fixtureRepo } from "./fixtures/security-tools/setup";
+import { removeTempDir } from "./support/temp-dir";
 
 // Real pinned tools on a planted fixture, with a dead proxy and no tokens. Runs only in the CI job that
 // installs Casper's pinned tools (SECURITY_TOOLS_REAL=1); SECURITY_TOOLS_HOME names the home folder
@@ -16,7 +17,7 @@ import { fixtureRepo } from "./fixtures/security-tools/setup";
 const enabled = process.env.SECURITY_TOOLS_REAL === "1";
 const home = process.env.SECURITY_TOOLS_HOME ?? os.homedir();
 const temps: string[] = [];
-afterAll(async () => { for (const dir of temps) await rm(dir, { recursive: true, force: true }); });
+afterAll(async () => { for (const dir of temps) await removeTempDir(dir); });
 
 test.skipIf(!enabled)("semgrep --test passes on Casper's own rules, offline", async () => {
   const semgrep = await findTool(SECURITY_TOOLS.semgrep, { homeDir: home });

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -19,13 +19,14 @@ import type { ToolRunner } from "../src/security/spawn";
 import type { LockedSpec } from "../src/security/tools";
 import { SkillRegistry } from "../src/skills/registry";
 import { allowSlowServerStopsOnWindows, fakeProgram, fakeServerProgram } from "./support/fake-program";
+import { removeTempDir } from "./support/temp-dir";
 
 allowSlowServerStopsOnWindows();
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 async function temp(prefix: string): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), prefix));
-  cleanup.push(() => rm(dir, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(dir));
   return dir;
 }
 const exists = (file: string) => stat(file).then(() => true, () => false);

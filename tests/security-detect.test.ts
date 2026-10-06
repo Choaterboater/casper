@@ -1,13 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { detectProject, toolNeeds } from "../src/security/detect";
 import { gitState } from "../src/security/git";
 import { fixtureRepo, gitIn } from "./fixtures/security-tools/setup";
+import { removeTempDir } from "./support/temp-dir";
 
 const temps: string[] = [];
-afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });
 
 test("python -> ruff S, workflows -> zizmor, lockfiles -> osv, FastMCP import -> MCP rules, playbook -> ansible-lint; gitleaks always", async () => {
   const root = await fixtureRepo("casper-security-detect-");

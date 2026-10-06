@@ -1,13 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { formatResultLine, formatSecurityHeader, formatSecurityReport, SECURITY_OFFLINE_LINE, securityNetworkLine, securityReportJson } from "../src/security/format";
 import { MCP_NEEDS_TOOLS, OSV_NO_DATA, SecurityCheck } from "../src/security/run";
 import { fakeTools, fixtureRepo, SEMGREP_NOT_ON_WINDOWS, SEMGREP_RUNS } from "./fixtures/security-tools/setup";
+import { removeTempDir } from "./support/temp-dir";
 
 const temps: string[] = [];
-afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });
 async function temp(prefix: string): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), prefix));
   temps.push(dir);

@@ -1,14 +1,15 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { formatSecurityReport } from "../src/security/format";
 import { osvDbState, updateOsvDb } from "../src/security/install";
 import { OSV_NO_DATA, SecurityCheck } from "../src/security/run";
 import { fakeTools, fixtureRepo } from "./fixtures/security-tools/setup";
+import { removeTempDir } from "./support/temp-dir";
 
 const temps: string[] = [];
-afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });
 
 const NOW = new Date("2026-09-29T12:00:00Z");
 

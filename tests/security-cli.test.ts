@@ -5,13 +5,14 @@ import path from "node:path";
 import { SECURITY_TOOLS } from "../src/security/tools";
 import { fakeProgram, fixtureRepo } from "./fixtures/security-tools/setup";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 
 setDefaultTimeout(60_000);
 
 const cli = path.resolve(import.meta.dir, "../src/cli.ts");
 const fake = path.resolve(import.meta.dir, "fixtures/security-tools/fake-tool.ts");
 const temps: string[] = [];
-afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });
 
 /** Fake copies of the tools on PATH (the user's own copies, as far as Casper can tell), and advisory data in HOME. */
 async function machine(): Promise<{ home: string; bin: string; record: string }> {
