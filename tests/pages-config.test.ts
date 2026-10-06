@@ -28,8 +28,9 @@ test("pages: in .casper/project.yaml lists pages to always open, or turns page c
   expect((await load({})).pages).toBeUndefined();
 });
 
-test("pages: is a project setting; your own config cannot set it", async () => {
-  await expect(load({}, { pages: ["/"] })).rejects.toThrow("pages is a project setting (.casper/project.yaml); remove it from ~/.casper/config.yaml");
+test("a list of pages is a project setting; your own config only turns page checks on or off", async () => {
+  await expect(load({}, { pages: ["/"] })).rejects.toThrow("~/.casper/config.yaml: pages must be on or off; a list of pages is a project setting (.casper/project.yaml)");
+  expect((await load({ pages: ["/"] }, { pages: "off" })).pages).toBe("off");
 });
 
 test("bad page paths are rejected with the dotted path", async () => {

@@ -14,29 +14,35 @@ writes your answer into `~/.casper/config.yaml` for you, keeping your comments a
 ```text
 Settings (saved in ~/.casper/config.yaml for you):
   Web lookups: on (DuckDuckGo) · Browser tool: on · Diagram tool: on
-  New-version notice: on · Built-in skills: on · Spend notes: at $1 a task
-  Spend pause: off · Show the AI the pages: ask once a session
+  New-version notice: on · Suggestions: on · Built-in skills: on
+  Spend notes: at $1 a task · Spend pause: off · Prompt cache: auto
+  Page checks: on · Show the AI the pages: ask once a session
   Work shown: normal · Untrusted-text reader: on · Playwright tests: on
+  Send Casper's name to OpenRouter: on
 Pick one to change:
-  1 Done                   nothing changes
-  2 Web lookups            on (DuckDuckGo)
-  3 Browser tool           on
-  4 Diagram tool           on
-  5 New-version notice     on
-  6 Side questions with ?  on
-  7 Built-in skills        on
-  8 Spend notes            at $1 a task
-  9 Spend pause            off
- 10 Show the AI the pages  ask once a session
- 11 Work shown             normal
- 12 Untrusted-text reader  on
- 13 Helpers that build     on
- 14 Playwright tests       on
+  1 Done                              nothing changes
+  2 Web lookups                       on (DuckDuckGo)
+  3 Browser tool                      on
+  4 Diagram tool                      on
+  5 New-version notice                on
+  6 Suggestions                       on
+  7 Side questions with ?             on
+  8 Built-in skills                   on
+  9 Spend notes                       at $1 a task
+ 10 Spend pause                       off
+ 11 Prompt cache                      auto
+ 12 Page checks                       on
+ 13 Show the AI the pages             ask once a session
+ 14 Work shown                        normal
+ 15 Untrusted-text reader             on
+ 16 Helpers that build                on
+ 17 Playwright tests                  on
+ 18 Send Casper's name to OpenRouter  on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
-A change applies from now on (built-in skills from the next start) and says so:
+A change applies from now on (built-in skills and the prompt cache from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Where Casper can't ask (a one-shot
 run), `/settings` lists them. `/details <level>` saves the work shown the same way, like `/effort`.
 
@@ -92,6 +98,35 @@ The AI draws a diagram when a task asks for a map, chart or flow (see
 never offered the `visualize` tool. `/visualize`, typed by you, still works. A project file may pick
 `visualize.providers` but can't turn the tool on or off.
 
+### Suggestions
+
+The numbered next steps under a task's receipt cost no tokens. They are on. Turn them all off with
+`/settings` (it writes `suggestions: false`); `/suggestions off <name>` turns off just one. A project
+file can't change `suggestions:`.
+
+### Prompt cache
+
+`/settings` picks `cache:` with the current value as 1, then the others: `auto` (the long cache
+where it costs no more, the short one elsewhere), `long` (about an hour, or a day where offered;
+writing it can cost more), `short` (a few minutes) and `off` (no cache, so every request costs
+more). It applies from the next start. See [Prompt cache](#prompt-cache-1).
+
+### Page checks
+
+After a UI change Casper opens the changed pages in its own headless browser and checks they load
+(see [VERIFICATION.md](VERIFICATION.md#page-checks)). They are on. Turn them off for every project
+with `/settings` (it writes `pages: off` in your own config). A project file can still turn them off
+for itself (`pages: off`), but its list of pages doesn't turn them back on for you, and neither does
+a profile it picks. In your own config `pages:` takes only on or off; the list of pages is the
+project's.
+
+### Send Casper's name to OpenRouter
+
+On requests to OpenRouter Casper sends only the app name and site, so OpenRouter files the use under
+Casper (kept out of its public rankings for now); nothing about your code. It is on. Turn it off with
+`/settings` (it writes `telemetry: off`) or `CASPER_TELEMETRY=0`; either one off is off. A project
+file can't change `telemetry:`. See [OpenRouter app attribution](#provider-credentials).
+
 ## Config files
 
 Casper reads these files if they exist:
@@ -145,7 +180,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`,
-`showPages`, `suggestions`, `updates`, `sideQuestions`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
+`showPages`, `suggestions`, `updates`, `sideQuestions`, `telemetry`, `pages: off`, `browser`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
@@ -278,7 +313,7 @@ Any other `sandbox` or `shell` key in a project file is named at startup and ign
 | --- | --- |
 | `CASPER_AGENT_DIR` | Folder for sign-ins, the model catalog, engine resources and conversations. Defaults to `~/.casper/agent`. Relative paths resolve from the folder you start Casper in; `~/` expands to your home folder. A folder you set here never receives the one-time import from Pi. Shell commands can't write it, as with `~/.casper`. |
 | `CASPER_OFFLINE` | Set to `1` to stop provider catalog downloads and automatic sign-in browser launches. Cached models remain available. This is **not** a network block: model calls and sign-in still use the network. |
-| `CASPER_TELEMETRY` | Set to `0` to send no OpenRouter app attribution headers (`HTTP-Referer`, `X-OpenRouter-Title`, `X-OpenRouter-Categories`, `X-OpenRouter-App-Visibility`) on model requests and key checks; the bundled engine's own attribution is turned off with it. Works like Pi's `PI_TELEMETRY`: unset keeps attribution, and when set only `1`, `true` or `yes` keep it. An inherited `PI_TELEMETRY` is ignored. |
+| `CASPER_TELEMETRY` | Set to `0` to send no OpenRouter app attribution headers (`HTTP-Referer`, `X-OpenRouter-Title`, `X-OpenRouter-Categories`, `X-OpenRouter-App-Visibility`) on model requests and key checks; the bundled engine's own attribution is turned off with it. Works like Pi's `PI_TELEMETRY`: unset keeps attribution, and when set only `1`, `true` or `yes` keep it. An inherited `PI_TELEMETRY` is ignored. `telemetry: off` in your own config (**Send Casper's name to OpenRouter** in `/settings`) does the same; either one off is off. |
 | `CASPER_OAUTH_CALLBACK_HOST` | Address the browser sign-in listens on; defaults to `127.0.0.1`. Casper refuses browser sign-in for any other value. |
 | `CASPER_TUI_WRITE_LOG` | Optional log file of raw terminal output, or an existing folder for timestamped logs. It can contain sensitive output, so `/login` is refused while it is set. |
 | `CASPER_PROFILE` | Picks the profile; see [Profiles](#profiles). |
@@ -322,8 +357,9 @@ filed under Casper's own OpenRouter app instead of the engine Casper is built on
 early-preview app out of OpenRouter's public rankings and app pages; it does not turn attribution
 off, and OpenRouter honors it only when the request creates a brand-new app. The headers are a
 fixed app name only: they add no prompt, file, workspace, user or credential data, and no other
-provider receives them. `CASPER_TELEMETRY=0` turns them off (along with the engine's own
-attribution); `PI_TELEMETRY` has no effect. OpenRouter shows the icon of the referer's site, so the
+provider receives them. `CASPER_TELEMETRY=0`, or **Send Casper's name to OpenRouter** in
+`/settings` (`telemetry: off` in your own config), turns them off along with the engine's own
+attribution; `PI_TELEMETRY` has no effect. OpenRouter shows the icon of the referer's site, so the
 referer is Casper's site (its ghost icon) rather than the GitHub page. OpenRouter keys apps by
 referer, so after this change your usage may show under a new Casper app entry.
 
@@ -425,6 +461,8 @@ repair:
 suggestions: false   # no suggested next steps anywhere
 updates: false       # no "a newer Casper is out" line at the start of a session
 sideQuestions: false # a line starting with ? is an ordinary request, not a side question
+pages: off           # no page checks after a UI change, in any project
+telemetry: off       # don't send Casper's name to OpenRouter (same as CASPER_TELEMETRY=0)
 ```
 
 A session checks for a newer Casper at most once a day, in the background (no model, no
@@ -485,7 +523,8 @@ server can still start it over. `/usage` shows how much input came from the cach
 `Cache: 97% of input read from cache this session`.
 
 `cache: long` asks every provider for the long cache (Bedrock still gets the short one), which can
-pay off on Anthropic if you often pause for more than five minutes. To change it, set it in your own
+pay off on Anthropic if you often pause for more than five minutes. `cache: off` keeps no cache, so
+every request costs more. To change it, pick **Prompt cache** in `/settings` or set it in your own
 config; a project's `.casper/project.yaml` cannot:
 
 ```yaml

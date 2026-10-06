@@ -95,8 +95,13 @@ export interface LoadedConfiguration {
   services: Record<string, ServiceSpec>;
   /** Configured smoke checks against those services (project layer only). */
   smoke: SmokeCheck[];
-  /** Pages the page check always opens, or off (project layer only). Unset: the changed pages. */
+  /** Pages the page check always opens, or off. A list is the project's; `pages: off` in your own file (or a profile
+   * you chose) turns them off for every project, and then this is off whatever the project lists. Unset: the changed pages. */
   pages?: PagesSetting;
+  /** `pages: on|off` in your own file or a profile you chose. Unset: on (a project file may still turn them off). */
+  pageChecks?: boolean;
+  /** `telemetry: off`: no OpenRouter app-name headers (user or profile only). Unset: on, unless CASPER_TELEMETRY=0. */
+  telemetry?: boolean;
   /** The user's lab devices (lab.hosts), from ~/.casper/config.yaml or the profile only; never a project file. */
   lab?: LabSettings;
   /** The profile whose own lab list replaces yours (~/.casper/profiles/<name>/config.yaml), when it has one. */
@@ -253,7 +258,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "cache", "display", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "cache", "display", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "telemetry", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -540,13 +545,12 @@ function webUserLayer(document: Mapping, label: string, into: WebSettings, warni
   }
 }
 
-/** `browser:` on or off, from your own file or a profile. */
-function browserLayer(document: Mapping, label: string): boolean | undefined {
-  const value = document.browser;
+/** A plain on/off key (`browser:`, `pages:`, `telemetry:`) from your own file or a profile. */
+function onOffLayer(value: unknown, label: string, key: string, more = ""): boolean | undefined {
   if (value === undefined || value === null) return undefined;
   if (value === false || value === "off") return false;
   if (value === true || value === "on") return true;
-  throw new Error(`${label}: browser must be on or off`);
+  throw new Error(`${label}: ${key} must be on or off${more}`);
 }
 
 /** The on/off part of `visualize:` (on, off, or visualize.enabled). Providers and outputDir are read by
@@ -664,8 +668,14 @@ export async function loadConfiguration(
   for (const [document, label] of [[globalDocument, labels.global], [profileDocument, labels.profile]] as const) {
     if (document.services !== undefined) throw new Error(`services is a project setting (.casper/project.yaml); remove it from ${label}`);
     if (document.smoke !== undefined) throw new Error(`smoke is a project setting (.casper/project.yaml); remove it from ${label}`);
-    if (document.pages !== undefined) throw new Error(`pages is a project setting (.casper/project.yaml); remove it from ${label}`);
   }
+  // Page checks are yours to turn off for every project (pages: off); the pages to open are the project's.
+  let pageChecks: boolean | undefined;
+  for (const [document, label] of [[globalDocument, labels.global], [userProfileDocument, labels.userProfile]] as const) {
+    pageChecks = onOffLayer(document.pages, label, "pages", "; a list of pages is a project setting (.casper/project.yaml)") ?? pageChecks;
+  }
+  // A profile the repository picks is held like a project file: it can't turn them back on.
+  if (pickedByProject) onOffLayer(profileDocument.pages, labels.profile, "pages", "; a list of pages is a project setting (.casper/project.yaml)");
   let maxActive = 6;
   let timeoutMs = 600_000;
   let maxAttempts = 3;
@@ -804,7 +814,8 @@ export async function loadConfiguration(
     }
   }
   if (projectDocument.lab !== undefined) throw new Error(LAB_IN_PROJECT_ERROR);
-  const pages = parsePagesSetting(projectDocument.pages, labels.project);
+  const projectPages = parsePagesSetting(projectDocument.pages, labels.project);
+  const pages = pageChecks === false ? "off" : projectPages;
   const sandboxWarnings: string[] = [];
   const sandboxUser: SandboxUserSettings = {};
   sandboxUserLayer(globalDocument, labels.global, sandboxUser, sandboxWarnings);
@@ -824,10 +835,14 @@ export async function loadConfiguration(
   readerLayer(projectDocument, labels.project, reader, sandboxWarnings, true);
   // The AI's browser and its diagram tool are yours to turn off; a repository never turns them back on.
   if (projectDocument.browser !== undefined) throw new Error("browser is a user setting (~/.casper/config.yaml); a project cannot turn the AI's browser on or off");
+  // So is sending Casper's name to OpenRouter.
+  if (projectDocument.telemetry !== undefined) throw new Error("telemetry is a user setting (~/.casper/config.yaml); a project cannot turn OpenRouter's app-name headers on or off");
   let browser: boolean | undefined;
   let diagrams: boolean | undefined;
+  let telemetry: boolean | undefined;
   for (const [document, label] of [[globalDocument, labels.global], [userProfileDocument, labels.userProfile]] as const) {
-    browser = browserLayer(document, label) ?? browser;
+    browser = onOffLayer(document.browser, label, "browser") ?? browser;
+    telemetry = onOffLayer(document.telemetry, label, "telemetry") ?? telemetry;
     diagrams = diagramLayer(document, label, sandboxWarnings, false) ?? diagrams;
   }
   if (pickedByProject) diagramLayer(profileDocument, labels.profile, sandboxWarnings, true);
@@ -860,6 +875,8 @@ export async function loadConfiguration(
     }),
     ...(browser !== undefined ? { browser } : {}),
     ...(diagrams !== undefined ? { diagrams } : {}),
+    ...(telemetry !== undefined ? { telemetry } : {}),
+    ...(pageChecks !== undefined ? { pageChecks } : {}),
     profileName: selectedProfile,
     policy: mergePolicy(
       policyLayer(globalDocument, labels.global),

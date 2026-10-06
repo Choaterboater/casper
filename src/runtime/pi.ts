@@ -6,7 +6,7 @@ import { READ_ONLY_STATE_CONFLICT } from "./types";
 import { matchConversation } from "../sessions/resume";
 import { PiModels } from "./pi-models";
 import { authenticatePi } from "./pi-auth";
-import { isOpenRouterModel, openRouterAttribution } from "./openrouter-attribution";
+import { applyOpenRouterAttribution, isOpenRouterModel } from "./openrouter-attribution";
 import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
@@ -661,9 +661,9 @@ export class PiRuntime implements AgentRuntime {
       const pathContext = { root: cwd, home: os.homedir(), agentDir, ...(options.privatePaths?.length ? { denyRead: options.privatePaths } : {}) };
       const extensionFactory = (pi: ExtensionAPI) => {
         // Runs after the runtime's own attribution, so Casper's identity replaces Pi's. With
-        // CASPER_TELEMETRY=0 there is none to add, and the runtime's is off too (agent-store.ts).
+        // CASPER_TELEMETRY=0 or telemetry: off there is none to add, and the runtime's is taken out too.
         pi.on("before_provider_headers", (event, ctx) => {
-          if (isOpenRouterModel(ctx.model)) Object.assign(event.headers, openRouterAttribution());
+          if (isOpenRouterModel(ctx.model)) applyOpenRouterAttribution(event.headers);
         });
         if (bounded) pi.on("tool_call", (event) => {
           if (bounded.signal.aborted) {

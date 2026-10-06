@@ -31,6 +31,7 @@ import type { Readable } from "node:stream";
 import { loadProjectContext, type ProjectContext } from "./project/context";
 import { inspectProject, type ProjectInfo } from "./project/inspect";
 import type { ChildProject } from "./project/child";
+import { useTelemetrySetting } from "./runtime/openrouter-attribution";
 import type { AgentRuntime, RuntimeAuthProvider, RuntimeSession, RuntimeImage, RuntimeTool, RuntimeShell } from "./runtime/types";
 import { SkillRegistry, skillRegistryOptions } from "./skills/registry";
 import type { TaskResult, TaskUsage } from "./task/result";
@@ -405,6 +406,9 @@ export class CasperApp {
     },
     });
     this.lifecycle.add({ name: "subagents", close: () => this.subagents.close() });
+    // telemetry: off in your config (/settings) stops Casper's name going to OpenRouter, from the next request.
+    const stopTelemetry = useTelemetrySetting(() => this.projectContext?.telemetry);
+    this.lifecycle.add({ name: "telemetry", close: async () => stopTelemetry() });
     this.inspectProjectFn = options.inspectProject ?? inspectProject;
     this.loadProjectContextFn = options.loadProjectContext ?? loadProjectContext;
     this.loadSkillRegistryFn = options.loadSkillRegistry ?? ((context) => SkillRegistry.discover(skillRegistryOptions(context)));

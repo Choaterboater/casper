@@ -47,10 +47,11 @@ test("the settings list shows each switch and where it stands", async () => {
   await writeFile(config, "web: off\nupdates: false\nspend:\n  pauseAt: 5\n");
   const context = await loadProjectContext(await inspectProject(project), { homeDir: home });
   expect(settingRows(context).map((row) => `${row.label}: ${row.value}`)).toEqual([
-    "Web lookups: off", "Browser tool: on", "Diagram tool: on", "New-version notice: off", "Side questions with ?: on", "Built-in skills: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task", "Show the AI the pages: ask once a session",
-    "Work shown: normal", "Untrusted-text reader: on", "Helpers that build: on", "Playwright tests: on",
+    "Web lookups: off", "Browser tool: on", "Diagram tool: on", "New-version notice: off", "Suggestions: on", "Side questions with ?: on", "Built-in skills: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task",
+    "Prompt cache: auto", "Page checks: on", "Show the AI the pages: ask once a session",
+    "Work shown: normal", "Untrusted-text reader: on", "Helpers that build: on", "Playwright tests: on", "Send Casper's name to OpenRouter: on",
   ]);
-  expect(settingRows(context).at(-1)!.question).toBe("Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are on.");
+  expect(settingRows(context).find((row) => row.label === "Playwright tests")!.question).toBe("Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are on.");
   const question = (label: string, rows = settingRows(context)) => rows.find((row) => row.label === label)!.question;
   expect(question("Spend notes")).toStartWith("Spend notes come at $1 a task. ");
   expect(question("Spend pause")).toStartWith("Spend pause comes at $5 a task. ");

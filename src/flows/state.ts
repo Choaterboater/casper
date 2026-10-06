@@ -134,6 +134,11 @@ export class SuggestionState {
     return Boolean(this.options.configOff) || this.user.off;
   }
 
+  /** `suggestions: false` in the user's config, read again after /settings changes it. */
+  useConfig(off: boolean): void {
+    this.options.configOff = off;
+  }
+
   /** Off because of `suggestions: false` in the user's config; /suggestions on cannot change that. */
   get offByConfig(): boolean {
     return Boolean(this.options.configOff);
