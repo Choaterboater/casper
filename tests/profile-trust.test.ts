@@ -49,3 +49,20 @@ test("the profile you pick yourself still sets everything, and its sandbox: off 
   expect(config.warnings.join("\n")).not.toContain("picked profile");
   expect(ShellSandbox.detect({ settings: config.sandbox })).toEqual({ kind: "off", reason: "sandbox: off in profile lab config.yaml" });
 });
+
+test("a profile a repository picks can't turn the reader off; it can only add untrusted paths", async () => {
+  await write(path.join(home(), ".casper/config.yaml"), "profile: work\n");
+  await write(path.join(home(), ".casper/profiles/work/config.yaml"), "reader:\n  untrusted: [mail]\n");
+  await write(path.join(home(), ".casper/profiles/lab/config.yaml"), "reader:\n  enabled: false\n  untrusted: [logs]\n");
+  await write(path.join(repo(), ".casper/project.yaml"), "profile: lab\n");
+  const config = await loadConfiguration({ homeDir: home(), projectRoot: repo() });
+  expect({ enabled: config.reader.enabled, untrusted: config.reader.untrusted }).toEqual({ enabled: true, untrusted: ["mail", "logs"] });
+  expect(config.warnings.join("\n")).toContain("profile lab config.yaml: reader.enabled is your own setting");
+});
+
+test("the profile you pick yourself can still turn the reader off", async () => {
+  await write(path.join(home(), ".casper/config.yaml"), "profile: lab\n");
+  await write(path.join(home(), ".casper/profiles/lab/config.yaml"), "reader: off\n");
+  const config = await loadConfiguration({ homeDir: home(), projectRoot: repo() });
+  expect(config.reader.enabled).toBe(false);
+});

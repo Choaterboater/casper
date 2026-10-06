@@ -766,7 +766,9 @@ export async function loadConfiguration(
   if (web.provider === "searxng" && !web.searxngUrl) throw new Error(`${labels.global}: web.provider searxng needs web.searxngUrl (your SearXNG address)`);
   const reader: ReaderSettings = { ...DEFAULT_READER, untrusted: [] };
   readerLayer(globalDocument, labels.global, reader, sandboxWarnings, false);
-  readerLayer(profileDocument, labels.profile, reader, sandboxWarnings, false);
+  readerLayer(userProfileDocument, labels.userProfile, reader, sandboxWarnings, false);
+  // A profile the repository picked is held like a project file: it can add untrusted paths, not turn the reader off.
+  if (pickedByProject) readerLayer(profileDocument, labels.profile, reader, sandboxWarnings, true);
   readerLayer(projectDocument, labels.project, reader, sandboxWarnings, true);
   const lab = mergeLabSettings(parseLabSettings(globalDocument.lab, "user", `${labels.global}: lab`), parseLabSettings(userProfileDocument.lab, "profile", `${labels.userProfile}: lab`));
   return {

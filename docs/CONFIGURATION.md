@@ -46,8 +46,8 @@ searxngUrl: <address> }`) are the other choices. A project file can't change `we
 with no tools; the AI gets back only JSON in the shape it asked for, never the text. It is on, and
 costs nothing until the AI calls it (then one small request on your `fast` model, or the session's
 model when none is set). Turn it off with `/settings` (it writes `reader: off`). `reader: { untrusted:
-["logs/**"] }` names paths the AI should read only this way; a project file may add paths there but
-can't turn the reader on or off. See [READER.md](READER.md).
+["logs/**"] }` names paths the AI should read only this way; a project file (or a profile it picks) may add
+paths there but can't turn the reader on or off. See [READER.md](READER.md).
 
 ## Config files
 
