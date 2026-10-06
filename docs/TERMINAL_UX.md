@@ -364,7 +364,10 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   request. With no picture on the clipboard, its text is pasted like any paste, with
   terminal control codes taken out. A dropped file's
   path stays on a line under the request, so the AI can still copy it. A bare name like
-  `logo.png` stays a word. When the model can't see pictures, one question:
+  `logo.png` stays a word. On Windows, a path on another computer's share (`\\nas\shots\pic.png`)
+  asks first, `Attach this picture?` with `1 No · 2 Yes, this once`, once per computer: opening it
+  sends your Windows login (a hash of it) there. A no leaves the path as words.
+  When the model can't see pictures, one question:
   `1 Send without it · 2 Switch to <a model you set up that can> for this request` (the switch is
   for the build turn only, then back to your model; a plan turn stays on your model). With no such model, or in a one-shot run, one line says the request went
   without them.

@@ -42,6 +42,19 @@ export interface AttachOptions {
   platform?: NodeJS.Platform;
   /** Where a typed path is on disk (tests stand in for a Windows disk). */
   resolve?: (typed: string) => string;
+  /**
+   * Windows: asked once per computer before a picture on a network share (\\host\share\pic.png) is opened, since
+   * opening it sends your Windows login (a hash of it) to that computer. Without it, such a picture is not opened.
+   */
+  confirmShare?: (file: string, host: string) => Promise<boolean>;
+}
+
+/** The computer a Windows network path (\\host\share, //host/share, \\?\UNC\host) names; undefined for a local path. */
+export function shareHost(file: string): string | undefined {
+  const long = /^[\\/]{2}[?.][\\/]UNC[\\/]([^\\/]+)/i.exec(file);
+  if (long) return long[1];
+  const plain = /^[\\/]{2}([^\\/?.][^\\/]*|\.[^\\/]+)/.exec(file);
+  return plain?.[1];
 }
 
 export interface Attached {
@@ -64,6 +77,7 @@ export async function attachImages(text: string, options: AttachOptions): Promis
   const notes: string[] = [];
   const files: string[] = [];
   let limited = false;
+  const shares = new Map<string, boolean>();
   let out = "";
   let last = 0;
   for (const match of text.matchAll(pathPattern(platform))) {
@@ -72,6 +86,14 @@ export async function attachImages(text: string, options: AttachOptions): Promis
     const plain = !quoted && platform !== "win32" ? typed.replace(/\\(.)/g, "$1") : typed;
     const expanded = /^~[\\/]/.test(plain) ? path.join(home, plain.slice(2)) : plain;
     const file = options.resolve ? options.resolve(expanded) : path.resolve(options.cwd, expanded);
+    // Only on Windows does a path like this reach another computer; a no leaves it as words in the request.
+    const host = platform === "win32" ? shareHost(expanded) ?? shareHost(file) : undefined;
+    if (host !== undefined) {
+      if (numbered.size >= MAX_IMAGES) { limited = true; continue; }
+      const key = host.toLowerCase();
+      if (!shares.has(key)) shares.set(key, await options.confirmShare?.(expanded, host).catch(() => false) ?? false);
+      if (!shares.get(key)) { notes.push(`${expanded} is on another computer (${host}); not opened, so not attached`); continue; }
+    }
     const image = await readImage(file, notes);
     if (!image) continue;
     if (numbered.size >= MAX_IMAGES) { limited = true; continue; }

@@ -46,6 +46,7 @@ import { updateFooter, nameConversation, phase, clearSteps } from "./footer";
 import { prepareCapabilities, serviceManager, stopDebugger, planPages, pageNotesFor, pagePaths } from "./task-tools";
 import { ensureModel, retryModelFailure, bigModelReceipt, bigModelNotice, imagesForModel, switchForPictures, restoreModel } from "./big-model";
 import { attachImages } from "./images";
+import { confirmYes } from "./approvals";
 import { lookPrompt, pageLook, SHOW_PAGES_CHOICES, SHOW_PAGES_QUESTION } from "../services/page-look";
 import { offerNewProject, childProjectOfTask, runChildChecks, offerWorkFolder } from "./workspace";
 import { runVerification, writeCheckResult, taskNetworkOptions, checksPlan, saveFoundCheck, projectAfterSetup } from "./verification";
@@ -56,7 +57,10 @@ import { reloadProject, writeProjectFile } from "./project-file";
 export async function runModelTask(app: CasperApp, prompt: string, options: { flow?: Flow; planFirst?: boolean } = {}): Promise<VerificationReport | undefined> {
   if (app.closing) return;
   // Pictures with the request: pasted ones and dropped image files are [image N] from here on (app/images.ts).
-  const attached = await attachImages(prompt, { cwd: app.activeWorkspaceRoot(), pasted: app.pastedImages });
+  const attached = await attachImages(prompt, { cwd: app.activeWorkspaceRoot(), pasted: app.pastedImages,
+    // Windows: a picture on another computer's share is opened only on a yes (opening it sends your login's hash there).
+    confirmShare: (file, host) => confirmYes(app, `${terminalText(file)} is on another computer, ${terminalText(host)}.\nOpening it sends your Windows login (a hash of it) to that computer.\n`,
+      "Attach this picture?", app.commandAbort?.signal) });
   app.pastedImages = undefined;
   for (const note of attached.notes) app.output.write(`[image] ${terminalText(note)}\n`);
   prompt = attached.text;
