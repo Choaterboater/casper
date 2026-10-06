@@ -65,6 +65,15 @@ test("LSP local commands stay lazy; a one-shot rename is a normal edit; disconne
   expect(await readFile(path.join(project, "a.ts"), "utf8")).toBe("new();");
   await writeFile(path.join(project, "a.ts"), "BROKEN");
   expect(await runtime.options!.afterFileEdit!("a.ts")).toContain("fixture error");
+  // A diagnostic that quotes a secret (TypeScript puts literal types in its messages) is scrubbed like any tool output.
+  const value = "sk-fixture-0123456789abcdef0123";
+  process.env.CASPER_FIXTURE_API_TOKEN = value;
+  try {
+    await writeFile(path.join(project, "a.ts"), `BROKEN ECHO Type '"${value}"' is not assignable`);
+    const text = await runtime.options!.afterFileEdit!("a.ts");
+    expect(text).toContain("<secret hidden>");
+    expect(text).not.toContain(value);
+  } finally { delete process.env.CASPER_FIXTURE_API_TOKEN; }
   await app.runOnce("/lsp disconnect fixture");
   await app.runOnce("Read project");
   expect(runtime.tools.some((tool) => tool.name === "lsp")).toBe(false);

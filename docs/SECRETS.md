@@ -38,7 +38,9 @@ through. Check what a tool returns before you share it.
 
   `next_cursor`, `cursor`, `list_key`, `key`, `public_key`, paging tokens
   (`next_token`, `page_token`) and anything under `_pagination` are left alone, so
-  paging keeps working. The result says `secretsHidden: N`.
+  paging keeps working. Exact copies of Casper's own secrets (your secret environment
+  values, the keys in its login file and your saved network logins) are hidden in every
+  server's results too. The result says `secretsHidden: N`.
 - **Files you or the AI read: config files for device secrets.** A `read` is
   scrubbed for `.cfg`, `.conf` and `.set` files, and for files under a folder named
   `configs`, `backups` or `oxidized`. Source code and data files (`.ts`, `.py`,
@@ -55,8 +57,9 @@ through. Check what a tool returns before you share it.
   Names and other settings (`MIST_HOST=api.mist.com`) stay, so the AI still knows what
   the file holds.
 - **Secret-named values in any output: always (from v0.2.16).** In what `read`,
-  `grep`, `bash`, `powershell` and the `service` tool (dev server logs and replies)
-  return, a value after a secret-looking name (`password=hunter2`,
+  `grep`, `bash`, `powershell`, the `service` tool (dev server logs and replies), the
+  `browser` tool (page text and diagnostics) and the `lsp` tool (and the diagnostics
+  added after an edit) return, a value after a secret-looking name (`password=hunter2`,
   `"client_secret": "..."`, `api_key: ...`, `SLACK_WEBHOOK_URL=...`,
   `SENTRY_DSN=...`, `Authorization: Bearer ...`, in any case: `authorization: bearer ...`,
   git's `extraheader = AUTHORIZATION: basic ...`) is hidden when it looks like a real
@@ -82,7 +85,9 @@ through. Check what a tool returns before you share it.
   values of Casper's secret-named environment variables (`OPENROUTER_API_KEY`,
   `MIST_API_TOKEN`, `CENTRAL_CLIENT_SECRET`, `SLACK_WEBHOOK_URL`, `SENTRY_DSN` ...;
   8 characters or longer, not paths, and not plain web addresses except webhook and DSN ones)
-  are hidden wherever they turn up, so `printenv` shows the AI `<secret hidden>`. The
+  are hidden wherever an exact copy turns up (tool output, MCP results, reference
+  excerpts), so `printenv` shows the AI `<secret hidden>`. An encoded, split or reversed
+  copy (`printenv X | base64`) is not recognised: this is a text check, not a wall. The
   keys and sign-in tokens in Casper's login file (`~/.casper/agent/auth.json`) are
   hidden the same way, so `cat` of that file in the AI's shell shows none of them.
 - **Network logins: always.** The Mist, Central and ClearPass logins you add for
@@ -90,7 +95,8 @@ through. Check what a tool returns before you share it.
   (mode 0600; the AI's tools and shell can't open it). Casper adds them to that
   server's environment when it starts, never to `mcp.json`. The tokens, the Central
   client ID and the Central secret are hidden wherever they turn up: in tool output,
-  in the AI's shell output and in what the server prints on its error output. The
+  in the AI's shell output, in any MCP server's results, in check replies and reference
+  excerpts, and in what the server prints on its error output. The
   addresses (Mist cloud, Central region, ClearPass address) are not secrets and stay.
 - **Command and grep output: only when it looks like a config.** Output from
   `bash`, `powershell` or `grep` (failed commands too) is scrubbed when it has two
@@ -106,7 +112,8 @@ through. Check what a tool returns before you share it.
   opens key or `.env` files or files gitleaks flagged (see
   [SECURITY_CHECKS.md](SECURITY_CHECKS.md#the-ai-review)).
 - **Reference search excerpts** (`/references search`, `search_references`) are
-  scrubbed with Casper's own rules (not netconan). A line that only matches inside
+  scrubbed with Casper's own rules (not netconan): the device rules and the always-on
+  rules above. A line that only matches inside
   a hidden secret is not returned. See [REFERENCES.md](REFERENCES.md).
 
 The note `N secrets hidden before the AI saw this (...)` is added to the result the
@@ -137,6 +144,7 @@ The AI never saw the real value, so it must not write the marker over it. Casper
 refuses any of these that still contain `<secret hidden>` (or
 `<line hidden: secret>`, see netconan below):
 
+- An lsp rename whose new name contains it is refused like an `edit`.
 - An MCP call whose arguments contain it is refused before you are asked:
   `Not executed (this change still has <secret hidden> in it). Casper hid that
   secret from the AI, so the AI can't send it back. Type the real value yourself or
@@ -145,7 +153,7 @@ refuses any of these that still contain `<secret hidden>` (or
   text has <secret hidden> in it. That would replace a real secret in the file.
   Keep the original line.` (The old text an edit looks for may contain it; only new
   text counts.)
-- A `bash` or `powershell` command that contains it is refused: `Not run: the
+- A `bash` or `powershell` command, or the `service` tool's own start command, that contains it is refused: `Not run: the
   command has <secret hidden> in it. It could write the marker over a real secret.
   Keep the original line, or ask the user to make this change.`
 

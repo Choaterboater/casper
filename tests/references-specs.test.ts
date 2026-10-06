@@ -242,3 +242,24 @@ test("/references add tips point at Casper's own network server; no name lists t
   await runReferenceAdd(undefined, undefined, home, list.value);
   expect(list.lines).toEqual([catalogListText()]);
 });
+
+test("excerpts hide secret-named values, URL passwords, Bearer tokens and Casper's own secret values too", async () => {
+  const { home, repo, config } = await fixture();
+  const own = "sk-fixture-ABCDEFGHIJ0123456789";
+  await writeFile(path.join(repo, "models/setup.md"), [
+    "setup MIST_APITOKEN=abc123def456", "setup DATABASE_URL=postgres://app:Hunter2x@db/app",
+    "setup Authorization: Bearer eyJhbGciOiJIUzI1NiJ9abcdef", `setup the key is ${own}`, "",
+  ].join("\n"));
+  await writeFile(path.join(repo, "models/secrets.yaml"), "setup_password: Plain-Value-1\n");
+  await writeFile(config, `references:\n  specs:\n    path: ${repo}\n    paths: [models]\n`);
+  const discovered = await discoverReferenceConfiguration({ homeDir: home });
+  const search = new ReferenceLibrary(discovered, { secretValues: () => [own] });
+  cleanup.push(() => search.close());
+  const result = await search.search({ query: "setup" });
+  const text = JSON.stringify(result.matches);
+  for (const value of ["abc123def456", "Hunter2x", "eyJhbGciOiJIUzI1NiJ9abcdef", own, "Plain-Value-1"]) expect(text).not.toContain(value);
+  expect(result.matches).toHaveLength(5);
+  expect(result.secretsHidden).toBe(5);
+  // A match only inside a hidden value is not returned.
+  expect((await search.search({ query: "Hunter2x" })).matches).toEqual([]);
+});

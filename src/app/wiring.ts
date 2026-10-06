@@ -24,7 +24,7 @@ import { SandboxStore } from "../sandbox/store";
 import { loginMissingAnswer } from "../mcp/network/ask-login";
 import { loginFile } from "../mcp/network/logins";
 import { confirmCapability, confirmKind, answerServerQuestion } from "./approvals";
-import { networkLoginHost } from "./network-host";
+import { networkLoginHost, ownSecretValues } from "./network-host";
 import { updateFooter } from "./footer";
 import { checksPlan } from "./verification";
 import { mcpServerSandbox } from "../mcp/sandbox";
@@ -52,7 +52,7 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
     app.loadReferenceConfigurationFn(context),
   ]);
   if (app.closing) throw new Error("Casper is closing");
-  app.references = new ReferenceLibrary(referenceConfiguration);
+  app.references = new ReferenceLibrary(referenceConfiguration, { secretValues: () => ownSecretValues(app) });
   app.projectContext = context;
   trustProjectFile(app, context);
   // The shell sandbox for this session: the AI's bash, checks, services, dev servers and Casper's tool runs.
@@ -86,6 +86,7 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   app.visualization = new VisualizationRouter({ providers: app.visualizationProviders, settings: context.visualize, workspaceRoot: context.info.root });
   // Every server starts with writes off; only the user turns them on (/mcp writes <name>).
   app.broker = new CapabilityBroker(app.mcp, (call, signal) => confirmCapability(app, call, signal), { writesGate: true, scrubber: app.scrubber,
+    secretValues: () => ownSecretValues(app),
     onSessionCovered: (server, tool) => { if (!app.closing) app.output.write(`[approval] allowed (this session): ${terminalText(server)} · ${terminalText(tool)}\n`); },
     // An MCP change is treated like a shell command: it may change the project's files (or a service's), so later
     // checks are not "before the change", services restart, and the tree is compared to tell.
@@ -127,7 +128,7 @@ export async function reloadReferences(app: CasperApp): Promise<void> {
   const configuration = await app.loadReferenceConfigurationFn(app.projectContext);
   if (app.closing) return;
   const old = app.references;
-  app.references = new ReferenceLibrary(configuration);
+  app.references = new ReferenceLibrary(configuration, { secretValues: () => ownSecretValues(app) });
   await old?.close();
 }
 

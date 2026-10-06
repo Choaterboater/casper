@@ -79,7 +79,7 @@ import { ensureSessionWorkspace, handleBranchCommand, handleSwitchCommand } from
 import { runVerification, checksPlan, saveFoundCheck } from "./app/verification";
 import { runInteractive, handlePrompt, handleSlashCommand, cancelCurrent, writePrompt } from "./app/command-loop";
 import { loadWorkspace, reloadReferences, projectPrivatePaths, reportSkillWarnings, bannerChecks, reportNewerCasper } from "./app/wiring";
-import { acquireRuntime, ensureRuntime, checkSignIn } from "./app/runtime-start";
+import { acquireRuntime, ensureRuntime, checkSignIn, observeEdit } from "./app/runtime-start";
 
 export type { OutputWriter } from "./app/commands";
 
@@ -696,8 +696,12 @@ export class CasperApp {
    * of the current task. */
   delegateToolForTask?: RuntimeTool;
 
-  /** A rename is a normal edit inside the project: no box, like the AI's other edits (undo covers it). */
-  confirmRename: ConfirmRename = async () => true;
+  /** A rename is a normal edit inside the project: no box, like the AI's other edits (undo covers it). It is noted
+   * like one, so dev servers, checks and the receipt see it. */
+  confirmRename: ConfirmRename = async (preview) => {
+    for (const file of preview.files) observeEdit(this, path.resolve(this.activeWorkspaceRoot(), file.path));
+    return true;
+  };
 
   /** Approvals and server questions are shown one at a time, so two boxes never race for one answer. */
   approvalQueue: Promise<unknown> = Promise.resolve();

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ProjectModel } from "../src/project/model";
@@ -7,6 +7,7 @@ import type { VerificationResult } from "../src/verify/evidence";
 import { VerifierRegistry } from "../src/verify/registry";
 import { verifyAndRepair } from "../src/verify/repair-loop";
 import { VerificationTask } from "../src/verify/task";
+import { checkResultForModel, evidenceForModel } from "../src/verify/model-output";
 
 // A product token the repo's checks may see (provider keys are removed; tokens like this one stay).
 const TOKEN = "mist-token-5b2f9c41d7e8";
@@ -68,4 +69,18 @@ test("a repair prompt hides secrets in a built-in check's output and in smoke re
   expect(smokePrompts).toHaveLength(1);
   expect(smokePrompts[0]).toContain("rejected");
   expect(smokePrompts[0]).not.toContain(TOKEN);
+});
+
+test("check replies and repair evidence hide the saved network logins too", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-check-logins-"));
+  dirs.push(home);
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await writeFile(path.join(home, ".casper/network-logins.json"), JSON.stringify({ mist: { MIST_API_TOKEN: "mist-saved-0123456789" }, central: { CENTRAL_CLIENT_ID: "central-id-abcdef", CENTRAL_CLIENT_SECRET: "central-secret-123456" } }));
+  const text = "token mist-saved-0123456789 id central-id-abcdef secret central-secret-123456";
+  const result = checkResultForModel({ name: "test", status: "fail", stdout: text, stderr: "", exitCode: 1 } as unknown as VerificationResult, {}, home);
+  const evidence = JSON.stringify(evidenceForModel({ body: text }, {}, home));
+  for (const value of ["mist-saved-0123456789", "central-id-abcdef", "central-secret-123456"]) {
+    expect(result.stdout).not.toContain(value);
+    expect(evidence).not.toContain(value);
+  }
 });

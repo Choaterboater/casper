@@ -562,8 +562,8 @@ export const PI_TOOL_RULES: readonly string[] = [
 /** A bash timeout above this is capped: one hour, the longest a Casper check may run, so the cap never
  * cuts short a command a check itself would allow, while a day-long timeout cannot hang a session. */
 export const BASH_TIMEOUT_CAP_SECONDS = 3600;
-/** Native tools whose output may hold a device config (see scrubToolOutput). */
-const SCRUBBED_TOOLS = new Set(["read", "bash", "powershell", "grep", "service"]);
+/** Tools whose output may hold a secret (see scrubToolOutput): native reads and shells, dev servers, pages, language servers. */
+export const SCRUBBED_TOOLS: ReadonlySet<string> = new Set(["read", "bash", "powershell", "grep", "service", "browser", "lsp"]);
 export const SCRUB_FAILED_TEXT = "Output not shown: Casper could not check it for device secrets. Try a smaller read or another command.";
 
 export class PiRuntime implements AgentRuntime {

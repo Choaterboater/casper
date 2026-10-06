@@ -21,7 +21,10 @@ function hasMarker(value: unknown, depth = 0): boolean {
  */
 export function hiddenSecretGate(toolName: string, input: Record<string, unknown> | undefined): string | undefined {
   if (!input) return undefined;
-  if (toolName === "bash" || toolName === "powershell") return hasMarker(input.command) ? NOT_RUN_REASON : undefined;
+  // The service tool's ad-hoc start command is a shell command too.
+  if (toolName === "bash" || toolName === "powershell" || toolName === "service") return hasMarker(input.command) ? NOT_RUN_REASON : undefined;
   if (toolName === "edit" || toolName === "write") return hasMarker(input) ? NOT_WRITTEN_REASON : undefined;
+  // An lsp rename writes its new name into files.
+  if (toolName === "lsp" && input.operation === "rename") return hasMarker(input.newName) ? NOT_WRITTEN_REASON : undefined;
   return undefined;
 }

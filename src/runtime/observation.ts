@@ -21,6 +21,12 @@ export function nativeEditPath(input: string): string | undefined {
 }
 export interface ToolObservationOutput { text: string; truncated: boolean }
 
+/** The AI's native tools that change files, as the ask-before-changes gate names them: edit, write and an lsp rename. */
+export function fileChangeTool(toolName: string, input: Record<string, unknown> | undefined): string | undefined {
+  if (toolName === "edit" || toolName === "write") return toolName;
+  return toolName === "lsp" && input?.operation === "rename" ? "lsp rename" : undefined;
+}
+
 /** Only identity fields, never edit bodies, credentials or arbitrary tool arguments. */
 export function observationInput(value: unknown): ToolObservationInput {
   if (typeof value !== "object" || value === null) return {};

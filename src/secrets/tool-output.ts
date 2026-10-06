@@ -45,9 +45,12 @@ export async function scrubToolOutput(scrubber: Pick<Scrubber, "scrubText">, too
     keyFile = isKeyFile(input.path);
     pgpass = isPgpassFile(input.path);
     device = configs && (shouldScrubRead(input.path) || (isSavedCommandOutput(input.path) && shouldScrubCommandOutput(texts.join("\n"))));
-  } else if (["bash", "powershell", "grep", "service"].includes(toolName)) {
-    // service: a dev server's logs, crash tails and HTTP replies are command output too.
+  } else if (["bash", "powershell", "grep", "service", "browser"].includes(toolName)) {
+    // service: a dev server's logs, crash tails and HTTP replies are command output too; browser: a page's text.
     device = configs && shouldScrubCommandOutput(texts.join("\n"));
+  } else if (toolName === "lsp") {
+    // A language server's messages quote source (TypeScript puts literal types in them): the always-on pass only.
+    device = false;
   } else return undefined;
   let hidden = 0;
   let failed = false;
@@ -66,8 +69,8 @@ export async function scrubToolOutput(scrubber: Pick<Scrubber, "scrubText">, too
       next = result.text;
     }
     const plainOptions = { secretFile, keyFile, pgpass, values, ...(options.env ? { env: options.env } : {}) };
-    // The service tool answers in JSON: check each string as it reads, not with its \n escapes.
-    const plain = toolName === "service" ? scrubJsonStrings(next, (value) => scrubPlainSecrets(value, plainOptions)) : scrubPlainSecrets(next, plainOptions);
+    // The service, browser and lsp tools answer in JSON: check each string as it reads, not with its \n escapes.
+    const plain = ["service", "browser", "lsp"].includes(toolName) ? scrubJsonStrings(next, (value) => scrubPlainSecrets(value, plainOptions)) : scrubPlainSecrets(next, plainOptions);
     hidden += plain.hidden;
     for (const kind of plain.kinds) kinds.add(kind);
     out.push(plain.text);
