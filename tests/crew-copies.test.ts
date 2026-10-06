@@ -92,3 +92,13 @@ test("a crew's work applies onto your folder next to your own changes, and never
   await expect(manager.applyCrew(second, await manager.capturePatch(second))).rejects.toThrow(/commit/i);
   await expect(readFile(path.join(repo, "c.txt"), "utf8")).rejects.toThrow();
 });
+
+test("a commit in a kept copy (the sandbox off) leaves its start where it was, so its work is all in the patch", async () => {
+  const { repo, manager } = await repository();
+  const copy = await manager.create(await manager.planCrew("abc123", 1, repo));
+  await writeFile(path.join(copy.path, "a.txt"), "crew\n");
+  await git(copy.path, "commit", "-am", "builder");
+  const [found] = await manager.crewCopies();
+  expect(found!.baseCommit).toBe(copy.baseCommit);
+  expect(new TextDecoder().decode((await manager.capturePatch(found!)).patch)).toContain("+crew");
+});

@@ -224,8 +224,9 @@ export class GitWorktreeManager {
     for (const entry of entries) {
       if (!entry.branch || !isCrewBranch(`${entry.branch}`)) continue;
       if (entry.path !== path.join(this.managedRoot, slug(entry.branch.slice("casper/".length)))) continue;
-      // A builder never commits: the branch's commit is where the copy started.
-      const base = (await git(this.primaryWorkspace, ["rev-parse", `refs/heads/${entry.branch}`]).catch(() => "")).trim();
+      // Where the copy started: where its branch meets your HEAD. A builder can't commit in the sandbox, but with
+      // it off one could, and its commits must stay in the patch.
+      const base = (await git(this.primaryWorkspace, ["merge-base", "HEAD", `refs/heads/${entry.branch}`]).catch(() => "")).trim();
       if (!/^[0-9a-f]{40,64}$/i.test(base)) continue;
       copies.push({ kind: "git-worktree", mainWorkspace: this.primaryWorkspace, path: entry.path, branch: entry.branch, baseCommit: base });
     }

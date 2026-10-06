@@ -61,10 +61,16 @@ shows up in `/crew`.
 - Its edits stay in the copy: an edit or write anywhere else is refused.
 - Files you made private (`sandbox.denyRead`) stay private in the copy too.
 - Its commands run in the same shell sandbox as yours, with the copy as the
-  project. A write outside the copy, a host you have not allowed for this
-  project, or a command that would need your OK is not run. The builder reads
-  why and goes on; the crew's report lists it under "Not run (it needed your
-  OK)". This matches background helpers in other tools: nothing waits on you.
+  project. A write outside the copy, a host you have not allowed, or a command
+  that would need your OK is not run. The builder reads why and goes on; the
+  crew's report lists it under "Not run (it needed your OK)". This matches
+  background helpers in other tools: nothing waits on you.
+- It can't move your branches or make commits: Git's folder it shares with
+  your folder is read-only to it.
+- The sandbox has one network gate for the whole session, and it can't tell
+  whose command reaches out. So while a builder's command runs, a host nobody
+  allowed is refused for your own commands too, not asked; Casper says so in
+  one line. Ask again once the crew is done.
 - Where no sandbox can run (Windows, `--no-sandbox` or `sandbox: off`), the
   rules are the main session's: on Windows the builder's commands need your OK,
   so they are not run; with the sandbox off they run with your permissions.
