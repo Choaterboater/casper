@@ -1,10 +1,13 @@
 import { type Component, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { ProjectContext } from "../project/context";
 import { CASPER_VERSION } from "../version";
-import { paint } from "./format";
+import { lineText, paint } from "./format";
+
+/** A value from the project's files, on one line: a line break in it can't add a line of its own. */
+const one = (text: string): string => lineText(text).replace(/\s+/g, " ").trim();
 
 function displayList(values: string[]): string {
-  return values.length ? values.join(" · ") : "(not detected)";
+  return values.length ? values.map(one).join(" · ") : "(not detected)";
 }
 
 /** Casper the ghost: half-block pixel art, eyes are the two blank cells, scalloped hem. Bold in the terminal's own
@@ -42,13 +45,13 @@ export function wordmarkHeader(color: boolean): Component {
 export function renderProjectSummary(context: ProjectContext): string {
   const { info, model } = context;
   return [
-    ` project   ${model.project.name}`,
+    ` project   ${one(model.project.name)}`,
     ` stack     ${displayList([...model.languages, ...model.frameworks])}`,
-    ` package   ${model.packageManager ?? "(not detected)"}`,
-    ` build     ${model.commands.build ?? "(not detected)"}`,
-    ` test      ${model.commands.test ?? "(not detected)"}`,
+    ` package   ${model.packageManager ? one(model.packageManager) : "(not detected)"}`,
+    ` build     ${model.commands.build ? one(model.commands.build) : "(not detected)"}`,
+    ` test      ${model.commands.test ? one(model.commands.test) : "(not detected)"}`,
     ` profile   ${context.profileName}`,
-    ` branch    ${info.gitBranch ?? "(no git branch)"}`,
+    ` branch    ${info.gitBranch ? one(info.gitBranch) : "(no git branch)"}`,
   ].join("\n");
 }
 
@@ -57,7 +60,7 @@ export function renderProjectSummary(context: ProjectContext): string {
 export function renderBanner(context: ProjectContext, options: { wordmark?: boolean; interactive?: boolean; checks?: string; shell?: string } = {}): string {
   return [
     ...(options.wordmark ? [] : [TEXT_HEADER]),
-    ` project   ${context.model.project.name} · branch ${context.info.gitBranch ?? "(no git branch)"} · profile ${context.profileName}`,
+    ` project   ${one(context.model.project.name)} · branch ${context.info.gitBranch ? one(context.info.gitBranch) : "(no git branch)"} · profile ${context.profileName}`,
     ...(options.checks ? [` checks    ${options.checks}`] : []),
     ...(options.shell ? [` shell     ${options.shell}`] : []),
     ...(options.interactive ? [" /help · /status · /login · /model"] : []),
