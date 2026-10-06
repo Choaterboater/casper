@@ -27,6 +27,8 @@ export interface LoginField {
   secret: boolean;
   /** Picked by number instead of typed. */
   choices?: { label: string; value: string }[];
+  /** The last choice, "Other — type the address": then this is asked as a typed address. */
+  other?: string;
 }
 
 /** The Mist clouds, in the order of the `servers` list of the Mist spec the server bundles. */
@@ -44,7 +46,7 @@ const CENTRAL_REGIONS: [string, string][] = [
 export const LOGIN_FIELDS: Record<NetworkProduct, LoginField[]> = {
   mist: [
     { key: "host", env: "MIST_HOST", label: "Mist cloud", secret: false,
-      choices: MIST_CLOUDS.map(([name, host]) => ({ label: `${name} (${host})`, value: `https://${host}` })) },
+      choices: MIST_CLOUDS.map(([name, host]) => ({ label: `${name} (${host})`, value: `https://${host}` })), other: "Mist API address (https://…)" },
     { key: "token", env: "MIST_API_TOKEN", label: "Mist API token", secret: true },
   ],
   central: [
@@ -52,7 +54,7 @@ export const LOGIN_FIELDS: Record<NetworkProduct, LoginField[]> = {
       choices: [
         ...CENTRAL_REGIONS.map(([name, code]) => ({ label: `${name} (${code}.api.central.arubanetworks.com)`, value: `https://${code}.api.central.arubanetworks.com` })),
         { label: "China 1 (cn1.api.central.arubanetworks.com.cn)", value: "https://cn1.api.central.arubanetworks.com.cn" },
-      ] },
+      ], other: "Central API address (https://…)" },
     { key: "client_id", env: "CENTRAL_CLIENT_ID", label: "Central API client ID", secret: false },
     { key: "client_secret", env: "CENTRAL_CLIENT_SECRET", label: "Central API client secret", secret: true },
   ],
