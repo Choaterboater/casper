@@ -197,7 +197,7 @@ freshness, reuse, and the "not independently certified" note described in
 
 **Already broken before the change.** Before the first repair, Casper runs each failing check on
 the files from before the change (the copy it keeps for the proof). If the check failed there
-too, it was already broken: Casper says so, and an interactive terminal asks
+too as a test failure (not a crash, a signal or a timeout there, which can't tell), it was already broken: Casper says so, and an interactive terminal asks
 `1 Leave it · 2 Fix it anyway` before paying for a repair (Enter leaves it; before v0.2.16 the
 two were the other way round). Scripts repair.
 
@@ -444,7 +444,9 @@ you may add test files" is still a code change.
    system allows). `.git`, `.casper`, `node_modules`, `.venv` (and `venv` when it holds a
    `pyvenv.cfg`) and Python caches are left out; `node_modules` and the virtual environment are
    linked back in. Runs in the copies set `UV_NO_SYNC=1`, so `uv run` never changes your linked
-   `.venv`.
+   `.venv`. When code (not tests) changed during a plan turn, the copy would already hold that
+   change, so there is none: the receipt says Casper could not compare. Code the AI changes while
+   it looks at the page screenshots is part of the change.
 2. **Run without the change.** After the checks pass, Casper rebuilds the workspace **without the
    change**: the copy from before, with the tests (anything under a test directory, or named like
    a test) as they are now. It runs the `test` check there.

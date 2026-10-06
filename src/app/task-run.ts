@@ -23,7 +23,7 @@ import { VerifierRegistry } from "../verify/registry";
 import { PLAN_CHOICES, PLAN_QUESTION } from "./safe-choices";
 import { DEFAULT_SPEND_LIMITS, SpendGuard, requestSpendLimit } from "../task/spend";
 import { VerificationTask } from "../verify/task";
-import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "../verify/proof";
+import { ChangeBaseline, changesCode, isTestPath, proofRepairPrompt, type ChangeProof } from "../verify/proof";
 import { independentAcceptance } from "../verify/acceptance";
 import { definitionChangedReason, definitionChanges, testDefinition } from "../verify/test-definition";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "../task/review";
@@ -195,7 +195,11 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     && !["refactor", "document", "inspect", "visualize", "configure"].includes(classification.intent);
   let baseline: ChangeBaseline | undefined;
   let baselineUnavailable: string | undefined;
-  if (proving) {
+  // Code that changed while planning would be in the copy taken now, so a change made then and undone later would read
+  // as proven: with such files there is no copy from before the change.
+  const plannedCode = changedWhilePlanning?.filter((file) => !isTestPath(file)) ?? [];
+  if (proving && plannedCode.length) baselineUnavailable = `files changed while planning (${plannedCode.slice(0, 5).join(", ")}${plannedCode.length > 5 ? " …" : ""}), so Casper has no copy from before the change`;
+  else if (proving) {
     try { baseline = await ChangeBaseline.capture(workspaceRoot, { signal: app.commandAbort?.signal }); app.taskBaseline = { baseline, root: workspaceRoot }; }
     catch (error) {
       if (app.commandAbort?.signal.aborted) return;
@@ -292,8 +296,11 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         app.output.write(`… Casper checking: ${pending.join(", ")}\n`);
         verification = await runVerification(app, autoChecks.run, true, prompt, app.checkTask);
         // A model that sees pictures may look at the changed pages once (showPages); its fixes are checked again.
-        ({ verification, shown: pagesShown } = await lookAtPages(app, session, prompt, autoChecks.run, verification, workspaceRoot));
-        const changedCode = Boolean(before && afterModel && changesCode(diffSnapshots(before, afterModel)));
+        let afterLook: Map<string, string> | undefined;
+        ({ verification, shown: pagesShown, after: afterLook } = await lookAtPages(app, session, prompt, autoChecks.run, verification, workspaceRoot));
+        // Code the AI changed while looking at the pages is part of the change the proof compares.
+        const afterWork = afterLook ?? afterModel;
+        const changedCode = Boolean(before && afterWork && changesCode(diffSnapshots(before, afterWork)));
         const redefined = testCommand && definitionBefore
           ? definitionChanges(definitionBefore, await testDefinition(workspaceRoot, testCommand).catch(() => new Map<string, string>())) : [];
         if (proving && changedCode && redefined.length && verification.status === "pass") {
@@ -650,7 +657,7 @@ export async function proveChange(app: CasperApp, input: {
  * run again with the repairs left. Never a check itself. `shown` is how many pictures it was shown.
  */
 export async function lookAtPages(app: CasperApp, session: RuntimeSession, request: string, checks: readonly CheckName[], verification: VerificationReport,
-  root: string): Promise<{ verification: VerificationReport; shown?: number }> {
+  root: string): Promise<{ verification: VerificationReport; shown?: number; after?: Map<string, string> }> {
   const stopped = () => app.closing || Boolean(app.commandAbort?.signal.aborted) || app.taskRuntimeFailed || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined;
   if (verification.status !== "pass" || !verification.pages?.pages.some((page) => page.screenshots) || stopped()) return { verification };
   let sees: boolean | undefined;
@@ -669,7 +676,7 @@ export async function lookAtPages(app: CasperApp, session: RuntimeSession, reque
   if (!edited) return { verification, shown: look.images.length };
   const max = app.projectContext!.repair.maxAttempts;
   const again = await runVerification(app, checks, true, request, app.checkTask, Math.max(0, max - verification.repairAttempts));
-  return { verification: { ...again, repairAttempts: verification.repairAttempts + again.repairAttempts }, shown: look.images.length };
+  return { verification: { ...again, repairAttempts: verification.repairAttempts + again.repairAttempts }, shown: look.images.length, ...(after ? { after } : {}) };
 }
 
 /** showPages: on or off as set; ask (the default) asks once a session, and only a person answers it (1 No). */

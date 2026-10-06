@@ -170,3 +170,18 @@ test("by default Casper asks once a session: 1 No · 2 Yes, show the AI the page
     f.input.write("/exit\r"); await interactive;
   }
 }, 60_000);
+
+test("code the AI changes while looking at the pages counts for the proof: a CSS-only build turn is still compared", async () => {
+  const f = await fixture({ vision: true, showPages: "on" });
+  const yaml = path.join(f.project, ".casper", "project.yaml");
+  await writeFile(yaml, `${await Bun.file(yaml).text()}verify:\n  test: ${JSON.stringify(`"${process.execPath}" -e "process.exit(0)"`)}\n`);
+  const css = path.join(f.project, "app/globals.css");
+  f.turns.push(async (options) => { await mkdir(path.dirname(css), { recursive: true }); await writeFile(css, "main { color: blue; }\n"); await options.afterFileEdit?.(css); });
+  f.turns.push(f.edit("export default function Page() { return <main>Dashboard</main>; }\n"));
+  await f.app.start(f.project);
+  await f.app.runOnce("Make the dashboard header blue");
+  const task = f.app.getLastTaskResult();
+  expect(task?.pagesShown).toBe(2);
+  expect(task?.proofSkipped).not.toBe("only non-code files changed");
+  expect(task?.proof).toBeDefined();
+}, 60_000);

@@ -214,7 +214,10 @@ export class ChangeBaseline {
       }
       const result = await runCommandCheck({ name: options.check, command: options.command, cwd: tree, timeoutMs: options.timeoutMs,
         signal: options.signal, env: { ...process.env, ...COPY_ENV } });
-      return result.ended ? undefined : result.status === "pass" ? "pass" : "fail";
+      // The same reading as the proof's: a crash, a signal or a timeout in the copy is not the check failing.
+      if (result.ended || result.exitCode === null) return undefined;
+      const ended = withoutEnded(result.exitCode, result.reason);
+      return ended === "pass" ? "pass" : ended === "fail" ? "fail" : undefined;
     } catch (error) {
       if (options.signal?.aborted) throw error;
       return undefined;
