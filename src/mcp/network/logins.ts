@@ -37,7 +37,7 @@ const MIST_CLOUDS: [string, string][] = [
   ["Global 05", "api.gc4.mist.com"], ["EMEA 01", "api.eu.mist.com"], ["EMEA 02", "api.gc3.mist.com"], ["EMEA 03", "api.ac6.mist.com"],
   ["EMEA 04", "api.gc6.mist.com"], ["APAC 01", "api.ac5.mist.com"], ["APAC 02", "api.gc5.mist.com"], ["APAC 03", "api.gc7.mist.com"],
 ];
-/** The Central regions from the `servers` list of the Central specs the server bundles (its internal one left out). */
+/** The Central regions from the `servers` list of the Central specs the server bundles (the internal one last, before China). */
 const CENTRAL_REGIONS: [string, string][] = [
   ["US 1", "us1"], ["US 2", "us2"], ["US 4", "us4"], ["US 5", "us5"], ["US 6", "us6"], ["Canada 1", "ca1"], ["EU 1", "de1"], ["EU 2", "de2"],
   ["EU 3", "de3"], ["UK 1", "gb1"], ["India 1", "in1"], ["Japan 1", "jp1"], ["Australia 1", "au1"], ["UAE 1", "ae1"],
@@ -53,6 +53,7 @@ export const LOGIN_FIELDS: Record<NetworkProduct, LoginField[]> = {
     { key: "base_url", env: "CENTRAL_BASE_URL", label: "Central region", secret: false,
       choices: [
         ...CENTRAL_REGIONS.map(([name, code]) => ({ label: `${name} (${code}.api.central.arubanetworks.com)`, value: `https://${code}.api.central.arubanetworks.com` })),
+        { label: "Internal (internal.api.central.arubanetworks.com)", value: "https://internal.api.central.arubanetworks.com" },
         { label: "China 1 (cn1.api.central.arubanetworks.com.cn)", value: "https://cn1.api.central.arubanetworks.com.cn" },
       ], other: "Central API address (https://…)" },
     { key: "client_id", env: "CENTRAL_CLIENT_ID", label: "Central API client ID", secret: false },
