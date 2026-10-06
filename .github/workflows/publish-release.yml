@@ -30,9 +30,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-      - name: Stop unless the Linux, macOS and Windows previews passed on this commit
+      - name: Stop unless the Linux, macOS, Windows and Windows ARM64 checks passed on this commit
         run: |
-          for workflow in linux-preview.yml macos-preview.yml windows-preview.yml; do
+          for workflow in linux-preview.yml macos-preview.yml windows-preview.yml windows-arm64.yml; do
             conclusion="$(gh run list --workflow "$workflow" --commit "$GITHUB_SHA" --status completed --limit 1 --json conclusion --jq '.[0].conclusion // ""')"
             [ "$conclusion" = success ] || { echo "$workflow has not passed on $GITHUB_SHA (last result: ${conclusion:-no run}). Run it on this commit first."; exit 1; }
           done
@@ -50,6 +50,10 @@ jobs:
         run: |
           cd dist/release
           sha256sum -c SHA256SUMS
+          # Every platform's file is built and listed in SHA256SUMS (the installers pick one by name).
+          for file in casper-darwin-arm64 casper-darwin-x64 casper-linux-x64 casper-linux-arm64 casper-windows-x64.exe casper-windows-arm64.exe; do
+            grep -qE "^[0-9a-f]{64}  $file\$" SHA256SUMS || { echo "SHA256SUMS does not list $file"; exit 1; }
+          done
           ./casper-linux-x64 --version | grep -F "casper ${RELEASE_TAG#v} ("
           ls install.sh install.ps1 VERSION LICENSE THIRD_PARTY_NOTICES.txt
           # Personal build paths must not be embedded in the executables.

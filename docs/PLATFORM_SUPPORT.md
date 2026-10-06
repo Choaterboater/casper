@@ -11,7 +11,7 @@ kind of machine, or when something works on your Mac but not on Windows or Linux
 | macOS | Tested by hand, plus the full test suite | See **Limits** below |
 | Windows x64 | In CI (a GitHub build machine): install and startup under PowerShell 5.1 and 7, and the full test suite and eval tests, which pass there and must pass for a change to merge | Tests that need a PTY, POSIX signals or file modes (they skip), the interactive screen, process cleanup on a real desktop, browser and debugger |
 | Linux | The full test suite in CI on an Ubuntu build machine; the release build runs `casper-linux-x64 --version` on Ubuntu when a release is published | No recorded run of the full test suite or the interactive screen on a real Linux machine |
-| Windows ARM64 | Nothing | There is no release file for it |
+| Windows ARM64 | In CI on GitHub's Windows 11 ARM64 runner: `casper-windows-arm64.exe` is built and started (`--version`, `--help`, `/project`, an inline diagram), and the installer picks and installs it under PowerShell 5.1, 7, and an x64 PowerShell 7 under emulation | The full test suite, the interactive screen, a real ARM64 PC. The release file ships from the release after v0.2.22 |
 
 To test a machine yourself, run `bun tools/platform-report.ts` from a source checkout.
 The step-by-step guide is [PLATFORM_VERIFICATION.md](PLATFORM_VERIFICATION.md).

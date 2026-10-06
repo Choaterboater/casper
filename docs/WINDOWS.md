@@ -4,14 +4,15 @@
 checklist to test the parts that have not. **When you'd use it:** you want to run
 Casper on a Windows PC, or you want to help confirm it works there.
 
-Casper on Windows is a **preview for Windows x64**. In short:
+Casper on Windows is a **preview for Windows x64 and ARM64**. In short:
 
 - **Tested in CI** (a GitHub build machine, not a desktop): install, `PATH` update,
   `--version`, `--help`, `--licenses`, `/project` and inline diagrams, under Windows
   PowerShell 5.1 and PowerShell 7. The full test suite and the eval tests pass there too.
 - **Not yet tested on a real Windows desktop:** the interactive screen (pickers,
   resizing, sign-in screens), process cleanup, the browser and the debugger.
-- **No Windows ARM64 release file.**
+- **Windows ARM64** (from the release after v0.2.22): `casper-windows-arm64.exe` is
+  built, started and installed in CI on a GitHub ARM64 runner. Nothing else runs there.
 
 You do not need Bun or a source checkout to use the released program. The program is
 not signed, so SmartScreen may warn you. Do not click past a warning you did not expect
@@ -27,7 +28,8 @@ In PowerShell (a normal window, not "Run as administrator"):
 
 What the installer does:
 
-- downloads `casper-windows-x64.exe` and checks its SHA-256 against the release's
+- downloads `casper-windows-x64.exe` (`casper-windows-arm64.exe` on an ARM64 PC, also
+  from an x64 PowerShell) and checks its SHA-256 against the release's
   `SHA256SUMS`;
 - runs the new file's `--version` before it replaces anything;
 - installs to `%LOCALAPPDATA%\Programs\casper\casper.exe`;
