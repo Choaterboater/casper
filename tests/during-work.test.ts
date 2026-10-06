@@ -95,6 +95,7 @@ test("during a task: /model <id> and the /model picker apply from the model's ne
     await app.until(() => started);
     app.input.write("/model fixture/other\r");
     await app.until(text => text.includes("[model] fixture/other from the model's next step; saved"));
+    await app.until(text => text.includes("[model] The model's next step sends this conversation's context to fixture."));
     app.input.write("/model --session fixture/third\r");
     await app.until(text => text.includes("[model] fixture/third from the model's next step (this conversation)"));
     app.input.write("/model\r");
