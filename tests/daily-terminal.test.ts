@@ -9,6 +9,7 @@ import { InteractiveTerminal } from "../src/tui/terminal";
 import { withLoginDisplay } from "../src/tui/login";
 import { getCapabilities, resetCapabilitiesCache, setCapabilityOverrides, visibleWidth } from "@earendil-works/pi-tui";
 import { posixOnly } from "./support/platform";
+import { PTY_TEST_MS, runPtyFixture } from "./support/pty";
 
 // The rich-surface path is gated on `TERM !== "dumb"`; a harness or CI shell that
 // exports TERM=dumb must not silently downgrade these fixtures to readline input.
@@ -273,14 +274,12 @@ test("login navigation on the live surface replaces rows without escaped control
 // python3 runs the standard-library PTY fixture; Windows has no equivalent here.
 posixOnly("offline interactive demo supports model/effort popovers and a real terminal resize", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-daily-pty-"));
-  const child = Bun.spawn(["python3", path.join(import.meta.dir, "fixtures/daily-pty.py"), process.execPath, root], { stdout: "pipe", stderr: "pipe" });
-  const timer = setTimeout(() => child.kill(), 40_000);
   try {
-    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    const { exit, stdout, stderr } = await runPtyFixture("daily-pty.py", [root]);
     expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
     expect(stdout).toContain("DAILY PTY PASS");
-  } finally { clearTimeout(timer); child.kill(); await rm(root, { recursive: true, force: true }); }
-}, 50_000);
+  } finally { await rm(root, { recursive: true, force: true }); }
+}, PTY_TEST_MS);
 
 test("one-shot TTY output stays immediate and separates the final assistant line", () => {
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });

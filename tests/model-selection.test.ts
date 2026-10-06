@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { needsPosixModes, needsSymlinks, posixOnly } from "./support/platform";
+import { PTY_TEST_MS, runPtyFixture } from "./support/pty";
 import { isolatedEnvironment } from "../src/platform/environment";
 import os from "node:os";
 import path from "node:path";
@@ -209,14 +210,10 @@ test("plain /model lists locally; an exact selection is remembered across fresh 
 posixOnly("production CLI hosts Pi's picker without losing terminal ownership", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-model-pty-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
-  const child = Bun.spawn(["python3", path.join(import.meta.dir, "fixtures/model-pty.py"), process.execPath, root], { stdout: "pipe", stderr: "pipe" });
-  const timer = setTimeout(() => child.kill(), 60_000);
-  try {
-    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-    expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
-    expect(stdout).toContain("MODEL PTY PASS");
-  } finally { clearTimeout(timer); }
-}, 70_000);
+  const { exit, stdout, stderr } = await runPtyFixture("model-pty.py", [root]);
+  expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(stdout).toContain("MODEL PTY PASS");
+}, PTY_TEST_MS);
 
 test("picker catalog diagnostics stay readable without executing terminal controls in color or NO_COLOR", async () => {
   const f = await fixture();

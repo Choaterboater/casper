@@ -7,6 +7,7 @@ import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { posixOnly } from "./support/platform";
+import { PTY_TEST_MS, runPtyFixture } from "./support/pty";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -38,14 +39,10 @@ async function fixture(commands: string[] = []) {
 posixOnly("production debugger CLI preserves fresh consent and cleans up on EOF/SIGTERM", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-debug-pty-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
-  const child = Bun.spawn(["python3", path.join(import.meta.dir, "fixtures/debug-pty.py"), process.execPath, root], { stdout: "pipe", stderr: "pipe" });
-  const timer = setTimeout(() => child.kill(), 40_000);
-  try {
-    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-    expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
-    expect(stdout).toContain("DEBUG PTY PASS");
-  } finally { clearTimeout(timer); child.kill(); }
-}, 50_000);
+  const { exit, stdout, stderr } = await runPtyFixture("debug-pty.py", [root]);
+  expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(stdout).toContain("DEBUG PTY PASS");
+}, PTY_TEST_MS);
 
 test("debugger listing is lazy and one-shot launch cannot grant execution consent", async () => {
   const f = await fixture();
