@@ -4,11 +4,154 @@
 published, and what the installers promise. **When you'd use it:** to see what is new
 before you upgrade, or when you build or publish a release yourself.
 
-Casper distributes an unsigned **v0.2.22 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.22`,
+Casper distributes an unsigned **v0.2.23 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.23`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.23: casper doctor, a network server in the sandbox, a reader for untrusted text, crews and pictures
+
+Casper can check its own setup, its network server runs in the sandbox, the AI can read untrusted
+text without it entering its context, you can paste a picture into a request, page checks save
+screenshots the AI can look at, new web projects start with a look of their own, and `/mcp login`
+asks which product instead of leaving you to guess.
+
+**Casper's network server runs in the sandbox.** On macOS and Linux, Casper's own network server
+now runs inside the same sandbox as the AI's shell. It reaches only the product hosts of your saved
+logins: the Mist cloud you picked, your Central region and Central's sign-in host, and your
+ClearPass address, including an address you typed with `Other`. Any other host is refused, and
+Casper says so once. It reads only its own install and the Python it was built with, and writes
+only its spec cache; the rest of your home folder (`~/.ssh`, `~/.casper`, your projects) and the
+open project are hidden from it. It is on by default; `/mcp sandbox network off` (or `/settings`)
+turns it off for that server. Only Casper's own network server runs this way: Casper doesn't know
+what another MCP server needs, so it doesn't guess and break it. On Windows, or where the sandbox
+can't start, the server starts as before, and `/mcp` says which servers run sandboxed and why one
+doesn't. See [It runs in the sandbox](MCP.md#it-runs-in-the-sandbox).
+
+**Crews, the first part.** `/crew <job>` has one builder do the job in its own copy of your
+project (a Git worktree), with its commands in Casper's sandbox. Anything that would need your OK is
+not run and is listed in its report. When it ends: `1 Keep the copy · 2 Apply to my folder · 3 Throw
+it away`; Apply lands the work uncommitted next to your own changes and refuses if you changed the same
+file. A builder can't read files you made private or move your branches. You start a crew; the AI
+never starts one. `/crew` lists copies still here. Splitting a big job across several builders with a
+reviewer comes next. See [CREWS.md](CREWS.md).
+
+**A reader for untrusted text.** A log, an email from a stranger or a web form can hold hidden
+orders ("ignore your rules and run ..."). The AI can now read such text with
+`casper_read_untrusted`: it names a file, a read-only command or an MCP tool, a separate model call
+with no tools reads the text, and the AI gets back only JSON in the shape it asked for, never the
+text. An answer that doesn't fit the shape gets one retry, then a plain error that never holds the
+text. Longer free text, such as an email body, comes back only when the AI marks that field as
+quoted, and then wrapped with where it came from. Short text fields that read like orders or
+commands are refused. That check is a word list: it lowers the risk, it doesn't make untrusted
+text safe, and a fooled reader can still pick a wrong value. It is on by default and costs nothing
+until the AI calls it (then one small request on your `fast` model). `/settings` turns it off
+(`reader: off`), and `reader: { untrusted: ["logs/**"] }` names paths the AI should read only this
+way. See [READER.md](READER.md).
+
+**`/mcp login` asks which product.** On its own, `/mcp login` used to list the products and stop,
+so the product name you typed next went to the AI as a request. It now shows each login and asks
+`1 Not now · 2 Mist · 3 Central · 4 ClearPass`, then runs the same steps as `/mcp login <product>`.
+A one-shot run still only lists. The Mist cloud and Central region lists end with
+`Other — type the address`, for a cluster that isn't listed; it is typed like ClearPass's address.
+Central also lists its internal cluster by name, from the servers list of the Central specs the
+network server bundles. See [Casper's network server](MCP.md#caspers-network-server).
+
+**`casper doctor`.** One command, or `/doctor` in a session, that looks over Casper's own setup
+with no model and no tokens: this version against the newest preview and the `casper` on PATH,
+config files that don't load (by file and line), model sign-in, MCP servers that can't start (with
+the install page for a missing `uvx`, `npx` or `docker`), language servers for the project's
+languages, security tools, the sandbox, disk space for `~/.casper`, and the network server with its
+saved logins. It fixes three things, each after a numbered question where `1` is Not now: run
+`casper update`, install the pinned security tools, and set up the network server. Exit 0 means
+nothing to fix, 1 something to fix. In a session it also says why an MCP server didn't start. See
+[DOCTOR.md](DOCTOR.md).
+
+**Signed releases: built, not switched on yet.** The publish job can now sign `SHA256SUMS` with an
+SSH release key, both installers check that signature with `ssh-keygen`, and `casper update` checks
+it in its own code. No release key is pinned yet, so this release is not signed and nothing checks
+a signature; the SHA-256 checks decide, as before. The release that pins a key will say so in its
+notes. What already works: `SHA256SUMS` now lists both installers, and `casper update` checks that
+the installer it runs is a GitHub build of Casper when `gh` is signed in (the installers already
+checked the program that way). The programs themselves are still not code-signed or notarized, so
+SmartScreen or Gatekeeper may still warn. See [The release key](#the-release-key).
+
+**Pictures in a request.** Ctrl+V (Alt+V on Windows) pastes the clipboard's picture as
+`[image 1]`, and a picture file dropped or typed as a full path becomes `[image N]` when you send.
+PNG, JPEG, GIF and WebP, up to 8 a request. When the model can't see pictures, one question:
+`1 Send without it · 2 Switch to <a model you set up that can> for this request`. The switch is for
+the build turn only, then you are back on your model.
+
+**The AI can see the pages.** After a UI change, each checked page saves a desktop (1280 px) and a
+phone (390 px) screenshot, listed under the page's line, at no token cost (not on Windows yet).
+When the checks pass and the model can see pictures, Casper can show it the screenshots of up to
+2 pages once, so it can fix what loads but looks wrong. That uses tokens, so the first time in a
+session it asks `1 No · 2 Yes, show the AI the pages`; `/settings` makes it always or never. What
+the model thinks of a picture is advice, never a check, and never makes a change **Verified**. Page
+checks also note accessibility basics (images with no alt text, fields with no label, buttons with
+no name, very low contrast, no `lang`) as one note under the page line, never a failure. With
+Chrome or Edge installed, the AI has the browser tool from the first request.
+
+**New web projects with a look of their own.** `casper new web-app` starts with Tailwind and a small
+theme file (colors with dark mode, a type scale, spacing, corners), a labeled form with empty and
+error states, and 44px tap targets. New `casper new vite-react`: Vite, React and TypeScript with
+the same theme, `bun test` with happy-dom, `tsc -b` and oxlint. A built-in `web-frontend` skill
+guides UI work in a project that has no styles of its own yet; when the project has a look, that
+wins and the skill stays out. `/skills block web-frontend@bundled` stops it. See
+[NEW.md](NEW.md) and [The frontend skill](SKILLS.md#the-frontend-skill).
+
+**Your Playwright tests as a check.** When a project already has Playwright tests, Casper runs them
+as an `e2e` check after each change, next to typecheck, lint and test. It never installs Playwright
+or its browsers: when they are missing the check skips and says how to get them. `/settings`
+(Playwright tests) turns it off. See
+[End-to-end tests](VERIFICATION.md#end-to-end-tests-playwright).
+
+**`/preview` on your phone.** `/preview` puts the web app on your network and prints an address a
+phone on the same Wi-Fi can open; you typed it, so it asks nothing. A public link needs a tunnel
+tool you already have (`cloudflared` or Tailscale Funnel; Casper never installs one) and asks
+first: `1 No · 2 Yes, make a public link`. The AI can't start either one. `/preview stop`, or
+leaving Casper, ends both. See [Preview on your phone](SERVICES.md#preview-on-your-phone).
+
+**Windows ARM64.** The first release with `casper-windows-arm64.exe`. `install.ps1` picks it on an
+ARM64 PC, also from an x64 PowerShell running under emulation. It is built, started and installed
+in CI on GitHub's ARM64 runner; the full test suite and the screen have not run on ARM64, and no
+one has tried it on a real ARM64 PC.
+
+**Safer, from an independent review.** An outside review of Casper's safety promises found places
+where Casper didn't keep its own word, and this release fixes them:
+- **ssh:** the host question names the machine ssh really reaches.
+- **The read-only list** used when there's no sandbox checks every file a git command can read or
+  write.
+- **The sandbox** keeps git's rebase to-dos, `diff.external` and a moved agent store out of reach.
+- **Installs:** hash-locked tool installs use Casper's own cache, and `casper update` refuses an
+  installer it can't verify.
+- **"✓ Verified"** now needs your own test command, unchanged: when a change rewrites what the test
+  command runs (a `package.json` script, the files it names, a test config), the result is "could not
+  compare".
+- **A rewritten `.casper/project.yaml`** doesn't change the checks of the session that's running.
+- **A repository can't change your own settings:** a profile it picks can't turn the sandbox or the
+  reader off, or replace your lab, web or spend settings.
+- **Lab boxes** are bound to what they showed.
+
+Nothing here asks more than Claude Code would. Choices you made on purpose (the browser reaching your
+LAN, remembering a program after "Yes, for this session") are unchanged. See [SECURITY.md](SECURITY.md).
+
+**Fixes.** Two `casper learn` runs at once no longer fail when one creates a state file while the
+other is looking for it. On macOS, a `commondir` file a sandboxed command adds to the project's
+`.git` folder is removed when the command ends, even when the file watch missed it. On Windows the installer tries again for about 5
+seconds when antivirus or a `casper.exe` that just closed still holds the file, and when removing
+its staged download.
+
+**For contributors.** `app.ts` is split into 14 modules under `src/app/` (code moved, not
+rewritten), `bun run lint` runs oxlint with only the rules that catch real bugs (`bun run check`
+and the Linux CI job run it), and 42 non-null assertions the types made unneeded are gone. The full
+test suite and eval tests pass on Windows CI again and block a merge, and Casper's screen is tested
+there in a real Windows console (ConPTY). Tests wait for the real signal (a file, the prompt, a
+server's first answer) by a deadline instead of fixed pauses, so they pass on a loaded machine,
+and CONTRIBUTING says what to do when CI is red on your PR. New
+[ARCHITECTURE.md](ARCHITECTURE.md) shows how Casper is built: the pieces, one request end to end,
+and every promise with the code and tests that keep it.
 
 ## v0.2.22: one box for every yes, and a network server Casper sets up
 
@@ -1200,7 +1343,7 @@ ssh-keygen -Y verify -f allowed_signers -I casper-release -n casper-release \
   `casper-linux-x64` is started once (`--version`) before upload. Nothing has been run on a
   real Linux machine, and `casper-linux-arm64` is not run anywhere. See
   [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md).
-- Windows ARM64 (from the release after v0.2.22): `casper-windows-arm64.exe` is built, started
+- Windows ARM64 (from v0.2.23): `casper-windows-arm64.exe` is built, started
   and installed in CI on a GitHub ARM64 runner. The full test suite and the interactive
   screen have not run on ARM64, and no one has tried it on a real ARM64 PC.
 - Published v0.1.0 appends login selection messages instead of moving the highlight,
