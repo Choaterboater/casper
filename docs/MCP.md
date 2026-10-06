@@ -148,7 +148,8 @@ On macOS and Linux the network server runs inside the same sandbox as the AI's s
 - **Files.** It reads only its own install (`~/.casper/tools/casper-network-mcp`) and the
   Python it was built with, and writes only its spec cache (`~/.cache/casper-network-mcp`) and
   its own temp folder. The rest of your home folder (`~/.ssh`, `~/.casper`, your projects), the
-  temp folders and the open project are hidden from it.
+  temp folders and the open project are hidden from it. On Linux it may also run Casper's seccomp
+  helper and `socat`, read-only, even when they sit in your home folder.
 
 `/mcp` shows it under the server and in one line under the list:
 

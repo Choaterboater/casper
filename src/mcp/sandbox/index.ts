@@ -207,7 +207,7 @@ export class MCPServerSandbox {
     const bwrap = which("bwrap");
     const socat = which("socat");
     if (!bwrap || !socat) throw new Error(`${!bwrap ? "bubblewrap" : "socat"} is missing`);
-    const seccomp = await (this.options.seccompPath ?? (() => seccompHelper()))().catch(() => undefined);
+    const seccomp = await (this.options.seccompPath ?? (() => seccompHelper({ home: this.options.home })))().catch(() => undefined);
     if (!seccomp) throw new Error(`no seccomp helper for ${process.arch}, so Unix sockets can't be blocked`);
     const args = mcpBwrapArgs({
       hidden: this.hidden(), reads: [...profile.reads], writes: [profile.cache, temp], cwd: launch.cwd,
@@ -243,8 +243,13 @@ export function mcpBwrapArgs(input: McpBwrapInput): string[] {
   for (const entry of [...input.hidden].sort((a, b) => a.length - b.length)) if (isDir(entry)) args.push("--tmpfs", entry);
   for (const entry of input.reads) if (existsSync(entry)) args.push("--ro-bind", entry, entry);
   for (const entry of input.writes) if (existsSync(entry)) args.push("--bind", entry, entry);
-  const bridge = `${quote(input.socat)} TCP-LISTEN:${input.port},bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:${quote(input.socket)} >/dev/null 2>&1 &`;
-  args.push("--chdir", input.cwd, "--", "/bin/sh", "-c", `${bridge}\nexec ${[input.seccomp, ...input.command].map(quote).join(" ")}`);
+  // The helper and socat may sit in a hidden folder (~/.casper/bin, a checkout, ~/.nix-profile): bound back by their
+  // real path, and run by it.
+  const seccomp = realpathLongest(input.seccomp);
+  const socat = realpathLongest(input.socat);
+  for (const entry of unique([seccomp, socat])) if (existsSync(entry)) args.push("--ro-bind", entry, entry);
+  const bridge = `${quote(socat)} TCP-LISTEN:${input.port},bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:${quote(input.socket)} >/dev/null 2>&1 &`;
+  args.push("--chdir", input.cwd, "--", "/bin/sh", "-c", `${bridge}\nexec ${[seccomp, ...input.command].map(quote).join(" ")}`);
   return args;
 }
 

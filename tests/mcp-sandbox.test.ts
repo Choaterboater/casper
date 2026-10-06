@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +9,7 @@ import { MCPManager } from "../src/mcp/manager";
 import { MCPServerSandbox, mcpBwrapArgs, sandboxLines, sandboxSummary } from "../src/mcp/sandbox";
 import { CENTRAL_TOKEN_HOST, loginHosts, serverProfile } from "../src/mcp/sandbox/profile";
 import { HostProxy, parseTarget } from "../src/mcp/sandbox/proxy";
+import { seccompHelper } from "../src/sandbox/seccomp";
 import { needsSandbox } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -43,6 +45,9 @@ describe("profiles", () => {
     expect(loginHosts({ CENTRAL_BASE_URL: "https://us1.api.central.arubanetworks.com", CLEARPASS_BASE_URL: "https://10.1.2.3:8443" }))
       .toEqual(["us1.api.central.arubanetworks.com", "10.1.2.3", CENTRAL_TOKEN_HOST]);
     expect(loginHosts({})).toEqual([]);
+    // Typed addresses (/mcp login's "Other" choice): an internal Central cluster or a new Mist cloud.
+    expect(loginHosts({ CENTRAL_BASE_URL: "https://central.example.net:8443/api", MIST_HOST: "https://api.new.mist.example" }))
+      .toEqual(["api.new.mist.example", "central.example.net", CENTRAL_TOKEN_HOST]);
   });
 
   test("only casper-network-mcp from an installed venv gets a profile; anything else runs as it is", async () => {
@@ -111,6 +116,24 @@ test("Linux: no network of its own, the home folder hidden, its folders bound ba
   const script = args.at(-1)!;
   expect(script).toContain("TCP-LISTEN:3128,bind=127.0.0.1");
   expect(script).toMatch(/\nexec \/x\/apply-seccomp .*bin\/server --read-only$/);
+});
+
+test("Linux: the seccomp helper and socat are bound back when they sit in a hidden folder, and run by their real path", async () => {
+  const root = await tempRoot();
+  const home = path.join(root, "home");
+  const bin = path.join(home, ".casper/bin");
+  await mkdir(bin, { recursive: true });
+  const seccomp = path.join(bin, "apply-seccomp-abc");
+  const socat = path.join(home, ".nix-profile-socat");
+  await writeFile(seccomp, "");
+  await writeFile(socat, "");
+  const args = mcpBwrapArgs({ hidden: [home], reads: [], writes: [], cwd: "/", socat, socket: path.join(root, "p.sock"),
+    port: 3128, seccomp, command: ["/venv/bin/server"] });
+  const line = args.join(" ");
+  expect(line).toContain(`--tmpfs ${home}`);
+  expect(line.indexOf(`--ro-bind ${seccomp} ${seccomp}`)).toBeGreaterThan(line.indexOf(`--tmpfs ${home}`));
+  expect(line.indexOf(`--ro-bind ${socat} ${socat}`)).toBeGreaterThan(line.indexOf(`--tmpfs ${home}`));
+  expect(args.at(-1)!).toContain(`\nexec ${seccomp} /venv/bin/server`);
 });
 
 describe("off switch and /mcp lines", () => {
@@ -217,8 +240,11 @@ describe("a real sandbox", () => {
     expect(manager.status().find((status) => status.name === "plain")?.sandbox).toMatchObject({ state: "none" });
 
     expect(await text("network", "read", { path: path.join(home, ".ssh/id_test") })).toStartWith("error:");
-    expect(await text("network", "write", { path: path.join(home, "outside.txt") })).toStartWith("error:");
-    expect(await text("network", "write", { path: path.join(root, "outside.txt") })).toStartWith("error:");
+    // macOS refuses the write; on Linux it lands in the empty folder laid over home and temp, and is gone with it.
+    await text("network", "write", { path: path.join(home, "outside.txt") });
+    await text("network", "write", { path: path.join(root, "outside.txt") });
+    expect(existsSync(path.join(home, "outside.txt"))).toBe(false);
+    expect(existsSync(path.join(root, "outside.txt"))).toBe(false);
     expect(await text("network", "write", { path: path.join(home, ".cache/casper-network-mcp/specs.sqlite") })).toBe("wrote");
     expect(await text("network", "connect", { port })).toStartWith("error:");
     expect(await text("network", "fetch", { url: "https://example.com/" })).not.toBe("status:200");
@@ -228,6 +254,29 @@ describe("a real sandbox", () => {
     // The same program without a profile runs as before.
     expect(await text("plain", "read", { path: path.join(home, ".ssh/id_test") })).toBe("read:PRIVATE KEY");
     expect(await text("plain", "connect", { port })).toBe("connected");
+  });
+
+  // A compiled Casper writes the helper to ~/.casper/bin, and a source install runs it from its checkout: both are
+  // in hidden folders. The real helper is copied under the hidden home here, so the server starts only if it is bound back.
+  (process.platform === "linux" ? needsSandbox : test.skip)("Linux: the server starts when the seccomp helper sits in the hidden home folder", async () => {
+    const root = await tempRoot();
+    const home = path.join(root, "home");
+    await mkdir(path.join(home, ".ssh"), { recursive: true });
+    await writeFile(path.join(home, ".ssh/id_test"), "PRIVATE KEY");
+    const entry = await fakeVenv(home, PROBE_SERVER);
+    const real = await seccompHelper();
+    expect(real).toBeDefined();
+    const helper = path.join(home, ".casper/bin/apply-seccomp-test");
+    await mkdir(path.dirname(helper), { recursive: true });
+    await copyFile(real!, helper);
+    await chmod(helper, 0o700);
+    const sandbox = new MCPServerSandbox({ home, seccompPath: async () => helper });
+    const manager = new MCPManager({ servers: [stdio("network", entry)], diagnostics: [] }, { sandbox });
+    cleanup.push(() => manager.close());
+    await manager.connect("network");
+    expect(manager.status().find((status) => status.name === "network")?.sandbox).toMatchObject({ state: "on" });
+    const result = (await manager.call("network", "read", { path: path.join(home, ".ssh/id_test") })) as { content: { text: string }[] };
+    expect(result.content[0]!.text).toStartWith("error:");
   });
 
   needsSandbox("the off switch: the server restarts unsandboxed, and on again holds it", async () => {

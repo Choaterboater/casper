@@ -186,8 +186,9 @@ Each row names the test that fails without it.
 - **MCP servers, language servers, the debugger and the browser** are not in the sandbox. They run as
   your user, with your files and network, after you approve them. Review a server before you connect it.
   The one exception is Casper's own network server, which runs in the sandbox on macOS and Linux (see
-  [MCP.md](MCP.md#it-runs-in-the-sandbox)). On Linux without Casper's seccomp helper it runs as before, and
-  `/mcp` says why.
+  [MCP.md](MCP.md#it-runs-in-the-sandbox)). On Linux it needs what the AI's shell needs (bubblewrap and
+  socat; Casper brings the seccomp helper for x64 and arm64). Where the sandbox can't start, it runs as
+  before, and `/mcp` says why.
 - **Lab checks** (`junos-commit`, AOS-CX `ansible --check`) run outside the sandbox: they log in to
   your devices with your own SSH keys. Nothing reaches a device without your answer in a numbered box that
   names every device (any device may be checked; ones not in your lab list are named as such); Casper checks
