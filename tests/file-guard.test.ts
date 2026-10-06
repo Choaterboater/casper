@@ -3,7 +3,7 @@ import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { classifyPath, fileToolGate, gitInternalsCommand, hooksPathTargets, PRIVATE_PATHS, privatePathCommand } from "../src/platform/project-paths";
+import { classifyPath, fileToolGate, gitInternalsCommand, hooksPathTargets, PRIVATE_PATHS, privatePathCommand, windowsShellPath } from "../src/platform/project-paths";
 import { POSIX } from "./support/platform";
 
 let root: string; let home: string; let project: string; let context: { root: string; home: string; agentDir: string };
@@ -105,6 +105,31 @@ test("a shell write into git's rebase or cherry-pick to-do, or git config diff.e
   for (const safe of ["cat .git/rebase-merge/git-rebase-todo", "git rebase --continue", "git config --get diff.external"]) {
     expect([safe, gitInternalsCommand(safe, project, home)]).toEqual([safe, undefined]);
   }
+});
+
+test("Windows: /c/..., /mnt/c/... and /cygdrive/c/... are checked as the drive path Pi's tools open", () => {
+  expect(windowsShellPath("/c/Users/me/.ssh/id_rsa")).toBe("C:\\Users\\me\\.ssh\\id_rsa");
+  expect(windowsShellPath("/mnt/c/Users/me/.bashrc")).toBe("C:\\Users\\me\\.bashrc");
+  expect(windowsShellPath("/cygdrive/D/x")).toBe("D:\\x");
+  expect(windowsShellPath("/c")).toBe("C:\\");
+  for (const kept of ["//server/share", "/c\\x", "src/a.ts", "/usr/bin", "C:\\x"]) expect(windowsShellPath(kept)).toBe(kept);
+});
+
+test("the lsp tool's path gets the same private-place refusal as read", async () => {
+  await mkdir(path.join(project, "secrets"), { recursive: true });
+  const denied = { ...context, denyRead: [path.join(project, "secrets")] };
+  expect(fileToolGate("lsp", { server: "ts", operation: "diagnostics", path: "secrets/db.ts" }, denied)).toContain("this project's sandbox.denyRead");
+  expect(fileToolGate("lsp", { server: "ts", operation: "symbols", path: path.join(home, ".ssh/id_test") }, denied)).toContain("is private");
+  if (POSIX) expect(fileToolGate("lsp", { server: "ts", operation: "symbols", path: "keys/id_test" }, denied)).toContain("is private");
+  expect(fileToolGate("lsp", { server: "ts", operation: "symbols", path: "src/a.ts" }, denied)).toBeUndefined();
+  expect(fileToolGate("lsp", { server: "ts", operation: "workspaceSymbols", query: "x" }, denied)).toBeUndefined();
+});
+
+test("find over a folder that holds a private place is refused like grep; ls of it still lists", () => {
+  expect(fileToolGate("find", { pattern: "**/*", path: "~" }, { ...context, root: project })).toContain("holds private files (~/.ssh)");
+  expect(fileToolGate("find", { pattern: "*", path: home }, context)).toContain("holds private files");
+  expect(fileToolGate("ls", { path: "~" }, context)).toBeUndefined();
+  expect(fileToolGate("find", { pattern: "*.ts" }, context)).toBeUndefined();
 });
 
 test("a session in Casper's own worktree folder can still edit its project files", async () => {

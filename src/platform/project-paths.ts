@@ -40,10 +40,19 @@ export interface PathContext {
 
 const UNICODE_SPACES = /[  -   　]/g;
 
+/** Git Bash, MSYS, Cygwin and WSL drive paths (/c/Users, /mnt/c/Users, /cygdrive/c/Users) as Windows names them
+ * (C:\Users). Pi's tools do this on Windows before opening a path, so the checks must too. */
+export function windowsShellPath(input: string): string {
+  if (!input.startsWith("/") || input.startsWith("//") || input.includes("\\")) return input;
+  const match = /^\/(?:mnt\/|cygdrive\/)?([a-z])(?:\/(.*))?$/i.exec(input);
+  return match ? `${match[1]!.toUpperCase()}:\\${match[2]?.replaceAll("/", "\\") ?? ""}` : input;
+}
+
 /** The absolute path a native tool will use for `input`: the same steps as Pi's resolveToCwd. */
 export function resolveToolPath(input: string, cwd: string, home = os.homedir()): string {
   let normal = input.replace(UNICODE_SPACES, " ");
   if (normal.startsWith("@")) normal = normal.slice(1);
+  if (process.platform === "win32") normal = windowsShellPath(normal);
   if (normal === "~") return home;
   if (normal.startsWith("~/") || (process.platform === "win32" && normal.startsWith("~\\"))) return path.join(home, normal.slice(2));
   if (/^file:\/\//.test(normal)) { try { return fileURLToPath(normal); } catch { /* keep as typed */ } }
@@ -232,12 +241,18 @@ const READ_TOOLS = new Set(["read", "grep", "find", "ls"]);
 const WRITE_TOOLS = new Set(["edit", "write"]);
 
 /**
- * The file tool gate for the AI's native read, grep, find, ls, edit and write. Returns the refusal
+ * The file tool gate for the AI's native read, grep, find, ls, edit and write, and the lsp tool's path. Returns the refusal
  * the AI sees, or undefined to let the call run.
  */
 export function fileToolGate(toolName: string, input: Record<string, unknown> | undefined, context: PathContext): string | undefined {
-  if (!input || (!READ_TOOLS.has(toolName) && !WRITE_TOOLS.has(toolName))) return undefined;
   const home = context.home ?? os.homedir();
+  // The lsp tool sends the file's text to the language server and returns its symbols: a private file is refused as
+  // read refuses it. (It never leaves the project; the LSP layer checks that.)
+  if (toolName === "lsp" && input && typeof input.path === "string" && input.path) {
+    const place = privatePlace(resolveToolPath(input.path, context.root, home), context);
+    return place ? `Not read: ${place} is private (${whyPrivate(place, context)}). Casper keeps it from the AI.` : undefined;
+  }
+  if (!input || (!READ_TOOLS.has(toolName) && !WRITE_TOOLS.has(toolName))) return undefined;
   const given = typeof input.path === "string" && input.path ? input.path : toolName === "read" || WRITE_TOOLS.has(toolName) ? undefined : ".";
   if (given === undefined) return undefined;
   const absolute = resolveToolPath(given, context.root, home);
@@ -251,8 +266,8 @@ export function fileToolGate(toolName: string, input: Record<string, unknown> | 
     if (kind === "gitInternal") return `Not done: ${gitInternalPart(candidate, context.root, home)} belongs to git itself. Casper doesn't let the AI change it.`;
     if (kind === "protected") return `Not done: ${displayPath(candidate, context.root, home)} holds your shell, git or Casper settings. Casper doesn't let the AI change it.`;
   }
-  // grep reads every file under its folder, hidden ones too.
-  if (toolName === "grep") {
+  // grep reads every file under its folder, hidden ones too; find lists their names (fd --hidden).
+  if (toolName === "grep" || toolName === "find") {
     const below = privatePlaceBelow(absolute, context);
     if (below) return `Not searched: ${displayPath(absolute, context.root, home)} holds private files (${below}). Search a narrower folder.`;
   }

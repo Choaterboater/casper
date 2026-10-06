@@ -465,3 +465,21 @@ test("performance: import matching is linear on adversarial sources", async () =
   expect(performance.now() - started).toBeLessThan(500);
   expect(repo.filesScanned).toBe(1);
 });
+
+test("the AI's repo scan leaves out a sandbox.denyRead folder, and a scope inside one is refused", async () => {
+  const root = await tempDir("casper-visualize-private-");
+  await mkdir(path.join(root, "src"), { recursive: true });
+  await mkdir(path.join(root, "data", "keys"), { recursive: true });
+  await writeFile(path.join(root, "src/index.ts"), 'import "./a";\n');
+  await writeFile(path.join(root, "src/a.ts"), "export {};\n");
+  await writeFile(path.join(root, "data/rotation.ts"), 'import "./keys/prod";\n');
+  await writeFile(path.join(root, "data/keys/prod.ts"), "export {};\n");
+  const privatePaths = [path.join(root, "data")];
+  const whole = await buildRepoGraph({ root, privatePaths });
+  expect(whole.graph.nodes.map((node) => node.id)).toEqual(["src/a.ts", "src/index.ts"]);
+  expect(whole.notes).toContain("1 private folder(s) were not scanned.");
+  await expect(buildRepoGraph({ root, scope: "data", privatePaths })).rejects.toThrow("private");
+  await expect(buildRepoGraph({ root, scope: "data/keys", privatePaths })).rejects.toThrow("private");
+  // You, with /visualize repo, still see the whole project.
+  expect((await buildRepoGraph({ root })).graph.nodes.map((node) => node.id)).toContain("data/rotation.ts");
+});

@@ -26,6 +26,8 @@ export interface TaskCapabilitySource {
   visualization: VisualizationRouter;
   /** Workspace root for repo-scoped visualization. */
   projectRoot: string;
+  /** The project's sandbox.denyRead (absolute): the visualize tool doesn't scan them. */
+  privatePaths?: readonly string[];
   /** True when the owned browser session already ran a task and can be reused. */
   browserReady: boolean;
   /** Chrome (or CASPER_BROWSER_EXECUTABLE) is on this machine: the browser tool is there from the first turn. */
@@ -68,6 +70,6 @@ export async function assembleTaskTools(task: string, source: TaskCapabilitySour
     ...(browser ? [browserTool(source.browser, source.browserSignal)] : []),
     ...(service ? [source.serviceTool()] : []),
     // Diagrams need nothing installed, so this one is always there.
-    ...visualizationTools({ router: source.visualization, projectRoot: source.projectRoot }),
+    ...visualizationTools({ router: source.visualization, projectRoot: source.projectRoot, privatePaths: source.privatePaths ?? [] }),
   ];
 }
