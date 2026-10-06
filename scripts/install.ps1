@@ -55,14 +55,17 @@ function Test-CasperSignature([string]$SumsPath) {
     return
   }
   $Keygen = Get-Command ssh-keygen -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-  if (-not $Keygen) { Write-Host 'Install OpenSSH (ssh-keygen) to also check the release signature.'; return }
+  # A 32-bit PowerShell on 64-bit Windows is shown SysWOW64 for System32, where Windows' own OpenSSH is not; Sysnative
+  # is the real System32 there.
+  $KeygenPath = if ($Keygen) { $Keygen.Source } else { Join-Path $env:windir 'Sysnative\OpenSSH\ssh-keygen.exe' }
+  if (-not (Test-Path -LiteralPath $KeygenPath)) { Write-Host 'Install OpenSSH (ssh-keygen) to also check the release signature.'; return }
   # Too old is asked of ssh-keygen alone, with nothing from the download: the real check prints text from the
   # signature file, so its words never decide this.
   $ProbeOut = Join-Path $Tmp 'probe-out.txt'
   $ProbeErr = Join-Path $Tmp 'probe-err.txt'
   $NoInput = Join-Path $Tmp 'probe-in.txt'
   [IO.File]::WriteAllText($NoInput, '')
-  $null = Start-Process -FilePath $Keygen.Source -ArgumentList @('-Y', 'verify') -RedirectStandardInput $NoInput `
+  $null = Start-Process -FilePath $KeygenPath -ArgumentList @('-Y', 'verify') -RedirectStandardInput $NoInput `
     -RedirectStandardOutput $ProbeOut -RedirectStandardError $ProbeErr -NoNewWindow -Wait -PassThru
   $Probe = "$(Get-Content -Raw -ErrorAction SilentlyContinue $ProbeOut) $(Get-Content -Raw -ErrorAction SilentlyContinue $ProbeErr)"
   if ($Probe -match 'option -- Y|illegal option|unknown option') {
@@ -75,7 +78,7 @@ function Test-CasperSignature([string]$SumsPath) {
   $ErrPath = Join-Path $Tmp 'verify-err.txt'
   # SHA256SUMS goes in as a file, byte for byte: a PowerShell pipe would change its text before ssh-keygen saw it.
   $Arguments = @('-Y', 'verify', '-f', ('"{0}"' -f $Allowed), '-I', 'casper-release', '-n', 'casper-release', '-s', ('"{0}"' -f $SigPath))
-  $Check = Start-Process -FilePath $Keygen.Source -ArgumentList $Arguments -RedirectStandardInput $SumsPath `
+  $Check = Start-Process -FilePath $KeygenPath -ArgumentList $Arguments -RedirectStandardInput $SumsPath `
     -RedirectStandardOutput $OutPath -RedirectStandardError $ErrPath -NoNewWindow -Wait -PassThru
   if ($Check.ExitCode -eq 0) { Write-Host 'Verified: signed with the Casper release key.'; return }
   throw "The release signature doesn't match the Casper release key. Nothing installed."

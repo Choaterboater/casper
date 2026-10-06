@@ -54,8 +54,8 @@ test("preview installers agree on the versioned GitHub asset directory", async (
 
 // The POSIX installer and the `#!/bin/sh` stand-in artifact it installs only run on a
 // POSIX host, so every case here is POSIX-gated: on Windows these skip with a stated
-// reason instead of failing. `install.ps1` — the Windows half, which needs PowerShell —
-// has no execution test on this host; URL agreement above is static only.
+// reason instead of failing. `install.ps1` — the Windows half, which needs PowerShell — runs
+// in Windows CI (scripts/test-install-windows.ps1 and scripts/test-install-signature-windows.ps1).
 posixOnly("the installer resolves the same artifact name the release build publishes", async () => {
   const child = Bun.spawn(["sh", installer, "--print-target"], { stdout: "pipe", stderr: "pipe" });
   const [stdout, exitCode] = await Promise.all([new Response(child.stdout).text(), child.exited]);
