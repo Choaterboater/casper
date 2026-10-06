@@ -156,7 +156,7 @@ test("secrets inside Junos and Aruba config text are hidden", () => {
   expect(box).toContain("host-name r1");
   expect(box).toContain("Hidden: parts of config_text.");
   // The shared secret rules do the hiding, so the box shows the same marker as everything else.
-  expect(box).toContain("encrypted-password <secret hidden>");
+  expect(box).toContain("encrypted-password \"<secret hidden>\"");
   expect(box).toContain("wpa-passphrase plaintext <secret hidden>");
 });
 

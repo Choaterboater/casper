@@ -50,12 +50,19 @@ export function redactPreview(text: string): string {
 const HIDDEN = "<secret hidden>";
 const HIDDEN_WORD = "<secret\u00a0hidden>";
 
+const SECRET_WORD = String.raw`[\w-]*(?:token|secret|password|passwd|api[_-]?key|authorization)[\w-]*`;
+const NOT_COMMAND = String.raw`(?!(?:add|create|list|remove|delete|modify|show|get|set|info|generate|revoke)(?:\s|$))`;
+const VALUE = String.raw`(?:"[^"\n]*"|'[^'\n]*'|[^\s;&'"][^\s;&]*)`;
+
 function redactPart(text: string): string {
   return text
     .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+:[^\s/@]+@/gi, "$1<redacted>@")
     .replace(/\b(Bearer|Basic)\s+[^\s'";]+/gi, "$1 <redacted>")
     // `pveum user token add`, `token list`: a command word after "token" is not its value.
-    .replace(/((?:[\w-]*(?:token|secret|password|passwd|api[_-]?key|authorization)[\w-]*)["']?\s*(?:=|:|\s)\s*)(?!(?:add|create|list|remove|delete|modify|show|get|set|info|generate|revoke)(?:\s|$))(?:"[^"\n]*"|'[^'\n]*'|[^\s;&'"][^\s;&]*)/gi, "$1<redacted>")
+    // name=value or name: value.
+    .replace(new RegExp(`((?:${SECRET_WORD})["']?\\s*[=:]\\s*)${NOT_COMMAND}${VALUE}`, "gi"), "$1<redacted>")
+    // --password value, -token value. A plain word after the name ("Unexpected token u") is not a value.
+    .replace(new RegExp(`((?<![\\w-])--?(?:${SECRET_WORD})\\s+)${NOT_COMMAND}${VALUE}`, "gi"), "$1<redacted>")
     .replace(/\b(?:sk-[\w-]{8,}|gh[pousr]_[\w]{8,}|github_pat_[\w]{8,}|AKIA[A-Z0-9]{16})\b/g, "<redacted>");
 }
 

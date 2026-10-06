@@ -91,6 +91,8 @@ function assignmentSpans(line: string, strict: boolean): Span[] {
     // Docker's "auth" (config.json, .dockercfg): a login only when it reads as one, or in a secret file.
     const auth = !named && snakeKey(name) === "auth";
     if (!raw || !indices || !(named || auth)) continue;
+    // `grep password= src/`: a word after "name= " (no space before =, one after) is an argument, not the value.
+    if (!strict && match[5] === "=" && !match[4] && match[6]) continue;
     // "a == b" and "a := b" are comparisons or code, not stored values.
     if (line[indices[0]] === "=" || (match[5] === ":" && line[match.indices![5]![1]] === "=")) continue;
     // ok ? "pass" : "fail" is a ternary in grepped code: both sides are results, not a name and its value.
@@ -100,6 +102,12 @@ function assignmentSpans(line: string, strict: boolean): Span[] {
     const quoted = value.length >= 2 && (value[0] === "\"" || value[0] === "'") && value.at(-1) === value[0];
     if (quoted) { start++; end--; value = value.slice(1, -1); }
     else {
+      // A name and value inside a shell quote ('token=abc' in a grep or a commit message): the value ends at that quote.
+      const opener = match[1];
+      if (opener === "'" || opener === "\"") {
+        const close = value.indexOf(opener);
+        if (close >= 0) { end = start + close; value = value.slice(0, close); }
+      }
       // Unquoted: stop at a comment, a list separator or trailing space.
       const cut = value.search(/\s+#|\s*[,;]\s*(?:$|["'\w])|\s+$/);
       if (cut >= 0) { end = start + cut; value = value.slice(0, cut); }
