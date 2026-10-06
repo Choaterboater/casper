@@ -3,6 +3,9 @@
 
 import type { CasperApp } from "../app";
 import os from "node:os";
+import path from "node:path";
+import { casperAgentDir } from "../runtime/agent-store";
+import { loginFileValues, networkLoginValues, secretEnvValues } from "../secrets/files";
 import { terminalText } from "../tui/format";
 import type { LoginHost } from "../mcp/network/ask-login";
 import { loginFile } from "../mcp/network/logins";
@@ -91,6 +94,13 @@ export function networkLoginHost(app: CasperApp): LoginHost {
 /** ~/.casper/network-logins.json: its tokens are hidden in every tool output the AI reads. */
 export function networkLoginFile(app: CasperApp): string {
   return loginFile(app.sessionHomeDir ?? os.homedir());
+}
+
+/** Casper's own secrets, as exact values: secret-named environment values, its login file's keys and the saved
+ * network logins. Hidden wherever they turn up, MCP results and reference excerpts too. */
+export function ownSecretValues(app: CasperApp): string[] {
+  return [...new Set([...secretEnvValues(), ...loginFileValues(path.join(casperAgentDir(), "auth.json")), ...networkLoginValues(networkLoginFile(app))])]
+    .sort((a, b) => b.length - a.length);
 }
 
 /** ctrl+o: writes off for every server at once, and every allowed kind and session answer ended. Returns whether

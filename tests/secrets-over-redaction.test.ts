@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { SECRET_RULES } from "../src/secrets/patterns";
 import { SECRET_MARKER, scrubText } from "../src/secrets/scrub";
-import { scrubPlainSecrets } from "../src/secrets/files";
+import { hideCommandSecrets, scrubAssignments, scrubPlainSecrets } from "../src/secrets/files";
+import { redactPreview } from "../src/tui/format";
 
 // Ordinary code that once came back with "password" hidden and a "fail" literal gone.
 const CODE = [
@@ -81,4 +82,33 @@ test("a password that is itself a key word, or all punctuation, is still hidden"
 test("a key word inside a longer word does not stop the next password being hidden", () => {
   expect(scrubText("rehash password Hunter2x").text).toBe(`rehash password ${SECRET_MARKER}`);
   expect(scrubText("password secret;").text).toBe(`password ${SECRET_MARKER};`);
+});
+
+test("a value hidden inside a quoted argument keeps its closing quote; a search for 'password=' keeps its path", () => {
+  expect(hideCommandSecrets("git log --grep 'token=deadbeef1234'").text).toBe("git log --grep 'token=<secret hidden>'");
+  expect(hideCommandSecrets("grep -rn 'password: hunter2' tests/").text).toBe("grep -rn 'password: <secret hidden>' tests/");
+  expect(hideCommandSecrets("grep -rn \"api_key: abc123def\" docs/").text).toBe("grep -rn \"api_key: <secret hidden>\" docs/");
+  const search = hideCommandSecrets("grep -rn password= src/");
+  expect(search.text).toBe("grep -rn password= src/");
+  expect(search.hidden).toBe(0);
+  // Still hidden: a value right after the name, and spaces on both sides of =.
+  expect(hideCommandSecrets("export DB_PASSWORD=hunter2x").hidden).toBe(1);
+  expect(scrubAssignments("password = hunter2x\n", false).hidden).toBe(1);
+  expect(hideCommandSecrets("grep -rn password= ./config").hidden).toBe(0);
+  expect(hideCommandSecrets("grep password= -r .").hidden).toBe(0);
+});
+
+test("a real value after 'name= ' (one space after =) is still hidden", () => {
+  for (const line of ["db = connect(user='app', password= 'Hunter2xyz')", "psycopg2.connect(password= \"Hunter2xyz\")", "DB_PASSWORD= Hunter2xyz"]) {
+    const out = scrubPlainSecrets(line, { env: {} }).text;
+    expect({ line, leaked: out.includes("Hunter2xyz") }).toEqual({ line, leaked: false });
+  }
+});
+
+test("the screen's redaction keeps ordinary words after token, secret and password", () => {
+  for (const text of ["SyntaxError: Unexpected token u in JSON at position 0", "the secret rotation check passed", "git grep -n password src/",
+    "casper_check secrets scrub", "Authorization header is badly formatted", "rename tokenizer to lexer"]) expect(redactPreview(text)).toBe(text);
+  expect(redactPreview("mysql --password hunter2 -e x")).toBe("mysql --password <redacted> -e x");
+  expect(redactPreview("cli -token abc123 run")).toBe("cli -token <redacted> run");
+  expect(redactPreview("password=hunter2 token: abc123")).toBe("password=<redacted> token: <redacted>");
 });

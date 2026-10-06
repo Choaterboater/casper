@@ -70,9 +70,12 @@ fresh on every search. No index, embeddings, database or cache is made.
 **Review the folders before you add them.** Adding a source makes its text
 available to the AI. Excerpts can contain private text. Known device secrets
 (passwords, keys, SNMP communities; see [SECRETS.md](SECRETS.md)) are shown as
-`<secret hidden>` by Casper's own rules (netconan does not run here), and a line
-that matches only inside a hidden secret is not returned. This is best effort;
-other secrets are not detected. The saved conversation may keep search results,
+`<secret hidden>` by Casper's own rules (netconan does not run here), and so are the
+values the AI's `read` hides everywhere: secret-named values (`MIST_APITOKEN=...`),
+passwords in addresses, `Bearer` tokens and exact copies of Casper's own secrets
+(your secret environment values, its login file, your network logins). A line that
+matches only inside a hidden secret is not returned. This is best effort; other
+secrets are not detected. The saved conversation may keep search results,
 just as it keeps file reads. The search itself saves no extra copy of the text and
 writes nothing to memory.
 

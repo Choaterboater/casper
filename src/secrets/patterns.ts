@@ -172,7 +172,8 @@ export function keepLiterally(value: string): boolean {
     || /^\*{3,}$/.test(value)
     // hpe-networking-mcp tokenises secrets itself and swaps these back on later calls.
     || /^hpe_mcp_secret_[0-9a-f]{32}$/i.test(value)
-    || value.startsWith("<secret hidden>") || value.startsWith("<secret")
+    // The marker itself (the screen shows it with a no-break space), not any value that starts with "<secret".
+    || /^<secret[ \u00a0]hidden>/.test(value)
     || value.startsWith("<line hidden");
 }
 
@@ -180,8 +181,13 @@ export function keepLiterally(value: string): boolean {
 export const AUTH_SERVER_BLOCK = /^(\s*)(?:aaa\s+authentication-server\s+(?:radius|tacacs)\b|wlan\s+auth-server\b|radius\s+server\b|tacacs\s+server\b)/i;
 /** Starts a Junos curly "snmp {" block, where "community NAME" names are secrets. */
 export const JUNOS_SNMP_BLOCK = /^\s*snmp\s*\{/;
-export const PEM_BEGIN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/;
-export const PEM_END = /-----END [A-Z0-9 ]*PRIVATE KEY-----/;
+/** PEM private keys, and GnuPG's armored secret key export (PGP PRIVATE KEY BLOCK). */
+export const PEM_BEGIN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----/;
+export const PEM_END = /-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----/;
+/** A line of a key's body: base64 (a PGP block ends with an "=AbCd" checksum line). */
+export const KEY_BODY_LINE = /^=?[A-Za-z0-9+/]{4,}={0,2}$/;
+/** A line-number prefix, maybe after a file name: grep -n "2:", cat -n "     2\t", Pi's grep "certs/key.pem:2: " and "key.pem-3- ". */
+export const LINE_PREFIX = /^(?:[^\s:]+[:-])?\s*\d+[:\t-]\s?/;
 
 /** Anchor lines for "this text is a device config". Two are needed. */
 export const CONFIG_ANCHORS: readonly RegExp[] = [

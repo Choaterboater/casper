@@ -1,4 +1,5 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
+import { lookPrompt } from "../src/services/page-look";
 import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -107,7 +108,7 @@ test("showPages: on and a model that sees pictures: it looks once at the desktop
   expect(f.prompts).toHaveLength(2);
   const look = f.prompts[1]!;
   expect(look.text).toStartWith("Casper page look.");
-  expect(look.text).toContain("[image 1] /dashboard at desktop width (1280 px)\n[image 2] /dashboard at phone width (390 px)");
+  expect(look.text).toContain("[screenshot 1] /dashboard at desktop width (1280 px)\n[screenshot 2] /dashboard at phone width (390 px)");
   expect(look.images).toEqual([{ data: PNG.toString("base64"), mimeType: "image/png" }, { data: PNG.toString("base64"), mimeType: "image/png" }]);
   const receipt = f.text();
   expect(receipt).toContain("↻ look: the AI looks at 2 screenshots of /dashboard");
@@ -185,3 +186,10 @@ test("code the AI changes while looking at the pages counts for the proof: a CSS
   expect(task?.proofSkipped).not.toBe("only non-code files changed");
   expect(task?.proof).toBeDefined();
 }, 60_000);
+
+test("the look round names its screenshots apart from the pictures sent with the request", () => {
+  const text = lookPrompt("make [image 1] match the dashboard", { images: [], shown: [{ path: "/dashboard", views: ["desktop"] }] });
+  expect(text).toContain("[screenshot 1] /dashboard at desktop width (1280 px)");
+  expect(text).not.toContain("[image 1] /dashboard");
+  expect(text).toContain("An [image N] in the request below is a picture sent with it earlier, not one of these screenshots.");
+});

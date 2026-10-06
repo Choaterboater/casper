@@ -31,27 +31,41 @@ through. Check what a tool returns before you share it.
   - any key ending in `_password`, `_secret`, `_psk`, `_passphrase` or `_community`;
   - device keys such as `pre_shared_key`, `tacacs_key`, `radius_key`, `wep_key` and
     `secret_key`;
-  - login tokens (`token`, `api_token`, `bearer_token`).
+  - login tokens (`token`, `api_token`, `bearer_token`);
+  - the secret names file and command output use too (`aws_secret_access_key`,
+    `credentials`, `apitoken`, `bearer` ...), so a JSON config saved to disk and the
+    same JSON from a server hide the same values.
 
   `next_cursor`, `cursor`, `list_key`, `key`, `public_key`, paging tokens
   (`next_token`, `page_token`) and anything under `_pagination` are left alone, so
-  paging keeps working. The result says `secretsHidden: N`.
+  paging keeps working. Exact copies of Casper's own secrets (your secret environment
+  values, the keys in its login file and your saved network logins) are hidden in every
+  server's results too. The result says `secretsHidden: N`.
 - **Files you or the AI read: config files for device secrets.** A `read` is
   scrubbed for `.cfg`, `.conf` and `.set` files, and for files under a folder named
   `configs`, `backups` or `oxidized`. Source code and data files (`.ts`, `.py`,
   `.json`, `.yaml`, `.md` and so on) are never changed by the device rules, even
-  under those folders, so test files stay as they are.
+  under those folders. The always-on rules below still apply to them, so a literal
+  token or password in a test fixture is hidden.
 - **`.env`, INI and credential files: always (from v0.2.16).** In
-  `.env`, `.env.*`, `*.env`, `.envrc`, `.netrc`, `.npmrc`, `.pypirc`, `.pgpass`,
-  `credentials*`, `secrets.*`, `*.ini`, `*.properties`, `*.tfvars`, `*.tfstate`,
-  `*.pem`, `*.key` and `id_rsa`-style files, every value whose name looks secret is
-  hidden, and so are private keys: `MIST_APITOKEN=<secret hidden>`. Names and other
-  settings (`MIST_HOST=api.mist.com`) stay, so the AI still knows what the file holds.
+  `.env`, `.env.*`, `*.env`, `.envrc`, `.netrc`, `.npmrc`, `.pypirc`, `.pgpass`
+  (`pgpass.conf`), `.dockercfg`, Docker's `config.json`, `credentials*`, `secrets.*`,
+  `*.ini`, `*.properties`, `*.tfvars`, `*.tfstate`, `*.pem`, `*.key` and `id_rsa`-style
+  files, every value whose name looks secret is hidden, and so are private keys
+  (PEM and PGP): `MIST_APITOKEN=<secret hidden>`. A `.pgpass` line keeps its host, port,
+  database and user and hides the password; a Docker `"auth"` value (user:password) is
+  hidden. A key file read from part way down (no BEGIN line) still hides the key's body,
+  and so does a search whose lines start with a line number or the key file's name
+  (`grep -n`, `cat -n`, the AI's `grep`).
+  Names and other settings (`MIST_HOST=api.mist.com`) stay, so the AI still knows what
+  the file holds.
 - **Secret-named values in any output: always (from v0.2.16).** In what `read`,
-  `grep`, `bash`, `powershell` and the `service` tool (dev server logs and replies)
-  return, a value after a secret-looking name (`password=hunter2`,
+  `grep`, `bash`, `powershell`, the `service` tool (dev server logs and replies), the
+  `browser` tool (page text and diagnostics) and the `lsp` tool (and the diagnostics
+  added after an edit) return, a value after a secret-looking name (`password=hunter2`,
   `"client_secret": "..."`, `api_key: ...`, `SLACK_WEBHOOK_URL=...`,
-  `SENTRY_DSN=...`, `Authorization: Bearer ...`) is hidden when it looks like a real
+  `SENTRY_DSN=...`, `Authorization: Bearer ...`, in any case: `authorization: bearer ...`,
+  git's `extraheader = AUTHORIZATION: basic ...`) is hidden when it looks like a real
   value, and so is the password inside an address
   (`postgres://app:<secret hidden>@db/app`). Code such as `token = getToken()` or
   `password: str` is left alone.
@@ -74,7 +88,9 @@ through. Check what a tool returns before you share it.
   values of Casper's secret-named environment variables (`OPENROUTER_API_KEY`,
   `MIST_API_TOKEN`, `CENTRAL_CLIENT_SECRET`, `SLACK_WEBHOOK_URL`, `SENTRY_DSN` ...;
   8 characters or longer, not paths, and not plain web addresses except webhook and DSN ones)
-  are hidden wherever they turn up, so `printenv` shows the AI `<secret hidden>`. The
+  are hidden wherever an exact copy turns up (tool output, MCP results, reference
+  excerpts), so `printenv` shows the AI `<secret hidden>`. An encoded, split or reversed
+  copy (`printenv X | base64`) is not recognised: this is a text check, not a wall. The
   keys and sign-in tokens in Casper's login file (`~/.casper/agent/auth.json`) are
   hidden the same way, so `cat` of that file in the AI's shell shows none of them.
 - **Network logins: always.** The Mist, Central and ClearPass logins you add for
@@ -82,7 +98,8 @@ through. Check what a tool returns before you share it.
   (mode 0600; the AI's tools and shell can't open it). Casper adds them to that
   server's environment when it starts, never to `mcp.json`. The tokens, the Central
   client ID and the Central secret are hidden wherever they turn up: in tool output,
-  in the AI's shell output and in what the server prints on its error output. The
+  in the AI's shell output, in any MCP server's results, in check replies and reference
+  excerpts, and in what the server prints on its error output. The
   addresses (Mist cloud, Central region, ClearPass address) are not secrets and stay.
 - **Command and grep output: only when it looks like a config.** Output from
   `bash`, `powershell` or `grep` (failed commands too) is scrubbed when it has two
@@ -98,7 +115,8 @@ through. Check what a tool returns before you share it.
   opens key or `.env` files or files gitleaks flagged (see
   [SECURITY_CHECKS.md](SECURITY_CHECKS.md#the-ai-review)).
 - **Reference search excerpts** (`/references search`, `search_references`) are
-  scrubbed with Casper's own rules (not netconan). A line that only matches inside
+  scrubbed with Casper's own rules (not netconan): the device rules and the always-on
+  rules above. A line that only matches inside
   a hidden secret is not returned. See [REFERENCES.md](REFERENCES.md).
 
 The note `N secrets hidden before the AI saw this (...)` is added to the result the
@@ -129,6 +147,7 @@ The AI never saw the real value, so it must not write the marker over it. Casper
 refuses any of these that still contain `<secret hidden>` (or
 `<line hidden: secret>`, see netconan below):
 
+- An lsp rename whose new name contains it is refused like an `edit`.
 - An MCP call whose arguments contain it is refused before you are asked:
   `Not executed (this change still has <secret hidden> in it). Casper hid that
   secret from the AI, so the AI can't send it back. Type the real value yourself or
@@ -137,7 +156,7 @@ refuses any of these that still contain `<secret hidden>` (or
   text has <secret hidden> in it. That would replace a real secret in the file.
   Keep the original line.` (The old text an edit looks for may contain it; only new
   text counts.)
-- A `bash` or `powershell` command that contains it is refused: `Not run: the
+- A `bash` or `powershell` command, or the `service` tool's own start command, that contains it is refused: `Not run: the
   command has <secret hidden> in it. It could write the marker over a real secret.
   Keep the original line, or ask the user to make this change.`
 
@@ -200,6 +219,10 @@ Casper.
   format Casper doesn't know reaches the AI. Lab logins written with no spaces
   (`root/Example-Pass1`) or in a sentence ("use root and Example-Pass1") are not hidden,
   because they look like a path or plain words.
+- A private key's body in command output is recognised by its BEGIN or END line; a
+  piece of one with neither (`head -n 20 key.pem | tail -n 5`) is not. In a key file
+  (`*.pem`, `*.key`, `*.p8`, `id_rsa`, `id_ed25519_deploy`) every long base64 line is hidden, so a certificate read
+  from part way down a `.pem` is hidden too.
 - Lines longer than 4 KB (minified code, one-line JSON) are checked in 4 KB pieces
   that overlap by 512 characters, so a huge line can't stall Casper. A secret and the
   words before it, up to 512 characters together, always sit whole in one piece and
@@ -219,6 +242,10 @@ Casper.
 - A command the AI sent stays in the saved conversation as the AI wrote it; only
   what Casper shows and keeps is scrubbed.
 - `casper learn` reads repo text without this scrubbing.
+- Pictures are not scrubbed. A picture the AI reads (`read` on a PNG, JPEG, GIF or WebP,
+  including browser screenshots), one you paste or drop, and the page screenshots it
+  looks at go to the provider as they are. Keep screenshots of terminals or configs out
+  of folders the AI reads.
 - If the check itself fails on a tool's output, the AI gets `Output not shown:
   Casper could not check it for device secrets. Try a smaller read or another
   command.` instead of the raw text.

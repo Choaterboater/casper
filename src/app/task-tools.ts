@@ -22,6 +22,7 @@ import { askToolFor } from "./approvals";
 import { phase } from "./footer";
 import { appReaderTool } from "./reader";
 import { projectPrivatePaths } from "./wiring";
+import { appAgentDir } from "./runtime-start";
 
 export async function prepareCapabilities(app: CasperApp, task: string): Promise<void> {
   app.browserInstalled ??= browserDefaults.installed().catch(() => false);
@@ -29,7 +30,7 @@ export async function prepareCapabilities(app: CasperApp, task: string): Promise
     broker: app.broker!, delegate: delegateTool(app), ask: askToolFor(app),
     check: app.checkTask?.tool(), lsp: app.lsp!, confirmRename: app.confirmRename,
     references: app.references!, ...(app.web ? { web: webTools(app.web, app.commandAbort?.signal) } : {}), visualization: app.visualization!, projectRoot: app.activeWorkspaceRoot(), privatePaths: projectPrivatePaths(app),
-    reader: appReaderTool({ context: app.projectContext, session: () => app.session, shell: app.shell, broker: app.broker, root: app.activeWorkspaceRoot(), home: app.homeDir(), privatePaths: projectPrivatePaths(app), onUsage: (usage) => app.observations.recordModelCall(usage), signal: app.commandAbort?.signal }),
+    reader: appReaderTool({ context: app.projectContext, session: () => app.session, shell: app.shell, broker: app.broker, root: app.activeWorkspaceRoot(), home: app.homeDir(), agentDir: appAgentDir(app), privatePaths: projectPrivatePaths(app), onUsage: (usage) => app.observations.recordModelCall(usage), signal: app.commandAbort?.signal }),
     browserReady: app.browser?.status().state === "ready", browserInstalled: await app.browserInstalled, browser: () => browserSession(app),
     browserSignal: app.commandAbort?.signal,
     services: { declared: Object.keys(app.projectContext?.services ?? {}).length > 0, live: app.services?.live({ detected: false }) ?? false },

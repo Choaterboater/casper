@@ -3,7 +3,7 @@ import {
   matchesKey, setCapabilityOverrides, TuiMainScreen, truncateToWidth, visibleWidth, wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
-import { imageLabel, imageMimeType, MAX_IMAGES } from "../app/images";
+import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES } from "../app/images";
 import { COMMANDS, fitDescriptions, RUNS_DURING_WORK } from "./commands";
 import { BUSY_GLYPH, hasTerminalControls, markdownTheme, paint, PROMPT_GLYPH, terminalText } from "./format";
 import { GLYPHS } from "./glyphs";
@@ -335,12 +335,16 @@ export class TerminalSurface {
     if (!bytes?.length) {
       let text: string | null | undefined;
       try { text = await clipboardDefaults.text(); } catch { text = undefined; }
-      if (text) { this.editor.insertTextAtCursor(text); this.render(); }
+      // As a bracketed paste: the editor drops terminal control codes from it (and folds a long paste), as for any paste.
+      // ESC goes first, so the text can't end the paste early and be read as keys.
+      const safe = text?.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
+      if (safe) { this.editor.handleInput(`\x1b[200~${safe}\x1b[201~`); this.render(); }
       else this.flashNote("no picture on the clipboard");
       return;
     }
     const mimeType = imageMimeType(bytes);
     if (!mimeType) { this.flashNote("the clipboard picture is not PNG, JPEG, GIF or WebP"); return; }
+    if (bytes.length > MAX_IMAGE_BYTES) { this.flashNote(`the clipboard picture is over ${MAX_IMAGE_BYTES / 1024 / 1024} MB; not attached`); return; }
     if (this.pasted.size >= MAX_IMAGES) { this.flashNote(`at most ${MAX_IMAGES} pictures go with one request`); return; }
     const number = Math.max(0, ...this.pasted.keys()) + 1;
     this.pasted.set(number, { data: Buffer.from(bytes).toString("base64"), mimeType });

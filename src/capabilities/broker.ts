@@ -6,6 +6,7 @@ import { approvalNotes, guardArguments, hasNoPreview, isHidden, tightenSafety } 
 import type { RuntimeTool } from "../runtime/types";
 import { redactPreview } from "../tui/format";
 import { scrubExactValues } from "../secrets/assignments";
+import { secretEnvValues } from "../secrets/files";
 import { containsHiddenSecret, scrubText, scrubValue, SECRET_MARKER } from "../secrets/scrub";
 import { scrubNote, type ScrubOutcome } from "../secrets/netconan";
 import { DOCS_TOOL_NAMES, DOCS_TOOL_NOTE, docsPinned } from "../mcp/docs";
@@ -189,6 +190,8 @@ export class CapabilityBroker {
   private picked?: { servers: string; ids: string[] };
   private readonly writesGate: boolean;
   private readonly scrubber: ResultScrubber;
+  /** Casper's own secret values (secret-named environment values, its login files): hidden in every server's results. */
+  private readonly secretValues: () => readonly string[];
   /**
    * `writesGate`: honour each server's writes switch (the app turns this on, so every server starts
    * with writes off). Brokers built directly treat writes as on. Presets, read-only logins and
@@ -206,7 +209,8 @@ export class CapabilityBroker {
   constructor(private readonly manager: MCPManager, private readonly confirm?: ConfirmCapability,
     options: { writesGate?: boolean; scrubber?: ResultScrubber; onSessionCovered?: (server: string, realTool: string) => void; confirmKind?: ConfirmKind;
       onAllowAll?: (server: string, realTool: string) => void; onAllowAllStart?: (server: string) => void; onLoginMissing?: LoginMissingHandler;
-      onChangeCall?: (server: string, realTool: string) => void } = {}) {
+      onChangeCall?: (server: string, realTool: string) => void; secretValues?: () => readonly string[] } = {}) {
+    this.secretValues = options.secretValues ?? (() => secretEnvValues());
     if (options.onLoginMissing) this.onLoginMissing = options.onLoginMissing;
     if (options.onAllowAll) this.onAllowAll = options.onAllowAll;
     if (options.onAllowAllStart) this.onAllowAllStart = options.onAllowAllStart;
@@ -452,6 +456,8 @@ export class CapabilityBroker {
     // First the saved logins this server was started with (a Central client ID matches no pattern), then the shared rules.
     let values: readonly string[] = [];
     try { values = this.manager.loginValues(server); } catch { /* not connected any more */ }
+    // Exact copies only, so paging tokens and code examples in a result stay as they are.
+    try { values = [...new Set([...values, ...this.secretValues()])].sort((a, b) => b.length - a.length); } catch { /* keep the server's own */ }
     const exact = values.length ? scrubValue(raw, (text) => scrubExactValues(text, values)) : { value: raw, hidden: 0, kinds: [] };
     let outcome: ScrubOutcome<unknown>;
     try { outcome = await this.scrubber.scrubValue(exact.value, signal); }

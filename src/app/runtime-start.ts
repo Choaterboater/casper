@@ -7,6 +7,7 @@ import { hasSignIn } from "../tui/model-preference";
 import { formatRuntimeStartLine } from "../tui/format";
 import { boundCapabilityResult } from "../capabilities/result";
 import { hiddenSecretGate } from "../secrets/gate";
+import { fileChangeTool } from "../runtime/observation";
 import { scrubToolOutput } from "../secrets/tool-output";
 import type { AgentRuntime, RuntimeSession } from "../runtime/types";
 import { planToolGate } from "../flows/plan";
@@ -50,13 +51,17 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         afterFileEdit: async (file, signal) => {
           observeEdit(app, file);
           const reports = await app.lsp!.afterEdit(file, signal);
-          return reports.length ? `LSP diagnostics after edit: ${JSON.stringify(boundCapabilityResult(reports))}\nRepair new errors before continuing; unavailable or unversioned reports are not proof of a clean file.` : undefined;
+          if (!reports.length) return undefined;
+          // Diagnostics quote source, so they get the same scrub as the lsp tool's own results.
+          const json = JSON.stringify(boundCapabilityResult(reports));
+          const scrubbed = await scrubToolOutput(app.scrubber, "lsp", {}, [json], signal, { networkLoginFile: networkLoginFile(app) });
+          return `LSP diagnostics after edit: ${scrubbed?.texts[0] ?? json}${scrubbed?.note ? ` (${scrubbed.note})` : ""}\nRepair new errors before continuing; unavailable or unversioned reports are not proof of a clean file.`;
         },
         systemPromptAppend: systemPromptAppend(context),
         // A plan turn refuses every tool but reading, whatever the tool says about itself.
         beforeToolGate: (toolName, input) => (app.planning ? planToolGate(toolName, input) : undefined)
           ?? hiddenSecretGate(toolName, input)
-          ?? (toolName === "edit" || toolName === "write" ? editGateReason(app, toolName) : undefined),
+          ?? ((changes) => changes ? editGateReason(app, changes) : undefined)(fileChangeTool(toolName, input)),
         // At the spend pause the next tool call waits for the answer (Stop here is the Enter choice).
         beforeToolWait: (_toolName, signal) => spendGate(app, signal),
         // Config files and config-looking command output (/secrets files off stops these for this
@@ -167,7 +172,11 @@ export function observeEdit(app: CasperApp, path: string): void {
 
 /** Whether any sign-in exists yet, for the banner and footer only. */
 export async function checkSignIn(app: CasperApp): Promise<void> {
-  const agentDir = app.sessionHomeDir ? path.join(app.sessionHomeDir, ".casper", "agent")
+  app.signedIn = await hasSignIn(appAgentDir(app));
+}
+
+/** Casper's state folder for this session: its login and saved conversations. */
+export function appAgentDir(app: CasperApp): string {
+  return app.sessionHomeDir ? path.join(app.sessionHomeDir, ".casper", "agent")
     : process.env[AGENT_DIR_ENV] && process.env[AGENT_DIR_ENV] !== "undefined" ? process.env[AGENT_DIR_ENV]! : casperAgentDir();
-  app.signedIn = await hasSignIn(agentDir);
 }

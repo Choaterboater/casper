@@ -227,3 +227,47 @@ test(`${PASTE_IMAGE_KEY} pastes the clipboard's picture as [image 1] and it goes
     f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
   }
 });
+
+test(`${PASTE_IMAGE_KEY} with only text on the clipboard pastes it without terminal control codes`, async () => {
+  const f = await fixture({ vision: true });
+  const previous = { ...clipboardDefaults };
+  clipboardDefaults.image = async () => null;
+  clipboardDefaults.text = async () => "fix the header\x1b]0;PWNED\x07\x1b[2J\x1b[31m red\x1b[201~ done";
+  const app = f.make(true);
+  const interactive = app.runInteractive(f.project);
+  try {
+    await f.screen.until((output) => output.includes("idle"));
+    f.input.write(PASTE_IMAGE_KEY === "ctrl+v" ? "\x16" : "\x1bv");
+    await f.screen.until((output) => output.includes("done"));
+    f.input.write("\r");
+    await f.screen.until(idleAfter("Looked."));
+    expect(f.prompts[0]!.text).toContain("fix the header");
+    expect(f.prompts[0]!.text).toContain("done");
+    expect(f.prompts[0]!.text).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
+  } finally {
+    Object.assign(clipboardDefaults, previous);
+    f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
+  }
+});
+
+test(`${PASTE_IMAGE_KEY} refuses a clipboard picture over 20 MB, like a picture file`, async () => {
+  const f = await fixture({ vision: true });
+  const previous = { ...clipboardDefaults };
+  const big = new Uint8Array(21 * 1024 * 1024);
+  big.set(PNG);
+  clipboardDefaults.image = async () => big;
+  const app = f.make(true);
+  const interactive = app.runInteractive(f.project);
+  try {
+    await f.screen.until((output) => output.includes("idle"));
+    f.input.write("fix this ");
+    f.input.write(PASTE_IMAGE_KEY === "ctrl+v" ? "\x16" : "\x1bv");
+    await f.screen.until((output) => output.includes("over 20 MB; not attached"));
+    f.input.write("\r");
+    await f.screen.until(idleAfter("Looked."));
+    expect(f.prompts[0]!.images).toBeUndefined();
+  } finally {
+    Object.assign(clipboardDefaults, previous);
+    f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
+  }
+});

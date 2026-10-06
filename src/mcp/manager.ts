@@ -49,7 +49,7 @@ export interface MCPStatus {
   approved: boolean;
   /** Remembered approval: none, remembered, or changed since you approved it. */
   consent: ConsentState;
-  /** "off": write and delete tools are hidden and the preset's read-only pins are sent. Always "off" at start. */
+  /** "off": the preset's read-only pins are sent and every change asks in the box. Always "off" at start. */
   writes: "off" | "on";
   /** "login: read-only (checked)", "login: can make changes (checked)" or "access not checked". */
   access: string;

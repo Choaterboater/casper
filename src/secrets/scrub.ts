@@ -1,8 +1,9 @@
 import path from "node:path";
 import {
-  AUTH_SERVER_BLOCK, CONFIG_ANCHORS, JUNOS_SNMP_BLOCK, KIND_ORDER, KIND_WORDS, PEM_BEGIN, PEM_END, SECRET_RULES,
+  AUTH_SERVER_BLOCK, CONFIG_ANCHORS, JUNOS_SNMP_BLOCK, KEY_BODY_LINE, KIND_ORDER, LINE_PREFIX, KIND_WORDS, PEM_BEGIN, PEM_END, SECRET_RULES,
   keepLiterally, replaceSpans, windowedSpans, type SecretKind, type SecretRule,
 } from "./patterns";
+import { isSecretKeyName } from "./assignments";
 
 /** What the AI sees in place of a secret value. */
 export const SECRET_MARKER = "<secret hidden>";
@@ -62,7 +63,15 @@ function indentOf(line: string): number { return /^\s*/.exec(line)![0].length; }
  * RADIUS and TACACS server blocks ("key X" only counts inside them), Junos
  * curly "snmp { community NAME }", and PEM private keys.
  */
-export function scrubText(text: string): ScrubTextResult {
+/** A key body line, with any line-number prefix (grep -n, cat -n) kept apart so it can stay. */
+function keyBodyLine(line: string): { prefix: string; body: string } | undefined {
+  const prefix = LINE_PREFIX.exec(line)?.[0] ?? "";
+  const body = line.slice(prefix.length).trim();
+  return KEY_BODY_LINE.test(body) ? { prefix, body } : undefined;
+}
+
+/** `keysOnly`: private keys only, not the device rules (grep output that holds a key file's lines). */
+export function scrubText(text: string, options: { keyFile?: boolean; keysOnly?: boolean } = {}): ScrubTextResult {
   const lines = text.split("\n");
   const kinds = new Set<SecretKind>();
   let hidden = 0;
@@ -70,6 +79,10 @@ export function scrubText(text: string): ScrubTextResult {
   let snmpDepth: number | undefined;
   let depth = 0;
   let inPem = false;
+  // A key file's body with no BEGIN line before it (a read from line 2): runs of long base64 lines.
+  let inBody = false;
+  // A certificate or public key in a key file: its body is not a secret.
+  let inOther = false;
   for (let index = 0; index < lines.length; index++) {
     const raw = lines[index]!;
     const carriage = raw.endsWith("\r");
@@ -81,11 +94,35 @@ export function scrubText(text: string): ScrubTextResult {
     }
     if (PEM_BEGIN.test(line)) {
       inPem = !PEM_END.test(line.slice(line.search(PEM_BEGIN) + 16));
+      inBody = false;
       hidden++;
       kinds.add("private-key");
-      if (!inPem) lines[index] = line.replace(/(-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----)[\s\S]*?(-----END)/, `$1${SECRET_MARKER}$2`) + (carriage ? "\r" : "");
+      if (!inPem) lines[index] = line.replace(/(-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----)[\s\S]*?(-----END)/, `$1${SECRET_MARKER}$2`) + (carriage ? "\r" : "");
       continue;
     }
+    // An END line with no BEGIN before it (tail -n +2 key.pem): the base64 lines just above it are the key.
+    if (PEM_END.test(line)) {
+      let above = index - 1;
+      while (above >= 0) {
+        const part = keyBodyLine(lines[above]!);
+        if (!part) break;
+        lines[above] = part.prefix + SECRET_MARKER + (lines[above]!.endsWith("\r") ? "\r" : "");
+        above--;
+      }
+      if (above < index - 1 && !inBody) { hidden++; kinds.add("private-key"); }
+      inBody = false;
+      continue;
+    }
+    if (options.keyFile && /-----(?:BEGIN|END) [A-Z0-9 ]+-----/.test(line)) { inOther = line.includes("-----BEGIN"); inBody = false; continue; }
+    const part = options.keyFile && !inOther ? keyBodyLine(line) : undefined;
+    if (part && (inBody || part.body.length >= 40)) {
+      if (!inBody) { hidden++; kinds.add("private-key"); }
+      inBody = true;
+      lines[index] = part.prefix + SECRET_MARKER + (carriage ? "\r" : "");
+      continue;
+    }
+    inBody = false;
+    if (options.keysOnly) continue;
     const trimmed = line.trim();
     if (authIndent !== undefined && trimmed && (indentOf(line) <= authIndent || trimmed === "!")) authIndent = undefined;
     const auth = AUTH_SERVER_BLOCK.exec(line);
@@ -213,7 +250,7 @@ export function scrubValue<T>(input: T, scrubString: (text: string) => ScrubText
     const out: Record<string, unknown> = {};
     for (const [name, entry] of Object.entries(value as Record<string, unknown>)) {
       const pagination = underPagination || snakeKey(name) === "_pagination";
-      const secret = !pagination && isSecretKey(name) ? hideUnderSecretKey(entry) : undefined;
+      const secret = !pagination && isSecretKeyName(name) ? hideUnderSecretKey(entry) : undefined;
       if (secret) {
         out[name] = secret.value;
         hidden += secret.hidden;

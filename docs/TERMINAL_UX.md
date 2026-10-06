@@ -360,7 +360,9 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - Pictures: Ctrl+V (Alt+V on Windows) pastes the clipboard's picture as `[image 1]`, and
   a picture file dropped or typed as a full path (`/…/shot.png`, `~/…`, `C:\…`) becomes
   `[image N]` when you send, also at the start of the line (then it is a request, not a
-  command). PNG, JPEG, GIF and WebP, up to 8 a request. A dropped file's
+  command). PNG, JPEG, GIF and WebP, up to 20 MB each (a pasted picture too) and 8 a
+  request. With no picture on the clipboard, its text is pasted like any paste, with
+  terminal control codes taken out. A dropped file's
   path stays on a line under the request, so the AI can still copy it. A bare name like
   `logo.png` stays a word. When the model can't see pictures, one question:
   `1 Send without it · 2 Switch to <a model you set up that can> for this request` (the switch is

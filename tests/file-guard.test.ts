@@ -42,6 +42,25 @@ test("private places are refused by name for every file tool, reads and writes",
   expect(fileToolGate("bash", { command: "cat ~/.ssh/id_test" }, context)).toBeUndefined();
 });
 
+test("Casper's own MCP servers, profiles, saved conversations and records are private; browser pictures stay readable", () => {
+  for (const entry of [".casper/mcp.json", ".casper/profiles/work/mcp.json", ".casper/agent/sessions/--p--/s.jsonl", ".casper/projects/p-1/sandbox.json",
+    ".casper/mcp-consent.json", ".casper/skills-trust.json"]) {
+    expect(fileToolGate("read", { path: path.join(home, entry) }, context)).toContain("is private");
+    expect(privatePathCommand(`cat ~/${entry}`, context)).toContain("is private");
+  }
+  // CASPER_AGENT_DIR moves the saved conversations with it.
+  expect(fileToolGate("read", { path: path.join(home, "agent/sessions/--p--/s.jsonl") }, context)).toContain("Casper's saved conversations folder is private");
+  // Provider settings with their own keys, wherever CASPER_AGENT_DIR puts them.
+  for (const entry of [".casper/agent/models.json", ".pi/agent/models.json"]) {
+    expect(fileToolGate("read", { path: path.join(home, entry) }, context)).toContain("is private");
+    expect(privatePathCommand(`cat ~/${entry}`, context)).toContain("is private");
+  }
+  expect(fileToolGate("read", { path: path.join(home, "agent/models.json") }, context)).toContain("Casper's provider settings (models.json) is private");
+  // The browser tool tells the AI to read its pictures there.
+  expect(fileToolGate("read", { path: path.join(home, ".casper/projects/p-1/browser/run/1.png") }, context)).toBeUndefined();
+  expect(fileToolGate("read", { path: path.join(home, ".casper/config.yaml") }, context)).toBeUndefined();
+});
+
 test.skipIf(!POSIX)("links out of the project are refused; a link to a private place is private", () => {
   expect(classifyPath(path.join(project, "notes.md"), context, false)).toBe("linksOut");
   expect(fileToolGate("read", { path: "notes.md" }, context)).toBe("Not read: notes.md is a link to a place outside this project. Casper doesn't follow links out.");

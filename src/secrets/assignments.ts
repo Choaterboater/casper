@@ -1,5 +1,5 @@
 import { KIND_ORDER, keepLiterally, replaceSpans, windowedSpans, type SecretKind } from "./patterns";
-import { SECRET_MARKER, snakeKey, type ScrubTextResult } from "./scrub";
+import { isSecretKey, SECRET_MARKER, snakeKey, type ScrubTextResult } from "./scrub";
 
 /**
  * Secret-named values in text: KEY=VALUE, key: value and "key": "value" lines, Authorization headers,
@@ -60,6 +60,21 @@ function literalValue(value: string, name: string, separator: string): boolean {
 
 const ASSIGNMENT = /(^[-+]|^|[^\w.-])(["']?)([A-Za-z_][\w.-]*)\2(\s*)([=:])(\s*)("(?:[^"\\\n]|\\.)*"|'[^'\n]*'|[^\s"'][^\n]*)?/dg;
 const AUTH_HEADER = /\b(?:Bearer|Basic|Token)\s+([A-Za-z0-9._~+/-]{8,}=*)/dg;
+/** The same header named in any case: `authorization: bearer ...` (curl -v over HTTP/2), git's `extraheader = AUTHORIZATION: basic ...`. */
+const AUTH_HEADER_NAMED = /\b(?:proxy[-_]?)?authorization["']?\s*[:=]\s*["']?(?:bearer|basic|token)\s+([A-Za-z0-9._~+/-]{8,}=*)/dgi;
+
+/** A secret-named key, in any output: the names text uses (isSecretName) and the ones device JSON uses (isSecretKey). */
+export function isSecretKeyName(name: string): boolean {
+  return isSecretName(name) || isSecretKey(name);
+}
+
+/** Docker's "auth": base64 of user:password. */
+function basicLogin(value: string): boolean {
+  if (!/^[A-Za-z0-9+/]{8,}={0,2}$/.test(value)) return false;
+  let decoded: string;
+  try { decoded = atob(value); } catch { return false; }
+  return /^[\x20-\x7e]+:[\x20-\x7e]+$/.test(decoded);
+}
 
 interface Span { start: number; end: number; kind: SecretKind }
 
@@ -72,7 +87,13 @@ function assignmentSpans(line: string, strict: boolean): Span[] {
     const indices = match.indices?.[7];
     // Look for more pairs after this separator: "a=1, TOKEN=x" has two.
     ASSIGNMENT.lastIndex = match.indices![5]![1];
-    if (!raw || !indices || !isSecretName(name)) continue;
+    const named = isSecretKeyName(name);
+    // Docker's "auth" (config.json, .dockercfg): a login only when it reads as one, or in a secret file.
+    const auth = !named && snakeKey(name) === "auth";
+    if (!raw || !indices || !(named || auth)) continue;
+    // `grep password= src/`: a path or option after "name= " (no space before =, one after) is an argument, not the value.
+    // A quoted word or any other word there is still a value: `connect(password= 'x')`, `DB_PASSWORD= x`.
+    if (!strict && match[5] === "=" && !match[4] && match[6] && /^(?:[-.]|[^\s"']*\/)/.test(raw)) continue;
     // "a == b" and "a := b" are comparisons or code, not stored values.
     if (line[indices[0]] === "=" || (match[5] === ":" && line[match.indices![5]![1]] === "=")) continue;
     // ok ? "pass" : "fail" is a ternary in grepped code: both sides are results, not a name and its value.
@@ -82,6 +103,12 @@ function assignmentSpans(line: string, strict: boolean): Span[] {
     const quoted = value.length >= 2 && (value[0] === "\"" || value[0] === "'") && value.at(-1) === value[0];
     if (quoted) { start++; end--; value = value.slice(1, -1); }
     else {
+      // A name and value inside a shell quote ('token=abc' in a grep or a commit message): the value ends at that quote.
+      const opener = match[1];
+      if (opener === "'" || opener === "\"") {
+        const close = value.indexOf(opener);
+        if (close >= 0) { end = start + close; value = value.slice(0, close); }
+      }
       // Unquoted: stop at a comment, a list separator or trailing space.
       const cut = value.search(/\s+#|\s*[,;]\s*(?:$|["'\w])|\s+$/);
       if (cut >= 0) { end = start + cut; value = value.slice(0, cut); }
@@ -89,16 +116,21 @@ function assignmentSpans(line: string, strict: boolean): Span[] {
       if (!strict) { const space = value.search(/\s/); if (space >= 0) { end = start + space; value = value.slice(0, space); } }
     }
     if (!value || keepLiterally(value) || value.includes(SECRET_MARKER)) continue;
+    if (auth && !(strict || basicLogin(value))) continue;
     if (!strict && (quoted ? /\$\{|\{\{|^\s*$/.test(value) || value.length < 4 || CODE_WORDS.has(value.toLowerCase()) : !literalValue(value, name, match[5]!))) continue;
     // In a secret file, a ${VAR} reference is not a value.
     if (strict && /^\$\{?[A-Za-z_]\w*\}?$/.test(value)) continue;
     spans.push({ start, end, kind: kindFor(name) });
     ASSIGNMENT.lastIndex = Math.max(ASSIGNMENT.lastIndex, end);
   }
-  AUTH_HEADER.lastIndex = 0;
-  for (let match = AUTH_HEADER.exec(line); match; match = AUTH_HEADER.exec(line)) {
-    const [start, end] = match.indices![1]!;
-    if (!keepLiterally(match[1]!)) spans.push({ start, end, kind: "key" });
+  for (const header of [AUTH_HEADER, AUTH_HEADER_NAMED]) {
+    header.lastIndex = 0;
+    for (let match = header.exec(line); match; match = header.exec(line)) {
+      const [start, end] = match.indices![1]!;
+      // "authorization: basic auth is off" is a sentence: a plain lower-case word is not a credential.
+      if (header === AUTH_HEADER_NAMED && /^[a-z]+$/.test(match[1]!)) continue;
+      if (!keepLiterally(match[1]!)) spans.push({ start, end, kind: "key" });
+    }
   }
   return spans;
 }

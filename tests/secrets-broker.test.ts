@@ -79,3 +79,21 @@ test("the same docs tool names on a server Casper did not recognise get no speci
   expect(tools.some((tool) => tool.description.includes("lookup_api"))).toBe(false);
   expect(tools.some((tool) => tool.description.startsWith("[docs"))).toBe(false);
 });
+
+test("an MCP result hides Casper's own secret values and saved logins, from any server", async () => {
+  const provider = "sk-or-v1-0123456789abcdef0123456789abcdef";
+  const mist = "mist-token-ABCDEF0123456789";
+  const definition = server("fs", { FIXTURE_MODE: "config", FIXTURE_ENV_DUMP: "1", HPE_MCP_A: provider, HPE_MCP_B: mist });
+  const mcp = new MCPManager({ servers: [definition], diagnostics: [] }, { timeoutMs: 5000 });
+  cleanup.push(() => mcp.close());
+  await mcp.connect("fs");
+  const broker = new CapabilityBroker(mcp, undefined, { secretValues: () => [provider, mist] });
+  const result = await broker.invoke("mcp:fs:get_env", {});
+  const text = JSON.stringify(result);
+  expect(text).not.toContain(provider);
+  expect(text).not.toContain(mist);
+  expect(result.secretsHidden).toBe(2);
+  // Paging is untouched: an exact value is the only thing this pass hides.
+  const config = await broker.invoke("mcp:fs:get_running_config", {});
+  expect(JSON.stringify(config)).toContain("c1");
+});

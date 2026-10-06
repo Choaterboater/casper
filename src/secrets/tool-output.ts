@@ -1,7 +1,7 @@
 import { scrubNote, type Scrubber } from "./netconan";
 import { KIND_ORDER, type SecretKind } from "./patterns";
 import path from "node:path";
-import { isSecretFile, loginFileValues, networkLoginValues, scrubPlainSecrets } from "./files";
+import { isKeyFile, isPgpassFile, isSecretFile, loginFileValues, networkLoginValues, scrubPlainSecrets } from "./files";
 import { casperAgentDir } from "../runtime/agent-store";
 import { scrubText, shouldScrubCommandOutput, shouldScrubRead, type ScrubTextResult } from "./scrub";
 
@@ -37,13 +37,24 @@ export async function scrubToolOutput(scrubber: Pick<Scrubber, "scrubText">, too
   const configs = options.configs ?? true;
   let device: boolean;
   let secretFile = false;
+  let keyFile = false;
+  let pgpass = false;
   if (toolName === "read") {
     if (typeof input.path !== "string") return undefined;
     secretFile = isSecretFile(input.path);
+    keyFile = isKeyFile(input.path);
+    pgpass = isPgpassFile(input.path);
     device = configs && (shouldScrubRead(input.path) || (isSavedCommandOutput(input.path) && shouldScrubCommandOutput(texts.join("\n"))));
-  } else if (["bash", "powershell", "grep", "service"].includes(toolName)) {
-    // service: a dev server's logs, crash tails and HTTP replies are command output too.
+  } else if (["bash", "powershell", "grep", "service", "browser"].includes(toolName)) {
+    // service: a dev server's logs, crash tails and HTTP replies are command output too; browser: a page's text.
     device = configs && shouldScrubCommandOutput(texts.join("\n"));
+    // A search that holds lines of a key file (Pi's grep on certs/key.pem, `grep -rn x .`): a key's body goes even without BEGIN or END.
+    if (["bash", "powershell", "grep"].includes(toolName)) {
+      keyFile = (toolName === "grep" && typeof input.path === "string" && isKeyFile(input.path)) || texts.some(namesKeyFile);
+    }
+  } else if (toolName === "lsp") {
+    // A language server's messages quote source (TypeScript puts literal types in them): the always-on pass only.
+    device = false;
   } else return undefined;
   let hidden = 0;
   let failed = false;
@@ -61,9 +72,9 @@ export async function scrubToolOutput(scrubber: Pick<Scrubber, "scrubText">, too
       for (const kind of result.kinds) kinds.add(kind);
       next = result.text;
     }
-    const plainOptions = { secretFile, values, ...(options.env ? { env: options.env } : {}) };
-    // The service tool answers in JSON: check each string as it reads, not with its \n escapes.
-    const plain = toolName === "service" ? scrubJsonStrings(next, (value) => scrubPlainSecrets(value, plainOptions)) : scrubPlainSecrets(next, plainOptions);
+    const plainOptions = { secretFile, keyFile, pgpass, values, ...(options.env ? { env: options.env } : {}) };
+    // The service, browser and lsp tools answer in JSON: check each string as it reads, not with its \n escapes.
+    const plain = ["service", "browser", "lsp"].includes(toolName) ? scrubJsonStrings(next, (value) => scrubPlainSecrets(value, plainOptions)) : scrubPlainSecrets(next, plainOptions);
     hidden += plain.hidden;
     for (const kind of plain.kinds) kinds.add(kind);
     out.push(plain.text);
@@ -71,6 +82,12 @@ export async function scrubToolOutput(scrubber: Pick<Scrubber, "scrubText">, too
   if (!hidden && !failed) return undefined;
   const note = scrubNote({ hidden, kinds: KIND_ORDER.filter((kind) => kinds.has(kind)), ...(failed ? { netconan: "failed" } : {}) });
   return { texts: out, ...(note ? { note } : {}) };
+}
+
+/** Whether any line starts with a key file's name and a line number: "certs/key.pem:2: ...", "./id_rsa-3-...". */
+function namesKeyFile(text: string): boolean {
+  for (const match of text.matchAll(/^([^\s:]+?)(?::\d+:|-\d+-)/gm)) if (isKeyFile(match[1]!)) return true;
+  return false;
 }
 
 /** Scrub every string inside a JSON text; text that isn't JSON is scrubbed as it is. */

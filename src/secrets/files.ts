@@ -1,9 +1,9 @@
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { isSecretName, scrubAssignments, scrubExactValues, scrubUrlPasswords } from "./assignments";
-import { KIND_ORDER, keepLiterally, PEM_BEGIN, type SecretKind } from "./patterns";
+import { KIND_ORDER, keepLiterally, PEM_BEGIN, PEM_END, type SecretKind } from "./patterns";
 import { scrubProseSecrets } from "./prose";
-import { scrubText, snakeKey, type ScrubTextResult } from "./scrub";
+import { SECRET_MARKER, scrubText, snakeKey, type ScrubTextResult } from "./scrub";
 
 export { isSecretName, scrubAssignments, scrubExactValues, scrubUrlPasswords };
 
@@ -14,11 +14,44 @@ export { isSecretName, scrubAssignments, scrubExactValues, scrubUrlPasswords };
  */
 
 /** File names whose values are secrets by default: dotenv, INI, credential and key files. */
-const SECRET_FILE_NAME = /^(?:\.env(?:\..*)?|.*\.env|\.envrc|\.netrc|_netrc|\.pgpass|\.npmrc|\.yarnrc(?:\.yml)?|\.pypirc|\.git-credentials|\.dockercfg|\.s3cfg|\.boto|credentials(?:\..*)?|.*[._-]credentials(?:\..*)?|secrets?(?:\..*)?|\.secrets?(?:\..*)?|.*\.(?:ini|properties|tfvars|tfstate|tfstate\.backup|pem|key|ovpn)|id_(?:rsa|dsa|ecdsa|ed25519)|vault[._-]?pass(?:word)?(?:\..*)?)$/i;
+const SECRET_FILE_NAME = /^(?:\.env(?:\..*)?|.*\.env|\.envrc|\.netrc|_netrc|\.pgpass|pgpass\.conf|\.npmrc|\.yarnrc(?:\.yml)?|\.pypirc|\.git-credentials|\.dockercfg|\.s3cfg|\.boto|credentials(?:\..*)?|.*[._-]credentials(?:\..*)?|secrets?(?:\..*)?|\.secrets?(?:\..*)?|.*\.(?:ini|properties|tfvars|tfstate|tfstate\.backup|pem|key|ovpn)|id_(?:rsa|dsa|ecdsa|ed25519)|vault[._-]?pass(?:word)?(?:\..*)?)$/i;
 
 /** True for .env, .env.local, prod.env, .envrc, .netrc, credentials, *.ini, *.tfvars, *.pem, id_rsa ... */
 export function isSecretFile(filePath: string): boolean {
-  return SECRET_FILE_NAME.test(path.posix.basename(filePath.replaceAll("\\", "/")));
+  const normal = filePath.replaceAll("\\", "/");
+  // Docker's login file: ~/.docker/config.json, or a DOCKER_CONFIG folder named docker.
+  return SECRET_FILE_NAME.test(path.posix.basename(normal)) || /(?:^|\/)\.?docker\/config\.json$/i.test(normal);
+}
+
+/** Key files (*.pem, *.key, *.p8, id_rsa, id_ed25519_deploy ...): a run of long base64 lines in them is a key's body, even with no BEGIN line. */
+export function isKeyFile(filePath: string): boolean {
+  return /(?:\.(?:pem|key|p8)|^id_(?:rsa|dsa|ecdsa|ed25519)(?:[_-][^.]*)?)$/i.test(path.posix.basename(filePath.replaceAll("\\", "/")));
+}
+
+/** PostgreSQL's password file (host:port:database:user:password per line). */
+export function isPgpassFile(filePath: string): boolean {
+  return /^(?:\.pgpass|pgpass\.conf)$/i.test(path.posix.basename(filePath.replaceAll("\\", "/")));
+}
+
+/** The password field of each .pgpass line (the part after the fourth unescaped colon); the rest stays. */
+function scrubPgpass(text: string): ScrubTextResult {
+  let hidden = 0;
+  const lines = text.split("\n").map((line) => {
+    if (/^\s*#/.test(line) || !line.trim()) return line;
+    let colons = 0;
+    for (let at = 0; at < line.length; at++) {
+      if (line[at] === "\\") { at++; continue; }
+      if (line[at] === ":" && ++colons === 4) {
+        const carriage = line.endsWith("\r");
+        const value = line.slice(at + 1, carriage ? -1 : undefined);
+        if (!value || keepLiterally(value)) return line;
+        hidden++;
+        return `${line.slice(0, at + 1)}${SECRET_MARKER}${carriage ? "\r" : ""}`;
+      }
+    }
+    return line;
+  });
+  return { text: hidden ? lines.join("\n") : text, hidden, kinds: hidden ? ["password"] : [] };
 }
 
 /** Environment names that hold credentials (matches the MCP check's list). */
@@ -90,6 +123,10 @@ export function networkLoginValues(file: string): string[] {
 export interface PlainScrubOptions {
   /** The text is a .env, INI or credential file: every secret-named value goes. */
   secretFile?: boolean;
+  /** The text is from a key file (*.pem, *.key, id_rsa): a key's body goes even without its BEGIN line. */
+  keyFile?: boolean;
+  /** The text is a .pgpass file: each line's password goes. */
+  pgpass?: boolean;
   env?: NodeJS.ProcessEnv;
   /** More exact values to hide (the keys in Casper's login file). */
   values?: readonly string[];
@@ -105,7 +142,9 @@ export function scrubPlainSecrets(text: string, options: PlainScrubOptions = {})
   const exact = [...new Set([...secretEnvValues(options.env), ...(options.values ?? [])])].sort((a, b) => b.length - a.length);
   add(scrubExactValues(out, exact));
   // Private keys are hidden in any output, with or without the device config rules.
-  if (options.secretFile || PEM_BEGIN.test(out)) add(scrubText(out));
+  if (options.secretFile || PEM_BEGIN.test(out) || PEM_END.test(out)) add(scrubText(out, { keyFile: options.keyFile === true }));
+  else if (options.keyFile) add(scrubText(out, { keyFile: true, keysOnly: true }));
+  if (options.pgpass) add(scrubPgpass(out));
   add(scrubUrlPasswords(out));
   add(scrubAssignments(out, options.secretFile === true));
   add(scrubProseSecrets(out));

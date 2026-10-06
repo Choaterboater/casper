@@ -8,7 +8,7 @@ import type { MCPTool } from "./manager";
 
 /**
  * Presets for known network MCP servers. A preset can only make Casper stricter: it may pin
- * read-only settings, raise a tool's label, hide tools while writes are off, refuse arguments, add
+ * read-only settings, raise a tool's label, hide tools for a read-only login, refuse arguments, add
  * notes to the approval box or refuse remembered approval. It never lowers a label, never claims a
  * server is read-only and never skips an approval on its own. The one opt-in (Junos show commands)
  * is turned on by the user per server, and even then only plain `show` commands pass the parser.
@@ -421,7 +421,7 @@ const TABLE: Preset[] = [
   },
   {
     // netmiko_mcp can send config to devices. Its allowlist setting is not checked here, so it
-    // is never remembered and anything not marked read-only stays hidden while writes are off.
+    // is never remembered and anything not marked read-only is hidden for a read-only login.
     id: "netmiko-mcp",
     label: "Netmiko",
     matchDefinition: (definition) => mentions(definition, /netmiko/),

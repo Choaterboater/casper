@@ -629,7 +629,9 @@ in `~/.casper/config.yaml` (a project file can't set it). A one-shot run never a
 never looks. A fix made while looking goes through the checks again, with the repairs left. The
 receipt says `• The AI looked at 2 screenshots of the pages (advice, not a check)`: what the model
 thinks of a picture is never evidence and never makes a change **Verified**. A model that can't see
-pictures is never sent them.
+pictures is never sent them. The prompt names them `[screenshot 1]`, `[screenshot 2]`, apart from any
+`[image N]` you sent. Pictures are sent as they are: Casper can't hide a secret the page shows (a debug
+panel, a token on screen) the way it hides one in text.
 
 **Accessibility notes.** New in v0.2.23. While a page is open at desktop width, Casper also counts a
 few common misses with its own small rules (no third-party script): images with no `alt` (`alt=""`

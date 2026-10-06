@@ -254,7 +254,8 @@ before this setup: they create no state and import nothing.
 
 **Where sign-ins live.** Provider credentials (`auth.json`) and the provider catalog
 (`models.json`) live in Casper's own store, `~/.casper/agent/`, mode 0700 (only your user can read
-it). No Pi installation is needed. `CASPER_AGENT_DIR` selects a different store; an inherited
+it). The AI's tools and shell can't read `auth.json`, `models.json` or the saved conversations
+there. No Pi installation is needed. `CASPER_AGENT_DIR` selects a different store; an inherited
 `PI_CODING_AGENT_DIR` never does. `/login` writes only the provider you agreed to into that store.
 
 **One-time import from Pi.** On first run with the default store, an existing Pi CLI install's API

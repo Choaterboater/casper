@@ -19,7 +19,7 @@ function publish(uri: string, version: number, text: string) {
   if (["silent", "pull", "pull-fail"].includes(mode)) return;
   send({ jsonrpc: "2.0", method: "textDocument/publishDiagnostics", params: {
     uri: mode === "other-uri" ? otherSpelling(uri) : uri, ...(mode === "unversioned" ? {} : { version: mode === "stale" ? version - 1 : version }),
-    diagnostics: (text.includes("BROKEN") || (mode === "dependency" && [...documents.values()].some((doc) => doc.text.includes("BROKEN"))) || (mode === "rename-dependency" && documents.size > 1 && [...documents.values()].every((doc) => doc.text.includes("new")))) ? [{ severity: 1, message: "fixture error" }] : [],
+    diagnostics: (text.includes("BROKEN") || (mode === "dependency" && [...documents.values()].some((doc) => doc.text.includes("BROKEN"))) || (mode === "rename-dependency" && documents.size > 1 && [...documents.values()].every((doc) => doc.text.includes("new")))) ? [{ severity: 1, message: text.includes("ECHO ") ? text.slice(text.indexOf("ECHO ") + 5).split("\n")[0] : "fixture error" }] : [],
   } });
 }
 const reader = new MessageReader((raw) => {

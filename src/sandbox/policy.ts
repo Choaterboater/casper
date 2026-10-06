@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { gitDirs, hooksPathTargets, PRIVATE_PATHS, PROTECTED_WRITE_PATHS, realpathLongest, within } from "../platform/project-paths";
+import { CASPER_PRIVATE_PATHS, gitDirs, hooksPathTargets, PRIVATE_PATHS, PROTECTED_WRITE_PATHS, realpathLongest, within } from "../platform/project-paths";
 
 /**
  * What the shell sandbox lets a command touch. One policy feeds every shell path (the AI's bash, checks,
@@ -78,7 +78,7 @@ function darwinUserCacheDir(): string | undefined {
 export const UV_PYTHONS = ".local/share/uv";
 
 /** Casper's own records the shell must not read: approvals, remembered hosts, lab answers, undo copies. */
-export const CASPER_PRIVATE_PATHS: readonly string[] = [".casper/projects", ".casper/mcp-consent.json", ".casper/skills-trust.json"];
+export { CASPER_PRIVATE_PATHS };
 
 /** Folders in your home the sandbox runtime makes writable on its own (its HOME_CONVENIENCE_WRITE_DIRS) that belong to
  * another program and are not in Casper's list of writable places. (~/.npm/_logs is inside ~/.npm, a package cache.) */
@@ -139,7 +139,7 @@ export interface SandboxPolicyInput {
   home?: string;
   /** Temp folders commands may write (the system temp folder and Casper's own). */
   tempDirs?: string[];
-  /** Pi's state folder: its auth.json is private. */
+  /** Pi's state folder: its auth.json, models.json and sessions are private. */
   agentDir?: string;
   user?: SandboxUserSettings;
   project?: SandboxProjectSettings;
@@ -229,7 +229,7 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
   const denyRead = unique([
     ...inHome(PRIVATE_PATHS),
     ...inHome(CASPER_PRIVATE_PATHS),
-    ...(input.agentDir ? spellings(path.join(input.agentDir, "auth.json")) : []),
+    ...["auth.json", "models.json", "sessions"].flatMap((name) => input.agentDir ? spellings(path.join(input.agentDir, name)) : []),
     ...(input.project?.denyRead ?? []).map((entry) => resolveEntry(entry, root, home)).flatMap(spellings),
     ...(input.denyRead ?? []).flatMap(spellings),
   ]);
