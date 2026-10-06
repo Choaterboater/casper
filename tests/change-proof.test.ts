@@ -164,3 +164,15 @@ test("a test file added under a folder the model turned into a link is not writt
   expect(proof).toBeDefined();
   expect((await readdir(outside)).sort()).toEqual(["new.test.js"]);
 });
+
+test("before(): a run that crashed or was killed in the copy can't tell; only a real failure is 'already failing'", async () => {
+  const root = await project({ "tests/check.js": pass });
+  const baseline = await ChangeBaseline.capture(root);
+  cleanup.push(() => baseline.dispose());
+  const run = (command: string) => baseline.before({ root, check: "test", command, timeoutMs: 20_000 });
+  expect(await run(`${JSON.stringify(process.execPath)} -e "process.exit(1)"`)).toBe("fail");
+  expect(await run(`${JSON.stringify(process.execPath)} -e "process.exit(0)"`)).toBe("pass");
+  // A shell reporting a signal (128 + 9) and a run killed outright are crashes, not test failures.
+  expect(await run(`${JSON.stringify(process.execPath)} -e "process.exit(137)"`)).toBeUndefined();
+  if (process.platform !== "win32") expect(await run(`${JSON.stringify(process.execPath)} -e "process.kill(process.pid, 'SIGKILL')"`)).toBeUndefined();
+});

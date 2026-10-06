@@ -46,8 +46,8 @@ searxngUrl: <address> }`) are the other choices. A project file can't change `we
 with no tools; the AI gets back only JSON in the shape it asked for, never the text. It is on, and
 costs nothing until the AI calls it (then one small request on your `fast` model, or the session's
 model when none is set). Turn it off with `/settings` (it writes `reader: off`). `reader: { untrusted:
-["logs/**"] }` names paths the AI should read only this way; a project file may add paths there but
-can't turn the reader on or off. See [READER.md](READER.md).
+["logs/**"] }` names paths the AI should read only this way; a project file (or a profile it picks) may add
+paths there but can't turn the reader on or off. See [READER.md](READER.md).
 
 ## Config files
 
@@ -100,7 +100,13 @@ an empty string, surrounding spaces, or a YAML value that is not a string) stops
 loading.
 
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
-its rules, MCP/LSP server definitions and reference sources. Look at an unfamiliar repository's
+its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
+anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`,
+`showPages`, `suggestions`, `updates`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`)
+stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
+turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
+`[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
+`~/.casper/config.yaml`) uses all of a profile. Look at an unfamiliar repository's
 `.casper/project.yaml` before running Casper there: selecting a profile can send your configured
 reference excerpts to the model during tasks. Casper only lists MCP and language servers from a
 profile; connecting one still needs your explicit yes (an MCP server you said yes to before can

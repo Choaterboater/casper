@@ -49,6 +49,13 @@ test("a server's change kind is used only when it is a known kind, and never mak
   expect(kind("create_vlan", "read")).toBe("config");
 });
 
+test("a server's change kind can raise a disruptive name, never lower it", () => {
+  expect(kind("power_cycle_port", "config")).toBe("disruptive");
+  expect(kind("port_bounce", "troubleshoot")).toBe("disruptive");
+  expect(kind("reboot_device", "firmware")).toBe("firmware");
+  expect(kind("create_vlan", "troubleshoot")).toBe("troubleshoot");
+});
+
 test("a router call takes the kind of the real tool it runs", () => {
   const router = { type: "object" as const, properties: { name: { type: "string" }, arguments: { type: "object" } } };
   const single = buildPlan({ server: "net", tool: "invoke_tool", label: "destructive", schema: router,

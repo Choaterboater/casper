@@ -256,3 +256,77 @@ test("review: every reach finding is shown (up to 5, then +N more), includes are
   expect(text).toContain("check_mode: false");
   expect(text).toContain("library/");
 });
+
+test("a device added to the inventory, or a changed change file, after the box was shown sends nothing", async () => {
+  const f = await setup({ "lab-sw1": { ansible_host: "10.99.0.11" } });
+  const plan = await prepareLabCheck("aoscx-check", aoscxCheck, context(f));
+  if (plan.state !== "ready") throw new Error(plan.state);
+  // While the box is on screen, something rewrites the inventory to add a device the box never named.
+  await writeFile(path.join(f.records, "inventory.json"), inventoryJson({ "lab-sw1": { ansible_host: "10.99.0.11" }, "core-sw1": { ansible_host: "10.1.2.3" } }));
+  const result = await plan.run();
+  expect(result).toMatchObject({ status: "skip", notRun: "lab", reason: expect.stringContaining("changed after the box was shown") });
+  expect(await ran(f)).toBe(false);
+
+  const junos = await prepareLabCheck("junos-commit", junosCommit, context(f));
+  if (junos.state !== "ready") throw new Error(junos.state);
+  await writeProjectFile(f, "change.set", "delete system login\n");
+  expect(await junos.run()).toMatchObject({ status: "skip", notRun: "lab" });
+  expect(await ran(f)).toBe(false);
+});
+
+test("junos-commit loads the change file's bytes the box was built from, from Casper's own copy", async () => {
+  const f = await setup({ "lab-r1": { ansible_host: "10.99.0.21" } }, `const vars = JSON.parse(fs.readFileSync(args[4].slice(1), "utf8")); fs.writeFileSync(path.join(RECORDS, "loaded.txt"), fs.readFileSync(vars.casper_src, "utf8") + "|" + vars.casper_format + "|" + (vars.casper_src.startsWith(${JSON.stringify("")} + process.cwd()) ? "project" : "copy"));`);
+  const plan = await prepareLabCheck("junos-commit", junosCommit, context(f));
+  if (plan.state !== "ready") throw new Error(plan.state);
+  expect((await plan.run()).status).toBe("pass");
+  expect(await readFile(path.join(f.records, "loaded.txt"), "utf8")).toBe("set system host-name lab-r1\n|set|copy");
+});
+
+test("a collections/ folder or plugin folders in a role or next to the playbook are warnings: they run local code", async () => {
+  const f = await setup({ "lab-sw1": { ansible_host: "10.99.0.11" } });
+  await writeProjectFile(f, "collections/ansible_collections/arubanetworks/aoscx/plugins/modules/aoscx_vlan.py", "print(1)\n");
+  await writeProjectFile(f, "roles/vlans/tasks/main.yml", "- debug: msg=hi\n");
+  await writeProjectFile(f, "roles/vlans/library/evil.py", "print(1)\n");
+  await writeProjectFile(f, "vars_plugins/evil.py", "print(1)\n");
+  await writeProjectFile(f, "site.yml", SITE.replace("  gather_facts: false\n", "  gather_facts: false\n  roles: [vlans]\n"));
+  const plan = await prepareLabCheck("aoscx-check", aoscxCheck, context(f));
+  if (plan.state !== "ready") throw new Error(plan.state);
+  expect(plan.ask.warnings).toEqual(expect.arrayContaining([
+    expect.stringContaining("collections/ uses a collections folder next to the playbook"),
+    expect.stringContaining("roles/vlans/library/ uses local plugin code"),
+    expect.stringContaining("vars_plugins/ uses local plugin code"),
+  ]));
+  expect(plan.allowAlways).toBe(false);
+});
+
+test("host variables that run a program on this machine are warnings, and take Always away", async () => {
+  const f = await setup({ "lab-r1": { ansible_host: "10.99.0.21", ansible_python_interpreter: "./tools/run.sh" }, "lab-r2": { ansible_host: "10.99.0.22", ansible_python_interpreter: "/usr/bin/python3" } });
+  const plan = await prepareLabCheck("junos-commit", junosCommit, context(f));
+  if (plan.state !== "ready") throw new Error(plan.state);
+  expect(plan.ask.warnings).toEqual(["Host lab-r1 sets ansible_python_interpreter to ./tools/run.sh, so the run starts that program on this machine."]);
+  expect(plan.allowAlways).toBe(false);
+});
+
+test("usual interpreter settings are not warnings, and keep Always: discovery words, the playbook's own Python, a program on PATH", async () => {
+  const usual = ["auto", "auto_silent", "auto_legacy", "auto_legacy_silent", "{{ ansible_playbook_python }}", "python3", "/usr/bin/env python3", "/usr/bin/python3"];
+  const f = await setup(Object.fromEntries(usual.map((value, index) => [`lab-r${index + 1}`, { ansible_host: `10.99.0.${index + 1}`, ansible_python_interpreter: value }])));
+  const plan = await prepareLabCheck("junos-commit", junosCommit, context(f));
+  if (plan.state !== "ready") throw new Error(plan.state);
+  expect(plan.ask.warnings ?? []).toEqual([]);
+  expect(plan.allowAlways).toBe(true);
+  // A command line, another template or a relative path still warns.
+  for (const value of ["/usr/bin/env python3; curl x", "{{ lookup('env', 'PY') }}", "tools/python"]) {
+    await fixture?.cleanup();
+    const g = await setup({ "lab-r1": { ansible_host: "10.99.0.21", ansible_python_interpreter: value } });
+    const again = await prepareLabCheck("junos-commit", junosCommit, context(g));
+    if (again.state !== "ready") throw new Error(again.state);
+    expect(again.ask.warnings).toHaveLength(1);
+  }
+});
+
+test("a host name with a line break is refused, so it can't add lines to the box", async () => {
+  const f = await setup({ "core-sw1\nNot marked lab: none.": { ansible_host: "10.1.2.3" } });
+  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f)))
+    .toMatchObject({ state: "refused", message: expect.stringContaining("control characters") });
+  expect(await ran(f)).toBe(false);
+});

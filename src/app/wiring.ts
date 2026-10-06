@@ -28,6 +28,7 @@ import { networkLoginHost } from "./network-host";
 import { updateFooter } from "./footer";
 import { checksPlan } from "./verification";
 import { mcpServerSandbox } from "../mcp/sandbox";
+import { trustProjectFile } from "./project-file";
 
 /** What the sandbox asks through: Casper's own numbered question, only while someone can answer it. */
 export function sandboxHost(app: CasperApp): SandboxHost {
@@ -53,6 +54,7 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   if (app.closing) throw new Error("Casper is closing");
   app.references = new ReferenceLibrary(referenceConfiguration);
   app.projectContext = context;
+  trustProjectFile(app, context);
   // The shell sandbox for this session: the AI's bash, checks, services, dev servers and Casper's tool runs.
   // A workspace switch replaces it: the old one stops first (the sandbox runtime is one per process).
   await app.lifecycle.close("sandbox").catch(() => {});
@@ -85,6 +87,14 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   // Every server starts with writes off; only the user turns them on (/mcp writes <name>).
   app.broker = new CapabilityBroker(app.mcp, (call, signal) => confirmCapability(app, call, signal), { writesGate: true, scrubber: app.scrubber,
     onSessionCovered: (server, tool) => { if (!app.closing) app.output.write(`[approval] allowed (this session): ${terminalText(server)} · ${terminalText(tool)}\n`); },
+    // An MCP change is treated like a shell command: it may change the project's files (or a service's), so later
+    // checks are not "before the change", services restart, and the tree is compared to tell.
+    onChangeCall: (server) => {
+      app.taskChangeServers.add(server);
+      app.services?.markEdited();
+      if (app.taskEdits) app.taskEdits.shell = true;
+      app.observations.recordChangeCall();
+    },
     confirmKind: (ask, signal) => confirmKind(app, ask, signal),
     onAllowAll: (server, tool) => {
       app.taskChangeServers.add(server);

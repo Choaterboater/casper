@@ -369,7 +369,8 @@ Remember; the order changed so Enter is always the safe choice.)
   references avoid that.
 - **Never remembered:** project servers; netmiko_mcp servers; and servers started
   through a package runner that can download new code later (`npx`, `bunx`,
-  `pnpm dlx`, `yarn dlx`, `uvx`, `uv tool run`, `pipx run`, `docker run` or
+  `pnpm dlx`, `yarn dlx`, `npm exec`, `uvx`, `uv tool run`, `uv run --with`, `pipx run`,
+  `deno run` of an address, `nix run` of a flake without a commit, `docker run` or
   `podman run` with `:latest` or no tag) unless they are pinned to a version:
   `Not remembered: central-mcp-server is not pinned to a version. An update could add write tools. Pin it (for example ==1.4.2 or a commit) and connect again.`
 - `/mcp forget <name>` drops a remembered server. A damaged store counts as empty
@@ -526,7 +527,7 @@ Each change also has a kind: configuration, troubleshooting, disruptive (reboot,
 bounce, disconnect), firmware, delete or admin (users, roles assigned, SSO, tokens).
 Casper reads it from the server's `_meta["casper/change-kind"]`, else from the tool's
 name; a router call uses the real tool. A server can name a kind stricter, never make
-a firmware, delete or admin name into a safe one. Vendor developer-site categories
+a disruptive, firmware, delete or admin name into a safer one. Vendor developer-site categories
 are a reference only.
 
 **Firmware changes, deletes and admin changes are off by default on every server.**

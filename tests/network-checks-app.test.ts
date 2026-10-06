@@ -63,6 +63,22 @@ async function ansibleProject(): Promise<NetworkFixture> {
   return f;
 }
 
+test("/verify add after a task rewrote .casper/project.yaml saves the check but keeps the settings Casper started with", async () => {
+  const f = fixture = await ansibleProject();
+  await writeProjectFile(f, ".casper/project.yaml", "repair:\n  maxAttempts: 2\n");
+  const run = makeApp(f);
+  try {
+    await run.app.runOnce("/status", f.root);
+    // The AI's edit (any write that is not Casper's own): repairs off, checks off.
+    await writeProjectFile(f, ".casper/project.yaml", "repair:\n  maxAttempts: 0\nverification:\n  mode: off\n");
+    await run.app.runOnce("/verify add aruba-syntax", f.root);
+    expect(run.output()).toContain("[project] Saved verify.checks.aruba-syntax");
+    expect(run.output()).toContain("[project] .casper/project.yaml changed in a task; restart Casper to use it");
+    expect({ repairs: run.app.projectContext?.repair.maxAttempts, mode: run.app.projectContext?.verification.mode ?? null }).toEqual({ repairs: 2, mode: null });
+  } finally { await run.app.close(); }
+  expect(await readFile(path.join(f.root, ".casper/project.yaml"), "utf8")).toContain("aruba-syntax:");
+});
+
 test("Casper finds the Ansible check but never adds it: /status offers it, /verify add saves it, and then it runs", async () => {
   const f = fixture = await ansibleProject();
   const context = await loadProjectContext({ root: f.root, name: "project", isGit: false } as never, { homeDir: f.home });

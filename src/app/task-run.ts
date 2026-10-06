@@ -23,8 +23,9 @@ import { VerifierRegistry } from "../verify/registry";
 import { PLAN_CHOICES, PLAN_QUESTION } from "./safe-choices";
 import { DEFAULT_SPEND_LIMITS, SpendGuard, requestSpendLimit } from "../task/spend";
 import { VerificationTask } from "../verify/task";
-import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "../verify/proof";
+import { ChangeBaseline, changesCode, isTestPath, proofRepairPrompt, type ChangeProof } from "../verify/proof";
 import { independentAcceptance } from "../verify/acceptance";
+import { definitionChangedReason, definitionChanges, testDefinition } from "../verify/test-definition";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "../task/review";
 import { extractChecklist, formatChecklistPrompt, normalizeCases } from "../task/checklist";
 import { isOutside } from "../platform/inside";
@@ -50,6 +51,7 @@ import { offerNewProject, childProjectOfTask, runChildChecks, offerWorkFolder } 
 import { runVerification, writeCheckResult, taskNetworkOptions, checksPlan, saveFoundCheck, projectAfterSetup } from "./verification";
 import { reportSkillWarnings } from "./wiring";
 import { ensureRuntime } from "./runtime-start";
+import { reloadProject, writeProjectFile } from "./project-file";
 
 export async function runModelTask(app: CasperApp, prompt: string, options: { flow?: Flow; planFirst?: boolean } = {}): Promise<VerificationReport | undefined> {
   if (app.closing) return;
@@ -131,9 +133,15 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   // Receipts describe the tree, not tool names: a read-only shell run is not a write. Undo's own copy is made
   // alongside, with the conversation's position (the plan turn and repairs are part of the task).
   app.snapshotFailure = undefined;
+  app.snapshotBase = undefined;
   const [before, undoStart] = await Promise.all([app.snapshotWorkspace(workspaceRoot, app.commandAbort?.signal),
     app.taskUndo.begin(workspaceRoot, session, app.commandAbort?.signal)]);
   edits.before = before;
+  app.snapshotBase = before;
+  // What the test command means before the change (package.json scripts, runner settings): a change that rewrites
+  // it is not proven or acceptance-checked by it.
+  const definitionCommand = context.model.commands.test?.trim();
+  const definitionBefore = definitionCommand ? await testDefinition(workspaceRoot, definitionCommand).catch(() => undefined) : undefined;
   // The risky lines already in the project's config files, so the receipt lists only the ones this task adds.
   const riskyBefore = before ? await riskyBaseline(workspaceRoot, [...before.keys()]).catch(() => undefined) : undefined;
   let thrownError: string | undefined;
@@ -188,7 +196,11 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     && !["refactor", "document", "inspect", "visualize", "configure"].includes(classification.intent);
   let baseline: ChangeBaseline | undefined;
   let baselineUnavailable: string | undefined;
-  if (proving) {
+  // Code that changed while planning would be in the copy taken now, so a change made then and undone later would read
+  // as proven: with such files there is no copy from before the change.
+  const plannedCode = changedWhilePlanning?.filter((file) => !isTestPath(file)) ?? [];
+  if (proving && plannedCode.length) baselineUnavailable = `files changed while planning (${plannedCode.slice(0, 5).join(", ")}${plannedCode.length > 5 ? " …" : ""}), so Casper has no copy from before the change`;
+  else if (proving) {
     try { baseline = await ChangeBaseline.capture(workspaceRoot, { signal: app.commandAbort?.signal }); app.taskBaseline = { baseline, root: workspaceRoot }; }
     catch (error) {
       if (app.commandAbort?.signal.aborted) return;
@@ -285,25 +297,34 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         app.output.write(`… Casper checking: ${pending.join(", ")}\n`);
         verification = await runVerification(app, autoChecks.run, true, prompt, app.checkTask);
         // A model that sees pictures may look at the changed pages once (showPages); its fixes are checked again.
-        ({ verification, shown: pagesShown } = await lookAtPages(app, session, prompt, autoChecks.run, verification, workspaceRoot));
-        const changedCode = Boolean(before && afterModel && changesCode(diffSnapshots(before, afterModel)));
+        let afterLook: Map<string, string> | undefined;
+        ({ verification, shown: pagesShown, after: afterLook } = await lookAtPages(app, session, prompt, autoChecks.run, verification, workspaceRoot));
+        // Code the AI changed while looking at the pages is part of the change the proof compares.
+        const afterWork = afterLook ?? afterModel;
+        const changedCode = Boolean(before && afterWork && changesCode(diffSnapshots(before, afterWork)));
+        const redefined = testCommand && definitionBefore
+          ? definitionChanges(definitionBefore, await testDefinition(workspaceRoot, testCommand).catch(() => new Map<string, string>())) : [];
+        if (proving && changedCode && redefined.length && verification.status === "pass") {
+          proof = { status: "unavailable", check: "test", reason: definitionChangedReason(redefined) };
+        }
         if (verification.status === "pass" && !(proving && changedCode)) {
           proofSkipped = !verification.results.length && verification.pages && !verification.smoke?.checks.length
             ? verification.pages.pages.every((page) => page.consoleChecked) ? PAGES_ONLY_PROOF : PAGES_ANSWER_ONLY_PROOF
             : proofSkipReason({ intent: classification.intent, testCommand, snapshot: before !== undefined, changedCode,
               testsAddedNow: !testCommand && Boolean(context.model.commands.test?.trim()) });
         }
-        if (proving && verification.status === "pass" && changedCode) {
+        if (proving && verification.status === "pass" && changedCode && !redefined.length) {
           const initialReview = parseChecklist(app.lastAnswer);
           ({ verification, proof, review } = await finishChange(app, { baseline, baselineUnavailable, before, root: workspaceRoot,
-            command: testCommand!, request: prompt, checks: autoChecks.run, verification, session, initialReview }));
+            command: testCommand!, request: prompt, checks: autoChecks.run, verification, session, initialReview, definitionBefore }));
         }
         // Not tied to the proof: any code change whose checks pass (server tasks and configure requests too).
         const acceptanceMode = context.verification.acceptance;
         if ((acceptanceMode === true || acceptanceMode === "warn") && testCommand && changedCode && verification.status === "pass" && proof?.status !== "unproven"
           && !app.closing && !app.commandAbort?.signal.aborted && !app.taskRuntimeFailed && app.taskTurnLimit === undefined && app.taskSpendStop === undefined) {
-          acceptance = await acceptChange(app, { session, before: before!, root: workspaceRoot, command: testCommand, request: prompt,
-            mode: acceptanceMode === "warn" ? "warn" : "verdict" });
+          acceptance = redefined.length ? { status: "error", reason: definitionChangedReason(redefined), mode: acceptanceMode === "warn" ? "warn" : "verdict" }
+            : await acceptChange(app, { session, before: before!, root: workspaceRoot, command: testCommand, request: prompt,
+              mode: acceptanceMode === "warn" ? "warn" : "verdict" });
         }
       }
     } else if (!stopped && app.checkTask && (app.checkTask.checks.length || app.smokeTask?.recordedCount)) {
@@ -548,7 +569,7 @@ export async function acceptChange(app: CasperApp, input: { session: RuntimeSess
 export async function finishChange(app: CasperApp, input: {
   baseline?: ChangeBaseline; baselineUnavailable?: string; before: Map<string, string>; root: string; command: string;
   request: string; checks: readonly CheckName[]; verification: VerificationReport; session: RuntimeSession;
-  initialReview?: { done: string[]; open: string[] };
+  initialReview?: { done: string[]; open: string[] }; definitionBefore?: Map<string, string>;
 }): Promise<{ verification: VerificationReport; proof?: ChangeProof; review?: RequirementsReview }> {
   const context = app.projectContext!;
   const stopped = () => app.closing || Boolean(app.commandAbort?.signal.aborted) || app.taskRuntimeFailed || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined;
@@ -595,12 +616,16 @@ export async function finishChange(app: CasperApp, input: {
 export async function proveChange(app: CasperApp, input: {
   baseline?: ChangeBaseline; baselineUnavailable?: string; before: Map<string, string>; root: string; command: string;
   request: string; checks: readonly CheckName[]; verification: VerificationReport; session: RuntimeSession;
+  definitionBefore?: Map<string, string>;
 }): Promise<{ verification: VerificationReport; proof?: ChangeProof }> {
   const context = app.projectContext!;
   const compare = async (): Promise<ChangeProof | undefined> => {
     const now = await app.snapshotWorkspace(input.root);
     if (!now) return { status: "unavailable", check: "test", reason: "Casper could not compare the workspace" };
     const changes = diffSnapshots(input.before, now);
+    // The proof round may have rewritten what the test command runs: its pass would not be your tests passing.
+    const redefined = input.definitionBefore ? definitionChanges(input.definitionBefore, await testDefinition(input.root, input.command).catch(() => new Map<string, string>())) : [];
+    if (redefined.length) return { status: "unavailable", check: "test", reason: definitionChangedReason(redefined) };
     if (!input.baseline) {
       return changes.added.length || changes.modified.length || changes.removed.length
         ? { status: "unavailable", check: "test", reason: input.baselineUnavailable ?? "Casper could not copy the workspace" } : undefined;
@@ -633,7 +658,7 @@ export async function proveChange(app: CasperApp, input: {
  * run again with the repairs left. Never a check itself. `shown` is how many pictures it was shown.
  */
 export async function lookAtPages(app: CasperApp, session: RuntimeSession, request: string, checks: readonly CheckName[], verification: VerificationReport,
-  root: string): Promise<{ verification: VerificationReport; shown?: number }> {
+  root: string): Promise<{ verification: VerificationReport; shown?: number; after?: Map<string, string> }> {
   const stopped = () => app.closing || Boolean(app.commandAbort?.signal.aborted) || app.taskRuntimeFailed || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined;
   if (verification.status !== "pass" || !verification.pages?.pages.some((page) => page.screenshots) || stopped()) return { verification };
   let sees: boolean | undefined;
@@ -652,7 +677,7 @@ export async function lookAtPages(app: CasperApp, session: RuntimeSession, reque
   if (!edited) return { verification, shown: look.images.length };
   const max = app.projectContext!.repair.maxAttempts;
   const again = await runVerification(app, checks, true, request, app.checkTask, Math.max(0, max - verification.repairAttempts));
-  return { verification: { ...again, repairAttempts: verification.repairAttempts + again.repairAttempts }, shown: look.images.length };
+  return { verification: { ...again, repairAttempts: verification.repairAttempts + again.repairAttempts }, shown: look.images.length, ...(after ? { after } : {}) };
 }
 
 /** showPages: on or off as set; ask (the default) asks once a session, and only a person answers it (1 No). */
@@ -736,14 +761,14 @@ export async function runSuggestion(app: CasperApp, id: string): Promise<Verific
   if (action.kind === "remember-command") {
     const context = app.projectContext!;
     try {
-      const written = await saveProjectCommand(context.info.root, action.name, action.command);
+      const written = await writeProjectFile(app, context.info.root, () => saveProjectCommand(context.info.root, action.name, action.command));
       // The write is undoable: its own receipt holds the file's text before and after.
       const saved = await app.taskUndo.recordSetting(context.info.root, `Remember ${action.command} as this project's ${action.name} command`,
         { file: PROJECT_YAML, line: written.line, before: written.before, after: written.after }).catch(() => undefined);
       app.output.write(`[project] Saved ${terminalText(written.line)} in ${PROJECT_YAML}${saved ? `. /undo ${saved} takes it back` : ""}\n`);
       if (saved && app.interactive) app.terminal.offerNext(buildNextRow({ undo: { label: "Undo", command: `/undo ${saved}` } }));
       // The next task checks with it.
-      try { app.projectContext = await app.loadProjectContextFn(context.info); }
+      try { await reloadProject(app); }
       catch (error) { app.output.write(`[project] ${PROJECT_YAML} could not be read again (${terminalText(error instanceof Error ? error.message : String(error))}); restart Casper to use it.\n`); }
     } catch (error) {
       app.output.write(`[project] Not saved: ${terminalText(error instanceof Error ? error.message : String(error))}\n`);

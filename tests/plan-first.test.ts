@@ -38,12 +38,13 @@ function plainScreen() {
 
 /** The fake model: on a plan turn it tries an edit and two shell commands through Casper's gate, then answers
  * with PLAN; otherwise it writes a file. */
-async function fixture(tty = true, setup: { planWrites?: boolean } = {}) {
+async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boolean } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-plan-first-"));
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(home, { recursive: true }); await mkdir(path.join(project, ".casper"), { recursive: true });
   await writeFile(path.join(project, "app.py"), "print('app')\n");
-  await writeFile(path.join(project, ".casper/project.yaml"), "verification:\n  checklist: true\n");
+  await writeFile(path.join(project, ".casper/project.yaml"), "verification:\n  checklist: true\n"
+    + (setup.planCode ? `  mode: auto\nverify:\n  test: ${JSON.stringify(`"${process.execPath}" -e "process.exit(0)"`)}\n` : ""));
   const listeners = new Set<RuntimeEventListener>();
   const emit = (event: Parameters<RuntimeEventListener>[0]) => { for (const listener of listeners) listener(event); };
   const prompts: string[] = [];
@@ -69,6 +70,7 @@ async function fixture(tty = true, setup: { planWrites?: boolean } = {}) {
           if (text.includes('Casper flow "plan-first"')) {
             // A change Casper's gate cannot see (a tool that says nothing about writing, say).
             if (setup.planWrites) await writeFile(path.join(project, "notes.txt"), "written while planning\n");
+            if (setup.planCode) await writeFile(path.join(project, "app.py"), "print('broken while planning')\n");
             emit({ type: "assistant_text_delta", delta: PLAN });
           }
           else { await writeFile(path.join(project, "limiter.py"), `# ${prompts.length}\n`); emit({ type: "assistant_text_delta", delta: "Built.\n" }); }
@@ -264,6 +266,21 @@ test("a file that changes while planning anyway is named, and the receipt keeps 
     await f.screen.until(idleAfter("Built."));
     expect(f.app.getLastTaskResult()?.changedWhilePlanning).toEqual(["notes.txt"]);
     expect(f.screen.output.slice(f.screen.output.lastIndexOf("Built."))).toContain("• Changed while planning: notes.txt");
+  } finally { await f.close(); }
+}, 60_000);
+
+test("code that changes while planning is not taken as the code from before the change: the proof says it can't compare", async () => {
+  const f = await fixture(true, { planCode: true });
+  try {
+    f.input.write(`/plan ${REQUEST}\r`);
+    await f.screen.until((output) => output.includes("Enter goes on to 1 Stop · 2 Build"));
+    f.input.write("\r");
+    await f.screen.until(waiting("Build this plan?"));
+    f.input.write("2");
+    await f.screen.until(idleAfter("Built."));
+    const proof = f.app.getLastTaskResult()?.proof;
+    expect(proof?.status).toBe("unavailable");
+    expect(proof?.status === "unavailable" ? proof.reason : "").toContain("changed while planning (app.py)");
   } finally { await f.close(); }
 }, 60_000);
 

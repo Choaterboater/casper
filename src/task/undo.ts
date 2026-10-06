@@ -171,7 +171,8 @@ export class UndoStore {
     // The project's own .gitattributes may not convert line endings or run filters on the copies: the copy is the
     // file's exact bytes. (Git LFS files are kept as they are on disk.)
     await writeFile(path.join(this.gitDir, "info", "attributes"), "* -text -filter -ident -working-tree-encoding\n", { mode: 0o600 });
-    const skipped = Object.keys(SKIPPED_DIRECTORIES).map((name) => `${name}/`);
+    // Casper's own folder is never copied, except the project's settings file in it, which a task may change.
+    const skipped = Object.keys(SKIPPED_DIRECTORIES).map((name) => name === ".casper" ? "**/.casper/*\n!/.casper/project.yaml" : `${name}/`);
     const venv = await lstat(path.join(this.root, "venv", "pyvenv.cfg")).catch(() => undefined) ? ["/venv/"] : [];
     await writeFile(this.excludes, [
       "# Casper undo: never copied (dependency trees, caches, build folders, Casper's own state)",

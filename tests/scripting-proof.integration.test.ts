@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { cleanUpAfterEach, fixture, fixProject, lastUser, afterTool, REVIEW, reviewOn, PROOF_REPAIR, weaklyTestedProject, asked, TICKED, shellCheckTest } from "./support/scripting";
+import { cleanUpAfterEach, fixture, fixProject, lastUser, afterTool, REVIEW, reviewOn, PROOF_REPAIR, weaklyTestedProject, asked, TICKED, shellCheckTest, isAcceptance } from "./support/scripting";
 
 cleanUpAfterEach();
 
@@ -106,3 +106,22 @@ shellCheckTest("the review round is off by default (and with verification.review
   expect((await user.run(["--json", "--verify", "Fix sum.js"])).exit).toBe(0);
   expect(user.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
 }, 180_000);
+
+shellCheckTest("a change that rewrites what the test command runs is not verified, and gets no acceptance pass", async () => {
+  // The command stays `sh run-tests.sh`; the change rewrites run-tests.sh itself so it passes without testing anything.
+  const f = await fixture((_request, payload) => isAcceptance(payload) ? { text: "```js\ntest(\"sum is fixed\", () => { throw new Error(\"no\"); });\n```" }
+    : lastUser(payload).includes(REVIEW) ? TICKED
+    : afterTool(payload) || lastUser(payload).includes(PROOF_REPAIR) ? { text: "Fixed sum.js." }
+    : { tools: [{ name: "write", args: { path: "sum.js", content: "still broken\n" } }, { name: "write", args: { path: "run-tests.sh", content: "true\n" } }] });
+  await mkdir(path.join(f.project, ".casper"));
+  await writeFile(path.join(f.project, ".casper/project.yaml"), 'verify:\n  test: "sh run-tests.sh"\nverification:\n  acceptance: true\n');
+  await writeFile(path.join(f.project, "run-tests.sh"), "grep -q fixed sum.js\n");
+  await writeFile(path.join(f.project, "sum.js"), "broken\n");
+  const result = await f.run(["--json", "--verify", "--require-verification", "Fix sum.js"]);
+  const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
+  expect({ exit: result.exit, outcome: receipt.outcome, proof: receipt.proof?.status }).toEqual({ exit: 3, outcome: "not_verified", proof: "unavailable" });
+  expect(receipt.proof.reason).toContain("the test command's definition changed in this task (run-tests.sh)");
+  // The acceptance check would run through the same rewritten script: it is not run, and says why.
+  expect(receipt.acceptance?.status).toBe("error");
+  expect(f.payloads.filter(isAcceptance)).toHaveLength(0);
+}, 60_000);

@@ -29,7 +29,7 @@ test("a check that timed out or could not start is marked as unfinished, not as 
   expect(failing.ended).toBeUndefined();
 });
 
-test("on Windows, cmd.exe's 'is not recognized' as the last thing a check printed means it could not start", () => {
+test("on Windows, cmd.exe's 'is not recognized' as all a check printed means it could not start", () => {
   const notFound = "'jest' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n";
   expect(checkEnded(1, undefined, notFound, "win32")).toBe("no_start");
   expect(checkEnded(9009, undefined, "", "win32")).toBe("no_start");
@@ -37,6 +37,9 @@ test("on Windows, cmd.exe's 'is not recognized' as the last thing a check printe
   // A test runner that hit a missing tool and then reported its own failure is a test failure.
   expect(checkEnded(1, undefined, `${notFound}npm error Lifecycle script \`test\` failed with error:\r\n`, "win32")).toBeUndefined();
   expect(checkEnded(1, undefined, "1 test failed\n", "win32")).toBeUndefined();
+  // A failing suite whose output merely ends with that text is still a failure: the message must be all there is.
+  expect(checkEnded(1, undefined, `Error: expect(received).toBe(expected)\n\n${notFound}`, "win32")).toBeUndefined();
+  expect(checkEnded(1, undefined, notFound, "win32", "3 failed\n")).toBeUndefined();
   // POSIX shells keep their 126/127 meaning only.
   expect(checkEnded(1, undefined, notFound, "linux")).toBeUndefined();
   expect(checkEnded(9009, undefined, "", "darwin")).toBeUndefined();

@@ -2,6 +2,8 @@ import { execFile } from "node:child_process";
 import type { DebugSession } from "./debug/session";
 import { promisify } from "node:util";
 import os from "node:os";
+import path from "node:path";
+import { reloadProject } from "./app/project-file";
 import type { LabSettings } from "./network/spec";
 import { modelPreference } from "./tui/model-preference";
 import { BrowserSession } from "./browser/session";
@@ -307,7 +309,7 @@ export class CasperApp {
     get homeDir() { return app.sessionHomeDir ?? os.homedir(); },
     stateDirectory: () => app.projectContext?.stateDirectory,
     activeRoot: () => app.activeWorkspaceRoot(),
-    reloadProject: async () => { if (app.projectContext) app.projectContext = await app.loadProjectContextFn(app.projectContext.info); },
+    reloadProject: async () => { await reloadProject(app); },
     lastTask: () => app.lastTaskResult,
   }))(this);
   /** MCP servers this task changed things through (calls you approved that were not read-only). */
@@ -420,7 +422,7 @@ export class CasperApp {
         this.observations.observeToolEnd(event, this.projectContext?.model.commands);
         if (["bash", "edit", "write"].includes(event.toolName)) this.browser?.invalidate();
         // A shell command's files are unknown, so it marks every running service stale.
-        if (event.toolName === "bash") { this.services?.markEdited(); if (this.taskEdits) this.taskEdits.shell = true; }
+        if (event.toolName === "bash" || event.toolName === "powershell") { this.services?.markEdited(); if (this.taskEdits) this.taskEdits.shell = true; }
         // Successful native writes invalidate in afterFileEdit, before LSP awaits.
         // Failed writes may be partial; invalidate without claiming a completed edit.
         if (event.isError && ["edit", "write"].includes(event.toolName) && typeof event.input?.path === "string") {
@@ -650,13 +652,21 @@ export class CasperApp {
 
   /** Undefined when the tree is too large, unreadable or the task was cancelled mid-walk. */
   async snapshotWorkspace(root: string, signal?: AbortSignal): Promise<Map<string, string> | undefined> {
-    try { return await snapshotTree(root, signal); }
+    // During a task: files listed at its start, and files its own tools wrote, are listed even when git ignores them.
+    const edited = this.observations.edited().map((file) => path.relative(root, path.resolve(root, file)).split(path.sep).join("/"));
+    try { return await snapshotTree(root, signal, { include: [...this.snapshotBase?.keys() ?? [], ...edited] }); }
     catch (error) {
       // Kept for the receipt: "Changes unknown: this folder has over 20,000 files; open a project folder".
       if (!signal?.aborted) this.snapshotFailure = snapshotFailureReason(error);
       return undefined;
     }
   }
+
+  /** The versions of .casper/project.yaml this session may read again (see src/app/project-file.ts). */
+  trustedProjectFiles = new Set<string>();
+
+  /** The current task's first snapshot: its files stay listed while they exist, even once git ignores them. */
+  snapshotBase?: Map<string, string>;
 
   /** This session's answer to "Show the AI the pages?" (showPages: ask); asked once. */
   showPagesAnswer?: boolean;

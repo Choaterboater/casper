@@ -60,7 +60,7 @@ function wordKind(name: string): ChangeKind {
 /**
  * A tool's change kind. `read` and `diagnostic` labels are `read` and `troubleshoot`. Otherwise the
  * server's `_meta["casper/change-kind"]` is used when it is a known kind other than `read`, except that it
- * can never make a name Casper reads as risky into a kind that isn't.
+ * can never make a name Casper reads as risky into a kind that isn't, nor a disruptive name into a safer kind.
  */
 export function changeKind(tool: Pick<MCPTool, "name" | "_meta">, label: CapabilitySafety): ChangeKind {
   if (label === "read") return "read";
@@ -69,6 +69,8 @@ export function changeKind(tool: Pick<MCPTool, "name" | "_meta">, label: Capabil
   const declared = tool._meta?.["casper/change-kind"];
   if (!isChangeKind(declared) || declared === "read") return words;
   if (isRiskyKind(words) && !isRiskyKind(declared)) return words;
+  // A disruptive name asks every time: a server can name it something riskier, never something safer.
+  if (words === "disruptive") return riskier(words, declared);
   return declared;
 }
 

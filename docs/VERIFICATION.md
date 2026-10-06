@@ -197,7 +197,7 @@ freshness, reuse, and the "not independently certified" note described in
 
 **Already broken before the change.** Before the first repair, Casper runs each failing check on
 the files from before the change (the copy it keeps for the proof). If the check failed there
-too, it was already broken: Casper says so, and an interactive terminal asks
+too as a test failure (not a crash, a signal or a timeout there, which can't tell), it was already broken: Casper says so, and an interactive terminal asks
 `1 Leave it · 2 Fix it anyway` before paying for a repair (Enter leaves it; before v0.2.16 the
 two were the other way round). Scripts repair.
 
@@ -444,7 +444,9 @@ you may add test files" is still a code change.
    system allows). `.git`, `.casper`, `node_modules`, `.venv` (and `venv` when it holds a
    `pyvenv.cfg`) and Python caches are left out; `node_modules` and the virtual environment are
    linked back in. Runs in the copies set `UV_NO_SYNC=1`, so `uv run` never changes your linked
-   `.venv`.
+   `.venv`. When code (not tests) changed during a plan turn, the copy would already hold that
+   change, so there is none: the receipt says Casper could not compare. Code the AI changes while
+   it looks at the page screenshots is part of the change.
 2. **Run without the change.** After the checks pass, Casper rebuilds the workspace **without the
    change**: the copy from before, with the tests (anything under a test directory, or named like
    a test) as they are now. It runs the `test` check there.
@@ -458,6 +460,14 @@ you may add test files" is still a code change.
 4. **If it passes without the change**, the change is **not proven**. Casper spends one repair
    round (within `repair.maxAttempts`) asking the model to add a test that fails without the
    change, then reruns the checks and the comparison.
+
+When the change rewrote what the `test` command runs (the package.json script it runs, with its
+pre and post scripts, `bunfig.toml` `[test]`, jest or vitest config (or `vite.config` when vitest
+has none), pytest settings, any `conftest.py` outside the test folders, the Makefile for `make`, or a
+script or `--config` file that the command or those scripts name outside the tests),
+its pass is not your tests passing: Casper does not compare, and the receipt says
+`the test command's definition changed in this task (package.json scripts.test)`. The independent
+acceptance check is not run either, for the same reason.
 
 An unproven change is not verified: its outcome is `not_verified` (`--require-verification` exits
 3). A change Casper could not compare keeps its check result and says why. Test-only, docs-only or
@@ -525,8 +535,8 @@ smoke runs inside the same check-and-repair loop as the command checks, after th
 - A model check whose baseline passed is shown as an observation and never makes the outcome
   verified. With no command checks and only such observations, the outcome is `not_verified`.
 - Casper does not take the model's word that it recorded before editing. A check recorded after
-  an edit in the task (a native edit or write, or a shell command after which the tree differs
-  from the task's start), or during a repair, review or proof round, has no before-the-change
+  an edit in the task (a native edit or write, or a shell command or approved MCP change after
+  which the tree differs from the task's start), or during a repair, review or proof round, has no before-the-change
   baseline. It is an observation too, and the receipt says `create note failed when recorded,
   after edits — an observation, not proof`.
 - A smoke failure left after the repairs makes the outcome `failed`.
@@ -787,7 +797,11 @@ file; the project file wins (see [CONFIGURATION.md](CONFIGURATION.md)).
   with `/verify add <name>`. `lab.hosts` (optional: it only marks devices as lab) is your own
   setting in `~/.casper/config.yaml`; a project file cannot set it.
 - Commands and declared scopes are read at startup and do not change during repair. Restart
-  Casper after changing configuration or manifests.
+  Casper after changing configuration or manifests. A task that rewrites `.casper/project.yaml`
+  keeps the checks and settings it started with (`[project] .casper/project.yaml changed in this
+  task; …`); the receipt lists the file and `/undo` puts it back. Casper's own saves to the file
+  after that (Remember, `/verify add`, more time) still write it, but the session keeps its checks
+  until you restart (`[project] .casper/project.yaml changed in a task; restart Casper to use it`).
 - Casper runs the checks one at a time, at the project root, with the platform shell and your
   environment (from v0.2.16, minus AI provider keys). It does not install dependencies or fall back to another tool when one is missing.
 - The model's `casper_check` tool takes only a check name (`typecheck`, `lint`, `test`, `build`,
@@ -875,7 +889,9 @@ optional `exclude` paths.
 
 **Changed files.** In a git work tree the list of changed files comes from git: tracked files plus
 untracked files git does not ignore, so an ignored `.venv` or build folder of any size never slows
-the receipt (an edit to an ignored file, such as `.env`, is not listed). A nested repository or
+the receipt. A file git ignores is still listed when the AI's own `edit` or `write` changed it, and
+a file listed at the start of the task stays listed while it exists, so adding it to `.gitignore`
+does not make it look removed (an ignored file a shell command changed is not listed). A nested repository or
 submodule is walked, and so is a folder git lists nothing for (one an enclosing repository
 ignores). Outside git, Casper walks the folder. Either way dependency trees, virtual environments
 and caches are left out, and the limit is 20,000 files.

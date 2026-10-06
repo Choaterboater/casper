@@ -145,8 +145,11 @@ reaches one without your answer:
    repaired without your answer. The one exception is yours: "Yes, always for this project" on
    `junos-commit` lets *your own* `/verify` run it without the box, and only while the
    inventory, its host variables and the change file are exactly as they were; a check the
-   AI asks for always shows the box. A run that cannot ask (`casper -p`, `--json`, a pipe)
-   sends nothing and says so:
+   AI asks for always shows the box. Just before the run Casper reads the inventory, the
+   change file and the playbooks again; if anything changed while the box was on screen
+   (a device added, say), nothing is sent and the check says to run it again. `junos-commit`
+   loads Casper's own copy of the change file, the bytes the box was built from. A run that
+   cannot ask (`casper -p`, `--json`, a pipe) sends nothing and says so:
 
    ```
    – aoscx-check · not run: lab checks need your answer at the terminal, and this run cannot ask; nothing was sent
@@ -166,7 +169,8 @@ reaches one without your answer:
    `/lab import <file>` adds devices from a file without editing anything: GreenCLI's
    export of its `lab`-tagged hosts (`{"hosts": [...]}`), or one host per line. Casper
    lists the new ones and asks `1 No · 2 Add them`; `/lab` shows the list and the file it
-   comes from. When your profile has its own lab list (it replaces yours), the hosts go there.
+   comes from. Every address range in the file is shown in full; only plain names past 20
+   are counted ("and N more"). When your profile has its own lab list (it replaces yours), the hosts go there.
 
    The AI's `ssh` and `scp` to a device on your lab list (by the name or address the command
    types) don't ask first. `/lab ssh off` makes them ask again, for this project (kept in
@@ -188,13 +192,20 @@ reaches one without your answer:
    `add_host`, `local_action`, `import_playbook`, `ansible_host`, SSH proxy settings,
    `provider:` or `host:` task settings, URLs, command modules, `pipe`/`url` lookups, and
    roles it cannot read, plus `check_mode: false` (that task really runs, even under
-   `--check`) and plugin folders next to the playbook (`library/`, `filter_plugins/` …: local
-   code). A jump host or proxy in the inventory's host variables is a warning too. The box
-   lists up to five, then "+N more", and then there is no "Always":
+   `--check`), plugin folders next to the playbook or in a role (`library/`, `filter_plugins/`,
+   `vars_plugins/` …: local code) and a `collections/` folder next to the playbook (Ansible
+   loads it before your installed collections). A jump host or proxy in the inventory's host
+   variables is a warning too, and so is a host variable that names a program Ansible starts
+   on this machine (`ansible_python_interpreter`, `ansible_ssh_executable` …) when it is a
+   relative path, a template, a command line or a file in the project. The usual settings
+   are not: `/usr/bin/python3`, `/usr/bin/env python3`, `python3`, `auto_silent` and the
+   other discovery words, and `{{ ansible_playbook_python }}`. A host name with a line break is refused. The box lists up to five, then
+   "+N more", and then there is no "Always":
 
    ```
    site.yml uses delegate_to (line 42), so it can reach devices not listed here.
    Host r1 sets ansible_ssh_common_args, so the connection can go through another machine.
+   Host r2 sets ansible_python_interpreter to ./tools/run.sh, so the run starts that program on this machine.
    ```
 
 The boxes:

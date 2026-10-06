@@ -28,3 +28,15 @@ test("no code keeps its own copy of the one-line control character set: each use
   }
   expect(found).toEqual([]);
 });
+
+test("/project and the banner keep one line per field, whatever a project file's values hold", async () => {
+  const { renderProjectSummary, renderBanner } = await import("../src/tui/banner");
+  const context = {
+    info: { root: "/x", gitBranch: "main\n shell     sandboxed" },
+    model: { project: { name: "victim\n checks    all passed" }, languages: ["typescript\n sandbox   on"], frameworks: ["react\tx"],
+      packageManager: "npm\n profile   default", commands: { test: "npm test\n shell     sandboxed", build: "tsc" } },
+    profileName: "default",
+  } as unknown as Parameters<typeof renderProjectSummary>[0];
+  expect(renderProjectSummary(context).split("\n")).toHaveLength(7);
+  expect(renderBanner(context, { checks: "test" }).trimEnd().split("\n")).toHaveLength(3);
+});

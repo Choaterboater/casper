@@ -78,6 +78,7 @@ a file changed only by a shell command that git ignores is not named:
 
 - files git ignores, dependency folders (`node_modules`, `.venv`), caches and build folders (`.next`,
   `__pycache__`, and the like);
+- Casper's `.casper` folder, except `.casper/project.yaml`, which is copied and goes back like any project file;
 - secret files (`.env`, keys, credentials, the list in [SECRETS.md](SECRETS.md)): Casper keeps no copy of them;
 - files over 8 MB;
 - the contents of nested repositories and submodules;
