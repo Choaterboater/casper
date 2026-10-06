@@ -236,10 +236,10 @@ conpty("ConPTY: a resize redraws at the new width, also with a choice box open",
   await idle(s);
 
   s.send("/settings\n");
-  await s.until("Press 1-8");
+  await s.until("Up/Down + Enter");  // the choice count changes as settings are added
   s.resize(80, 24);
   await s.waitFor("80-wide rules", () => ruleWidths(s).length > 0 && ruleWidths(s).every((width) => width === 80));
-  expect(s.visible()).toContain("Press 1-8");
+  expect(s.visible()).toContain("Up/Down + Enter");
   await boxReady();
   s.press("escape");
   await s.until("(skipped)");
