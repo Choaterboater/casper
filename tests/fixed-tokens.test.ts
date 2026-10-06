@@ -18,7 +18,7 @@ import { removeTempDir } from "./support/temp-dir";
 const BUDGET = {
   fixed: 12_200,
   preamble: 1_200,
-  tools: { browser: 3_500, casper_read_untrusted: 1_100, casper_check: 950, delegate: 950 } as Record<string, number>,
+  tools: { browser: 3_500, casper_read_untrusted: 1_100, casper_check: 950, delegate: 950, casper_session: 350 } as Record<string, number>,
 };
 
 const cleanup: Array<() => unknown> = [];
@@ -74,7 +74,7 @@ async function firstRequest(task: string) {
 test("the fixed part of a request stays small: system prompt plus Casper's tools for a small project", async () => {
   const { system, names, toolText, preamble } = await firstRequest("Add a sum function to src/math.ts and use it in src/index.ts");
   // Every tool the first request needs is still there; a diagram tool waits for a diagram word.
-  expect(names).toEqual(["delegate", "ask", "casper_check", "web_search", "web_fetch", "casper_read_untrusted", "browser"]);
+  expect(names).toEqual(["delegate", "ask", "casper_session", "casper_check", "web_search", "web_fetch", "casper_read_untrusted", "browser"]);
   expect(system.length + toolText.length).toBeLessThan(BUDGET.fixed);
   expect(preamble.length).toBeLessThan(BUDGET.preamble);
 });

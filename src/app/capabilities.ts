@@ -15,6 +15,8 @@ export interface TaskCapabilitySource {
   broker: CapabilityBroker;
   delegate: RuntimeTool;
   ask: RuntimeTool;
+  /** casper_session: Casper's own state, read-only; offered every task. */
+  session?: RuntimeTool;
   check?: RuntimeTool;
   lsp: LSPManager;
   confirmRename: ConfirmRename;
@@ -55,7 +57,7 @@ export function diagramRequested(task: string): boolean {
 }
 
 /** The complete custom tool surface for one task, in the established order: MCP capabilities,
- * delegation, clarification, managed checks, LSP, references, web lookups, the untrusted-text reader, browser, services, visualization.
+ * delegation, clarification, Casper's own state, managed checks, LSP, references, web lookups, the untrusted-text reader, browser, services, visualization.
  * Casper's own tools, once offered, stay offered for the session: a changed tool list throws away
  * the provider's prompt cache. The direct MCP tools are picked once per session (again when a server
  * connects or disconnects); find_capability reaches the rest. */
@@ -68,6 +70,7 @@ export async function assembleTaskTools(task: string, source: TaskCapabilitySour
     ...await source.broker.prepare(task),
     source.delegate,
     source.ask,
+    ...(source.session ? [source.session] : []),
     ...(source.check ? [source.check] : []),
     ...lspTools(source.lsp, source.confirmRename),
     ...source.references.tools(),

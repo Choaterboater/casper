@@ -389,6 +389,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...bigModelReceipt(app),
       ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(app.sandbox ? { sandbox: sandboxReceipt(app.sandbox)! } : {}),
       ...outsideWrites };
+    app.lastFinishedTask = app.lastTaskResult;
     // The receipt is next: the steps fold and the Working box goes, even for a tool that ended late.
     app.events.reset();
     if (!app.closing) {

@@ -298,6 +298,8 @@ export class CasperApp {
   signedIn?: boolean;
   taskRuntimeCancelled = false;
   lastTaskResult?: TaskResult;
+  /** The last model task's result, kept after a new command starts (casper_session reads it during the next task). */
+  lastFinishedTask?: TaskResult;
   /** Tokens the AI security review spent in this command (no task to carry them). */
   commandSpent?: TaskUsage;
   /** Undo, redo, /diff and saved receipts: a copy before and after each task. */

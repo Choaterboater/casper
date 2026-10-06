@@ -22,13 +22,14 @@ import { opened } from "./new-project";
 import { askToolFor } from "./approvals";
 import { phase } from "./footer";
 import { appReaderTool } from "./reader";
+import { casperSessionTool } from "./session-tool";
 import { projectPrivatePaths } from "./wiring";
 import { appAgentDir } from "./runtime-start";
 
 export async function prepareCapabilities(app: CasperApp, task: string): Promise<void> {
   app.browserInstalled ??= browserDefaults.installed().catch(() => false);
   const nextTools = await assembleTaskTools(task, {
-    broker: app.broker!, delegate: delegateTool(app), ask: askToolFor(app),
+    broker: app.broker!, delegate: delegateTool(app), ask: askToolFor(app), session: sessionTool(app),
     check: app.checkTask?.tool(), lsp: app.lsp!, confirmRename: app.confirmRename,
     references: app.references!, ...(app.web ? { web: webTools(app.web, app.commandAbort?.signal) } : {}), visualization: app.visualization!, projectRoot: app.activeWorkspaceRoot(), privatePaths: projectPrivatePaths(app),
     reader: appReaderTool({ context: app.projectContext, session: () => app.session, shell: app.shell, broker: app.broker, root: app.activeWorkspaceRoot(), home: app.homeDir(), agentDir: appAgentDir(app), privatePaths: projectPrivatePaths(app), onUsage: (usage) => app.observations.recordModelCall(usage), signal: app.commandAbort?.signal }),
@@ -46,6 +47,18 @@ export async function prepareCapabilities(app: CasperApp, task: string): Promise
   }
   app.runtimeTools = nextTools;
   for (const tool of nextTools) app.offeredTools.add(tool.name);
+}
+
+/** casper_session: what /status, /usage, /context, /receipt, /tasks and /mcp show, for the AI. Read when it runs. */
+export function sessionTool(app: CasperApp): RuntimeTool {
+  return casperSessionTool({
+    status: () => app.session?.getStatus?.(),
+    roles: () => app.session?.getModelRoles?.() ?? {},
+    usage: () => app.session?.getUsage?.(),
+    lastTask: () => app.lastTaskResult ?? app.lastFinishedTask,
+    tasks: () => backgroundTasks(app),
+    mcp: () => app.mcp?.status() ?? [],
+  });
 }
 
 export function delegateTool(app: CasperApp): RuntimeTool {
