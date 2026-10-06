@@ -5,6 +5,7 @@ import path from "node:path";
 import { parse } from "yaml";
 import { readPlaybook } from "./ansible";
 import { MAX_SCAN_BYTES, readSmallText, resolveInside } from "./files";
+import { hasLineControls, lineText } from "../tui/format";
 import { runArgv } from "./run";
 import type { LabSettings } from "./spec";
 
@@ -77,10 +78,23 @@ export function reachWarningText(finding: ReachFinding): string {
 /** Host variables that can send Ansible somewhere other than the listed address. */
 const PROXY_VARIABLES = ["ansible_ssh_common_args", "ansible_ssh_extra_args", "ansible_ssh_args", "ansible_paramiko_proxy_command", "ansible_netconf_ssh_config", "ansible_psrp_proxy", "ansible_httpapi_proxy"];
 
+/** Host variables that name a program Ansible starts on this machine. */
+const LOCAL_PROGRAM_VARIABLES = ["ansible_python_interpreter", "ansible_interpreter_python", "ansible_ssh_executable", "ansible_shell_executable",
+  "ansible_become_exe", "ansible_scp_executable", "ansible_sftp_executable"];
+
+/** A program the project could have supplied: a relative path, a template, a command line, or a path inside the project.
+ * A plain absolute path elsewhere (/usr/bin/python3, the usual setting) is not. */
+function projectProgram(value: string, root: string | undefined): boolean {
+  if (/\{\{|\{%|\s|[;&|`$<>]/.test(value) || !path.isAbsolute(value)) return true;
+  if (!root) return false;
+  const relative = path.relative(root, value);
+  return !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
 export interface InventoryHosts { hosts: LabHost[]; problem?: string; warnings?: string[]; /** Digest of every host's variables. */ vars?: string }
 
 /** Read `ansible-inventory --list` JSON: every host and where it connects. */
-export function inventoryHostsFromJson(text: string): InventoryHosts {
+export function inventoryHostsFromJson(text: string, root?: string): InventoryHosts {
   let value: unknown;
   try { value = JSON.parse(text); } catch { return { hosts: [], problem: "ansible-inventory did not print JSON" }; }
   if (typeof value !== "object" || value === null) return { hosts: [], problem: "ansible-inventory did not print JSON" };
@@ -97,6 +111,15 @@ export function inventoryHostsFromJson(text: string): InventoryHosts {
   const warnings: string[] = [];
   for (const name of [...names].sort()) {
     const vars = hostvars[name] ?? {};
+    // One line per device in the box: a name with a line break could add lines of its own.
+    if (hasLineControls(name)) return { hosts, problem: `host ${JSON.stringify(name)} holds control characters` };
+    for (const key of LOCAL_PROGRAM_VARIABLES) {
+      const setting = vars[key];
+      if (typeof setting === "string" && setting.trim() && projectProgram(setting.trim(), root)) {
+        warnings.push(`Host ${name} sets ${key} to ${lineText(setting.trim()).slice(0, 80)}, so the run starts that program on this machine.`);
+        break;
+      }
+    }
     // A jump host or proxy is normal on a network; the box names it, and you decide.
     for (const key of PROXY_VARIABLES) {
       const setting = vars[key];
@@ -108,6 +131,7 @@ export function inventoryHostsFromJson(text: string): InventoryHosts {
     const address = vars.ansible_host ?? vars.ansible_ssh_host;
     if (address !== undefined && typeof address !== "string") return { hosts, problem: `host ${name} has an ansible_host that is not plain text` };
     if (typeof address === "string" && /\{\{|\{%/.test(address)) return { hosts, problem: `host ${name} builds ansible_host from a template` };
+    if (typeof address === "string" && hasLineControls(address)) return { hosts, problem: `host ${name} has an ansible_host that holds control characters` };
     hosts.push({ name, address: typeof address === "string" && address.trim() ? address.trim() : name });
   }
   const vars = createHash("sha256").update(JSON.stringify([...names].sort().map((name) => [name, hostvars[name] ?? {}]))).digest("hex");
@@ -142,7 +166,7 @@ export async function labHosts(inventory: string, options: LabHostsOptions): Pro
   if (/no vault secrets (were )?found|vault password/i.test(result.stderr)) return { hosts: [], vault: true, problem: "the inventory needs an Ansible vault password" };
   if (result.exitCode !== 0) return { hosts: [], problem: `ansible-inventory could not read ${path.basename(inventory)}${result.reason ? ` (${result.reason})` : ""}` };
   if (result.truncated) return { hosts: [], problem: "the inventory is too large to check" };
-  return inventoryHostsFromJson(result.stdout);
+  return inventoryHostsFromJson(result.stdout, options.cwd);
 }
 
 /** Lines that can point a playbook at hosts beyond its inventory, or run things Casper cannot check. */
@@ -176,7 +200,20 @@ function scanText(file: string, text: string): ReachFinding[] {
 }
 
 /** Folders next to a playbook that Ansible loads as local code (they run on this machine, outside the sandbox). */
-const PLUGIN_FOLDERS = ["library", "module_utils", "action_plugins", "filter_plugins", "lookup_plugins", "callback_plugins", "connection_plugins", "plugins"];
+const PLUGIN_FOLDERS = ["library", "module_utils", "action_plugins", "filter_plugins", "lookup_plugins", "callback_plugins", "connection_plugins", "plugins",
+  "vars_plugins", "test_plugins", "strategy_plugins", "cache_plugins", "terminal_plugins", "cliconf_plugins", "netconf_plugins", "httpapi_plugins",
+  "become_plugins", "inventory_plugins", "shell_plugins", "doc_fragments"];
+const PLUGIN_CODE = "local plugin code that runs on this machine";
+
+/** Plugin folders inside `folder` (next to a playbook, or in a role), as `folder/name/` paths. */
+async function pluginFolders(root: string, folder: string): Promise<string[]> {
+  const found: string[] = [];
+  for (const name of PLUGIN_FOLDERS) {
+    const relative = path.posix.join(folder, name);
+    try { if ((await lstat(path.join(root, relative))).isDirectory()) found.push(`${relative}/`); } catch { /* none */ }
+  }
+  return found;
+}
 
 const INCLUDE = /^\s*-?\s*(?:ansible\.builtin\.)?(include_tasks|import_tasks|include_vars|include|include_role|import_role)\s*:\s*(.*)$/;
 
@@ -190,10 +227,15 @@ const INCLUDE = /^\s*-?\s*(?:ansible\.builtin\.)?(include_tasks|import_tasks|inc
 export async function scanPlaybookReach(root: string, playbook: string): Promise<ReachFinding[]> {
   const findings: ReachFinding[] = [];
   const note = (finding: ReachFinding) => { if (findings.length < 200) findings.push(finding); };
-  for (const folder of PLUGIN_FOLDERS) {
-    const relative = path.posix.join(path.posix.dirname(playbook), folder);
-    try { if ((await lstat(path.join(root, relative))).isDirectory()) note({ file: `${relative}/`, line: 1, what: "local plugin code that runs on this machine" }); } catch { /* none */ }
-  }
+  for (const file of await pluginFolders(root, path.posix.dirname(playbook))) note({ file, line: 1, what: PLUGIN_CODE });
+  // Ansible looks in collections/ next to the playbook before your installed collections, so it can replace a module.
+  const collections = path.posix.join(path.posix.dirname(playbook), "collections");
+  try {
+    if ((await lstat(path.join(root, collections))).isDirectory()) {
+      note({ file: `${collections}/`, line: 1, what: "a collections folder next to the playbook, whose local code Ansible loads before your installed collections" });
+    }
+  } catch { /* none */ }
+  const plugins = (files: string[]) => { for (const file of files) note({ file, line: 1, what: PLUGIN_CODE }); };
   const seen = new Set<string>();
   const queue: string[] = [playbook];
   const playbookDir = path.posix.dirname(playbook);
@@ -224,7 +266,7 @@ export async function scanPlaybookReach(root: string, playbook: string): Promise
         if (kind.endsWith("_role")) {
           const name = /name\s*:\s*['"]?([\w.-]+)/.exec(target)?.[1] ?? lines[index + 1]?.match(/^\s*name\s*:\s*['"]?([\w.-]+)/)?.[1];
           if (!name) { note({ file: relative, line: index + 1, what: `${kind} with a name Casper cannot read ahead` }); continue; }
-          const role = await roleFiles(root, base, name);
+          const role = await roleFiles(root, base, name, plugins);
           if (!role) { note({ file: relative, line: index + 1, what: `role ${name}, which is not in the project's roles/ folder` }); continue; }
           queue.push(...role);
           continue;
@@ -256,7 +298,7 @@ export async function scanPlaybookReach(root: string, playbook: string): Promise
         for (const role of roles) {
           const name = typeof role === "string" ? role : typeof role === "object" && role !== null ? (role as Record<string, unknown>).role ?? (role as Record<string, unknown>).name : undefined;
           if (typeof name !== "string" || name.includes("{{")) { note({ file: relative, line: lineNumber(text, /roles\s*:/), what: "a role Casper cannot read ahead" }); continue; }
-          const files = await roleFiles(root, base, name);
+          const files = await roleFiles(root, base, name, plugins);
           if (!files) { note({ file: relative, line: lineNumber(text, new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))), what: `role ${name}, which is not in the project's roles/ folder` }); continue; }
           queue.push(...files);
         }
@@ -289,12 +331,16 @@ async function listYaml(root: string, folder: string, depth = 0): Promise<string
   return files;
 }
 
-async function roleFiles(root: string, base: string, name: string): Promise<string[] | undefined> {
+async function roleFiles(root: string, base: string, name: string, onPlugins?: (folders: string[]) => void): Promise<string[] | undefined> {
   if (!/^[\w-]+$/.test(name)) return undefined;
   for (const folder of [path.posix.join(base, "roles", name), path.posix.join("roles", name)]) {
     try {
       const absolute = await resolveInside(root, folder);
-      if ((await lstat(absolute)).isDirectory()) return listYaml(root, folder);
+      if ((await lstat(absolute)).isDirectory()) {
+        // A role's own library/, filter_plugins/ … run on this machine like those next to the playbook.
+        onPlugins?.(await pluginFolders(root, folder));
+        return listYaml(root, folder);
+      }
     } catch { /* try the next place */ }
   }
   return undefined;

@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { addLabHosts, parseLabFile } from "../src/network/lab-import";
+import { addLabHosts, labImportList, parseLabFile } from "../src/network/lab-import";
 
 const dirs: string[] = [];
 afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
@@ -14,6 +14,14 @@ test("a lab file is JSON with hosts, or one host per line; each entry is checked
   expect(() => parseLabFile('{"hosts": "lab-sw1"}')).toThrow("hosts");
   expect(() => parseLabFile("lab sw1 with spaces\n")).toThrow();
   expect(() => parseLabFile("")).toThrow("no hosts");
+});
+
+test("the import box shows every address range in full; only plain names past 20 are counted", () => {
+  const names = Array.from({ length: 21 }, (_, index) => `lab-sw${index + 1}`);
+  const shown = labImportList([...names, "0.0.0.0/0", "10.99.0.0/24"]);
+  expect(shown).toStartWith("0.0.0.0/0, 10.99.0.0/24, lab-sw1, ");
+  expect(shown).toEndWith("lab-sw20 and 1 more");
+  expect(labImportList(["lab-sw1", "10.99.0.11"])).toBe("lab-sw1, 10.99.0.11");
 });
 
 test("adding hosts keeps the rest of config.yaml and its comments, and only adds what is new", async () => {

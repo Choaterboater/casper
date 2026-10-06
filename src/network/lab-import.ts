@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { isMap, isSeq, parseDocument } from "yaml";
+import { terminalText } from "../tui/format";
 import { parseLabSettings } from "./spec";
 
 /** The hosts in a lab file: JSON `{"hosts": [...]}`, or one host per line (`#` comments). Each is checked like lab.hosts. */
@@ -68,4 +69,12 @@ export async function addLabHosts(home: string, hosts: readonly string[], profil
     throw error;
   }
   return { file, added, already };
+}
+
+/** The entries for the import box: every address range in full (one can mark many devices lab, so none is ever
+ * hidden), then up to 20 plain names, with a count of the rest. */
+export function labImportList(entries: readonly string[]): string {
+  const ranges = entries.filter((entry) => entry.includes("/"));
+  const names = entries.filter((entry) => !entry.includes("/"));
+  return [...ranges, ...names.slice(0, 20)].map(terminalText).join(", ") + (names.length > 20 ? ` and ${names.length - 20} more` : "");
 }

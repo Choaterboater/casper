@@ -1,5 +1,5 @@
 import path from "node:path";
-import { addLabHosts, labConfigPlace, parseLabFile } from "../network/lab-import";
+import { addLabHosts, labConfigPlace, labImportList, parseLabFile } from "../network/lab-import";
 import type { LabSettings } from "../network/spec";
 import type { BrowserSession } from "../browser/session";
 import type { ServiceManager, ServiceStatus } from "../services/manager";
@@ -1117,7 +1117,7 @@ async function handleLabCommand(host: CommandHost, prompt: string): Promise<void
   const known = new Set(current.map((entry) => entry.toLowerCase()));
   const fresh = hosts.filter((entry) => !known.has(entry.toLowerCase()));
   if (!fresh.length) { host.output.write(`[lab] All ${hosts.length} are already in your lab list.\n`); return; }
-  const shown = fresh.slice(0, 20).map(terminalText).join(", ") + (fresh.length > 20 ? ` and ${fresh.length - 20} more` : "");
+  const shown = labImportList(fresh);
   const devices = `${fresh.length} ${fresh.length === 1 ? "device" : "devices"}`;
   const answer = await host.approveChoice("", `Add ${devices} to your lab list (${place})? ${shown}`, LAB_IMPORT_CHOICES, host.commandAbort?.signal);
   if (answer !== LAB_IMPORT_CHOICES[1]) { host.output.write("[lab] Nothing added.\n"); return; }

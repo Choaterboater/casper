@@ -359,20 +359,27 @@ export async function prepareLabCheck(name: string, spec: NetworkCheckSpec, cont
   }
   // Ways the run can reach devices not listed in the box: shown as warnings; you decide.
   const reach: string[] = [];
+  const allReach: string[] = [];
+  // Every finding, also those past the box's first five: the run is bound to them (see run below).
+  const scanReach = async () => (await Promise.all((spec.preset === "ansible-check" ? spec.playbooks ?? [] : [])
+    .map((playbook) => scanPlaybookReach(context.root, playbook)))).flat().map(reachWarningText);
   for (const playbook of spec.preset === "ansible-check" ? spec.playbooks ?? [] : []) {
     try { await resolveInside(context.root, playbook); } catch (error) { return skip(error instanceof Error ? error.message : String(error), "input"); }
     const findings = await scanPlaybookReach(context.root, playbook);
+    allReach.push(...findings.map(reachWarningText));
     reach.push(...findings.slice(0, 5).map(reachWarningText));
     if (findings.length > 5) reach.push(`+${findings.length - 5} more in ${playbook} and the files it pulls in.`);
   }
+  const reachShown = allReach.join("\n");
 
-  const listed = await withWorkspace(() => ansibleWorkspace({ tmpRoot: context.tmpRoot, realHome: context.realHome, path: context.path }),
+  const listHosts = () => withWorkspace(() => ansibleWorkspace({ tmpRoot: context.tmpRoot, realHome: context.realHome, path: context.path }),
     (workspace) => labHosts(inventory, { cwd: context.root, env: workspace.env, ansibleInventory: inventoryTool, signal: context.signal }));
+  const listed = await listHosts();
   if (listed.vault) return skip(VAULT_REASON, "vault");
   if (listed.problem) return refuse(`Refused: ${name}: ${listed.problem}. Nothing was sent.`);
   if (!listed.hosts.length) return refuse(`Refused: ${name}: the inventory lists no hosts. Nothing was sent.`);
   const proxies = listed.warnings ?? [];
-  reach.push(...proxies.slice(0, 3), ...(proxies.length > 3 ? [`+${proxies.length - 3} more hosts go through another machine.`] : []));
+  reach.push(...proxies.slice(0, 3), ...(proxies.length > 3 ? [`+${proxies.length - 3} more host settings like these.`] : []));
   // Any device may be checked; the box names the ones not marked lab.
   const notLab = notLabHosts(listed.hosts, context.lab);
   const warnings = [...(notLab.length ? [`Not marked lab: ${notLab.slice(0, 12).map(describeHost).join(", ")}${notLab.length > 12 ? ` and ${notLab.length - 12} more` : ""}.`] : []), ...reach];
@@ -387,14 +394,27 @@ export async function prepareLabCheck(name: string, spec: NetworkCheckSpec, cont
   const labBase: Base = { ...base, hosts: hosts.map((host) => host.name) };
   // Device runs stay outside the shell sandbox: they log in to your devices with your own SSH keys, and only your
   // answer in a numbered box starts them (or your own saved "Always" for the same check, files and inventory).
-  const run = async (): Promise<NetworkCheckResult> => withWorkspace(
+  // The run is bound to what the box showed: the inventory is listed again and the change file and playbooks read again
+  // just before the run, and anything different (a device added while the box was on screen) sends nothing.
+  const unchanged = async (): Promise<boolean> => {
+    const again = await listHosts();
+    if (again.problem || again.vault) return false;
+    let now: string[];
+    try { now = await Promise.all(files.map((file) => readFile(file.absolute, "utf8"))); } catch { return false; }
+    const key = labApprovalKey(name, { inventory, hosts: again.hosts, files: files.map((file) => file.absolute), contents: now, ...(again.vars ? { vars: again.vars } : {}) });
+    return key === approvalKey && (await scanReach()).join("\n") === reachShown;
+  };
+  const run = async (): Promise<NetworkCheckResult> => await unchanged() ? withWorkspace(
     () => ansibleWorkspace({ tmpRoot: context.tmpRoot, realHome: context.realHome, path: context.path, keepHome: true }),
     async (workspace) => {
       if (spec.preset === "junos-commit") {
         const playbook = path.join(workspace.dir, "junos_commit_check.yml");
         const vars = path.join(workspace.dir, "vars.json");
+        // Casper's own copy of the bytes the box was built from, so a later edit can't change what is loaded.
+        const change = path.join(workspace.dir, `change${path.extname(files[0]!.absolute)}`);
         await writeFile(playbook, junosCommitPlaybook, { mode: 0o600, flag: "wx" });
-        await writeFile(vars, JSON.stringify({ casper_src: files[0]!.absolute, casper_format: junosFormat(files[0]!.absolute) }), { mode: 0o600, flag: "wx" });
+        await writeFile(change, contents[0]!, { mode: 0o600, flag: "wx" });
+        await writeFile(vars, JSON.stringify({ casper_src: change, casper_format: junosFormat(files[0]!.absolute) }), { mode: 0o600, flag: "wx" });
         const execution = await runArgv(playbookTool, ["-i", inventory, playbook, "-e", `@${vars}`], { cwd: context.root, env: workspace.env, timeoutMs, signal: context.signal, sandbox: false });
         return ansibleResult(labBase, `juniper.device.config check on ${hosts.length} ${hosts.length === 1 ? "router" : "routers"}`, execution);
       }
@@ -403,7 +423,7 @@ export async function prepareLabCheck(name: string, spec: NetworkCheckSpec, cont
         const execution = await runArgv(playbookTool, ["--check", "--diff", "-i", inventory, absolute], { cwd: context.root, env: workspace.env, timeoutMs, signal: context.signal, sandbox: false });
         return ansibleResult(labBase, `ansible --check on ${hosts.length} ${hosts.length === 1 ? "switch" : "switches"}`, execution);
       });
-    });
+    }) : notRun(labBase, "the inventory, playbook or change file changed after the box was shown; nothing was sent. Run the check again to see what it reaches now", "lab");
   return {
     state: "ready", hosts, approvalKey, allowAlways: spec.preset === "junos-commit" && !reach.length,
     ask: labAskFor(name, spec.preset, hosts, warnings, spec.preset === "junos-commit" && !reach.length), run,
