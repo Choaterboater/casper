@@ -16,13 +16,14 @@ Settings (saved in ~/.casper/config.yaml for you). Pick one to change:
   1 Done                   nothing changes
   2 Web lookups            on (DuckDuckGo)
   3 New-version notice     on
-  4 Built-in skills        on
-  5 Spend notes            at $1 a task
-  6 Spend pause            off
-  7 Show the AI the pages  ask once a session
-  8 Work shown             normal
-  9 Untrusted-text reader  on
- 10 Playwright tests       on
+  4 Side questions with ?  on
+  5 Built-in skills        on
+  6 Spend notes            at $1 a task
+  7 Spend pause            off
+  8 Show the AI the pages  ask once a session
+  9 Work shown             normal
+ 10 Untrusted-text reader  on
+ 11 Playwright tests       on
 ```
 
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
@@ -39,6 +40,16 @@ refused and never sent, and secrets on a page are hidden before the AI sees it. 
 `/settings` (it writes `web: off`). Brave Search (`web: { provider: brave }`, with your key saved
 as `brave` in `~/.casper/agent/auth.json`) and your own SearXNG (`web: { provider: searxng,
 searxngUrl: <address> }`) are the other choices. A project file can't change `web:`.
+
+### Side questions
+
+A line you start with `?` (`? what does ECONNRESET mean`) is a side question: one separate call to
+your `fast` model (the session's model when none is set or signed in), with no tools, idle or during
+a task. The answer shows as a side answer; it is never added to the conversation, so the AI that
+works on your task never sees it. Each one uses a few tokens, shown in `/usage`. They are on; turn
+them off with `/settings` (it writes `sideQuestions: false`), and a `?` line goes to the AI as an
+ordinary request. A project file can't change `sideQuestions:`. See
+[TERMINAL_UX.md](TERMINAL_UX.md#words-you-can-use) for the words a request can start with.
 
 ### Untrusted-text reader
 
@@ -102,7 +113,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`,
-`showPages`, `suggestions`, `updates`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`)
+`showPages`, `suggestions`, `updates`, `sideQuestions`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
@@ -380,6 +391,7 @@ repair:
   bigModelLastTry: true
 suggestions: false   # no suggested next steps anywhere
 updates: false       # no "a newer Casper is out" line at the start of a session
+sideQuestions: false # a line starting with ? is an ordinary request, not a side question
 ```
 
 A session checks for a newer Casper at most once a day, in the background (no model, no

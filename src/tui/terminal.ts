@@ -108,6 +108,9 @@ export class InteractiveTerminal {
   setStatus(status: string, cwd = process.cwd()): void { this.surface?.setStatus(status, cwd); }
   /** Pictures pasted (Ctrl+V) into the line just sent, by their number in `[image N]`. Empty on the plain terminal. */
   takePastedImages(): Map<number, RuntimeImage> { return this.surface?.takePastedImages() ?? new Map(); }
+  /** Text pasted into the line just sent, so Casper reads its words only from what the person typed. Empty on the
+   * plain terminal, where every line is typed. */
+  takeSubmittedPastes(): string[] { return this.surface?.takeSubmittedPastes() ?? []; }
   /** The MCP writes badge ("WRITES: <servers> · ctrl+o"); kept here too, so the plain terminal can report it. */
   setBadge(text?: string): void { this.badgeText = text; this.surface?.setBadge(text); }
   get badge(): string | undefined { return this.badgeText; }
@@ -241,9 +244,9 @@ export class InteractiveTerminal {
   }
 
   /** Put queued lines back in the prompt draft. False on the plain terminal, which has no draft to hold them. */
-  restoreDraft(text: string): boolean {
+  restoreDraft(text: string, pasted: readonly string[] = []): boolean {
     if (!this.surface) return false;
-    this.surface.restoreDraft(text);
+    this.surface.restoreDraft(text, pasted);
     return true;
   }
 

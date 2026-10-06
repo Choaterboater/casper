@@ -196,10 +196,14 @@ class PiRuntimeSession implements RuntimeSession {
 
   get busy(): boolean { return this.promptActive || !this.runtime.session.isIdle; }
 
+  /** The model is mid-run (between or during its steps): a model or effort change applies from its next step, as Pi
+   * reads both before each request. Not before the run has started (auth preflight) or while anything else runs. */
+  private get midRun(): boolean { return this.promptActive && this.runtime.session.isStreaming; }
+
   selectModel(options: RuntimeModelSelectionOptions): Promise<RuntimeModelSelection> {
-    if (this.busy || this.models.busy) throw new Error("Wait for active work before changing models.");
+    if ((this.busy && !this.midRun) || this.models.busy) throw new Error("Wait for active work before changing models.");
     if (this.readOnly) throw new Error("Model selection is unavailable in read-only children.");
-    return this.models.select(this.runtime.session, options);
+    return this.models.select(this.runtime.session, options, this.midRun);
   }
 
   selectDefaultModel(options: { provider?: string; signal?: AbortSignal } = {}): Promise<RuntimeModelSelection | undefined> {
@@ -209,8 +213,8 @@ class PiRuntimeSession implements RuntimeSession {
   }
 
   setEffort(level: string, persist: boolean): Promise<RuntimeStatus> {
-    if (this.busy || this.readOnly || this.models.busy) throw new Error("Effort cannot be changed during active work or in a read-only child.");
-    return this.models.setEffort(this.runtime.session, level, persist);
+    if ((this.busy && !this.midRun) || this.readOnly || this.models.busy) throw new Error("Effort cannot be changed during active work or in a read-only child.");
+    return this.models.setEffort(this.runtime.session, level, persist, this.midRun);
   }
 
   getModelRoles(): Record<string, string> {

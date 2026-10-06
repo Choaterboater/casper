@@ -50,7 +50,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/plan <request>` | Plan first: the model writes a plan and cases to test, you edit it, then build |
 | `/suggestions [on\|off]` | List the suggested next steps, or turn them on or off |
 | `/details [quiet\|normal\|detailed]` | How much work shows, remembered like `/effort` (`--session` for this session only); Ctrl+T shows the last step in full |
-| `/settings` | Turn web lookups, the new-version notice, built-in skills, spend notes and pause, showing the AI the pages, the work shown and Playwright tests on or off by number ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
+| `/settings` | Turn web lookups, the new-version notice, side questions, built-in skills, spend notes and pause, showing the AI the pages, the work shown and Playwright tests on or off by number ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
 | `/output [n\|all]` | Full command and output of a recent tool call from the last task |
 | `/receipt [n\|list]` | The last task's receipt in detail, a saved one, or the last 10 |
 | `/verify [checks]`, `/verify repair`, `/verify add <name>` | Run the project's checks; repair failures; save a check Casper found ([VERIFICATION.md](VERIFICATION.md)) |
@@ -78,6 +78,27 @@ over the network, and `/references add` downloads files after asking you.
 | `/exit`, `/quit` | Exit |
 
 An unknown `/` command is rejected on your machine. It is never sent to a model.
+
+### Words you can use
+
+Type one at the start of a request, then `:`, `,` or a new line (`think hard: why does the cache
+miss`). It applies to that task only, is not sent to the model, and Casper says what it did in one
+line, and again when it goes back. Several can lead (`big model, think hard: …`).
+
+| Words | For this task |
+| --- | --- |
+| `think hard` | The model's top effort (`[effort] xhigh for this task (you asked)`) |
+| `quick` | Low effort |
+| `big model`, `use the big model` | Your big model, the `reason` role (`[model] big model for this task: <provider/id> (you asked)`) |
+| `fast model`, `use the fast model` | Your `fast` role |
+| `plan first` | Plan first, like `/plan` |
+| `ultrathink` (anywhere in your line) | The model's top effort |
+| `? <question>` (start of a line) | A side question: a separate answer that is not added to the conversation (see [Input and commands](#input-and-commands)) |
+
+Only what you type counts: text you paste (and files, tool output and the AI's own words) is never
+read as a word. A role you have not set up gets one line on how to set it (`/model role reason
+<provider/id>`), and the task runs as normal. Automatic effort does not change a word's effort.
+Words never grant permission: approvals still ask as always.
 
 ## Current interface
 
@@ -272,7 +293,8 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
 - While a prompt runs or tool activity is on screen, the footer state dot and the Working
   panel title animate (braille spinner) so background work is visibly moving, and the
   footer appends elapsed time (`· 1m35s`); idle shows ○ with no timer.
-- `/model provider/id`: exact selection, remembered globally.
+- `/model provider/id`: exact selection, remembered globally. During a task it applies from the
+  model's next step, like `/effort` (see Input and commands).
 - `/model --session [provider/id]`: explicitly temporary selection/picker.
 - `/effort`: automatic or supported fixed-effort picker in an interactive terminal, otherwise a list.
   `auto` is always a choice. On a rich terminal, **Shift+Tab** cycles that same list and remembers
@@ -412,10 +434,25 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - Enter during work runs a command that only shows something at once: `/help`, `/status`,
   `/usage`, `/context`, `/permissions`, `/diff`, `/receipt`, `/output`, `/tasks` (and
   `/tasks stop <n>`), `/details`, `/mcp`, `/lsp`, `/skills`, `/sandbox`, `/secrets`, `/tree`,
-  `/project`, and `/effort` (a bare `/effort` opens its picker; an approval that arrives closes
-  it first). Typing `/` keeps the command menu; the commands that must wait are dimmed and say
+  `/project`, `/effort` (a bare `/effort` opens its picker; an approval that arrives closes
+  it first) and `/model` (the picker, `/model <provider/id>` or `/model --session <provider/id>`:
+  the model's next step uses it, `[model] <provider/id> from the model's next step; saved`; the step
+  already running keeps its model; an approval that arrives closes the picker first, and so does
+  the end of the model's work). `/model role` and `/model big` wait for the task. Typing `/` keeps the command menu; the commands that must wait are dimmed and say
   `waits for this task`. Any other command keeps its draft and says why for a moment
   (`/undo waits until this task ends · draft kept`).
+- A line you start with `?` (`? what does ECONNRESET mean`), idle or during work, is a side
+  question: one separate call to your fast model (or your model when no fast one is set up) with no
+  tools. It gets a short summary of the session (the project name, the task's first line and the
+  tool names used lately; no file contents and no secrets). The answer shows as an indented side
+  answer that names the model (`? side answer · <provider/id> · not part of the conversation`); it
+  is not added to the conversation, so the working AI never sees it. `/usage` counts its tokens
+  and cost. A bare `?`, a `?` inside text and a pasted `?` line are ordinary requests, and so is
+  every line of a one-shot run. Esc stops one asked while idle. `/settings` → "Side questions
+  with ?" turns them off (`sideQuestions: false`).
+- Words at the start of a request (`think hard:`, `quick:`, `big model:`, `fast model:`,
+  `plan first:`) and `ultrathink` anywhere in it set that task only; see
+  [Words you can use](#words-you-can-use).
 - Anything else you type during work goes to the AI. While the model is working it reads the
   line at its next step (`↳ sent to the AI · it reads this at its next step`); while Casper
   runs checks or writes the receipt, the line is queued and runs as the next request

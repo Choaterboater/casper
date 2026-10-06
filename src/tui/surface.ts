@@ -87,6 +87,29 @@ class PromptEditor extends Editor {
   /** Suggestion rows are lifted out of the box; the surface composites them over the transcript. */
   popup: string[] = [];
   private bottom = "";
+  /** What was pasted into the draft, so words Casper reads ("big model:", "?") count only when the person typed them. */
+  pasted: string[] = [];
+  private pasteBefore?: string;
+
+  override handleInput(data: string): void {
+    if (data.includes("\x1b[200~")) this.pasteBefore = this.getExpandedText();
+    super.handleInput(data);
+    if (this.pasteBefore === undefined || !data.includes("\x1b[201~")) return;
+    const before = this.pasteBefore;
+    this.pasteBefore = undefined;
+    const after = this.getExpandedText();
+    let start = 0;
+    while (start < before.length && start < after.length && before[start] === after[start]) start++;
+    let end = 0;
+    while (end < before.length - start && end < after.length - start && before[before.length - 1 - end] === after[after.length - 1 - end]) end++;
+    const inserted = after.slice(start, after.length - end);
+    if (inserted.trim()) this.pasted.push(inserted.trim());
+  }
+
+  override setText(text: string): void {
+    if (!text) this.pasted = [];
+    super.setText(text);
+  }
 
   protected override renderBottomBorder(width: number, hidden: number): string {
     return this.bottom = super.renderBottomBorder(width, hidden);
@@ -179,6 +202,8 @@ export class TerminalSurface {
   private message?: StreamingMarkdown;
   /** Pictures pasted into the prompt, by their number in `[image N]`; the app takes them with the request. */
   private pasted = new Map<number, RuntimeImage>();
+  /** What was pasted into the line just sent (see PromptEditor.pasted). */
+  private submittedPastes: string[] = [];
   private source = "";
   private plainAssistantOpen = false;
 
@@ -196,6 +221,8 @@ export class TerminalSurface {
     this.editor.glyph = () => this.pendingAsk || this.pendingEdit ? "?" : this.busy ? BUSY_GLYPH : PROMPT_GLYPH;
     this.editor.paintGutter = text => this.busy && !this.pendingAsk && !this.pendingEdit ? this.muted(text) : this.accent(text);
     this.editor.onSubmit = value => {
+      this.submittedPastes = this.editor.pasted;
+      this.editor.pasted = [];
       if (this.pendingEdit) { this.pendingEdit(value.split("\n")); return; }
       if (this.pendingAsk) { this.answerAsk(value); return; }
       if (!this.command) {
@@ -207,6 +234,7 @@ export class TerminalSurface {
           return;
         }
         this.editor.setText(value);
+        this.editor.pasted = this.submittedPastes;
         // A timed note: the steps and the timer come back on their own.
         this.flashNote(answer ?? "draft kept · Enter again when this task ends", 2400);
         return;
@@ -350,6 +378,13 @@ export class TerminalSurface {
     this.pasted.set(number, { data: Buffer.from(bytes).toString("base64"), mimeType });
     this.editor.insertTextAtCursor(`${imageLabel(number)} `);
     this.render();
+  }
+
+  /** What was pasted into the line just sent (empty when all of it was typed). */
+  takeSubmittedPastes(): string[] {
+    const pasted = this.submittedPastes;
+    this.submittedPastes = [];
+    return pasted;
   }
 
   /** The pictures pasted for the line just sent; the next request starts again at [image 1]. */
@@ -558,11 +593,13 @@ private updateSpinner(): void {
   setBell(sequence: string): void { this.bell = sequence; }
   setAttentionAfter(ms: number): void { this.attentionAfterMs = ms; }
 
-  /** Put text back in the prompt (queued lines of a stopped task), ahead of anything typed since. */
-  restoreDraft(text: string): void {
+  /** Put text back in the prompt (queued lines of a stopped task), ahead of anything typed since. `pasted` is what
+   * was pasted into those lines: it stays pasted, so its words still count for nothing. */
+  restoreDraft(text: string, pasted: readonly string[] = []): void {
     if (this.closed || !text) return;
     const typed = this.editor.getExpandedText();
     this.editor.setText(typed ? `${text}\n${typed}` : text);
+    this.editor.pasted.push(...pasted);
     this.render();
   }
 
@@ -601,6 +638,7 @@ private updateSpinner(): void {
     if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant(); this.activity = undefined;
     const draft = this.editor.getExpandedText();
+    const draftPastes = this.editor.pasted;
     this.editor.setText(""); // Pretyped drafts never answer a question.
     const safeQuestion = terminalText(question);
     const shown = options.map(option => ({
@@ -631,7 +669,7 @@ private updateSpinner(): void {
       this.askMulti = false; this.askSelections.clear(); this.askActiveIndex = 0;
       chosen = answer;
       this.writeBlock(record);
-      this.editor.setText(draft); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(answer);
+      this.restoreSetAside(draft, draftPastes); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(answer);
     };
     const cancel = () => finish(undefined);
     this.attention();
@@ -644,6 +682,12 @@ private updateSpinner(): void {
     return promise;
   }
 
+  /** The draft a question or edit box set aside, back in the prompt with what was pasted into it. */
+  private restoreSetAside(draft: string, pasted: string[]): void {
+    this.editor.setText(draft);
+    this.editor.pasted = draft ? pasted : [];
+  }
+
   /** Lines for the user to edit in place, one per editor line, under a heading and a key hint. Enter
    * returns the editor's lines as they stand (blank ones included); Esc, Ctrl+C, abort or close return
    * undefined. A pretyped draft is set aside and restored. The caller records the outcome. */
@@ -652,13 +696,15 @@ private updateSpinner(): void {
     if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant(); this.activity = undefined;
     const draft = this.editor.getExpandedText();
+    const draftPastes = this.editor.pasted;
+    this.editor.pasted = [];
     const { promise, resolve } = Promise.withResolvers<string[] | undefined>();
     let settled = false;
     const finish = (edited: string[] | undefined) => {
       if (settled) return; settled = true;
       signal?.removeEventListener("abort", cancel);
       this.pendingEdit = undefined; this.editHeading = [];
-      this.editor.setText(draft); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(edited);
+      this.restoreSetAside(draft, draftPastes); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(edited);
     };
     const cancel = () => finish(undefined);
     this.attention();

@@ -1,6 +1,7 @@
 /** Starting the model runtime: one adapter for sign-in and the session, the conversation from --continue or
  * --resume, the --model and --effort of this run, and what each file edit tells the checks. Moved from src/app.ts. */
 
+import { rememberTool } from "./side-question";
 import type { CasperApp } from "../app";
 import path from "node:path";
 import { hasSignIn } from "../tui/model-preference";
@@ -77,6 +78,7 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
       await applyRunConversation(app, app.session);
       await applyRunSelection(app, app.session);
       app.unsubscribe = app.session.subscribe(event => {
+        if (event.type === "tool_start") rememberTool(app, event.toolName);
         if (event.type === "tool_start" && event.toolName === "casper_check") app.modelCheckCalls++;
         if (event.type === "tool_end" && event.toolName === "casper_check") app.modelCheckCalls = Math.max(0, app.modelCheckCalls - 1);
         app.observations.observeUsage(event);

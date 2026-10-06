@@ -5,7 +5,7 @@ import { NEW_HELP_LINE } from "../new/templates";
 
 export const HELP_TEXT = `Casper — your coding companion
 
-Type a request and press Enter (during a task it steers the AI or waits in the queue). Esc stops work. Type / for every command.
+Type a request and press Enter (during a task it steers the AI or waits in the queue). Start a line with ? to ask on the side. Esc stops work. Type / for every command.
   casper [folder]        Open Casper here, or in that folder
   casper <prompt>        Run one request and exit (options: /help all)
   casper new [name]      Start a new project (casper new --list shows the kinds)
@@ -18,7 +18,7 @@ Type a request and press Enter (during a task it steers the AI or waits in the q
   /resume, /clear        Pick up a saved conversation, or start a fresh one
   /settings              Turn web lookups, spend notes and other switches on or off by number
   /help <word>           Search the help; /help all shows everything
-Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an empty line exits. Approvals always need a fresh yes from you.
+Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an empty line exits. Approvals always need a fresh yes from you. think hard: or big model: at the start of a request sets that task (/help words).
 `;
 
 export const LOGIN_HELP = `Sign-in needs an interactive terminal. Run casper and type /login.
@@ -94,7 +94,7 @@ Local commands:
   /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
   /output all                       Every tool call of the last task on its own line (the screen folds them into a summary)
   /details [quiet|normal|detailed] [--session]  Failures only, steps folded (default), or every step with small diffs; remembered like /effort, --session for this session only. Ctrl+T shows the last step in full
-  /settings                         Your switches by number, written to ~/.casper/config.yaml for you: web lookups, the new-version notice, built-in skills, spend notes, spend pause, showing the AI the pages, work shown, the untrusted-text reader, Playwright tests
+  /settings                         Your switches by number, written to ~/.casper/config.yaml for you: web lookups, the new-version notice, built-in skills, spend notes, spend pause, showing the AI the pages, work shown, the untrusted-text reader, Playwright tests, side questions
   /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
   /permissions                      What each tool may do and when Casper asks you
@@ -177,6 +177,9 @@ Local commands:
 
 Unknown slash commands are rejected locally, never sent to a model.
 /model: Enter selects and saves ~/.casper/settings.json; Ctrl+S selects for this session only. Exact IDs are remembered too; /model --session <id> opts out.
+During a task, /model and /effort apply from the model's next step; the step already running keeps its model and effort.
+Words you type at the start of a request, then : , or a new line, set that task only and are not sent to the model: think hard (top effort), quick (low effort), big model or use the big model (your big model, the reason role), fast model or use the fast model (your fast role), plan first (like /plan). ultrathink anywhere in your line is top effort too. Casper says what each word did in one line, and again when it goes back. Pasted text never counts, and words never grant permission.
+Side questions: a line you start with ? (? what does ECONNRESET mean) goes to your fast model on the side with no tools, idle or during a task. The answer shows as a side answer; it is not added to the conversation and the AI never sees it. /usage counts its cost; /settings turns side questions off.
 /effort remembers supported levels per model; /effort <level> --session opts out.
 Shift+Tab cycles auto and the model's supported levels and saves the level it stops at, like /effort. One-off --effort never saves.
 /effort auto lets Casper pick per request: low for reading/explaining/diagrams, medium for tests and configuration, high for fixes, features and refactors, from the model's supported levels.

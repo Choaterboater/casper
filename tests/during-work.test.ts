@@ -13,8 +13,9 @@ test("commands that only show something run during a task; ones that change thin
   for (const line of ["/help", "/help all", "/status", "/usage", "/context", "/permissions", "/diff", "/diff 12", "/diff list",
     "/tasks", "/tasks stop 2", "/tasks stop all", "/details", "/details quiet", "/receipt", "/receipt 3", "/receipt list",
     "/output", "/output 2", "/output all", "/mcp", "/tree", "/project", "/sandbox", "/secrets", "/skills", "/lsp",
-    "/effort", "/effort low", "/effort high --session", "/pane", "/pane off"]) expect([line, runsDuringWork(line)]).toEqual([line, true]);
-  for (const line of ["/undo", "/redo", "/clear", "/resume", "/model", "/mcp connect x", "/mcp writes on", "/sandbox forget h",
+    "/effort", "/effort low", "/effort high --session", "/pane", "/pane off",
+    "/model", "/model --session", "/model fixture/other", "/model --session fixture/other", "/model @reason", "/model roles"]) expect([line, runsDuringWork(line)]).toEqual([line, true]);
+  for (const line of ["/undo", "/redo", "/clear", "/resume", "/model role fast x", "/model big x", "/model a b", "/mcp connect x", "/mcp writes on", "/sandbox forget h",
     "/secrets files off", "/skills trust a b", "/lsp connect x", "/project other", "/compact", "/verify", "/details loud"])
     expect([line, runsDuringWork(line)]).toEqual([line, false]);
 });
@@ -58,6 +59,50 @@ test("during a task: /project and /tasks run, a bare /effort opens its picker, /
     expect(changes).toEqual([{ level: "medium", persist: true }]);
     app.input.write("/undo\r");
     await app.until(text => text.includes("/undo waits until this task ends"));
+    gate.resolve();
+  } finally { gate.resolve(); await app.close(); }
+}, 30_000);
+
+test("during a task: /model <id> and the /model picker apply from the model's next step, and say so", async () => {
+  const gate = Promise.withResolvers<void>();
+  const selections: Array<{ query?: string; persist?: boolean; picker: boolean }> = [];
+  let status: RuntimeStatus = { provider: "fixture", model: "demo", auth: "configured" };
+  let started = false;
+  const runtime: AgentRuntime = {
+    async start() {
+      return {
+        setTools: () => {},
+        getStatus: () => status,
+        selectModel: async (options) => {
+          selections.push({ query: options.query, persist: options.persist, picker: Boolean(options.picker) });
+          // The picker: the person picks "picked" in it.
+          const id = options.picker ? await options.picker.mount(async () => "picked") : options.query!.split("/")[1]!;
+          status = { ...status, model: id };
+          return { status, selected: true, savedDefault: options.persist !== false };
+        },
+        getState: () => ({ cwd: "", isStreaming: true }),
+        subscribe: () => () => {},
+        abort: async () => {},
+        prompt: async () => { started = true; await gate.promise; },
+      };
+    },
+    async dispose() {},
+  };
+  const app = await richApp(() => runtime);
+  try {
+    await app.until(text => text.includes("idle"));
+    app.input.write("write a poem\r");
+    await app.until(() => started);
+    app.input.write("/model fixture/other\r");
+    await app.until(text => text.includes("[model] fixture/other from the model's next step; saved"));
+    app.input.write("/model --session fixture/third\r");
+    await app.until(text => text.includes("[model] fixture/third from the model's next step (this conversation)"));
+    app.input.write("/model\r");
+    await app.until(text => text.includes("[model] fixture/picked from the model's next step; saved"));
+    expect(selections).toEqual([{ query: "fixture/other", persist: true, picker: false }, { query: "fixture/third", persist: false, picker: false },
+      { query: undefined, persist: true, picker: true }]);
+    app.input.write("/model role fast fixture/x\r");
+    await app.until(text => text.includes("/model waits until this task ends"));
     gate.resolve();
   } finally { gate.resolve(); await app.close(); }
 }, 30_000);

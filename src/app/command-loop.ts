@@ -20,6 +20,8 @@ import { settleQueuedLines } from "./during-work";
 import { newProjectFlowWithAbort, openProjectFolder, newProjectCommand } from "./workspace";
 import { rebindWorkspace } from "./session-branches";
 import { runModelTask, runSuggestion } from "./task-run";
+import { parseRequestWords } from "./request-words";
+import { askSideQuestion, sideQuestionsOn, sideQuestionText } from "./side-question";
 import { applyWeb } from "./wiring";
 import { checkSignIn } from "./runtime-start";
 import { reloadProject } from "./project-file";
@@ -60,6 +62,9 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promi
     if (queued) { app.terminal.offerNext(undefined); app.events.writePrompt(queued); }
     const line = queued ?? await app.terminal.readCommand();
     if (line === undefined) break;
+    // What was pasted into the line: words Casper reads ("big model:") count only where the person typed.
+    const pasted = queued === undefined ? app.terminal.takeSubmittedPastes() : app.linePastes.get(queued) ?? [];
+    if (queued !== undefined) app.linePastes.delete(queued);
     if (app.cancelBeforeCommand) {
       app.output.write("[cancel] Stopped before it started; nothing ran.\n");
       continue;
@@ -74,9 +79,16 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promi
       break;
     }
 
+    // A side question ("? what does ECONNRESET mean"): a separate answer, never part of the conversation.
+    const side = sideQuestionsOn(app) ? sideQuestionText(prompt, pasted) : undefined;
+    if (side !== undefined) {
+      await askSideQuestion(app, side);
+      continue;
+    }
+
     try {
       if (!prompt.startsWith("/")) await askPaneOnce(app);
-      await handlePrompt(app, prompt);
+      await handlePrompt(app, prompt, { pasted });
     }
     catch (error) {
       if (app.closing) break;
@@ -90,7 +102,8 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promi
   app.interactive = false;
 }
 
-export async function handlePrompt(app: CasperApp, prompt: string): Promise<VerificationReport | undefined> {
+/** `typed`: the line came from the person at the prompt (with what was pasted into it), so its words are read. */
+export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pasted: readonly string[] }): Promise<VerificationReport | undefined> {
   if (app.closing) return;
   if (app.commandActive) throw new Error("Another command is active; wait for active subagents or workspace transition");
   // Keep local status/help and cleanup available, but never forget an uncertain
@@ -129,7 +142,9 @@ export async function handlePrompt(app: CasperApp, prompt: string): Promise<Veri
     // A picture file dropped into an empty prompt starts the line with "/": that is a request, not a command.
     // Commands go straight on (no wait, so a close that arrives with the line still finds the command running).
     if (command && leadingImagePath(prompt) !== undefined) command = !await startsWithImageFile(prompt, { cwd: app.activeWorkspaceRoot() });
-    return await (command ? handleSlashCommand(app, prompt) : runModelTask(app, prompt));
+    if (command) return await handleSlashCommand(app, prompt);
+    const words = typed ? parseRequestWords(prompt, typed.pasted) : undefined;
+    return await runModelTask(app, words?.text ?? prompt, words ? { words } : {});
   } catch (error) {
     if (error instanceof ProcessCleanupError) app.cleanupError = error;
     throw error;
@@ -229,6 +244,7 @@ export async function previewCommand(app: CasperApp, args: string): Promise<void
 }
 
 export function cancelCurrent(app: CasperApp): void {
+  if (!app.commandActive && app.sideAbort) { app.sideAbort.abort(); return; }
   if (!app.commandActive) { app.cancelBeforeCommand = true; return; }
   if (app.commandAbort?.signal.aborted) return;
   app.commandAbort?.abort();

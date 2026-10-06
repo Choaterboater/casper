@@ -72,7 +72,7 @@ test("app keeps status/connect local, replaces task surfaces, and denies one-sho
   await app.runOnce("/mcp connect fixture");
   expect(runtime.starts).toBe(0);
   await app.runOnce("Read site health metric");
-  expect(runtime.surfaces[0]).toHaveLength(13); // the nine before + ask + web_search + web_fetch + casper_read_untrusted; no casper_check (no check has a command) and no visualize (no diagram word)
+  expect(runtime.surfaces[0]).toHaveLength(14); // the nine before + ask + casper_session + web_search + web_fetch + casper_read_untrusted; no casper_check (no check has a command) and no visualize (no diagram word)
   // One-shot runs cannot ask, so the model is not told that you said no.
   expect(runtime.result).toContain("Not executed (needs your approval, and this run cannot ask)");
   expect(runtime.result).not.toContain("you said no");
@@ -89,7 +89,7 @@ test("app keeps status/connect local, replaces task surfaces, and denies one-sho
   expect(runtime.surfaces[2]?.some((name) => name.includes("inspect_quantum_flux"))).toBe(true);
   await app.runOnce("/mcp disconnect fixture");
   await app.runOnce("Read site health metric");
-  expect(runtime.surfaces[3]).toEqual(["find_capability", "call_capability", "delegate", "ask", "web_search", "web_fetch", "casper_read_untrusted"]);
+  expect(runtime.surfaces[3]).toEqual(["find_capability", "call_capability", "delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted"]);
   expect(runtime.result).toContain("Not executed (unknown capability");
   // Connecting again is a real change: the next task picks the direct tools afresh.
   await app.runOnce("/mcp connect fixture");
@@ -369,7 +369,7 @@ test("real CLI and Pi adapter send a small surface and complete search/schema/ca
   expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
   expect(stdout).toContain("FIXTURE_WORKFLOW_COMPLETE");
   expect(payloads).toHaveLength(4);
-  expect(payloads[0]?.tools).toHaveLength(20); // seven Pi built-ins + delegate + ask + eight broker tools + web_search + web_fetch + casper_read_untrusted (no check has a command, no diagram word)
+  expect(payloads[0]?.tools).toHaveLength(21); // seven Pi built-ins + delegate + ask + casper_session + eight broker tools + web_search + web_fetch + casper_read_untrusted (no check has a command, no diagram word)
   expect(JSON.stringify(payloads[0]?.tools)).not.toContain("inspect_quantum_flux");
   expect(payloads[0]?.tools.map((tool) => tool.function.name)).toContain("find_capability");
   expect(JSON.stringify(payloads[2]?.messages)).toContain("inputSchema");
@@ -395,7 +395,7 @@ try {
   const [, replayError, replayExit] = await Promise.all([new Response(replay.stdout).text(), new Response(replay.stderr).text(), replay.exited]);
   clearTimeout(replayTimer);
   expect({ exit: replayExit, stderr: replayError }).toEqual({ exit: 0, stderr: "" });
-  expect(payloads.slice(4).map((payload) => payload.tools.length)).toEqual([20, 20, 14]); // web_search, web_fetch and casper_read_untrusted each time; no casper_check (no check has a command), no visualize (no diagram word)
+  expect(payloads.slice(4).map((payload) => payload.tools.length)).toEqual([21, 21, 15]); // casper_session, web_search, web_fetch and casper_read_untrusted each time; no casper_check (no check has a command), no visualize (no diagram word)
   // The second request gets the first one's MCP tools, so the provider's prompt cache is kept.
   const names = (index: number) => payloads[index]?.tools.map((tool) => tool.function.name);
   expect(names(5)).toEqual(names(4));

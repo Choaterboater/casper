@@ -1,3 +1,4 @@
+import type { SideQuestionUsage } from "./app/side-question";
 import { execFile } from "node:child_process";
 import type { DebugSession } from "./debug/session";
 import { promisify } from "node:util";
@@ -218,6 +219,14 @@ export class CasperApp {
   /** Lines typed during a task that the AI could not read then: each runs as the next request, in order. They live
    * here, never in the prompt editor, so no queued line can ever answer an approval box. */
   readonly queuedLines: string[] = [];
+  /** What was pasted into a line typed during work, by the line, until it runs (words count only where typed). */
+  readonly linePastes = new Map<string, readonly string[]>();
+  /** What side questions (`? …`) cost this session; shown in /usage, never in the conversation's totals. */
+  readonly sideQuestions: SideQuestionUsage = { requests: 0, tokens: 0, estimatedCost: 0, unknown: false };
+  /** An idle side question while it waits for its answer (Esc stops it). */
+  sideAbort?: AbortController;
+  /** The tool names the AI used lately, for a side question's short summary. */
+  recentTools: string[] = [];
   /** /details for this session; unset follows display: in the config. */
   displayChoice?: DisplayLevel;
   closing = false;
@@ -298,6 +307,8 @@ export class CasperApp {
   signedIn?: boolean;
   taskRuntimeCancelled = false;
   lastTaskResult?: TaskResult;
+  /** The last model task's result, kept after a new command starts (casper_session reads it during the next task). */
+  lastFinishedTask?: TaskResult;
   /** Tokens the AI security review spent in this command (no task to carry them). */
   commandSpent?: TaskUsage;
   /** Undo, redo, /diff and saved receipts: a copy before and after each task. */

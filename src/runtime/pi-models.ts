@@ -300,9 +300,10 @@ export class PiModels {
     selection.effort = effort;
     selection.auto = effort === "auto" ? { state: level ? "pending" : "unavailable" } : undefined;
   }
-  async setEffort(session: AgentSession, level: string, persist: boolean): Promise<RuntimeStatus> {
+  /** `midRun`: the model is working; the change applies from its next step. */
+  async setEffort(session: AgentSession, level: string, persist: boolean, midRun = false): Promise<RuntimeStatus> {
     this.assertReady(session);
-    if (this.busy || !session.isIdle) throw new Error("Wait for active work before changing effort.");
+    if (this.busy || (!midRun && !session.isIdle)) throw new Error("Wait for active work before changing effort.");
     const selection = this.selections.get(session)!;
     const model = session.model!;
     // A repeat of the current level (a wrapped Shift+Tab, or /effort of the same value) must not
@@ -383,8 +384,9 @@ export class PiModels {
     if (blocked) throw new Error(blocked);
   }
 
-  async select(session: AgentSession, options: RuntimeModelSelectionOptions): Promise<RuntimeModelSelection> {
-    if (this.busy || !session.isIdle) throw new Error("Wait for active work before changing models.");
+  /** `midRun`: the model is working; the new model takes its next step. */
+  async select(session: AgentSession, options: RuntimeModelSelectionOptions, midRun = false): Promise<RuntimeModelSelection> {
+    if (this.busy || (!midRun && !session.isIdle)) throw new Error("Wait for active work before changing models.");
     const signal = options.signal ? AbortSignal.any([options.signal, this.lifetime.signal]) : this.lifetime.signal;
     signal.throwIfAborted();
     this.selecting = true; this.selectionSignal = signal;
@@ -449,7 +451,7 @@ export class PiModels {
    * caller's `effort` when given, else the role's suffix, else the conversation's, mapped to what the model
    * supports. `maxTokens` caps the answer. `role: "fast"` asks for the fast model instead (the conversation's
    * when none is set or it is not signed in). */
-  async complete(session: AgentSession, input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number; role?: "fast" }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null }> {
+  async complete(session: AgentSession, input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number; role?: "fast" }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null; model?: string }> {
     const none = { tokens: 0, estimatedCost: 0 };
     const roles = this.getRoles();
     if (input.role === "fast") {
@@ -479,8 +481,9 @@ export class PiModels {
 
   private async completeWith(model: AgentSession["model"], roleEffort: string | undefined, session: AgentSession,
     input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number },
-    none: { tokens: number; estimatedCost: number }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null }> {
+    none: { tokens: number; estimatedCost: number }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null; model?: string }> {
     if (!model) return { text: "", error: "no model selected", usage: none };
+    const name = `${model.provider}/${model.id}`;
     const requested = input.effort ?? (roleEffort && roleEffort !== "auto" ? roleEffort : session.thinkingLevel);
     const level = requested && requested !== "off" ? nearestEffort(requested, getSupportedThinkingLevels(model)) : undefined;
     const response = await this.catalog.completeSimple(model, {
@@ -493,7 +496,7 @@ export class PiModels {
     const usage = response.usage;
     const cost = usage?.cost?.total;
     const reported = usage && Number.isFinite(usage.totalTokens) ? { tokens: usage.totalTokens, estimatedCost: Number.isFinite(cost) && cost >= 0 ? cost : 0 } : null;
-    if (response.stopReason === "error" || response.stopReason === "aborted") return { text: "", error: response.errorMessage ?? response.stopReason, usage: reported };
-    return { text: response.content.filter((part) => part.type === "text").map((part) => part.text).join(""), usage: reported };
+    if (response.stopReason === "error" || response.stopReason === "aborted") return { text: "", error: response.errorMessage ?? response.stopReason, usage: reported, model: name };
+    return { text: response.content.filter((part) => part.type === "text").map((part) => part.text).join(""), usage: reported, model: name };
   }
 }
