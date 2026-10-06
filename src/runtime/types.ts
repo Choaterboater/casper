@@ -92,6 +92,13 @@ export interface RuntimeReadOnlyStartOptions {
   privatePaths?: readonly string[];
 }
 
+/** A crew builder: a bounded child that may edit and run commands, but only in its own copy of the project (`cwd`).
+ * It gets the built-in tools only: no MCP, no delegate, no crew, no questions. */
+export interface RuntimeBuilderStartOptions extends Omit<RuntimeReadOnlyStartOptions, "modelRole"> {
+  /** Its bash: the session's sandbox around the copy, with nobody to ask (what would ask is refused). */
+  shell?: RuntimeShell;
+}
+
 export interface RuntimeStatus {
   provider?: string;
   model?: string;
@@ -328,5 +335,8 @@ export interface AgentRuntime {
    * disable ambient executable extensions and persistence, honor cancellation and run limits.
    * Implementations must be fresh, independently owned runtime instances. */
   startReadOnly?(options: RuntimeReadOnlyStartOptions): Promise<RuntimeSession>;
+  /** A crew builder (see RuntimeBuilderStartOptions): the same run limits and cancellation as a read-only child,
+   * on a fresh, independently owned runtime, with the conversation's default model. */
+  startBuilder?(options: RuntimeBuilderStartOptions): Promise<RuntimeSession>;
   dispose(): Promise<void>;
 }
