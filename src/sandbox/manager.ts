@@ -120,12 +120,30 @@ export class ShellSandbox {
   private startError?: string;
   /** Main git folders watched for a `commondir` a command writes, with whether one was there first (yours). */
   private readonly gitGuards = new Map<string, { hadPointer: boolean; watcher?: FSWatcher }>();
+  /** A crew copy's sandbox: the session's, whose runtime it shares, and your folder's private paths. */
+  private parent?: ShellSandbox;
+  private parentDenyRead: string[] = [];
+  /** The session's sandbox: builders' commands running now, by run id. */
+  private readonly crewRuns = new Map<string, ShellSandbox>();
 
   constructor(private readonly options: ShellSandboxOptions) {
     this.engine = options.engine ?? sandboxDefaults.engine?.() ?? runtimeEngine();
     this.state = ShellSandbox.detect(options);
     for (const host of options.allowHosts ?? []) this.sessionHosts.add(hostName(host));
     for (const folder of options.allowWrites ?? []) this.sessionWrites.push(realpathLongest(path.resolve(folder)));
+  }
+
+  /**
+   * The same sandbox around a crew copy: its root (where commands may write) is the copy, and nobody can be asked,
+   * so a host or a write outside the copy that would ask is refused instead. Your settings, your private paths and
+   * the hosts you allowed still count. Git's folder it shares with yours stays read-only (your branches, commits).
+   * It shares this sandbox's runtime (there is one per process): closing it leaves yours running.
+   */
+  forCopy(root: string, note: (line: string) => void = () => {}): ShellSandbox {
+    const copy = new ShellSandbox({ ...this.options, engine: this.engine, root: () => root, askHost: () => undefined, askWrite: () => undefined, note });
+    copy.parent = this;
+    copy.parentDenyRead = this.policy().denyRead;
+    return copy;
   }
 
   /** Whether and why the sandbox holds commands on this machine. */
@@ -167,6 +185,7 @@ export class ShellSandbox {
       ...(this.options.settings?.project ? { project: this.options.settings.project } : {}),
       rememberedHosts: this.remembered, sessionWrites: [...this.sessionWrites, ...this.nextWrites], ...(options.extraWrite ? { extraWrite: options.extraWrite } : {}),
       ...(options.readOnlyProject ? { readOnlyProject: true } : {}),
+      ...(this.parent ? { copy: true, denyRead: this.parentDenyRead } : {}),
     });
   }
 
@@ -176,7 +195,11 @@ export class ShellSandbox {
 
   private start(): Promise<void> {
     this.started ??= (async () => {
+      const parent = this.parent;
+      // A copy's commands go through the session's proxy: the runtime is one per process.
+      if (parent) await parent.start();
       this.tempDir = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-sandbox-")));
+      if (parent) { this.remembered = parent.remembered; return; }
       this.remembered = await this.options.store?.hosts().catch(() => []) ?? [];
       const seccompPath = await this.options.seccompPath?.().catch(() => undefined);
       // On Linux the runtime scans the project with ripgrep: the one on PATH, or Pi's own copy.
@@ -191,6 +214,7 @@ export class ShellSandbox {
   async wrap(command: string, options: SandboxWrapOptions): Promise<WrappedCommand> {
     const id = `casper-${randomUUID()}`;
     if (!this.on || this.closed) return { command, id, held: false };
+    if (this.parent?.closed) throw new Error("the session's sandbox is closed");
     try { await this.start(); }
     catch (error) {
       this.startError ??= error instanceof Error ? error.message.split("\n")[0]! : String(error);
@@ -206,6 +230,7 @@ export class ShellSandbox {
     const prefix = [`TMPDIR=${quote(this.tempDir!)}; export TMPDIR`, ...(IPV6_MISSING ? ["SOCAT_DEFAULT_LISTEN_IP=4; export SOCAT_DEFAULT_LISTEN_IP"] : [])].join("; ");
     const network = options.network ?? "ask";
     const wrapped = await this.engine.wrap(command, policy, { id, cwd: options.cwd, network, prefix });
+    this.parent?.crewRuns.set(id, this);
     return { command: IPV6_MISSING && network === "ask" && wrapped !== command ? `SOCAT_DEFAULT_LISTEN_IP=4; export SOCAT_DEFAULT_LISTEN_IP; ${wrapped}` : wrapped, id, held: true };
   }
 
@@ -241,7 +266,7 @@ export class ShellSandbox {
 
   /** Run `id` has ended: the sandbox cleans up after it (see SandboxEngine.finished). Safe to call more than once. */
   finished(id: string | undefined): void {
-    if (id) { this.runHosts.delete(id); this.engine.finished(id); }
+    if (id) { this.runHosts.delete(id); this.parent?.crewRuns.delete(id); this.engine.finished(id); }
     // A commondir the run wrote is gone when it ends, even if the watch missed it (macOS can drop an event that
     // comes just after a watch starts).
     for (const dotGit of this.gitGuards.keys()) this.guardGit(path.dirname(dotGit));
@@ -375,6 +400,17 @@ export class ShellSandbox {
     const pending = this.pendingHosts.get(name);
     if (pending) return pending;
     const decision = (async () => {
+      // The proxy can't tell whose command reaches out: while a builder's runs, nobody is asked.
+      const builders = new Set(this.crewRuns.values());
+      if (builders.size) {
+        if (!this.blockedSaid.has(`crew\0${name}`)) {
+          this.blockedSaid.add(`crew\0${name}`);
+          const line = `[sandbox] Blocked ${name} (a crew is running, so nobody is asked). To allow it: --allow-host ${name}, or Yes, always for this project in a session.`;
+          this.options.note?.(line);
+          for (const builder of builders) builder.options.note?.(line);
+        }
+        return false;
+      }
       const answer = this.options.askHost?.(name);
       if (!answer) {
         if (!this.blockedSaid.has(name)) {
@@ -422,7 +458,8 @@ export class ShellSandbox {
       if (!guard.hadPointer) this.guardGit(path.dirname(dotGit));
     }
     this.closed = true;
-    if (this.started) {
+    if (this.parent) for (const [id, owner] of this.parent.crewRuns) if (owner === this) this.parent.crewRuns.delete(id);
+    if (this.started && !this.parent) {
       await this.started.catch(() => {});
       await this.engine.reset().catch(() => {});
     }

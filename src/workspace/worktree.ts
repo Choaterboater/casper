@@ -13,6 +13,9 @@ export const MAX_EXPERIMENT_PATCH_BYTES = 512 * 1024;
 export const MAX_EXPERIMENT_FILES = 200;
 const STDERR_LIMIT = 16 * 1024;
 const SESSION_BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+/** A crew copy's branch: casper/crew-<id>-<part>. */
+const CREW_BRANCH = /^casper\/crew-[a-z0-9]{6}-[1-9]$/;
+export const isCrewBranch = (branch: string): boolean => CREW_BRANCH.test(branch);
 
 export interface WorktreeRelation {
   kind: "git-worktree";
@@ -24,6 +27,8 @@ export interface WorktreeRelation {
 
 export interface WorktreePlan extends WorktreeRelation {
   sourceWorkspace: string;
+  /** A crew copy starts from HEAD next to your uncommitted changes: the status they were planned with. */
+  sourceStatus?: string;
 }
 
 export class WorktreeCleanupError extends Error {
@@ -189,6 +194,61 @@ export class GitWorktreeManager {
     };
   }
 
+  /**
+   * A crew copy: part `part` of crew `crewId`, on branch casper/crew-<id>-<part> from HEAD. Unlike an experiment,
+   * your folder may have uncommitted changes; they stay in your folder and are not in the copy.
+   */
+  async planCrew(crewId: string, part: number, sourceWorkspace: string): Promise<WorktreePlan> {
+    const source = await realpath(sourceWorkspace).catch(() => path.resolve(sourceWorkspace));
+    await this.assertSameRepository(source);
+    if (source !== this.primaryWorkspace) throw new Error("A crew starts from the main folder of the project");
+    const name = `crew-${crewId}-${part}`;
+    if (!isCrewBranch(`casper/${name}`)) throw new Error("Invalid crew name");
+    const branch = `casper/${name}`;
+    const existing = await git(source, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]).then(() => true, () => false);
+    if (existing) throw new Error(`Git branch ${JSON.stringify(branch)} already exists`);
+    const [head, status] = await Promise.all([
+      git(source, ["rev-parse", "HEAD"]).catch(() => { throw new Error("A crew needs at least one commit in this project"); }),
+      git(source, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+    ]);
+    return {
+      kind: "git-worktree", sourceWorkspace: source, mainWorkspace: this.primaryWorkspace,
+      path: path.join(this.managedRoot, slug(name)), branch, baseCommit: head.trim(), sourceStatus: status,
+    };
+  }
+
+  /** The crew copies of this project that are still here (kept to look at, or left by a crash), oldest name first. */
+  async crewCopies(): Promise<WorktreeRelation[]> {
+    const entries = parseWorktrees(await git(this.primaryWorkspace, ["worktree", "list", "--porcelain"]));
+    const copies: WorktreeRelation[] = [];
+    for (const entry of entries) {
+      if (!entry.branch || !isCrewBranch(`${entry.branch}`)) continue;
+      if (entry.path !== path.join(this.managedRoot, slug(entry.branch.slice("casper/".length)))) continue;
+      // Where the copy started: where its branch meets your HEAD. A builder can't commit in the sandbox, but with
+      // it off one could, and its commits must stay in the patch.
+      const base = (await git(this.primaryWorkspace, ["merge-base", "HEAD", `refs/heads/${entry.branch}`]).catch(() => "")).trim();
+      if (!/^[0-9a-f]{40,64}$/i.test(base)) continue;
+      copies.push({ kind: "git-worktree", mainWorkspace: this.primaryWorkspace, path: entry.path, branch: entry.branch, baseCommit: base });
+    }
+    return copies.sort((a, b) => a.branch.localeCompare(b.branch));
+  }
+
+  /**
+   * A crew's reviewed work onto your folder, uncommitted. Your own changes to other files stay. Nothing is applied
+   * when you made a commit since the crew started, or when a file it changed was changed by you too.
+   */
+  async applyCrew(relation: WorktreeRelation, candidate: WorktreePatch): Promise<void> {
+    this.assertManagedRelation(relation);
+    if (!isCrewBranch(relation.branch)) throw new Error("Not a crew copy");
+    await this.assertRegistered(relation);
+    const head = (await git(relation.mainWorkspace, ["rev-parse", "HEAD"])).trim();
+    if (head !== relation.baseCommit) throw new Error("Your folder has a new commit since the crew started; nothing was applied");
+    if (candidate.patch.length === 0) return;
+    try { await gitWithInput(relation.mainWorkspace, ["apply", "--check", "--binary", "--whitespace=nowarn", "-"], candidate.patch); }
+    catch { throw new Error("A file the crew changed was changed in your folder too; nothing was applied"); }
+    await gitWithInput(relation.mainWorkspace, ["apply", "--binary", "--whitespace=nowarn", "-"], candidate.patch);
+  }
+
   async create(plan: WorktreePlan): Promise<WorktreeRelation> {
     this.assertManagedPlan(plan);
     await mkdir(this.managedRoot, { recursive: true, mode: 0o700 });
@@ -214,7 +274,7 @@ export class GitWorktreeManager {
       git(plan.sourceWorkspace, ["rev-parse", "HEAD"]),
       git(plan.sourceWorkspace, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
     ]);
-    if (currentHead.trim() !== plan.baseCommit || status) {
+    if (currentHead.trim() !== plan.baseCommit || status !== (plan.sourceStatus ?? "")) {
       throw new Error("Source workspace changed after approval; refusing to create the worktree");
     }
     const branchExists = await git(plan.sourceWorkspace, ["show-ref", "--verify", "--quiet", `refs/heads/${plan.branch}`]).then(() => true, () => false);
@@ -266,7 +326,8 @@ export class GitWorktreeManager {
     await this.validate(relation);
     const ignored = (await git(relation.path, ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"]))
       .split("\0").filter(Boolean);
-    if (ignored.length && relation.path !== relation.mainWorkspace) {
+    // A crew copy keeps what its checks left behind (caches, logs): files git ignores are not part of its work.
+    if (ignored.length && relation.path !== relation.mainWorkspace && !isCrewBranch(relation.branch)) {
       const sample = ignored.slice(0, 10).map((file) => JSON.stringify(file)).join(", ");
       throw new Error(`Experiment contains ignored files that an exact Git patch cannot represent (${sample}${ignored.length > 10 ? ", …" : ""}); preserve or remove them manually`);
     }

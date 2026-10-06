@@ -26,6 +26,9 @@ Both ways make a model request, so they use your provider account.
   committed. It does not make a worktree (a separate copy of the repo).
 - If you switch workspace, Casper waits for running helpers to finish first.
 
+For a helper that edits and runs commands in its own copy of the project, see
+[CREWS.md](CREWS.md) (`/crew`).
+
 "Read-only" here means Casper gives the helper only read tools. It is **not an
 operating-system sandbox** and not a spending cap. A helper's report is advice,
 not proof that the code works.

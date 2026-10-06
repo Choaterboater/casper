@@ -41,6 +41,7 @@ import type {
   RuntimeModelSelectionOptions,
   RuntimeForkOptions,
   RuntimeReadOnlyStartOptions,
+  RuntimeBuilderStartOptions,
   RuntimeSession,
   RuntimeShell,
   RuntimeSessionInfo,
@@ -97,7 +98,7 @@ class PiRuntimeSession implements RuntimeSession {
     private readonly runtime: AgentSessionRuntime,
     private readonly tools: PiToolController,
     private readonly models: PiModels,
-    private readonly readOnly?: { options: RuntimeReadOnlyStartOptions; limitReason: () => string | undefined },
+    private readonly readOnly?: { options: RuntimeReadOnlyStartOptions | RuntimeBuilderStartOptions; limitReason: () => string | undefined },
     private readonly cache?: PromptCacheSetting,
   ) {
     this.bind(runtime.session);
@@ -610,22 +611,37 @@ export class PiRuntime implements AgentRuntime {
     this.readOnly = true;
     return this.create({ cwd: options.cwd, systemPromptAppend: options.systemPromptAppend,
       ...(options.scrubToolOutput ? { scrubToolOutput: options.scrubToolOutput } : {}),
-      ...(options.privatePaths?.length ? { privatePaths: options.privatePaths } : {}) }, options);
+      ...(options.privatePaths?.length ? { privatePaths: options.privatePaths } : {}) }, options, true);
   }
 
-  private async create(options: RuntimeStartOptions, readOnly?: RuntimeReadOnlyStartOptions): Promise<RuntimeSession> {
+  startBuilder(options: RuntimeBuilderStartOptions): Promise<RuntimeSession> {
+    for (const limit of [options.maxTurns, options.maxToolCalls]) {
+      if (!Number.isInteger(limit) || limit < 1) throw new Error("Invalid builder runtime budget");
+    }
+    // A child: no sign-in from it, like a read-only one.
+    this.readOnly = true;
+    return this.create({ cwd: options.cwd, systemPromptAppend: options.systemPromptAppend, tools: [],
+      ...(options.shell ? { shell: options.shell } : {}),
+      ...(options.beforeToolGate ? { beforeToolGate: options.beforeToolGate } : {}),
+      ...(options.scrubToolOutput ? { scrubToolOutput: options.scrubToolOutput } : {}),
+      ...(options.privatePaths?.length ? { privatePaths: options.privatePaths } : {}) }, options, false);
+  }
+
+  /** `bounded`: a child's run limits and signal; `readOnlyTools`: a read-only child (false: a crew builder). */
+  private async create(options: RuntimeStartOptions, bounded?: RuntimeReadOnlyStartOptions | RuntimeBuilderStartOptions, readOnlyTools = false): Promise<RuntimeSession> {
     if (this.authWork || this.starting || this.lifetime.signal.aborted) throw new Error("Runtime is busy or closed.");
     this.starting = true;
-    try { return await this.createSession(options, readOnly); }
+    try { return await this.createSession(options, bounded, readOnlyTools); }
     finally { this.starting = false; }
   }
 
-  private async createSession(options: RuntimeStartOptions, readOnly?: RuntimeReadOnlyStartOptions): Promise<RuntimeSession> {
+  private async createSession(options: RuntimeStartOptions, bounded: RuntimeReadOnlyStartOptions | RuntimeBuilderStartOptions | undefined, readOnlyTools: boolean): Promise<RuntimeSession> {
     if (this.runtime) throw new Error("Model runtime already started");
-    readOnly?.signal.throwIfAborted();
+    bounded?.signal.throwIfAborted();
     const agentDir = getAgentDir();
+    const readOnly = bounded && readOnlyTools ? bounded as RuntimeReadOnlyStartOptions : undefined;
     if (readOnly) await checkReadOnlyState(readOnly, agentDir);
-    const modelRuntime = await ModelRuntime.create({ authPath: `${agentDir}/auth.json`, modelsPath: `${agentDir}/models.json`, signal: readOnly?.signal });
+    const modelRuntime = await ModelRuntime.create({ authPath: `${agentDir}/auth.json`, modelsPath: `${agentDir}/models.json`, signal: bounded?.signal });
     const models = this.models = new PiModels(modelRuntime, agentDir, this.home);
     const tools = new PiToolController(options.tools ?? []);
     let limitReason: string | undefined;
@@ -635,7 +651,7 @@ export class PiRuntime implements AgentRuntime {
     let wrapUp = false;
 
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
-      readOnly?.signal.throwIfAborted();
+      bounded?.signal.throwIfAborted();
       // ~ in tool paths stays the real home: Pi's own file tools expand it with os.homedir(), and the checks must agree.
       const pathContext = { root: cwd, home: os.homedir(), agentDir, ...(options.privatePaths?.length ? { denyRead: options.privatePaths } : {}) };
       const extensionFactory = (pi: ExtensionAPI) => {
@@ -644,19 +660,21 @@ export class PiRuntime implements AgentRuntime {
         pi.on("before_provider_headers", (event, ctx) => {
           if (isOpenRouterModel(ctx.model)) Object.assign(event.headers, openRouterAttribution());
         });
-        if (readOnly) pi.on("tool_call", (event) => {
-          if (readOnly.signal.aborted) {
+        if (bounded) pi.on("tool_call", (event) => {
+          if (bounded.signal.aborted) {
             limitReason = "Subagent cancelled";
             return { block: true, reason: limitReason, terminate: true };
           }
           // The report turn is tool-free whichever budget ran out: the work is already spent.
           if (wrapUp) return { block: true, reason: limitReason ?? "Subagent budget exhausted", terminate: true };
-          if (++toolCalls > readOnly.maxToolCalls) {
+          if (++toolCalls > bounded.maxToolCalls) {
             limitReason ??= "Subagent tool-call budget exhausted";
             // Before the report turn the child keeps the loop: cutting it off mid-investigation
             // returns nothing at all.
             return { block: true, reason: `${limitReason}; reply now with your findings and stop calling tools` };
           }
+          // A builder's own gates run in the writable handler below.
+          if (!readOnly) return;
           const pathReason = fileToolGate(event.toolName, event.input, pathContext);
           if (pathReason) return { block: true, reason: pathReason };
           const gateReason = readOnly.beforeToolGate?.(event.toolName, event.input);
@@ -774,7 +792,7 @@ export class PiRuntime implements AgentRuntime {
               noExtensions: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
               systemPrompt: options.systemPromptAppend ?? "Read-only Casper subagent.",
               appendSystemPrompt: [],
-            } : {}),
+            } : bounded ? { noExtensions: true, noPromptTemplates: true, noThemes: true } : {}),
             agentsFilesOverride: ({ agentsFiles }) => ({ agentsFiles: agentsFiles.filter((file) => containedContextFile(file.path, cwd, agentDir)) }),
             // Casper owns discovery, trust checks, and per-task skill selection.
             noSkills: true,
@@ -793,12 +811,12 @@ export class PiRuntime implements AgentRuntime {
             ],
           },
         });
-        readOnly?.signal.throwIfAborted();
+        bounded?.signal.throwIfAborted();
         const created = await createAgentSessionFromServices({
           services, sessionManager, sessionStartEvent, model: modelOptions.model,
           ...(readOnly ? { tools: ["read", "grep", "find", "ls"] } : {}),
         });
-        if (readOnly) {
+        if (bounded) {
           // Chain Pi's own boundary hook, as the main session does: a turn_end handler's decision is
           // honored and dispatch comes before the budget decision. (Children load no extensions, so
           // this changes nothing today.) Extension-driven turns without tool calls never trip the budget.
@@ -809,31 +827,32 @@ export class PiRuntime implements AgentRuntime {
             if (previous?.action === "end") return previous;
             if (message.stopReason === "error" || message.stopReason === "aborted") return previous ?? undefined;
             turns++;
-            if (!limitReason && message.content.some((part) => part.type === "toolCall") && (turns >= readOnly.maxTurns || toolCalls >= readOnly.maxToolCalls)) {
+            if (!limitReason && message.content.some((part) => part.type === "toolCall") && (turns >= bounded.maxTurns || toolCalls >= bounded.maxToolCalls)) {
               limitReason = "Subagent turn/tool-call budget exhausted";
             }
-            if (readOnly.signal.aborted) return { action: "end" };
+            if (bounded.signal.aborted) return { action: "end" };
             // A spent child gets exactly one tool-free turn to report what it already found;
             // without it the loop ends on a tool call and the caller receives an empty result.
-            if (limitReason && readOnly.reportTurn && !wrapUp) { wrapUp = true; return previous ?? undefined; }
+            if (limitReason && bounded.reportTurn && !wrapUp) { wrapUp = true; return previous ?? undefined; }
             return limitReason ? { action: "end" } : previous ?? undefined;
           };
-        } else created.session.setActiveToolsByName([
+        }
+        if (!readOnly) created.session.setActiveToolsByName([
           "read", "bash", "edit", "write", "grep", "find", "ls",
           ...tools.current().map((tool) => tool.name),
         ]);
         return { ...created, services, diagnostics: services.diagnostics };
       };
-      return models.create(cwd, sessionManager, build, readOnly);
+      return models.create(cwd, sessionManager, build, bounded && { ...(readOnly?.modelRole ? { modelRole: readOnly.modelRole } : {}), compact: !readOnlyTools });
     };
 
     this.runtime = await createAgentSessionRuntime(createRuntime, {
       cwd: options.cwd,
       agentDir,
-      sessionManager: readOnly ? SessionManager.inMemory(options.cwd) : SessionManager.create(options.cwd),
+      sessionManager: bounded ? SessionManager.inMemory(options.cwd) : SessionManager.create(options.cwd),
     });
-    this.wrapper = new PiRuntimeSession(this.runtime, tools, models, readOnly ? { options: readOnly, limitReason: () => limitReason } : undefined,
-      readOnly ? (readOnly.cache === "off" ? "off" : "short") : options.cache);
+    this.wrapper = new PiRuntimeSession(this.runtime, tools, models, bounded ? { options: bounded, limitReason: () => limitReason } : undefined,
+      bounded ? (bounded.cache === "off" ? "off" : "short") : options.cache);
     return this.wrapper;
   }
 

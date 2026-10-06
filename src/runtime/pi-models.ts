@@ -220,7 +220,7 @@ export class PiModels {
 
   async create<T extends { session: AgentSession }>(cwd: string, manager: SessionManager,
     create: (options: { settingsManager: SettingsManager; modelRuntime: ModelRuntime; model: AgentSession["model"] }) => Promise<T>,
-    readOnly?: RuntimeReadOnlyStartOptions): Promise<T> {
+    readOnly?: Pick<RuntimeReadOnlyStartOptions, "modelRole"> & { compact?: boolean }): Promise<T> {
     const preferences = this.preferences();
     // A repository is never trusted implicitly: projectTrusted:false is Pi's single gate for
     // `.pi/` extensions (in-process code), SYSTEM.md/APPEND_SYSTEM.md, prompts, themes and
@@ -230,7 +230,7 @@ export class PiModels {
     // not end a scout. Cancelling the child aborts the backoff through session.abort().
     const shared = readOnly ? undefined : SettingsManager.create(cwd, this.agentDir, { projectTrusted: false });
     const settingsManager = SettingsManager.inMemory({
-      ...(shared ? withoutModels(shared.getGlobalSettings()) : { compaction: { enabled: false } }),
+      ...(shared ? withoutModels(shared.getGlobalSettings()) : { compaction: { enabled: readOnly?.compact === true } }),
       defaultThinkingLevel: preferences.getDefaultThinkingLevel(), modelThinkingLevels: preferences.getAllModelThinkingLevels(),
     }, { projectTrusted: false });
     if (shared) settingsManager.applyOverrides(withoutModels(shared.getProjectSettings()));

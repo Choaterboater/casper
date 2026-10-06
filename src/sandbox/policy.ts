@@ -81,6 +81,9 @@ export const CASPER_PRIVATE_PATHS: readonly string[] = [".casper/projects", ".ca
 /** git's own files in a git folder that change what git runs. */
 export const GIT_OWN_FILES: readonly string[] = ["hooks", "config", "config.worktree", "info"];
 
+/** What a crew copy may not write in the git folder it shares with your folder: your branches, tags and commits. */
+export const GIT_SHARED_FILES: readonly string[] = ["refs", "packed-refs", "HEAD", "objects", "logs"];
+
 /** Files that tell git where its folder is: a worktree's `.git` file and its folder's `commondir`. Held read-only
  * only when they exist (a stand-in for a missing one would break git); a main `.git/commondir` that appears
  * is removed by the sandbox (see ShellSandbox.guardGit). */
@@ -142,6 +145,10 @@ export interface SandboxPolicyInput {
   extraWrite?: string[];
   /** A plan turn: the project is read-only too. */
   readOnlyProject?: boolean;
+  /** A crew copy: of git's folders only the copy's own is writable, not the one it shares with your folder. */
+  copy?: boolean;
+  /** Absolute paths kept private on top of the project's own (a copy keeps your folder's private paths). */
+  denyRead?: string[];
   platform?: NodeJS.Platform;
 }
 
@@ -179,7 +186,9 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
   const inHome = (entries: readonly string[]) => entries.flatMap((entry) => spellings(path.join(home, entry)));
   const git = gitDirs(root);
   const hooks = hooksPathTargets(root, home);
-  const project = input.readOnlyProject ? [] : [root, ...git.filter((dir) => !within(root, dir))];
+  // A worktree's own git folder comes first, then the one it shares (see gitDirs).
+  const shared = input.copy ? git.slice(1) : [];
+  const project = input.readOnlyProject ? [] : [root, ...git.filter((dir) => !within(root, dir) && !shared.includes(dir))];
   const allowWrite = unique([
     ...project.flatMap(spellings),
     ...(input.tempDirs ?? systemTempDirs(input.platform)).flatMap(spellings),
@@ -198,6 +207,7 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
     .flatMap((dir) => GIT_OWN_FILES.map((name) => path.join(dir, name)));
   const denyWrite = unique([
     ...gitOwn.flatMap(spellings),
+    ...shared.flatMap((dir) => GIT_SHARED_FILES.map((name) => path.join(dir, name))).flatMap(spellings),
     ...hooks.flatMap(spellings),
     ...extra.flatMap((folder) => hooksPathTargets(folder, home)).flatMap(spellings),
     ...[root, ...extra].flatMap(gitPointers).flatMap(spellings),
@@ -211,6 +221,7 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
     ...inHome(CASPER_PRIVATE_PATHS),
     ...(input.agentDir ? spellings(path.join(input.agentDir, "auth.json")) : []),
     ...(input.project?.denyRead ?? []).map((entry) => resolveEntry(entry, root, home)).flatMap(spellings),
+    ...(input.denyRead ?? []).flatMap(spellings),
   ]);
   const allowedDomains = unique([...REGISTRY_HOSTS, ...LOCAL_HOSTS, ...(input.user?.allowedDomains ?? []), ...(input.rememberedHosts ?? [])]);
   return { allowWrite, denyWrite, denyRead, allowedDomains };

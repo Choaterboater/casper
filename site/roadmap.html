@@ -421,24 +421,27 @@
         <h2 id="coming-h">Planned, not started</h2>
         <aside class="callout soon">
           <strong class="callout-title">Not in any release yet</strong>
-          <p>Nothing in this section is in v0.2.22, and none of it has been started. Names, commands and
-          details may change, or move to a later version, before they ship.</p>
+          <p>Nothing in this section is in v0.2.22. Only the first part of Crews is built; the rest has
+          not been started. Names, commands and details may change, or move to a later version, before
+          they ship.</p>
         </aside>
 
         <div class="stack">
         <article class="card" id="v030" aria-labelledby="v030-h">
-          <h3 id="v030-h">v0.3 · Crews <span class="badge soon">planned, not started</span></h3>
-          <p>Big jobs get a team, on their own.</p>
+          <h3 id="v030-h">v0.3 · Crews <span class="badge soon">first part built, not released</span></h3>
+          <p>Big jobs get a team. You start it; the AI never spends on a crew by itself.</p>
           <ul>
-            <li><strong>Split, build, review, fix.</strong> For a big job the AI starts builders in
-            their own copies of the project, a reviewer for each part and a fixer, then merges and
-            runs the full tests. No command needed.</li>
+            <li><strong>A builder in its own copy</strong> <span class="badge soon">built, not released</span>.
+            <code>/crew &lt;job&gt;</code>: a builder does the job in its own copy of the project, in the
+            same sandbox, and your folder stays as it is. Then 1 Keep the copy · 2 Apply to my folder ·
+            3 Throw it away. See <code>docs/CREWS.md</code>.</li>
+            <li><strong>Split, build, review, fix.</strong> Next: a crew splits a big job into parts, with a
+            builder and a reviewer for each part and a fixer, then merges and runs the full tests.</li>
             <li><strong>See it work.</strong> The status bar shows the crew
             (<code>crew 2/3 building · 1 reviewing · $0.40</code>); <code>/crew</code> shows each
             part. Keep chatting; it reports when the parts land.</li>
             <li><strong>Your limits apply to the crew.</strong> A limit said in the request ("keep it
-            under $2", "no crew for this") holds for the whole crew, and the cost is shown as it
-            goes. <code>crew: off</code> turns crews off.</li>
+            under $2") holds for the whole crew, and the cost is shown as it goes.</li>
           </ul>
         </article>
         </div>

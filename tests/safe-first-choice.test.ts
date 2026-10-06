@@ -15,6 +15,7 @@ import { IGNORE_CHOICES, IGNORE_FILE_CHOICES } from "../src/security/format";
 import { INSTALL_CHOICES, OSV_UPDATE_QUESTION } from "../src/security/install";
 import { tasksChoices, type BackgroundTask } from "../src/app/background";
 import { SHOW_PAGES_CHOICES } from "../src/services/page-look";
+import { copiesChoices, crewChoices } from "../src/crew/command";
 
 const running = (name: string): BackgroundTask => ({ kind: "dev server", name, status: "running", stop: async () => "" });
 
@@ -27,6 +28,8 @@ const DOING = /^(?:build|yes|retry|fix|install|download|remember|enable|run|alwa
 
 const firsts: Array<[string, string, string]> = [
   ["Build this plan?", PLAN_CHOICES[0].label, "Stop"],
+  ["What should happen to the crew's work?", crewChoices("/copy")[0]!.label, "Keep the copy"],
+  ["/crew: apply or throw one away?", copiesChoices(2)[0]!.label, "Leave them"],
   ["Build this plan? (rich terminal, after the plan editor)", PLAN_CHOICES[0].label, "Stop"],
   ["Fix it anyway?", ALREADY_FAILING_CHOICES[0].label, "Leave it"],
   ["The model failed again", modelFailedChoices()[0]!.label, "Stop"],
