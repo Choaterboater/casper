@@ -526,7 +526,7 @@ Each change also has a kind: configuration, troubleshooting, disruptive (reboot,
 bounce, disconnect), firmware, delete or admin (users, roles assigned, SSO, tokens).
 Casper reads it from the server's `_meta["casper/change-kind"]`, else from the tool's
 name; a router call uses the real tool. A server can name a kind stricter, never make
-a firmware, delete or admin name into a safe one. Vendor developer-site categories
+a disruptive, firmware, delete or admin name into a safer one. Vendor developer-site categories
 are a reference only.
 
 **Firmware changes, deletes and admin changes are off by default on every server.**
