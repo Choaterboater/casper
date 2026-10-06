@@ -226,9 +226,11 @@ function remoteFileHost(arg: string): { user?: string; host: string; port?: numb
   return { host, ...(match[1] ? { user: match[1] } : {}) };
 }
 
-function sshOptionTargets(values: Array<[string, string]>): { port?: number; user?: string; jumps: string[] } {
+/** What ssh's options say about where it goes. `-o HostName=x` is the machine ssh really dials, whatever the alias. */
+function sshOptionTargets(values: Array<[string, string]>): { port?: number; user?: string; hostName?: string; jumps: string[] } {
   let port: number | undefined;
   let user: string | undefined;
+  let hostName: string | undefined;
   const jumps: string[] = [];
   for (const [flag, value] of values) {
     if (flag === "-p" || flag === "-P") { const n = Number(value); if (Number.isInteger(n) && n > 0) port = n; }
@@ -240,13 +242,18 @@ function sshOptionTargets(values: Array<[string, string]>): { port?: number; use
       const key = option[1]!.toLowerCase();
       if (key === "port") { const n = Number(option[2]); if (Number.isInteger(n) && n > 0) port = n; }
       else if (key === "user") user = option[2];
+      else if (key === "hostname") hostName ??= option[2]!.replace(/^(['"])(.*)\1$/, "$2");
       else if (key === "proxyjump" && option[2]!.toLowerCase() !== "none") jumps.push(...option[2]!.split(",").filter(Boolean));
     }
   }
-  return { ...(port ? { port } : {}), ...(user ? { user } : {}), jumps };
+  return { ...(port ? { port } : {}), ...(user ? { user } : {}), ...(hostName ? { hostName } : {}), jumps };
 }
 
-export interface RawTarget { tool: RemoteTool; typed: string; user?: string; port?: number; unclear?: true }
+export interface RawTarget {
+  tool: RemoteTool; typed: string; user?: string; port?: number; unclear?: true;
+  /** The name the command gave when `-o HostName=` sends ssh elsewhere: ~/.ssh/config's User and Port still come from it. */
+  alias?: string;
+}
 
 /** A host Casper can't read from the text ($HOST, {} from xargs): it still asks, and never remembers the answer. */
 const PLAIN_HOST = /^[\w.:%-]+$/;
@@ -257,7 +264,10 @@ export function segmentTargets(words: string[]): { tool?: RemoteTool; targets: R
   const name = path.basename(words[start] ?? "").replace(/\.exe$/i, "").toLowerCase();
   const rest = words.slice(start + 1);
   const targets: RawTarget[] = [];
-  const add = (tool: RemoteTool, found: { user?: string; host: string; port?: number } | undefined, extra: { user?: string; port?: number } = {}, raw?: string) => {
+  const add = (tool: RemoteTool, given: { user?: string; host: string; port?: number } | undefined, extra: { user?: string; port?: number; hostName?: string } = {}, raw?: string) => {
+    // `-o HostName=x`: ssh dials x, whatever the command names; the name still picks User and Port from ~/.ssh/config.
+    const found = given && extra.hostName ? { ...given, host: extra.hostName } : given;
+    const alias = given && extra.hostName ? given.host : undefined;
     if (!found) {
       // ssh root@$HOST, nc $IP 22: a machine all the same, which Casper can't name.
       if (raw) targets.push({ tool, typed: raw.replace(/^[^@]*@/, "").replace(/:.*$/, "") || raw, unclear: true });
@@ -265,7 +275,7 @@ export function segmentTargets(words: string[]): { tool?: RemoteTool; targets: R
     }
     const user = found.user ?? extra.user;
     const port = found.port ?? extra.port;
-    targets.push({ tool, typed: found.host, ...(user ? { user } : {}), ...(port ? { port } : {}), ...(PLAIN_HOST.test(found.host) ? {} : { unclear: true as const }) });
+    targets.push({ tool, typed: found.host, ...(user ? { user } : {}), ...(port ? { port } : {}), ...(alias ? { alias } : {}), ...(PLAIN_HOST.test(found.host) ? {} : { unclear: true as const }) });
   };
   if (name === "ssh" || name === "autossh" || name === "ssh-copy-id" || name === "mosh") {
     const { args, values } = parseOptions(rest, SSH_VALUE, true);
@@ -382,8 +392,8 @@ export function remoteTargets(command: string, home = os.homedir()): RemoteTarge
       }
       if (raw.tool === "ssh" || raw.tool === "scp" || raw.tool === "sftp" || raw.tool === "rsync") {
         config ??= readSshConfig(home);
-        const alias = resolveSshAlias(raw.typed, config);
-        if (alias.hostName) host = alias.hostName;
+        const alias = resolveSshAlias(raw.alias ?? raw.typed, config);
+        if (alias.hostName && !raw.alias) host = alias.hostName;
         user ??= alias.user;
         port ??= alias.port;
       }
@@ -400,8 +410,8 @@ export function resolveTarget(raw: RawTarget, home = os.homedir()): RemoteTarget
   let host = raw.typed;
   let { user, port } = raw;
   if (raw.tool === "ssh" || raw.tool === "scp" || raw.tool === "sftp" || raw.tool === "rsync") {
-    const alias = resolveSshAlias(raw.typed, readSshConfig(home));
-    if (alias.hostName) host = alias.hostName;
+    const alias = resolveSshAlias(raw.alias ?? raw.typed, readSshConfig(home));
+    if (alias.hostName && !raw.alias) host = alias.hostName;
     user ??= alias.user;
     port ??= alias.port;
   }
@@ -414,8 +424,8 @@ export function targetLabel(target: RemoteTarget): string {
   return target.typed.toLowerCase() !== target.host ? `${target.host} (${target.typed})` : target.host;
 }
 
-/** ssh -o settings that run a program on this machine, or open a way in for other commands. */
-const LOCAL_EFFECT_OPTION = /^\s*(?:proxycommand|localcommand|permitlocalcommand|knownhostscommand|proxyusefdpass|controlmaster|controlpath|controlpersist|localforward|remoteforward|dynamicforward|tunnel|tunneldevice|forwardagent|forwardx11|forwardx11trusted|include|sessiontype|stdinnull|forkafterauthentication|securitykeyprovider|pkcs11provider|identityagent|remotecommand|canonicalizehostname)\b/i;
+/** ssh -o settings that run a program on this machine, write a file of its choosing here, or open a way in for other commands. */
+const LOCAL_EFFECT_OPTION = /^\s*(?:userknownhostsfile|globalknownhostsfile|proxycommand|localcommand|permitlocalcommand|knownhostscommand|proxyusefdpass|controlmaster|controlpath|controlpersist|localforward|remoteforward|dynamicforward|tunnel|tunneldevice|forwardagent|forwardx11|forwardx11trusted|include|sessiontype|stdinnull|forkafterauthentication|securitykeyprovider|pkcs11provider|identityagent|remotecommand|canonicalizehostname)\b/i;
 /** ssh and scp flags that run a program here, forward ports or the agent, go to the background or print the settings. */
 const LOCAL_EFFECT_FLAG = new Set(["-D", "-L", "-R", "-W", "-w", "-f", "-N", "-M", "-S", "-O", "-E", "-A", "-X", "-Y", "-G", "-F", "-I", "-e", "-3"]);
 

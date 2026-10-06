@@ -115,3 +115,23 @@ test("an alias and its address are one machine on the receipt, named by both", (
     changes: ["turned a service on or off at boot (systemctl enable --now sampleapp)", "restarted or shut down the machine (reboot)"] }]);
   expect(remoteChanges("ssh root@$H uptime", home)).toEqual([{ host: "$H", address: "$H", changes: [] }]);
 });
+
+test("ssh -o Hostname= names the machine ssh really reaches, not the alias's address", () => {
+  expect(hosts("ssh -o Hostname=203.0.113.9 build-server uptime")).toEqual([{ tool: "ssh", typed: "203.0.113.9", host: "203.0.113.9", user: "root", port: 2222 }]);
+  expect(hosts("ssh -oHostName=evil.example.com build-server id").map((target) => target.host)).toEqual(["evil.example.com"]);
+  expect(hosts("ssh -o 'HostName 203.0.113.9' build-server id").map((target) => target.host)).toEqual(["203.0.113.9"]);
+  expect(hosts("scp -o Hostname=203.0.113.9 build-server:/etc/shadow ./x").map((target) => target.host)).toEqual(["203.0.113.9"]);
+  expect(hosts("sftp -o HostName=203.0.113.9 build-server").map((target) => target.host)).toEqual(["203.0.113.9"]);
+  expect(hosts("rsync -e 'ssh -o HostName=203.0.113.9' dist/ build-server:/srv/").map((target) => target.host)).toEqual(["203.0.113.9"]);
+  expect(remoteTargets("ssh -o HostName=$H build-server id", home)[0]?.unclear).toBe(true);
+});
+
+test("an approved ssh that writes a known-hosts file of its choosing stays in the sandbox", () => {
+  const root = path.join(home, "project");
+  for (const command of [
+    `ssh -o UserKnownHostsFile=${path.join(home, ".gitconfig")} -o StrictHostKeyChecking=no build-server true`,
+    "ssh -o GlobalKnownHostsFile=/tmp/x build-server true", "ssh -oUserKnownHostsFile=x build-server true",
+    "scp -o UserKnownHostsFile=x build-server:/etc/hosts ./hosts",
+  ]) expect([command, runsAlone(command, root)]).toEqual([command, false]);
+  expect(runsAlone("ssh -o StrictHostKeyChecking=accept-new build-server uptime", root)).toBe(true);
+});
