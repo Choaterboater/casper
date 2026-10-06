@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
+import { appReaderTool } from "../src/app/reader";
 import { settingRows } from "../src/app/settings";
 import { systemPromptAppend } from "../src/app/prompt";
 import { loadConfiguration } from "../src/config/load";
@@ -124,4 +125,24 @@ test("/settings lists the reader with a numbered off switch", async () => {
   const row = settingRows(context).find((entry) => entry.label === "Untrusted-text reader")!;
   expect(row.value).toBe("on");
   expect(row.choices.map((choice) => [choice.label, choice.value])).toEqual([["Turn it off", false]]);
+});
+
+test("the reader's file source keeps Casper's saved conversations and login private wherever its state folder is", async () => {
+  const { home, project } = await folders();
+  // CASPER_AGENT_DIR can put Casper's state outside ~/.casper/agent; the read tool refuses it there too.
+  const agentDir = path.join(path.dirname(home), "state");
+  await mkdir(path.join(agentDir, "sessions"), { recursive: true });
+  await writeFile(path.join(agentDir, "sessions", "chat.jsonl"), "{\"secret\":\"conversation\"}\n");
+  await writeFile(path.join(agentDir, "auth.json"), "{}");
+  const completions: string[] = [];
+  const reader = appReaderTool({
+    session: () => ({ complete: async (input: { user: string }) => { completions.push(input.user); return { text: "{}", usage: { tokens: 1, estimatedCost: 0 } }; } }) as never,
+    root: project, home, agentDir, privatePaths: [], onUsage: () => {},
+  })!;
+  for (const given of [path.join(agentDir, "sessions", "chat.jsonl"), path.join(agentDir, "auth.json")]) {
+    const result = await reader.execute({ path: given, schema: { type: "object" } });
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("private");
+  }
+  expect(completions).toHaveLength(0);
 });

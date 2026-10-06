@@ -172,7 +172,11 @@ export function observeEdit(app: CasperApp, path: string): void {
 
 /** Whether any sign-in exists yet, for the banner and footer only. */
 export async function checkSignIn(app: CasperApp): Promise<void> {
-  const agentDir = app.sessionHomeDir ? path.join(app.sessionHomeDir, ".casper", "agent")
+  app.signedIn = await hasSignIn(appAgentDir(app));
+}
+
+/** Casper's state folder for this session: its login and saved conversations. */
+export function appAgentDir(app: CasperApp): string {
+  return app.sessionHomeDir ? path.join(app.sessionHomeDir, ".casper", "agent")
     : process.env[AGENT_DIR_ENV] && process.env[AGENT_DIR_ENV] !== "undefined" ? process.env[AGENT_DIR_ENV]! : casperAgentDir();
-  app.signedIn = await hasSignIn(agentDir);
 }
