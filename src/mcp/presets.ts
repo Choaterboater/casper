@@ -3,6 +3,7 @@ import path from "node:path";
 /** What "writes off" means, in the one sentence /mcp, /help all and the docs all use. */
 export const WRITES_OFF_MEANING = "Writes off: the server runs with its read-only settings, and every change asks you first.";
 import type { CapabilitySafety } from "../capabilities/broker";
+import type { ChangeKind } from "../capabilities/kinds";
 import type { MCPServerDefinition } from "./config";
 import type { MCPTool } from "./manager";
 
@@ -61,6 +62,9 @@ export interface Preset {
   /** invoke_tool running one tool Casper can see is judged as a write plus that tool's own name and kind, not as a
    * destructive dispatcher (only when recognised by its definition). Risky and disruptive kinds still ask every time. */
   routedByRealTool?: true;
+  /** The least kind of change a tool makes, for when the server's own `casper/change-kind` is missing or milder.
+   * It can only raise a kind (kinds.ts withKindFloor), never lower one. */
+  kindFloor?(tool: MCPTool): ChangeKind | undefined;
 }
 
 // ---------------------------------------------------------------------------

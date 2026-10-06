@@ -74,6 +74,19 @@ export function changeKind(tool: Pick<MCPTool, "name" | "_meta">, label: Capabil
   return declared;
 }
 
+/**
+ * The tool with its `casper/change-kind` raised to at least `floor` (a preset's kindFloor), so a server that doesn't
+ * tag a teardown still counts it as a delete. A floor never lowers a kind, and the same tool comes back when nothing
+ * changes.
+ */
+export function withKindFloor<T extends Pick<MCPTool, "_meta">>(tool: T, floor: ChangeKind | undefined): T {
+  if (!floor || floor === "read") return tool;
+  const declared = tool._meta?.["casper/change-kind"];
+  const kind = isChangeKind(declared) && declared !== "read" ? riskier(declared, floor) : floor;
+  if (kind === declared) return tool;
+  return { ...tool, _meta: { ...tool._meta, "casper/change-kind": kind } };
+}
+
 /** The riskier of two kinds, in CHANGE_KINDS order (read < troubleshoot < config < disruptive < firmware < delete < admin). */
 export function riskier(a: ChangeKind, b: ChangeKind): ChangeKind {
   return CHANGE_KINDS.indexOf(b) > CHANGE_KINDS.indexOf(a) ? b : a;

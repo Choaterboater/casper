@@ -18,7 +18,7 @@ import { toolLabel } from "./labels";
 import { loginExpired, loginMissing, type LoginTrouble } from "../mcp/network/ask-login";
 import { getsLogins, isNetworkProduct, PRODUCT_LABELS, type NetworkProduct } from "../mcp/network/logins";
 import {
-  asksEveryTime, hitKindsFrom, isRiskyKind, KIND_TEXT, MAX_HITS_PER_SERVER, planKinds, riskier, withHitKinds, type ChangeKind, type RouterHit,
+  asksEveryTime, hitKindsFrom, isRiskyKind, KIND_TEXT, MAX_HITS_PER_SERVER, planKinds, riskier, withHitKinds, withKindFloor, type ChangeKind, type RouterHit,
 } from "./kinds";
 import { boundCapabilityResult, capabilityErrorResult, NotExecutedError, OutcomeUnknownError, type BoundedCapabilityResult } from "./result";
 import { indexWords, termScore, tokenize } from "./search";
@@ -694,7 +694,9 @@ export class CapabilityBroker {
       let definition: ReturnType<MCPManager["definition"]> | undefined;
       try { definition = this.manager.definition(server); } catch { definition = undefined; }
       const docsServer = docsPinned(definition, policy.match, tools);
-      for (const tool of tools) {
+      for (const listed of tools) {
+        // A preset's kind floor can only raise the kind the server tagged.
+        const tool = withKindFloor(listed, policy.match?.preset.kindFloor?.(listed));
         const id = `mcp:${encodeURIComponent(server)}:${encodeURIComponent(tool.name)}`;
         // A preset can only make the label stricter.
         const safety = tightenSafety(policy.match, tool, toolLabel(tool));

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { buildPlan, planLabel } from "../src/capabilities/approval";
 import { CapabilityBroker } from "../src/capabilities/broker";
-import { asksEveryTime, changeKind, hitKindsFrom, MAX_HITS_PER_SERVER, planKinds, RISKY_KINDS, isRiskyKind, withHitKinds } from "../src/capabilities/kinds";
+import { asksEveryTime, changeKind, hitKindsFrom, MAX_HITS_PER_SERVER, planKinds, RISKY_KINDS, isRiskyKind, withHitKinds, withKindFloor } from "../src/capabilities/kinds";
 import type { MCPServerDefinition } from "../src/mcp/config";
 import { MCPManager } from "../src/mcp/manager";
 import { networkServerEntry } from "../src/mcp/network/server";
@@ -293,4 +293,22 @@ test("review: past the limit of hits kept per server, the oldest is dropped", as
   expect(kept.size).toBe(MAX_HITS_PER_SERVER);
   expect(kept.has("mist_tool_0")).toBe(false);
   expect(kept.has(`mist_tool_${MAX_HITS_PER_SERVER}`)).toBe(true);
+});
+
+test("a kind floor only raises a tool's change kind, never lowers it", () => {
+  const tool = (meta?: string): MCPTool => ({ name: "tear_down", inputSchema: { type: "object" }, ...(meta ? { _meta: { "casper/change-kind": meta } } : {}) });
+  const kindOf = (item: MCPTool) => item._meta?.["casper/change-kind"];
+  expect(kindOf(withKindFloor(tool(), "delete"))).toBe("delete");
+  expect(kindOf(withKindFloor(tool("config"), "delete"))).toBe("delete");
+  expect(kindOf(withKindFloor(tool("read"), "disruptive"))).toBe("disruptive");
+  expect(kindOf(withKindFloor(tool("admin"), "delete"))).toBe("admin");
+  // No floor, or "read", or nothing to change: the same tool back.
+  const tagged = tool("delete");
+  expect(withKindFloor(tagged, undefined)).toBe(tagged);
+  expect(withKindFloor(tagged, "read")).toBe(tagged);
+  expect(withKindFloor(tagged, "delete")).toBe(tagged);
+  // Other _meta keys stay.
+  const other: MCPTool = { name: "x", inputSchema: { type: "object" }, _meta: { "casper/safety": "write" } };
+  expect(withKindFloor(other, "disruptive")._meta).toEqual({ "casper/safety": "write", "casper/change-kind": "disruptive" });
+  expect(changeKind(withKindFloor(tool(), "delete"), "write")).toBe("delete");
 });
