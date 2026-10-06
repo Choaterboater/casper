@@ -116,6 +116,9 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
   each command that changes something. [Sandbox](docs/SECURITY.md)
 - **Secrets hidden, best effort.** Known device secrets (passwords, keys, SNMP communities) are
   swapped for `<secret hidden>` before the AI sees them. Known formats only. [Secrets](docs/SECRETS.md)
+- **Untrusted text, read at arm's length.** The AI can read a log, an email or a web form through
+  a separate model call with no tools and get back only JSON in its shape, never the text. It lowers
+  the risk of hidden orders; it doesn't remove it. [Reader](docs/READER.md)
 - **Only you can approve.** The AI can't answer a box for you. What goes to your model provider,
   and what is not held back: [SECURITY.md](docs/SECURITY.md).
 
@@ -127,7 +130,7 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 | Network | [MCP](docs/MCP.md) · [Network checks](docs/NETWORK-CHECKS.md) · [Skills](docs/SKILLS.md) · [References](docs/REFERENCES.md) |
 | Everyday use | [Terminal](docs/TERMINAL_UX.md) · [tmux](docs/TMUX.md) · [Sessions](docs/SESSIONS.md) · [Memory](docs/MEMORY.md) · [New projects](docs/NEW.md) |
 | Tools | [Services](docs/SERVICES.md) · [Browser](docs/BROWSER.md) · [LSP](docs/LSP.md) · [Debugger](docs/DEBUGGER.md) · [Diagrams](docs/VISUALIZATION.md) · [Helpers](docs/DELEGATION.md) · [Learn](docs/LEARNING.md) |
-| Setup | [Doctor](docs/DOCTOR.md) · [Configuration](docs/CONFIGURATION.md) · [Scripting](docs/SCRIPTING.md) · [Secrets](docs/SECRETS.md) · [Security](docs/SECURITY.md) |
+| Setup | [Doctor](docs/DOCTOR.md) · [Configuration](docs/CONFIGURATION.md) · [Scripting](docs/SCRIPTING.md) · [Secrets](docs/SECRETS.md) · [Security](docs/SECURITY.md) · [Reader](docs/READER.md) |
 | Platforms | [Support](docs/PLATFORM_SUPPORT.md) · [Testing a machine](docs/PLATFORM_VERIFICATION.md) · [Windows](docs/WINDOWS.md) · [Releases](docs/RELEASE.md) · [Evals](docs/EVALUATION.md) |
 
 ## What's new

@@ -1241,6 +1241,7 @@ export function permissionsText(sandbox: ShellSandbox | undefined): string {
     `The AI's file tools (read, edit, write, grep, find, ls) stay out of private places and git's own files and never follow a link out of the project. ${sandbox && !sandbox.asksOutsideWrites
       ? "With the sandbox off, an edit or write outside the project doesn't ask." : "An edit or write outside the project asks first (temp and caches don't; --no-sandbox turns this off)."}`,
     "Web lookups (web_search, web_fetch) read public pages without asking. Private and local addresses, other ports, and a search or address holding a secret are refused; what comes back has its secrets hidden. /settings turns them off.",
+    "The untrusted-text reader (casper_read_untrusted) reads a file, a read-only command or an MCP tool through a separate model call with no tools; the AI gets only JSON that matches its schema, never the text. It changes nothing; an MCP tool keeps its own approval. /settings turns it off.",
     "MCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals. The AI can't approve anything for you.",
     "No SAFE/YOLO or read-only mode is implied. /verify and /services may execute project scripts (the declared checks and service commands). See docs/SECURITY.md.",
   ].join("\n");

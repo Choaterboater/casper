@@ -94,7 +94,7 @@ Local commands:
   /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
   /output all                       Every tool call of the last task on its own line (the screen folds them into a summary)
   /details [quiet|normal|detailed] [--session]  Failures only, steps folded (default), or every step with small diffs; remembered like /effort, --session for this session only. Ctrl+T shows the last step in full
-  /settings                         Your switches by number, written to ~/.casper/config.yaml for you: web lookups, the new-version notice, built-in skills, spend notes, spend pause, showing the AI the pages, work shown, Playwright tests
+  /settings                         Your switches by number, written to ~/.casper/config.yaml for you: web lookups, the new-version notice, built-in skills, spend notes, spend pause, showing the AI the pages, work shown, the untrusted-text reader, Playwright tests
   /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
   /permissions                      What each tool may do and when Casper asks you

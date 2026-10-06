@@ -48,6 +48,8 @@
         ships with the next preview.</p>
         <p><span class="badge soon">planned, not started</span> means it is the next thing planned, with a
         version number. Nobody has started building it yet, and the details may still change.</p>
+        <p><span class="badge soon">built, not released</span> means it is in the code on the main branch
+        and comes with the next release.</p>
         <p><span class="badge">idea, not scheduled</span> means it is agreed as a direction, but
         has no version and nobody is building it yet.</p>
       </aside>
@@ -498,17 +500,19 @@
         </article>
 
         <article class="card" id="quarantine" aria-labelledby="quarantine-h">
-          <h3 id="quarantine-h">Reading untrusted text safely · tools that only hand back strict JSON <span class="badge">idea, not scheduled</span></h3>
+          <h3 id="quarantine-h">Reading untrusted text safely · tools that only hand back strict JSON <span class="badge soon">built, not released</span></h3>
           <p>Some text should never steer the AI: a WordPress log, an email from a stranger, a web
           form. A quarantined reader reads it in a sandbox, with no tools, and returns only JSON
           that matches a schema you set (for example sender, subject, asks for a payment: yes/no).
           The main AI sees that JSON, never the text, so instructions hidden in the text can't reach it.</p>
           <ul>
-            <li><strong>Already there:</strong> the shell sandbox, MCP tool arguments checked against
-            their schemas, and secrets hidden in results.</li>
-            <li><strong>To add:</strong> the quarantined reader itself (a separate model call with no
-            tools), strict schema checks on what comes back (anything else is dropped), and a way to
-            offer it as an MCP tool such as "read this untrusted email".</li>
+            <li><strong>Built:</strong> <code>casper_read_untrusted</code>, a built-in tool. A separate
+            model call with no tools (your fast model) reads a file, a read-only command or an MCP tool,
+            and the AI gets only JSON that matches its schema; anything else is a plain error. Long free
+            text comes back only when marked quoted, wrapped with its source. On by default, no cost
+            until the AI calls it; <code>/settings</code> turns it off.</li>
+            <li><strong>To add:</strong> saved readers (a schema with a name) and the same reader as an
+            MCP server, so Claude Code and other tools can use it.</li>
           </ul>
         </article>
 
