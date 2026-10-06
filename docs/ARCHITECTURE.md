@@ -38,15 +38,16 @@ From the prompt to the receipt, in `src/app/task-run.ts` (`runModelTask`) unless
 
 1. `command-loop.ts` reads the line. A slash command goes to `handleSlashCommand`; anything else is a request.
 2. The request is classified (`src/task/classify.ts`) and `prepareCapabilities` (`task-tools.ts`) builds its tool list.
-3. Casper snapshots the folder (`snapshotWorkspace`) and starts undo's first copy (`taskUndo.begin`). For a code change
-   with a test command, `ChangeBaseline.capture` (`src/verify/proof.ts`) copies the folder as it is now.
-4. At most one question before work: a checklist of the cases the request states, or the plan-first panel.
+3. Casper snapshots the folder (`snapshotWorkspace`) and starts undo's first copy (`taskUndo.begin`).
+4. At most one question before work: a checklist of the cases the request states, or the plan-first panel. Then, for
+   a code change with a test command (in auto mode), `ChangeBaseline.capture` (`src/verify/proof.ts`) copies the
+   folder as it is now.
 5. The model turn: `session.prompt` in `src/runtime/pi.ts`. Every tool call passes the gates first (git guard, private
    places, git's own files, the plan turn's gate, writes outside the project). Every shell command goes through
    `casperBashOperations`, which asks first when no sandbox runs and wraps the command when one does. Every tool
    result is scrubbed before the model reads it. MCP calls go through the broker and its approval box.
-6. Casper snapshots again and plans the checks from what changed (`planAutoChecks`), plus smoke and page checks.
-7. `runVerification` (`src/app/verification.ts`) runs them in the sandbox, with up to three repair turns
+6. Casper snapshots again and plans the checks from what changed (`planAutoChecks` in `src/verify/mode.ts`), plus smoke and page checks.
+7. `runVerification` (`src/app/verification.ts`) runs them in the sandbox, with up to three repair turns by default (`repair.maxAttempts`)
    (`src/verify/repair-loop.ts`).
 8. When the checks pass on a code change, `finishChange` and `proveChange` run the tests on the copy without the
    change: they must fail there and pass with it. The optional acceptance test runs after that.
@@ -65,7 +66,7 @@ Each row is a promise a user can rely on, the code that keeps it, and the tests 
 | Every shell command Casper runs is sandboxed: writes only in the project, temp and caches; git's own files read-only | `src/sandbox/manager.ts`, `src/sandbox/policy.ts`, `src/sandbox/runtime.ts`, `src/sandbox/linux.ts` | `tests/sandbox-policy.test.ts`, `tests/sandbox-wiring.test.ts`, `tests/sandbox-writes.test.ts`, `tests/sandbox-live.test.ts` |
 | Private places (`~/.ssh`, cloud and git logins, Casper's own login files) are hidden from the AI's file tools and shell; your shell start-up files, git settings and `~/.casper` can't be changed | `src/platform/project-paths.ts`, `src/sandbox/policy.ts`, `src/runtime/pi.ts` | `tests/file-guard.test.ts`, `tests/sandbox-policy.test.ts` |
 | With no sandbox, the AI's shell asks before each command, except a short list of commands that only read | `src/sandbox/read-only.ts`, `src/app/sandbox.ts`, `src/runtime/pi.ts` (`casperBashOperations`) | `tests/no-sandbox-commands.test.ts`, `tests/sandbox-asks.test.ts` |
-| Approval boxes: only a person answers, choice 1 is always the safe one (No, Stop, Not now), Enter picks 1, and every yes uses the same four words | `src/app/safe-choices.ts`, `src/app/approvals.ts`, `src/app/session-yes.ts`, `src/tui/terminal.ts` | `tests/safe-first-choice.test.ts`, `tests/yes-words.test.ts`, `tests/session-yes.test.ts` |
+| Approval boxes: only a person answers, choice 1 is always the safe one (No, Stop, Not now), Enter picks 1, and every yes uses the same wording (`YES_WORDS`) | `src/app/safe-choices.ts`, `src/app/approvals.ts`, `src/app/session-yes.ts`, `src/tui/terminal.ts` | `tests/safe-first-choice.test.ts`, `tests/yes-words.test.ts`, `tests/session-yes.test.ts` |
 | MCP servers connect with writes off; risky kinds stay off until you allow them; the AI can't skip a box | `src/mcp/manager.ts`, `src/mcp/presets.ts`, `src/capabilities/broker.ts`, `src/capabilities/approval.ts`, `src/capabilities/labels.ts`, `src/capabilities/kinds.ts` | `tests/mcp-safety.test.ts`, `tests/capabilities-approval.test.ts`, `tests/capabilities-kinds.test.ts`, `tests/mcp-presets.test.ts`, `tests/mcp-setup-app.test.ts` |
 | Secrets are swapped for `<secret hidden>` before the AI sees them, and the marker is never written back | `src/secrets/` (`scrub.ts`, `tool-output.ts`, `gate.ts`), `src/capabilities/broker.ts` | `tests/secrets-scrub.test.ts`, `tests/secrets-files.test.ts`, `tests/secrets-gate.test.ts`, `tests/secrets-broker.test.ts`, `tests/secrets-pi.integration.test.ts` |
 | A project's `.casper/project.yaml` can't change your own settings or loosen the sandbox; it can only add denies | `src/config/load.ts`, `src/sandbox/policy.ts` | `tests/sandbox-policy.test.ts`, `tests/settings.test.ts`, `tests/spend.test.ts`, `tests/web-app.test.ts` |
@@ -83,7 +84,8 @@ These follow from how the owner wants Casper to feel. A change that breaks one w
   numbered choice in `/settings` (`src/app/settings.ts`), written to `~/.casper/config.yaml` for you by
   `src/config/user-write.ts`. No one should have to edit a config file for normal use.
 - **Numbered choices, 1 is safe.** Every question is a numbered list; Enter picks 1, and 1 never builds,
-  spends tokens, writes, turns writes on or remembers anything. Yes is said in the four words in
+  spends tokens, writes, turns writes on or remembers anything. Yes is said with the same wording (No · Yes, this once · Yes, for this session · Yes, always for this
+  project) from
   `src/app/safe-choices.ts`, never a typed `yes`. `tests/safe-first-choice.test.ts` and
   `tests/yes-words.test.ts` hold this.
 - **Never gate harder than Claude Code.** Don't add a box, a refusal or a limit that Claude Code would
