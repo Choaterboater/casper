@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { access, copyFile, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -131,6 +131,22 @@ async function gitWithInput(cwd: string, args: string[], input: string | Buffer)
   });
 }
 
+/** A copy of Git's index with the index's own times (milliseconds, never later than the real ones). */
+async function copyIndex(index: string, target: string): Promise<void> {
+  const { atime, mtime } = await stat(index);
+  await copyFile(index, target);
+  await utimes(target, atime, mtime);
+}
+
+/** The files `git apply --check` names as not applying, in its order, once each. */
+function clashingFiles(text: string): string[] {
+  const files = new Set<string>();
+  for (const match of text.matchAll(/^(?:git apply failed \(\w+\): )?error: (?:patch failed: (.+):\d+|(.+): (?:already exists in working directory|does not exist in index|No such file or directory|does not match index))$/gm)) {
+    files.add(match[1] ?? match[2]!);
+  }
+  return [...files];
+}
+
 function parseWorktrees(output: string): WorktreeEntry[] {
   return output.trim().split(/\n\n+/).filter(Boolean).flatMap((block) => {
     let worktreePath: string | undefined;
@@ -243,13 +259,15 @@ export class GitWorktreeManager {
   }
 
   /** The tree of your folder as it is now (unsaved and new files, not ignored ones), from a copy of Git's index so
-   * yours is not touched and unchanged files are not read again. */
+   * yours is not touched and unchanged files are not read again. The copy keeps the index's own time: Git reads a
+   * file again when it changed in the same second the index was written (its guard against a same-size rewrite
+   * that whole-second times can't see), and a copy stamped "now" would make every such file look unchanged. */
   private async folderTree(workspace: string): Promise<string> {
     const temp = await mkdtemp(path.join(os.tmpdir(), "casper-folder-index-"));
     const env = { ...process.env, GIT_INDEX_FILE: path.join(temp, "index") };
     try {
       const index = path.resolve(workspace, (await git(workspace, ["rev-parse", "--git-path", "index"])).trim());
-      await copyFile(index, env.GIT_INDEX_FILE).catch(() => git(workspace, ["read-tree", "HEAD"], { env }));
+      await copyIndex(index, env.GIT_INDEX_FILE).catch(() => git(workspace, ["read-tree", "HEAD"], { env }));
       await git(workspace, ["add", "--all", "--", "."], { env });
       return (await git(workspace, ["write-tree"], { env })).trim();
     } finally {
@@ -303,7 +321,12 @@ export class GitWorktreeManager {
       throw new Error(`${changed.slice(0, 5).join(", ")}${changed.length > 5 ? ` and ${changed.length - 5} more` : ""} changed in your folder too; nothing was applied`);
     }
     try { await gitWithInput(relation.mainWorkspace, ["apply", "--check", "--binary", "--whitespace=nowarn", "-"], candidate.patch); }
-    catch { throw new Error("A file the crew changed was changed in your folder too; nothing was applied"); }
+    catch (error) {
+      const clash = clashingFiles(error instanceof Error ? error.message : String(error));
+      throw new Error(clash.length
+        ? `${clash.slice(0, 5).join(", ")}${clash.length > 5 ? ` and ${clash.length - 5} more` : ""} changed in your folder too; nothing was applied`
+        : "A file the crew changed was changed in your folder too; nothing was applied");
+    }
     await gitWithInput(relation.mainWorkspace, ["apply", "--binary", "--whitespace=nowarn", "-"], candidate.patch);
   }
 

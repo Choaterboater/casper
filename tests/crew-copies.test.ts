@@ -155,3 +155,33 @@ test("a copy from the folder as it is has your unsaved and new files; only chang
   await git(repo, "add", "-A"); await git(repo, "commit", "-m", "yours");
   await expect(manager.applyCrew(second, await manager.capturePatch(second))).rejects.toThrow(/commit/i);
 });
+
+test("a same-size change in your folder, a second before the check, still blocks the AI's builder (Git's racy-file guard is kept)", async () => {
+  // Git trusts a file whose size, times and inode match its index entry. With whole-second times (Linux builds of
+  // Git), a rewrite in the second the file was added matches, and only the index's own time tells Git to look at
+  // the contents. A copy of the index with a new time loses that, so the check must keep the index's time.
+  const { repo, manager } = await repository();
+  const copy = await manager.create(await manager.planCrew("abc123", 1, repo));
+  await writeFile(path.join(copy.path, "a.txt"), "crew\n");
+  for (let attempt = 0; attempt < 5; attempt++) {
+    while (Date.now() % 1000 > 100) await Bun.sleep(5);
+    const second = Math.floor(Date.now() / 1000);
+    await writeFile(path.join(repo, "a.txt"), "a\n");
+    await git(repo, "add", "a.txt");
+    await writeFile(path.join(repo, "a.txt"), "y\n");
+    if (Math.floor(Date.now() / 1000) !== second) continue;
+    await Bun.sleep(1000 - (Date.now() % 1000) + 20);
+    expect(await manager.changedInFolder(copy, ["a.txt"])).toEqual(["a.txt"]);
+    return;
+  }
+  throw new Error("could not write the file and add it within one second");
+}, 15_000);
+
+test("/crew apply names the files whose lines clash with yours", async () => {
+  const { repo, manager } = await repository();
+  const copy = await manager.create(await manager.planCrew("abc123", 1, repo));
+  await writeFile(path.join(copy.path, "a.txt"), "crew\n");
+  await writeFile(path.join(repo, "a.txt"), "yours\n");
+  await expect(manager.applyCrew(copy, await manager.capturePatch(copy))).rejects.toThrow("a.txt changed in your folder too; nothing was applied");
+  expect(await readFile(path.join(repo, "a.txt"), "utf8")).toBe("yours\n");
+});
