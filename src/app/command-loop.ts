@@ -197,7 +197,7 @@ export async function runUndoCommand(app: CasperApp, command: "undo" | "redo" | 
 export function settingsCommand(app: CasperApp): Promise<void> {
   return runSettings({
     output: app.output, homeDir: () => app.homeDir(), canAsk: app.interactive && app.terminal.canAsk,
-    context: async () => app.projectContext,
+    context: async () => app.projectContext, mcp: () => app.mcp,
     reload: async () => {
       const before = app.projectContext;
       if (!before) return;
