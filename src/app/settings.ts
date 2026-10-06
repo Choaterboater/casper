@@ -1,6 +1,6 @@
 import { isMap } from "yaml";
 import type { ProjectContext } from "../project/context";
-import { DEFAULT_WEB } from "../config/load";
+import { DEFAULT_WEB, SHOW_PAGES_SETTINGS, type ShowPagesSetting } from "../config/load";
 import { editUserConfig, USER_CONFIG, userConfigValue } from "../config/user-write";
 import { DEFAULT_SPEND_LIMITS, formatLimit } from "../task/spend";
 import { PROVIDER_LABELS } from "../web/providers";
@@ -33,6 +33,21 @@ async function webKeys(home: string): Promise<string[]> {
   return isMap(await userConfigValue(home, ["web"])) ? ["web", "enabled"] : ["web"];
 }
 
+const SHOW_PAGES_WORDS: Record<ShowPagesSetting, { value: string; choice: string }> = {
+  ask: { value: "ask once a session", choice: "Ask once a session" },
+  on: { value: "always", choice: "Always show them" },
+  off: { value: "never", choice: "Never show them" },
+};
+
+/** After a UI change Casper saves page screenshots (no tokens); this says whether a model that sees pictures gets them. */
+function showPagesRow(now: ShowPagesSetting): Setting {
+  return { label: "Show the AI the pages", value: SHOW_PAGES_WORDS[now].value,
+    question: `Showing the AI the page screenshots after a UI change: ${SHOW_PAGES_WORDS[now].value}. Only a model that sees pictures gets them, and each look uses tokens.`,
+    keep: `Keep ${SHOW_PAGES_WORDS[now].value}`,
+    choices: SHOW_PAGES_SETTINGS.filter((setting) => setting !== now)
+      .map((setting) => ({ label: SHOW_PAGES_WORDS[setting].choice, keys: ["showPages"], value: setting, shown: SHOW_PAGES_WORDS[setting].value })) };
+}
+
 /** Each off switch Casper has, where it stands now, and the numbered answers for it (1 keeps it as it is). */
 export function settingRows(context: ProjectContext): Setting[] {
   const web = context.web ?? DEFAULT_WEB;
@@ -60,6 +75,7 @@ export function settingRows(context: ProjectContext): Setting[] {
         : { label: "Turn them off", keys: ["skills", "bundled"], value: false, shown: "off" }] },
     money("noteAt", "Spend notes", ["are", "come"], "A quiet line says what a task has spent; it never stops the task."),
     money("pauseAt", "Spend pause", ["is", "comes"], "The task stops and asks before it spends more."),
+    showPagesRow(context.showPages ?? "ask"),
     { label: "Work shown", value: display, question: `Work shown: ${display} (${DISPLAY_WORDS[display]}).`, keep: `Keep ${display}`,
       choices: (["quiet", "normal", "detailed"] as const).filter((level) => level !== display)
         .map((level) => ({ label: `${level[0]!.toUpperCase()}${level.slice(1)}`, keys: ["display"], value: level, shown: level })) },

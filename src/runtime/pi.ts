@@ -50,6 +50,7 @@ import type {
   RuntimeSwitchOptions,
   RuntimeTool,
   RuntimeUsage,
+  RuntimeImage,
   RuntimeModelInfo,
   RuntimeConversation,
   RuntimeEvent,
@@ -219,6 +220,10 @@ class PiRuntimeSession implements RuntimeSession {
     return this.models.describe(query);
   }
 
+  visionModel(): RuntimeModelInfo | undefined {
+    return this.models.visionModel(this.runtime.session);
+  }
+
   setModelRole(role: string, selector?: string): Promise<Record<string, string>> {
     if (this.busy || this.readOnly || this.models.busy) throw new Error("Model roles cannot be changed during active work or in a read-only child.");
     return this.models.setRole(role, selector);
@@ -294,7 +299,7 @@ class PiRuntimeSession implements RuntimeSession {
     return this.models.status(this.runtime.session);
   }
 
-  async prompt(text: string, signal?: AbortSignal, options?: { request: string; maxTurns?: number }): Promise<void> {
+  async prompt(text: string, signal?: AbortSignal, options?: { request: string; maxTurns?: number; images?: readonly RuntimeImage[] }): Promise<void> {
     if (this.promptActive) throw new Error("A prompt is already active.");
     this.promptActive = true;
     const controller = this.promptController = new AbortController();
@@ -339,7 +344,8 @@ class PiRuntimeSession implements RuntimeSession {
       promptSignal.throwIfAborted();
       if (status.configuredEffort === "auto") this.emit({ type: "model_controls_changed", status });
       promptSignal.throwIfAborted();
-      await session.prompt(text, { expandPromptTemplates: !this.readOnly });
+      const images = options?.images?.map(({ data, mimeType }) => ({ type: "image" as const, data, mimeType }));
+      await session.prompt(text, { expandPromptTemplates: !this.readOnly, ...(images?.length ? { images } : {}) });
       promptSignal.throwIfAborted();
       const limitReason = this.readOnly?.limitReason();
       if (limitReason) this.emit({ type: "assistant_response_end", stopReason: "limit", errorMessage: limitReason });

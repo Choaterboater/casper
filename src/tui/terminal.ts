@@ -1,7 +1,7 @@
 import type { Component } from "@earendil-works/pi-tui";
 import readline from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import type { RuntimeModelPickerHost, RuntimePickerIO } from "../runtime/types";
+import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO } from "../runtime/types";
 import { paint, terminalText } from "./format";
 import { renderPanel, type PanelTone } from "./presentation";
 import { TerminalSurface, type AskOrigin } from "./surface";
@@ -106,6 +106,8 @@ export class InteractiveTerminal {
   }
 
   setStatus(status: string, cwd = process.cwd()): void { this.surface?.setStatus(status, cwd); }
+  /** Pictures pasted (Ctrl+V) into the line just sent, by their number in `[image N]`. Empty on the plain terminal. */
+  takePastedImages(): Map<number, RuntimeImage> { return this.surface?.takePastedImages() ?? new Map(); }
   /** The MCP writes badge ("WRITES: <servers> · ctrl+o"); kept here too, so the plain terminal can report it. */
   setBadge(text?: string): void { this.badgeText = text; this.surface?.setBadge(text); }
   get badge(): string | undefined { return this.badgeText; }

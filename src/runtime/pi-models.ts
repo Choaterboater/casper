@@ -48,6 +48,15 @@ export function missingSignIn(provider: string): string {
   return `No key for ${provider}. ${variable ? `Set ${variable}` : "Set its API key"}, or /model to choose another.`;
 }
 
+/** What Casper says about a catalog model: its name, context window, input price and whether it sees images. */
+function modelInfo(model: { provider: string; id: string; contextWindow?: number; cost?: { input?: number }; input?: readonly string[] }): RuntimeModelInfo {
+  const input = model.cost?.input;
+  return { provider: model.provider, id: model.id,
+    ...(typeof model.contextWindow === "number" && Number.isFinite(model.contextWindow) && model.contextWindow > 0 ? { contextWindow: model.contextWindow } : {}),
+    ...(typeof input === "number" && Number.isFinite(input) && input > 0 ? { inputCostPerMillion: input } : {}),
+    ...(model.input?.includes("image") ? { images: true } : {}) };
+}
+
 export class PiModels {
   private readonly selections = new WeakMap<AgentSession, Selection>();
   private readonly accounting = new WeakMap<AgentSession, NonNullable<RuntimeUsage["effortClassification"]>>();
@@ -136,10 +145,28 @@ export class PiModels {
     catch { return undefined; }
     const model = this.catalog.getModel(resolved.reference.provider, resolved.reference.id);
     if (!model) return undefined;
-    const input = model.cost?.input;
-    return { provider: model.provider, id: model.id,
-      ...(Number.isFinite(model.contextWindow) && model.contextWindow > 0 ? { contextWindow: model.contextWindow } : {}),
-      ...(typeof input === "number" && Number.isFinite(input) && input > 0 ? { inputCostPerMillion: input } : {}) };
+    return modelInfo(model);
+  }
+
+  /** A signed-in model that can see images: the user's roles first (big model, build, review, fast), then the current
+   * provider's default model. Never the model in use now. Makes no call. */
+  visionModel(session: AgentSession): RuntimeModelInfo | undefined {
+    const current = this.selections.get(session)?.reference;
+    const roles = this.getRoles();
+    const candidates = [
+      ...(["reason", "build", "review", "fast"] as const).filter((role) => roles[role]).map((role) => `@${role}`),
+      ...DEFAULT_MODELS.filter((entry) => entry.provider === current?.provider).map((entry) => `${entry.provider}/${entry.id}`),
+    ];
+    for (const query of candidates) {
+      let resolved: ResolvedModelSelection;
+      try { resolved = resolveModelSelection(query, this.catalog.getModels(), roles, this.defaultReference()); }
+      catch { continue; }
+      const model = this.catalog.getModel(resolved.reference.provider, resolved.reference.id);
+      if (!model?.input?.includes("image") || this.staleAuth.has(model.provider) || !this.catalog.hasConfiguredAuth(model.provider)) continue;
+      if (current && model.provider === current.provider && model.id === current.id) continue;
+      return modelInfo(model);
+    }
+    return undefined;
   }
 
   getRoles(): ModelRoles { return { ...this.policy().modelRoles }; }
@@ -260,7 +287,8 @@ export class PiModels {
     return { provider: reference?.provider, model: reference?.id, thinkingLevel: model ? session.thinkingLevel : undefined,
       configuredEffort: selection.effort ?? (model ? session.thinkingLevel : undefined), modelRole: selection.role, autoEffort: selection.auto,
       availableThinkingLevels: model ? session.getAvailableThinkingLevels() : [],
-      auth, ...(billing ? { billing } : {}), selectionSource: selection.source, defaultModel: this.defaultReference(), blocked, ...(priced !== undefined ? { priced } : {}) };
+      auth, ...(billing ? { billing } : {}), selectionSource: selection.source, defaultModel: this.defaultReference(), blocked, ...(priced !== undefined ? { priced } : {}),
+      ...(model ? { images: Boolean(model.input?.includes("image")) } : {}) };
   }
 
   private applyEffort(session: AgentSession, effort: string, retain = false): void {

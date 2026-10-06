@@ -32,12 +32,15 @@ has checked. Windows has not yet been tested on a real machine.
 ## Use
 
 From a trusted local project, ask Casper to debug a website, a browser
-interaction, a responsive layout or an overflow problem. The model gets the
-`browser` tool only when your request has an `http://` or `https://` URL or one
-of these words: browser, website, webpage, frontend, layout, responsive,
-overflow, css, puppeteer, playwright. It also gets it when a browser you opened
-with `/browser open` is ready. Ordinary chat and `/browser` status do not start a
-browser or a model.
+interaction, a responsive layout or an overflow problem. When Chrome or Edge is
+installed (or `CASPER_BROWSER_EXECUTABLE` is set), the model has the `browser`
+tool from the first request in every project, so "fix the spacing on the settings
+page" in a web app is not done blind. Without one, it gets the tool only when your
+request has an `http://` or `https://` URL or one of these words: browser,
+website, webpage, frontend, layout, responsive, overflow, css, puppeteer,
+playwright, or when a browser you opened with `/browser open` is ready. Once
+offered, the tool stays for the session. Having the tool starts nothing: ordinary
+chat and `/browser` status do not start a browser or a model.
 
 ```text
 /browser                              status (starts nothing)
@@ -181,6 +184,9 @@ After a forced SIGKILL of Casper or a power loss, cleanup may not happen.
   Symlinked artifact destinations are refused. Saved PNGs persist after close;
   remove that run directory manually when no longer needed. No automatic retention
   cleanup or secret detector is provided.
+- Page checks save their own pictures beside them (`page-<n>-desktop.png`,
+  `page-<n>-phone.png`, at most 40 per session); they don't count toward the
+  model's 16. See "Screenshots" in [VERIFICATION.md](VERIFICATION.md#page-checks).
 
 Use native `read` on a returned PNG path to deliver image content to a
 vision-capable model. Tests verify actual image content in the Pi provider request,
