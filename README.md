@@ -36,8 +36,10 @@ Windows x64, in PowerShell:
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.22/install.ps1 | iex
 ```
 
-No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 and
-keeps your old install if anything is wrong. These commands pin **v0.2.22**; after that,
+No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
+`gh` signed in, also where it was built; for releases signed with the
+[release key](docs/RELEASE.md#the-release-key), the signature too) and keeps your old install
+if anything is wrong. These commands pin **v0.2.22**; after that,
 `casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.22`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
