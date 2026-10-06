@@ -751,8 +751,8 @@ async function handleLSPCommand(host: CommandHost, prompt: string): Promise<void
     if (action && (!name || extra.length || !["connect", "disconnect"].includes(action))) {
       throw new Error("Usage: /lsp | /lsp connect <name> | /lsp disconnect <name>");
     }
-    if (action === "connect" && await approveProjectDefinition(host, "lsp", name!, host.lsp!.review(name!))) await host.lsp!.connect(name!);
-    if (action === "disconnect") await host.lsp!.disconnect(name!);
+    if (action === "connect" && await approveProjectDefinition(host, "lsp", name, host.lsp!.review(name))) await host.lsp!.connect(name);
+    if (action === "disconnect") await host.lsp!.disconnect(name);
     const statuses = host.lsp!.status();
     host.output.write(statuses.length ? statuses.map((entry) => `${entry.name} [${entry.state}]\n  source: ${entry.source}`).join("\n") + "\n" : "No LSP servers configured.\n");
   }
@@ -860,9 +860,9 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
     } else if (action && (!name || extra.length || !["connect", "disconnect"].includes(action))) {
       throw new Error(MCP_USAGE);
     }
-    if (action === "connect" && !await approveProjectDefinition(host, "mcp", name!, mcp.review(name!))) return;
-    if (action === "connect") await mcp.connect(name!);
-    if (action === "disconnect") await mcp.disconnect(name!);
+    if (action === "connect" && !await approveProjectDefinition(host, "mcp", name, mcp.review(name))) return;
+    if (action === "connect") await mcp.connect(name);
+    if (action === "disconnect") await mcp.disconnect(name);
     const statuses = mcp.status();
     host.output.write(statuses.length ? statuses.map((status) => [
       `${status.name} [${status.transport}; ${status.state}] ${status.toolCount} tools${status.importedFrom ? ` · from ${status.importedFrom}` : ""}`
@@ -884,7 +884,7 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
     }
     const asked = action === "connect" ? statuses.find((status) => status.name === name) : undefined;
     if (asked && asked.state !== "ready") throw new Error(`${name} did not start${asked.error ? `: ${terminalText(asked.error)}` : "."}`);
-    if (action === "connect") await offerRemember(host, name!);
+    if (action === "connect") await offerRemember(host, name);
   }
 
 /** /secrets and /secrets files on|off. Only the user types these; the model can't run slash commands. */

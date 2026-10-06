@@ -114,7 +114,7 @@ const cellText = (cell: string) => cell.trim().replace(/^[*_`]+|[*_`]+$/g, "").t
 /** The cells of a table row, with their start and end in the line. */
 function cells(line: string): Array<{ start: number; end: number; text: string }> {
   const out: Array<{ start: number; end: number; text: string }> = [];
-  const bars = [...line.matchAll(/[|│┃]/g)].map((match) => match.index!);
+  const bars = [...line.matchAll(/[|│┃]/g)].map((match) => match.index);
   for (let index = 0; index + 1 < bars.length; index++) {
     const raw = line.slice(bars[index]! + 1, bars[index + 1]!);
     const lead = raw.length - raw.trimStart().length;

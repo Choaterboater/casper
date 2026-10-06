@@ -582,6 +582,8 @@ for (const sandbox of ["off", ...(sandboxAvailable ? ["on"] : [])] as const) for
     if (group !== undefined && Number.isSafeInteger(group) && group > 1) {
       try { process.kill(-group, "SIGKILL"); }
       catch (error) {
+        // Only "no such process" is fine here; any other failure to kill the group must fail the test.
+        // oxlint-disable-next-line no-unsafe-finally
         if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error;
       }
     }

@@ -66,6 +66,9 @@ jobs:
       - name: Typecheck
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run typecheck 2>&1 | tee "$RUNNER_TEMP/linux-preview/typecheck.log"
+      - name: Lint (oxlint, bug rules only)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run lint 2>&1 | tee "$RUNNER_TEMP/linux-preview/lint.log"
       - name: Focused platform and terminal regressions
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |

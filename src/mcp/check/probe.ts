@@ -114,9 +114,9 @@ class ProbeStdioTransport implements Transport {
       });
       child.once("exit", (code) => { this.exitCode = code; this.finish(); });
       this.stderr.attach(child.stderr as Readable);
-      child.stdout!.setEncoding("utf8");
-      child.stdout!.on("data", (chunk: string) => this.read(chunk));
-      child.stdin!.on("error", () => { /* the server went away; exit reports it */ });
+      child.stdout.setEncoding("utf8");
+      child.stdout.on("data", (chunk: string) => this.read(chunk));
+      child.stdin.on("error", () => { /* the server went away; exit reports it */ });
     });
   }
 

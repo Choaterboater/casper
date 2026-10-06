@@ -41,8 +41,8 @@ const PLAIN_PATH = /^(?!-)[A-Za-z0-9_./-]+$/;
 function projectScript(words: readonly string[]): readonly string[] | undefined {
   const [first, second] = words;
   const inside = (file: string | undefined, extension: string) => file !== undefined && file.endsWith(extension) && plainArgument(file) && !PLAIN_FLAGS.has(file);
-  if ((first === "bash" || first === "sh") && inside(second, ".sh")) return [first, second!];
-  if ((first === "python" || first === "python3") && inside(second, ".py")) return [first, second!];
+  if ((first === "bash" || first === "sh") && inside(second, ".sh")) return [first, second];
+  if ((first === "python" || first === "python3") && inside(second, ".py")) return [first, second];
   if (first?.startsWith("./") && inside(first, ".sh")) return [first];
   return undefined;
 }

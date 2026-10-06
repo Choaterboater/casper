@@ -40,10 +40,10 @@ function leadingIntent(text: string): { intent: TaskIntent; object: string } | u
   const verb = /^(?:(?:can|could|would) you\s+)?(?:please\s+)?(add|implement|build|create|extend|write|fix|refactor|rename)\b\s*(.*)$/is.exec(text);
   if (!verb) return undefined;
   const [, word, rest] = verb;
-  const lower = word!.toLowerCase();
+  const lower = word.toLowerCase();
   // "Build is broken", "Build fails on CI": the noun, not the verb.
-  if (lower === "build" && /^(?:is|was|fails|failed|failing|breaks|broke|errors|keeps)\b/i.test(rest!)) return undefined;
-  const object = rest!.split(/[.;:\n](?:\s|$)|\n/, 1)[0]!;
+  if (lower === "build" && /^(?:is|was|fails|failed|failing|breaks|broke|errors|keeps)\b/i.test(rest)) return undefined;
+  const object = rest.split(/[.;:\n](?:\s|$)|\n/, 1)[0]!;
   if (lower === "fix") return { intent: "fix", object };
   if (lower === "refactor" || lower === "rename") return { intent: "refactor", object };
   // Tests as what is made: "tests for X", "a new test file", "tests/foo.test.ts"; a "spec" only as the noun.

@@ -18,7 +18,7 @@ const READ_CONCURRENCY = 32;
 export function extractSpecifiers(source: string): string[] {
   const specifiers: string[] = [];
   for (const match of source.matchAll(QUOTED)) {
-    const start = match.index!;
+    const start = match.index;
     if (ANCHOR.test(source.slice(Math.max(0, start - ANCHOR_WINDOW), start))) specifiers.push(match[1]!);
   }
   return specifiers;

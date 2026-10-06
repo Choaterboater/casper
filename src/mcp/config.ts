@@ -81,7 +81,7 @@ export function startFolder(value: unknown, scope: ServerDefinitionScope, projec
     const wanted = personalFolder(value, projectRoot, home);
     // Compared as real folders too, so a link that points into the project counts as the project.
     const inProject = [[projectRoot, wanted], [realFolder(projectRoot), realFolder(wanted)]].some(([root, folder]) => {
-      const inside = path.relative(root!, folder!);
+      const inside = path.relative(root, folder);
       return path.resolve(projectRoot) === path.resolve(home)
         ? inside === ""
         : inside === "" || !isOutside(inside);

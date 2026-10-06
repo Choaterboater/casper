@@ -100,9 +100,9 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
     let flag = args[0];
     let value: string | undefined;
     const equals = flag?.startsWith("--") ? flag.indexOf("=") : -1;
-    if (equals > 0 && VALUE_OPTIONS.has(flag!.slice(0, equals))) {
-      value = flag!.slice(equals + 1);
-      flag = flag!.slice(0, equals);
+    if (equals > 0 && VALUE_OPTIONS.has(flag.slice(0, equals))) {
+      value = flag.slice(equals + 1);
+      flag = flag.slice(0, equals);
       args.splice(0, 1, flag, value);
     } else if (flag && VALUE_OPTIONS.has(flag)) value = args[1];
     if (flag === "--verify") options.verify = true;

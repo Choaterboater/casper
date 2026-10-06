@@ -21,7 +21,8 @@ In a checkout, `casper update` pulls (fast-forward only, never forced) and runs
 `bun install --frozen-lockfile` when `bun.lock` changed. A session in a checkout says how many
 changes it is behind, the same way.
 
-`bun run check` runs `bun run typecheck` and `bun test`, and needs no paid model. While you work,
+`bun run check` runs `bun run typecheck`, `bun run lint` and `bun test`, and needs no paid model.
+`bun run lint` is [oxlint](https://oxc.rs) with only the rules that catch real bugs (`.oxlintrc.json`), no style rules. While you work,
 run only the test files you touched: `bun test tests/<name>.test.ts`. Browser and debugger tests skip when those tools are not
 installed. Build the program for this machine with `bun run build:release`, or all five
 release targets with `bun run build:release -- --all`. [Host testing](docs/PLATFORM_VERIFICATION.md).

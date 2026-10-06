@@ -101,7 +101,7 @@ async function driverDialect(root: string): Promise<{ dialect: MigrationDialect;
   if (!found.has("sqlite") && await sourceImports(root, /\.py$/, /^\s*(import\s+sqlite3|from\s+sqlite3\s+import)\b/m)) found.set("sqlite", "a Python sqlite3 import");
   if (found.size !== 1) return { dialect: "unknown" };
   const [[dialect, source]] = [...found];
-  return { dialect: dialect!, source };
+  return { dialect, source };
 }
 
 function drizzleDialect(source: string): MigrationDialect | undefined {
@@ -213,7 +213,7 @@ async function prismaDeploy(root: string, plan: MigrationPlan, dir: string, sign
     const child = spawn(bin, ["migrate", "deploy", "--schema", plan.schema!], { cwd: root, env, shell: process.platform === "win32", stdio: ["ignore", "pipe", "pipe"], signal, timeout: APPLY_TIMEOUT_MS, killSignal: "SIGKILL" });
     let output = "";
     const keep = (chunk: Buffer) => { output = (output + chunk.toString("utf8")).slice(-16_384); };
-    child.stdout!.on("data", keep); child.stderr!.on("data", keep);
+    child.stdout.on("data", keep); child.stderr.on("data", keep);
     child.on("error", error => resolve({ ok: false, error: error.message.slice(0, 300) }));
     child.on("close", (code, killed) => {
       if (code === 0) return resolve({ ok: true });
