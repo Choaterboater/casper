@@ -1,6 +1,6 @@
 import { COMMANDS } from "./commands";
 import { WRITES_OFF_MEANING } from "../mcp/presets";
-import { UPDATE_HELP } from "../cli-args";
+import { DOCTOR_HELP, UPDATE_HELP } from "../cli-args";
 import { NEW_HELP_LINE } from "../new/templates";
 
 export const HELP_TEXT = `Casper — your coding companion
@@ -42,6 +42,7 @@ Usage:
   casper new <template> <name>  Start a new project in ~/Projects without questions (scripts; casper new --list shows templates)
   casper security [repo] [--json] [--strict] [--install] [--mcp-tools <file>]  Run the security tools on a repo (no model); installs tools only with --install. Exit 0 no problems, 1 problems, 64 usage mistake
   casper update [--check]  ${UPDATE_HELP}
+  casper doctor        ${DOCTOR_HELP}
   casper --cd <path> ...  Work in that folder instead of the current directory
   casper --continue ...  Continue this folder's most recent conversation
   casper --resume <id-prefix> ...  Continue the saved conversation whose ID starts with this
@@ -69,6 +70,7 @@ Local commands:
   /help all                         This full reference
   /help <word>                      Only the lines that mention that word, like /help mcp
   /status                           Model, sign-in and integration status
+  /doctor                           Check Casper's own setup (no model): version, config files, sign-in, MCP and language servers, security tools, sandbox, disk, network server; fixes it can make ask first (1 Not now)
   /model [id or provider/id]        Model browser; select and remember globally
   /model --session [model]          Select without changing the startup default
   /model @role[:effort]             Select the model a configured role points to

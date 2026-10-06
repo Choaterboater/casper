@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { parseCliArgs, parseSecurityArgs, parseUpdateArgs, SUBCOMMANDS, UsageError } from "../src/cli-args";
+import { parseCliArgs, parseDoctorArgs, parseSecurityArgs, parseUpdateArgs, SUBCOMMANDS, UsageError } from "../src/cli-args";
 import { cleanEnv } from "./support/env";
 
 const cli = path.resolve(import.meta.dir, "../src/cli.ts");
@@ -12,13 +12,13 @@ afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recur
 async function run(args: string[]) {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "casper-subcommand-"));
   temps.push(cwd);
-  const child = Bun.spawn([process.execPath, cli, ...args], { cwd, env: cleanEnv({ HOME: cwd, CASPER_PROFILE: "default" }), stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn([process.execPath, cli, ...args], { cwd, env: cleanEnv({ HOME: cwd, CASPER_PROFILE: "default", CASPER_OFFLINE: "1" }), stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, code, cwd };
 }
 
 test("subcommands are matched first, in one fixed order", () => {
-  expect(SUBCOMMANDS.map((entry) => entry.name)).toEqual(["learn", "mcp-check", "new", "security", "update"]);
+  expect(SUBCOMMANDS.map((entry) => entry.name)).toEqual(["doctor", "learn", "mcp-check", "new", "security", "update"]);
   expect(parseCliArgs(["new"]).command).toBe("new");
   expect(parseCliArgs(["new", "--list"]).command).toBe("new");
   expect(parseCliArgs(["new", "python-cli", "ping-tool"]).command).toBe("new");
@@ -101,4 +101,26 @@ test("casper update with a bad flag exits 64 before it looks anything up", async
   const { stderr, code } = await run(["update", "--bogus"]);
   expect(code).toBe(64);
   expect(stderr).toContain("Unknown option --bogus. Usage: casper update [--check]");
+});
+
+test("casper doctor: alone or with flags it is the doctor; with words it stays a prompt; a bad flag exits 64", async () => {
+  expect(parseCliArgs(["doctor"]).command).toBe("doctor");
+  expect(parseCliArgs(["doctor", "the", "tests"]).command).toBe("prompt");
+  expect(parseDoctorArgs(["doctor", "--help"])).toEqual({ help: true });
+  expect(() => parseDoctorArgs(["doctor", "--bogus"])).toThrow("Unknown option --bogus. Usage: casper doctor");
+  expect(() => parseCliArgs(["--verbose", "doctor"])).toThrow("doctor takes its own flags. Usage: casper doctor");
+  expect((await run(["doctor", "--bogus"])).code).toBe(64);
+  const help = await run(["doctor", "--help"]);
+  expect(help.code).toBe(0);
+  expect(help.stdout).toContain("no model, no tokens");
+});
+
+test("casper doctor in a script: the report, no question, exit 1 when something is to fix", async () => {
+  // A fresh home folder has no sign-in: that is the one thing to fix.
+  const { stdout, code } = await run(["doctor"]);
+  expect(stdout).toContain("Casper doctor · no model, no tokens");
+  expect(stdout).toContain("✗ No model sign-in");
+  expect(stdout).toContain("newest release not checked (CASPER_OFFLINE=1)");
+  expect(stdout).not.toContain("Type 1 or 2");
+  expect(code).toBe(1);
 });

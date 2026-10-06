@@ -259,6 +259,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       host.updateFooter();
       return;
     }
+    if (prompt === "/doctor") { await (await import("../doctor/session")).runDoctorInSession(host); return; }
     if (prompt === "/permissions") {
       host.output.write(`${permissionsText(host.sandbox)}\n`);
       return;

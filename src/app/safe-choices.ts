@@ -150,6 +150,11 @@ export const MCP_WRITES_CHOICES = ["Keep writes off", "Enable for this server"] 
 
 /** "  1 No\n  2 Download\n": a numbered question's lines (the network setup, logins and /references add); the app
  * asks them in the same numbered box as every approval. */
+/** casper doctor: a newer Casper is out. Only "2" runs casper update. */
+export const DOCTOR_UPDATE_CHOICES = ["Not now", "Update now"] as const;
+/** casper doctor: security tools this project uses are missing. Only "2" downloads them (hash-checked). */
+export const DOCTOR_INSTALL_CHOICES = ["Not now", "Install them"] as const;
+
 export function numberedLines(choices: readonly string[]): string {
   return choices.map((choice, index) => `  ${index + 1} ${choice}\n`).join("");
 }

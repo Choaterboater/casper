@@ -208,6 +208,11 @@ const INSTALL_HINTS: Record<string, string> = {
   python: "Install Python: https://www.python.org/downloads/",
 };
 
+/** Where to get a launcher, by its program name (uvx, npx, docker …), or undefined for one Casper doesn't know. */
+export function installHint(command: string): string | undefined {
+  return INSTALL_HINTS[command.split(/[\\/]/).pop()!.replace(/\.(?:exe|cmd)$/i, "")];
+}
+
 const DO_NOT_RETRY = "It may have run. Do not retry on your own; tell the user.";
 
 /**
@@ -227,7 +232,7 @@ export function describeFailure(error: unknown, context: FailureContext): string
   if (errorCode(error) === "ENOENT") {
     const command = context.command ?? (error as { path?: unknown }).path;
     if (typeof command !== "string" || !command) return "Command not found.";
-    const install = INSTALL_HINTS[command.split(/[\\/]/).pop()!.replace(/\.(?:exe|cmd)$/i, "")];
+    const install = installHint(command);
     return `Command not found: ${redactServerText(command, secrets)}${install ? `. ${install}` : ""}`;
   }
   const http = httpError(error);

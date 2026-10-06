@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  ADD_LOGIN_CHOICES, DOCS_COPY_CHOICES, SKILL_TRUST_CHOICES, REPLACE_LOGIN_CHOICES, ALREADY_FAILING_CHOICES, forgetLoginChoices, APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, allowKindsChoices, kindAllowChoices, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, NETWORK_SETUP_CHOICES, NETWORK_SETUP_UV_CHOICES, NETWORK_UPDATE_CHOICES, REFERENCE_ADD_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
+  ADD_LOGIN_CHOICES, DOCS_COPY_CHOICES, SKILL_TRUST_CHOICES, REPLACE_LOGIN_CHOICES, ALREADY_FAILING_CHOICES, forgetLoginChoices, APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, allowKindsChoices, kindAllowChoices, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, NETWORK_SETUP_CHOICES, NETWORK_SETUP_UV_CHOICES, NETWORK_UPDATE_CHOICES, REFERENCE_ADD_CHOICES, DOCTOR_INSTALL_CHOICES, DOCTOR_UPDATE_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
   REPAIR_LIMIT_STOP, pictureChoices, spendChoices, undoChangedChoices, missingFolderChoices, workFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES, writeChoices,
 } from "../src/app/safe-choices";
 import { planEditorHeading } from "../src/flows/plan";
@@ -48,6 +48,8 @@ const firsts: Array<[string, string, string]> = [
   ["network server setup without uv", NETWORK_SETUP_UV_CHOICES[0], "Not now"],
   ["reference download", REFERENCE_ADD_CHOICES[0], "No"],
   ["network server update", NETWORK_UPDATE_CHOICES[0], "Not now"],
+  ["casper doctor: update Casper", DOCTOR_UPDATE_CHOICES[0], "Not now"],
+  ["casper doctor: install security tools", DOCTOR_INSTALL_CHOICES[0], "Not now"],
   ["network login", ADD_LOGIN_CHOICES[0], "Not now"],
   ["network login that stopped working", REPLACE_LOGIN_CHOICES[0], "Not now"],
   ["forget a network login", forgetLoginChoices("Mist")[0]!, "Keep the Mist login"],

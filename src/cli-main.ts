@@ -8,7 +8,7 @@ import { stat } from "node:fs/promises";
 import { agentStoreWarnings, importLegacyEngineState, useCasperAgentStore } from "./runtime/agent-store";
 import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
 import { taskExitCode } from "./task/result";
-import { looksLikePath, parseCliArgs, parseLearnArgs, parseMcpCheckArgs, parseNewArgs, parseSecurityArgs, parseUpdateArgs, UsageError, type McpCheckCommand,
+import { DOCTOR_HELP, DOCTOR_USAGE, looksLikePath, parseCliArgs, parseDoctorArgs, parseLearnArgs, parseMcpCheckArgs, parseNewArgs, parseSecurityArgs, parseUpdateArgs, UsageError, type McpCheckCommand,
   type NewCommand, type SecurityCommand, type SubcommandName, type CliOptions, type UpdateCommand, UPDATE_HELP, UPDATE_USAGE } from "./cli-args";
 import { runningFromBinary } from "./update/mode";
 import type { Install } from "./update/command";
@@ -151,6 +151,17 @@ async function runUpdateSubcommand(cmd: UpdateCommand): Promise<void> {
   } finally { removeShutdownHandlers(); }
 }
 
+/** `casper doctor`: Casper checks its own setup and offers the fixes it can make (no model, no tokens). Like casper
+ * update it runs before any state is set up and outside the shell sandbox. Exit 0 nothing to fix, 1 something to fix. */
+async function runDoctorSubcommand(rest: readonly string[]): Promise<void> {
+  if (parseDoctorArgs(rest).help) { process.stdout.write(`${DOCTOR_USAGE}\n${DOCTOR_HELP}\n`); return; }
+  const { runDoctorCommand } = await import("./doctor/cli");
+  const controller = new AbortController();
+  const removeShutdownHandlers = installShutdownHandlers({ close: async () => { controller.abort(); } });
+  try { process.exitCode = (await runDoctorCommand({ cwd: process.cwd(), signal: controller.signal })).exitCode; }
+  finally { removeShutdownHandlers(); }
+}
+
 /** The shell sandbox for a subcommand with no app: `casper security` and `casper mcp check` hold their tool runs to
  * the repo they check, `casper new` to the new folder (its uv or bun run adds it). Nobody answers host questions here:
  * a host that is not listed is blocked, and said so. */
@@ -205,6 +216,10 @@ export async function runCli(): Promise<void> {
   if (options.command === "update") {
     // Before any state is set up, and outside the shell sandbox (see runUpdateSubcommand).
     await runUpdateSubcommand(parseUpdateArgs(options.rest));
+    return;
+  }
+  if (options.command === "doctor") {
+    await runDoctorSubcommand(options.rest);
     return;
   }
   const learn = options.command === "learn" ? parseLearnArgs(options.rest) : undefined;
