@@ -58,14 +58,15 @@ export function parseRequestWords(line: string, pasted: readonly string[] = []):
     if (after[1] !== ":" && after[1] !== ",") break;
   }
   let text = line.slice(at);
-  // ultrathink, as a whole word anywhere the person typed it (as in Claude Code).
+  // ultrathink, as a word of its own anywhere the person typed it (as in Claude Code): space or a line's edge on
+  // both sides, so a file name (src/ultrathink.ts) or a hyphenated word (ultrathink-mode) is left as it is.
   const offset = at;
   let ultra = false;
-  text = text.replace(/(^|[ \t]?)\bultrathink\b[:,]?([ \t]?)/gi, (whole, before: string, after: string, index: number) => {
-    const start = offset + index + before.length;
+  text = text.replace(/(?<=^|\s)ultrathink[:,]?(?:[ \t]+|(?=\s|$))/gi, (whole: string, index: number) => {
+    const start = offset + index;
     if (!typed(start, start + "ultrathink".length)) return whole;
     ultra = true;
-    return before && after ? " " : "";
+    return "";
   });
   if (ultra) words.effort = "top";
   text = text.trim();

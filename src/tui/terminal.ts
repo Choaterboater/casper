@@ -244,9 +244,9 @@ export class InteractiveTerminal {
   }
 
   /** Put queued lines back in the prompt draft. False on the plain terminal, which has no draft to hold them. */
-  restoreDraft(text: string): boolean {
+  restoreDraft(text: string, pasted: readonly string[] = []): boolean {
     if (!this.surface) return false;
-    this.surface.restoreDraft(text);
+    this.surface.restoreDraft(text, pasted);
     return true;
   }
 

@@ -593,11 +593,13 @@ private updateSpinner(): void {
   setBell(sequence: string): void { this.bell = sequence; }
   setAttentionAfter(ms: number): void { this.attentionAfterMs = ms; }
 
-  /** Put text back in the prompt (queued lines of a stopped task), ahead of anything typed since. */
-  restoreDraft(text: string): void {
+  /** Put text back in the prompt (queued lines of a stopped task), ahead of anything typed since. `pasted` is what
+   * was pasted into those lines: it stays pasted, so its words still count for nothing. */
+  restoreDraft(text: string, pasted: readonly string[] = []): void {
     if (this.closed || !text) return;
     const typed = this.editor.getExpandedText();
     this.editor.setText(typed ? `${text}\n${typed}` : text);
+    this.editor.pasted.push(...pasted);
     this.render();
   }
 
@@ -636,6 +638,7 @@ private updateSpinner(): void {
     if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant(); this.activity = undefined;
     const draft = this.editor.getExpandedText();
+    const draftPastes = this.editor.pasted;
     this.editor.setText(""); // Pretyped drafts never answer a question.
     const safeQuestion = terminalText(question);
     const shown = options.map(option => ({
@@ -666,7 +669,7 @@ private updateSpinner(): void {
       this.askMulti = false; this.askSelections.clear(); this.askActiveIndex = 0;
       chosen = answer;
       this.writeBlock(record);
-      this.editor.setText(draft); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(answer);
+      this.restoreSetAside(draft, draftPastes); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(answer);
     };
     const cancel = () => finish(undefined);
     this.attention();
@@ -679,6 +682,12 @@ private updateSpinner(): void {
     return promise;
   }
 
+  /** The draft a question or edit box set aside, back in the prompt with what was pasted into it. */
+  private restoreSetAside(draft: string, pasted: string[]): void {
+    this.editor.setText(draft);
+    this.editor.pasted = draft ? pasted : [];
+  }
+
   /** Lines for the user to edit in place, one per editor line, under a heading and a key hint. Enter
    * returns the editor's lines as they stand (blank ones included); Esc, Ctrl+C, abort or close return
    * undefined. A pretyped draft is set aside and restored. The caller records the outcome. */
@@ -687,13 +696,15 @@ private updateSpinner(): void {
     if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant(); this.activity = undefined;
     const draft = this.editor.getExpandedText();
+    const draftPastes = this.editor.pasted;
+    this.editor.pasted = [];
     const { promise, resolve } = Promise.withResolvers<string[] | undefined>();
     let settled = false;
     const finish = (edited: string[] | undefined) => {
       if (settled) return; settled = true;
       signal?.removeEventListener("abort", cancel);
       this.pendingEdit = undefined; this.editHeading = [];
-      this.editor.setText(draft); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(edited);
+      this.restoreSetAside(draft, draftPastes); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(edited);
     };
     const cancel = () => finish(undefined);
     this.attention();

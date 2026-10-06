@@ -19,11 +19,20 @@ export function settleQueuedLines(app: CasperApp): void {
   let unsent: string[] = [];
   try { unsent = app.session?.takeUnsent?.() ?? []; } catch { /* nothing left to take */ }
   app.queuedLines.unshift(...unsent);
+  // Lines the AI read are done with: only lines still waiting keep their record of what was pasted.
+  for (const line of app.linePastes.keys()) if (!app.queuedLines.includes(line)) app.linePastes.delete(line);
   if (!app.queuedLines.length || !app.commandAbort?.signal.aborted || app.closing) return;
   const lines = app.queuedLines.splice(0);
   const count = `${lines.length} queued line${lines.length === 1 ? "" : "s"}`;
-  if (app.terminal.restoreDraft(lines.join("\n"))) app.output.write(`[cancel] Your ${count} ${lines.length === 1 ? "is" : "are"} back in the prompt; Enter sends ${lines.length === 1 ? "it" : "them"}.\n`);
+  if (app.terminal.restoreDraft(lines.join("\n"), takeLinePastes(app, lines))) app.output.write(`[cancel] Your ${count} ${lines.length === 1 ? "is" : "are"} back in the prompt; Enter sends ${lines.length === 1 ? "it" : "them"}.\n`);
   else app.output.write(`[cancel] Dropped your ${count}; type ${lines.length === 1 ? "it" : "them"} again to send.\n`);
+}
+
+/** What was pasted into `lines`, for lines going back into the prompt; their record here is done with. */
+function takeLinePastes(app: CasperApp, lines: readonly string[]): string[] {
+  const pasted = lines.flatMap(line => app.linePastes.get(line) ?? []);
+  for (const line of lines) app.linePastes.delete(line);
+  return pasted;
 }
 
 /** Enter while a task runs. Commands that only show something, and /effort, run now; other commands keep their
@@ -70,7 +79,7 @@ export async function steerOrQueue(app: CasperApp, line: string): Promise<void> 
   if (sent) { app.output.write("  ↳ sent to the AI · it reads this at its next step\n"); return; }
   // The task ended while Casper asked the AI: nothing would run the queue now, so the line goes back in the prompt.
   if (!app.commandActive) {
-    if (app.terminal.restoreDraft(line)) app.output.write("  ↳ the task had just ended · your line is back in the prompt\n");
+    if (app.terminal.restoreDraft(line, takeLinePastes(app, [line]))) app.output.write("  ↳ the task had just ended · your line is back in the prompt\n");
     else app.output.write("  ↳ the task had just ended · type it again to send it\n");
     return;
   }

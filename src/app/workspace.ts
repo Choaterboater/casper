@@ -29,6 +29,12 @@ import { loadWorkspace } from "./wiring";
 /** The last choice of the home-folder and folder-of-projects question. */
 const NEW_PROJECT_CHOICE = "New project";
 
+/** A request answered at a question runs next, as if typed at the prompt, keeping what was pasted into it. */
+export function queueTypedRequest(app: CasperApp, text: string, pasted: readonly string[] = app.terminal.takeSubmittedPastes()): void {
+  app.queuedPrompt = text;
+  if (pasted.length) app.linePastes.set(text, pasted);
+}
+
 /** The new-project questions go through Casper's own numbered question, on the rich or the plain terminal. */
 export function newProjectFlow(app: CasperApp): NewProjectFlow {
   return {
@@ -67,7 +73,7 @@ export async function openProjectFolder(app: CasperApp, cwd: string): Promise<st
     // A resumed conversation already belongs to this folder: no question.
     if (!candidates.length && !app.runConversation && await isEmptyFolder(cwd)) {
       if (!app.terminal.canAsk) { app.output.write("[folder] This folder is empty. To start a new project in ~/Projects: casper new\n"); return cwd; }
-      const result = await newProjectFlowWithAbort(app, (flow) => newProjectInEmptyFolder(flow, cwd, (text) => { app.queuedPrompt = text; }));
+      const result = await newProjectFlowWithAbort(app, (flow) => newProjectInEmptyFolder(flow, cwd, (text) => queueTypedRequest(app, text)));
       if (opened(result)) return result.dir;
       // "Not now" means this folder: a later build request doesn't ask again.
       app.newProjectOffered = true;
@@ -109,7 +115,7 @@ export async function openProjectFolder(app: CasperApp, cwd: string): Promise<st
   const choice = answer?.[0]?.trim();
   if (!choice) return cwd; // Esc, empty, or the plain-line fallback keeps the launch folder.
   if (choice === NEW_PROJECT_CHOICE) {
-    const result = await newProjectFlowWithAbort(app, (flow) => newProjectFromQuestions(flow, {}, fromHome ? undefined : cwd, (text) => { app.queuedPrompt = text; }));
+    const result = await newProjectFlowWithAbort(app, (flow) => newProjectFromQuestions(flow, {}, fromHome ? undefined : cwd, (text) => queueTypedRequest(app, text)));
     return opened(result) ? result.dir : cwd;
   }
   const resolved = byLabel.get(choice) ?? path.resolve(cwd, choice.replace(/^~(?=\/|$)/, home));
@@ -225,11 +231,12 @@ export async function newProjectCommand(app: CasperApp, args: string): Promise<v
   }
   // A request typed at "What are you building?" runs next, in the new project when the conversation can move there.
   let typed: string | undefined;
-  const result = await newProjectFromQuestions(newProjectFlow(app), command, undefined, (text) => { typed = text; });
+  let typedPastes: string[] = [];
+  const result = await newProjectFromQuestions(newProjectFlow(app), command, undefined, (text) => { typed = text; typedPastes = app.terminal.takeSubmittedPastes(); });
   if (app.closing) return;
   if (!result) { app.output.write("Nothing was created.\n"); return; }
   if (!opened(result) || app.commandAbort?.signal.aborted) return;
-  if (canMoveWorkspace(app)) { await openWorkspaceBeforeRuntime(app, result.dir); if (typed) app.queuedPrompt = typed; return; }
+  if (canMoveWorkspace(app)) { await openWorkspaceBeforeRuntime(app, result.dir); if (typed) queueTypedRequest(app, typed, typedPastes); return; }
   app.output.write(`[folder] This conversation stays in ${terminalText(tildePath(app.activeWorkspaceRoot(), app.sessionHomeDir ?? os.homedir()))}. `
     + `To work in it, run: casper ${terminalText(result.displayDir)}\n`);
   // The conversation can't move there, so the typed request isn't run here: say so, never drop it silently.

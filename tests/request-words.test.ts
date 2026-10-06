@@ -42,3 +42,12 @@ test("pasted text is never read as words: a pasted block starting with big model
   expect(parseRequestWords("explain ultrathink here", ["ultrathink here"])).toEqual({ text: "explain ultrathink here" });
   expect(parseRequestWords("ultrathink: explain this log line", ["this log line"])).toEqual({ text: "explain this log line", effort: "top" });
 });
+
+test("ultrathink inside a file name or a hyphenated word is left alone, and is no word", () => {
+  expect(parseRequestWords("rename src/ultrathink.ts to src/deep.ts")).toEqual({ text: "rename src/ultrathink.ts to src/deep.ts" });
+  expect(parseRequestWords("fix the ultrathink-mode flag")).toEqual({ text: "fix the ultrathink-mode flag" });
+  expect(parseRequestWords("drop the old.ultrathink key")).toEqual({ text: "drop the old.ultrathink key" });
+  // Between spaces, at a line's edge, or with a trailing : or , it still counts.
+  expect(parseRequestWords("fix this\nultrathink: and that")).toEqual({ text: "fix this\nand that", effort: "top" });
+  expect(parseRequestWords("ultrathink, fix the race")).toEqual({ text: "fix the race", effort: "top" });
+});
