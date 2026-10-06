@@ -39,10 +39,10 @@
         <img class="hero-logo" src="assets/logo.svg" alt="Casper's ghost logo" width="88" height="88">
         <h1 id="hero-title">Casper</h1>
         <p class="lead">A coding helper for your terminal. Build web apps, APIs, command-line tools and scripts in the language your project uses, and Casper checks the AI's work before it tells you "done". Network engineers get extra care built in.</p>
-        <p class="muted small">Version 0.2.22 · early preview, not signed · MIT licence</p>
+        <p class="muted small">Version 0.2.23 · early preview, not signed · MIT licence</p>
 
-        <div class="cmd"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.22/install.sh | sh</code></pre></div>
-        <div class="cmd"><span class="cmd-label">Windows x64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.22/install.ps1 | iex</code></pre></div>
+        <div class="cmd"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.23/install.sh | sh</code></pre></div>
+        <div class="cmd"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.23/install.ps1 | iex</code></pre></div>
         <p class="small muted">No Bun or source checkout needed. The installer checks the file's SHA-256 and runs the new program's <code>--version</code> before it replaces an older install. Then run <code>casper</code> in your project folder.</p>
 
         <div class="actions">
@@ -175,8 +175,8 @@ Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
       </section>
 
       <section aria-labelledby="next">
-        <h2 id="next">New in 0.2.22</h2>
-        <p>Casper sets up its own network server for Mist, Central and ClearPass, every yes is one numbered box, device checks ask before anything reaches a device, receipts list risky config lines, you can steer the AI while it works, and <code>casper update</code> gets the newest preview. Since 0.2.15 also: new projects from templates (<code>casper new</code>), page checks at desktop and phone width, undo, a shell sandbox, built-in network skills and web lookups. Crews (v0.3): the first part is <span class="badge soon">built, not released</span>. <a href="roadmap.html">See the roadmap</a>.</p>
+        <h2 id="next">New in 0.2.23</h2>
+        <p><code>casper doctor</code> checks Casper's own setup and fixes what it can, with no model. On macOS and Linux, Casper's network server runs in the sandbox, reaching only your login hosts. The AI can read a log or an email through a separate model call with no tools and get back only JSON, which lowers the risk of hidden orders. You can paste a picture into a request (<kbd>Ctrl+V</kbd>), page checks save desktop and phone screenshots the AI can look at (it asks once), <code>casper new web-app</code> and the new <code>vite-react</code> start with a theme of their own, your Playwright tests run as a check, and <code>/preview</code> opens your web app on a phone. <code>/mcp login</code> asks which product, and the Mist and Central lists take a typed address. Windows ARM64 gets its own file. Releases can now be signed, but no key is set up yet, so this one is not. <code>/crew</code> runs one builder in its own copy of your project, and you choose keep, apply or throw away: the first part of Crews (v0.3). <a href="roadmap.html">See the roadmap</a>.</p>
       </section>
     </div>
   </main>
@@ -184,7 +184,7 @@ Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.22</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.23</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
