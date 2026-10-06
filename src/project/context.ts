@@ -167,6 +167,12 @@ function gitRule(policy: GitActionPolicy): string {
   return policy === "never" ? "never" : "only when the user asks";
 }
 
+/** "- label: a, b" with the flags that are on; nothing when none is. */
+function line(label: string, flags: Array<[boolean, string]>): string[] {
+  const on = flags.filter(([value]) => value).map(([, name]) => name);
+  return on.length ? [`- ${label}: ${on.join(", ")}`] : [];
+}
+
 export function formatProjectContext(context: ProjectContext): string {
   const { model, policy, rules } = context;
   const sections = [
@@ -181,18 +187,16 @@ export function formatProjectContext(context: ProjectContext): string {
     "Casper policy:",
     `- autonomy: ${AUTONOMY[policy.behavior.autonomy]}`,
     `- ask questions: ${ASK_QUESTIONS[policy.behavior.askQuestions]}`,
-    `- inspect before editing: ${policy.behavior.inspectBeforeEditing}`,
-    `- prefer small changes: ${policy.code.preferSmallChanges}`,
-    `- preserve architecture: ${policy.code.preserveArchitecture}`,
-    `- avoid unnecessary dependencies: ${policy.code.avoidUnnecessaryDependencies}`,
+    // On/off flags as one plain line each; a flag that is off is left out.
+    ...line("work style", [[policy.behavior.inspectBeforeEditing, "inspect before editing"], [policy.code.preferSmallChanges, "prefer small changes"],
+      [policy.code.preserveArchitecture, "preserve architecture"], [policy.code.avoidUnnecessaryDependencies, "avoid unnecessary dependencies"]]),
     // Instructions to the model, not rules Casper enforces: bash can still run git or rm.
-    `- git commit: ${gitRule(policy.git.commit)}`,
-    `- git push: ${gitRule(policy.git.push)}`,
+    ...(gitRule(policy.git.commit) === gitRule(policy.git.push) ? [`- git commit and push: ${gitRule(policy.git.commit)}`]
+      : [`- git commit: ${gitRule(policy.git.commit)}`, `- git push: ${gitRule(policy.git.push)}`]),
     "- ask the user first before deleting files they didn't ask to delete, git reset, or force-push. Creating and editing files in this project needs no ask.",
     "- never set aside or discard uncommitted work: git stash, reset --hard, checkout --, restore and clean are blocked",
-    `- isolate parallel agents: ${policy.workspace.isolateWhen.parallelAgents}`,
-    `- isolate risky refactors: ${policy.workspace.isolateWhen.riskyRefactor}`,
-    `- isolate experimental branches: ${policy.workspace.isolateWhen.experimentalBranch}`,
+    ...line("isolate", [[policy.workspace.isolateWhen.parallelAgents, "parallel agents"], [policy.workspace.isolateWhen.riskyRefactor, "risky refactors"],
+      [policy.workspace.isolateWhen.experimentalBranch, "experimental branches"]]),
   ];
 
   if (rules.profile) {
