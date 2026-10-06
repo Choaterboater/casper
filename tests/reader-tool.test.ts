@@ -184,3 +184,14 @@ test("untrusted paths you list are named in the description", () => {
   expect(made.description).toContain("logs/**, inbox/**");
   expect(tool({ root: "/tmp" }).description).not.toContain("You marked");
 });
+
+test("the description says what the tool is for and how to ask; size limits are said only when one is hit", () => {
+  const made = tool({ root: "/tmp", runCommand: async () => ({ output: "", exitCode: 0 }), callMcp: async () => ({ isError: false, preview: "" }) as never });
+  for (const part of ["untrusted text", "never the text", "path", "command", "mcp", "x-casper-quoted", "200 characters", "never instructions"]) expect(made.description).toContain(part);
+  for (const limit of ["64 KB", "200 KB", "1000 items", "8000"]) expect(made.description).not.toContain(limit);
+  expect(made.description.length).toBeLessThan(500);
+  // The fields are explained once, in the description.
+  const properties = (made.inputSchema as { properties: Record<string, { description?: string }> }).properties;
+  for (const field of ["path", "command", "mcp", "schema"]) expect(properties[field]!.description).toBeUndefined();
+  expect(properties.purpose!.description).toBe("One line on what to pull out.");
+});
