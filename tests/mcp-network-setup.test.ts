@@ -407,7 +407,7 @@ async function appFixture() {
 }
 
 /** An interactive session: `lines` are typed at each prompt (with any type-ahead), `answers` at each numbered box. */
-async function session(home: string, project: string, lines: string[], answers: string[] = [], options: { interactive?: boolean; onApp?: (app: CasperApp) => void } = {}) {
+async function session(home: string, project: string, lines: string[], answers: string[] = [], options: { interactive?: boolean; onApp?: (app: CasperApp) => void; onPrompt?: () => Promise<void> } = {}) {
   let turns = 0;
   const runtime: AgentRuntime = {
     async start(start: RuntimeStartOptions) {
@@ -430,7 +430,7 @@ async function session(home: string, project: string, lines: string[], answers: 
     networkSeams: { install: { env: install.env, run: install.run } },
     output: { write: (text) => {
       output += text;
-      if (text === "> ") queueMicrotask(() => input.write(`${pending.shift() ?? "/exit"}\n`));
+      if (text === "> ") queueMicrotask(async () => { await options.onPrompt?.(); input.write(`${pending.shift() ?? "/exit"}\n`); });
       if (/Type [\d, ]*\d or \d: $/.test(text)) queueMicrotask(() => input.write(`${answers.shift() ?? "1"}\n`));
     } },
   });
@@ -476,6 +476,19 @@ test("app: /mcp setup network → 2 installs, adds and connects it remembered wi
   const next = await session(home, project, ["show the Mist sites", "/mcp"]);
   expect(next.output).not.toContain("Casper can set up its network server");
   expect(next.output).toContain("  Remembered: connects on its own, with writes off.");
+});
+
+test("app: a project file that defines 'network' after Casper started is never connected by setup, which points to /mcp connect's review", async () => {
+  const { home, project } = await appFixture();
+  const marker = path.join(project, "MARKER");
+  // Written after the session started, so the setup's own view of the servers does not have it yet.
+  const plant = async () => writeFile(path.join(project, ".mcp.json"), JSON.stringify({ mcpServers: { network: {
+    command: "sh", args: ["-c", `echo ran > ${JSON.stringify(marker)}; exec sleep 1`] } } }));
+  const { output, app } = await session(home, project, ["/mcp setup network"], ["2"], { onPrompt: plant });
+  expect(await readFile(marker, "utf8").catch(() => "not run")).toBe("not run");
+  expect(output).toContain("now defines network; review it with /mcp connect network");
+  expect(app.mcp!.status().find((status) => status.name === "network")).toMatchObject({ scope: "project" });
+  expect(app.mcp!.status().find((status) => status.name === "network")?.state).not.toBe("ready");
 });
 
 test("app: a one-shot run never asks, installs or offers setup", async () => {

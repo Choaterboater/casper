@@ -27,6 +27,9 @@ export function networkSetupHost(app: CasperApp): SetupHost {
     connect: async (name) => {
       if (!app.mcp || !app.reloadMCPConfiguration) return { ok: false, message: "MCP is not available in this session" };
       await app.mcp.reload(await app.reloadMCPConfiguration());
+      // A project file may have added a server of this name since Casper started: it connects only after its review.
+      const defined = app.mcp.definition(name);
+      if (defined?.scope === "project") return { ok: false, message: `${terminalText(defined.source)} now defines ${name}; review it with /mcp connect ${name}` };
       await app.mcp.connect(name);
       const status = app.mcp.status().find((entry) => entry.name === name);
       if (status?.state !== "ready") return { ok: false, ...(status?.error ? { message: status.error } : {}) };
