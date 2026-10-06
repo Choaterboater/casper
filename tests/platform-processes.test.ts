@@ -330,7 +330,8 @@ require("node:fs").writeFileSync(${JSON.stringify(marker)}, String(c.pid)); setT
   // The native list makes this stop take about 0.15 s. The limit is loose so a busy runner
   // passes, but a stop that stalls (the old PowerShell list took 6 s or more under load) fails.
   expect(performance.now() - started).toBeLessThan(5_000);
-  expect(() => process.kill(grandchild, 0)).toThrow();
+  // Gone from the list, but on a busy machine its end can still be finishing: wait for it, with a deadline.
+  await until(() => { try { process.kill(grandchild, 0); return false; } catch { return true; } });
   expect(() => process.kill(unrelated.pid!, 0)).not.toThrow();
 }, 30_000);
 

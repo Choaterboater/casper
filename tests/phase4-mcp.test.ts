@@ -232,7 +232,8 @@ test("escaped schema budgets agree across inspection, direct selection, and fall
 });
 
 test("router catalogs prefer native discovery and read dispatch, never generic dispatch permission", async () => {
-  const mcp = manager([definition("router-catalog", "router")]);
+  // A normal start limit: starting it and listing its 340 tools can take longer than 2 s on a busy machine.
+  const mcp = manager([{ ...definition("router-catalog", "router"), limits: { connectMs: 10_000 } }]);
   await mcp.connect("router-catalog");
   expect(mcp.status()[0]?.toolCount).toBe(340);
   const broker = new CapabilityBroker(mcp);
@@ -377,6 +378,19 @@ test("cancelled calls and successful reconnects spend no retry budget, and an ex
   await mcp.connect("stall").catch(() => {});
   expect(status("stall")?.error).not.toContain("retry limit");
   expect(status("stall")?.state).toBe("failed");
+});
+
+test("a cancel stays a cancel when the call's time limit also passes before Casper handles it (a busy machine)", async () => {
+  const mcp = manager([{ ...definition(), limits: { connectMs: 10_000 } }], 300);
+  await mcp.connect("generic");
+  const broker = new CapabilityBroker(mcp);
+  const abort = new AbortController();
+  const work = broker.invoke("mcp:generic:slow_read", {}, abort.signal);
+  setTimeout(() => abort.abort(), 25);
+  // A busy machine: nothing runs from 5 ms to 405 ms, so the cancel and the 0.3 s limit come due together. The
+  // cancel came first.
+  setTimeout(() => Bun.sleepSync(400), 5);
+  expect((await rejection(work)).message).toContain("cancelled");
 });
 
 test("timeouts, caller cancellation, and close during handshake settle without late resurrection", async () => {
@@ -752,7 +766,8 @@ test("stale and bad cursors are refused in plain words", async () => {
 });
 
 test('query "*" on a router server says it cannot list the backend', async () => {
-  const mcp = manager([definition("router-catalog", "router")]);
+  // A normal start limit: starting it and listing its 340 tools can take longer than 2 s on a busy machine.
+  const mcp = manager([{ ...definition("router-catalog", "router"), limits: { connectMs: 10_000 } }]);
   await mcp.connect("router-catalog");
   const broker = new CapabilityBroker(mcp);
   const { find } = await surfaceTools(broker);

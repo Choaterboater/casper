@@ -1,3 +1,4 @@
+import type { Dirent } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
 import { parse } from "yaml";
@@ -175,11 +176,20 @@ async function findYaml(root: string): Promise<string[]> {
   for (let depth = 0; depth <= MAX_DEPTH && level.length; depth++) {
     const next: string[] = [];
     for (const relative of level) {
-      let names: string[];
-      try { names = (await readdir(path.join(root, relative))).sort(); } catch { continue; }
-      for (const name of names) {
+      let entries: Dirent[];
+      try {
+        entries = (await readdir(path.join(root, relative), { withFileTypes: true }))
+          .sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+      } catch { continue; }
+      for (const entry of entries) {
         if (found.length >= MAX_YAML_FILES || ++looked > MAX_ENTRIES) return found;
+        const name = entry.name;
         const child = relative ? path.posix.join(relative, name) : name;
+        // The listing says what each entry is, so other files and links are passed over without a stat: on a busy
+        // Windows machine a stat per entry made this walk take seconds. Folders, YAML files and entries of unknown
+        // kind still get the lstat below.
+        const known = entry.isFile() || entry.isDirectory() || entry.isSymbolicLink();
+        if (known && !entry.isDirectory() && !(entry.isFile() && /\.ya?ml$/i.test(name))) continue;
         let info;
         try { info = await lstat(path.join(root, child)); } catch { continue; }
         // lstat: a link is neither a file nor a folder here, so links out are never followed.

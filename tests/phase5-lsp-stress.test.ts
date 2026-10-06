@@ -46,14 +46,16 @@ test("cancelled queued reads settle before the active approval finishes", async 
 });
 
 test("post-rename missing diagnostics share one wait budget rather than one per file", async () => {
-  const { root, client } = await fixture("silent", 300);
+  // A 1 s budget, and the limit below is 5 budgets (as it was with 0.3 s and 1.5 s): with 0.3 s a busy machine
+  // passed 1.5 s on the rename and file work alone, and the rename request itself timed out.
+  const { root, client } = await fixture("silent", 1000);
   for (let i = 1; i < 10; i++) await writeFile(path.join(root, `file${i}.ts`), "old();");
   await client.connect("fixture");
   const start = performance.now();
   const result = await client.rename("fixture", "a.ts", { line: 0, character: 1 }, "new", async () => true);
   expect(result.changed).toHaveLength(10);
   expect(result.diagnostics.every((report) => report.status === "timeout")).toBe(true);
-  expect(performance.now() - start).toBeLessThan(1500);
+  expect(performance.now() - start).toBeLessThan(5_000);
 });
 
 test("a concurrent disk change invalidates the entire post-rename diagnostic batch", async () => {
