@@ -35,15 +35,13 @@ test("the publish workflow checks every release file by name, and the release do
  */
 const shells = [...new Set(["powershell", "pwsh"].map((name) => Bun.which(name)).filter((found): found is string => !!found))];
 
-async function pickArtifact(shell: string, processArch: string, wow64: string, machine: string) {
+/** The function as install.ps1 has it, so a test runs the installer's own code. */
+async function selectFunction(): Promise<string> {
   const installer = await read("scripts/install.ps1");
   const start = installer.indexOf("function Select-CasperArtifact");
   const end = installer.indexOf("\n}\n", start);
   expect({ start: start >= 0, end: end > start }).toEqual({ start: true, end: true });
-  const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;
-  const script = `$ErrorActionPreference = 'Stop'\n${installer.slice(start, end + 3)}\n` +
-    `try { Select-CasperArtifact ${quote(processArch)} ${quote(wow64)} ${quote(machine)} } catch { Write-Output "error: $($_.Exception.Message)" }`;
-  return runPowerShell(shell, script);
+  return installer.slice(start, end + 3);
 }
 
 /** -EncodedCommand runs the whole script as one block in 5.1 and 7 alike (stdin input runs line by line). */
@@ -72,21 +70,28 @@ test.skipIf(shells.length === 0)("install.ps1 picks the ARM64 file on ARM64, eve
     // 32-bit Windows has no release file.
     ["x86", "", "x86", "error: Unsupported architecture: x86. Casper has Windows files for x64 and ARM64 only."],
   ];
+  // One PowerShell start per shell runs every case: each start costs about a second.
+  const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;
+  const calls = cases.map(([processArch, wow64, machine]) =>
+    `try { Select-CasperArtifact ${quote(processArch)} ${quote(wow64)} ${quote(machine)} } catch { Write-Output "error: $($_.Exception.Message)" }`);
+  const script = `$ErrorActionPreference = 'Stop'\n${await selectFunction()}\n${calls.join("\n")}`;
   for (const shell of shells) {
-    for (const [processArch, wow64, machine, expected] of cases) {
-      const result = await pickArtifact(shell, processArch, wow64, machine);
-      expect({ shell, processArch, wow64, machine, ...result }).toEqual({ shell, processArch, wow64, machine, out: expected, exitCode: 0 });
-    }
+    const { out, ...rest } = await runPowerShell(shell, script);
+    const lines = out.split(/\r?\n/);
+    expect({ shell, ...rest }).toEqual({ shell, exitCode: 0 });
+    cases.forEach(([processArch, wow64, machine, expected], index) => {
+      expect({ shell, processArch, wow64, machine, out: lines[index] }).toEqual({ shell, processArch, wow64, machine, out: expected });
+    });
+    expect(lines.length).toBe(cases.length);
   }
-}, 60_000);
+}, 30_000);
 
 test.skipIf(process.platform !== "win32")("install.ps1 picks this PC's own file here", async () => {
   const installer = await read("scripts/install.ps1");
   const call = installer.match(/^\$Artifact = Select-CasperArtifact .+$/m)?.[0];
   expect(call).toBeDefined();
-  const start = installer.indexOf("function Select-CasperArtifact");
   const machineLine = installer.match(/^\$MachineArch = .+$/m)?.[0];
   expect(machineLine).toBeDefined();
-  const script = `$ErrorActionPreference = 'Stop'\n${installer.slice(start, installer.indexOf("\n}\n", start) + 3)}\n${machineLine}\n${call}\n$Artifact`;
+  const script = `$ErrorActionPreference = 'Stop'\n${await selectFunction()}\n${machineLine}\n${call}\n$Artifact`;
   expect(await runPowerShell("powershell", script)).toEqual({ out: artifactName(hostTarget()), exitCode: 0 });
 }, 30_000);
