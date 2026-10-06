@@ -149,7 +149,7 @@ export class ShellSandbox {
   /** Whether and why the sandbox holds commands on this machine. */
   static detect(options: Pick<ShellSandboxOptions, "platform" | "settings" | "noSandboxFlag" | "problem" | "agentDir">): SandboxState {
     if (options.noSandboxFlag) return { kind: "off", reason: "--no-sandbox" };
-    if (options.settings?.user?.off) return { kind: "off", reason: "sandbox: off in ~/.casper/config.yaml" };
+    if (options.settings?.user?.off) return { kind: "off", reason: `sandbox: off in ${options.settings.user.offSource ?? "~/.casper/config.yaml"}` };
     const platform = options.platform ?? process.platform;
     if (platform === "win32") return { kind: "unsupported", reason: "Windows" };
     if (platform !== "linux" && platform !== "darwin") return { kind: "unsupported", reason: platform };

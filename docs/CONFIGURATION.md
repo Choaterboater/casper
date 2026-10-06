@@ -100,7 +100,13 @@ an empty string, surrounding spaces, or a YAML value that is not a string) stops
 loading.
 
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
-its rules, MCP/LSP server definitions and reference sources. Look at an unfamiliar repository's
+its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
+anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`,
+`showPages`, `suggestions`, `updates`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`)
+stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
+turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
+`[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
+`~/.casper/config.yaml`) uses all of a profile. Look at an unfamiliar repository's
 `.casper/project.yaml` before running Casper there: selecting a profile can send your configured
 reference excerpts to the model during tasks. Casper only lists MCP and language servers from a
 profile; connecting one still needs your explicit yes (an MCP server you said yes to before can

@@ -14,6 +14,8 @@ import { gitDirs, hooksPathTargets, PRIVATE_PATHS, PROTECTED_WRITE_PATHS, realpa
 export interface SandboxUserSettings {
   /** `sandbox: off`: no sandbox (shell commands ask first instead of running held). */
   off?: boolean;
+  /** The file that turned it off (`~/.casper/config.yaml`, `profile lab config.yaml`). */
+  offSource?: string;
   /** Hosts a shell command may reach without asking, added to the registry list. */
   allowedDomains?: string[];
   /** Extra folders commands may write (for example a shared build cache). */

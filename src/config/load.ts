@@ -476,13 +476,15 @@ function pathList(value: unknown, label: string): string[] | undefined {
  * write folders and sockets. Later layers add to earlier ones; `off` in any of them turns it off. */
 function sandboxUserLayer(document: Mapping, label: string, into: SandboxUserSettings, warnings: string[]): void {
   const value = document.sandbox;
-  if (value === false || value === "off") into.off = true;
-  else if (value === true || value === "on") into.off = false;
+  // Which file turned it off, for the banner and the receipt.
+  const setOff = (off: boolean) => { into.off = off; if (off) into.offSource = label; else delete into.offSource; };
+  if (value === false || value === "off") setOff(true);
+  else if (value === true || value === "on") setOff(false);
   else if (isMapping(value)) {
     for (const key of Object.keys(value)) if (!SANDBOX_USER_KEYS.includes(key)) warnings.push(`${label}: unknown key sandbox.${key} (ignored)`);
     if (value.enabled !== undefined && value.enabled !== null) {
       if (typeof value.enabled !== "boolean") throw new Error(`${label}: sandbox.enabled must be true or false`);
-      into.off = !value.enabled;
+      setOff(!value.enabled);
     }
     const add = (key: "allowedDomains" | "allowWrite" | "allowUnixSockets") => {
       const list = pathList(value[key], `${label}: sandbox.${key}`);
@@ -582,19 +584,29 @@ export async function loadConfiguration(
     { source: "global profile", value: globalDocument.profile },
   ];
   let selectedProfile: string | undefined;
+  let selectedBy: string | undefined;
   for (const { source, value } of candidates) {
     if (value === undefined) continue;
     if (!isValidProfileName(value)) {
       throw new Error(`Invalid profile name in ${source}: expected 1–64 ASCII letters, digits, underscores, dots or hyphens, starting with a letter or digit`);
     }
-    selectedProfile ??= value;
+    if (selectedProfile === undefined) { selectedProfile = value; selectedBy = source; }
   }
   selectedProfile ??= "default";
   const profileDir = path.join(casperHome, "profiles", selectedProfile);
   const profileDocument = await readYaml(path.join(profileDir, "config.yaml"));
-  const labels = { global: "~/.casper/config.yaml", profile: `profile ${selectedProfile} config.yaml`, project: ".casper/project.yaml" };
+  // A profile the repository picked brings its rules, servers, references and what a project may set anyway; your own
+  // settings (sandbox, shell, web, lab, spend and the rest a project can't set) stay those of the profile you chose.
+  const ownProfile = typeof globalDocument.profile === "string" ? globalDocument.profile : "default";
+  const pickedByProject = selectedBy === "project profile" && selectedProfile !== ownProfile;
+  const userProfileDocument = pickedByProject ? await readYaml(path.join(casperHome, "profiles", ownProfile, "config.yaml")) : profileDocument;
+  const userProfile = pickedByProject ? ownProfile : selectedProfile;
+  const labels = { global: "~/.casper/config.yaml", profile: `profile ${selectedProfile} config.yaml`, userProfile: `profile ${userProfile} config.yaml`, project: ".casper/project.yaml" };
+  const profileNotes = pickedByProject && Object.keys(profileDocument).length
+    ? [`.casper/project.yaml picked profile ${selectedProfile}: its rules, servers and project settings apply; your own settings (sandbox, shell, web, lab, spend …) stay ${ownProfile === "default" ? "yours" : `those of profile ${ownProfile}`}. CASPER_PROFILE=${selectedProfile} uses all of it.`]
+    : [];
   let imports: SkillImport[] = [];
-  for (const document of [globalDocument, profileDocument, projectDocument]) {
+  for (const document of [globalDocument, userProfileDocument, projectDocument]) {
     if (document.skills !== undefined && !isMapping(document.skills)) throw new Error("skills must be a mapping");
     const value = isMapping(document.skills) ? document.skills.imports : undefined;
     if (value === undefined) continue;
@@ -609,7 +621,7 @@ export async function loadConfiguration(
     throw new Error("skills.bundled is a user setting (~/.casper/config.yaml or a profile); a project cannot turn the bundled skills off");
   }
   let bundled = true;
-  for (const [document, label] of [[globalDocument, labels.global], [profileDocument, labels.profile]] as const) {
+  for (const [document, label] of [[globalDocument, labels.global], [userProfileDocument, labels.userProfile]] as const) {
     const setting = isMapping(document.skills) ? document.skills.bundled : undefined;
     if (setting === undefined || setting === null) continue;
     if (typeof setting !== "boolean") throw new Error(`${label}: skills.bundled must be true or false`);
@@ -640,7 +652,7 @@ export async function loadConfiguration(
   // Showing the AI page screenshots spends your tokens: a project file never turns it on.
   if (projectDocument.showPages !== undefined) throw new Error("showPages is a user setting (~/.casper/config.yaml); a project cannot decide what the AI is shown at your cost");
   let showPages: ShowPagesSetting | undefined;
-  for (const [document, label] of [[globalDocument, labels.global], [profileDocument, labels.profile]] as const) {
+  for (const [document, label] of [[globalDocument, labels.global], [userProfileDocument, labels.userProfile]] as const) {
     if (document.showPages !== undefined && document.showPages !== null) {
       // YAML reads a bare on/off as text and true/false as booleans; both mean the same.
       const value = document.showPages === true ? "on" : document.showPages === false ? "off" : document.showPages;
@@ -676,7 +688,7 @@ export async function loadConfiguration(
   // What a task may spend before Casper says so or asks: the user's money, so a project file never sets it.
   if (projectDocument.spend !== undefined) throw new Error("spend is a user setting (~/.casper/config.yaml); a project cannot change spend limits");
   const spend: SpendLimits = { ...DEFAULT_SPEND_LIMITS };
-  for (const [document, label] of [[globalDocument, labels.global], [profileDocument, labels.profile]] as const) {
+  for (const [document, label] of [[globalDocument, labels.global], [userProfileDocument, labels.userProfile]] as const) {
     if (document.spend === undefined || document.spend === null) continue;
     if (!isMapping(document.spend)) throw new Error(`${label}: spend must be a mapping (spend.noteAt, spend.pauseAt)`);
     for (const key of ["noteAt", "pauseAt"] as const) {
@@ -744,19 +756,19 @@ export async function loadConfiguration(
   const sandboxWarnings: string[] = [];
   const sandboxUser: SandboxUserSettings = {};
   sandboxUserLayer(globalDocument, labels.global, sandboxUser, sandboxWarnings);
-  sandboxUserLayer(profileDocument, labels.profile, sandboxUser, sandboxWarnings);
+  sandboxUserLayer(userProfileDocument, labels.userProfile, sandboxUser, sandboxWarnings);
   const sandboxProject = sandboxProjectLayer(projectDocument, labels.project, sandboxWarnings);
   // What the AI may reach on the web, and which paid provider it uses, is your choice, never a repository's.
   if (projectDocument.web !== undefined) throw new Error("web is a user setting (~/.casper/config.yaml); a project cannot turn web lookups on or off or pick a search provider");
   const web: WebSettings = { ...DEFAULT_WEB };
   webUserLayer(globalDocument, labels.global, web, sandboxWarnings);
-  webUserLayer(profileDocument, labels.profile, web, sandboxWarnings);
+  webUserLayer(userProfileDocument, labels.userProfile, web, sandboxWarnings);
   if (web.provider === "searxng" && !web.searxngUrl) throw new Error(`${labels.global}: web.provider searxng needs web.searxngUrl (your SearXNG address)`);
   const reader: ReaderSettings = { ...DEFAULT_READER, untrusted: [] };
   readerLayer(globalDocument, labels.global, reader, sandboxWarnings, false);
   readerLayer(profileDocument, labels.profile, reader, sandboxWarnings, false);
   readerLayer(projectDocument, labels.project, reader, sandboxWarnings, true);
-  const lab = mergeLabSettings(parseLabSettings(globalDocument.lab, "user", `${labels.global}: lab`), parseLabSettings(profileDocument.lab, "profile", `${labels.profile}: lab`));
+  const lab = mergeLabSettings(parseLabSettings(globalDocument.lab, "user", `${labels.global}: lab`), parseLabSettings(userProfileDocument.lab, "profile", `${labels.userProfile}: lab`));
   return {
     skills: { maxActive, imports, bundled },
     verification: { timeoutMs, ...(mode ? { mode } : {}), ...(checks ? { checks } : {}), ...(review !== undefined ? { review } : {}), ...(acceptance !== undefined ? { acceptance } : {}), ...(e2e !== undefined ? { e2e } : {}),
@@ -790,6 +802,7 @@ export async function loadConfiguration(
     web,
     reader,
     warnings: [
+      ...profileNotes,
       ...sandboxWarnings,
       ...unknownKeys(globalDocument, labels.global),
       ...unknownKeys(profileDocument, labels.profile),
@@ -799,6 +812,6 @@ export async function loadConfiguration(
     projectRules: (await readProjectFile(options.projectRoot, ".casper/rules.md", MAX_PROJECT_RULES_BYTES))?.trim() || null,
     projectOverrides: overrides,
     ...(lab ? { lab } : {}),
-    ...(parseLabSettings(profileDocument.lab, "profile") ? { labProfile: selectedProfile } : {}),
+    ...(parseLabSettings(userProfileDocument.lab, "profile") ? { labProfile: userProfile } : {}),
   };
 }
