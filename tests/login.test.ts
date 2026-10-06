@@ -1,6 +1,7 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { chmod, link, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { posixOnly } from "./support/platform";
+import { PTY_TEST_MS, runPtyFixture } from "./support/pty";
 import { isolatedEnvironment } from "../src/platform/environment";
 import os from "node:os";
 import path from "node:path";
@@ -746,25 +747,17 @@ test("CASPER_OAUTH_CALLBACK_HOST cannot expose browser sign-in on a public liste
 // python3 runs the standard-library PTY fixture; Windows has no equivalent here.
 posixOnly("production CLI owns device-code input safely in a real terminal", async () => {
   const f = await fixture();
-  const child = Bun.spawn(["python3", path.join(repo, "tests/fixtures/login-pty.py"), process.execPath, f.root], { stdout: "pipe", stderr: "pipe" });
-  const timer = setTimeout(() => child.kill(), 60_000);
-  try {
-    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-    expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
-    expect(stdout).toContain("LOGIN PTY PASS");
-  } finally { clearTimeout(timer); child.kill(); }
-}, 70_000);
+  const { exit, stdout, stderr } = await runPtyFixture("login-pty.py", [f.root]);
+  expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(stdout).toContain("LOGIN PTY PASS");
+}, PTY_TEST_MS);
 
 posixOnly("production CLI keeps multi-provider secrets private in a real terminal", async () => {
   const f = await fixture();
-  const child = Bun.spawn(["python3", path.join(repo, "tests/fixtures/multi-login-pty.py"), process.execPath, f.root], { stdout: "pipe", stderr: "pipe" });
-  const timer = setTimeout(() => child.kill(), 80_000);
-  try {
-    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-    expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
-    expect(stdout).toContain("MULTI LOGIN PTY PASS");
-  } finally { clearTimeout(timer); child.kill(); }
-}, 90_000);
+  const { exit, stdout, stderr } = await runPtyFixture("multi-login-pty.py", [f.root]);
+  expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(stdout).toContain("MULTI LOGIN PTY PASS");
+}, PTY_TEST_MS);
 
 test("plain login arguments stay local and never reflect supplied credential-like arguments", async () => {
   const f = await fixture();

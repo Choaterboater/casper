@@ -73,7 +73,7 @@ Reports explicitly distinguish:
 - `unversioned`: a server publication observed after synchronization and a 250 ms quiet interval, but without proof of the document version. **Not verified clean.**
 - `timeout` / `unavailable`: missing, failed, disconnected, or invalidated evidence. Empty items here never mean clean.
 
-TypeScript Language Server 6.0.0 publishes unversioned diagnostics and may suppress identical reports, so follow-up reports can time out. Casper does not fabricate success. Pyright 1.1.414 publishes versioned diagnostics and is used for the strict rename acceptance test. Server version claims are trusted assertions, not independent compiler proofs. Ordinary document diagnostics do not establish that every repository file is clean.
+TypeScript Language Server 6.0.0 publishes unversioned diagnostics and may suppress identical reports, so follow-up reports can time out (a clean file's empty list is published once; opening another file makes Casper re-send every open file and wait for new reports, which for that file never come). Casper does not fabricate success. Pyright 1.1.414 publishes versioned diagnostics and is used for the strict rename acceptance test. Server version claims are trusted assertions, not independent compiler proofs. Ordinary document diagnostics do not establish that every repository file is clean.
 
 ## Rename safety
 

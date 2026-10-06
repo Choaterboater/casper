@@ -5,7 +5,6 @@ import pathlib
 import re
 import signal
 import sys
-import time
 
 sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("terminal_pty", pathlib.Path(__file__).with_name("terminal-pty.py"))
@@ -42,12 +41,15 @@ def exercise(bun, repo, root, no_color=False):
         s.send("\x01\x0b\x1b[A")
         s.until_true(lambda text: re.search(r"❯ /model\s*\n\s*─", text) is not None)
         # Direct exact match, then search-prefilled picker and explicit save.
+        s.until_ready()
         s.send("\x01\x0b/model fixture/first\n")
         s.until("fixture / first")
+        s.until_ready()
         s.send("/model sec\n")
         s.until("second · fixture/second")
         s.send("\n")  # Normal selection now remembers the default.
         s.until("Selected and saved as the Casper default")
+        s.until_ready()
         saved = json.loads((s.root / "home/.casper/settings.json").read_text())
         assert saved == {"defaultProvider": "fixture", "defaultModel": "second", "defaultThinkingLevel": "off", "modelThinkingLevels": {"fixture/first": "off", "fixture/second": "off"}}, saved
         s.send("/effort\n")
@@ -55,23 +57,22 @@ def exercise(bun, repo, root, no_color=False):
         s.send("\n")
         s.pump(0.2)
         assert json.loads((s.root / "home/.casper/settings.json").read_text())["defaultThinkingLevel"] == "off"
+        s.until_ready()
         # Escape and Ctrl-C cancel the picker without changing model/default.
         for cancel in ("\x1b", "\x03"):
             s.send("/model cancelneedle\n")
             s.until("No matching models")
             s.send(cancel)
-            s.pump(0.3)
+            s.until_ready()
             s.send("/status\n")
-            s.until("selection conversation · Casper default fixture/second")
-            s.until("│ idle")
-            s.pump(0.1)
+            # The first pass left the same line on screen: wait for this pass's.
+            s.until_new("selection conversation · Casper default fixture/second")
+            s.until_ready()
         assert (agent / "settings.json").read_text() == shared
         assert (agent / "auth.json").read_text() == "{}\n"
         assert "[error]" not in s.screen.text(), s.screen.text()
         s.send("/exit\n")
-        deadline = time.monotonic() + 5
-        while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)
-        assert s.process.poll() == 0, s.screen.text()[-4000:]
+        assert s.wait_exit() == 0, s.screen.text()[-4000:]
         if no_color:
             assert not re.search(rb"\x1b\[(?:[0-9:]*;)*(?:3[0-9]|4[0-9]|9[0-7]|10[0-7])(?:[;:][0-9;:]*)?m", s.raw), "NO_COLOR emitted colour SGR"
     finally:
@@ -91,9 +92,7 @@ def exercise_saved_snapshot(bun, repo, root):
         # Enter before Casper reads commands keeps /exit as a draft: wait until it is idle.
         s.until("idle")
         s.send("/exit\n")
-        deadline = time.monotonic() + 5
-        while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)
-        assert s.process.poll() == 0
+        assert s.wait_exit() == 0
     finally: s.close()
 
 
@@ -117,9 +116,7 @@ def exercise_empty_eof(bun, repo, root):
         s.until("Not signed in yet")
         s.until("Type a number")
         s.send("\x04")
-        deadline = time.monotonic() + 5
-        while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)
-        assert s.process.poll() == 0, "EOF in picker did not exit: " + s.screen.text()[-4000:]
+        assert s.wait_exit() == 0, "EOF in picker did not exit: " + s.screen.text()[-4000:]
         assert not (s.root / "home/.casper/settings.json").exists()
     finally: s.close()
 
@@ -133,9 +130,7 @@ def exercise_dumb(bun, repo, root):
         assert "to set as default" not in s.screen.text(), s.screen.text()
         assert b"\x1b[" not in s.raw, "TERM=dumb emitted terminal controls"
         s.send("/exit\n")
-        deadline = time.monotonic() + 5
-        while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)
-        assert s.process.poll() == 0, s.screen.text()
+        assert s.wait_exit() == 0, s.screen.text()
     finally: s.close()
 
 

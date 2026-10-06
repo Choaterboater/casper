@@ -7,7 +7,6 @@ import signal
 import struct
 import sys
 import termios
-import time
 
 sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("terminal_pty", pathlib.Path(__file__).with_name("terminal-pty.py"))
@@ -36,11 +35,10 @@ try:
     s.until("synthetic")
     s.send("\x1b")
     s.until("Synthetic work cancelled")
-    s.pump(0.6)
+    # Enter while the cancelled work still winds down only keeps a draft: wait for the prompt first.
+    s.until_ready()
     s.send("/exit\n")
-    deadline = time.monotonic() + 5
-    while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)
-    assert s.process.poll() == 0, s.screen.text()[-3000:]
+    assert s.wait_exit() == 0, s.screen.text()[-3000:]
     assert b"\x1b[?1049h" not in s.raw, "alternate screen used"
     print("DAILY PTY PASS: offline model/effort, resize, cancellation and exit")
 finally:

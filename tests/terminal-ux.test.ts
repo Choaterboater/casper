@@ -9,6 +9,7 @@ import { formatRuntimeStatus, noModelFooter, formatToolActivity, markdownTheme, 
 import { InteractiveTerminal } from "../src/tui/terminal";
 import { hasSignIn } from "../src/tui/model-preference";
 import { posixOnly } from "./support/platform";
+import { PTY_TEST_MS, runPtyFixture } from "./support/pty";
 import { cleanEnv } from "./support/env";
 
 // readline delivers a written line on a later turn of the event loop; no wall-clock wait involved.
@@ -188,14 +189,10 @@ test("the startup banner names a saved default model instead of saying no model 
 // python3 runs the standard-library PTY fixture; Windows has no equivalent here.
 posixOnly("real PTY: input survives streamed output, cancellation and exact confirmations", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-terminal-pty-")); roots.push(root);
-  const child = Bun.spawn(["python3", path.join(import.meta.dir, "fixtures/terminal-pty.py"), process.execPath, root], { stdout: "pipe", stderr: "pipe" });
-  const timer = setTimeout(() => child.kill(), 60_000);
-  try {
-    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-    expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
-    expect(stdout).toContain("PTY PASS");
-  } finally { clearTimeout(timer); child.kill(); }
-}, 70_000);
+  const { exit: code, stdout, stderr } = await runPtyFixture("terminal-pty.py", [root]);
+  expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+  expect(stdout).toContain("PTY PASS");
+}, PTY_TEST_MS);
 
 test("the screen keeps 'token add' readable and leaves Casper's own <secret hidden> as it is", () => {
   expect(redactPreview("ssh build-server 'pveum user token add root@pam sampleapp --privsep 0'")).toBe("ssh build-server 'pveum user token add root@pam sampleapp --privsep 0'");

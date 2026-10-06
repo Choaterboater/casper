@@ -7,7 +7,6 @@ import re
 import signal
 import stat
 import sys
-import time
 
 sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("terminal_pty", pathlib.Path(__file__).with_name("terminal-pty.py"))
@@ -16,10 +15,8 @@ spec.loader.exec_module(module)
 Session = module.Session
 
 
-def wait_exit(s, timeout=5):
-    deadline = time.monotonic() + timeout
-    while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)
-    assert s.process.poll() == 0, s.screen.text()[-5000:]
+def wait_exit(s):
+    assert s.wait_exit() == 0, s.screen.text()[-5000:]
 
 
 def success(bun, repo, root, no_color):
@@ -61,11 +58,10 @@ def success(bun, repo, root, no_color):
         screen = s.screen.text()
         assert "synthetic-refresh" not in screen and "synthetic-code" not in screen
         s.send("Q")
-        s.pump(0.1)
-        assert "d" * 93 + "Qdd" in re.sub(r"\n {2}", "", s.screen.text()), s.screen.text()
+        s.until_true(lambda text: "d" * 93 + "Qdd" in re.sub(r"\n {2}", "", text))
         s.send("\x01\x0b\x1b[A")
-        s.pump(0.1)
-        assert re.search(r"❯ /login\s*\n\s*─", s.screen.text()), s.screen.text()
+        s.until_true(lambda text: re.search(r"❯ /login\s*\n\s*─", text) is not None)
+        s.until_ready()
         s.send("\x01\x0b/exit\n")
         wait_exit(s)
         urls = (s.root / "login-fetches.txt").read_text().splitlines()
@@ -92,6 +88,7 @@ def cancel_and_eof(bun, repo, root, eof=False):
             wait_exit(s)
         else:
             s.until("Cancelled; no credential saved")
+            s.until_ready()
             s.send("/exit\n"); wait_exit(s)
         assert not (s.root / "home/.casper/agent/auth.json").exists()
         assert not (s.root / "login-fetches.txt").exists()
@@ -105,8 +102,7 @@ def sigterm(bun, repo, root):
         s.until("│ idle")
         s.send("/login\n"); s.until("Type a number")
         s.process.terminate()
-        deadline = time.monotonic() + 5
-        while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)
+        s.wait_exit()
         # Python reports direct POSIX termination as -SIGTERM; Bun's own spawn
         # harness separately asserts Casper's graceful shutdown exit code 143.
         assert s.process.poll() in (-signal.SIGTERM, 143), (s.process.poll(), s.screen.text()[-4000:])
