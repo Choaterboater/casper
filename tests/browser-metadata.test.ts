@@ -176,3 +176,15 @@ browserTest("a page check whose URL is a metadata address asks before it loads",
     .rejects.toThrow("cloud metadata address");
   expect(reached(f.hits)).toEqual([]);
 }, 30_000);
+
+browserTest("the automatic page check is not the AI's browser: its pages load as before, with no question and no block", async () => {
+  const f = await fixture(() => false);
+  const checks = new BrowserSession({ projectRoot: os.tmpdir(), stateDirectory: os.tmpdir(), executablePath: executable, metadataHosts: ["::1"], lookup: async () => [] });
+  cleanup.push(() => checks.close());
+  const load = await checks.load(`${f.home}/parts`);
+  expect(load.status).toBe(200);
+  // Chrome's own picture and cross-site rules may still fail a part; Casper never holds one back.
+  expect(load.failedRequests.filter(request => /BLOCKED_BY_CLIENT/.test(request.error ?? ""))).toEqual([]);
+  expect(f.asked).toEqual([]);
+  expect(reached(f.hits)).toEqual(expect.arrayContaining(["metadata/secret", "metadata/secret.png", "metadata/secret-api"]));
+}, 30_000);

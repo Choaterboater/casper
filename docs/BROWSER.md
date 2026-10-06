@@ -158,6 +158,8 @@ address only; a yes to other browser actions never does). On a yes the page load
 no it stays unopened and the result says `notOpened`. A run that can't ask doesn't open it.
 LAN, private, loopback and other link-local addresses open as before, with no question. Only
 page loads and those addresses pass through Casper on their way out; other traffic does not.
+The automatic page check after a change is not the AI's browser: it loads the project's own
+pages as before, with no question.
 
 `serve` is the browser tool's own small way to start a dev server. For a server
 that should stay up between requests, declare a [managed service](SERVICES.md)
