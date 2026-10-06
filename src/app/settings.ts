@@ -7,7 +7,6 @@ import { PROVIDER_LABELS } from "../web/providers";
 import type { DisplayLevel } from "../tui/display";
 import type { OutputWriter } from "./commands";
 import type { MCPManager } from "../mcp/manager";
-import { MCP_SANDBOX_FILE } from "../mcp/sandbox";
 
 /** What /settings needs from the app: a numbered question only the person answers, and the project read again. */
 export interface SettingsHost {
@@ -98,7 +97,7 @@ export function settingRows(context: ProjectContext): Setting[] {
 export function mcpSandboxRows(mcp: Pick<MCPManager, "status" | "setSandbox"> | undefined): Setting[] {
   return (mcp?.status() ?? []).filter((status) => status.sandbox?.state === "on" || status.sandbox?.state === "off").map((status) => {
     const on = status.sandbox!.state === "on";
-    return { label: `Sandbox for MCP server ${status.name}`, value: on ? "on" : "off", savedIn: MCP_SANDBOX_FILE.replace(/^\.casper/, "~/.casper"),
+    return { label: `Sandbox for MCP server ${status.name}`, value: on ? "on" : "off", savedIn: "~/.casper/mcp-sandbox.json",
       question: `MCP server ${status.name} runs ${on ? "in" : "outside"} the sandbox. In it, it reaches only its login hosts, writes only its cache, and can't read your keys or projects.`,
       keep: `Keep it ${on ? "on" : "off"}`,
       choices: [{ label: on ? "Turn it off" : "Turn it on", keys: [], value: !on, shown: on ? "off" : "on", apply: () => mcp!.setSandbox(status.name, !on) }] };

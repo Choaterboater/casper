@@ -29,11 +29,13 @@ function stdio(name: string, command: string, args: string[] = [], env: Record<s
 /** A venv where Casper installs casper-network-mcp, with `program` (JavaScript, run by this Bun) as its entry. */
 async function fakeVenv(home: string, program: string, entryName = "casper-network-mcp"): Promise<string> {
   const venv = path.join(home, ".casper/tools/casper-network-mcp/venv");
-  await mkdir(path.join(venv, "bin"), { recursive: true });
+  // A venv keeps its programs in Scripts on Windows.
+  const bin = path.join(venv, process.platform === "win32" ? "Scripts" : "bin");
+  await mkdir(bin, { recursive: true });
   const bun = await realpath(process.execPath);
   await writeFile(path.join(venv, "pyvenv.cfg"), `home = ${path.dirname(bun)}\n`);
   await writeFile(path.join(venv, "server.cjs"), program);
-  const entry = path.join(venv, "bin", entryName);
+  const entry = path.join(bin, entryName);
   await writeFile(entry, `#!/bin/sh\nexec ${JSON.stringify(bun)} ${JSON.stringify(path.join(venv, "server.cjs"))} "$@"\n`);
   await chmod(entry, 0o755);
   return entry;
