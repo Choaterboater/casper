@@ -147,6 +147,44 @@ function notCancelled(signal: AbortSignal): void {
 const MAX_ARGUMENT_BYTES = 16_384;
 
 function hash(value: string): string { return createHash("sha256").update(value).digest("hex"); }
+
+/** A Python docstring as inspect.cleandoc reads it: the shared indent and the blank edges go, so the model
+ * is not sent 8 spaces a line. */
+export function cleanDoc(text: string): string {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n").map((line) => line.trimEnd());
+  const indents = lines.slice(1).filter((line) => line.trim()).map((line) => line.length - line.trimStart().length);
+  const indent = indents.length ? Math.min(...indents) : 0;
+  return [lines[0]!.trim(), ...lines.slice(1).map((line) => line.slice(indent))].join("\n").replace(/^\n+|\n+$/g, "");
+}
+
+const SCHEMA_MAPS = new Set(["properties", "patternProperties", "$defs", "definitions", "dependentSchemas"]);
+const SCHEMA_ONE = new Set(["items", "additionalProperties", "not", "if", "then", "else", "contains", "propertyNames", "additionalItems", "unevaluatedItems", "unevaluatedProperties"]);
+const SCHEMA_LISTS = new Set(["anyOf", "oneOf", "allOf", "prefixItems", "items"]);
+
+/** mcp_<name>_<8 hex of the id>: the model writes this name in every call, so the hash is short. Two tools that
+ * would share one get the 24-hex form instead. */
+export function runtimeName(name: string, id: string, taken: Set<string>): string {
+  const base = `mcp_${name.replace(/[^a-zA-Z0-9_]/g, "_").slice(0, 24)}_`;
+  const short = `${base}${hash(id).slice(0, 8)}`;
+  const chosen = taken.has(short) ? `${base}${hash(id).slice(0, 24)}` : short;
+  taken.add(chosen);
+  return chosen;
+}
+
+/** A copy of a JSON Schema without the "title" notes pydantic adds to every field (a field named title stays). */
+export function withoutTitles(schema: unknown): unknown {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return schema;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
+    if (key === "title" && typeof value === "string") continue;
+    if (SCHEMA_MAPS.has(key) && value && typeof value === "object" && !Array.isArray(value)) {
+      out[key] = Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([name, child]) => [name, withoutTitles(child)]));
+    } else if (SCHEMA_LISTS.has(key) && Array.isArray(value)) out[key] = value.map(withoutTitles);
+    else if (SCHEMA_ONE.has(key)) out[key] = withoutTitles(value);
+    else out[key] = value;
+  }
+  return out;
+}
 /** Plain code-point order, the same on every machine. */
 function order(a: string, b: string): number { return a < b ? -1 : a > b ? 1 : 0; }
 const LIST_PAGE_ITEMS = 50;
@@ -681,6 +719,7 @@ export class CapabilityBroker {
     const revision = this.manager.catalogRevision;
     if (revision === this.indexedRevision) return;
     const next = new Map<string, Capability>();
+    const names = new Set<string>();
     const lines: string[] = [];
     const servers: string[] = [];
     if (!this.closed.signal.aborted) for (const { server, generation, tools } of this.manager.catalog()) {
@@ -701,7 +740,7 @@ export class CapabilityBroker {
         // A preset can only make the label stricter.
         const safety = tightenSafety(policy.match, tool, toolLabel(tool));
         const descriptor: CapabilityDescriptor = {
-          id, source: server, name: tool.name, description: (tool.description ?? "").slice(0, 1024),
+          id, source: server, name: tool.name, description: cleanDoc(tool.description ?? "").slice(0, 1024),
           tags: [], safety, schemaRef: id,
         };
         // Only a read-only login hides changes. Writes off means the server runs pinned and every change asks.
@@ -710,7 +749,7 @@ export class CapabilityBroker {
         const tags = tool._meta?.tags;
         if (Array.isArray(tags)) descriptor.tags = tags.filter((tag): tag is string => typeof tag === "string").slice(0, 8).map((tag) => tag.slice(0, 64));
         next.set(id, {
-          descriptor, tool, runtimeName: `mcp_${tool.name.replace(/[^a-zA-Z0-9_]/g, "_").slice(0, 24)}_${hash(id).slice(0, 24)}`,
+          descriptor, tool, runtimeName: runtimeName(tool.name, id, names),
           fingerprint: `${generation}:${hash(JSON.stringify(tool))}`,
           router: routed && ["find_tool", "invoke_read_tool", "invoke_tool"].includes(tool.name),
           // Budget the escaped representation too, so lossless schema inspection
@@ -819,7 +858,7 @@ export class CapabilityBroker {
         : `[${capability.descriptor.safety}; ${capability.descriptor.id}] `;
       tools.push(wrap(capability.runtimeName,
         `${lead}${capability.descriptor.description}\nBounded result; non-read calls require confirmation.`,
-        structuredClone(capability.tool.inputSchema), async (args, signal) => {
+        withoutTitles(structuredClone(capability.tool.inputSchema)) as Record<string, unknown>, async (args, signal) => {
           const result = await this.invoke(capability.descriptor.id, args, signal);
           return { text: JSON.stringify(result), isError: result.isError };
         // Routers and non-read tools may ask; a read tool asks only when the AI set confirm itself (the app queues those).

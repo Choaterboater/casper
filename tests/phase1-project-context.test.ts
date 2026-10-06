@@ -221,6 +221,22 @@ describe("Phase 1 project context", () => {
     expect(rendered).not.toContain("confirm destructive operations: true");
   });
 
+  test("policy flags reach the model as short plain lines, and a flag you turn off is left out", async () => {
+    const root = await temporaryDirectory("casper-flags-project-");
+    const homeDir = await temporaryDirectory("casper-flags-home-");
+    const project: ProjectInfo = { cwd: root, root, name: "flags", gitBranch: null, isGit: false };
+    const defaults = formatProjectContext(await loadProjectContext(project, { homeDir }));
+    expect(defaults).toContain("- work style: inspect before editing, prefer small changes, preserve architecture, avoid unnecessary dependencies");
+    expect(defaults).toContain("- git commit and push: only when the user asks");
+    expect(defaults).toContain("- isolate: parallel agents, risky refactors, experimental branches");
+    expect(defaults).not.toContain(": true");
+    await mkdir(path.join(root, ".casper"));
+    await writeFile(path.join(root, ".casper/project.yaml"), "policy:\n  code:\n    preferSmallChanges: false\n  workspace:\n    isolateWhen:\n      parallelAgents: false\n      riskyRefactor: false\n      experimentalBranch: false\n");
+    const changed = formatProjectContext(await loadProjectContext(project, { homeDir }));
+    expect(changed).toContain("- work style: inspect before editing, preserve architecture, avoid unnecessary dependencies");
+    expect(changed).not.toContain("isolate");
+  });
+
   test("classifies a task and supplies only detected relevant commands", () => {
     const classification = classifyTask("Fix the failing login flow");
     const prompt = formatTaskPrompt("Fix the failing login flow", classification, {

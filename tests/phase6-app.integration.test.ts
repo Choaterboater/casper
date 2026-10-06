@@ -46,7 +46,7 @@ class ToolRuntime implements AgentRuntime {
   results: Array<{ text: string; isError?: boolean }> = [];
   prompts: string[] = [];
   options?: RuntimeStartOptions;
-  /** Model-authored graph the fake runtime submits when asked to visualize (the tool is always there). */
+  /** Model-authored graph the fake runtime submits when asked to visualize (the tool arrives with a diagram word). */
   args: Record<string, unknown> = { graph: {
     type: "flowchart", title: "Authentication flow",
     nodes: [{ id: "login", label: "auth/login.ts", group: "auth" }, { id: "verify", label: "auth/verify.ts", group: "auth" }, { id: "session", label: "session.ts" }],

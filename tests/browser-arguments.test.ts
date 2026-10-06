@@ -5,7 +5,7 @@ import path from "node:path";
 import { BROWSER_ACTION_FIELDS, BROWSER_ACTIONS, BROWSER_FIELDS, browserArguments, webURL } from "../src/browser/arguments";
 import { parseScenario } from "../src/browser/scenario";
 import { BrowserSession } from "../src/browser/session";
-import { browserTool, BROWSER_USAGE } from "../src/browser/tools";
+import { browserTool } from "../src/browser/tools";
 import { removeTempDir } from "./support/temp-dir";
 
 // The shape a model sent seven times in a row: every schema field filled, most with placeholders.
@@ -84,13 +84,18 @@ test("no-horizontal-overflow is page-wide, or for one element when a selector na
     .toThrow('Browser scenario assertion 1 (no-horizontal-overflow) does not take "expected"; it takes kind, selector');
 });
 
-test("the schema and description list exactly the fields the validator reads", () => {
+test("the schema lists exactly the fields the validator reads, and each field names the actions that take it", () => {
   const tool = browserTool(() => { throw new Error("not opened"); });
-  const schema = tool.inputSchema as { properties: Record<string, { enum?: string[] }> };
+  const schema = tool.inputSchema as { properties: Record<string, { enum?: string[]; description?: string }> };
   expect(Object.keys(schema.properties).sort()).toEqual(["action", ...BROWSER_FIELDS].sort());
   expect(schema.properties.action!.enum).toEqual(BROWSER_ACTIONS);
-  for (const [action, fields] of Object.entries(BROWSER_ACTION_FIELDS)) {
-    expect(BROWSER_USAGE).toContain(fields.length ? `${action} takes ${fields.join(", ")}` : `${action} takes no other fields`);
+  for (const field of BROWSER_FIELDS.filter((name) => !["selector", "value", "impact", "reason"].includes(name))) {
+    const takers = BROWSER_ACTIONS.filter((action) => (BROWSER_ACTION_FIELDS[action] as readonly string[]).includes(field));
+    expect({ field, note: schema.properties[field]!.description?.startsWith(`${takers.join(", ")}`) }).toEqual({ field, note: true });
   }
-  expect(tool.description).toContain(BROWSER_USAGE);
+  expect(tool.description).toContain("Send only the fields your action takes");
+  // The four fields shared by click, fill, press and serve are named in the description instead.
+  expect(tool.description).toContain("click, fill and press take a CSS selector (fill and press a value too); these and serve take impact and reason");
+  // The policy the model needs before it acts stays; the rest is said when an action is refused.
+  for (const rule of ["untrusted data", "BEFORE editing", "easier one", "not verification", "local-test", "localhost", "asks the user"]) expect(tool.description).toContain(rule);
 });

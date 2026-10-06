@@ -49,6 +49,11 @@ export function browserRequested(task: string, browserReady: boolean): boolean {
   return /https?:\/\/|\b(browser|website|webpage|frontend|layout|responsive|overflow|css|puppeteer|playwright)\b/i.test(task) || browserReady;
 }
 
+/** Diagram words in the task pull in the visualize tool (it needs nothing installed, but costs every request it is in). */
+export function diagramRequested(task: string): boolean {
+  return /\b(visuali[sz](e|ation)|diagrams?|graphs?|maps?|mind ?maps?|charts?|flowcharts?|draw|sketch|architecture|topology)\b/i.test(task);
+}
+
 /** The complete custom tool surface for one task, in the established order: MCP capabilities,
  * delegation, clarification, managed checks, LSP, references, web lookups, the untrusted-text reader, browser, services, visualization.
  * Casper's own tools, once offered, stay offered for the session: a changed tool list throws away
@@ -58,6 +63,7 @@ export async function assembleTaskTools(task: string, source: TaskCapabilitySour
   const kept = (name: string) => source.offered?.has(name) ?? false;
   const browser = source.browserInstalled || browserRequested(task, source.browserReady) || kept("browser");
   const service = serviceRequested(task, source.services) || kept("service");
+  const diagram = diagramRequested(task) || kept("visualize");
   return [
     ...await source.broker.prepare(task),
     source.delegate,
@@ -69,7 +75,6 @@ export async function assembleTaskTools(task: string, source: TaskCapabilitySour
     ...(source.reader ? [source.reader] : []),
     ...(browser ? [browserTool(source.browser, source.browserSignal)] : []),
     ...(service ? [source.serviceTool()] : []),
-    // Diagrams need nothing installed, so this one is always there.
-    ...visualizationTools({ router: source.visualization, projectRoot: source.projectRoot, privatePaths: source.privatePaths ?? [] }),
+    ...(diagram ? visualizationTools({ router: source.visualization, projectRoot: source.projectRoot, privatePaths: source.privatePaths ?? [] }) : []),
   ];
 }
