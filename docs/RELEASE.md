@@ -1117,10 +1117,10 @@ below.
   may warn. `install.sh` clears the macOS quarantine flag; neither installer signs
   anything.
 - Windows x64 is tested in CI: install and startup under PowerShell 5.1 and 7, and the
-  full test suite and eval tests, which must pass for a change to merge. Tests that need a
-  PTY, POSIX signals or file modes, or a tool that is not installed, skip there. The
-  interactive screen has not been tried on a real Windows desktop. There is no Windows
-  ARM64 file.
+  full test suite and eval tests. The run fails if the suite fails, and the owner merges
+  only after it is green. Tests that need a PTY, POSIX signals or file modes, or a tool
+  that is not installed, skip there. The interactive screen has not been tried on a real
+  Windows desktop.
 - Linux: the full test suite runs in CI on an Ubuntu build machine, and the published
   `casper-linux-x64` is started once (`--version`) before upload. Nothing has been run on a
   real Linux machine, and `casper-linux-arm64` is not run anywhere. See
