@@ -87,6 +87,29 @@ class PromptEditor extends Editor {
   /** Suggestion rows are lifted out of the box; the surface composites them over the transcript. */
   popup: string[] = [];
   private bottom = "";
+  /** What was pasted into the draft, so words Casper reads ("big model:", "?") count only when the person typed them. */
+  pasted: string[] = [];
+  private pasteBefore?: string;
+
+  override handleInput(data: string): void {
+    if (data.includes("\x1b[200~")) this.pasteBefore = this.getExpandedText();
+    super.handleInput(data);
+    if (this.pasteBefore === undefined || !data.includes("\x1b[201~")) return;
+    const before = this.pasteBefore;
+    this.pasteBefore = undefined;
+    const after = this.getExpandedText();
+    let start = 0;
+    while (start < before.length && start < after.length && before[start] === after[start]) start++;
+    let end = 0;
+    while (end < before.length - start && end < after.length - start && before[before.length - 1 - end] === after[after.length - 1 - end]) end++;
+    const inserted = after.slice(start, after.length - end);
+    if (inserted.trim()) this.pasted.push(inserted.trim());
+  }
+
+  override setText(text: string): void {
+    if (!text) this.pasted = [];
+    super.setText(text);
+  }
 
   protected override renderBottomBorder(width: number, hidden: number): string {
     return this.bottom = super.renderBottomBorder(width, hidden);
@@ -179,6 +202,8 @@ export class TerminalSurface {
   private message?: StreamingMarkdown;
   /** Pictures pasted into the prompt, by their number in `[image N]`; the app takes them with the request. */
   private pasted = new Map<number, RuntimeImage>();
+  /** What was pasted into the line just sent (see PromptEditor.pasted). */
+  private submittedPastes: string[] = [];
   private source = "";
   private plainAssistantOpen = false;
 
@@ -196,6 +221,8 @@ export class TerminalSurface {
     this.editor.glyph = () => this.pendingAsk || this.pendingEdit ? "?" : this.busy ? BUSY_GLYPH : PROMPT_GLYPH;
     this.editor.paintGutter = text => this.busy && !this.pendingAsk && !this.pendingEdit ? this.muted(text) : this.accent(text);
     this.editor.onSubmit = value => {
+      this.submittedPastes = this.editor.pasted;
+      this.editor.pasted = [];
       if (this.pendingEdit) { this.pendingEdit(value.split("\n")); return; }
       if (this.pendingAsk) { this.answerAsk(value); return; }
       if (!this.command) {
@@ -207,6 +234,7 @@ export class TerminalSurface {
           return;
         }
         this.editor.setText(value);
+        this.editor.pasted = this.submittedPastes;
         // A timed note: the steps and the timer come back on their own.
         this.flashNote(answer ?? "draft kept · Enter again when this task ends", 2400);
         return;
@@ -350,6 +378,13 @@ export class TerminalSurface {
     this.pasted.set(number, { data: Buffer.from(bytes).toString("base64"), mimeType });
     this.editor.insertTextAtCursor(`${imageLabel(number)} `);
     this.render();
+  }
+
+  /** What was pasted into the line just sent (empty when all of it was typed). */
+  takeSubmittedPastes(): string[] {
+    const pasted = this.submittedPastes;
+    this.submittedPastes = [];
+    return pasted;
   }
 
   /** The pictures pasted for the line just sent; the next request starts again at [image 1]. */

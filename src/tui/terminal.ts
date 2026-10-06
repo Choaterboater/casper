@@ -108,6 +108,9 @@ export class InteractiveTerminal {
   setStatus(status: string, cwd = process.cwd()): void { this.surface?.setStatus(status, cwd); }
   /** Pictures pasted (Ctrl+V) into the line just sent, by their number in `[image N]`. Empty on the plain terminal. */
   takePastedImages(): Map<number, RuntimeImage> { return this.surface?.takePastedImages() ?? new Map(); }
+  /** Text pasted into the line just sent, so Casper reads its words only from what the person typed. Empty on the
+   * plain terminal, where every line is typed. */
+  takeSubmittedPastes(): string[] { return this.surface?.takeSubmittedPastes() ?? []; }
   /** The MCP writes badge ("WRITES: <servers> · ctrl+o"); kept here too, so the plain terminal can report it. */
   setBadge(text?: string): void { this.badgeText = text; this.surface?.setBadge(text); }
   get badge(): string | undefined { return this.badgeText; }

@@ -218,6 +218,8 @@ export class CasperApp {
   /** Lines typed during a task that the AI could not read then: each runs as the next request, in order. They live
    * here, never in the prompt editor, so no queued line can ever answer an approval box. */
   readonly queuedLines: string[] = [];
+  /** What was pasted into a line typed during work, by the line, until it runs (words count only where typed). */
+  readonly linePastes = new Map<string, readonly string[]>();
   /** /details for this session; unset follows display: in the config. */
   displayChoice?: DisplayLevel;
   closing = false;

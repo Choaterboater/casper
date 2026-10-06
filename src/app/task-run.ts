@@ -44,6 +44,8 @@ import { tildePath } from "../new/scaffold";
 import { offerNetworkServer } from "./network-host";
 import { updateFooter, nameConversation, phase, clearSteps } from "./footer";
 import { prepareCapabilities, serviceManager, stopDebugger, planPages, pageNotesFor, pagePaths } from "./task-tools";
+import type { RequestWords } from "./request-words";
+import { applyWords, hasWords } from "./task-words";
 import { ensureModel, retryModelFailure, bigModelReceipt, bigModelNotice, imagesForModel, switchForPictures, restoreModel } from "./big-model";
 import { attachImages } from "./images";
 import { confirmYes } from "./approvals";
@@ -54,8 +56,17 @@ import { reportSkillWarnings } from "./wiring";
 import { ensureRuntime } from "./runtime-start";
 import { reloadProject, writeProjectFile } from "./project-file";
 
-export async function runModelTask(app: CasperApp, prompt: string, options: { flow?: Flow; planFirst?: boolean } = {}): Promise<VerificationReport | undefined> {
+export async function runModelTask(app: CasperApp, prompt: string, options: { flow?: Flow; planFirst?: boolean; words?: RequestWords } = {}): Promise<VerificationReport | undefined> {
   if (app.closing) return;
+  // The person's words ("think hard:", "big model:", "plan first:"): this task only, said in a line, then put back.
+  const { words, ...rest } = options;
+  if (hasWords(words)) {
+    const session = await ensureRuntime(app);
+    if (app.closing || app.commandAbort?.signal.aborted || !await ensureModel(app, session)) return;
+    const restore = await applyWords(app, session, words);
+    try { return await runModelTask(app, prompt, { ...rest, ...(words.planFirst ? { planFirst: true } : {}) }); }
+    finally { if (!app.closing) await restore(); }
+  }
   // Pictures with the request: pasted ones and dropped image files are [image N] from here on (app/images.ts).
   const attached = await attachImages(prompt, { cwd: app.activeWorkspaceRoot(), pasted: app.pastedImages,
     // Windows: a picture on another computer's share is opened only on a yes (opening it sends your login's hash there).
