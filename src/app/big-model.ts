@@ -168,7 +168,7 @@ export async function imagesForModel(app: CasperApp, session: RuntimeSession, im
   const choices = pictureChoices(terminalText(label), images.length);
   const picked = await app.terminal.pick(`${name} can't see pictures, and this request has ${images.length === 1 ? "one" : images.length}.`,
     choices, app.commandAbort?.signal);
-  if (picked !== choices[1]!.label) return { images: [] };
+  if (picked !== choices[1].label) return { images: [] };
   return { images, switchTo: label };
 }
 
