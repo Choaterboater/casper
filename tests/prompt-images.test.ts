@@ -6,6 +6,8 @@ import { attachImages, imageMimeType, MAX_IMAGES, startsWithImageFile } from "..
 
 const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
 const JPEG = Buffer.from("ffd8ffe000104a464946", "hex");
+// Real files in the temp folder use this machine's path form, so those tests read paths the way this system writes them.
+const HOST = process.platform;
 const dirs: string[] = [];
 afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
 
@@ -19,13 +21,13 @@ test("a dropped image path becomes [image 1] and the file goes with the request"
   const dir = await folder();
   const shot = path.join(dir, "shot.png");
   await writeFile(shot, PNG);
-  const result = await attachImages(`make it look like ${shot} please`, { cwd: dir, home: dir, platform: "darwin" });
+  const result = await attachImages(`make it look like ${shot} please`, { cwd: dir, home: dir, platform: HOST });
   expect(result.text).toBe(`make it look like [image 1] please\n\n[image 1] is the file ${shot}`);
   expect(result.images).toEqual([{ data: PNG.toString("base64"), mimeType: "image/png" }]);
   expect(result.notes).toEqual([]);
 });
 
-test("a path the terminal escaped (spaces) or quoted is read, and ~ is the home folder", async () => {
+test.skipIf(process.platform === "win32")("a path the terminal escaped (spaces) or quoted is read, and ~ is the home folder", async () => {
   const dir = await folder();
   await writeFile(path.join(dir, "Screen Shot 1.png"), PNG);
   await writeFile(path.join(dir, "mock up.jpg"), JPEG);
@@ -40,7 +42,7 @@ test("pasted images keep their numbers and dropped files come after them", async
   const shot = path.join(dir, "b.png");
   await writeFile(shot, PNG);
   const pasted = new Map([[1, { data: JPEG.toString("base64"), mimeType: "image/jpeg" }]]);
-  const result = await attachImages(`[image 1] next to ${shot}`, { cwd: dir, home: dir, pasted, platform: "linux" });
+  const result = await attachImages(`[image 1] next to ${shot}`, { cwd: dir, home: dir, pasted, platform: HOST });
   expect(result.text.split("\n")[0]).toBe("[image 1] next to [image 2]");
   expect(result.images.map((image) => image.mimeType)).toEqual(["image/jpeg", "image/png"]);
 });
@@ -48,7 +50,7 @@ test("pasted images keep their numbers and dropped files come after them", async
 test("a pasted image the user deleted from the line is not sent", async () => {
   const dir = await folder();
   const pasted = new Map([[1, { data: JPEG.toString("base64"), mimeType: "image/jpeg" }]]);
-  const result = await attachImages("no picture after all", { cwd: dir, home: dir, pasted, platform: "linux" });
+  const result = await attachImages("no picture after all", { cwd: dir, home: dir, pasted, platform: HOST });
   expect(result.images).toEqual([]);
   expect(result.text).toBe("no picture after all");
 });
@@ -58,7 +60,7 @@ test("words and relative names stay text; a missing or non-image file stays as t
   await writeFile(path.join(dir, "logo.png"), PNG);
   await writeFile(path.join(dir, "fake.png"), "not an image");
   const typed = `make logo.png smaller, see ${path.join(dir, "gone.png")} and ${path.join(dir, "fake.png")}`;
-  const result = await attachImages(typed, { cwd: dir, home: dir, platform: "darwin" });
+  const result = await attachImages(typed, { cwd: dir, home: dir, platform: HOST });
   expect(result.text).toBe(typed);
   expect(result.images).toEqual([]);
   expect(result.notes).toEqual([`${path.join(dir, "fake.png")} is not a PNG, JPEG, GIF or WebP picture; not attached`]);
@@ -81,7 +83,7 @@ test("at most MAX_IMAGES pictures go with one request", async () => {
     await writeFile(name, PNG);
     names.push(name);
   }
-  const result = await attachImages(names.join(" "), { cwd: dir, home: dir, platform: "darwin" });
+  const result = await attachImages(names.join(" "), { cwd: dir, home: dir, platform: HOST });
   expect(result.images.length).toBe(MAX_IMAGES);
   expect(result.notes).toEqual([`Only ${MAX_IMAGES} pictures go with one request; the rest stay as file names`]);
 });
@@ -94,10 +96,10 @@ test("image types are read from the bytes, not the name", () => {
   expect(imageMimeType(Buffer.from("hello"))).toBeUndefined();
 });
 
-test("a line that starts with a picture file's path is a request; a command or missing file is not", async () => {
+test.skipIf(process.platform === "win32")("a line that starts with a picture file's path is a request; a command or missing file is not", async () => {
   const dir = await folder();
   await writeFile(path.join(dir, "Screen Shot.png"), PNG);
-  const options = { cwd: dir, home: dir, platform: "darwin" as const };
+  const options = { cwd: dir, home: dir, platform: HOST };
   expect(await startsWithImageFile(`${dir.replaceAll(" ", "\\ ")}/Screen\\ Shot.png why is this broken?`, options)).toBe(true);
   expect(await startsWithImageFile("~/Screen\\ Shot.png", options)).toBe(true);
   expect(await startsWithImageFile("/help", options)).toBe(false);
