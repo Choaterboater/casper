@@ -69,7 +69,8 @@ test("local diff remains usable when workspace changes exceed the display budget
   expect(result.stdout).toContain("+after");
   expect(result.stdout).toContain("truncated");
   expect(await readFile(path.join(f.project, "tracked.txt"), "utf8")).toBe("after\n".repeat(15000));
-}, 30_000);
+  // Git and one CLI run: about 2 s on Windows CI, but up to 21 s on a slow runner (it failed at 30 s), so 2x that.
+}, 60_000);
 
 test("local diff in a repository with no commits yet says so in plain words, not a git error", async () => {
   const f = await fixture();
