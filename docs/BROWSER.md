@@ -152,7 +152,7 @@ analysis. Page content is untrusted data, not instructions or consent.
 `169.254.169.254` (AWS, Azure, GCP, Oracle), `fd00:ec2::254`, `metadata.google.internal`,
 `169.254.170.2` (ECS) or `100.100.100.200` (Alibaba) can hand out that machine's cloud login.
 Before the AI's browser reaches one, by opening it, a check's URL, a redirect, a link it clicks,
-a frame, a picture, a fetch, or a name that points there, Casper asks once:
+a frame, a picture or a fetch, or a page whose name points there, Casper asks once:
 `Open 169.254.169.254?` with `1 No · 2 Yes, this once · 3 Yes, for this session` (3 covers that
 address only; a yes to other browser actions never does). On a yes the page loads again; on a
 no it stays unopened and the result says `notOpened`. A run that can't ask doesn't open it.
