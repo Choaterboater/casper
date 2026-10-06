@@ -30,6 +30,16 @@ export const PLAN_CHOICES = [
   { label: "Build", description: "the model builds these steps and tests these cases (uses tokens)" },
 ] as const satisfies readonly Choice[];
 
+/** "<model> can't see pictures, and this request has one." Both send the request: 1 on your model without the
+ * pictures, 2 on one that sees them, for this request only. */
+export function pictureChoices(model: string, count: number): Choice[] {
+  const them = count === 1 ? "it" : "them";
+  return [
+    { label: `Send without ${them}`, description: "on your model; the AI reads only the words" },
+    { label: `Switch to ${model} for this request`, description: "then back to your model (it may cost more)" },
+  ];
+}
+
 /** "<check> was already failing before this change. Fix it anyway?" */
 export const ALREADY_FAILING_CHOICES = [
   { label: "Leave it", description: "keep the change as it is; the receipt says the check fails" },

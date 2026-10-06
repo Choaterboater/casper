@@ -26,6 +26,8 @@ export interface ProjectContext {
   cache?: LoadedConfiguration["cache"];
   /** `display:` in the user's config (quiet, normal or detailed). Unset: normal. */
   display?: LoadedConfiguration["display"];
+  /** `showPages:` in the user's config (ask, on or off). Unset: ask once a session. */
+  showPages?: LoadedConfiguration["showPages"];
   /** Per-task spend limits (a note, then a pause); see src/task/spend.ts. */
   spend?: LoadedConfiguration["spend"];
   visualize: VisualizationSettings;
@@ -103,6 +105,7 @@ export async function loadProjectContext(
     ...(configuration.updates !== undefined ? { updates: configuration.updates } : {}),
     ...(configuration.cache ? { cache: configuration.cache } : {}),
     ...(configuration.display ? { display: configuration.display } : {}),
+    ...(configuration.showPages ? { showPages: configuration.showPages } : {}),
     spend: configuration.spend,
     visualize: configuration.visualize,
     services: configuration.services,

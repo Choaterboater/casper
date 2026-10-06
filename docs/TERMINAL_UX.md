@@ -23,6 +23,7 @@ Casper, `/help <word>` only the lines that mention a word (`/help mcp`), and
 | Ctrl+D | Exit when the prompt is empty |
 | Ctrl+T | Show the last step in full: an edit's whole diff, what a command printed, or the provider's own words after an `[error]` (works during work too) |
 | Ctrl+L | Redraw the screen |
+| Ctrl+V (Alt+V on Windows) | Paste a picture from the clipboard; it shows as `[image 1]` and goes with the request. With no picture on the clipboard, its text is pasted |
 | Ctrl+O | Turn MCP writes off for every server at once (see [MCP.md](MCP.md)) |
 
 ### Commands
@@ -48,7 +49,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/plan <request>` | Plan first: the model writes a plan and cases to test, you edit it, then build |
 | `/suggestions [on\|off]` | List the suggested next steps, or turn them on or off |
 | `/details [quiet\|normal\|detailed]` | How much work shows, remembered like `/effort` (`--session` for this session only); Ctrl+T shows the last step in full |
-| `/settings` | Turn web lookups, the new-version notice, built-in skills, spend notes and pause, and the work shown on or off by number ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
+| `/settings` | Turn web lookups, the new-version notice, built-in skills, spend notes and pause, showing the AI the pages, the work shown and Playwright tests on or off by number ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
 | `/output [n\|all]` | Full command and output of a recent tool call from the last task |
 | `/receipt [n\|list]` | The last task's receipt in detail, a saved one, or the last 10 |
 | `/verify [checks]`, `/verify repair`, `/verify add <name>` | Run the project's checks; repair failures; save a check Casper found ([VERIFICATION.md](VERIFICATION.md)) |
@@ -354,6 +355,15 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - `@`/Tab offers file-path completion. This inserts a reference; it does **not**
   attach/read the file or grant additional permissions. Unsafe control-bearing
   completion labels are omitted.
+- Pictures: Ctrl+V (Alt+V on Windows) pastes the clipboard's picture as `[image 1]`, and
+  a picture file dropped or typed as a full path (`/…/shot.png`, `~/…`, `C:\…`) becomes
+  `[image N]` when you send, also at the start of the line (then it is a request, not a
+  command). PNG, JPEG, GIF and WebP, up to 8 a request. A dropped file's
+  path stays on a line under the request, so the AI can still copy it. A bare name like
+  `logo.png` stays a word. When the model can't see pictures, one question:
+  `1 Send without it · 2 Switch to <a model you set up that can> for this request` (the switch is
+  for the build turn only, then back to your model; a plan turn stays on your model). With no such model, or in a one-shot run, one line says the request went
+  without them.
 - Clarification questions keep the question on its own line. The question and every
   option wrap in full at the current width (a description that does not fit beside
   its label goes on indented lines under it); nothing is truncated. When all of it

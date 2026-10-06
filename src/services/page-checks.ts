@@ -17,7 +17,7 @@ export type { PageLoad } from "../browser/session";
 export interface PageOpener {
   /** False for the HTTP-only fallback: it sees the status, never the console. */
   readonly consoleChecked: boolean;
-  load(url: string, signal: AbortSignal, options?: { settle?: "streamlit" }): Promise<PageLoad>;
+  load(url: string, signal: AbortSignal, options?: { settle?: "streamlit"; screenshots?: boolean }): Promise<PageLoad>;
   close(): Promise<void>;
 }
 
@@ -70,7 +70,9 @@ export function serverTraceback(log: string): string | undefined {
 export class PageChecks {
   constructor(private readonly manager: () => ServiceManager, private readonly service: DetectedWebService,
     private readonly opener: PageOpener, private readonly pages: PagePlan | (() => PagePlan),
-    private readonly options: { announce?: (line: string) => void; notice?: DevServerNotice } = {}) {}
+    private readonly options: { announce?: (line: string) => void; notice?: DevServerNotice;
+      /** Save a desktop and a phone picture of each page (no tokens). Unset: on. */
+      screenshots?: boolean } = {}) {}
 
   plan(): PagePlan { return typeof this.pages === "function" ? this.pages() : this.pages; }
 
@@ -107,7 +109,7 @@ export class PageChecks {
       signal.throwIfAborted();
       const logBefore = manager.logs(name).text;
       let load: PageLoad;
-      try { load = await this.opener.load(new URL(page, origin).href, signal, streamlit ? { settle: "streamlit" } : undefined); }
+      try { load = await this.opener.load(new URL(page, origin).href, signal, { ...(streamlit ? { settle: "streamlit" as const } : {}), screenshots: this.options.screenshots ?? true }); }
       catch (error) {
         signal.throwIfAborted();
         pages.push({ path: page, status: "incomplete", httpStatus: null, consoleChecked: this.opener.consoleChecked, consoleErrors: [], failedRequests: [],
@@ -144,7 +146,8 @@ function judge(path: string, origin: string, load: PageLoad, serverError: string
   }).slice(0, 10);
   const consoleErrors = [...load.pageErrors, ...load.consoleErrors].slice(0, 10).map(text => hide(text).slice(0, ERROR_TEXT));
   const result: PageResult = { path, status: "pass", httpStatus: load.status, consoleChecked: load.consoleChecked, consoleErrors, failedRequests,
-    ...(load.overlay ? { overlay: hide(load.overlay).slice(0, ERROR_TEXT) } : {}), ...(serverError ? { serverError: hide(serverError) } : {}) };
+    ...(load.overlay ? { overlay: hide(load.overlay).slice(0, ERROR_TEXT) } : {}), ...(serverError ? { serverError: hide(serverError) } : {}),
+    ...(load.screenshots && (load.screenshots.desktop || load.screenshots.phone) ? { screenshots: { ...load.screenshots } } : {}) };
   if (load.status === null) return { ...result, status: "incomplete", reason: "it did not answer" };
   // Accessibility notes ride along; they never change the page's status.
   const notes = load.a11y ? a11yNotes(load.a11y) : [];
@@ -163,7 +166,7 @@ function judge(path: string, origin: string, load: PageLoad, serverError: string
 export class BrowserPageOpener implements PageOpener {
   readonly consoleChecked = true;
   constructor(private readonly session: BrowserSession) {}
-  load(url: string, signal: AbortSignal, options?: { settle?: "streamlit" }): Promise<PageLoad> { return this.session.load(url, signal, options); }
+  load(url: string, signal: AbortSignal, options?: { settle?: "streamlit"; screenshots?: boolean }): Promise<PageLoad> { return this.session.load(url, signal, options); }
   close(): Promise<void> { return this.session.close(); }
 }
 

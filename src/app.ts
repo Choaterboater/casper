@@ -56,7 +56,9 @@ import type {
   AgentRuntime,
   RuntimeAuthProvider,
   RuntimeSession,
+  RuntimeImage,
   RuntimeModelInfo,
+  RuntimeStatus,
   RuntimeTool,
 } from "./runtime/types";
 import { SkillRegistry, formatSelectedSkills, skillRegistryOptions } from "./skills/registry";
@@ -73,7 +75,7 @@ import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
 import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 import { longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } from "./verify/repair-loop";
-import { ALREADY_FAILING_CHOICES, modelFailedChoices, NO, PLAN_CHOICES, YES_ONCE, YES_SESSION, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, spendChoices, unfinishedChoices, workFolderChoices } from "./app/safe-choices";
+import { ALREADY_FAILING_CHOICES, modelFailedChoices, NO, pictureChoices, PLAN_CHOICES, YES_ONCE, YES_SESSION, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, spendChoices, unfinishedChoices, workFolderChoices } from "./app/safe-choices";
 import { DEFAULT_SPEND_LIMITS, formatCost, formatFooterSpend, formatLimit, formatTokens, SPEND_STOP_REASON, SpendGuard, requestSpendLimit } from "./task/spend";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
@@ -104,6 +106,8 @@ import { VisualizationRouter } from "./visualize/router";
 import { artifactFilesystemSupported } from "./visualize/artifacts";
 import { describeVisualization } from "./visualize/tools";
 import { assembleTaskTools } from "./app/capabilities";
+import { attachImages, leadingImagePath, startsWithImageFile } from "./app/images";
+import { lookPrompt, pageLook, SHOW_PAGES_CHOICES, SHOW_PAGES_QUESTION } from "./services/page-look";
 import { DEFAULT_WEB } from "./config/load";
 import { AGENT_DIR_ENV, casperAgentDir } from "./runtime/agent-store";
 import { loginValuesFrom, WebLookup, webProvider, type WebLookupOptions } from "./web/lookup";
@@ -1081,6 +1085,7 @@ export class CasperApp {
     this.commandSpent = undefined;
     this.updateFooter();
     this.workspaceTransition = transition;
+    let command = prompt.startsWith("/");
     try {
       // A Shift+Tab that arrived with this submit still applies; new presses see commandActive and wait.
       while (this.effortSteps > 0) await this.effortCycle;
@@ -1090,14 +1095,19 @@ export class CasperApp {
       // Nothing on offer: no extra wait, so a close that arrives with this line still finds the command running.
       if (this.suggestions.pending) await this.suggestions.settle(prompt, this.projectContext);
       else this.suggestions.forgetChoice();
-      return await (prompt.startsWith("/") ? this.handleSlashCommand(prompt) : this.runModelTask(prompt));
+      // Pictures pasted into this line (Ctrl+V) go with it, or with nothing when it is a command.
+      this.pastedImages = this.terminal.takePastedImages();
+      // A picture file dropped into an empty prompt starts the line with "/": that is a request, not a command.
+      // Commands go straight on (no wait, so a close that arrives with the line still finds the command running).
+      if (command && leadingImagePath(prompt) !== undefined) command = !await startsWithImageFile(prompt, { cwd: this.activeWorkspaceRoot() });
+      return await (command ? this.handleSlashCommand(prompt) : this.runModelTask(prompt));
     } catch (error) {
       if (error instanceof ProcessCleanupError) this.cleanupError = error;
       throw error;
     } finally {
       try {
         await this.checkTask?.close();
-        if (!prompt.startsWith("/")) await this.browser?.close();
+        if (!command) await this.browser?.close();
         const opener = this.taskPageOpener;
         this.taskPageOpener = undefined;
         await opener?.close().catch(() => {});
@@ -1493,6 +1503,11 @@ export class CasperApp {
 
   private async runModelTask(prompt: string, options: { flow?: Flow; planFirst?: boolean } = {}): Promise<VerificationReport | undefined> {
     if (this.closing) return;
+    // Pictures with the request: pasted ones and dropped image files are [image N] from here on (app/images.ts).
+    const attached = await attachImages(prompt, { cwd: this.activeWorkspaceRoot(), pasted: this.pastedImages });
+    this.pastedImages = undefined;
+    for (const note of attached.notes) this.output.write(`[image] ${terminalText(note)}\n`);
+    prompt = attached.text;
     // A flow the user picked, or /plan, is already this task's one choice before work: no other panel.
     this.beforeWorkAsked = Boolean(options.flow || options.planFirst);
     if (await this.offerNewProject(prompt) === "stop" || this.closing || this.commandAbort?.signal.aborted) return;
@@ -1555,6 +1570,9 @@ export class CasperApp {
     const session = await this.ensureRuntime();
     if (this.closing || this.commandAbort?.signal.aborted) return;
     if (!await this.ensureModel(session)) return;
+    // The question comes now; a switch it picks happens only for the build turn, which is the turn that sees them.
+    let { images, switchTo } = attached.images.length ? await this.imagesForModel(session, attached.images) : { images: [], switchTo: undefined };
+    if (this.closing || this.commandAbort?.signal.aborted) return;
     this.nameConversation(session, prompt);
     this.updateFooter();
     this.bigModelNotice(session);
@@ -1635,6 +1653,7 @@ export class CasperApp {
     let verification: VerificationReport | undefined;
     let autoChecks: ReturnType<typeof planAutoChecks> | undefined;
     let pageNotes: string[] | undefined;
+    let pagesShown: number | undefined;
     let workFolder: ChildProject | undefined;
     let receiptShown = false;
     const flatten = (changes: TreeChanges) => [...changes.added, ...changes.modified, ...changes.removed].sort();
@@ -1642,19 +1661,30 @@ export class CasperApp {
     // totals cannot include it: any classification (or an unreadable count) makes them unknown.
     const classifications = () => { try { return session.getUsage?.().effortClassification?.requests ?? 0; } catch { return undefined; } };
     const classifiedBefore = classifications();
+    let visionBack: string | undefined;
     try {
       this.phase("task", "start");
-      await session.prompt([
-        memoryContext,
-        skillContext,
-        formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving,
-          reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
-        planBlock,
-        checklist ? formatChecklistPrompt(checklist) : "",
-        // A flow the user picked from the row: guidance for this one request.
-        options.flow ? formatFlowPrompt(options.flow, prompt) : "",
-      ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt, maxTurns: this.maxTurns });
-      await this.retryModelFailure(session, prompt);
+      try {
+        if (switchTo) {
+          visionBack = await this.switchForPictures(session, switchTo);
+          if (!visionBack) images = [];
+          if (this.closing || this.commandAbort?.signal.aborted) return;
+        }
+        await session.prompt([
+          memoryContext,
+          skillContext,
+          formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving,
+            reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
+          planBlock,
+          checklist ? formatChecklistPrompt(checklist) : "",
+          // A flow the user picked from the row: guidance for this one request.
+          options.flow ? formatFlowPrompt(options.flow, prompt) : "",
+        ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt, maxTurns: this.maxTurns, ...(images.length ? { images } : {}) });
+        await this.retryModelFailure(session, prompt);
+      } finally {
+        // A switch to a model that sees pictures was for this request's own turn; checks and repairs run on yours.
+        if (visionBack && !this.closing) await this.restoreModel(session, visionBack);
+      }
       this.phase("task", "end");
       // Repair, review and proof rounds follow the change.
       edits.turnEnded = true;
@@ -1704,6 +1734,8 @@ export class CasperApp {
           this.events.ensureLineBreak();
           this.output.write(`… Casper checking: ${pending.join(", ")}\n`);
           verification = await this.runVerification(autoChecks.run, true, prompt, this.checkTask);
+          // A model that sees pictures may look at the changed pages once (showPages); its fixes are checked again.
+          ({ verification, shown: pagesShown } = await this.lookAtPages(session, prompt, autoChecks.run, verification, workspaceRoot));
           const changedCode = Boolean(before && afterModel && changesCode(diffSnapshots(before, afterModel)));
           if (verification.status === "pass" && !(proving && changedCode)) {
             proofSkipped = !verification.results.length && verification.pages && !verification.smoke?.checks.length
@@ -1777,7 +1809,7 @@ export class CasperApp {
         // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
         verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
         ...(autoChecks?.skipped && !verification?.smoke && !verification?.pages ? { autoSkipped: autoChecks.skipped } : {}),
-        ...(pageNotes?.length && !verification?.pages ? { pageNotes } : {}),
+        ...(pageNotes?.length && !verification?.pages ? { pageNotes } : {}), ...(pagesShown ? { pagesShown } : {}),
         ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(this.taskSpendStop ? { spendLimit: { ...this.taskSpendStop } } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
         ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...this.bigModelReceipt(),
         ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(this.sandbox ? { sandbox: sandboxReceipt(this.sandbox)! } : {}),
@@ -1985,12 +2017,53 @@ export class CasperApp {
     return { verification, proof };
   }
 
+  /**
+   * The page look: after a UI change whose checks pass, a model that sees pictures is shown the page screenshots once
+   * (showPages: ask once a session, on, off), so it can fix what loads but looks wrong. When it edits, the checks
+   * run again with the repairs left. Never a check itself. `shown` is how many pictures it was shown.
+   */
+  private async lookAtPages(session: RuntimeSession, request: string, checks: readonly CheckName[], verification: VerificationReport,
+    root: string): Promise<{ verification: VerificationReport; shown?: number }> {
+    const stopped = () => this.closing || Boolean(this.commandAbort?.signal.aborted) || this.taskRuntimeFailed || this.taskTurnLimit !== undefined || this.taskSpendStop !== undefined;
+    if (verification.status !== "pass" || !verification.pages?.pages.some((page) => page.screenshots) || stopped()) return { verification };
+    let sees: boolean | undefined;
+    try { sees = session.getStatus?.()?.images; } catch { sees = undefined; }
+    if (sees !== true || !await this.showPagesAllowed()) return { verification };
+    const look = await pageLook(verification.pages.pages);
+    if (!look || stopped()) return { verification };
+    this.events.ensureLineBreak();
+    this.output.write(`↻ look: the AI looks at ${look.images.length} screenshot${look.images.length === 1 ? "" : "s"} of ${look.shown.map((page) => terminalText(page.path)).join(", ")}\n`);
+    const before = await this.snapshotWorkspace(root);
+    await this.prepareCapabilities(request);
+    await this.promptRound(session, lookPrompt(request, look), request, look.images);
+    if (stopped()) return { verification, shown: look.images.length };
+    const after = before && await this.snapshotWorkspace(root);
+    const edited = !before || !after || [...Object.values(diffSnapshots(before, after))].some((paths) => paths.length);
+    if (!edited) return { verification, shown: look.images.length };
+    const max = this.projectContext!.repair.maxAttempts;
+    const again = await this.runVerification(checks, true, request, this.checkTask, Math.max(0, max - verification.repairAttempts));
+    return { verification: { ...again, repairAttempts: verification.repairAttempts + again.repairAttempts }, shown: look.images.length };
+  }
+
+  /** showPages: on or off as set; ask (the default) asks once a session, and only a person answers it (1 No). */
+  private async showPagesAllowed(): Promise<boolean> {
+    const setting = this.projectContext?.showPages ?? "ask";
+    if (setting !== "ask") return setting === "on";
+    if (this.showPagesAnswer !== undefined) return this.showPagesAnswer;
+    if (!this.interactive || !this.terminal.canAsk) return false;
+    this.events.ensureLineBreak();
+    const picked = await this.terminal.pick(SHOW_PAGES_QUESTION, [...SHOW_PAGES_CHOICES], this.commandAbort?.signal);
+    if (this.commandAbort?.signal.aborted) return false;
+    this.showPagesAnswer = picked === SHOW_PAGES_CHOICES[1].label;
+    return this.showPagesAnswer;
+  }
+
   /** A round after the task turn (review, proof repair) with its own ROUND_MAX_TURNS budget. A --max-turns
    * at or below it wins and stays the task's stop (taskTurnLimit, exit 2). The round's own budget ending it
    * is not the task's stop: Casper goes on with the checks and the proof. True when that budget ended it. */
-  private async promptRound(session: RuntimeSession, text: string, request: string): Promise<boolean> {
+  private async promptRound(session: RuntimeSession, text: string, request: string, images?: RuntimeImage[]): Promise<boolean> {
     const roundBudget = this.maxTurns === undefined || ROUND_MAX_TURNS < this.maxTurns;
-    await session.prompt(text, this.commandAbort?.signal, { request, maxTurns: roundBudget ? ROUND_MAX_TURNS : this.maxTurns });
+    await session.prompt(text, this.commandAbort?.signal, { request, maxTurns: roundBudget ? ROUND_MAX_TURNS : this.maxTurns, ...(images?.length ? { images } : {}) });
     if (!roundBudget || this.taskTurnLimit === undefined) return false;
     this.taskTurnLimit = undefined;
     return true;
@@ -2396,6 +2469,48 @@ export class CasperApp {
     return back;
   }
 
+  /**
+   * Pictures for the model in use. One that can see them gets them. One that can't: a numbered question when a model
+   * you set up can (1 Send without them · 2 Switch to it for this request), else one line and the request goes
+   * without them. `switchTo` is the model to switch to for the build turn only (switchForPictures).
+   */
+  private async imagesForModel(session: RuntimeSession, images: RuntimeImage[]): Promise<{ images: RuntimeImage[]; switchTo?: string }> {
+    let status: RuntimeStatus | undefined;
+    try { status = session.getStatus?.(); } catch { status = undefined; }
+    if (status?.images !== false) return { images };
+    const name = status.model ? terminalText(status.model) : "This model";
+    const them = images.length === 1 ? "it" : "them";
+    let vision: RuntimeModelInfo | undefined;
+    try { vision = session.visionModel?.(); } catch { vision = undefined; }
+    if (!vision) {
+      this.output.write(`[image] ${name} can't see pictures, and no model you set up can; the request goes without ${them}. /model picks one that can.\n`);
+      return { images: [] };
+    }
+    const label = `${vision.provider}/${vision.id}`;
+    if (!this.interactive || !this.terminal.canAsk) {
+      this.output.write(`[image] ${name} can't see pictures; the request goes without ${them}. ${terminalText(label)} can see them (/model ${terminalText(label)}).\n`);
+      return { images: [] };
+    }
+    this.events.ensureLineBreak();
+    const choices = pictureChoices(terminalText(label), images.length);
+    const picked = await this.terminal.pick(`${name} can't see pictures, and this request has ${images.length === 1 ? "one" : images.length}.`,
+      choices, this.commandAbort?.signal);
+    if (picked !== choices[1]!.label) return { images: [] };
+    return { images, switchTo: label };
+  }
+
+  /** The switch picked in imagesForModel, right before the build turn; `back` is the model to return to after it. */
+  private async switchForPictures(session: RuntimeSession, label: string): Promise<string | undefined> {
+    const back = await this.switchToBigModel(session, { query: label, label, oneOff: true });
+    if (!back) {
+      this.output.write(`[model] Casper could not switch to ${terminalText(label)}; the request goes without the pictures.\n`);
+      return undefined;
+    }
+    this.output.write(`[model] On ${terminalText(label)} for this request.\n`);
+    this.updateFooter();
+    return back;
+  }
+
   /** Back to the model the user was on, with its own effort. */
   private async restoreModel(session: RuntimeSession, back: string): Promise<void> {
     try {
@@ -2709,6 +2824,12 @@ export class CasperApp {
       return undefined;
     }
   }
+
+  /** This session's answer to "Show the AI the pages?" (showPages: ask); asked once. */
+  private showPagesAnswer?: boolean;
+
+  /** Pictures pasted into the line being handled; runModelTask takes them. */
+  private pastedImages?: Map<number, RuntimeImage>;
 
   /** Looked up once: the answer decides whether the browser tool is there from the first turn. */
   private browserInstalled?: Promise<boolean>;

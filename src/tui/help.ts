@@ -18,7 +18,7 @@ Type a request and press Enter (during a task it steers the AI or waits in the q
   /resume, /clear        Pick up a saved conversation, or start a fresh one
   /settings              Turn web lookups, spend notes and other switches on or off by number
   /help <word>           Search the help; /help all shows everything
-Ctrl+T shows the last step in full. Ctrl+C twice on an empty line exits. Approvals always need a fresh yes from you.
+Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an empty line exits. Approvals always need a fresh yes from you.
 `;
 
 export const LOGIN_HELP = `Sign-in needs an interactive terminal. Run casper and type /login.
@@ -92,7 +92,7 @@ Local commands:
   /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
   /output all                       Every tool call of the last task on its own line (the screen folds them into a summary)
   /details [quiet|normal|detailed] [--session]  Failures only, steps folded (default), or every step with small diffs; remembered like /effort, --session for this session only. Ctrl+T shows the last step in full
-  /settings                         Your switches by number, written to ~/.casper/config.yaml for you: web lookups, the new-version notice, built-in skills, spend notes, spend pause, work shown, Playwright tests
+  /settings                         Your switches by number, written to ~/.casper/config.yaml for you: web lookups, the new-version notice, built-in skills, spend notes, spend pause, showing the AI the pages, work shown, Playwright tests
   /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
   /permissions                      What each tool may do and when Casper asks you
@@ -182,7 +182,7 @@ Without a restored selection or Casper default, choose with /model; there is no 
 Switching provider sends the rest of the conversation to that provider.
 The picker refreshes provider catalogs over the network when CASPER_OFFLINE=1 is not set; selection does not generate a model response.
 Provider-defined credential checks may run configured key-resolution commands.
-Keys: Esc stops work. Ctrl-C cancels work; idle, it clears a draft; twice on empty exits. Ctrl+T shows the last step in full (an edit's diff, a command's output). Ctrl+O turns MCP writes off. Ctrl+L redraws the screen. Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history. Tab completes commands and file paths (@). Enter during work sends your line to the AI (it reads it at its next step) or queues it for after the task; Esc gives queued lines back. A queued line never answers an approval.
+Keys: Esc stops work. Ctrl-C cancels work; idle, it clears a draft; twice on empty exits. Ctrl+T shows the last step in full (an edit's diff, a command's output). Ctrl+O turns MCP writes off. Ctrl+L redraws the screen. Ctrl+V (Alt+V on Windows) pastes a picture from the clipboard as [image 1]; a dropped picture file works too. Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history. Tab completes commands and file paths (@). Enter during work sends your line to the AI (it reads it at its next step) or queues it for after the task; Esc gives queued lines back. A queued line never answers an approval.
 Checks: typecheck lint test build (all configured by default; verification.checks selects).
 verification.mode: auto (Casper runs the checks after edits, repairs failures within repair.maxAttempts), offer (the model may use casper_check; the receipt suggests /verify) or off. Unset: auto, except that interactive sessions use offer once the checks are measured at 60 s or more.
 --verify selects auto and --no-verify selects off for one run. Auto skips checks when no files changed, and checks whose declared scope misses every changed file. The receipt says why.
@@ -205,6 +205,8 @@ Browser tasks use installed Chrome/Chromium (CASPER_BROWSER_EXECUTABLE overrides
 No automatic browser installation, personal profiles, account credentials or arbitrary page scripts.
 Clicks and typing on your own local project pages may go ahead; anything with real effects, or unclear, asks you first. One-shot runs can't ask. Ordinary outside resources still load: this is not isolation.
 Browser checks replay fixed scenarios; screenshots alone and model claims are not checks.
+After a UI change Casper saves a desktop and a phone screenshot of each changed page (no tokens); a model that can see pictures is shown them once to check the look, after one question a session (1 No · 2 Yes, show the AI the pages; /settings: always or never). Advice, never a check.
+Each checked page also gets accessibility notes under its line (images with no alt, fields with no label, nameless buttons, low contrast, no lang): notes, never a failure.
 Task-owned development servers run the project's code in the shell sandbox (files held; the network is not limited, so the page can load), and stop with the task.
 Saved screenshots (readable only by you) stay in Casper's project folder until you remove them; they may be sensitive.
 See docs/BROWSER.md for limits, input freshness, supported assertions and remaining caveats.

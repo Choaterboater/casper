@@ -32,6 +32,8 @@ export interface PageResult {
   phone?: PhoneFit;
   /** Accessibility notes ("2 inputs have no label"), only when there are some. They never fail the page. */
   a11y?: string[];
+  /** Pictures of the page at desktop and phone width (PNG paths outside the project). Never evidence. */
+  screenshots?: { desktop?: string; phone?: string };
 }
 export interface PageReport {
   /** fail: some page failed. incomplete: the server did not start, or a page did not finish. Never pass without a page. */
@@ -50,8 +52,19 @@ export function pageStatus(pages: readonly PageResult[]): PageStatus {
   return !pages.length || pages.some(page => page.status === "incomplete") ? "incomplete" : "pass";
 }
 
+/** The page's pictures: "2 screenshots". */
+const pictures = (result: PageResult) => {
+  const count = [result.screenshots?.desktop, result.screenshots?.phone].filter(Boolean).length;
+  return count ? ` · ${plural(count, "screenshot")}` : "";
+};
+
 /** One receipt line per page, in the plain wording the user sees. */
 export function formatPageLine(result: PageResult): string {
+  const line = pageLine(result);
+  return result.status === "incomplete" ? line : `${line}${pictures(result)}`;
+}
+
+function pageLine(result: PageResult): string {
   const shown = result.overlay ?? result.serverError;
   if (result.status === "incomplete") return `• ${result.path} not checked: ${result.reason ?? "it did not finish"}`;
   if (shown !== undefined) return `✗ ${result.path} shows an error: ${shown}`;
@@ -106,9 +119,16 @@ export function formatSkippedPage(page: SkippedPage): string {
   return `• ${page.path} not opened: ${page.why}${hint}`;
 }
 
-/** Every line of a report: one per page, the skipped pages, and why the check did not run. */
+/** Where a page's pictures are: "  desktop <path> · phone <path>", under its line. */
+function screenshotLine(page: PageResult): string[] {
+  const { desktop, phone } = page.screenshots ?? {};
+  const parts = [...(desktop ? [`desktop ${desktop}`] : []), ...(phone ? [`phone ${phone}`] : [])];
+  return parts.length && page.status !== "incomplete" ? [`  ${parts.join(" · ")}`] : [];
+}
+
+/** Every line of a report: one per page and where its pictures are, the skipped pages, and why the check did not run. */
 export function formatPageReport(report: PageReport): string[] {
-  const lines = report.pages.flatMap(page => [formatPageLine(page), ...(page.a11y?.length ? [`  • ${page.path}: ${page.a11y.join(" · ")}`] : [])]);
+  const lines = report.pages.flatMap((page) => [formatPageLine(page), ...screenshotLine(page), ...(page.a11y?.length ? [`  • ${page.path}: ${page.a11y.join(" · ")}`] : [])]);
   if (report.reason && !report.pages.length) {
     const tail = report.logTail?.split("\n").slice(-5).map(line => `    ${line}`).join("\n");
     lines.push(formatPagesNotChecked(report.reason) + (tail ? `. Last lines:\n${tail}` : ""));

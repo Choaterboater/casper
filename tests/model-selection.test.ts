@@ -786,3 +786,24 @@ console.log('RESULT=' + JSON.stringify({ none, big, current: session.getStatus()
   expect(result.current).toBe("first");
   expect(result.unknown).toBeNull();
 }, 30_000);
+
+test("a model that sees pictures says so, and visionModel finds one you set up", async () => {
+  const f = await fixture();
+  await writeFile(path.join(f.agent, "models.json"), JSON.stringify({ providers: {
+    fixture: { baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", apiKey: "fixture-not-a-secret", models: [{ id: "first", input: ["text"] },
+      { id: "second", input: ["text", "image"] }, { id: "shared", input: ["text"] }] },
+  } }));
+  const result = await f.run(`
+await session.selectModel({ query: 'fixture/first', persist: false });
+const before = { images: session.getStatus().images, vision: session.visionModel() ?? null };
+await session.setModelRole('fast', 'fixture/shared');
+await session.setModelRole('reason', 'fixture/second');
+const after = session.visionModel() ?? null;
+await session.selectModel({ query: 'fixture/second', persist: false });
+console.log('RESULT=' + JSON.stringify({ before, after, onVision: session.getStatus().images, self: session.visionModel() ?? null }));`);
+  expect(result.before).toEqual({ images: false, vision: null });
+  expect(result.after).toMatchObject({ provider: "fixture", id: "second", images: true });
+  expect(result.onVision).toBe(true);
+  // The model in use is never offered as the switch.
+  expect(result.self).toBeNull();
+}, 30_000);

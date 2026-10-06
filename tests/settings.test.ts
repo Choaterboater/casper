@@ -45,7 +45,8 @@ test("the settings list shows each switch and where it stands", async () => {
   await writeFile(config, "web: off\nupdates: false\nspend:\n  pauseAt: 5\n");
   const context = await loadProjectContext(await inspectProject(project), { homeDir: home });
   expect(settingRows(context).map((row) => `${row.label}: ${row.value}`)).toEqual([
-    "Web lookups: off", "New-version notice: off", "Built-in skills: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task", "Work shown: normal", "Playwright tests: on",
+    "Web lookups: off", "New-version notice: off", "Built-in skills: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task", "Show the AI the pages: ask once a session",
+    "Work shown: normal", "Playwright tests: on",
   ]);
   expect(settingRows(context).at(-1)!.question).toBe("Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are on.");
   const questions = settingRows(context).map((row) => row.question);
@@ -88,6 +89,19 @@ test("/settings: 1 is Done, a pick asks with 1 Keep first, and the answer is sav
   // The list asked again after each change shows the new value.
   expect(host.asked[2]).toContain("2 Web lookups");
   expect((await host.context())!.web?.enabled).toBe(false);
+});
+
+test("/settings: showing the AI the pages is ask, always or never, saved as showPages", async () => {
+  const { home, project, config } = await place();
+  const host = fakeHost(home, project, ["Show the AI the pages", "Never show them", "Done"]);
+  await runSettings(host);
+  expect(host.asked[1]!.split("\n").slice(1)).toEqual(["1 Keep ask once a session", "2 Always show them", "3 Never show them"]);
+  expect(await readFile(config, "utf8")).toBe("showPages: off\n");
+  expect((await host.context())!.showPages).toBe("off");
+  // A project can't turn it on at your cost.
+  await mkdir(path.join(project, ".casper"), { recursive: true });
+  await writeFile(path.join(project, ".casper", "project.yaml"), "showPages: on\n");
+  await expect(loadProjectContext(await inspectProject(project), { homeDir: home })).rejects.toThrow("showPages is a user setting");
 });
 
 test("/settings: Keep and Esc change nothing", async () => {

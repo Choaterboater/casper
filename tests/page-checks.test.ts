@@ -199,3 +199,17 @@ test("no planned page is incomplete, and nothing is started", async () => {
   expect(report.status).toBe("incomplete");
   expect(f.manager.status()).toEqual([]);
 });
+
+test("each page's pictures are on its line and under it; the opener is asked for them unless they are off", async () => {
+  const f = await fixture();
+  const asked: Array<boolean | undefined> = [];
+  const base = fakeOpener(() => ({ screenshots: { desktop: "/state/browser/run/page-1-desktop.png", phone: "/state/browser/run/page-1-phone.png" } }));
+  const opener: PageOpener = { ...base, load: (url, signal, options) => { asked.push(options?.screenshots); return base.load(url, signal, options); } };
+  const report = await new PageChecks(() => f.manager, f.service, opener, { open: ["/settings"], skipped: [] }).run(signal());
+  expect(formatPageReport(report)).toEqual([
+    "✓ /settings loads · 0 console errors · 2 screenshots",
+    "  desktop /state/browser/run/page-1-desktop.png · phone /state/browser/run/page-1-phone.png",
+  ]);
+  await new PageChecks(() => f.manager, f.service, opener, { open: ["/settings"], skipped: [] }, { screenshots: false }).run(signal());
+  expect(asked).toEqual([true, false]);
+});

@@ -599,6 +599,28 @@ with secrets hidden); the pages are planned and opened again after each repair. 
 says `• Checks passed — not proven: pages load, but no test fails without the change`; without Chrome it
 says `pages answer, but their console was not checked` instead.
 
+**Screenshots.** With Chrome, Casper also saves a picture of each opened page at desktop width
+(1280 px) and at phone width (390 px). They cost no tokens and are listed under the page's line:
+
+```text
+✓ /dashboard loads · 0 console errors · fits a phone · 2 screenshots
+  desktop ~/.casper/projects/<project>/browser/<run>/page-1-desktop.png · phone …/page-1-phone.png
+```
+
+They are saved outside the project (folders 0700, files 0600) and stay after the session, like the
+browser tool's own screenshots. Not on Windows yet (Casper's private file writer is macOS and Linux only).
+
+**The AI looks at the pages.** A loading page can still look wrong (a button over the header, cut-off
+text). When the checks pass and the model in use can see pictures, Casper can show it the screenshots
+of up to 2 pages once, so it can fix what looks wrong before it says done. That uses tokens, so the
+first time in a session Casper asks: `1 No · 2 Yes, show the AI the pages`. The answer holds for the
+session; `/settings` (Show the AI the pages) makes it always or never, written as `showPages: ask|on|off`
+in `~/.casper/config.yaml` (a project file can't set it). A one-shot run never asks, so by default it
+never looks. A fix made while looking goes through the checks again, with the repairs left. The
+receipt says `• The AI looked at 2 screenshots of the pages (advice, not a check)`: what the model
+thinks of a picture is never evidence and never makes a change **Verified**. A model that can't see
+pictures is never sent them.
+
 **Accessibility notes.** New in v0.2.23. While a page is open at desktop width, Casper also counts a
 few common misses with its own small rules (no third-party script): images with no `alt` (`alt=""`
 is fine for decoration), fields with no label (a placeholder is not a label), buttons with no name,

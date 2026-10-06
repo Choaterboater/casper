@@ -13,14 +13,15 @@ writes your answer into `~/.casper/config.yaml` for you, keeping your comments a
 
 ```text
 Settings (saved in ~/.casper/config.yaml for you). Pick one to change:
-  1 Done                nothing changes
-  2 Web lookups         on (DuckDuckGo)
-  3 New-version notice  on
-  4 Built-in skills     on
-  5 Spend notes         at $1 a task
-  6 Spend pause         off
-  7 Work shown          normal
-  8 Playwright tests    on
+  1 Done                   nothing changes
+  2 Web lookups            on (DuckDuckGo)
+  3 New-version notice     on
+  4 Built-in skills        on
+  5 Spend notes            at $1 a task
+  6 Spend pause            off
+  7 Show the AI the pages  ask once a session
+  8 Work shown             normal
+  9 Playwright tests       on
 ```
 
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
@@ -446,6 +447,18 @@ command printed. The window title names the conversation from its first request
 ```yaml
 # ~/.casper/config.yaml or a profile's config.yaml
 display: detailed   # quiet, normal (default), or detailed
+```
+
+## Showing the AI the pages
+
+After a UI change in a web project, the page check saves a desktop and a phone screenshot of each
+changed page (no tokens). `showPages` says whether a model that can see pictures is shown them once,
+so it can fix what loads but looks wrong (see [VERIFICATION.md](VERIFICATION.md#page-checks)). Each
+look uses tokens. `/settings` changes it by number; a project file can't set it.
+
+```yaml
+# ~/.casper/config.yaml or a profile's config.yaml
+showPages: ask   # ask (default: once a session, 1 No · 2 Yes, show the AI the pages), on, or off
 ```
 
 ## Skills

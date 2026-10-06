@@ -50,6 +50,7 @@ import type {
   RuntimeSwitchOptions,
   RuntimeTool,
   RuntimeUsage,
+  RuntimeImage,
   RuntimeModelInfo,
   RuntimeConversation,
   RuntimeEvent,
@@ -219,6 +220,10 @@ class PiRuntimeSession implements RuntimeSession {
     return this.models.describe(query);
   }
 
+  visionModel(): RuntimeModelInfo | undefined {
+    return this.models.visionModel(this.runtime.session);
+  }
+
   setModelRole(role: string, selector?: string): Promise<Record<string, string>> {
     if (this.busy || this.readOnly || this.models.busy) throw new Error("Model roles cannot be changed during active work or in a read-only child.");
     return this.models.setRole(role, selector);
@@ -294,7 +299,7 @@ class PiRuntimeSession implements RuntimeSession {
     return this.models.status(this.runtime.session);
   }
 
-  async prompt(text: string, signal?: AbortSignal, options?: { request: string; maxTurns?: number }): Promise<void> {
+  async prompt(text: string, signal?: AbortSignal, options?: { request: string; maxTurns?: number; images?: readonly RuntimeImage[] }): Promise<void> {
     if (this.promptActive) throw new Error("A prompt is already active.");
     this.promptActive = true;
     const controller = this.promptController = new AbortController();
@@ -339,7 +344,8 @@ class PiRuntimeSession implements RuntimeSession {
       promptSignal.throwIfAborted();
       if (status.configuredEffort === "auto") this.emit({ type: "model_controls_changed", status });
       promptSignal.throwIfAborted();
-      await session.prompt(text, { expandPromptTemplates: !this.readOnly });
+      const images = options?.images?.map(({ data, mimeType }) => ({ type: "image" as const, data, mimeType }));
+      await session.prompt(text, { expandPromptTemplates: !this.readOnly, ...(images?.length ? { images } : {}) });
       promptSignal.throwIfAborted();
       const limitReason = this.readOnly?.limitReason();
       if (limitReason) this.emit({ type: "assistant_response_end", stopReason: "limit", errorMessage: limitReason });
@@ -503,18 +509,20 @@ export function containedContextFile(file: string, cwd: string, agentDir?: strin
 
 /** Resolve existing state aliases and prospective missing suffixes without creating anything.
  * This is a bounded, non-atomic preflight, not protection against concurrent path replacement. */
-async function canonicalStatePath(file: string, signal: AbortSignal): Promise<string> {
+export async function canonicalStatePath(file: string, signal: AbortSignal, fs: { realpath: (file: string) => Promise<string>; lstat: (file: string) => Promise<{ isSymbolicLink(): boolean }> } = { realpath, lstat }): Promise<string> {
   if (Buffer.byteLength(file) > 4096) throw new Error("Writable runtime state path exceeds the preflight limit");
   let prefix = file;
   const suffix: string[] = [];
   for (let step = 0; step < 128; step++) {
     signal.throwIfAborted();
-    try { return path.join(await realpath(prefix), ...suffix); }
+    try { return path.join(await fs.realpath(prefix), ...suffix); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       // A dangling symlink is not a missing ordinary path: never invent its destination.
-      const entry = await lstat(prefix).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
-      if (entry) throw new Error("Cannot resolve writable runtime state");
+      const entry = await fs.lstat(prefix).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
+      if (entry?.isSymbolicLink()) throw new Error("Cannot resolve writable runtime state");
+      // Another Casper sharing this home created it after realpath looked (auth.json, models-store.json): look again.
+      if (entry) continue;
       const parent = path.dirname(prefix);
       if (parent === prefix) throw error;
       suffix.unshift(path.basename(prefix));
