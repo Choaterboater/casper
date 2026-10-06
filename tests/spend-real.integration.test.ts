@@ -70,7 +70,7 @@ test("real one-shot: past $5 the next tool call never runs, the run stops withou
   // The model got one reason back and Pi ended the turn: no further model request after the stop.
   expect(f.requests()).toBe(1);
   expect(await readFile(path.join(f.project, "notes.txt"), "utf8")).toBe("keep me\n");
-}, 30_000);
+}, 60_000);
 
 test("real --json: the run stops at the limit without waiting, stdout stays JSON, and the receipt has spendLimit", async () => {
   const f = await fixture();
@@ -82,4 +82,4 @@ test("real --json: the run stops at the limit without waiting, stdout stays JSON
   expect(receipt.exitCode).toBe(2);
   expect(result.stderr).toContain("[spend] This task has used $5.40.");
   expect(result.exit).toBe(2);
-}, 30_000);
+}, 60_000);

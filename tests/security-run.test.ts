@@ -43,7 +43,7 @@ test("one tool crashing, hanging or printing garbage leaves the others' results 
   expect(report.findings.some((finding) => finding.tool === "zizmor")).toBe(true);
   expect(report.exitCode).toBe(1);
   expect(formatResultLine(report)).toBe(`Result: ${report.problems} problems, 1 note, 3 checks not run. This is what these tools found. It does not prove the code has no problems.`);
-});
+}, 90_000);
 
 test("Casper's own words never call the code safe or secure, even with nothing found", async () => {
   const root = await fixtureRepo("casper-security-clean-");
@@ -91,7 +91,7 @@ test("--strict also fails on a check that did not run; --json has the versioned 
   const json = securityReportJson(strict);
   expect(Object.keys(json)).toEqual(["version", "target", "tools", "findings", "ignores", "ignoreFiles", "notRun", "problems", "notes", "exitCode"]);
   expect(json.notRun).toEqual([...SEMGREP_RUNS ? [] : [{ id: "semgrep", reason: SEMGREP_NOT_ON_WINDOWS }], { id: "osv-scanner", reason: OSV_NO_DATA }]);
-});
+}, 90_000);
 
 test("mcp-scanner is off unless turned on, and needs the server's tool list", async () => {
   const root = await fixtureRepo("casper-security-mcp-");
@@ -106,4 +106,4 @@ test("mcp-scanner is off unless turned on, and needs the server's tool list", as
   const on = await new SecurityCheck({ root, homeDir: home, find: tools.find, only: ["mcp-scanner"], mcpScanner: true, mcpToolsJson: path.join(root, "tools.json") }).run();
   expect(on.findings).toEqual([expect.objectContaining({ tool: "mcp-scanner", key: "get_weather", severity: "high" })]);
   expect(formatSecurityReport(on)).toContain("mcp-scanner   1 problem    tools.json  tool \"get_weather\": credential harvesting in its description [credential-harvesting]");
-});
+}, 60_000);

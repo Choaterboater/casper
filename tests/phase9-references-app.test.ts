@@ -184,7 +184,8 @@ async function cli(project: string, home: string, prompt: string) {
     cwd: project, env: cleanEnv({ HOME: home, CASPER_PROFILE: "default", CASPER_AGENT_DIR: path.join(home, ".pi/agent"), PI_CODING_AGENT_DIR: path.join(home, ".pi/agent"), CASPER_OFFLINE: "1", PI_TELEMETRY: "0" }),
     stdout: "pipe", stderr: "pipe",
   });
-  const timer = setTimeout(() => child.kill("SIGKILL"), 10_000);
+  // A hang guard: a slow Windows CI runner passed 10 s on a run that takes 4-8 s on a normal one.
+  const timer = setTimeout(() => child.kill("SIGKILL"), 50_000);
   try {
     const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { stdout, stderr, exit };
@@ -250,4 +251,4 @@ test("pinned Pi receives only requested excerpts with provenance from the real r
   expect(JSON.stringify(payloads[1]?.messages)).toContain("Current repository");
   expect(JSON.stringify(payloads[1]?.messages)).toContain("sha256");
   expect(JSON.stringify(payloads)).not.toContain("UNREQUESTED_REFERENCE_BODY");
-}, 15_000);
+}, 60_000);

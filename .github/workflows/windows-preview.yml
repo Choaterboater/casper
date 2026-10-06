@@ -38,6 +38,17 @@ jobs:
             bun --version
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             "Source revision: $env:GITHUB_SHA"
+            # Some runners start processes much slower than others; these lines show which kind this one is.
+            Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors | Format-List
+            "Memory GB: {0:N1}" -f ((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
+            "TEMP: $env:TEMP"
+            try {
+              Get-MpComputerStatus | Select-Object AMRunningMode, RealTimeProtectionEnabled, OnAccessProtectionEnabled, BehaviorMonitorEnabled | Format-List
+              "Defender excluded paths: " + ((Get-MpPreference).ExclusionPath -join '; ')
+            } catch { "Defender status: unavailable ($($_.Exception.Message))" }
+            $Clock = [Diagnostics.Stopwatch]::StartNew()
+            for ($i = 0; $i -lt 20; $i++) { bun -e 0 }
+            "20 Bun starts: {0:N0} ms" -f $Clock.Elapsed.TotalMilliseconds
           } finally { Stop-Transcript }
       - name: Install locked dependencies
         run: |
@@ -84,16 +95,10 @@ jobs:
           name: windows-preview
           path: dist/release/
       - name: Full regression suite (files in parallel)
-        # Reports for now: the full suite doesn't pass on Windows yet (docs/RELEASE.md, Known preview limits).
-        # Install, startup and the focused tests above still block. Remove this line once it is green.
-        continue-on-error: true
         run: |
           bun run test 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/full-suite.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Eval bench tests
-        # Reports for now: the full suite doesn't pass on Windows yet (docs/RELEASE.md, Known preview limits).
-        # Install, startup and the focused tests above still block. Remove this line once it is green.
-        continue-on-error: true
         run: |
           bun run test:evals 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/evals.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

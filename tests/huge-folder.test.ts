@@ -80,4 +80,4 @@ test("a task in a folder of over 20,000 files says why changes are unknown and n
     expect(output).toContain("• Changes unknown: this folder has over 20,000 files; open a project folder");
     expect(output).toContain("• Changed (seen by Casper's edit and write tools): lab.md");
   } finally { await app.close(); }
-}, 60_000);
+}, 180_000);

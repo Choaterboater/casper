@@ -21,7 +21,8 @@ async function freshProcess(code: string) {
       const project = ${JSON.stringify(project)};
       ${code}
     `], { cwd: project, env: cleanEnv({ HOME: home, CASPER_PROFILE: "default", PI_OFFLINE: "1", PI_TELEMETRY: "0" }), stdout: "pipe", stderr: "pipe" });
-    const timer = setTimeout(() => child.kill("SIGKILL"), 5000);
+    // A hang guard: a run takes 1-3 s on a Windows CI runner, and a slow one passed 5 s.
+    const timer = setTimeout(() => child.kill("SIGKILL"), 20_000);
     try {
       const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       expect({ exit, stderr, stdout }).toEqual({ exit: 0, stderr: "", stdout: "passed\n" });
@@ -151,5 +152,5 @@ for (const moduleFile of ["index", "stdio"] as const) for (const action of ["clo
       await manager.close();
       console.log("passed");
     `);
-  });
+  }, 60_000);
 }

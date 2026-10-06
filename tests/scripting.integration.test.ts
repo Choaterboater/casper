@@ -69,7 +69,7 @@ test("a --model whose provider has no credentials fails (exit 1) with the sign-i
   expect(result.exit).toBe(1);
   expect(result.stderr).toContain("No key for missing. Set its API key, or /model to choose another.");
   expect(f.payloads).toEqual([]);
-}, 30_000);
+}, 180_000);
 
 test("--cd opens the given folder as the workspace; a missing folder is a usage error", async () => {
   const f = await fixture();
@@ -94,7 +94,7 @@ test("--json --continue reports the conversation it continued: the same session 
   expect({ first: first.exit, second: second.exit }).toEqual({ first: 0, second: 0 });
   expect(session(second.stdout)).toBe(session(first.stdout));
   expect(userText(f.payloads.at(-1)!)).toContain("remember ALPHA");
-}, 30_000);
+}, 60_000);
 
 test("--continue picks up the latest conversation and --resume the one whose ID starts with a prefix", async () => {
   const f = await fixture();
@@ -143,7 +143,7 @@ test("--continue picks up the latest conversation and --resume the one whose ID 
     expect(result.stderr).toContain(message);
   }
   expect(f.payloads.length).toBe(requests);
-}, 90_000);
+}, 120_000);
 
 test("--max-turns stops a model that keeps working, runs no checks and exits 2", async () => {
   const f = await fixture((request) => ({ tools: [{ name: "write", args: { path: `turn-${request}.txt`, content: "x\n" } }] }));
@@ -155,4 +155,4 @@ test("--max-turns stops a model that keeps working, runs no checks and exits 2",
   expect(result.stdout).toContain("• Incomplete — stopped after 2 turns (--max-turns); changes so far are kept; casper --continue to go on");
   expect(result.stdout).toContain("✓ changed turn-0.txt, turn-1.txt");
   expect(result.stdout).not.toContain("Casper checking");
-}, 30_000);
+}, 60_000);

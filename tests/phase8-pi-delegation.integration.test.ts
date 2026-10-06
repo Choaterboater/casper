@@ -29,7 +29,7 @@ test("real parent Pi delegates and receives the child report without sharing chi
   expect(await snapshot(f.project)).toEqual(before);
   const sessions = await readdir(path.join(f.agent, "sessions"), { recursive: true });
   expect(sessions.filter((file) => file.endsWith(".jsonl"))).toHaveLength(1);
-}, 15_000);
+}, 60_000);
 
 test("a real delegating task's receipt totals the parent's and the child's reported tokens", async () => {
   // The finishing chunk reports usage, as OpenAI-compatible providers do.
@@ -47,7 +47,7 @@ test("a real delegating task's receipt totals the parent's and the child's repor
   const receipt = result.stdout.split("\n").filter(Boolean).map((line) => JSON.parse(line)).find((event) => event.type === "receipt");
   expect(childCalls).toBe(2);
   expect(receipt.usage).toMatchObject({ turns: 2, tokens: 330 });
-}, 15_000);
+}, 60_000);
 
 for (const mode of ["turns", "calls"]) test(`real read-only Pi enforces ${mode} budget before more work`, async () => {
   const f = await fixture(() => calls(Array.from({ length: mode === "calls" ? 8 : 1 }, () => ({ name: "read", args: { path: "fixture.txt" } }))));
@@ -58,7 +58,7 @@ for (const mode of ["turns", "calls"]) test(`real read-only Pi enforces ${mode} 
   expect(report.events).toContainEqual(expect.objectContaining({ type: "assistant_response_end", stopReason: "limit" }));
   expect(f.payloads).toHaveLength(mode === "turns" ? 2 : 1);
   expect(report.events.filter((event) => event.type === "tool_end" && !event.isError)).toHaveLength(mode === "turns" ? 2 : 3);
-}, 15_000);
+}, 60_000);
 
 test("real read-only Pi spends its one opt-in report turn without doing more work", async () => {
   const f = await fixture(() => calls([{ name: "read", args: { path: "fixture.txt" } }]));
@@ -70,7 +70,7 @@ test("real read-only Pi spends its one opt-in report turn without doing more wor
   expect(f.payloads).toHaveLength(3);
   expect(report.events.filter((event) => event.type === "tool_end" && !event.isError)).toHaveLength(2);
   expect(report.events.filter((event) => event.type === "tool_end" && event.isError).length).toBeGreaterThan(0);
-}, 15_000);
+}, 30_000);
 
 test("delegation follows a reviewed worktree switch and return with fresh project context", async () => {
   const f = await fixture((payload) => payload.messages.some((message) => message.role === "tool")
@@ -97,7 +97,7 @@ const app = new CasperApp({ input, output: { write(text) {
 try { await app.runInteractive(); } finally { await app.close(); }
 `);
   // On Windows, in a full parallel run, this test has needed more than the default 10 s.
-  const result = await f.run([harness], {}, 25_000);
+  const result = await f.run([harness]);
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
   expect(result.stdout).not.toContain("[error]");
   const worktree = result.stdout.match(/\[sessions\] active candidate · ([^\n]+)/)?.[1];
@@ -110,7 +110,7 @@ try { await app.runInteractive(); } finally { await app.close(); }
   expect(JSON.stringify(f.payloads[2]?.messages)).not.toContain(json(worktree!));
   expect(git("status", "--porcelain")).toBe("");
   expect(git("worktree", "list", "--porcelain").match(/^worktree /gm)).toHaveLength(1);
-}, 30_000);
+}, 90_000);
 
 test("review regression: truncated tool loops still obey the model-turn ceiling", async () => {
   let requests = 0;
@@ -135,7 +135,7 @@ test("parent cancellation during auth preflight prevents a late request and leav
   expect(result.stdout).toContain("CANCELLED=true");
   expect(f.payloads).toHaveLength(1);
   expect(JSON.stringify(f.payloads[0])).toContain("AFTER_CANCEL_SESSION_STILL_USABLE");
-});
+}, 60_000);
 
 test("real Pi caller cancellation stops a streaming child", async () => {
   const f = await fixture(() => new Response(new ReadableStream({ start(controller) {
@@ -146,7 +146,7 @@ test("real Pi caller cancellation stops a streaming child", async () => {
   const report: { events: RuntimeEvent[] } = JSON.parse(result.stdout.split("READONLY_RESULT=")[1]!);
   expect(report.events).toContainEqual(expect.objectContaining({ type: "assistant_response_end", stopReason: "aborted" }));
   expect(f.payloads).toHaveLength(1);
-}, 15_000);
+}, 30_000);
 
 
 test("a read-only child retries a transient 429 under Pi's default policy and the child completes", async () => {
@@ -159,7 +159,7 @@ test("a read-only child retries a transient 429 under Pi's default policy and th
   expect(f.payloads).toHaveLength(2);
   expect(report.events.filter((event) => event.type === "assistant_response_end").map((event) => event.stopReason)).toEqual(["error", "stop"]);
   expect(report.events.some((event) => event.type === "error")).toBe(false);
-}, 15_000);
+}, 30_000);
 
 test("cancelling a read-only child during retry backoff stops it without another request", async () => {
   const f = await fixture(() => throttled());
@@ -171,8 +171,8 @@ test("cancelling a read-only child during retry backoff stops it without another
   expect(report.retry).toMatchObject({ enabled: true });
   expect(f.payloads).toHaveLength(1);
   // The backoff is 60 s: finishing well inside it means the abort ended the sleep.
-  expect(Date.now() - started).toBeLessThan(8_000);
-}, 15_000);
+  expect(Date.now() - started).toBeLessThan(30_000);
+}, 30_000);
 
 test("the main session honors a settings.json retry budget: it recovers within it and fails one 429 past it", async () => {
   let throttles = 2;
@@ -189,7 +189,7 @@ test("the main session honors a settings.json retry budget: it recovers within i
   expect(exhausted.exit).not.toBe(0);
   expect(exhausted.stdout + exhausted.stderr).toContain("rate-limited upstream");
   expect(f.payloads).toHaveLength(6);
-}, 15_000);
+}, 60_000);
 
 test("a provider retry says so as it happens, and the error line waits until the retries run out", async () => {
   let throttles = 1;
@@ -206,7 +206,7 @@ test("a provider retry says so as it happens, and the error line waits until the
   expect(exhausted.exit).not.toBe(0);
   expect(exhausted.stdout).toContain("trying again");
   expect(exhausted.stdout.indexOf("[error]")).toBeGreaterThan(exhausted.stdout.indexOf("trying again"));
-}, 15_000);
+}, 60_000);
 
 test("real CLI delegation reports a child that recovered from a 429 as completed", async () => {
   // Pi's real 2 s first backoff: the CLI offers no retry override for children, by design.
@@ -217,7 +217,7 @@ test("real CLI delegation reports a child that recovered from a 429 as completed
   expect(result.stdout).toContain("reviewer · completed");
   expect(result.stdout).toContain("RECOVERED_EVIDENCE");
   expect(f.payloads).toHaveLength(2);
-}, 15_000);
+}, 60_000);
 
 test("real CLI delegation fails rather than calling a provider error a successful report", async () => {
   const f = await fixture(() => new Response(JSON.stringify({ error: { message: "fixture model failure" } }), { status: 400 }));
@@ -226,7 +226,7 @@ test("real CLI delegation fails rather than calling a provider error a successfu
   expect(result.stdout).toContain("reviewer · failed");
   expect(result.stderr).toContain("Delegation failed");
   expect(f.payloads).toHaveLength(1);
-}, 15_000);
+}, 30_000);
 
 test("a real child sees Pi's continuation notice for a large read, the real error for a directory, and recovers from a cut-off call", async () => {
   // The observed reviewer run: three reads of a large file, one lost to the output-token limit,
@@ -254,4 +254,4 @@ test("a real child sees Pi's continuation notice for a large read, the real erro
   ]);
   expect(JSON.stringify(f.payloads[1]?.messages)).toContain("[Showing lines 1-1275 of 3400 (50.0KB limit). Use offset=1276 to continue.]");
   expect(f.payloads).toHaveLength(4);
-}, 15_000);
+}, 30_000);

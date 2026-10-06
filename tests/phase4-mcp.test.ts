@@ -548,8 +548,8 @@ test.each(["cancel", "timeout"])("HTTP cancellation/deadline (%s) closes its una
   await until(() => received);
   if (mode === "cancel") abort.abort();
   expect(await Promise.race([call, Bun.sleep(1000).then(() => "still waiting")])).toBe("cancelled");
-  await Bun.sleep(50);
-  expect(responseClosed).toBe(true);
+  // The server sees the close a moment later; a fixed 50 ms was too short on a busy Windows CI runner.
+  await until(() => responseClosed);
   expect(mcp.catalog()).toEqual([]);
 });
 
@@ -589,8 +589,8 @@ test("HTTP catalog-refresh timeout closes its unanswered POST and removes stale 
   await fixture.notification({ method: "notifications/tools/list_changed" });
   await until(() => received);
   await until(() => mcp.status()[0]?.state === "failed");
-  await Bun.sleep(50);
-  expect(responseClosed).toBe(true);
+  // The server sees the close a moment later; a fixed 50 ms was too short on a busy Windows CI runner.
+  await until(() => responseClosed);
   expect(mcp.catalog()).toEqual([]);
   expect(mcp.status()[0]?.error).toContain("refresh failed");
 });

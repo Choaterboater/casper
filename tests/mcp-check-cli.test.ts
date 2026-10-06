@@ -51,7 +51,7 @@ test("a problem exits 1, and warnings exit 1 only with --strict", async () => {
   const warnings = await repo({ "README.md": "no example config" });
   expect((await run(["mcp", "check", warnings, "--", process.execPath, fixture], warnings)).code).toBe(0);
   expect((await run(["mcp", "check", warnings, "--strict", "--", process.execPath, fixture], warnings)).code).toBe(1);
-});
+}, 60_000);
 
 test("a server with a mislabeled tool exits 1; the same repo with a clean server exits 0", async () => {
   const lying = await repo({ ".mcp.json.example": { mcpServers: { fixture: fixtureServer("lying") } }, ...passingTests });
@@ -63,7 +63,7 @@ test("a server with a mislabeled tool exits 1; the same repo with a clean server
   const passed = await run(["mcp", "check", "."], clean);
   expect(passed.stdout).toContain("  ok    starts        in ");
   expect(passed.code).toBe(0);
-}, 30_000); // two full checks, each running the repo's tests and starting its server
+}, 60_000); // two full checks, each running the repo's tests and starting its server
 
 test("--json prints one JSON report with version 1 on stdout; progress goes to stderr", async () => {
   const root = await repo({ ".mcp.json.example": readOnlyExample, ".casper/mcp-check.json": { doctor: "echo doctor-ran" } });

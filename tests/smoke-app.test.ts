@@ -138,7 +138,7 @@ test("a smoke failure the repairs leave in place fails the task; a service that 
   expect(incomplete.verification).toMatchObject({ status: "incomplete", repairAttempts: 0, smoke: { status: "incomplete" } });
   expect(receiptEvent(undefined, incomplete, 2).outcome).toBe("incomplete");
   expect(g.runtime.prompts).toHaveLength(1);
-}, 30_000);
+}, 60_000);
 
 test("a model check recorded after an edit in this task is never evidence; the receipt says it failed when recorded, after edits", async () => {
   const f = await fixture();

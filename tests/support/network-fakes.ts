@@ -1,7 +1,8 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fakeProgram } from "./fake-program";
+import { removeTempDir } from "./temp-dir";
 
 /** A temp project, a folder of fake tools, and a place for the fakes to leave records. */
 export interface NetworkFixture {
@@ -26,7 +27,7 @@ export async function networkFixture(): Promise<NetworkFixture> {
   const home = path.join(base, "home");
   const tmp = path.join(base, "tmp");
   for (const folder of [root, bin, records, home, tmp]) await mkdir(folder, { recursive: true });
-  return { root, bin, records, home, tmp, path: [bin, ...SYSTEM_PATH].join(path.delimiter), cleanup: () => rm(base, { recursive: true, force: true }) };
+  return { root, bin, records, home, tmp, path: [bin, ...SYSTEM_PATH].join(path.delimiter), cleanup: () => removeTempDir(base) };
 }
 
 /**

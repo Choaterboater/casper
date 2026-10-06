@@ -926,7 +926,9 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
   and removes staging on every exit path, including a signal. The final step is a
   single rename within the install directory, so an interrupted update cannot leave
   a half-written `casper`; once renamed, the new binary is installed and is not
-  rolled back automatically.
+  rolled back automatically. On Windows, antivirus or a `casper.exe` that just closed can
+  hold the file for a moment, so `install.ps1` tries the rename, and removing a staged
+  download it did not install, again for about 5 seconds before it gives up.
 - **Idempotent, per version.** Re-running a versioned installer reinstalls that
   preview, not an automatically selected newer release. Use a newer release's URL
   to upgrade.
@@ -1105,10 +1107,11 @@ below.
 - Binaries are not signed or notarized. SmartScreen (Windows) or Gatekeeper (macOS)
   may warn. `install.sh` clears the macOS quarantine flag; neither installer signs
   anything.
-- Windows x64 is tested in CI for install and startup, plus a list of test files (undo,
-  project root, sign-in, receipts, network server update). The full test suite does not
-  pass on Windows yet; that work is still open. The interactive screen has not been tried
-  on a real Windows desktop. There is no Windows ARM64 file.
+- Windows x64 is tested in CI: install and startup under PowerShell 5.1 and 7, and the
+  full test suite and eval tests, which must pass for a change to merge. Tests that need a
+  PTY, POSIX signals or file modes, or a tool that is not installed, skip there. The
+  interactive screen has not been tried on a real Windows desktop. There is no Windows
+  ARM64 file.
 - Linux: the full test suite runs in CI on an Ubuntu build machine, and the published
   `casper-linux-x64` is started once (`--version`) before upload. Nothing has been run on a
   real Linux machine, and `casper-linux-arm64` is not run anywhere. See

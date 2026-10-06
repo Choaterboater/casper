@@ -130,10 +130,19 @@ try {
   if ("$Reported" -notmatch '^casper (\S+)') { throw "The downloaded $Artifact did not identify itself as casper: $Reported. Nothing was installed." }
   $ReportedVersion = $Matches[1]
   if ($Version -and $ReportedVersion -ne $Version) { throw "Expected version $Version but the artifact reports: $Reported. Nothing was installed." }
-  try {
-    Move-Item -Force -Path $Staged -Destination $Target
-  } catch {
-    throw "Could not replace $Target (is casper.exe still running?): $($_.Exception.Message)"
+  # Antivirus or a casper.exe that just closed can hold the file for a moment, so the
+  # replace is tried again for about 5 seconds before giving up.
+  $ReplaceClock = [Diagnostics.Stopwatch]::StartNew()
+  while ($true) {
+    try {
+      Move-Item -Force -Path $Staged -Destination $Target
+      break
+    } catch {
+      if ($ReplaceClock.Elapsed.TotalSeconds -ge 5) {
+        throw "Could not replace $Target (is casper.exe still running?): $($_.Exception.Message)"
+      }
+      Start-Sleep -Milliseconds 250
+    }
   }
 
   # The user PATH is changed in the registry as Windows keeps it: entries like %USERPROFILE%\... stay as they are and
@@ -158,5 +167,14 @@ try {
 } finally {
   $ProgressPreference = $PreviousProgressPreference
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $Tmp
-  if ($Staged) { Remove-Item -Force -ErrorAction SilentlyContinue $Staged }
+  if ($Staged) {
+    # The version probe just ran from this file, and Windows or antivirus can hold it for a moment after
+    # that, so removing it is tried again for about 5 seconds.
+    $CleanupClock = [Diagnostics.Stopwatch]::StartNew()
+    while (Test-Path -LiteralPath $Staged) {
+      Remove-Item -LiteralPath $Staged -Force -ErrorAction SilentlyContinue
+      if (-not (Test-Path -LiteralPath $Staged) -or $CleanupClock.Elapsed.TotalSeconds -ge 5) { break }
+      Start-Sleep -Milliseconds 250
+    }
+  }
 }

@@ -9,7 +9,8 @@ import { removeTempDir } from "./support/temp-dir";
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await removeTempDir(root); });
 const repo = path.resolve(import.meta.dir, "..");
-setDefaultTimeout(15_000);
+// Three real Pi runtimes in fresh Bun children: 6 s on a Windows CI runner most runs, past 15 s on a loaded one.
+setDefaultTimeout(30_000);
 
 test("every default model Casper may pick after a sign-in is in Pi's catalog", async () => {
   for (const { provider, id } of DEFAULT_MODELS) {
@@ -53,7 +54,7 @@ test("with no model set, Casper picks the signed-in provider's default and saves
 
   const none = await run({}, `console.log(JSON.stringify({ selection: (await session.selectDefaultModel()) ?? null }));`) as Record<string, any>;
   expect(none.selection).toBeNull();
-});
+}, 90_000);
 
 async function appWith(status: () => Record<string, unknown>, selectDefaultModel?: () => Promise<unknown>) {
   const { CasperApp } = await import("../src/app");

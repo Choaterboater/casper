@@ -190,7 +190,7 @@ test("-- ends option parsing, so a prompt may start with a dash", async () => {
   const result = await run([cli, "--", "--", "--bogus", "is", "a", "prompt"], root);
   expect(result.stderr).not.toContain("Unknown option");
   expect(result.stdout).toContain("> --bogus is a prompt");
-});
+}, 60_000);
 
 test("parseCliArgs reads leading options only; the rest is the prompt", () => {
   expect(parseCliArgs(["--verify", "--verbose", "fix", "the", "-v", "flag"])).toMatchObject({
@@ -349,7 +349,7 @@ test("casper <folder> opens that folder; a path that is not a folder exits 64", 
   const quoted = await run([cli, "fix the bug in src/app.py"], root);
   expect(quoted.code).not.toBe(64);
   expect(quoted.stderr).not.toContain("Not a folder");
-}, 30_000); // seven CLI starts in a row
+}, 60_000); // seven CLI starts in a row
 
 test("--allow-host, --allow-write and --allow-reach allow one host, folder or machine for this run, and may repeat", () => {
   const options = parseCliArgs(["--allow-host", "api.mist.com", "--allow-host=pypi.org", "--allow-write", "../shared", "--allow-reach", "10.0.0.5", "fix it"]);

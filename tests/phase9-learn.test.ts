@@ -115,7 +115,7 @@ test("learn produces an unpromoted draft with host-checked provenance, inspectab
   expect(Object.keys(state)[0]).toEndWith("/learning-candidates.jsonl");
   // Mode bits are a POSIX guarantee; Windows synthesizes them (tests/support/platform.ts).
   if (posixModes) expect((await stat(path.join(f.home, ".casper", Object.keys(state)[0]!))).mode & 0o777).toBe(0o600);
-}, 15_000);
+}, 30_000);
 
 test("digest-bound human promotion makes one candidate a searchable reference without another model call", async () => {
   const f = await fixture();
@@ -133,7 +133,7 @@ test("digest-bound human promotion makes one candidate a searchable reference wi
   const inspected = JSON.parse((await f.run(["learn", "inspect", f.project, generated.id])).stdout);
   expect(inspected.decisions).toHaveLength(1);
   expect(inspected.decisions[0]).toEqual(JSON.parse(promoted.stdout).decision);
-}, 15_000);
+}, 60_000);
 
 for (const disposition of ["project-skill", "global-skill"] as const) test(`human promotion activates a trusted ${disposition} from owner-controlled state`, async () => {
   const f = await fixture();
@@ -154,7 +154,7 @@ for (const disposition of ["project-skill", "global-skill"] as const) test(`huma
   }, classifyTask(`use ${name}`));
   expect(loaded.map((entry) => entry.skill.name)).toContain(name);
   expect(loaded[0]?.body).toContain("human explicitly promoted this exact digest-bound candidate");
-}, 15_000);
+}, 60_000);
 
 test("ignore and promotion consent are exact, immutable, idempotent and local", async () => {
   const f = await fixture(); const before = await snapshot(f.project);
@@ -177,7 +177,7 @@ test("ignore and promotion consent are exact, immutable, idempotent and local", 
   expect(inspected.decisions).toHaveLength(1);
   expect(await snapshot(f.project)).toEqual(before);
   expect(f.payloads).toHaveLength(2);
-}, 15_000);
+}, 60_000);
 
 test("concurrent identical promotion commits one decision and one create-only artifact", async () => {
   const f = await fixture();
@@ -192,7 +192,7 @@ test("concurrent identical promotion commits one decision and one create-only ar
   const registry = await SkillRegistry.discover({ projectRoot: f.project, homeDir: f.home });
   expect(registry.list().filter((entry) => entry.name === "atomic-concurrent")).toHaveLength(1);
   expect(f.payloads).toHaveLength(2);
-}, 15_000);
+}, 30_000);
 
 test("promotion never overwrites existing skills and corrupted decisions fail closed", async () => {
   const f = await fixture();
@@ -219,7 +219,7 @@ test("promotion never overwrites existing skills and corrupted decisions fail cl
   expect(await readFile(promotionFile, "utf8")).toBe("corrupt\n");
   expect(ignored.decision.disposition).toBe("ignore");
   expect(f.payloads).toHaveLength(2);
-}, 15_000);
+}, 60_000);
 
 test("exact replay recovers only a recorded staged artifact and never repairs changed active content", async () => {
   const f = await fixture();
@@ -238,7 +238,7 @@ test("exact replay recovers only a recorded staged artifact and never repairs ch
   expect(changed.stderr).toContain("changed; refusing recovery or replacement");
   expect(await readFile(artifact.path, "utf8")).toBe("CHANGED\n");
   expect(f.payloads).toHaveLength(2);
-}, 15_000);
+}, 30_000);
 
 for (const redirected of ["active", "staged"] as const) needsSymlinks(`promotion replay refuses a redirected ${redirected} artifact directory`, async () => {
   const f = await fixture();
@@ -257,7 +257,7 @@ for (const redirected of ["active", "staged"] as const) needsSymlinks(`promotion
   expect(await snapshot(outside)).toEqual(before);
   expect(await realpath(redirectedPath)).toBe(await realpath(outside));
   expect(f.payloads).toHaveLength(2);
-}, 15_000);
+}, 60_000);
 
 needsSymlinks("promotion rejects symlinked artifact roots without writing through them", async () => {
   const f = await fixture();
@@ -272,7 +272,7 @@ needsSymlinks("promotion rejects symlinked artifact roots without writing throug
   const inspected = JSON.parse((await f.run(["learn", "inspect", f.project, draft.id])).stdout);
   expect(inspected.decisions).toEqual([]);
   expect(f.payloads).toHaveLength(2);
-}, 15_000);
+}, 30_000);
 
 test("learning rejects source overlap with Pi state before creating files or calling a provider", async () => {
   const f = await fixture(() => answer('{"candidates":[]}'));
@@ -289,7 +289,7 @@ test("learning rejects source overlap with Pi state before creating files or cal
   expect(result.stderr).toContain("overlaps writable runtime state");
   expect(f.payloads).toEqual([]);
   expect(JSON.parse((await f.run(["learn", "list", f.project])).stdout).drafts).toEqual([]);
-});
+}, 60_000);
 
 for (const layout of ["default-root", "state-alias", "missing-state"]) needsSymlinks(`learning state preflight handles ${layout} without modifying the source`, async () => {
   const f = await fixture(() => answer('{"candidates":[]}'));
@@ -321,7 +321,7 @@ for (const layout of ["default-root", "state-alias", "missing-state"]) needsSyml
   expect(f.payloads).toEqual([]);
   expect((await readdir(source, { recursive: true })).sort()).toEqual(entries);
   expect(await snapshot(source)).toEqual(before);
-});
+}, 60_000);
 
 for (const file of ["auth.json", "models-store.json"]) needsSymlinks(`learning refuses a separate Pi state's ${file} symlink into source`, async () => {
   const f = await fixture(() => answer('{"candidates":[]}'));
@@ -334,7 +334,7 @@ for (const file of ["auth.json", "models-store.json"]) needsSymlinks(`learning r
   expect(result.stderr).toContain("overlaps writable runtime state");
   expect(f.payloads).toEqual([]);
   expect(await snapshot(f.project)).toEqual(before);
-});
+}, 90_000);
 
 test("learning still permits sibling Pi state without changing source or model defaults", async () => {
   const f = await fixture(() => answer('{"candidates":[]}'));
@@ -349,7 +349,7 @@ test("learning still permits sibling Pi state without changing source or model d
   expect(f.payloads).toHaveLength(1);
   expect(await snapshot(f.project)).toEqual(before);
   expect(await readFile(path.join(state, "settings.json"), "utf8")).toBe(settings);
-});
+}, 60_000);
 
 test("learning output escapes terminal controls without altering the saved candidate", async () => {
   const unsafe = { ...candidate, name: "Pattern\u009b31m\u202e\u001b[0m" };
@@ -358,7 +358,7 @@ test("learning output escapes terminal controls without altering the saved candi
   expect(result.exit).toBe(0);
   expect(result.stdout).not.toMatch(/[\u007f-\u009f\u202a-\u202e\u2066-\u2069\u001b]/u);
   expect(JSON.parse(result.stdout).draft.candidates[0].name).toBe(unsafe.name);
-});
+}, 90_000);
 
 for (const [name, response, finish] of [
   ["malformed JSON", "not JSON", "stop"],
@@ -378,7 +378,7 @@ for (const [name, response, finish] of [
   expect(listed.exit).toBe(0);
   expect(JSON.parse(listed.stdout).drafts).toEqual([]);
   expect(f.payloads).toHaveLength(1);
-});
+}, 120_000);
 
 for (const [name, evidence] of [
   ["invented quote", { ...candidate.evidence[0], quote: "invented" }],
@@ -393,7 +393,7 @@ for (const [name, evidence] of [
   expect(result.exit).toBe(1);
   expect(JSON.parse(result.stderr).status).toBe("failed");
   expect(JSON.parse((await f.run(["learn", "list", f.project])).stdout).drafts).toEqual([]);
-});
+}, 120_000);
 
 test("source changes after model reading cannot supply a matching evidence quote", async () => {
   const f = await fixture(async (_payload, index) => {
@@ -471,7 +471,7 @@ test("learning cannot activate ambient extensions, project commands, skills, fac
   expect(added[0]).toEndWith("/learning-candidates.jsonl");
   // Pi's model/auth bookkeeping and Bun caches are not learning drafts or session history.
   expect(Object.keys(homeAfter).filter((file) => file.startsWith(".pi/agent/sessions/") && file.endsWith(".jsonl"))).toEqual([]);
-}, 15_000);
+}, 60_000);
 
 test("concurrent learning processes preserve both immutable drafts and keep repositories isolated", async () => {
   const f = await fixture(() => answer(JSON.stringify({ candidates: [candidate] })));
@@ -498,7 +498,7 @@ test("inspection retains observed provenance after source edits or removal, neve
   expect(result.exit).toBe(0);
   expect(JSON.parse(result.stdout).draft).toEqual(draft);
   expect(f.payloads).toHaveLength(1);
-});
+}, 60_000);
 
 test("corrupted draft state fails closed before model startup and stays untouched", async () => {
   const f = await fixture(() => answer(JSON.stringify({ candidates: [candidate] })));
@@ -515,7 +515,7 @@ test("corrupted draft state fails closed before model startup and stays untouche
   }
   expect(await readFile(file, "utf8")).toBe(corrupt);
   expect(f.payloads).toHaveLength(1);
-});
+}, 60_000);
 
 needsSymlinks("symlinked evidence parents, binary text and oversized files cannot become draft provenance", async () => {
   let evidenceFile = "pattern.txt";
@@ -538,7 +538,7 @@ needsSymlinks("symlinked evidence parents, binary text and oversized files canno
   const result = await f.run(["learn", alias]);
   expect(result.exit).toBe(0);
   expect(JSON.parse(result.stdout).draft.sourceRoot).toBe(await realpath(f.project));
-});
+}, 60_000);
 
 needsSymlinks("learning refuses a state directory redirected into source files before model startup", async () => {
   const f = await fixture();
@@ -564,7 +564,7 @@ test("a read-only tool failure or attempted mutation cannot publish an apparentl
   expect(result.stderr).toContain("tool errors");
   expect(await snapshot(f.project)).toEqual(before);
   expect(JSON.parse((await f.run(["learn", "list", f.project])).stdout).drafts).toEqual([]);
-});
+}, 180_000);
 
 test("exhausting the existing explorer turn limit saves no truncated draft and starts no repair", async () => {
   const f = await fixture(() => readEvidence());
@@ -573,7 +573,7 @@ test("exhausting the existing explorer turn limit saves no truncated draft and s
   expect(result.stderr).toContain("incomplete (limited");
   expect(f.payloads.length).toBeLessThanOrEqual(12);
   expect(JSON.parse((await f.run(["learn", "list", f.project])).stdout).drafts).toEqual([]);
-});
+}, 60_000);
 
 test("provider failure does not expose raw provider text or record an outcome as a learning draft", async () => {
   const f = await fixture(() => new Response(JSON.stringify({ error: { message: "PRIVATE_PROVIDER_ERROR" } }), { status: 400 }));
@@ -583,7 +583,7 @@ test("provider failure does not expose raw provider text or record an outcome as
   expect(result.stdout + result.stderr).not.toContain("PRIVATE_PROVIDER_ERROR");
   expect(JSON.parse((await f.run(["learn", "list", f.project])).stdout).drafts).toEqual([]);
   expect(f.payloads).toHaveLength(1);
-});
+}, 60_000);
 
 needsFifos("FIFO evidence and stored drafts fail without waiting for a writer", async () => {
   const f = await fixture(() => answer(JSON.stringify({ candidates: [candidate] })));
@@ -653,7 +653,7 @@ needsSymlinks("invalid, duplicated and oversized draft stores are never reset or
   expect((await f.run(["learn", f.project])).exit).toBe(1);
   expect(await readFile(outside, "utf8")).toBe(JSON.stringify(draft) + "\n");
   expect(f.payloads).toHaveLength(1);
-});
+}, 60_000);
 
 test("a full draft store refuses further generation rather than pruning earlier drafts", async () => {
   const f = await fixture(() => answer(JSON.stringify({ candidates: [candidate] })));
@@ -673,7 +673,7 @@ test("a full draft store refuses further generation rather than pruning earlier 
   expect(result.stderr).toContain("store is full");
   expect(await readFile(file, "utf8")).toBe(full);
   expect(f.payloads).toHaveLength(1);
-});
+}, 60_000);
 
 test("a Windows drive path is a local folder, while URLs, remotes and options are still refused", () => {
   for (const repo of ["C:\\x\\repo", "c:/x/repo", "D:\\"]) {

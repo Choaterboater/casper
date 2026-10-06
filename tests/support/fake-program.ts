@@ -4,6 +4,7 @@ import { chmod, copyFile, link, mkdir, readFile, rename, rm, stat, writeFile } f
 import os from "node:os";
 import path from "node:path";
 import type { FakeServerName } from "./fake-servers";
+import { removeTempDir } from "./temp-dir";
 
 /**
  * Fake programs for tests, written in JavaScript so the same fake runs on every OS.
@@ -95,7 +96,8 @@ export async function fakeProgram(file: string, body: string): Promise<string> {
   await writeFile(script, `${PREAMBLE}\n${body}\n`);
   if (windows) {
     const source = await launcher();
-    await rm(program, { force: true });
+    // A fake that just ran from this path can stay busy for a moment on Windows (EBUSY), so the removal retries.
+    await removeTempDir(program);
     // A hard link costs nothing; the temp folder can be on another drive, so copy when it can't link.
     await link(source, program).catch(() => copyFile(source, program));
   } else {

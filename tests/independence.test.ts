@@ -20,7 +20,8 @@ async function fixture() {
     const child = Bun.spawn([process.execPath, entry, ...args], {
       cwd: project, env: { ...env, ...additions }, stdin: "ignore", stdout: "pipe", stderr: "pipe",
     });
-    const timer = setTimeout(() => child.kill(), 10_000);
+    // A hang guard: a run takes 1-7 s on a Windows CI runner, and a slow one passed 10 s.
+    const timer = setTimeout(() => child.kill(), 25_000);
     try {
       const [stdout, stderr, exit] = await Promise.all([
         new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,

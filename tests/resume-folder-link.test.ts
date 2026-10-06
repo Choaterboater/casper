@@ -46,4 +46,4 @@ test.skipIf(!linksWork)("/resume lists the saved conversations when Casper start
   const listed = await run("/resume");
   expect(listed).not.toContain("No other saved conversations");
   expect(listed).toContain("Use /resume <id> (its first few characters are enough)");
-}, 60_000);
+}, 90_000);

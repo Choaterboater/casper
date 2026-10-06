@@ -113,7 +113,7 @@ try {
   expect(report.rounds.flat().map((check) => Boolean(check.reused))).toEqual([false, false, true]);
   expect(task).toMatchObject({ observedEdits: [], possibleMutations: false, changedPaths: expect.arrayContaining(["test-runs"]) });
   expect(await readFile(path.join(f.project, "test-runs"), "utf8")).toBe("xx");
-}, 15_000);
+}, 30_000);
 
 test.skipIf(!caseInsensitiveFilesystem || !POSIX)("pinned Pi preserves exclusions for case-aliased symlinks while retaining included traversal", async () => {
   let step = 0;
@@ -194,7 +194,7 @@ try {
   expect(report.rounds.flat().map((check) => Boolean(check.reused))).toEqual([false, false]);
   expect(task).toMatchObject({ observedEdits: [], possibleMutations: false, changedPaths: expect.arrayContaining(["test-runs"]) });
   expect(await readFile(path.join(f.project, "test-runs"), "utf8")).toBe("xx");
-}, 15_000);
+}, 60_000);
 
 test("pinned Pi invalidates a failed native write whose expanded path is cwd", async () => {
   let step = 0;
@@ -225,4 +225,4 @@ try {
   expect(report.rounds.flat().map((check) => Boolean(check.reused))).toEqual([false, false, true]);
   expect(task).toMatchObject({ observedEdits: [], possibleMutations: false, changedPaths: expect.arrayContaining(["test-runs"]) });
   expect(await readFile(path.join(f.project, "test-runs"), "utf8")).toBe("xx");
-}, 15_000);
+}, 60_000);

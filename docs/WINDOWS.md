@@ -8,7 +8,7 @@ Casper on Windows is a **preview for Windows x64**. In short:
 
 - **Tested in CI** (a GitHub build machine, not a desktop): install, `PATH` update,
   `--version`, `--help`, `--licenses`, `/project` and inline diagrams, under Windows
-  PowerShell 5.1 and PowerShell 7.
+  PowerShell 5.1 and PowerShell 7. The full test suite and the eval tests pass there too.
 - **Not yet tested on a real Windows desktop:** the interactive screen (pickers,
   resizing, sign-in screens), process cleanup, the browser and the debugger.
 - **No Windows ARM64 release file.**
@@ -33,6 +33,9 @@ What the installer does:
 - installs to `%LOCALAPPDATA%\Programs\casper\casper.exe`;
 - adds that folder to your **user** `PATH` (not the system `PATH`) and to the current
   PowerShell window.
+
+If antivirus or a Casper that just closed still holds `casper.exe`, the installer tries
+again for about 5 seconds before it gives up.
 
 If any check fails, nothing is installed and an older `casper.exe` stays as it was.
 Close a running Casper before you update it. The installer takes no flags; set these
@@ -60,17 +63,18 @@ and installs the new one with that release's own installer.
 ## 2. Automated checks (CI)
 
 `.github/workflows/windows-preview.yml` runs on `windows-latest` with Bun **1.4.0** and
-the locked dependencies. It runs when started by hand, or when relevant files change
-on `main`. It never publishes a release. Its steps:
+the locked dependencies. It runs when started by hand, on every pull request, and when
+relevant files change on `main`. It never publishes a release. Every step must pass,
+the full suite included. Its steps:
 
 | Step | What it checks |
 | --- | --- |
 | `bun run typecheck` | Source and test types |
 | `bun tools/platform-report.ts` | Windows process list, stopping a child and grandchild, leaving an unrelated process alone, the clean environment, opening state files, refusing a linked file (when Windows allows links), browser discovery |
-| The focused tests below | Process ownership rules; the login, model and terminal code that does not depend on the OS; undo, the project folder, browser sign-in, receipts and the network server update with real file locks. The full suite is not run on Windows: it does not pass there yet |
+| The focused tests below | Process ownership rules; the login, model and terminal code that does not depend on the OS; undo, the project folder, browser sign-in, receipts and the network server update with real file locks |
 | `bun test tests/release-compile.test.ts` | The compiled program starts and reads images with no Bun on `PATH` |
 | `bun run build:release` | Builds the release files; publishes nothing |
-| `scripts/test-install-windows.ps1` under PowerShell 5.1 and 7 | Installs from a local copy of the release files: `PATH` (saved and current), `--version`, `--help`, `--licenses`, `/project`, an inline diagram, and that a bad checksum or wrong version leaves the old program untouched |
+| `scripts/test-install-windows.ps1` under PowerShell 5.1 and 7 | Installs from a local copy of the release files: `PATH` (saved and current), `--version`, `--help`, `--licenses`, `/project`, an inline diagram, that a bad checksum or wrong version leaves the old program untouched, and that the installer waits for a `casper.exe` or staged download another process holds for a moment |
 | `bun run test` | The full suite, files in parallel, as on Linux and macOS. Tests that need a PTY, POSIX signals or file modes, or a tool that is not installed, skip |
 | `bun run test:evals` | The evaluation bench's own tests, as on Linux |
 

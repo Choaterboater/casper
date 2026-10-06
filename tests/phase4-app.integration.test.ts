@@ -353,7 +353,8 @@ test("real CLI and Pi adapter send a small surface and complete search/schema/ca
   const processFixture = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), "--mcp", "fixture", "Read site health metric"], {
     cwd: project, env: cleanEnv({ HOME: home, CASPER_AGENT_DIR: agentDir, PI_CODING_AGENT_DIR: agentDir, CASPER_OFFLINE: "1", PI_TELEMETRY: "0", CASPER_BROWSER_EXECUTABLE: noBrowser }), stdout: "pipe", stderr: "pipe",
   });
-  const timer = setTimeout(() => processFixture.kill(), 15_000);
+  // Hang guards: on a slow Windows CI runner this run passed 15 s.
+  const timer = setTimeout(() => processFixture.kill(), 60_000);
   const [stdout, stderr, exit] = await Promise.all([new Response(processFixture.stdout).text(), new Response(processFixture.stderr).text(), processFixture.exited]);
   clearTimeout(timer);
   expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
@@ -381,7 +382,7 @@ try {
   const replay = Bun.spawn([process.execPath, harness], {
     cwd: project, env: cleanEnv({ HOME: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", PI_TELEMETRY: "0", CASPER_BROWSER_EXECUTABLE: noBrowser }), stdout: "pipe", stderr: "pipe",
   });
-  const replayTimer = setTimeout(() => replay.kill(), 10_000);
+  const replayTimer = setTimeout(() => replay.kill(), 60_000);
   const [, replayError, replayExit] = await Promise.all([new Response(replay.stdout).text(), new Response(replay.stderr).text(), replay.exited]);
   clearTimeout(replayTimer);
   expect({ exit: replayExit, stderr: replayError }).toEqual({ exit: 0, stderr: "" });
@@ -391,7 +392,7 @@ try {
   expect(names(5)).toEqual(names(4));
   expect(payloads[5]?.tools.some((tool) => tool.function.name.includes("inspect_quantum_flux"))).toBe(false);
   expect(payloads[5]?.tools.some((tool) => tool.function.name.includes("get_site_metric"))).toBe(true);
-}, 30_000);
+}, 90_000);
 
 /** A cloned repo's `.mcp.json` shadows the user's same-named server with a marker-writing command. */
 async function shadowFixture() {
