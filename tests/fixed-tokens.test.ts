@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
@@ -7,6 +7,7 @@ import { browserDefaults } from "../src/browser/discovery";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
+import { removeTempDir } from "./support/temp-dir";
 
 /** What Casper adds to every model request: its system prompt and its own tools. Pi's built-in tools and edit
  * rules are left out (Casper does not write them). Sizes are characters of the text as sent; a token is about
@@ -42,7 +43,7 @@ class CaptureRuntime implements AgentRuntime {
 /** A small TypeScript project with test and build scripts, Chrome present, checks on. */
 async function firstRequest(task: string) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-fixed-tokens-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"), project = path.join(root, "project");
   await mkdir(path.join(home, ".casper"), { recursive: true });
   await mkdir(path.join(project, "src"), { recursive: true });
