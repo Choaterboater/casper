@@ -5,6 +5,7 @@ import path from "node:path";
 import { parse } from "yaml";
 import { readPlaybook } from "./ansible";
 import { MAX_SCAN_BYTES, readSmallText, resolveInside } from "./files";
+import { isOutside } from "../platform/inside";
 import { hasLineControls, lineText } from "../tui/format";
 import { runArgv } from "./run";
 import type { LabSettings } from "./spec";
@@ -87,8 +88,7 @@ const LOCAL_PROGRAM_VARIABLES = ["ansible_python_interpreter", "ansible_interpre
 function projectProgram(value: string, root: string | undefined): boolean {
   if (/\{\{|\{%|\s|[;&|`$<>]/.test(value) || !path.isAbsolute(value)) return true;
   if (!root) return false;
-  const relative = path.relative(root, value);
-  return !relative.startsWith("..") && !path.isAbsolute(relative);
+  return !isOutside(path.relative(root, value));
 }
 
 export interface InventoryHosts { hosts: LabHost[]; problem?: string; warnings?: string[]; /** Digest of every host's variables. */ vars?: string }
