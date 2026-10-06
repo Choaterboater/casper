@@ -93,7 +93,10 @@ These use fake providers, temporary folders and local-only services. They need n
 real credentials and make no paid model calls. The platform probe must exit 0; any
 failed step fails the job.
 
-CI always uploads a `windows-verification` artifact, even after a failure. It holds
+CI runs the full suite in three parts on three runners at once (split by
+`tests/timings.json` into parts of about equal time; `bun tools/test-shard.ts 3 1` prints
+part 1), beside a fourth runner that builds, checks the screen and tests the installers.
+Each uploads a `windows-verification-*` artifact, even after a failure. They hold
 the Windows build and CPU type, Bun and PowerShell versions, the commit, each step's
 output, and the installer logs for the steps that ran. The `windows-preview` artifact
 holds the built files from a green run. A step that did not run was not tested. Write
@@ -231,7 +234,7 @@ In the disposable project above (a git repository, with Git for Windows installe
 Include: Windows version, Bun and PowerShell versions, terminal app and version, the
 Casper version (`casper --version`) or source commit, the exact command, what you
 expected, what happened, and the error text. For CI, add the run URL and the
-`windows-verification` artifact, including skipped tests. Remove credentials, private
+`windows-verification-*` artifacts, including skipped tests. Remove credentials, private
 code, account names and private paths. A screenshot helps but is optional.
 
 A skipped test, or a browser or adapter that was not there, is not proof that
