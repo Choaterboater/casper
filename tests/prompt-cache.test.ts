@@ -190,17 +190,26 @@ async function surfaces(installed: boolean, prompts: string[]) {
 }
 
 test("every turn of a session offers the same tools, the browser included from the start when Chrome is there", async () => {
-  const seen = await surfaces(true, ["explain how login works", "map out the login flow", "check the website layout", "fix the parser"]);
-  expect(seen[0]).toEqual(["delegate", "ask", "web_search", "web_fetch", "casper_read_untrusted", "browser", "visualize"]);
+  const seen = await surfaces(true, ["explain how login works", "check the website layout", "fix the parser"]);
+  expect(seen[0]).toEqual(["delegate", "ask", "web_search", "web_fetch", "casper_read_untrusted", "browser"]);
   for (const surface of seen) expect(surface).toEqual(seen[0]!);
+});
+
+test("the diagram tool arrives with the first diagram word and then stays", async () => {
+  const seen = await surfaces(true, ["explain how login works", "map out the login flow", "fix the parser"]);
+  expect(seen).toEqual([
+    ["delegate", "ask", "web_search", "web_fetch", "casper_read_untrusted", "browser"],
+    ["delegate", "ask", "web_search", "web_fetch", "casper_read_untrusted", "browser", "visualize"],
+    ["delegate", "ask", "web_search", "web_fetch", "casper_read_untrusted", "browser", "visualize"],
+  ]);
 });
 
 test("without Chrome the browser tool arrives with the first browser task and then stays", async () => {
   const seen = await surfaces(false, ["explain how login works", "check the website layout", "fix the parser"]);
   expect(seen).toEqual([
-    ["delegate", "ask", "web_search", "web_fetch", "casper_read_untrusted", "visualize"],
-    ["delegate", "ask", "web_search", "web_fetch", "casper_read_untrusted", "browser", "visualize"],
-    ["delegate", "ask", "web_search", "web_fetch", "casper_read_untrusted", "browser", "visualize"],
+    ["delegate", "ask", "web_search", "web_fetch", "casper_read_untrusted"],
+    ["delegate", "ask", "web_search", "web_fetch", "casper_read_untrusted", "browser"],
+    ["delegate", "ask", "web_search", "web_fetch", "casper_read_untrusted", "browser"],
   ]);
 });
 
@@ -213,4 +222,11 @@ test("/usage says the cache share is unavailable when the runtime reports no usa
   } as unknown as Parameters<typeof runSlashCommand>[0];
   await runSlashCommand(host, "/usage");
   expect(written).toContain("Usage: unavailable\nCache: unavailable\nCost: unavailable");
+});
+
+test("diagram words bring the diagram tool; other tasks leave it out", async () => {
+  const { diagramRequested } = await import("../src/app/capabilities");
+  for (const task of ["Draw a diagram of the auth flow", "map out the login flow", "Show the dependency graph", "a mind map of the plan",
+    "make a flowchart", "chart the release steps", "visualise the modules", "Visualize this", "sketch the architecture", "a topology map of the site"]) expect({ task, offered: diagramRequested(task) }).toEqual({ task, offered: true });
+  for (const task of ["fix the parser", "add a sum function", "explain how login works", "update the sitemap", "add a GraphQL query"]) expect({ task, offered: diagramRequested(task) }).toEqual({ task, offered: false });
 });
