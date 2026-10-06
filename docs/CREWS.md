@@ -59,6 +59,7 @@ shows up in `/crew`.
 - No MCP tools (so no network changes), no `delegate`, no crew of its own, and
   it can't ask you anything.
 - Its edits stay in the copy: an edit or write anywhere else is refused.
+- Files you made private (`sandbox.denyRead`) stay private in the copy too.
 - Its commands run in the same shell sandbox as yours, with the copy as the
   project. A write outside the copy, a host you have not allowed for this
   project, or a command that would need your OK is not run. The builder reads

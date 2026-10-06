@@ -162,7 +162,7 @@ async function startCrew(host: CrewHost, manager: GitWorktreeManager, job: strin
   let result: SubagentResult;
   try {
     result = await host.runBuilder({ cwd: copy.path, goal: job, projectContext: host.projectContext,
-      shell, ...(host.signal ? { signal: host.signal } : {}) });
+      shell, main: manager.primaryWorkspace, ...(host.signal ? { signal: host.signal } : {}) });
   } catch (error) {
     result = { role: "builder", cwd: copy.path, goal: job, status: "failed", reason: error instanceof Error ? error.message : String(error),
       response: "", toolsUsed: [], toolErrors: [], truncated: false, usage: { tokens: 0, estimatedCost: 0 } };

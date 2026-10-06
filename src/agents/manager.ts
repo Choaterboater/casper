@@ -67,6 +67,8 @@ export interface BuilderRunOptions {
   context?: string;
   /** The session's sandbox around the copy, with nobody to ask (see src/crew/shell.ts). */
   shell?: RuntimeShell;
+  /** The folder the copy was made from: your private paths inside it are private in the copy too. */
+  main?: string;
   signal?: AbortSignal;
 }
 
@@ -149,7 +151,7 @@ interface ChildSpec {
   scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
   beforeToolGate?: RuntimeStartOptions["beforeToolGate"];
   /** A builder: writable tools in its copy, with this shell. */
-  builder?: { shell?: RuntimeShell };
+  builder?: { shell?: RuntimeShell; main?: string };
   signal?: AbortSignal;
 }
 
@@ -381,7 +383,7 @@ export class SubagentManager {
       maxTurns: BUILDER_LIMITS.maxTurns, maxToolCalls: BUILDER_LIMITS.maxToolCalls, timeoutMs: this.builderTimeoutMs,
       responseBytes: BUILDER_LIMITS.responseBytes, totalTextBytes: BUILDER_LIMITS.totalTextBytes,
       reportTurn: true, scrubToolOutput: this.options.scrubToolOutput, beforeToolGate: copyGate(cwd),
-      builder: { ...(input.shell ? { shell: input.shell } : {}) },
+      builder: { ...(input.shell ? { shell: input.shell } : {}), ...(input.main ? { main: path.resolve(input.main) } : {}) },
     });
   }
 
@@ -493,6 +495,13 @@ export class SubagentManager {
       this.ownedRuntimes.add(runtime);
       try {
         controller.signal.throwIfAborted();
+        const privatePaths = this.options.privatePaths?.() ?? [];
+        const main = options.builder?.main;
+        // Your private paths inside the project, at the same place in the copy.
+        const inCopy = main ? privatePaths.flatMap((entry) => {
+          const relative = path.relative(main, entry);
+          return relative && !isOutside(relative) ? [path.join(options.cwd, relative)] : [];
+        }) : [];
         const common = {
           cwd: options.cwd, signal: controller.signal,
           maxTurns: options.maxTurns, maxToolCalls: options.maxToolCalls,
@@ -500,7 +509,7 @@ export class SubagentManager {
           ...(options.scrubToolOutput ? { scrubToolOutput: options.scrubToolOutput } : {}),
           ...(options.beforeToolGate ? { beforeToolGate: options.beforeToolGate } : {}),
           ...(this.options.cache?.() ? { cache: this.options.cache() } : {}),
-          ...(this.options.privatePaths?.().length ? { privatePaths: this.options.privatePaths() } : {}),
+          ...(privatePaths.length ? { privatePaths: [...privatePaths, ...inCopy] } : {}),
           systemPromptAppend: options.systemPromptAppend,
         };
         if (options.builder) {

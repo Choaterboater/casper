@@ -60,6 +60,15 @@ test("a builder starts in its copy with the builder limits, the given shell, and
   expect(runtime.disposals).toBe(1);
 });
 
+test("your private paths stay private in the copy too", async () => {
+  const runtime = new BuilderRuntime();
+  const main = path.join(os.tmpdir(), "casper-crew-main");
+  const subagents = new SubagentManager({ runtimeFactory: () => runtime, cleanupGraceMs: 20, privatePaths: () => [path.join(main, "secrets"), path.join(os.homedir(), ".netrc")] });
+  cleanup.push(() => subagents.close());
+  await subagents.runBuilder({ ...job, main });
+  expect(runtime.options!.privatePaths).toEqual([path.join(main, "secrets"), path.join(os.homedir(), ".netrc"), path.join(copy, "secrets")]);
+});
+
 test("three builders run at once beside the helpers; a fourth waits its turn", async () => {
   const release: Array<() => void> = [];
   const held = () => new BuilderRuntime(async (emit) => {
