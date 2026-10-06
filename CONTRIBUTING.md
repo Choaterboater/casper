@@ -47,6 +47,22 @@ Open an issue first for anything large, so we can agree on the shape before you 
 
 Security problems: see [docs/SECURITY.md](docs/SECURITY.md) instead of opening a public issue.
 
+### If CI is red on your PR
+
+Most red runs mean the change broke something. Some are a flaky test: one that fails now and then on a busy
+CI runner, whatever the change. To tell which:
+
+1. Open the failed job and find the `(fail)` line: it names the test and its file.
+2. Run that file alone on your machine: `bun test tests/<name>.test.ts`. If it fails there too, it is real.
+3. If it passes alone and the test has nothing to do with your change, use **Re-run failed jobs** on the run
+   (or ask on the PR if you can't). A flake passes on the rerun; a real failure fails the same way again.
+4. A test that times out at its limit (`timed out after 30000ms`) on one OS only, and passes on the others,
+   is most often a flake. Say so on the PR; the maintainer keeps a list of the known ones.
+
+Never make a test pass by weakening what it checks or adding a fixed sleep. A test that waits for something
+should wait for the real signal with a deadline (`waitUntil`, `waitForFile` and `processGone` in
+`tests/support/wait.ts`).
+
 ## Reporting a problem
 
 Include your OS, the command, the exact error, and whether a browser or debugger was installed.
