@@ -31,6 +31,6 @@ test("MCP calls that may need approval run one at a time; reads and search stay 
     catalog: () => [{ server: "demo", generation: 1, tools: [tool("list_sites", true), tool("update_site", false)] }],
   } as unknown as MCPManager;
   const tools = await new CapabilityBroker(manager).prepare("list update sites");
-  const marked = Object.fromEntries(tools.map((entry) => [entry.name.replace(/_[0-9a-f]{24}$/, ""), entry.sequential ?? false]));
+  const marked = Object.fromEntries(tools.map((entry) => [entry.name.replace(/_[0-9a-f]{8}$/, ""), entry.sequential ?? false]));
   expect(marked).toEqual({ find_capability: false, call_capability: true, mcp_list_sites: false, mcp_update_site: true });
 });

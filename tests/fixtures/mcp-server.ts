@@ -35,6 +35,14 @@ export function fixtureServer(mode = "generic") {
     read("status", "Read fixture identity"),
     read("env_read", "Read explicitly provided fixture variable"),
   ];
+  if (mode === "docstrings") {
+    // A Python server's shape: an indented docstring and pydantic titles, with one field that is really called "title".
+    tools = [read("show_vlans", "\n        Show the VLANs on a switch.\n\n        Args:\n            switch: the switch name\n        ", {
+      type: "object", title: "show_vlansArguments", required: ["switch"],
+      properties: { switch: { type: "string", title: "Switch" }, title: { type: "string", title: "Title" },
+        filter: { anyOf: [{ type: "string", title: "Name" }, { type: "null" }], default: null, title: "Filter" } },
+    })];
+  }
   if (mode === "runtime") {
     // Slow network servers and real-world result shapes (hpe-networking-mcp, junos-mcp-server).
     tools.push(

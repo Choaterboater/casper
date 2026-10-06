@@ -843,3 +843,26 @@ test("call_capability names the bad field, and the error list is capped", async 
   expect(summary).toContain("(and 7 more)");
   expect(JSON.parse(capped.text).executed).toBe(false);
 });
+
+test("a direct tool is sent without docstring indentation, pydantic titles or a long name hash", async () => {
+  const mcp = manager([definition("py", "docstrings")]);
+  await mcp.connect("py");
+  const [tool] = (await new CapabilityBroker(mcp).prepare("show the vlans")).filter((entry) => entry.name.startsWith("mcp_"));
+  expect(tool!.name).toMatch(/^mcp_show_vlans_[0-9a-f]{8}$/);
+  expect(tool!.description).toContain("Show the VLANs on a switch.\n\nArgs:\n    switch: the switch name");
+  expect(tool!.description).not.toContain("\n        ");
+  // Titles go; a field named "title" stays.
+  expect(tool!.inputSchema).toEqual({ type: "object", required: ["switch"],
+    properties: { switch: { type: "string" }, title: { type: "string" }, filter: { anyOf: [{ type: "string" }, { type: "null" }], default: null } } });
+});
+
+test("two tools that would share a short name get the long hash instead", async () => {
+  const { runtimeName } = await import("../src/capabilities/broker");
+  const taken = new Set<string>();
+  const first = runtimeName("show_vlans", "mcp:a:show_vlans", taken);
+  expect(first).toMatch(/^mcp_show_vlans_[0-9a-f]{8}$/);
+  // Same name and id again (as a clash would look): the second one is told apart by 24 hex.
+  const second = runtimeName("show_vlans", "mcp:a:show_vlans", taken);
+  expect(second).toMatch(/^mcp_show_vlans_[0-9a-f]{24}$/);
+  expect(second.startsWith(first)).toBe(true);
+});
