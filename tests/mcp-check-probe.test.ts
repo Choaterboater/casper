@@ -28,9 +28,10 @@ test("plain text on stdout is recorded, not fatal", async () => {
 });
 
 test("a slow start fails after the limit, shows stderr with secrets hidden, and leaves no process", async () => {
-  const result = await probeServer(definition("slow-start", { FIXTURE_START_DELAY_MS: "30000" }), { connectMs: 500, env: process.env, live: false });
+  // The limit leaves room for the fixture to start and print its first line: a busy machine took over 0.5 s for that.
+  const result = await probeServer(definition("slow-start", { FIXTURE_START_DELAY_MS: "30000" }), { connectMs: 2_500, env: process.env, live: false });
   expect(result.started).toBe(false);
-  expect(result.error).toBe("Did not start in 0.5 s.");
+  expect(result.error).toBe("Did not start in 2.5 s.");
   expect(result.stderrTail.join("\n")).toContain("loading devices with token=<redacted>");
   expect(result.stderrTail.join("\n")).not.toContain("abc123");
   expect(result.pid).toBeGreaterThan(0);
