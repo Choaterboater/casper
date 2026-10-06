@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -7,6 +7,7 @@ import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEventListener, RuntimeTool } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
+import { removeTempDir } from "./support/temp-dir";
 
 /** A project the model sets up in its own turn (package.json with a test script) is checked on that turn. */
 async function run(files: Record<string, string>, options: { projectYaml?: string; checkFirst?: string } = {}) {
@@ -57,7 +58,7 @@ async function run(files: Record<string, string>, options: { projectYaml?: strin
     return { output, result: app.getLastTaskResult(), checkRuns };
   } finally {
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 }
 
@@ -105,5 +106,5 @@ test("a recorded result stays fresh when the new project keeps its command, and 
     task.useRegistry(registry({ test: "uv run pytest" }));
     expect(task.checks).toEqual(["test"]);
     await task.close();
-  } finally { await rm(cwd, { recursive: true, force: true }); }
+  } finally { await removeTempDir(cwd); }
 });

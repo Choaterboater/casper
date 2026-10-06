@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 
 const source = path.resolve(import.meta.dir, "..");
 // Each test's code is source text inside a template literal, so "[\\\\/]" there reaches the regex as
@@ -27,7 +28,7 @@ async function freshProcess(code: string) {
       const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       expect({ exit, stderr, stdout }).toEqual({ exit: 0, stderr: "", stdout: "passed\n" });
     } finally { clearTimeout(timer); }
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTempDir(root); }
 }
 
 test("local app commands and unapproved preparation do not load MCP SDK or Ajv", async () => {

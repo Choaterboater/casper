@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { NETCONAN_FAILED, Scrubber, findNetconan, mergeNetconan, netconanPass, scrubNote } from "../src/secrets/netconan";
@@ -7,13 +7,14 @@ import { LINE_MARKER, SECRET_MARKER, scrubText } from "../src/secrets/scrub";
 import { fakeProgram } from "./support/fake-program";
 import { posixModes } from "./support/platform";
 import { waitUntil } from "./support/wait";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
 async function folder() {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-netconan-test-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const tmp = path.join(root, "tmp");
   const bin = path.join(root, "bin");
   await mkdir(tmp);

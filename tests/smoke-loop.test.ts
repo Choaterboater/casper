@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { receiptEvent } from "../src/app/json-events";
@@ -9,9 +9,10 @@ import { formatReceipt } from "../src/task/result";
 import type { VerificationReport } from "../src/verify/evidence";
 import { VerifierRegistry } from "../src/verify/registry";
 import { verifyAndRepair } from "../src/verify/repair-loop";
+import { removeTempDir } from "./support/temp-dir";
 
 const dirs: string[] = [];
-afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => removeTempDir(dir))); });
 
 /** A project whose `test` passes once the file `fixed` exists, and a smoke run that counts its calls. */
 async function fixture() {

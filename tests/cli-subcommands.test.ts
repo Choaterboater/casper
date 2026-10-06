@@ -1,13 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseCliArgs, parseDoctorArgs, parseSecurityArgs, parseUpdateArgs, SUBCOMMANDS, UsageError } from "../src/cli-args";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 
 const cli = path.resolve(import.meta.dir, "../src/cli.ts");
 const temps: string[] = [];
-afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });
 
 async function run(args: string[]) {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "casper-subcommand-"));

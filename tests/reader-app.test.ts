@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
@@ -11,11 +11,12 @@ import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
 import type { AgentRuntime, RuntimeTool } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
+import { removeTempDir } from "./support/temp-dir";
 
 /** The reader as a session offers it: on by default, no cost until called, off with reader: off in your own config. */
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(roots.splice(0).map((root) => removeTempDir(root))); });
 
 async function folders() {
   const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-reader-app-")));

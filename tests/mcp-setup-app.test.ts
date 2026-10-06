@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { PassThrough } from "node:stream";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +9,7 @@ import { SkillRegistry } from "../src/skills/registry";
 import { discoverMCPConfiguration } from "../src/mcp/config";
 import type { AgentRuntime, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { posixOnly } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const network = path.join(import.meta.dir, "fixtures/mcp-network-server.ts");
 const cleanup: (() => Promise<unknown>)[] = [];
@@ -16,7 +17,7 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 
 async function fixture(files: { claude?: unknown; casper?: unknown }) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-setup-app-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home");
   const project = path.join(root, "project");
   await mkdir(path.join(project, ".casper"), { recursive: true });

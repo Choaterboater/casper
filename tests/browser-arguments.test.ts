@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { BROWSER_ACTION_FIELDS, BROWSER_ACTIONS, BROWSER_FIELDS, browserArguments, webURL } from "../src/browser/arguments";
 import { parseScenario } from "../src/browser/scenario";
 import { BrowserSession } from "../src/browser/session";
 import { browserTool, BROWSER_USAGE } from "../src/browser/tools";
+import { removeTempDir } from "./support/temp-dir";
 
 // The shape a model sent seven times in a row: every schema field filled, most with placeholders.
 const everyField = {
@@ -31,7 +32,7 @@ test("the tool runs that serve call instead of rejecting it, and says what it di
     expect(result.text).not.toContain("Unexpected browser arguments");
     expect(result.text).not.toContain("Unknown browser argument");
     await session.close();
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTempDir(root); }
 });
 
 test("unknown fields and actions get errors that say what to send", () => {

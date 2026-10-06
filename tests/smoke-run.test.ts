@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { hostProcessPlatform, ProcessCleanupError, type ProcessPlatform, type ProcessRecord } from "../src/platform/processes";
@@ -8,13 +8,14 @@ import { SmokeChecks, type SmokeCheck } from "../src/services/smoke";
 import { serviceTool } from "../src/services/tool";
 import { formatReceipt, formatTaskResult } from "../src/task/result";
 import { CRASH_EXIT, crashService, notesServer } from "./support/notes-server";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
 async function fixture(options: { command?: string; platform?: ProcessPlatform } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-smoke-run-")));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   await mkdir(path.join(root, "src"));
   await writeFile(path.join(root, "src/server.ts"), notesServer(false));
   const manager = new ServiceManager({ projectRoot: root, platform: options.platform, services: {

@@ -11,6 +11,7 @@ import { VisualizationRouter, resolveVisualizationSettings } from "../src/visual
 import { parseVisualizationGraph, spanningTree } from "../src/visualize/types";
 import { artifactFilesystemSupported } from "../src/visualize/artifacts";
 import { needsSymlinks } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 // Artifact files are written only on macOS and Linux (see src/visualize/artifacts.ts); elsewhere the diagram stays
 // in-conversation, so these directory and file checks have nothing to check there.
@@ -18,7 +19,7 @@ const needsArtifactFiles = test.skipIf(!artifactFilesystemSupported);
 const needsArtifactLinks = artifactFilesystemSupported ? needsSymlinks : test.skip;
 
 const roots: string[] = [];
-afterEach(async () => { for (const root of roots.splice(0)) await fs.rm(root, { recursive: true, force: true }); });
+afterEach(async () => { for (const root of roots.splice(0)) await removeTempDir(root); });
 async function fixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "casper-review-")); roots.push(root);
   const workspace = path.join(root, "workspace"); await fs.mkdir(workspace);

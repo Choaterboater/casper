@@ -1,14 +1,15 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { McpCheck } from "../src/mcp/check/index";
 import { DEAD_PROXY, liveEnv, offlineEnv } from "../src/mcp/check/sandbox";
 import type { McpCheckCommand } from "../src/cli-args";
 import { checkCommand } from "./support/check-command";
+import { removeTempDir } from "./support/temp-dir";
 
 const temps: string[] = [];
-afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });
 
 test("offline removes credentials and points every web proxy at a dead local port", () => {
   const env = offlineEnv({

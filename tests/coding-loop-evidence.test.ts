@@ -11,6 +11,7 @@ import { workspaceState } from "../src/verify/workspace-state";
 import { formatVerificationReport, formatVerificationResult } from "../src/verify/evidence";
 import { CHECK_LIMIT_MS, checkCommand } from "./support/check-command";
 import { needsPosixModes, posixOnly, posixSymlinks } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const dirs: string[] = [];
 async function fixture() {
@@ -18,7 +19,7 @@ async function fixture() {
   dirs.push(root);
   return root;
 }
-afterEach(async () => { await Promise.all(dirs.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(dirs.splice(0).map((root) => removeTempDir(root))); });
 
 posixSymlinks("artifact-only build success cannot improve when an unrelated symlink disables observation", async () => {
   for (const linked of [false, true]) {

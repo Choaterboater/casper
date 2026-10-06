@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { realpathSync } from "node:fs";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { classifyPath, fileToolGate, gitInternalsCommand, hooksPathTargets, PRIVATE_PATHS, privatePathCommand, windowsShellPath } from "../src/platform/project-paths";
 import { POSIX } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 let root: string; let home: string; let project: string; let context: { root: string; home: string; agentDir: string };
 beforeAll(async () => {
@@ -24,7 +25,7 @@ beforeAll(async () => {
   }
   context = { root: project, home, agentDir: path.join(home, "agent") };
 });
-afterAll(() => rm(root, { recursive: true, force: true }));
+afterAll(() => removeTempDir(root));
 
 test("private places are refused by name for every file tool, reads and writes", () => {
   expect(PRIVATE_PATHS).toEqual(expect.arrayContaining([".ssh", ".aws", ".casper/agent/auth.json", ".casper/mcp-consent.key", ".pi/agent/auth.json", ".config/gcloud"]));
@@ -237,7 +238,7 @@ function shortName(folder: string): string | undefined {
 }
 const shortHome = await (async () => {
   const folder = await mkdtemp(path.join(os.tmpdir(), "casper-long-home-folder-"));
-  try { return shortName(realpathSync.native(folder)); } finally { await rm(folder, { recursive: true, force: true }); }
+  try { return shortName(realpathSync.native(folder)); } finally { await removeTempDir(folder); }
 })();
 
 test.skipIf(!shortHome)("a private place named by its Windows 8.3 short name is still private", async () => {

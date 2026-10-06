@@ -22,6 +22,7 @@ import { SkillRegistry } from "../src/skills/registry";
 import { GitWorktreeManager } from "../src/workspace/worktree";
 import { posixOnly } from "./support/platform";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 
 const execFileAsync = promisify(execFile);
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -34,7 +35,7 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
 
 async function repository(prefix = "casper-phase7-repo-"): Promise<{ home: string; repo: string }> {
   const root = await mkdtemp(path.join(os.tmpdir(), prefix));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home");
   const repo = path.join(root, "repo");
   await mkdir(home);
@@ -231,7 +232,7 @@ describe("Phase 7 sessions and worktrees", () => {
     }
     // Other refusals stay: a workspace mismatch is never silently rebound.
     const elsewhere = await mkdtemp(path.join(os.tmpdir(), "casper-phase7-elsewhere-"));
-    cleanup.push(() => rm(elsewhere, { recursive: true, force: true }));
+    cleanup.push(() => removeTempDir(elsewhere));
     const mismatched = new BranchRuntimeSession(sessions, elsewhere, path.join(sessions, "other.jsonl"));
     await expect((await SessionWorkspaceManager.open(options)).resumeActive(mismatched)).rejects.toThrow("does not match");
   });
@@ -246,7 +247,7 @@ describe("Phase 7 sessions and worktrees", () => {
       const child = await manager.branch("exp", { getRuntime: async () => runtime, confirm: async () => true });
       // A healthy experiment still has to be applied or discarded through review.
       await expect(manager.switch("main", { getRuntime: async () => runtime, confirm: async () => true })).rejects.toThrow("must return with");
-      if (breakage === "missing") await rm(child!.workspacePath, { recursive: true, force: true });
+      if (breakage === "missing") await removeTempDir(child!.workspacePath);
       else await git(child!.workspacePath, "checkout", "--detach");
       const options = { getRuntime: async () => runtime, confirm: async () => true, verify: async () => "pass" as const };
       if (breakage === "missing") {
@@ -335,7 +336,7 @@ describe("Phase 7 sessions and worktrees", () => {
 
   test("concurrent branch-store writers do not lose independent session branches", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "casper-phase7-store-"));
-    cleanup.push(() => rm(root, { recursive: true, force: true }));
+    cleanup.push(() => removeTempDir(root));
     const project = path.join(root, "project");
     await mkdir(project);
     const key = sessionProjectKey(project);
@@ -558,7 +559,7 @@ describe("Phase 7 sessions and worktrees", () => {
 
   test("the pinned Pi adapter clones, names, resumes, and persists context through its session runtime", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "casper-phase7-pi-"));
-    cleanup.push(() => rm(root, { recursive: true, force: true }));
+    cleanup.push(() => removeTempDir(root));
     const main = path.join(root, "main");
     const branch = path.join(root, "branch");
     const agentDir = path.join(root, "agent");

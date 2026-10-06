@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { copyFile, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { sourceDependencyProblem, staleDependencies } from "../src/runtime/source-deps";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 
 const REPO = path.resolve(import.meta.dir, "..");
 
@@ -25,7 +26,7 @@ test("a package missing from node_modules, or at another pinned version, needs b
     expect(staleDependencies(repo)).toEqual(["@scope/new", "old"]);
     expect(sourceDependencyProblem(repo)).toBe(`New parts were added. Run: bun install  (in ${repo})`);
   } finally {
-    await rm(repo, { recursive: true, force: true });
+    await removeTempDir(repo);
   }
 });
 
@@ -44,7 +45,7 @@ test("from source, a pull that added a package prints one line and exits 1 inste
     const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect({ exit, stdout, stderr }).toEqual({ exit: 1, stdout: "", stderr: `New parts were added. Run: bun install  (in ${repo})\n` });
   } finally {
-    await rm(repo, { recursive: true, force: true });
+    await removeTempDir(repo);
   }
 });
 
@@ -65,7 +66,7 @@ process.stdout.write(JSON.stringify({ mac: mac ?? null, linux, other: other ?? n
     expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
     expect(JSON.parse(stdout)).toEqual({ mac: null, linux: "not installed", other: null });
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    await removeTempDir(dir);
   }
 });
 

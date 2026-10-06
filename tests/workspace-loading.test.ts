@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp, type CasperAppOptions } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -16,7 +17,7 @@ function gate() {
 const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-workspace-load-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home");
   const project = path.join(root, "project");
   await mkdir(home); await mkdir(project);

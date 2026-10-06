@@ -8,6 +8,7 @@ import { discoverLSPConfiguration } from "../src/lsp/config";
 import { discoverReferenceConfiguration } from "../src/references/config";
 import { needsFifos, needsSymlinks } from "./support/platform";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 
 test("profile selections reject traversal and malformed values at every precedence layer", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-profile-review-"));
@@ -40,7 +41,7 @@ test("profile selections reject traversal and malformed values at every preceden
   } finally {
     if (previous === undefined) delete process.env.CASPER_PROFILE;
     else process.env.CASPER_PROFILE = previous;
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -78,7 +79,7 @@ test("all four loaders agree on profile names and load the same valid profile", 
   } finally {
     if (previous === undefined) delete process.env.CASPER_PROFILE;
     else process.env.CASPER_PROFILE = previous;
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -106,7 +107,7 @@ needsFifos(`${kind} discovery rejects a project FIFO without blocking startup`, 
         expect(result.diagnostics).toHaveLength(1);
         expect(result.diagnostics[0]).toContain(`Cannot read ${kind.toUpperCase()} configuration`);
       } finally { clearTimeout(timer); child.kill(); }
-    } finally { await rm(root, { recursive: true, force: true }); }
+    } finally { await removeTempDir(root); }
   });
 }
 
@@ -138,7 +139,7 @@ needsSymlinks("project rules and project.yaml are never read through a symlink l
     await writeFile(path.join(project, "docs/rules.md"), "In-repo rules.");
     await symlink(path.join("..", "docs/rules.md"), path.join(project, ".casper/rules.md"));
     expect((await load()).projectRules).toBe("In-repo rules.");
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTempDir(root); }
 });
 
 test("oversized project rules are refused instead of being sent with every prompt", async () => {
@@ -147,7 +148,7 @@ test("oversized project rules are refused instead of being sent with every promp
     await mkdir(path.join(root, ".casper"));
     await writeFile(path.join(root, ".casper/rules.md"), "x".repeat(64 * 1024 + 1));
     await expect(loadConfiguration({ projectRoot: root, homeDir: path.join(root, "home") })).rejects.toThrow("Cannot read .casper/rules.md: file exceeds 65536 bytes");
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTempDir(root); }
 });
 
 needsFifos("a project.yaml FIFO fails visibly without blocking startup", async () => {
@@ -164,7 +165,7 @@ needsFifos("a project.yaml FIFO fails visibly without blocking startup", async (
       expect(await child.exited).toBe(0);
       expect(await new Response(child.stdout).text()).toContain("Cannot read .casper/project.yaml: not a regular file");
     } finally { clearTimeout(timer); }
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTempDir(root); }
 });
 
 test("a mistyped policy value fails naming the file, the key and the allowed values", async () => {
@@ -189,7 +190,7 @@ test("a mistyped policy value fails naming the file, the key and the allowed val
       await expect(load()).rejects.toThrow(message);
       await rm(file);
     }
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTempDir(root); }
 });
 
 test("unknown top-level and policy-section keys are reported as warnings, not silently dropped", async () => {
@@ -211,7 +212,7 @@ test("unknown top-level and policy-section keys are reported as warnings, not si
       ".casper/project.yaml: unknown key behavior.inspectFirst (ignored)",
     ]);
     expect(configuration.policy.behavior.autonomy).toBe("low");
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTempDir(root); }
 });
 
 test("Casper shows configuration warnings at startup", async () => {
@@ -227,5 +228,5 @@ test("Casper shows configuration warnings at startup", async () => {
     expect(stdout).toContain("[config] .casper/project.yaml: unknown key skils (ignored)");
     expect(stdout).toContain("[config] .casper/project.yaml: unknown key x");
     expect(stdout).not.toContain("\x1b]");
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTempDir(root); }
 });

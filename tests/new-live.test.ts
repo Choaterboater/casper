@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { formatNewProjectReceipt } from "../src/new/receipt";
 import { createProject } from "../src/new/scaffold";
+import { removeTempDir } from "./support/temp-dir";
 
 /**
  * Real `casper new` runs: real uv, bun and git, packages from pypi.org and npm. Off by default
@@ -32,7 +33,7 @@ describe.skipIf(!live)("casper new, live", () => {
     // bun from this test run first on PATH, so web-app uses the same Bun.
     env = { ...process.env, PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH}`, GIT_CONFIG_GLOBAL: gitconfig, GIT_CONFIG_NOSYSTEM: "1" };
   });
-  afterAll(async () => { if (root) await rm(root, { recursive: true, force: true }); });
+  afterAll(async () => { if (root) await removeTempDir(root); });
 
   const make = async (template: string, name: string) => {
     const result = await createProject({ parent, name, template, env, homeDir: root });

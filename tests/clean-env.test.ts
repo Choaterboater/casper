@@ -1,8 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 
 const env = process.env as Record<string, string | undefined>;
 const planted = ["PI_CODING_AGENT_DIR", "PI_MODEL", "CASPER_PROFILE", "CASPER_AGENT_DIR", "OPENROUTER_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "COPILOT_GITHUB_TOKEN", "AWS_BEARER_TOKEN_BEDROCK", "CLEAN_ENV_UNRELATED"];
@@ -38,7 +39,7 @@ test("a fake HOME is the child's home folder on every OS, so a spawned Casper ne
     const [out, exit] = await Promise.all([new Response(child.stdout).text(), child.exited]);
     expect({ exit, home: out }).toEqual({ exit: 0, home });
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await removeTempDir(home);
   }
 });
 

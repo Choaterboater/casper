@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { McpCheck } from "../src/mcp/check/index";
@@ -9,10 +9,11 @@ import { DEAD_PROXY } from "../src/mcp/check/sandbox";
 import type { McpCheckCommand } from "../src/cli-args";
 import { fixtureTools } from "./fixtures/mcp-check-server";
 import { checkCommand } from "./support/check-command";
+import { removeTempDir } from "./support/temp-dir";
 
 const fixture = path.resolve(import.meta.dir, "fixtures/mcp-check-server.ts");
 const temps: string[] = [];
-afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });
 
 async function repo(start?: unknown): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-mcp-check-live-"));

@@ -1,9 +1,10 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { AGENT_DIR_ENV, agentStoreWarnings, casperAgentDir, importLegacyEngineState, useCasperAgentStore } from "../src/runtime/agent-store";
 import { needsSymlinks, posixModes } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const env = process.env as Record<string, string | undefined>;
 
@@ -21,7 +22,7 @@ afterAll(async () => { for (const close of cleanup.splice(0).reverse()) await cl
 
 async function tempHome(): Promise<string> {
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-agent-store-"));
-  cleanup.push(() => rm(home, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(home));
   return home;
 }
 

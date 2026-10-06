@@ -1,13 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
 import { COMMANDS } from "../src/tui/commands";
 import { FULL_HELP_TEXT, HELP_TEXT, helpFor, unknownCommandMessage, wrapHelp } from "../src/tui/help";
+import { removeTempDir } from "./support/temp-dir";
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(roots.splice(0).map((dir) => removeTempDir(dir))); });
 
 async function run(prompt: string): Promise<{ output: string; error?: string }> {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-help-")); roots.push(root);

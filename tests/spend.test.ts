@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -11,6 +11,7 @@ import { SkillRegistry } from "../src/skills/registry";
 import { formatReceipt, taskExitCode } from "../src/task/result";
 import { formatCost, formatFooterSpend, formatTaskSpend, formatTokens, requestSpendLimit, SpendGuard } from "../src/task/spend";
 import { fakeWriter } from "./support/tty";
+import { removeTempDir } from "./support/temp-dir";
 
 const ambientTerm = process.env.TERM;
 process.env.TERM = "xterm-256color";
@@ -69,7 +70,7 @@ test("spend limits work with no setup; the user's config changes or turns them o
     await expect(loadConfiguration({ projectRoot, homeDir })).rejects.toThrow("spend is a user setting");
   } finally {
     if (previous === undefined) delete process.env.CASPER_PROFILE; else process.env.CASPER_PROFILE = previous;
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -127,7 +128,7 @@ async function fixture(status: Partial<RuntimeStatus> = {}, costs = [1.2, 3.82])
     loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
     loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
   });
-  return { root, project, state, make, cleanup: () => rm(root, { recursive: true, force: true }) };
+  return { root, project, state, make, cleanup: () => removeTempDir(root) };
 }
 
 test("at about $5 the task pauses on a numbered question, Stop here first; Enter stops and keeps the work", async () => {

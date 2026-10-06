@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { checkLabels, routerContract, type CheckTool } from "../src/mcp/check/labels";
@@ -7,9 +7,10 @@ import { repoUsesElicitation } from "../src/mcp/check/server";
 import { fixtureTools } from "./fixtures/mcp-check-server";
 import { matchPreset } from "../src/mcp/presets";
 import type { MCPTool } from "../src/mcp/manager";
+import { removeTempDir } from "./support/temp-dir";
 
 const temps: string[] = [];
-afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });
 
 const RO = { readOnlyHint: true };
 const tool = (name: string, annotations?: CheckTool["annotations"], properties: Record<string, unknown> = {}, extra: Partial<CheckTool> = {}): CheckTool =>

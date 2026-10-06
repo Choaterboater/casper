@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createSessionSandbox, runtimeShell, SHELL_DECLINED, type SandboxHost } from "../src/app/sandbox";
@@ -8,6 +8,7 @@ import { inspectProject } from "../src/project/inspect";
 import { commandPrefix, matchesPrefix, readOnlyCommand } from "../src/sandbox/read-only";
 import { SandboxStore } from "../src/sandbox/store";
 import { fakeEngine } from "./support/sandbox-fakes";
+import { removeTempDir } from "./support/temp-dir";
 
 /**
  * With no sandbox (Windows, bubblewrap missing), commands that only read don't ask, and "don't ask again" covers a
@@ -15,7 +16,7 @@ import { fakeEngine } from "./support/sandbox-fakes";
  */
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(roots.splice(0).map((root) => removeTempDir(root))); });
 
 test("commands that only read are known; anything that writes, runs a program or redirects is not", () => {
   for (const command of ["ls -la", "pwd", "cat README.md", "git status", "git diff --stat", "git log --oneline -5", "grep -rn TODO src",
@@ -246,7 +247,7 @@ test("a whole-folder search that prints contents asks when the folder holds a .e
     for (const command of ["grep -r hi docs", "rg hi docs", "tree", "find . -name '*.ts'", "du -sh .", "ls -R"]) {
       expect([command, readOnlyCommand(command, where)]).toEqual([command, true]);
     }
-  } finally { await rm(base, { recursive: true, force: true }); }
+  } finally { await removeTempDir(base); }
 });
 
 test("an option that takes a value never hides another option behind it: -n --output, -U --no-index, --abbrev --contents= ask", () => {

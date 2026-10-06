@@ -8,6 +8,7 @@ import { artifactName, hostTarget, TARGETS } from "../scripts/build-release";
 import { POSIX, posixOnly } from "./support/platform";
 import { sshKeygenVerifies, testReleaseKey } from "./support/release-signing";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const installer = path.join(repoRoot, "scripts/install.sh");
@@ -16,7 +17,7 @@ afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await 
 
 async function tempDir(prefix: string): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), prefix));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   return root;
 }
 

@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
 import type { AgentSession, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PiModels } from "../src/runtime/pi-models";
+import { removeTempDir } from "./support/temp-dir";
 
 type Model = NonNullable<AgentSession["model"]>;
 const base: Model = {
@@ -20,7 +21,7 @@ function reply(model: Model, text: string): AssistantMessage {
 }
 
 const dirs: string[] = [];
-afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => removeTempDir(dir))); });
 
 async function setup(roles: Record<string, string> | undefined, auth = (_provider: string) => true) {
   const dir = await mkdtemp(path.join(os.tmpdir(), "casper-reader-model-")); dirs.push(dir);

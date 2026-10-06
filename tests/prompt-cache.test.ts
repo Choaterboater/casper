@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { stream as anthropicStream } from "@earendil-works/pi-ai/api/anthropic-messages";
@@ -14,13 +14,14 @@ import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } f
 import { SkillRegistry } from "../src/skills/registry";
 import { cleanEnv } from "./support/env";
 import { posixOnly } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => unknown> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
 async function folders() {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-prompt-cache-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home");
   const project = path.join(root, "project");
   await mkdir(path.join(home, ".casper", "profiles", "work"), { recursive: true });

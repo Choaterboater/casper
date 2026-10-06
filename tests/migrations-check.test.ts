@@ -1,17 +1,18 @@
 import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { detectMigrations, formatMigrationsLine, migrationParts, migrationsAffected, runMigrationsCheck } from "../src/verify/migrations";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
 async function project(files: Record<string, string>) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-migrations-test-")));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   for (const [name, text] of Object.entries(files)) { await mkdir(path.dirname(path.join(root, name)), { recursive: true }); await writeFile(path.join(root, name), text); }
   return root;
 }

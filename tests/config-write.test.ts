@@ -1,14 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
 import { projectCommandLine, saveProjectCommand } from "../src/project/config-write";
 import { needsFifos, needsSymlinks } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const temporary: string[] = [];
 afterEach(async () => {
-  await Promise.all(temporary.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  await Promise.all(temporary.splice(0).map((directory) => removeTempDir(directory)));
 });
 
 async function project(yaml?: string) {

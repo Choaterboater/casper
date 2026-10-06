@@ -1,7 +1,7 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { lookPrompt } from "../src/services/page-look";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -11,6 +11,7 @@ import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEventListener, RuntimeImage, RuntimeSession, RuntimeStartOptions } from "../src/runtime/types";
 import type { PageLoad, PageOpener } from "../src/services/page-checks";
 import { SkillRegistry } from "../src/skills/registry";
+import { removeTempDir } from "./support/temp-dir";
 
 const ambientTerm = process.env.TERM;
 process.env.TERM = "xterm-256color";
@@ -26,7 +27,7 @@ type Turn = (options: RuntimeStartOptions) => Promise<void>;
 /** A Next.js project whose dev server answers every page; the browser stand-in hands back two real PNG files. */
 async function fixture(input: { vision: boolean; showPages?: "ask" | "on" | "off"; tty?: boolean }) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-page-look-")));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   const home = path.join(root, "home"), project = path.join(root, "project"), shots = path.join(root, "shots");
   await mkdir(path.join(home, ".casper"), { recursive: true }); await mkdir(path.join(project, ".casper"), { recursive: true }); await mkdir(shots);
   if (input.showPages) await writeFile(path.join(home, ".casper", "config.yaml"), `showPages: ${input.showPages}\n`);

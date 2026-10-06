@@ -1,9 +1,10 @@
 import { afterEach, expect } from "bun:test";
-import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { posixOnly } from "./support/platform";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -27,7 +28,7 @@ async function run(tools: Array<{ name: string; args: unknown }>, extraEnv: Reco
   setup?: (dirs: { root: string; home: string; project: string }) => Promise<void>) {
   let step = 0;
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-pi-scrub-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"); const project = path.join(root, "project"); const agent = path.join(home, ".pi/agent");
   await mkdir(agent, { recursive: true }); await mkdir(path.join(project, "backups"), { recursive: true }); await mkdir(path.join(project, "src"));
   await writeFile(path.join(project, "backups/sw1.cfg"), CONFIG);

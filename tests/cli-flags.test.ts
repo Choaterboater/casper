@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { verificationFlag } from "../src/cli-main";
@@ -8,10 +8,11 @@ import { resolveVerificationMode } from "../src/verify/mode";
 import { CASPER_VERSION } from "../src/version";
 import { needsPosixModes, posixOnly } from "./support/platform";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 
 const cli = path.resolve(import.meta.dir, "../src/cli.ts");
 const tempDirs: string[] = [];
-afterEach(async () => { for (const dir of tempDirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of tempDirs.splice(0)) await removeTempDir(dir); });
 
 async function run(args: string[], cwd: string, home = cwd) {
   // Exercise default Casper state without inheriting the caller's override.

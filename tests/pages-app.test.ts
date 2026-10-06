@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { stringify } from "yaml";
@@ -10,6 +10,7 @@ import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEventListener, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import type { PageLoad, PageOpener } from "../src/services/page-checks";
 import { SkillRegistry } from "../src/skills/registry";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -53,7 +54,7 @@ function fakeOpener(project: string): PageOpener & { urls: string[]; closed: num
 
 async function fixture(config: Record<string, unknown> = {}, options: { verificationMode?: "auto" | "off"; declare?: boolean; manifest?: Record<string, unknown> } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-pages-app-")));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   const home = path.join(root, "home"), project = path.join(root, "project");
   await mkdir(home); await mkdir(path.join(project, ".casper"), { recursive: true });
   await writeFile(path.join(project, "server.ts"), SERVER);
@@ -165,7 +166,7 @@ test("a changed page that needs a value is listed, not opened", async () => {
 
 test("a Streamlit app's exception is caught from the server log and handed to the repair", async () => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-pages-streamlit-")));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   const home = path.join(root, "home"), project = path.join(root, "project");
   await mkdir(home); await mkdir(path.join(project, ".casper"), { recursive: true });
   await writeFile(path.join(root, "session.jsonl"), "");

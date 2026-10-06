@@ -6,9 +6,10 @@ import os from "node:os";
 import path from "node:path";
 import { UndoStore } from "../src/task/undo";
 import { posixOnly, posixSymlinks } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(roots.splice(0).map((root) => removeTempDir(root))); });
 
 async function setup(options: { git?: boolean } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), "casper-undo-"));

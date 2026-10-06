@@ -8,6 +8,7 @@ import { EVAL_TASKS, findEvalTask } from "../evals/tasks";
 import { needsSymlinks } from "./support/platform";
 import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeModelSelectionOptions, RuntimeStartOptions, RuntimeUsage } from "../src/runtime/types";
 import { isolatedEnvironment } from "../src/platform/environment";
+import { removeTempDir } from "./support/temp-dir";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -15,7 +16,7 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 
 async function tempDir(prefix: string): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), prefix));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   return root;
 }
 
@@ -91,7 +92,7 @@ test("every fixture is a solved baseline that its setup makes fail", async () =>
     const solved = seen.get(task.fixture) ?? await prepareWorkdir({ ...task, setup: undefined }, repoRoot);
     if (!seen.has(task.fixture)) {
       seen.set(task.fixture, solved);
-      cleanup.push(() => rm(solved, { recursive: true, force: true }));
+      cleanup.push(() => removeTempDir(solved));
     }
     const baseline = await runVerification(task.verify, { workdir: solved, repoRoot, homeDir: home, timeoutMs: 120_000 });
     expect({ task: task.id, baseline: baseline.status }).toEqual({ task: task.id, baseline: "pass" });
@@ -99,7 +100,7 @@ test("every fixture is a solved baseline that its setup makes fail", async () =>
   for (const task of EVAL_TASKS) {
     if (!task.setup) continue;
     const workdir = await prepareWorkdir(task, repoRoot);
-    cleanup.push(() => rm(workdir, { recursive: true, force: true }));
+    cleanup.push(() => removeTempDir(workdir));
     const start = await runVerification(task.verify, { workdir, repoRoot, homeDir: home, timeoutMs: 120_000 });
     expect({ task: task.id, start: start.status }).toEqual({ task: task.id, start: task.initialVerification });
   }
@@ -570,7 +571,7 @@ needsSymlinks("saved eval reports redact nested paths and home aliases without c
 test("offline grading preserves failed attempts and requires observed workflow evidence", async () => {
   const task = { ...findEvalTask("fix-failing-test")!, requiredEvidence: ["same-conversation-resumed"] };
   const prepared = await prepareEvalTask(task, repoRoot);
-  cleanup.push(() => rm(prepared.root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(prepared.root));
   const observation = {
     startedAt: "2026-09-21T00:00:00.000Z", wallClockMs: 100, execution: "completed",
     modelCalls: 1, answer: `Repaired. See ${os.homedir()}/notes and ${os.tmpdir()}/trace.`, interventions: [],
@@ -600,7 +601,7 @@ test("offline grading preserves failed attempts and requires observed workflow e
 needsSymlinks("the grading CLI rejects candidate-owned observations reached through path aliases", async () => {
   const task = findEvalTask("fix-failing-test")!;
   const prepared = await prepareEvalTask(task, repoRoot);
-  cleanup.push(() => rm(prepared.root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(prepared.root));
   await copyFromFixture(task.fixture, "src/slug.ts")(prepared.workdir);
   const host = await tempDir("casper-eval-observer-");
   const observation = JSON.stringify({
@@ -643,7 +644,7 @@ needsSymlinks("the grading CLI rejects candidate-owned observations reached thro
 test.each(["repair-order-reservations", "add-order-cancellation"])("%s rejects otherwise valid repairs that edit outside production scope", async id => {
   const task = findEvalTask(id)!;
   const prepared = await prepareEvalTask(task, repoRoot);
-  cleanup.push(() => rm(prepared.root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(prepared.root));
   await copyFromFixture(task.fixture, "src/app.ts", "src/inventory.ts", "src/order-service.ts")(prepared.workdir);
   const observation = {
     startedAt: "2026-09-21T00:00:00.000Z", wallClockMs: 100, execution: "completed",

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parse } from "yaml";
@@ -8,11 +8,12 @@ import { findExampleConfigs, reviewExampleConfigs } from "../src/mcp/check/examp
 import { findRepoCommands, SAFETY_TEST_NAME } from "../src/mcp/check/repo";
 import { detectRepositoryStructure } from "../src/project/structure";
 import { allTemplates, getTemplate, renderFiles, renderValues, type RenderedFile } from "../src/new/templates";
+import { removeTempDir } from "./support/temp-dir";
 
 /** What each template's files promise, checked offline without running uv or bun. */
 
 let scratch: string | undefined;
-afterEach(async () => { if (scratch) await rm(scratch, { recursive: true, force: true }); scratch = undefined; });
+afterEach(async () => { if (scratch) await removeTempDir(scratch); scratch = undefined; });
 
 function render(id: string, name = "demo-proj"): RenderedFile[] {
   return renderFiles(getTemplate(id)!, renderValues(name));
@@ -110,7 +111,7 @@ test("web-app, vite-react and noc-dashboard: .casper/project.yaml declares a ser
     const loaded = await loadConfiguration({ projectRoot: root, homeDir: home });
     expect(Object.keys(loaded.services)).toEqual([service]);
     expect(loaded.services[service]!.port).toBe("auto");
-    await rm(scratch!, { recursive: true, force: true });
+    await removeTempDir(scratch!);
   }
 });
 

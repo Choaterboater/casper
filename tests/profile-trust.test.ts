@@ -1,16 +1,17 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
 import { ShellSandbox } from "../src/sandbox/manager";
+import { removeTempDir } from "./support/temp-dir";
 
 let root = "";
 const previous = process.env.CASPER_PROFILE;
 beforeEach(async () => { delete process.env.CASPER_PROFILE; root = await mkdtemp(path.join(os.tmpdir(), "casper-profile-trust-")); });
 afterEach(async () => {
   if (previous === undefined) delete process.env.CASPER_PROFILE; else process.env.CASPER_PROFILE = previous;
-  await rm(root, { recursive: true, force: true });
+  await removeTempDir(root);
 });
 const home = () => path.join(root, "home");
 const repo = () => path.join(root, "repo");

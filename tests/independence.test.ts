@@ -1,9 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import ts from "typescript";
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
+import { removeTempDir } from "./support/temp-dir";
 
 const cli = path.resolve(import.meta.dir, "../src/cli.ts");
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -11,7 +12,7 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-independence-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home");
   const project = path.join(root, "project");
   await mkdir(home); await mkdir(project);

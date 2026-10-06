@@ -1,8 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { cleanEnv } from "./support/env";
+import { removeTempDir } from "./support/temp-dir";
 
 /**
  * A task that reaches another machine, played by a scripted model:
@@ -66,7 +67,7 @@ interface Payload { messages: Array<{ role: string; content: unknown }> }
 
 async function scenario() {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-remote-safety-")));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"), docs = path.join(home, "Documents"), agent = path.join(home, ".pi/agent"), bin = path.join(root, "bin");
   await mkdir(agent, { recursive: true }); await mkdir(docs, { recursive: true }); await mkdir(path.join(home, ".ssh"), { mode: 0o700 });
   await mkdir(bin); await mkdir(path.join(home, ".casper"));

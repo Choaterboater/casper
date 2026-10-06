@@ -1,13 +1,14 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { existsSync, readdirSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PiModels } from "../src/runtime/pi-models";
+import { removeTempDir } from "./support/temp-dir";
 
 const dirs: string[] = [];
-afterEach(async () => { await Promise.all(dirs.splice(0).map(dir => rm(dir, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(dirs.splice(0).map(dir => removeTempDir(dir))); });
 
 test("model defaults live in the given home's .casper, never the real home's", async () => {
   const real = await mkdtemp(path.join(os.tmpdir(), "casper-real-home-")); dirs.push(real);

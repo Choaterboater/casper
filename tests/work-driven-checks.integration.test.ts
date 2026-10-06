@@ -12,6 +12,7 @@ import type { VerificationMode } from "../src/verify/mode";
 import { CHECK_LIMIT_MS, checkCommand } from "./support/check-command";
 import { needsSymlinks, posixOnly } from "./support/platform";
 import { waitForFile as fileAppears } from "./support/wait";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -27,7 +28,7 @@ const filesystemAliases = await (async () => {
       unicodeEquivalent: await realpath(path.join(root, "cafe\u0301")).then(() => true, () => false),
       unicodeCaseEquivalent: await realpath(path.join(root, "\u1e9e")).then(() => true, () => false),
     };
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTempDir(root); }
 })();
 // POSIX follows a link's `regular/../outside` through `regular` and fails with ENOTDIR. Windows resolves the `..` in
 // the link's text first, so the same write lands in `outside`: there is no invalid traversal to observe.
@@ -38,7 +39,7 @@ const linkTraversalFails = await (async () => {
     await mkdir(path.join(root, "outside"));
     await symlink("regular/../outside", path.join(root, "alias"), "dir");
     return await writeFile(path.join(root, "alias/probe"), "").then(() => false, (error: NodeJS.ErrnoException) => error.code === "ENOTDIR");
-  } catch { return false; } finally { await rm(root, { recursive: true, force: true }); }
+  } catch { return false; } finally { await removeTempDir(root); }
 })();
 async function fixture(config: unknown = {
   verify: { test: command, build: checkCommand("append:build-runs") },
@@ -46,7 +47,7 @@ async function fixture(config: unknown = {
   repair: { maxAttempts: 1 },
 }) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-managed-check-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   await mkdir(path.join(root, ".casper"));
   await mkdir(path.join(root, "src"));
   await writeFile(path.join(root, ".casper/project.yaml"), JSON.stringify(config));

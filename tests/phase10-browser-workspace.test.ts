@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -10,6 +10,7 @@ import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import type { RuntimeSession, RuntimeSessionInfo } from "../src/runtime/types";
+import { removeTempDir } from "./support/temp-dir";
 
 const exec = promisify(execFile);
 const browserTest = existsSync(process.env.CASPER_BROWSER_EXECUTABLE ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome") ? test : test.skip;
@@ -63,5 +64,5 @@ browserTest("a workspace transition closes an already-running browser before exp
     expect(() => process.kill(pid, 0)).toThrow();
     expect(prompts).toBe(0);
     expect((await fetch(`http://127.0.0.1:${site.port}`)).status).toBe(200);
-  } finally { await app?.close(); site.stop(true); await rm(root, { recursive: true, force: true }); }
+  } finally { await app?.close(); site.stop(true); await removeTempDir(root); }
 }, 20_000);

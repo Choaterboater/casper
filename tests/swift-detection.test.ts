@@ -1,12 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ProjectInfo } from "../src/project/inspect";
 import { loadProjectModel } from "../src/project/model";
+import { removeTempDir } from "./support/temp-dir";
 
 const dirs: string[] = [];
-afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of dirs.splice(0)) await removeTempDir(dir); });
 async function model(files: Record<string, string>, folders: string[] = []) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-swift-")); dirs.push(root);
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-swift-home-")); dirs.push(home);

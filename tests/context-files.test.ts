@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { containedContextFile } from "../src/runtime/pi";
 import { needsSymlinks } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 needsSymlinks("context files: a hostile ancestor link is refused while ordinary and dotfiles links load", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-context-files-"));
@@ -32,5 +33,5 @@ needsSymlinks("context files: a hostile ancestor link is refused while ordinary 
     expect(containedContextFile(path.join(cwd, "AGENTS.md"), cwd, agentDir)).toBe(false);
     // A missing target is refused rather than guessed.
     expect(containedContextFile(path.join(root, "missing", "AGENTS.md"), cwd, agentDir)).toBe(false);
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await removeTempDir(root); }
 });

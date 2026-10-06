@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { discoverMCPConfiguration, type MCPServerDefinition } from "../src/mcp/config";
@@ -9,6 +9,7 @@ import { NETWORK_SERVER, networkServerEntry } from "../src/mcp/network/server";
 import { runNetworkUpdate, type SetupHost } from "../src/mcp/network/setup";
 import { installedVersion, installLockedSpec, type InstallOptions } from "../src/security/install";
 import type { ToolRunner } from "../src/security/spawn";
+import { removeTempDir } from "./support/temp-dir";
 
 /**
  * Plan D on a real file system. The old version's folder is held open by a running process (on Windows that keeps the
@@ -22,7 +23,7 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 
 async function temp(prefix: string): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), prefix));
-  cleanup.push(() => rm(dir, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(dir));
   return dir;
 }
 

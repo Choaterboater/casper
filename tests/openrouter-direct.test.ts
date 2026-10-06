@@ -1,12 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
 import type { AgentSession, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { classifyEffort } from "../src/runtime/auto-effort";
 import { OPENROUTER_ATTRIBUTION } from "../src/runtime/openrouter-attribution";
 import { PiModels } from "../src/runtime/pi-models";
+import { removeTempDir } from "./support/temp-dir";
 
 type Model = NonNullable<AgentSession["model"]>;
 const base: Model = {
@@ -24,7 +25,7 @@ const saved = process.env.CASPER_TELEMETRY;
 const dirs: string[] = [];
 afterEach(async () => {
   if (saved === undefined) delete process.env.CASPER_TELEMETRY; else process.env.CASPER_TELEMETRY = saved;
-  await Promise.all(dirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })));
+  await Promise.all(dirs.splice(0).map(dir => removeTempDir(dir)));
 });
 
 test("automatic effort's direct request carries Casper's OpenRouter attribution, and only to OpenRouter", async () => {

@@ -1,12 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
+import { removeTempDir } from "./support/temp-dir";
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 class ScriptedRuntime implements AgentRuntime {
@@ -23,7 +24,7 @@ class ScriptedRuntime implements AgentRuntime {
 }
 async function fixture() {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-browser-app-")));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"), project = path.join(root, "project"); await mkdir(home); await mkdir(project);
   const runtime = new ScriptedRuntime(), output: string[] = [];
   const app = new CasperApp({ runtimeFactory: () => runtime, output: { write: text => { output.push(text); } },

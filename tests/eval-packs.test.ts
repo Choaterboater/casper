@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { evaluateAcceptance, gradePreparedEval, hiddenPaths, prepareEvalTask, prepareWorkdir, referenceChanges, runEvalTask, type EvalTask } from "../evals/runner";
 import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeStartOptions } from "../src/runtime/types";
 import { BENCHMARK_PACKS, EVAL_TASKS, packTasks } from "../evals/tasks";
+import { removeTempDir } from "./support/temp-dir";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -12,7 +13,7 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 const exists = (target: string) => stat(target).then(() => true, () => false);
 async function owned(prefix: string): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), prefix));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   return root;
 }
 const benchmark = EVAL_TASKS.filter((task) => task.pack);
@@ -85,7 +86,7 @@ test("a setup removal ending in / deletes that whole directory from the candidat
   await writeFile(path.join(root, "evals/setups/demo/remove.json"), '["acceptance/"]');
   const task: EvalTask = { id: "demo", fixture: "demo", setup: "demo", prompt: "p", verify: [], candidatePaths: [], initialVerification: "fail", acceptance: {} };
   const workdir = await prepareWorkdir(task, root);
-  cleanup.push(() => rm(workdir, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(workdir));
   expect(await readdir(workdir)).toEqual(["keep.txt"]);
   expect(await hiddenPaths(task, root)).toEqual(["acceptance/"]);
 });
@@ -96,7 +97,7 @@ test("hidden acceptance tests exist in the solved fixture, never reach the candi
     const hidden = await readdir(path.join(repoRoot, "evals/fixtures", task.fixture, "acceptance"), { recursive: true });
     expect(hidden.some((file) => String(file).endsWith(".test.ts"))).toBe(true);
     const workdir = await prepareWorkdir(task, repoRoot);
-    cleanup.push(() => rm(workdir, { recursive: true, force: true }));
+    cleanup.push(() => removeTempDir(workdir));
     expect({ task: task.id, leaked: await exists(path.join(workdir, "acceptance")) }).toEqual({ task: task.id, leaked: false });
     expect(await exists(path.join(workdir, "CONTEXT.md"))).toBe(true);
     // The model is told hidden tests exist, never where they live.
@@ -115,8 +116,8 @@ test("the reference solution satisfies every acceptance and convention predicate
     expect({ task: task.id, touched: touched.length > 0 }).toEqual({ task: task.id, touched: true });
     expect(touched.some((entry) => entry.startsWith("acceptance/"))).toBe(false);
     const solved = await prepareWorkdir({ ...task, setup: undefined }, repoRoot);
-    cleanup.push(() => rm(solved, { recursive: true, force: true }));
-    await rm(path.join(solved, "acceptance"), { recursive: true, force: true });
+    cleanup.push(() => removeTempDir(solved));
+    await removeTempDir(path.join(solved, "acceptance"));
     const context = { workdir: solved, touched, answer: "" };
     expect({ task: task.id, ...await evaluateAcceptance(task.acceptance, context) }).toEqual({ task: task.id, passed: true, failures: [] });
     expect(task.conventions?.length ?? 0).toBeGreaterThan(0);
@@ -157,7 +158,7 @@ test("through the real grader, the reference solution is accepted and an untouch
   for (const task of benchmark) {
     const solve = scripted(async (cwd) => {
       for (const top of task.candidatePaths) {
-        await rm(path.join(cwd, top), { recursive: true, force: true });
+        await removeTempDir(path.join(cwd, top));
         await cp(path.join(repoRoot, "evals/fixtures", task.fixture, top), path.join(cwd, top), { recursive: true });
       }
     });
@@ -175,7 +176,7 @@ test("a task that needs TypeScript gets a working `bun run typecheck` in the can
   expect(typed.map((task) => task.id)).toEqual(["core-refactor-across-files"]);
   for (const task of typed) {
     const workdir = await prepareWorkdir(task, repoRoot);
-    cleanup.push(() => rm(workdir, { recursive: true, force: true }));
+    cleanup.push(() => removeTempDir(workdir));
     const run = Bun.spawnSync([process.execPath, "run", "typecheck"], { cwd: workdir, stdout: "pipe", stderr: "pipe" });
     expect({ task: task.id, exit: run.exitCode, output: `${run.stdout}${run.stderr}`.slice(-300) }).toMatchObject({ task: task.id, exit: 0 });
   }
@@ -184,12 +185,12 @@ test("a task that needs TypeScript gets a working `bun run typecheck` in the can
 test("a prepared task with linked tools can still be graded offline; only the candidate gets the tools", async () => {
   const task = benchmark.find((entry) => entry.tools?.includes("typescript"))!;
   const { root, workdir } = await prepareEvalTask(task, repoRoot);
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   // Windows runs tools through launcher files (Bun makes tsc.exe and tsc.bunx), not an extensionless link.
   expect(await exists(path.join(workdir, "node_modules/.bin", process.platform === "win32" ? "tsc.exe" : "tsc"))).toBe(true);
   expect(await exists(path.join(root, "evaluator/node_modules"))).toBe(false);
   for (const top of task.candidatePaths) {
-    await rm(path.join(workdir, top), { recursive: true, force: true });
+    await removeTempDir(path.join(workdir, top));
     await cp(path.join(repoRoot, "evals/fixtures", task.fixture, top), path.join(workdir, top), { recursive: true });
   }
   const result = await gradePreparedEval(root, { startedAt: new Date().toISOString(), wallClockMs: 1, execution: "completed", modelCalls: 1, answer: "Done.", interventions: [] });

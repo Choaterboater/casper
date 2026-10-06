@@ -1,16 +1,17 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
 import type { AgentRuntime } from "../src/runtime/types";
 import { richApp } from "./support/app";
+import { removeTempDir } from "./support/temp-dir";
 
 const roots: string[] = [];
 const servers: Array<{ stop(force: boolean): void }> = [];
 afterEach(async () => {
   for (const server of servers.splice(0)) server.stop(true);
-  for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
+  for (const root of roots.splice(0)) await removeTempDir(root);
 });
 const repo = path.resolve(import.meta.dir, "..");
 setDefaultTimeout(20_000);

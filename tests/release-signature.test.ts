@@ -6,10 +6,11 @@ import { pinReleaseKey } from "../scripts/release-key";
 import { RELEASE_KEY } from "../src/update/release-key";
 import { ed25519Key, verifySshSignature } from "../src/update/signature";
 import { sshKeygenVerifies, testReleaseKey } from "./support/release-signing";
+import { removeTempDir } from "./support/temp-dir";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const temps: string[] = [];
-afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });
 const SUMS = `${"a".repeat(64)}  casper-linux-x64\n${"b".repeat(64)}  install.sh\n`;
 
 test("a good signature checks out; a changed list, another key, another namespace or junk does not", () => {

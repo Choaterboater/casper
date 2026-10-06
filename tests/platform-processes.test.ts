@@ -1,12 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
 import { openNoFollow } from "../src/platform/files";
 import { OwnedProcesses, posixProcessPlatform, terminateTree, windowsProcessTable, type ProcessPlatform, type ProcessRecord } from "../src/platform/processes";
 import { needsSymlinks, posixOnly } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -35,7 +36,7 @@ function simulatedPlatform(records: ProcessRecord[], signals: Array<{ kind: "pro
 // POSIX shell/group fixture: Windows has no /bin/sh, no sleep and no process groups.
 posixOnly("POSIX ownership terminates the spawned group, its descendants and nothing else", async () => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-platform-")));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   const marker = path.join(root, "grandchild.pid");
   const unrelated = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
   cleanups.push(() => { unrelated.kill("SIGKILL"); });
@@ -231,7 +232,7 @@ test("an isolated environment forwards only allowlisted variables and the tempor
 
 needsSymlinks("a final symlink is never read as configuration or state", async () => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-platform-")));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   const real = path.join(root, "real.json");
   const linked = path.join(root, "linked.json");
   await writeFile(real, "{}");
@@ -312,7 +313,7 @@ test("a group whose leader has exited but a TERM-resistant member still runs is 
 // Windows has no process groups: this is the path every MCP, LSP and debugger stop takes there.
 test.skipIf(process.platform !== "win32")("a Windows stop of a small owned tree is quick and confirmed", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-platform-"));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   const marker = path.join(root, "grandchild.pid");
   const unrelated = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
   cleanups.push(() => { unrelated.kill("SIGKILL"); });

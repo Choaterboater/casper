@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { stringify } from "yaml";
@@ -11,6 +11,7 @@ import { SkillRegistry } from "../src/skills/registry";
 import type { AgentRuntime, RuntimeEventListener, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { taskExitCode } from "../src/task/result";
 import { CRASH_EXIT, crashService, notesServer } from "./support/notes-server";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -45,7 +46,7 @@ const list = { name: "list notes", service: "api", request: { method: "GET", pat
 
 async function fixture(config: Record<string, unknown> = {}, options: { verbose?: boolean; command?: string } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-smoke-app-")));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   const home = path.join(root, "home"), project = path.join(root, "project");
   await mkdir(home); await mkdir(path.join(project, ".casper"), { recursive: true }); await mkdir(path.join(project, "src"));
   await writeFile(path.join(project, "src/server.ts"), notesServer(false));

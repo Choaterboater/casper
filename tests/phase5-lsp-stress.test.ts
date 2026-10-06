@@ -1,17 +1,18 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdtemp, realpath, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, realpath, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { LSPManager } from "../src/lsp/manager";
 import { LSPConnection, MessageReader } from "../src/lsp/protocol";
 import { snapshot, MAX_FILE_BYTES } from "../src/lsp/workspace";
 import { processGone } from "./support/wait";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const work of cleanup.splice(0).reverse()) await work(); });
 async function fixture(mode = "normal", timeoutMs = 2000) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-lsp-stress-")));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   await writeFile(path.join(root, "a.ts"), "old();");
   const client = new LSPManager(root, { servers: [{ name: "fixture", source: "test", command: process.execPath,
     args: [path.join(import.meta.dir, "fixtures/lsp-server.ts"), mode, path.join(root, "started")], languages: { ".ts": "typescript" } }], diagnostics: [] }, timeoutMs);

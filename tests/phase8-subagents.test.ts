@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { PassThrough } from "node:stream";
 import path from "node:path";
@@ -8,6 +8,7 @@ import { formatSubagentReport, SubagentManager, SUBAGENT_LIMITS } from "../src/a
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeReadOnlyStartOptions, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -63,7 +64,7 @@ function manager(factory: () => AgentRuntime | Promise<AgentRuntime>, timeoutMs?
 }
 async function appFixture(options: CasperAppOptions = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-phase8-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const project = path.join(root, "project");
   const homeDir = path.join(root, "home");
   await mkdir(project); await mkdir(homeDir);

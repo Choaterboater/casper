@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { readdir, rm, writeFile } from "node:fs/promises";
+import { readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { BenchmarkRun } from "../evals/benchmark";
@@ -7,6 +7,7 @@ import { baseOutcome, replayAcceptance, replayedOutcome, replayStopReasons, type
 import { prepareWorkdir } from "../evals/runner";
 import { findEvalTask } from "../evals/tasks";
 import type { AcceptanceCompletion } from "../src/verify/acceptance";
+import { removeTempDir } from "./support/temp-dir";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -57,7 +58,7 @@ test("the replay stopper waits until every replayed harness is decided", () => {
 test("replay reruns the check on a kept workspace from the unsolved start and rewrites only verified receipts", async () => {
   const task = findEvalTask("hard-job-queue")!;
   const kept = await prepareWorkdir(task, repoRoot);
-  cleanup.push(() => rm(kept, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(kept));
   await writeFile(path.join(kept, "src/queue.ts"), "export const changed = true;\n", { flag: "a" });
   // Saved documents redact the temp directory (writeEvalReport); the replay restores it.
   const workspace = `<tmp>/${path.relative(os.tmpdir(), kept)}`;

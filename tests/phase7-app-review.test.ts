@@ -10,6 +10,7 @@ import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { discoverMCPConfiguration } from "../src/mcp/config";
 import type { RuntimeSession, RuntimeSessionInfo, RuntimeTool } from "../src/runtime/types";
+import { removeTempDir } from "./support/temp-dir";
 
 const exec = promisify(execFile);
 test("review regression: failed destination context loading revokes old capabilities and blocks prompts until recovery", async () => {
@@ -67,5 +68,5 @@ test("review regression: failed destination context loading revokes old capabili
     expect(prompts).toBe(0);
     expect(tools).toEqual([]);
     expect(info.cwd).toContain(path.join(".casper", "worktrees"));
-  } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
+  } finally { await app.close(); await removeTempDir(root); }
 }, 15_000);

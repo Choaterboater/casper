@@ -1,14 +1,15 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { discoverMCPConfiguration, resolveEnvironment } from "../src/mcp/config";
 import { vscodeUserDirs } from "../src/mcp/import";
 import { MCPManager } from "../src/mcp/manager";
 import { matchPreset } from "../src/mcp/presets";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: string[] = [];
-afterEach(async () => { for (const dir of cleanup.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of cleanup.splice(0)) await removeTempDir(dir); });
 async function tempHome() {
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-setup-config-"));
   cleanup.push(home);

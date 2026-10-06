@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
@@ -7,9 +7,10 @@ import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { COMMANDS } from "../src/tui/commands";
 import { describeChecksPlan, hasChecks } from "../src/verify/mode";
+import { removeTempDir } from "./support/temp-dir";
 
 const dirs: string[] = [];
-afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of dirs.splice(0)) await removeTempDir(dir); });
 
 test("the checks line says what runs and when, in plain words", () => {
   expect(describeChecksPlan({ mode: "auto", checks: ["typecheck", "test"] })).toBe("typecheck, test — run after each change");

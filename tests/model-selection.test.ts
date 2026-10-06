@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { needsPosixModes, needsSymlinks, posixOnly } from "./support/platform";
 import { PTY_TEST_MS, runPtyFixture } from "./support/pty";
 import { isolatedEnvironment } from "../src/platform/environment";
 import os from "node:os";
 import path from "node:path";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -12,7 +13,7 @@ const adapter = path.resolve(import.meta.dir, "../src/runtime/pi.ts");
 
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-models-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"); const project = path.join(root, "project");
   const agent = path.join(home, ".pi/agent"); const casper = path.join(home, ".casper");
   await mkdir(agent, { recursive: true }); await mkdir(casper); await mkdir(path.join(project, ".pi"), { recursive: true });
@@ -209,7 +210,7 @@ test("plain /model lists locally; an exact selection is remembered across fresh 
 // python3 runs the standard-library PTY fixture; Windows has no equivalent here.
 posixOnly("production CLI hosts Pi's picker without losing terminal ownership", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-model-pty-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const { exit, stdout, stderr } = await runPtyFixture("model-pty.py", [root]);
   expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
   expect(stdout).toContain("MODEL PTY PASS");

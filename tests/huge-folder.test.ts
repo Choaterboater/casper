@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
@@ -9,9 +9,10 @@ import { SkillRegistry } from "../src/skills/registry";
 import { snapshotFailureReason, SNAPSHOT_FILE_LIMIT } from "../src/task/changes";
 import { TaskObservations } from "../src/task/observations";
 import { formatReceipt } from "../src/task/result";
+import { removeTempDir } from "./support/temp-dir";
 
 const dirs: string[] = [];
-afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of dirs.splice(0)) await removeTempDir(dir); });
 
 const bash = (command: string) => ({ type: "tool_end" as const, toolName: "bash", toolCallId: "call", input: { command }, isError: false,
   output: { text: "ok", truncated: false } });

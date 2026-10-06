@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -10,10 +10,11 @@ import type { ActivityPane } from "../src/tui/side-pane";
 import { InteractiveTerminal, type TerminalHost } from "../src/tui/terminal";
 import { richApp } from "./support/app";
 import { waitUntil } from "./support/wait";
+import { removeTempDir } from "./support/temp-dir";
 
 process.env.TERM = "xterm-256color";
 const roots: string[] = [];
-afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
+afterEach(async () => { for (const root of roots.splice(0)) await removeTempDir(root); });
 
 function fakePane() {
   let opened = 0, closed = 0;

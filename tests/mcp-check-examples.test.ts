@@ -4,9 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { findExampleConfigs, readCheckConfig, reviewExampleConfig, reviewExampleConfigs, startDefinition } from "../src/mcp/check/examples";
 import type { McpCheckCommand } from "../src/cli-args";
+import { removeTempDir } from "./support/temp-dir";
 
 const temps: string[] = [];
-afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });
 
 async function repo(files: Record<string, unknown>, name = "hpe-networking-mcp"): Promise<string> {
   const parent = await mkdtemp(path.join(os.tmpdir(), "casper-mcp-check-examples-"));

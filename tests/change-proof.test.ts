@@ -1,17 +1,18 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { diffSnapshots, snapshotTree } from "../src/task/changes";
 import { ChangeBaseline, isCodePath, isTestPath, withoutEnded } from "../src/verify/proof";
 import { checkCommand } from "./support/check-command";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
 async function project(files: Record<string, string>): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-proof-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   await write(root, files);
   return root;
 }
@@ -123,7 +124,7 @@ test("only test changes need no proof; dependencies are linked, not copied", asy
 
 test("the baseline and every comparison copy are removed", async () => {
   const scratch = await mkdtemp(path.join(os.tmpdir(), "casper-proof-scratch-"));
-  cleanup.push(() => rm(scratch, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(scratch));
   const root = await project({ "src/sum.js": "broken\n", "tests/check.js": check(says("src/sum.js", "fixed")) });
   const before = await snapshotTree(root);
   const baseline = await ChangeBaseline.capture(root, { scratch });
@@ -141,10 +142,10 @@ test("a workspace over the copy limits cannot be captured", async () => {
 
 test("a change that swaps a test folder for a link outside the project never lets the proof step delete or write there", async () => {
   const outside = await mkdtemp(path.join(os.tmpdir(), "casper-proof-outside-"));
-  cleanup.push(() => rm(outside, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(outside));
   await write(outside, { "keep.test.js": "precious\n", "a.test.js": "precious too\n" });
   const proof = await prove({ "src/code.js": "old\n", "tests/a/keep.test.js": "x\n", "tests/a/a.test.js": "x\n", "tests/check.js": check(says("src/code.js", "new")) }, async (root) => {
-    await rm(path.join(root, "tests/a"), { recursive: true, force: true });
+    await removeTempDir(path.join(root, "tests/a"));
     await symlink(outside, path.join(root, "tests/a"), "dir");
     await write(root, { "src/code.js": "new\n" });
   }, CHECK);
@@ -154,9 +155,9 @@ test("a change that swaps a test folder for a link outside the project never let
 
 test("a test file added under a folder the model turned into a link is not written through it", async () => {
   const outside = await mkdtemp(path.join(os.tmpdir(), "casper-proof-outside-"));
-  cleanup.push(() => rm(outside, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(outside));
   const proof = await prove({ "src/code.js": "old\n", "tests/check.js": check(says("src/code.js", "new")), "tests/unit/.keep": "" }, async (root) => {
-    await rm(path.join(root, "tests/unit"), { recursive: true, force: true });
+    await removeTempDir(path.join(root, "tests/unit"));
     await symlink(outside, path.join(root, "tests/unit"), "dir");
     await write(outside, { "new.test.js": "planted\n" });
     await write(root, { "src/code.js": "new\n" });

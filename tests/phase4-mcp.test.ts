@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createServer } from "node:http";
@@ -10,6 +10,7 @@ import { CapabilityBroker } from "../src/capabilities/broker";
 import { boundCapabilityResult } from "../src/capabilities/result";
 import { fixtureServer } from "./fixtures/mcp-server";
 import { rejection } from "./support/settle";
+import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -34,7 +35,7 @@ async function until(check: () => boolean) {
 
 test("MCP config discovery is metadata-only, layered, isolated per entry, and redacts errors", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-mcp-config-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home");
   const project = path.join(root, "project");
   const put = async (file: string, value: unknown) => {
@@ -68,7 +69,7 @@ test("MCP config discovery is metadata-only, layered, isolated per entry, and re
 
 test("a project definition that shadows a user server is marked and reviewed by origin without secret values", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-mcp-shadow-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(path.join(home, ".casper"), { recursive: true }); await mkdir(project);
   await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: { github: { command: "/usr/bin/true" }, mine: { command: "/usr/bin/true" } } }));
@@ -99,7 +100,7 @@ test("a project definition that shadows a user server is marked and reviewed by 
 
 test("a vendor profile is not discovered for default or unrelated profiles", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-vendor-mcp-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const profile = path.join(root, "home/.casper/profiles/vendor");
   await mkdir(profile, { recursive: true });
   await writeFile(path.join(profile, "mcp.json"), JSON.stringify({ mcpServers: { vendor: { command: "never-run-vendor-server" } } }));
@@ -635,7 +636,7 @@ test("HTTP redirects cannot forward configured secrets, and failures show the st
 
 test("your own MCP servers start in your home folder, not the opened repository, unless their definition names a folder", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-mcp-cwd-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(path.join(home, ".casper/profiles/work"), { recursive: true }); await mkdir(path.join(project, "tools"), { recursive: true });
   await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: {
@@ -660,7 +661,7 @@ test("your own MCP servers start in your home folder, not the opened repository,
 
 test("a project server's review names every variable it would send and where", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-mcp-sends-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(home); await mkdir(project);
   await writeFile(path.join(project, ".mcp.json"), JSON.stringify({ mcpServers: {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { checkEvent, receiptEvent } from "../src/app/json-events";
@@ -13,9 +13,10 @@ import { describeChecksPlan, manualChecks, planAutoChecks, selectedChecks } from
 import { labOnlyByYou, type NamedCheckSpec } from "../src/verify/named";
 import { defaultVerifyNames, VerifierRegistry } from "../src/verify/registry";
 import { VerificationTask } from "../src/verify/task";
+import { removeTempDir } from "./support/temp-dir";
 
 const dirs: string[] = [];
-afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => removeTempDir(dir))); });
 
 async function project(config: string, userConfig?: string) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-named-"));

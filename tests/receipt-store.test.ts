@@ -1,12 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { RECEIPTS_KEPT, ReceiptStore, type StoredReceipt } from "../src/task/receipts";
 import { posixOnly } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(roots.splice(0).map((root) => removeTempDir(root))); });
 async function store() {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-receipts-"));
   roots.push(root);

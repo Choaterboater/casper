@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { receiptEvent } from "../src/app/json-events";
@@ -18,6 +18,7 @@ import { runCommandCheck } from "../src/verify/command";
 import { repairClass } from "../src/verify/evidence";
 import { fakeEngine, type FakeEngine } from "./support/sandbox-fakes";
 import { posixOnly } from "./support/platform";
+import { removeTempDir } from "./support/temp-dir";
 
 /**
  * Every shell path asks the session's sandbox to wrap its command: checks, Casper's own tool runs, services and
@@ -27,7 +28,7 @@ import { posixOnly } from "./support/platform";
 const roots: string[] = [];
 afterEach(async () => {
   useSandbox(undefined);
-  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(roots.splice(0).map((root) => removeTempDir(root)));
 });
 
 async function session(options: { refuse?: (command: string) => string[]; noSandboxFlag?: boolean } = {}): Promise<{ root: string; engine: FakeEngine; sandbox: ShellSandbox }> {

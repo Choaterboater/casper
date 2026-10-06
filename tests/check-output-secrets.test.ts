@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ProjectModel } from "../src/project/model";
@@ -8,6 +8,7 @@ import { VerifierRegistry } from "../src/verify/registry";
 import { verifyAndRepair } from "../src/verify/repair-loop";
 import { VerificationTask } from "../src/verify/task";
 import { checkResultForModel, evidenceForModel } from "../src/verify/model-output";
+import { removeTempDir } from "./support/temp-dir";
 
 // A product token the repo's checks may see (provider keys are removed; tokens like this one stay).
 const TOKEN = "mist-token-5b2f9c41d7e8";
@@ -15,7 +16,7 @@ const saved = process.env.MIST_API_TOKEN;
 const dirs: string[] = [];
 afterEach(async () => {
   if (saved === undefined) delete process.env.MIST_API_TOKEN; else process.env.MIST_API_TOKEN = saved;
-  await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(dirs.splice(0).map((dir) => removeTempDir(dir)));
 });
 
 async function root(): Promise<string> {

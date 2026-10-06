@@ -1,5 +1,5 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { SECURITY_TOOLS } from "../src/security/tools";
@@ -81,7 +81,7 @@ test("with nothing to find the run exits 0, and --strict exits 1 when a check di
   const { home, bin, record } = await machine();
   // A clean gitleaks and an osv-scanner with no advisory data.
   for (const id of ["gitleaks", "osv-scanner"] as const) await fakeProgram(bin, SECURITY_TOOLS[id].command, [process.execPath, fake, id, record, "clean"]);
-  await rm(path.join(home, ".casper", "security", "osv-db"), { recursive: true, force: true });
+  await removeTempDir(path.join(home, ".casper", "security", "osv-db"));
   const plain = await casper(root, home, bin, ["security"]);
   expect(plain.stdout).toContain("osv-scanner");
   expect(plain.stdout).toContain("no advisory data yet");

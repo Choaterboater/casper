@@ -1,7 +1,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -15,6 +15,7 @@ import { terminalNewProject } from "../src/cli-main";
 import { COMMANDS } from "../src/tui/commands";
 import { FULL_HELP_TEXT, HELP_TEXT } from "../src/tui/help";
 import type { AgentRuntime, RuntimeSession } from "../src/runtime/types";
+import { removeTempDir } from "./support/temp-dir";
 
 // The rich cases need the ask panel; this suite must not depend on the ambient TERM.
 const ambientTerm = process.env.TERM;
@@ -130,7 +131,7 @@ async function setup(prefix: string) {
   await mkdir(home, { recursive: true });
   await mkdir(work, { recursive: true });
   await writeFile(path.join(work, "notes.txt"), "ideas\n");
-  return { root, home, work, cleanup: () => rm(root, { recursive: true, force: true }) };
+  return { root, home, work, cleanup: () => removeTempDir(root) };
 }
 
 async function finish(h: Harness, running: Promise<void>, rich = true) {
@@ -310,7 +311,7 @@ test("piped input can't answer: the session keeps the folder and names the comma
     await piped.until(text => text.endsWith("> "));
     expect(piped.visible()).toContain("[folder] This folder is empty. To start a new project in ~/Projects: casper new");
     expect(piped.visible()).not.toContain("Start a new project here?");
-  } finally { await finish(piped, again, false); await rm(root, { recursive: true, force: true }); }
+  } finally { await finish(piped, again, false); await removeTempDir(root); }
 });
 
 test("a project that can't be built sends nothing to the model", async () => {
@@ -345,7 +346,7 @@ test("starting in an empty folder offers a new project there, named after the fo
     await h.until(text => text.includes("idle"));
     expect(h.created.map(({ parent, name, template }) => ({ parent, name, template }))).toEqual([{ parent: root, name: "demo-app", template: "python-cli" }]);
     expect(h.visible()).toMatch(/\bproject\s+demo-app\b/);
-  } finally { await finish(h, running); await rm(root, { recursive: true, force: true }); }
+  } finally { await finish(h, running); await removeTempDir(root); }
 });
 
 test("in an empty folder, Enter (1 Not now) on the plain terminal builds nothing", async () => {
@@ -369,7 +370,7 @@ test("in an empty folder, Enter (1 Not now) on the plain terminal builds nothing
     expect(h.visible()).not.toContain("Build this as a new");
     expect(h.starts).toEqual([empty]);
     await h.until(text => text.endsWith("> "));
-  } finally { await finish(h, running, false); await rm(root, { recursive: true, force: true }); }
+  } finally { await finish(h, running, false); await removeTempDir(root); }
 });
 
 test("the home-folder question ends with New project, which asks the kind and the name", async () => {
@@ -391,7 +392,7 @@ test("the home-folder question ends with New project, which asks the kind and th
     expect(h.created.map(({ parent, name, template }) => ({ parent, name, template })))
       .toEqual([{ parent: path.join(home, "Projects"), name: "site-mcp", template: "network-mcp" }]);
     expect(h.visible()).toMatch(/\bproject\s+site-mcp\b/);
-  } finally { await finish(h, running); await rm(root, { recursive: true, force: true }); }
+  } finally { await finish(h, running); await removeTempDir(root); }
 });
 
 test("casper new at a terminal builds the project and opens Casper there; Esc builds nothing and exits 1", async () => {
@@ -552,5 +553,5 @@ test("casper --continue in an empty folder resumes there without the new-project
     await h.until(text => text.includes("idle"));
     expect(h.visible()).not.toContain("Start a new project here?");
     expect(h.visible()).toMatch(/\bproject\s+demo\b/);
-  } finally { await finish(h, running); await rm(root, { recursive: true, force: true }); }
+  } finally { await finish(h, running); await removeTempDir(root); }
 });
