@@ -237,6 +237,23 @@ test("runner pins: npx, bunx, pnpm dlx, uvx, uv tool run, pipx, docker", () => {
   expect(runnerPin(http("s", "https://example.net/mcp"))).toBeUndefined();
 });
 
+test("runner pins: npm exec, uv run --with, deno run of an address and nix run follow the same rule", () => {
+  const pinned = (command: string, args: string[]) => runnerPin(stdio("s", command, args))?.pinned;
+  expect(pinned("npm", ["exec", "--", "pkg"])).toBe(false);
+  expect(pinned("npm", ["x", "-y", "pkg@1.2.3"])).toBe(true);
+  expect(pinned("uv", ["run", "--with", "some-mcp", "some-mcp"])).toBe(false);
+  expect(pinned("uv", ["run", "--with=some-mcp==1.4.2", "some-mcp"])).toBe(true);
+  expect(pinned("uv", ["run", "--with-requirements", "https://example.net/req.txt", "server"])).toBe(false);
+  expect(pinned("deno", ["run", "-A", "https://example.net/server.ts"])).toBe(false);
+  expect(pinned("deno", ["run", "-A", "npm:some-mcp@1.4.2"])).toBe(true);
+  expect(pinned("nix", ["run", "nixpkgs#some-mcp"])).toBe(false);
+  expect(pinned("nix", ["run", `github:o/r/${"a".repeat(40)}#mcp`])).toBe(true);
+  // A local checkout is not a runner that downloads: it can be remembered.
+  expect(runnerPin(stdio("s", "uv", ["run", "--directory", "/src/mcp", "python", "server.py"]))).toBeUndefined();
+  expect(runnerPin(stdio("s", "deno", ["run", "-A", "./server.ts"]))).toBeUndefined();
+  expect(runnerPin(stdio("s", "nix", ["run", "./flake#mcp"]))).toBeUndefined();
+});
+
 test("junos: labels, notes, hidden commits and the writes-off refusal", async () => {
   const definition = stdio("junos", "uv", ["run", "/opt/junos-mcp-server/jmcp.py", "-t", "stdio"]);
   const match = matchPreset(definition)!;

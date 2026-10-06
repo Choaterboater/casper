@@ -180,8 +180,8 @@ const RUNNER_VALUE_OPTIONS = new Set(["--python", "--with", "--index-url", "--ex
 
 export interface RunnerPin { runner: string; pinned: boolean; example: string }
 /**
- * For servers started through a package runner (npx, bunx, pnpm dlx, yarn dlx, uvx, uv tool run,
- * pipx run, docker/podman run): whether the package or image is pinned to a fixed version. An
+ * For servers started through a package runner (npx, bunx, pnpm dlx, yarn dlx, npm exec, uvx, uv tool run,
+ * uv run --with, pipx run, deno run of an address, nix run, docker/podman run): whether the package or image is pinned to a fixed version. An
  * unpinned runner can fetch new code later with the same definition, so it never gets remembered
  * approval. Commands that are not runners return undefined.
  */
@@ -203,11 +203,42 @@ export function runnerPin(definition: MCPServerDefinition): RunnerPin | undefine
   else if (command === "uvx") { rest = args; kind = "python"; }
   else if (command === "uv" && args[0] === "tool" && args[1] === "run") { rest = args.slice(2); kind = "python"; }
   else if (command === "pipx" && args[0] === "run") { rest = args.slice(1); kind = "python"; }
+  else if (command === "npm" && (args[0] === "exec" || args[0] === "x")) { rest = args.slice(1); kind = "npm"; }
+  else if (command === "uv" && args[0] === "run") return uvRunPin(args.slice(1));
+  else if (command === "deno" && (args[0] === "run" || args[0] === "serve")) {
+    // A server from an address or a package registry can change under the same command; a local file can't.
+    const { spec } = firstPositional(args.slice(1), new Set(["--config", "-c", "--import-map", "--location", "--cert", "--lock"]));
+    if (spec && /^https?:\/\//i.test(spec)) return { runner: "deno", pinned: false, example: "a local checkout or npm:pkg@1.4.2" };
+    if (spec && /^(npm|jsr):/.test(spec)) return { runner: "deno", pinned: npmSpecPinned(spec.slice(4)), example: "npm:pkg@1.4.2" };
+    return undefined;
+  } else if (command === "nix" && (args[0] === "run" || args[0] === "shell")) {
+    const { spec } = firstPositional(args.slice(1), new Set(["--override-input", "--inputs-from"]));
+    if (!spec || /^(\.|\/|path:)/.test(spec)) return undefined;
+    return { runner: "nix", pinned: /\/[0-9a-f]{40}(?:[#?]|$)|[?&]rev=[0-9a-f]{40}/.test(spec), example: "a flake reference with a commit" };
+  }
   if (!rest || !kind) return undefined;
   const { spec, from } = firstPositional(rest, RUNNER_VALUE_OPTIONS);
   const target = from ?? spec;
   if (kind === "npm") return { runner: command, pinned: !!target && npmSpecPinned(target), example: "@1.4.2" };
   return { runner: command, pinned: !!target && pythonSpecPinned(target), example: "==1.4.2 or a commit" };
+}
+
+/** `uv run --with <spec>` installs the newest matching package on every start: pinned only when every --with is. A
+ * plain `uv run` of a local checkout is not a runner that downloads. */
+function uvRunPin(args: string[]): RunnerPin | undefined {
+  const withs: string[] = [];
+  let remote = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (!arg.startsWith("-")) break;
+    const value = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[index + 1];
+    const name = arg.includes("=") ? arg.slice(0, arg.indexOf("=")) : arg;
+    if (name === "--with") withs.push(...(value ?? "").split(",").map((spec) => spec.trim()).filter(Boolean));
+    if (name === "--with-requirements" && /^https?:\/\//i.test(value ?? "")) remote = true;
+    if (!arg.includes("=") && ["--with", "--with-requirements", "--with-editable", "--directory", "--project", "--python", "-p", "--from", "--index-url", "--extra-index-url"].includes(name)) index += 1;
+  }
+  if (!withs.length && !remote) return undefined;
+  return { runner: "uv run", pinned: !remote && withs.every(pythonSpecPinned), example: "==1.4.2 or a commit" };
 }
 
 export function notPinnedText(name: string, example: string): string {
