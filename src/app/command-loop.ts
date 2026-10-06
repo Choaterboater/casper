@@ -22,6 +22,7 @@ import { rebindWorkspace } from "./session-branches";
 import { runModelTask, runSuggestion } from "./task-run";
 import { applyWeb } from "./wiring";
 import { checkSignIn } from "./runtime-start";
+import { reloadProject } from "./project-file";
 
 export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promise<void> {
   // Own the terminal before the banner so startup output is transcript, not
@@ -201,7 +202,8 @@ export function settingsCommand(app: CasperApp): Promise<void> {
     reload: async () => {
       const before = app.projectContext;
       if (!before) return;
-      try { app.projectContext = await app.loadProjectContextFn(before.info); } catch { return; }
+      try { await reloadProject(app, { own: true }); } catch { return; }
+      if (!app.projectContext) return;
       applyWeb(app, app.projectContext);
       // A new default for the work shown replaces this session's /details choice.
       if (app.projectContext.display !== before.display) app.displayChoice = undefined;

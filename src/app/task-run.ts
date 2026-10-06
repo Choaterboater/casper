@@ -51,6 +51,7 @@ import { offerNewProject, childProjectOfTask, runChildChecks, offerWorkFolder } 
 import { runVerification, writeCheckResult, taskNetworkOptions, checksPlan, saveFoundCheck, projectAfterSetup } from "./verification";
 import { reportSkillWarnings } from "./wiring";
 import { ensureRuntime } from "./runtime-start";
+import { reloadProject, writeProjectFile } from "./project-file";
 
 export async function runModelTask(app: CasperApp, prompt: string, options: { flow?: Flow; planFirst?: boolean } = {}): Promise<VerificationReport | undefined> {
   if (app.closing) return;
@@ -760,14 +761,14 @@ export async function runSuggestion(app: CasperApp, id: string): Promise<Verific
   if (action.kind === "remember-command") {
     const context = app.projectContext!;
     try {
-      const written = await saveProjectCommand(context.info.root, action.name, action.command);
+      const written = await writeProjectFile(app, context.info.root, () => saveProjectCommand(context.info.root, action.name, action.command));
       // The write is undoable: its own receipt holds the file's text before and after.
       const saved = await app.taskUndo.recordSetting(context.info.root, `Remember ${action.command} as this project's ${action.name} command`,
         { file: PROJECT_YAML, line: written.line, before: written.before, after: written.after }).catch(() => undefined);
       app.output.write(`[project] Saved ${terminalText(written.line)} in ${PROJECT_YAML}${saved ? `. /undo ${saved} takes it back` : ""}\n`);
       if (saved && app.interactive) app.terminal.offerNext(buildNextRow({ undo: { label: "Undo", command: `/undo ${saved}` } }));
       // The next task checks with it.
-      try { app.projectContext = await app.loadProjectContextFn(context.info); }
+      try { await reloadProject(app); }
       catch (error) { app.output.write(`[project] ${PROJECT_YAML} could not be read again (${terminalText(error instanceof Error ? error.message : String(error))}); restart Casper to use it.\n`); }
     } catch (error) {
       app.output.write(`[project] Not saved: ${terminalText(error instanceof Error ? error.message : String(error))}\n`);

@@ -197,8 +197,9 @@ reaches one without your answer:
    loads it before your installed collections). A jump host or proxy in the inventory's host
    variables is a warning too, and so is a host variable that names a program Ansible starts
    on this machine (`ansible_python_interpreter`, `ansible_ssh_executable` …) when it is a
-   relative path, a template, a command line or a file in the project (`/usr/bin/python3`
-   is not). A host name with a line break is refused. The box lists up to five, then
+   relative path, a template, a command line or a file in the project. The usual settings
+   are not: `/usr/bin/python3`, `/usr/bin/env python3`, `python3`, `auto_silent` and the
+   other discovery words, and `{{ ansible_playbook_python }}`. A host name with a line break is refused. The box lists up to five, then
    "+N more", and then there is no "Always":
 
    ```

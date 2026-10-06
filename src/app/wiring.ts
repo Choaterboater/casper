@@ -28,6 +28,7 @@ import { networkLoginHost } from "./network-host";
 import { updateFooter } from "./footer";
 import { checksPlan } from "./verification";
 import { mcpServerSandbox } from "../mcp/sandbox";
+import { trustProjectFile } from "./project-file";
 
 /** What the sandbox asks through: Casper's own numbered question, only while someone can answer it. */
 export function sandboxHost(app: CasperApp): SandboxHost {
@@ -53,6 +54,7 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   if (app.closing) throw new Error("Casper is closing");
   app.references = new ReferenceLibrary(referenceConfiguration);
   app.projectContext = context;
+  trustProjectFile(app, context);
   // The shell sandbox for this session: the AI's bash, checks, services, dev servers and Casper's tool runs.
   // A workspace switch replaces it: the old one stops first (the sandbox runtime is one per process).
   await app.lifecycle.close("sandbox").catch(() => {});

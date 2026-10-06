@@ -3,6 +3,7 @@ import type { DebugSession } from "./debug/session";
 import { promisify } from "node:util";
 import os from "node:os";
 import path from "node:path";
+import { reloadProject } from "./app/project-file";
 import type { LabSettings } from "./network/spec";
 import { modelPreference } from "./tui/model-preference";
 import { BrowserSession } from "./browser/session";
@@ -308,7 +309,7 @@ export class CasperApp {
     get homeDir() { return app.sessionHomeDir ?? os.homedir(); },
     stateDirectory: () => app.projectContext?.stateDirectory,
     activeRoot: () => app.activeWorkspaceRoot(),
-    reloadProject: async () => { if (app.projectContext) app.projectContext = await app.loadProjectContextFn(app.projectContext.info); },
+    reloadProject: async () => { await reloadProject(app); },
     lastTask: () => app.lastTaskResult,
   }))(this);
   /** MCP servers this task changed things through (calls you approved that were not read-only). */
@@ -660,6 +661,9 @@ export class CasperApp {
       return undefined;
     }
   }
+
+  /** The versions of .casper/project.yaml this session may read again (see src/app/project-file.ts). */
+  trustedProjectFiles = new Set<string>();
 
   /** The current task's first snapshot: its files stay listed while they exist, even once git ignores them. */
   snapshotBase?: Map<string, string>;

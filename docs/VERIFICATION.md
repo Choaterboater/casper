@@ -462,8 +462,9 @@ you may add test files" is still a code change.
    change, then reruns the checks and the comparison.
 
 When the change rewrote what the `test` command runs (the package.json script it runs, with its
-pre and post scripts, `bunfig.toml` `[test]`, jest or vitest config, pytest settings, a root
-`conftest.py`, the Makefile for `make`, or a script file the command names outside the tests),
+pre and post scripts, `bunfig.toml` `[test]`, jest or vitest config (or `vite.config` when vitest
+has none), pytest settings, any `conftest.py` outside the test folders, the Makefile for `make`, or a
+script or `--config` file that the command or those scripts name outside the tests),
 its pass is not your tests passing: Casper does not compare, and the receipt says
 `the test command's definition changed in this task (package.json scripts.test)`. The independent
 acceptance check is not run either, for the same reason.
@@ -798,7 +799,9 @@ file; the project file wins (see [CONFIGURATION.md](CONFIGURATION.md)).
 - Commands and declared scopes are read at startup and do not change during repair. Restart
   Casper after changing configuration or manifests. A task that rewrites `.casper/project.yaml`
   keeps the checks and settings it started with (`[project] .casper/project.yaml changed in this
-  task; …`); the receipt lists the file and `/undo` puts it back.
+  task; …`); the receipt lists the file and `/undo` puts it back. Casper's own saves to the file
+  after that (Remember, `/verify add`, more time) still write it, but the session keeps its checks
+  until you restart (`[project] .casper/project.yaml changed in a task; restart Casper to use it`).
 - Casper runs the checks one at a time, at the project root, with the platform shell and your
   environment (from v0.2.16, minus AI provider keys). It does not install dependencies or fall back to another tool when one is missing.
 - The model's `casper_check` tool takes only a check name (`typecheck`, `lint`, `test`, `build`,

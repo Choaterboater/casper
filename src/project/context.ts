@@ -66,13 +66,18 @@ export interface LoadProjectContextOptions {
   profileName?: string;
 }
 
+/** A digest of the project's .casper/project.yaml as it is now; undefined when there is none. */
+export function projectFileDigest(root: string): Promise<string | undefined> {
+  return readFile(path.join(root, ".casper", "project.yaml"))
+    .then((bytes) => createHash("sha256").update(bytes).digest("hex"), () => undefined);
+}
+
 export async function loadProjectContext(
   info: ProjectInfo,
   options: LoadProjectContextOptions = {},
 ): Promise<ProjectContext> {
   const homeDir = options.homeDir ?? os.homedir();
-  const projectFile = await readFile(path.join(info.root, ".casper", "project.yaml"))
-    .then((bytes) => createHash("sha256").update(bytes).digest("hex"), () => undefined);
+  const projectFile = await projectFileDigest(info.root);
   const configuration = await loadConfiguration({
     projectRoot: info.root,
     homeDir,

@@ -84,12 +84,21 @@ const LOCAL_PROGRAM_VARIABLES = ["ansible_python_interpreter", "ansible_interpre
   "ansible_become_exe", "ansible_scp_executable", "ansible_sftp_executable"];
 
 /** A program the project could have supplied: a relative path, a template, a command line, or a path inside the project.
- * A plain absolute path elsewhere (/usr/bin/python3, the usual setting) is not. */
+ * The usual settings are not: an absolute path elsewhere (/usr/bin/python3, /usr/bin/env python3), a program found on
+ * PATH (python3), Ansible's discovery words (auto_silent) and the playbook's own Python ({{ ansible_playbook_python }}). */
 function projectProgram(value: string, root: string | undefined): boolean {
-  if (/\{\{|\{%|\s|[;&|`$<>]/.test(value) || !path.isAbsolute(value)) return true;
+  if (INTERPRETER_WORDS.has(value) || /^\{\{\s*ansible_playbook_python\s*\}\}$/.test(value)) return false;
+  if (/\{\{|\{%|[;&|`$<>'"\\(){}*?!~]/.test(value)) return true;
+  const [program = "", ...rest] = value.split(/\s+/);
+  // Arguments are plain words (python3 after /usr/bin/env), not paths.
+  if (rest.some((word) => /[\\/]/.test(word) || word.startsWith("-"))) return true;
+  if (!/[\\/]/.test(program)) return rest.length > 0;
+  if (!path.isAbsolute(program)) return true;
   if (!root) return false;
-  return !isOutside(path.relative(root, value));
+  return !isOutside(path.relative(root, program));
 }
+
+const INTERPRETER_WORDS = new Set(["auto", "auto_silent", "auto_legacy", "auto_legacy_silent"]);
 
 export interface InventoryHosts { hosts: LabHost[]; problem?: string; warnings?: string[]; /** Digest of every host's variables. */ vars?: string }
 

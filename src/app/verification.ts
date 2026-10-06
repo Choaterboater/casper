@@ -28,6 +28,7 @@ import { prepareCapabilities, pageRun, smokeRun } from "./task-tools";
 import { bigModelReceipt, switchToBigModel, restoreModel, askBigModelRetry, bigModelOf } from "./big-model";
 import { receiptSurface } from "./task-run";
 import { ensureRuntime } from "./runtime-start";
+import { reloadProject, writeProjectFile } from "./project-file";
 
 export async function runVerification(app: CasperApp, checks: readonly CheckName[],
   repair: boolean,
@@ -203,9 +204,9 @@ export async function saveFoundCheck(app: CasperApp, name: string): Promise<void
     return;
   }
   try {
-    const written = await saveNamedCheck(context.info.root, name, spec);
+    const written = await writeProjectFile(app, context.info.root, () => saveNamedCheck(context.info.root, name, spec));
     app.output.write(`[project] Saved ${terminalText(written.line)} in ${PROJECT_YAML}\n`);
-    try { app.projectContext = await app.loadProjectContextFn(context.info); }
+    try { await reloadProject(app); }
     catch (error) { app.output.write(`[project] ${PROJECT_YAML} could not be read again (${terminalText(error instanceof Error ? error.message : String(error))}); restart Casper to use it.\n`); }
   } catch (error) {
     app.output.write(`[project] Not saved: ${terminalText(error instanceof Error ? error.message : String(error))}\n`);
@@ -274,10 +275,10 @@ export async function askUnfinished(app: CasperApp, unfinished: VerificationResu
   if (choice !== "more-time-saved") return choice;
   // Saved for the user, no file to edit: every check in this project gets the longer limit from now on.
   try {
-    const written = await saveProjectTimeout(app.activeWorkspaceRoot(), longer);
+    const written = await writeProjectFile(app, app.activeWorkspaceRoot(), () => saveProjectTimeout(app.activeWorkspaceRoot(), longer));
     app.output.write(`[verify] Saved ${written.line} in ${PROJECT_YAML}: every check here gets ${formatDuration(longer)} from now on.\n`);
     if (app.projectContext) {
-      try { app.projectContext = await app.loadProjectContextFn(app.projectContext.info); } catch { /* the file is read again at the next start */ }
+      try { await reloadProject(app); } catch { /* the file is read again at the next start */ }
     }
   } catch (error) {
     app.output.write(`[verify] Not saved (${terminalText(error instanceof Error ? error.message : String(error))}); this run gets ${formatDuration(longer)}.\n`);

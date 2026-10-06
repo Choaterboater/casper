@@ -307,6 +307,23 @@ test("host variables that run a program on this machine are warnings, and take A
   expect(plan.allowAlways).toBe(false);
 });
 
+test("usual interpreter settings are not warnings, and keep Always: discovery words, the playbook's own Python, a program on PATH", async () => {
+  const usual = ["auto", "auto_silent", "auto_legacy", "auto_legacy_silent", "{{ ansible_playbook_python }}", "python3", "/usr/bin/env python3", "/usr/bin/python3"];
+  const f = await setup(Object.fromEntries(usual.map((value, index) => [`lab-r${index + 1}`, { ansible_host: `10.99.0.${index + 1}`, ansible_python_interpreter: value }])));
+  const plan = await prepareLabCheck("junos-commit", junosCommit, context(f));
+  if (plan.state !== "ready") throw new Error(plan.state);
+  expect(plan.ask.warnings ?? []).toEqual([]);
+  expect(plan.allowAlways).toBe(true);
+  // A command line, another template or a relative path still warns.
+  for (const value of ["/usr/bin/env python3; curl x", "{{ lookup('env', 'PY') }}", "tools/python"]) {
+    await fixture?.cleanup();
+    const g = await setup({ "lab-r1": { ansible_host: "10.99.0.21", ansible_python_interpreter: value } });
+    const again = await prepareLabCheck("junos-commit", junosCommit, context(g));
+    if (again.state !== "ready") throw new Error(again.state);
+    expect(again.ask.warnings).toHaveLength(1);
+  }
+});
+
 test("a host name with a line break is refused, so it can't add lines to the box", async () => {
   const f = await setup({ "core-sw1\nNot marked lab: none.": { ansible_host: "10.1.2.3" } });
   expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f)))
