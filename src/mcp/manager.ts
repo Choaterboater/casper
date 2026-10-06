@@ -21,6 +21,7 @@ import { scrubText } from "../secrets/scrub";
 import { getsLogins, loginEnv, loginSecretValues } from "./network/logins";
 import { CallClock } from "./clock";
 import { classifyCallError, describeFailure, redactServerText, ServerOutput, stoppedMessage } from "./server-output";
+import type { HeldServer, HoldResult, ServerLaunch } from "./sandbox";
 
 export interface MCPTool {
   name: string;
@@ -56,6 +57,27 @@ export interface MCPStatus {
   preset?: { id: string; lines: string[] };
   /** Plain show commands on a Junos server run without asking (the user's own opt-in). */
   showOptIn?: boolean;
+  /** Whether this local server runs in the sandbox (see src/mcp/sandbox). Absent when no sandbox is wired in. */
+  sandbox?: MCPSandboxStatus;
+}
+
+/** on: held by the sandbox (or will be, at its next start); off: you turned it off for this server; none: Casper
+ * doesn't know what it needs; failed: the sandbox can't run here or could not start, so it runs as before. */
+export interface MCPSandboxStatus {
+  state: "on" | "off" | "none" | "failed";
+  why?: string;
+  hosts?: string[];
+  /** Hosts the sandbox kept it from reaching (this connection). */
+  refused?: string[];
+}
+
+/** What the manager needs from the MCP server sandbox (src/mcp/sandbox). */
+export interface MCPServerHolder {
+  hold(definition: MCPServerDefinition, launch: ServerLaunch, logins: Record<string, string>): Promise<HoldResult>;
+  /** Before a start: whether it would be held (no logins known yet, so no hosts). */
+  expected(definition: MCPServerDefinition): MCPSandboxStatus | undefined;
+  /** /mcp sandbox <name> on|off, kept for next time. */
+  setOn(name: string, on: boolean): Promise<void>;
 }
 
 /** What the broker needs to hide tools, guard arguments and word the model's notes, per server. */
@@ -111,6 +133,8 @@ export interface MCPManagerOptions {
   /** The home folder whose ~/.casper/network-logins.json Casper's network server starts with. Without it, no
    * saved login is added to any server. */
   homeDir?: string;
+  /** Runs servers Casper knows the needs of inside the sandbox. Without it, every server runs as it is. */
+  sandbox?: MCPServerHolder;
 }
 
 /** The call the user approved: its server questions may reach the user. */
@@ -184,6 +208,9 @@ interface Entry {
   showOptIn: boolean;
   /** Waiting to restart with pins once the running calls finish. */
   repin?: Promise<void>;
+  /** The sandbox holding the current child (closed with it), and what /mcp says about it. */
+  held?: HeldServer;
+  sandbox?: MCPSandboxStatus;
 }
 
 interface RunningApprovedCall extends ApprovedCall {
@@ -275,6 +302,7 @@ export class MCPManager {
   private readonly onNote?: (text: string) => void;
   private readonly consent?: ConsentStore;
   private readonly homeDir?: string;
+  private readonly holder?: MCPServerHolder;
 
   constructor(configuration: MCPConfiguration, options: MCPManagerOptions = {}) {
     this.diagnostics = [...configuration.diagnostics, ...options.consent?.diagnostics ?? []];
@@ -282,6 +310,7 @@ export class MCPManager {
     this.onNote = options.onNote;
     this.consent = options.consent;
     this.homeDir = options.homeDir;
+    this.holder = options.sandbox;
     this.defaults = {
       connectMs: options.connectTimeoutMs ?? options.timeoutMs ?? MCP_LIMITS.connectMs,
       callMs: options.callTimeoutMs ?? options.timeoutMs ?? MCP_LIMITS.callMs,
@@ -320,8 +349,19 @@ export class MCPManager {
         access: entry.state === "ready" ? accessStatusText(entry.access) : "access not checked",
         ...(match ? { preset: { id: match.preset.id, lines: this.presetLines(entry, match) } } : {}),
         ...(entry.showOptIn ? { showOptIn: true } : {}),
+        ...(this.sandboxStatus(entry) ? { sandbox: this.sandboxStatus(entry)! } : {}),
       };
     });
+  }
+
+  /** The sandbox of the running child, or what its next start would get. Remote servers have none. */
+  private sandboxStatus(entry: Entry): MCPSandboxStatus | undefined {
+    if (!this.holder || entry.definition.transport.type !== "stdio") return undefined;
+    const running = entry.state === "ready" || entry.state === "connecting";
+    if (running && entry.sandbox) return { ...entry.sandbox, ...(entry.held?.refused().length ? { refused: entry.held.refused() } : {}) };
+    // A start that could not be held says why until the next start.
+    if (entry.sandbox?.state === "failed") return entry.sandbox;
+    return this.holder.expected(entry.definition);
   }
 
   /** The preset for this server: by its definition, else by the tool list it showed. */
@@ -462,6 +502,21 @@ export class MCPManager {
    * after the server stopped and before it starts again (an update swaps its folder then); the server starts again
    * even when it fails, and its error is thrown after. A server that isn't running just runs `whileStopped`.
    */
+  /**
+   * /mcp sandbox <name> on|off (only you type it): kept for next time, and a running server restarts once its calls
+   * finish, so the change applies now. Throws for a server Casper has no sandbox profile for.
+   */
+  async setSandbox(name: string, on: boolean): Promise<MCPSandboxStatus | undefined> {
+    const entry = this.entry(name);
+    if (!this.holder) throw new Error("The MCP sandbox isn't available in this session.");
+    const expected = this.holder.expected(entry.definition);
+    if (!expected || expected.state === "none") throw new Error(`${name} has no sandbox profile${expected?.why ? ` (${expected.why})` : ""}, so it runs as it is.`);
+    await this.holder.setOn(entry.definition.name, on);
+    if (entry.state === "ready" || entry.state === "connecting") await this.restartAfterCalls(name);
+    else entry.sandbox = undefined;
+    return this.sandboxStatus(entry);
+  }
+
   async restartAfterCalls(name: string, options: { whileStopped?: () => Promise<void> } = {}): Promise<void> {
     const entry = this.entry(name);
     if (entry.state !== "ready" && entry.state !== "connecting") { await options.whileStopped?.(); return; }
@@ -871,10 +926,24 @@ export class MCPManager {
       if (config.type === "stdio") {
         const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
         if (!current()) throw new Error("stale connection");
-        transport = entry.stdio = new StdioClientTransport({
+        let launch: ServerLaunch = {
           command: resolveEnvironment(config.command), args: config.args.map(resolveEnvironment),
           env: { ...Object.fromEntries(Object.entries(config.env).map(([k, v]) => [k, resolveEnvironment(v)])), ...logins },
-          cwd: entry.definition.cwd, stderr: "pipe", maxBufferSize: MAX_WIRE_BYTES,
+          ...(entry.definition.cwd ? { cwd: entry.definition.cwd } : {}),
+        };
+        // A server Casper knows the needs of starts inside the sandbox; any other, or a sandbox that can't start, as before.
+        if (this.holder) {
+          const held = await this.holder.hold(entry.definition, launch, logins);
+          if ("held" in held) {
+            entry.held = held.held;
+            launch = held.held.launch;
+            entry.sandbox = { state: "on", hosts: held.held.profile.hosts };
+          } else entry.sandbox = { state: held.open, why: held.why };
+          if (!current()) throw new Error("stale connection");
+        }
+        transport = entry.stdio = new StdioClientTransport({
+          command: launch.command, args: launch.args, env: launch.env,
+          cwd: launch.cwd, stderr: "pipe", maxBufferSize: MAX_WIRE_BYTES,
         });
         // Attached before start: the pipe always drains, so a chatty server never blocks on stderr.
         entry.output = new ServerOutput().attach(entry.stdio.stderr as Readable | null);
@@ -1036,6 +1105,8 @@ export class MCPManager {
     const pid = entry.stdio?.pid;
     const owner = entry.owner;
     const alive = entry.alive;
+    const held = entry.held;
+    entry.held = undefined;
     entry.client = undefined;
     entry.transport = undefined;
     entry.stdio = undefined;
@@ -1052,7 +1123,7 @@ export class MCPManager {
       const term = pid ? setTimeout(() => kill("SIGTERM"), 200) : undefined;
       const force = pid ? setTimeout(() => kill("SIGKILL"), 450) : undefined;
       try { await (client ? client.close() : transport?.close())?.catch(() => {}); }
-      finally { clearTimeout(term); clearTimeout(force); }
+      finally { clearTimeout(term); clearTimeout(force); await held?.close(); }
       if (await ownedStop === "unknown") {
         this.cleanupError = new ProcessCleanupError();
         entry.error = this.cleanupError.message;

@@ -8,6 +8,7 @@ import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { discoverMCPConfiguration } from "../src/mcp/config";
 import type { AgentRuntime, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
+import { posixOnly } from "./support/platform";
 
 const network = path.join(import.meta.dir, "fixtures/mcp-network-server.ts");
 const cleanup: (() => Promise<unknown>)[] = [];
@@ -241,4 +242,25 @@ test("a Junos show command offers 3 Yes, show commands on <server> for this sess
   expect(results[2]).toContain("you said no");
   // A change box never offers it.
   expect(output.slice(output.lastIndexOf("Make this change?"))).not.toContain("show commands on junos");
+});
+
+// --- /mcp sandbox <server> on|off ----------------------------------------------------------------
+
+posixOnly("/mcp says which servers run sandboxed; /mcp sandbox <name> off is kept, and a server without a profile can't be switched", async () => {
+  const { home, project } = await fixture({});
+  // Casper's network server as installed: a venv (its pyvenv.cfg) under ~/.casper/tools.
+  const venv = path.join(home, ".casper/tools/casper-network-mcp/venv");
+  await mkdir(path.join(venv, "bin"), { recursive: true });
+  await writeFile(path.join(venv, "pyvenv.cfg"), "home = /usr/bin\n");
+  await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: {
+    network: { command: path.join(venv, "bin/casper-network-mcp"), args: [], env: {} }, lab: entry({ FIXTURE_MODE: "access-bad" }),
+  } }));
+  const { output } = await session(home, project, ["/mcp", "/mcp sandbox network off", "/mcp", "/mcp sandbox lab off", "/mcp sandbox network on"]);
+  expect(output).toContain("  sandbox: on · reaches only its login hosts · writes only its cache · can't read your keys, ~/.casper or projects (/mcp sandbox network off)");
+  expect(output).toContain("Sandboxed: network. Run as they are: lab (Casper doesn't know what it needs).");
+  expect(output).toContain("[mcp] network runs outside the sandbox from now on. /mcp sandbox network on puts it back.");
+  expect(output).toContain("  sandbox: off for this server (/mcp sandbox network on)");
+  expect(output).toContain("No server runs sandboxed. Not sandboxed: network (see above). Run as they are: lab");
+  expect(output).toContain("lab has no sandbox profile (Casper doesn't know what it needs), so it runs as it is.");
+  expect(output).toContain("[mcp] network runs in the sandbox.");
 });

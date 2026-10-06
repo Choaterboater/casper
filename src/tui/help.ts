@@ -137,6 +137,7 @@ Local commands:
   /mcp allow <name> [off]           Pick which risky change kinds (firmware, delete, admin) a server may make; off goes back to the defaults
   /mcp forget <name>                Forget a remembered server; Casper asks again next time
   /mcp junos-show <name> on|off     Let plain Junos show commands run without asking
+  /mcp sandbox <name> on|off        Run a server Casper knows (its network server) in the sandbox or not; on by default, kept
   /mcp docs                         Docs servers; add a docs-only copy with no credentials
   /lsp                              Show language-server status (no startup)
   /lsp connect <name>               Authorize this language server for this process
@@ -192,6 +193,7 @@ Checks run the project's own commands in the shell sandbox where it can run (/sa
 One-shot exit codes: 0 pass (or nothing to verify), 1 check failed or blocked, 2 incomplete (skipped checks, --max-turns reached, or --verify with changes and no checks configured), 3 not verified (--require-verification only), 64 usage error, 130 cancelled.
 Exit 0 does not certify behavior beyond the checks; /receipt shows scope and freshness.
 MCP connection runs a configured program or contacts its URL. Review its source first.
+Casper's network server runs in the sandbox where one runs: it reaches only your login hosts, writes only its cache, and can't read your keys, ~/.casper or projects (/mcp sandbox network off). Other servers run as they are; /mcp says which.
 Servers from ~/.claude.json, ~/.mcp.json and VS Code are listed too; each needs /mcp connect once.
 Every MCP server starts with writes off. ${WRITES_OFF_MEANING} /mcp writes <name> turns writes on; ctrl+o turns them off again. A remembered server always starts with writes off.
 A login is read-only only when the product says so (access_check); labels only make things stricter.

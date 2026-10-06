@@ -27,6 +27,7 @@ import { confirmCapability, confirmKind, answerServerQuestion } from "./approval
 import { networkLoginHost } from "./network-host";
 import { updateFooter } from "./footer";
 import { checksPlan } from "./verification";
+import { mcpServerSandbox } from "../mcp/sandbox";
 
 /** What the sandbox asks through: Casper's own numbered question, only while someone can answer it. */
 export function sandboxHost(app: CasperApp): SandboxHost {
@@ -75,6 +76,7 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
     homeDir: app.sessionHomeDir ?? os.homedir(),
     elicit: (question, signal) => answerServerQuestion(app, question, signal),
     onNote: (text) => { if (!app.closing) app.output.write(`${text}\n`); },
+    sandbox: mcpServerSandbox(app.sessionHomeDir ?? os.homedir(), sandbox, () => [app.activeWorkspaceRoot()], (line) => { if (!app.closing) app.output.write(`${line}\n`); }),
   });
   // Re-reads the same layered files the manager was built from; the manager diffs them.
   app.reloadMCPConfiguration = () => app.loadMCPConfigurationFn(context);

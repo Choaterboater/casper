@@ -111,7 +111,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 ## Safety and privacy
 
 - **Sandbox.** On macOS and Linux, the AI's shell and your checks write only the project, temp and
-  package caches, can't read `~/.ssh` or cloud logins, and reach only listed hosts. On Windows, or
+  package caches, can't read `~/.ssh` or cloud logins, and reach only listed hosts. Casper's network
+  server runs in it too, reaching only your login hosts. On Windows, or
   Linux without bubblewrap (`sudo apt install bubblewrap socat ripgrep`), the AI's shell asks before
   each command that changes something. [Sandbox](docs/SECURITY.md)
 - **Secrets hidden, best effort.** Known device secrets (passwords, keys, SNMP communities) are
