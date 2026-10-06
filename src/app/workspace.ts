@@ -9,6 +9,8 @@ import { terminalText } from "../tui/format";
 import type { ProjectContext } from "../project/context";
 import { findProjectCandidates, hasProjectSignals, inspectProject } from "../project/inspect";
 import { childProjectOf, type ChildProject } from "../project/child";
+import { orderProjectChoices, recentlyUsedProjects } from "../project/recent";
+import { appAgentDir } from "./runtime-start";
 import type { VerificationReport, VerificationResult } from "../verify/evidence";
 import { VerifierRegistry } from "../verify/registry";
 import { workFolderChoices } from "./safe-choices";
@@ -50,8 +52,9 @@ export async function newProjectFlowWithAbort<T>(app: CasperApp, work: (flow: Ne
 /** Interactive startup from the home directory, or from a folder that only holds projects (not a
  * project itself and not inside a git repository), asks which project to open — a launch from ~
  * silently made the whole home directory the workspace, and tasks then scanned all of it. A typed
- * path is validated and must stay inside the launch folder; Esc/empty keeps it. Without a rich
- * surface the question cannot render, so the launch folder is stated plainly. */
+ * path is validated and must stay inside the launch folder; Esc/empty keeps it. The projects last worked in
+ * (saved conversations) lead, then the scan's by last change. Without a rich surface the question cannot
+ * render, so the launch folder is stated plainly with the most recent project as the command to open it. */
 export async function openProjectFolder(app: CasperApp, cwd: string): Promise<string> {
   const home = app.sessionHomeDir ?? os.homedir();
   const fromHome = path.resolve(cwd) === path.resolve(home);
@@ -71,15 +74,21 @@ export async function openProjectFolder(app: CasperApp, cwd: string): Promise<st
       return cwd;
     }
     if (!candidates.length) return cwd;
+    candidates = await orderProjectChoices(candidates, { base: cwd, agentDir: appAgentDir(app) });
   }
   if (!app.terminal.rich) {
-    // `casper <folder>` opens that folder, so the hint is one command, no cd and no restart.
-    app.output.write(fromHome ? `[folder] Opened in your home folder. To work in a project: casper ~/Projects/myapp\n`
+    // `casper <folder>` opens that folder, so the hint is one command, no cd and no restart. From home it names
+    // the project last worked in (no scan: only the saved conversations), else an example.
+    const recent = fromHome ? (await recentlyUsedProjects({ base: home, agentDir: appAgentDir(app) }))[0] : undefined;
+    app.output.write(fromHome
+      ? recent ? `[folder] Opened in your home folder. To work in ${terminalText(path.basename(recent))}: casper ${terminalText(tildePath(recent, home))}\n`
+        : `[folder] Opened in your home folder. To work in a project: casper ~/Projects/myapp\n`
       : `[folder] This folder holds several projects. To work in one: casper ${terminalText(path.relative(cwd, candidates![0]!))}\n`);
     app.output.write("[folder] To start a new project instead: casper new\n");
     return cwd;
   }
-  candidates ??= await findProjectCandidates(cwd, { homeDir: home });
+  // Projects worked in lately lead (Enter opens the last one), then the scan's by last change.
+  candidates ??= await orderProjectChoices(await findProjectCandidates(cwd, { homeDir: home }), { base: home, agentDir: appAgentDir(app) });
   const base = fromHome ? home : cwd;
   const folderLabel = (folder: string) => fromHome
     ? folder === home ? "~" : `~${folder.slice(home.length)}`

@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -222,6 +222,11 @@ test("launching from a folder of projects asks which one to open; a project or a
   await mkdir(path.join(work, "repo-b"), { recursive: true });
   await writeFile(path.join(work, "repo-b", "requirements.txt"), "pytest\n");
   await mkdir(path.join(work, "notes"), { recursive: true });
+  // The projects are listed by last change, newest first: repo-a changed last.
+  const now = Date.now();
+  for (const [dir, at] of [[path.join(work, "repo-a", ".git"), now], [path.join(work, "repo-a"), now], [path.join(work, "repo-b"), now - 60_000]] as const) {
+    await utimes(dir, new Date(at), new Date(at));
+  }
   const harness = interactiveHarness(home, work);
   const interactive = harness.app.runInteractive(work);
   try {
