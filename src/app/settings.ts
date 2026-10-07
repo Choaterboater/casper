@@ -112,6 +112,8 @@ export function settingRows(context: ProjectContext): Setting[] {
       choices: [web.enabled ? { label: "Turn them off", keys: webKeys, value: false, shown: "off" } : { label: "Turn them on", keys: webKeys, value: true, shown: "on" }] },
     onOffRow("Browser tool", context.browser !== false,
       "The AI's own browser opens pages and reads them when a task needs it. The page checks after a change still run when it is off.", ["browser"]),
+    onOffRow("Starter templates", context.templates !== false,
+      "In an empty folder, a first request that fits a template (a NOC dashboard, an MCP server) is built from it for you, with one line saying so. Off: the AI builds it from scratch.", ["templates"]),
     onOffRow("Diagram tool", context.diagrams !== false,
       "The AI draws a diagram when you ask for a map, chart or flow. /visualize, typed by you, still works when it is off.", visualizeKeys),
     { label: "New-version notice", value: context.updates === false ? "off" : "on",

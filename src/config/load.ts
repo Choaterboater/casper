@@ -88,6 +88,8 @@ export interface LoadedConfiguration {
   visualize: VisualizationSettings;
   /** `browser: off`: the AI's browser tool is never offered (user or profile only). Unset: on. Page checks don't use it. */
   browser?: boolean;
+  /** `templates: off`: a first request that fits a template never builds one for you (user or profile only). Unset: on. */
+  templates?: boolean;
   /** `visualize: off` (or visualize.enabled: false): the AI's diagram tool is never offered (user or profile only).
    * Unset: on. /visualize, typed by you, still works. */
   diagrams?: boolean;
@@ -258,7 +260,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "cache", "display", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "telemetry", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "cache", "display", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "telemetry", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -836,12 +838,15 @@ export async function loadConfiguration(
   // The AI's browser and its diagram tool are yours to turn off; a repository never turns them back on.
   if (projectDocument.browser !== undefined) throw new Error("browser is a user setting (~/.casper/config.yaml); a project cannot turn the AI's browser on or off");
   // So is sending Casper's name to OpenRouter.
+  if (projectDocument.templates !== undefined) throw new Error("templates is a user setting (~/.casper/config.yaml); a project cannot turn the first-request template on or off");
   if (projectDocument.telemetry !== undefined) throw new Error("telemetry is a user setting (~/.casper/config.yaml); a project cannot turn OpenRouter's app-name headers on or off");
   let browser: boolean | undefined;
   let diagrams: boolean | undefined;
+  let templates: boolean | undefined;
   let telemetry: boolean | undefined;
   for (const [document, label] of [[globalDocument, labels.global], [userProfileDocument, labels.userProfile]] as const) {
     browser = onOffLayer(document.browser, label, "browser") ?? browser;
+    templates = onOffLayer(document.templates, label, "templates") ?? templates;
     telemetry = onOffLayer(document.telemetry, label, "telemetry") ?? telemetry;
     diagrams = diagramLayer(document, label, sandboxWarnings, false) ?? diagrams;
   }
@@ -874,6 +879,7 @@ export async function loadConfiguration(
       ],
     }),
     ...(browser !== undefined ? { browser } : {}),
+    ...(templates !== undefined ? { templates } : {}),
     ...(diagrams !== undefined ? { diagrams } : {}),
     ...(telemetry !== undefined ? { telemetry } : {}),
     ...(pageChecks !== undefined ? { pageChecks } : {}),

@@ -123,6 +123,11 @@ you last worked in as a `casper <folder>` command instead. Any other folder open
 even one that only holds projects (such as `~/Projects`); when it holds two or more, one line
 names them (up to four) and the command to open one, such as `casper aibot`.
 
+An empty folder opens the same way, quietly: no question and no kind menu. A first request that fits a
+template (a NOC dashboard, an MCP server) builds it there after one `[new]` line; any other request goes to
+the model. **New project** from the home-folder question asks nothing either: it starts in `~/Projects` and
+your first request makes the project. `/settings` has a **Starter templates** switch for both ([NEW.md](NEW.md)).
+
 On a rich terminal at least 58 columns wide the transcript opens with the
 wordmark — the Casper ghost (bold white) beside a block-letter `CASPER` (accent)
 — followed by the `version` / `project` / `/help` lines. Narrower terminals,

@@ -9,10 +9,10 @@ project's own checks once, and makes a first commit with your own git identity.
 | Where | What happens |
 | --- | --- |
 | `casper new` at a terminal | Asks "What are you building?" (numbered kinds, My own first: an empty folder for anything you describe) and "Name it? (Enter for my-tool)", builds `~/Projects/<name>`, then opens Casper there. Typing what you want instead ("a nightly backup of my switch configs") picks the kind it reads as (or an empty project), names it from your words, and runs your words as the first request there. `casper new <name>` skips the name question; a lone kind word (`casper new web-app`) picks the kind and asks only the name; `casper new <template> <name>` asks nothing. `casper new --help` lists every kind. |
-| `casper` in an empty folder | Asks "This folder is empty. Start a new project here?" "Not now" first (Enter builds nothing), then the kinds. The folder's own name is the project name when it is a valid name. "Not now" also answers the build-request question below for that session. A resumed conversation (`casper --continue`) doesn't ask. |
-| `casper` from your home folder or a drive root (`C:\`, `/`) | These are too broad to work in, so Casper asks "Work in which project?" It lists the projects you last worked in first (Enter opens the most recent), then staying where you are, then **New project**, which goes in `~/Projects`. |
+| `casper` in an empty folder | Asks nothing: the prompt is there at once. Your first request that fits a template ("build a NOC dashboard", "make an MCP server for Mist") builds that template right there, with no question and one plain line first: `[new] Using the NOC dashboard template here (installs packages, first commit). To skip a template, say "from scratch" in the request, or turn it off in /settings (Starter templates).` The folder's own name is the project name when it is a valid name; otherwise the template goes in a subfolder with its usual name. Any other request ("make me a todo app in python", "build something") goes straight to the model, which builds it in the empty folder. A one-shot or `--json` run builds nothing and prints the command instead. |
+| `casper` from your home folder or a drive root (`C:\`, `/`) | These are too broad to work in, so Casper asks "Work in which project?" It lists the projects you last worked in first (Enter opens the most recent), then staying where you are, then **New project**. New project asks no kind and no name: Casper starts in `~/Projects` ("Starting a new project in ~/Projects") and your first request makes the project. A template match builds `~/Projects/<name from your words>`; any other request builds an empty project (git only) with a name made from the request; only when no name can be made does it ask once, "Name it? (Enter for my-project)". A line says what was built (`[new] Using … at ~/Projects/<name>`). |
 | `casper` in any other folder | Opens exactly there, with no question. A folder that only holds projects prints one line, such as "This folder holds 5 projects (aibot, casper, and 3 more). To work in one: casper aibot", when it holds two or more. |
-| A build request before the model starts | Outside a project (no git, no project files), "build a tool that lists Mist APs per site" asks once, before any model call: "Build this as a new Mist Python project in ~/Projects/mist-aps? 1 Use this folder · 2 Yes · 3 Other kind". Enter keeps this folder, and Other kind lists the kinds after "Use this folder". Typing a name instead of a number uses that name; typing "yes" builds it and "no" keeps this folder, and a number that isn't a choice asks again. Yes builds it, opens it, and your request goes on there, so its checks and proof run in the new project. It is asked at most once a session, and only before the model has started: a conversation's folder is fixed once it exists. |
+| A build request in a folder that holds other things | In a folder that is not a project and not empty (Documents, say), "build a tool that lists Mist APs per site" asks once, before any model call: "Build this as a new Mist Python project in ~/Projects/mist-aps? 1 Use this folder · 2 Yes · 3 Other kind". Enter keeps this folder, and Other kind lists the kinds after "Use this folder". Typing a name instead of a number uses that name; typing "yes" builds it and "no" keeps this folder, and a number that isn't a choice asks again. Yes builds it, opens it, and your request goes on there, so its checks and proof run in the new project. It is asked at most once a session, and only before the model has started: a conversation's folder is fixed once it exists. |
 
 `/new [name]`, `/new <template> <name>` and `/new --list` do the same inside a session. Before the
 model starts, Casper opens the new project; after, it builds the project and tells you how to open
@@ -23,8 +23,16 @@ Every question works on the plain terminal too: type the number (Enter picks 1).
 would start a project instead, for example
 `[new] … To start a project instead: casper new mist-python mist-aps`.
 
-The new-project question is the one question before work for that request: the plan-first panel
-doesn't follow it, and no checklist is made.
+A template built from your first request, or the question above, is the one thing before work for that
+request: the plan-first panel doesn't follow it, and no checklist is made.
+
+### Turning the starter template off
+
+The quiet build is on by default. Pick **Starter templates** in `/settings` (it writes
+`templates: off` in `~/.casper/config.yaml`) and a request in an empty folder goes straight to the
+model, with no template built for you. A project file can't turn it on or off. Say "from scratch" in
+a request to skip it for that request only. `casper new`, `/new` and the question above are your own
+commands and still work when it is off.
 
 ## Scripts and CI
 
