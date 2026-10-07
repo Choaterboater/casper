@@ -138,11 +138,12 @@ test("from the home folder the question lists used, then changed, then old, and 
     await harness.until(text => Bun.stripANSI(text).includes("Work in which project?"));
     const visible = Bun.stripANSI(harness.output());
     // The labels use the platform's separator.
-    const label = (name: string) => ["~", "Documents", name].join(path.sep);
+    // Windows shows the real path instead of ~.
+    const label = (name: string) => process.platform === "win32" ? path.join(home, "Documents", name) : ["~", "Documents", name].join(path.sep);
     expect(visible).toContain(`1 ${label("charlie-used")}`);
     expect(visible).toContain(`2 ${label("bravo-changed")}`);
     expect(visible).toContain(`3 ${label("alpha-old")}`);
-    expect(visible).toContain("4 ~  stay in the home folder");
+    expect(visible).toContain(`4 ${process.platform === "win32" ? home : "~"}  stay in the home folder`);
     harness.input.write("\r");
     await harness.until(text => /\bproject\s+charlie-used\b/.test(Bun.stripANSI(text)));
     await harness.until(text => Bun.stripANSI(text).includes("idle"));
@@ -164,6 +165,8 @@ test("without a rich terminal the home-folder hint names the most recently used 
     });
     const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
     expect(code).toBe(0);
-    expect(stdout).toContain("[folder] Opened in your home folder. To work in charlie-used: casper ~/Documents/charlie-used");
+    // Windows shows the real path; elsewhere the home folder is ~.
+    const shown = process.platform === "win32" ? path.join(home, "Documents", "charlie-used") : "~/Documents/charlie-used";
+    expect(stdout).toContain(`[folder] Opened in your home folder. To work in charlie-used: casper ${shown}`);
   } finally { await removeTempDir(home); }
 });
