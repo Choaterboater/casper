@@ -5,6 +5,7 @@ import path from "node:path";
 import { stringify } from "yaml";
 import { loadConfiguration } from "../src/config/load";
 import { matchSmoke, parseSmokeCheck } from "../src/services/smoke";
+import { readBody } from "../src/services/tool";
 import { removeTempDir } from "./support/temp-dir";
 
 const roots: string[] = [];
@@ -105,6 +106,28 @@ test("a JSON expectation on a body cut at 64 KiB says the body was truncated, no
   const body = JSON.stringify({ items: Array.from({ length: 10 }, (_, id) => ({ id })) }).slice(0, 20);
   const result = await matchSmoke({ json: { items: [] } }, { status: 200, headers: new Headers(), body, complete: false });
   expect(result).toEqual({ pass: false, reason: expect.stringContaining("body over 64 KiB was truncated") });
+});
+
+test("a body pattern that matches only the start of a body cut at 64 KiB is not a pass", async () => {
+  const read = await readBody(new Response("a".repeat(65536) + "X"));
+  const response = { status: 200, headers: new Headers(), body: read.bytes.toString("utf8"), complete: read.complete };
+  expect(read.complete).toBe(false);
+  const result = await matchSmoke({ bodyMatches: "^a+$" }, response);
+  expect(result).toEqual({ pass: false, unchecked: true, reason: expect.stringContaining("could not check") });
+  expect(result.reason).toContain("only the start was read");
+  // A prefix that already fails is still a plain failure.
+  expect(await matchSmoke({ bodyMatches: "^b" }, response)).toMatchObject({ pass: false, reason: expect.stringContaining("does not match") });
+  expect((await matchSmoke({ bodyMatches: "^b" }, response)).unchecked).toBeUndefined();
+  // Status and header checks do not need the body.
+  expect(await matchSmoke({ status: 200 }, response)).toEqual({ pass: true });
+  expect(await matchSmoke({ status: 200, headers: { "content-type": "x" } }, { ...response, headers: new Headers({ "content-type": "x/y" }) })).toEqual({ pass: true });
+});
+
+test("a body pattern on a complete small body passes or fails as before", async () => {
+  const response = { status: 200, headers: new Headers(), body: "aaa", complete: true };
+  expect(await matchSmoke({ bodyMatches: "^a+$" }, response)).toEqual({ pass: true });
+  expect(await matchSmoke({ bodyMatches: "^b" }, response)).toMatchObject({ pass: false });
+  expect(await matchSmoke({ bodyMatches: "^a+$" }, { status: 200, headers: new Headers(), body: "aaa" })).toEqual({ pass: true });
 });
 
 test("a header mismatch quotes at most 1024 characters of the actual value", async () => {

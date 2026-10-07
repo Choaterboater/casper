@@ -99,8 +99,9 @@ async function bodyMatches(pattern: string, body: string): Promise<boolean | str
   return out === "1";
 }
 
-/** Whether a response meets the expectation; the reason names the first unmet part. */
-export async function matchSmoke(expect: SmokeExpect, response: { status: number; headers: Headers; body: string; complete?: boolean }): Promise<{ pass: boolean; reason?: string }> {
+/** Whether a response meets the expectation; the reason names the first unmet part. `unchecked` means the
+ * check could not be decided (only the start of a long body was read), which is neither a pass nor a failure. */
+export async function matchSmoke(expect: SmokeExpect, response: { status: number; headers: Headers; body: string; complete?: boolean }): Promise<{ pass: boolean; reason?: string; unchecked?: true }> {
   if (expect.status !== undefined && response.status !== expect.status) return { pass: false, reason: `status ${response.status}, expected ${expect.status}` };
   for (const [name, value] of Object.entries(expect.headers ?? {})) {
     // The quoted value is cut like other messages: it reaches the repair prompt, the receipt and JSON.
@@ -117,6 +118,8 @@ export async function matchSmoke(expect: SmokeExpect, response: { status: number
     const matched = await bodyMatches(expect.bodyMatches, response.body);
     if (typeof matched === "string") return { pass: false, reason: matched };
     if (!matched) return { pass: false, reason: `body does not match /${expect.bodyMatches}/${response.complete === false ? " (body over 64 KiB was truncated; only its start was matched)" : ""}` };
+    // The pattern is about the whole body; a match in the start proves nothing about the rest.
+    if (response.complete === false) return { pass: false, unchecked: true, reason: `could not check /${expect.bodyMatches}/: the response was longer than 64 KiB and only the start was read` };
   }
   return { pass: true };
 }
@@ -243,7 +246,7 @@ export class SmokeChecks {
         signal: AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]) });
       const { bytes, complete } = await readBody(response), text = bytes.toString("utf8");
       const matched = await matchSmoke(check.expect, { status: response.status, headers: response.headers, body: text, complete });
-      return { status: matched.pass ? "pass" : "fail", actual: { status: response.status, body: text.slice(0, SNIPPET) },
+      return { status: matched.pass ? "pass" : matched.unchecked ? "incomplete" : "fail", actual: { status: response.status, body: text.slice(0, SNIPPET) },
         ...(matched.reason ? { reason: matched.reason } : {}), restarted };
     } catch (error) {
       signal.throwIfAborted();
