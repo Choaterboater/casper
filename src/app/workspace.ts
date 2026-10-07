@@ -55,19 +55,38 @@ export async function newProjectFlowWithAbort<T>(app: CasperApp, work: (flow: Ne
   finally { app.commandActive = outer.active; app.commandAbort = outer.abort; }
 }
 
-/** Interactive startup from the home directory, or from a folder that only holds projects (not a
- * project itself and not inside a git repository), asks which project to open — a launch from ~
- * silently made the whole home directory the workspace, and tasks then scanned all of it. A typed
- * path is validated and must stay inside the launch folder; Esc/empty keeps it. The projects last worked in
- * (saved conversations) lead, then the scan's by last change. Without a rich surface the question cannot
+/** A drive or filesystem root (C:\\, D:\\, /): as broad a workspace as the home folder. */
+export function isDriveRoot(dir: string): boolean {
+  const resolved = path.resolve(dir);
+  return resolved === path.parse(resolved).root;
+}
+
+/** The one plain line for a folder that holds projects: the count, up to four names, and the command to open the
+ * most recent. Nothing for fewer than two. */
+export function projectsHeldLine(cwd: string, candidates: readonly string[]): string | undefined {
+  if (candidates.length < 2) return undefined;
+  const names = candidates.slice(0, 4).map((candidate) => terminalText(path.basename(candidate)));
+  const more = candidates.length - names.length;
+  return `[folder] This folder holds ${candidates.length} projects (${names.join(", ")}${more > 0 ? ` and ${more} more` : ""}). `
+    + `To work in one: casper ${terminalText(path.relative(cwd, candidates[0]!))}\n`;
+}
+
+/** Interactive startup opens the folder Casper was launched in. A project, or a folder inside a git repository,
+ * opens with no question. The home folder or a drive root is too broad to work in (the sandbox lets the AI write
+ * anywhere in the workspace and tasks scan it), so those ask which project to open: the projects last worked in
+ * (saved conversations) lead, then the scan's by last change; staying put and New project come after. A typed
+ * path is validated and must stay inside the launch folder; Esc/empty keeps it. Any other folder, even one that
+ * only holds projects, opens exactly there, with one line naming them. Without a rich surface the question cannot
  * render, so the launch folder is stated plainly with the most recent project as the command to open it. */
 export async function openProjectFolder(app: CasperApp, cwd: string): Promise<string> {
   const home = app.sessionHomeDir ?? os.homedir();
   const fromHome = path.resolve(cwd) === path.resolve(home);
+  const atRoot = !fromHome && isDriveRoot(cwd);
+  const broad = fromHome || atRoot;
   let candidates: string[] | undefined;
-  if (!fromHome) {
+  if (!broad) {
     if (await hasProjectSignals(cwd) || (await inspectProject(cwd)).isGit) return cwd;
-    candidates = await findProjectCandidates(cwd, { homeDir: home });
+    candidates = await findProjectCandidates(cwd, { homeDir: home, limit: 50 });
     // An empty folder: one numbered question, on either terminal, offers to start a project right here.
     // Piped input can't answer it, so a pipe gets the command instead.
     // A resumed conversation already belongs to this folder: no question.
@@ -79,43 +98,46 @@ export async function openProjectFolder(app: CasperApp, cwd: string): Promise<st
       app.newProjectOffered = true;
       return cwd;
     }
-    if (!candidates.length) return cwd;
-    candidates = await orderProjectChoices(candidates, { base: cwd, agentDir: appAgentDir(app) });
+    if (candidates.length > 1) candidates = await orderProjectChoices(candidates, { base: cwd, agentDir: appAgentDir(app) });
+    const line = projectsHeldLine(cwd, candidates);
+    if (line) app.output.write(line);
+    return cwd;
   }
   if (!app.terminal.rich) {
     // `casper <folder>` opens that folder, so the hint is one command, no cd and no restart. From home it names
     // the project last worked in (no scan: only the saved conversations), else an example.
-    const recent = fromHome ? (await recentlyUsedProjects({ base: home, agentDir: appAgentDir(app) }))[0] : undefined;
-    app.output.write(fromHome
-      ? recent ? `[folder] Opened in your home folder. To work in ${terminalText(path.basename(recent))}: casper ${terminalText(tildePath(recent, home))}\n`
-        : `[folder] Opened in your home folder. To work in a project: casper ~/Projects/myapp\n`
-      : `[folder] This folder holds several projects. To work in one: casper ${terminalText(path.relative(cwd, candidates![0]!))}\n`);
+    const recent = (await recentlyUsedProjects({ base: fromHome ? home : cwd, agentDir: appAgentDir(app) }))[0];
+    const where = fromHome ? "your home folder" : "the top of a drive";
+    app.output.write(
+      recent ? `[folder] Opened in ${where}. To work in ${terminalText(path.basename(recent))}: casper ${terminalText(tildePath(recent, home))}\n`
+        : `[folder] Opened in ${where}. To work in a project: casper ~/Projects/myapp\n`);
     app.output.write("[folder] To start a new project instead: casper new\n");
     return cwd;
   }
   // Projects worked in lately lead (Enter opens the last one), then the scan's by last change.
-  candidates ??= await orderProjectChoices(await findProjectCandidates(cwd, { homeDir: home }), { base: home, agentDir: appAgentDir(app) });
+  candidates ??= await orderProjectChoices(await findProjectCandidates(cwd, { homeDir: home }), { base: fromHome ? home : cwd, agentDir: appAgentDir(app) });
   const base = fromHome ? home : cwd;
   const folderLabel = (folder: string) => fromHome
     ? folder === home ? "~" : `~${folder.slice(home.length)}`
     : folder === cwd ? "." : path.relative(cwd, folder);
   // Messages name the folder: "staying in Documents", never "staying in .".
-  const folderName = fromHome ? "your home folder" : path.basename(cwd) || cwd;
+  const folderName = fromHome ? "your home folder" : atRoot ? "the top of the drive" : path.basename(cwd) || cwd;
   const byLabel = new Map<string, string>(candidates.map(candidate => [folderLabel(candidate), candidate]));
   const answer = await app.terminal.ask(
-    fromHome ? "Opened from your home folder. Work in which project?" : "This folder holds several projects. Work in which one?",
-    // The projects lead, so Enter opens the first; staying put is the last choice.
+    fromHome ? "Opened from your home folder. Work in which project?" : "Opened from the top of a drive. Work in which project?",
+    // The projects lead, so Enter opens the first (the workspace is too broad to stay in by default); staying put is
+    // the next-to-last choice.
     [
       ...candidates.slice(0, 6).map(candidate => ({ label: folderLabel(candidate) })),
-      { label: folderLabel(cwd), description: fromHome ? "stay in the home folder" : ` stay in ${path.basename(cwd)}` },
-      { label: NEW_PROJECT_CHOICE, description: fromHome ? "start one in ~/Projects" : ` start one in ${path.basename(cwd)}` },
+      { label: folderLabel(cwd), description: fromHome ? "stay in the home folder" : "stay at the top of the drive" },
+      { label: NEW_PROJECT_CHOICE, description: "start one in ~/Projects" },
     ],
     false,
   );
   const choice = answer?.[0]?.trim();
   if (!choice) return cwd; // Esc, empty, or the plain-line fallback keeps the launch folder.
   if (choice === NEW_PROJECT_CHOICE) {
-    const result = await newProjectFlowWithAbort(app, (flow) => newProjectFromQuestions(flow, {}, fromHome ? undefined : cwd, (text) => queueTypedRequest(app, text)));
+    const result = await newProjectFlowWithAbort(app, (flow) => newProjectFromQuestions(flow, {}, undefined, (text) => queueTypedRequest(app, text)));
     return opened(result) ? result.dir : cwd;
   }
   const resolved = byLabel.get(choice) ?? path.resolve(cwd, choice.replace(/^~(?=\/|$)/, home));
@@ -127,8 +149,7 @@ export async function openProjectFolder(app: CasperApp, cwd: string): Promise<st
   const info = await stat(resolved).catch(() => undefined);
   if (!info) {
     // A name that isn't there: offer to make it (Enter stays). From home it goes in ~/Projects, like /new.
-    const result = await newProjectFlowWithAbort(app, (flow) => offerMissingFolder(flow, terminalText(choice), fromHome ? undefined : cwd,
-      folderName, fromHome ? "in ~/Projects" : "here"));
+    const result = await newProjectFlowWithAbort(app, (flow) => offerMissingFolder(flow, terminalText(choice), undefined, folderName, "in ~/Projects"));
     return opened(result) ? result.dir : cwd;
   }
   if (!info.isDirectory()) {

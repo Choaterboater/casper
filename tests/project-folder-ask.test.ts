@@ -213,7 +213,7 @@ test("without a rich terminal the home-folder hint gives a command that actually
   } finally { await removeTempDir(home); }
 });
 
-test("launching from a folder of projects asks which one to open; a project or a git subfolder never asks", async () => {
+test("launching from a folder of projects opens right there with one plain line; a project or a repository subfolder says nothing", async () => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-folder-repos-")));
   const home = path.join(root, "home");
   const work = path.join(root, "work");
@@ -230,29 +230,25 @@ test("launching from a folder of projects asks which one to open; a project or a
   const harness = interactiveHarness(home, work);
   const interactive = harness.app.runInteractive(work);
   try {
-    await harness.until(text => Bun.stripANSI(text).includes("This folder holds several projects. Work in which one?"));
-    const visible = Bun.stripANSI(harness.output());
-    expect(visible).toContain("3 .  stay in work");
-    expect(visible).toContain("1 repo-a");
-    expect(visible).toContain("2 repo-b");
-    harness.input.write("2");
-    await harness.until(text => /\bproject\s+repo-b\b/.test(Bun.stripANSI(text)));
-    // The question's record keeps the choice.
-    expect(Bun.stripANSI(harness.output())).toContain("✓ repo-b");
+    // No question: Casper is in the launch folder, and one line names the projects.
+    await harness.until(text => /\bproject\s+work\b/.test(Bun.stripANSI(text)));
     await harness.until(text => Bun.stripANSI(text).includes("idle"));
+    const visible = Bun.stripANSI(harness.output());
+    expect(visible).toContain("This folder holds 2 projects (repo-a, repo-b). To work in one: casper repo-a");
+    expect(visible).not.toContain("Work in which");
   } finally {
     harness.input.write("/exit\r");
     await interactive;
     await harness.app.close();
     harness.input.destroy();
   }
-  // A folder that is a project itself opens directly.
+  // A folder that is a project itself opens directly, with no line.
   await writeFile(path.join(work, "package.json"), "{}");
   const direct = interactiveHarness(home, work);
   const running = direct.app.runInteractive(work);
   try {
     await direct.until(text => Bun.stripANSI(text).includes("idle"));
-    expect(Bun.stripANSI(direct.output())).not.toContain("several projects");
+    expect(Bun.stripANSI(direct.output())).not.toContain("holds");
   } finally {
     direct.input.write("/exit\r");
     await running;
@@ -262,52 +258,38 @@ test("launching from a folder of projects asks which one to open; a project or a
   }
 });
 
-test("a typed folder name that isn't there offers Stay first, then Make it here with the /new questions", async () => {
-  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-folder-missing-")));
+test("the folder-of-projects line caps the names at four and stays silent with fewer than two projects", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-folder-many-")));
   const home = path.join(root, "home");
-  const work = path.join(root, "work");
+  const many = path.join(root, "many");
+  const one = path.join(root, "one");
   await mkdir(home, { recursive: true });
-  await mkdir(path.join(work, "repo-a", ".git"), { recursive: true });
-  await mkdir(path.join(work, "repo-b", ".git"), { recursive: true });
-  const harness = interactiveHarness(home, work);
-  const interactive = harness.app.runInteractive(work);
-  try {
-    await harness.until(text => Bun.stripANSI(text).includes("Work in which one?"));
-    harness.input.write("sample-tools\r");
-    await harness.until(text => Bun.stripANSI(text).includes("sample-tools isn't a folder in work. Make it?"));
-    const visible = Bun.stripANSI(harness.output());
-    expect(visible).toContain("1 Stay in work");
-    expect(visible).toContain("2 Make sample-tools here");
-    // Enter stays, and the message names the folder instead of ".".
-    harness.input.write("\r");
-    await harness.until(text => Bun.stripANSI(text).includes("[folder] Staying in work."));
-    await harness.until(text => /\bproject\s+work\b/.test(Bun.stripANSI(text)));
-    await harness.until(text => Bun.stripANSI(text).includes("idle"));
-  } finally {
-    harness.input.write("/exit\r");
-    await interactive;
-    await harness.app.close();
-    harness.input.destroy();
+  for (const name of ["a", "b", "c", "d", "e"]) await mkdir(path.join(many, name, ".git"), { recursive: true });
+  await mkdir(path.join(one, "solo", ".git"), { recursive: true });
+  const cases = [[many, true], [one, false]] as const;
+  for (const [dir, expectLine] of cases) {
+    const harness = interactiveHarness(home, dir);
+    const interactive = harness.app.runInteractive(dir);
+    try {
+      await harness.until(text => Bun.stripANSI(text).includes("idle"));
+      const visible = Bun.stripANSI(harness.output());
+      if (expectLine) { expect(visible).toContain("This folder holds 5 projects ("); expect(visible).toContain("and 1 more). To work in one: casper "); }
+      else expect(visible).not.toContain("holds");
+      expect(visible).not.toContain("Work in which");
+    } finally {
+      harness.input.write("/exit\r");
+      await interactive;
+      await harness.app.close();
+      harness.input.destroy();
+    }
   }
-  // Choice 2 goes on to the /new questions, with the typed name, in this folder.
-  const again = interactiveHarness(home, work);
-  const running = again.app.runInteractive(work);
-  try {
-    await again.until(text => Bun.stripANSI(text).includes("Work in which one?"));
-    again.input.write("sample-tools\r");
-    await again.until(text => Bun.stripANSI(text).includes("Make it?"));
-    again.input.write("2");
-    await again.until(text => Bun.stripANSI(text).includes("What are you building?"));
-    again.input.write("\x1b");
-    await again.until(text => /\bproject\s+work\b/.test(Bun.stripANSI(text)));
-    await again.until(text => Bun.stripANSI(text).includes("idle"));
-  } finally {
-    again.input.write("/exit\r");
-    await running;
-    await again.app.close();
-    again.input.destroy();
-    await removeTempDir(root);
-  }
+  await removeTempDir(root);
+});
+
+test("only the home folder and a drive root count as too broad to open without asking", async () => {
+  const { isDriveRoot } = await import("../src/app/workspace");
+  expect(isDriveRoot(path.parse(process.cwd()).root)).toBe(true);
+  expect(isDriveRoot(path.join(path.parse(process.cwd()).root, "work"))).toBe(false);
 });
 
 test("/project <name> opens a project folder inside this one before the model starts, or offers to make it", async () => {
@@ -317,12 +299,10 @@ test("/project <name> opens a project folder inside this one before the model st
   await mkdir(path.join(docs, "sample-tools", "tests"), { recursive: true });
   await writeFile(path.join(docs, "sample-tools", "pyproject.toml"), '[project]\nname = "sample-tools"\n');
   await writeFile(path.join(docs, "notes.md"), "notes\n");
-  // Documents holds a project, so Casper asks at launch; Esc keeps Documents.
+  // Documents holds one project and is not home: Casper opens right there without a question.
   const harness = interactiveHarness(home, docs);
   const interactive = harness.app.runInteractive(docs);
   try {
-    await harness.until(text => Bun.stripANSI(text).includes("Work in which one?"));
-    harness.input.write("\x1b");
     await harness.until(text => Bun.stripANSI(text).includes("idle"));
     // A name that isn't there: Stay first, and Enter stays.
     harness.input.write("/project netbox-sync\r");
@@ -367,4 +347,31 @@ test("/project <name> once the conversation started says the command to use", as
     await app.runOnce("/project nope", docs);
     expect(output).toContain("[folder] nope isn't a folder in Documents. To start it as a new project: casper new nope\n");
   } finally { await app.close(); await removeTree(root); }
+});
+
+test("/project <name> that isn't there offers Make it, and choice 2 goes on to the /new questions in this folder", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-folder-missing-")));
+  const home = path.join(root, "home");
+  const work = path.join(root, "work");
+  await mkdir(home, { recursive: true });
+  await mkdir(path.join(work, "repo-a", ".git"), { recursive: true });
+  await mkdir(path.join(work, "repo-b", ".git"), { recursive: true });
+  const harness = interactiveHarness(home, work);
+  const interactive = harness.app.runInteractive(work);
+  try {
+    await harness.until(text => Bun.stripANSI(text).includes("idle"));
+    harness.input.write("/project sample-tools\r");
+    await harness.until(text => Bun.stripANSI(text).includes("Make it?"));
+    harness.input.write("2");
+    await harness.until(text => Bun.stripANSI(text).includes("What are you building?"));
+    harness.input.write("\x1b");
+    // The question ended: the last status is idle again, not "waiting for you".
+    await harness.until(text => { const plain = Bun.stripANSI(text); return plain.lastIndexOf("idle") > plain.lastIndexOf("waiting for you"); });
+  } finally {
+    harness.input.write("/exit\r");
+    await interactive;
+    await harness.app.close();
+    harness.input.destroy();
+    await removeTempDir(root);
+  }
 });
