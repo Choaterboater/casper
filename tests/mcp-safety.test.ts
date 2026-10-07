@@ -276,8 +276,9 @@ test("without a question handler (one-shot) the server never gets a yes", async 
 });
 
 test("the call clock is paused while the user reads a server question", async () => {
-  const { elicit } = elicitor(async () => { await Bun.sleep(600); return { action: "accept", value: true }; });
-  const { broker, id } = await setup({ confirm: async () => true, elicit, manager: { callTimeoutMs: 300 } });
+  // The question outlasts the call limit; the call itself then needs room to finish on a loaded machine.
+  const { elicit } = elicitor(async () => { await Bun.sleep(1500); return { action: "accept", value: true }; });
+  const { broker, id } = await setup({ confirm: async () => true, elicit, manager: { callTimeoutMs: 1000 } });
   expect(JSON.stringify(await broker.invoke(id("port_bounce"), { serial_number: "SG1" }))).toContain("bounced");
 });
 
