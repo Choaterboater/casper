@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import type { TreeChanges } from "../task/changes";
 import { runCommandCheck } from "./command";
@@ -40,6 +41,26 @@ const NAME_COUNT = 20;
 const EFFORT = "low";
 const MAX_TOKENS = 24_000;
 const EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".py"];
+
+/** Shell operators, redirects and substitutions: after any of these a trailing filename may reach another command. */
+const SHELL_SYNTAX = /[&|;<>`\r\n]|\$\(/;
+/** Flags that make a runner skip tests by name, so the generated file could load and still run nothing.
+ * A short flag may carry its value attached (`-tfoo`, `-kfoo`); `-run` is go test's filter. */
+const TEST_FILTER = /(?:^|\s)(?:-[tkm]\S|(?:-t|-k|-m|-run|--grep|--filter|--test-name-pattern|--testNamePattern|--testPathPattern|--match|--ignore|--deselect)(?:[=\s]|$))/;
+/** `python -m pytest` and `python -m unittest` use `-m` to name a module, not to filter by marker. */
+const PYTHON_MODULE = /\bpython[\d.]*(?:\.exe)?\s+-m\s+/g;
+
+/** Why the project's test command cannot take one more file, or undefined when it can. */
+export function unextendableReason(command: string): string | undefined {
+  if (SHELL_SYNTAX.test(command)) return "it chains or redirects, so a file added to it might reach another command";
+  if (TEST_FILTER.test(command.replace(PYTHON_MODULE, ""))) return "it filters which tests run, so the new file could load and run nothing";
+  return undefined;
+}
+
+/** The generated file ends by writing `marker`, so a run that exits 0 without it never loaded the file. */
+const markerLine = (relative: string, marker: string) => path.posix.extname(relative) === ".py"
+  ? `\nopen(${JSON.stringify(marker)}, "w").close()\n`
+  : `\n;(typeof require === "function" ? require : process.getBuiltinModule)("node:fs").writeFileSync(${JSON.stringify(marker)}, "");\n`;
 
 const clip = (text: string, limit: number) => text.length > limit ? `${text.slice(0, limit)}\n… (truncated)` : text;
 const readText = (file: string) => readFile(file, "utf8").catch(() => undefined);
@@ -84,7 +105,10 @@ export async function independentAcceptance(input: {
   timeoutMs: number;
   signal?: AbortSignal;
 }): Promise<AcceptanceResult> {
-  const { relative, testDir } = acceptanceTarget(input.files.keys(), randomBytes(4).toString("hex"));
+  const hex = randomBytes(4).toString("hex");
+  const { relative, testDir } = acceptanceTarget(input.files.keys(), hex);
+  const unextendable = unextendableReason(input.testCommand);
+  if (unextendable) return { status: "error", reason: `independent acceptance was skipped: the test command cannot be extended safely (${unextendable})`, usage: { tokens: 0, estimatedCost: 0 } };
   const sections = [`Request:\n${input.request}`];
   for (const doc of ["CONTEXT.md", "AGENTS.md"]) {
     const text = await readText(path.join(input.root, doc));
@@ -114,19 +138,24 @@ export async function independentAcceptance(input: {
   const body = /```[a-zA-Z]*\n([\s\S]*?)```/.exec(answer.text)?.[1];
   if (body === undefined) return { status: "error", reason: "the acceptance answer had no test file", usage };
 
+  const marker = path.join(os.tmpdir(), `casper-acceptance-ran-${hex}`);
   const target = path.join(input.root, relative);
   const directory = path.dirname(target);
   const createdDirectory = !await stat(directory).then(() => true, () => false);
   try {
     await mkdir(directory, { recursive: true });
-    await writeFile(target, body);
+    await writeFile(target, body + markerLine(relative, marker));
     const result = await runCommandCheck({ name: "test", command: `${input.testCommand} ./${relative}`, cwd: input.root, timeoutMs: input.timeoutMs, signal: input.signal });
     if (result.exitCode === null) return { status: "error", reason: `the acceptance tests did not finish (${(result.reason ?? "no exit status").replace(/\.$/, "")})`, usage };
-    if (result.exitCode === 0) return { status: "pass", usage };
+    if (result.exitCode === 0) {
+      if (!await stat(marker).then(() => true, () => false)) return { status: "error", reason: "the test command passed but did not run the acceptance tests, so nothing is trusted", usage };
+      return { status: "pass", usage };
+    }
     const output = `${result.stdout}\n${result.stderr}`;
     const unconfirmed = failedTestNames(output);
     return { status: "fail", output: output.slice(-OUTPUT_TAIL), ...(unconfirmed.length ? { unconfirmed } : {}), usage };
   } finally {
+    await rm(marker, { force: true });
     await rm(createdDirectory ? directory : target, { recursive: true, force: true });
   }
 }

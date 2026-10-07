@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { snapshotTree } from "../src/task/changes";
 import { taskOutcome, formatReceipt, formatTaskResult, type TaskResult } from "../src/task/result";
-import { acceptanceTarget, failedTestNames, independentAcceptance, type AcceptanceCompletion } from "../src/verify/acceptance";
+import { acceptanceTarget, failedTestNames, independentAcceptance, unextendableReason, type AcceptanceCompletion } from "../src/verify/acceptance";
 import { removeTempDir } from "./support/temp-dir";
 
 const roots: string[] = [];
@@ -106,4 +106,40 @@ test("in warn mode a failed acceptance check never downgrades; the receipt names
   const unnamed = { ...verified, acceptance: { status: "fail" as const, mode: "warn" as const } };
   expect(taskOutcome(undefined, unnamed)).toBe("verified");
   expect(formatReceipt(unnamed)).toContain("⚠ Independent acceptance: tests written from the request alone fail");
+});
+
+const generatedFailing = "```js\nimport { expect, test } from \"bun:test\";\ntest(\"requested\", () => expect(0).toBe(1));\n```";
+
+test("a test command that chains or redirects is refused, never extended, and passes nothing", async () => {
+  const root = await project();
+  const bun = `"${process.execPath}"`;
+  for (const testCommand of [`${bun} test tests/value.test.js && true`, `${bun} test tests/value.test.js; true`, `${bun} test || true`, `${bun} test | cat`, `${bun} test > out.txt`]) {
+    const files = await snapshotTree(root);
+    const result = await independentAcceptance({ complete: answer(generatedFailing), request: "Make value FIXED.", root, changes: { added: [], modified: ["src/value.js"], removed: [] }, files, testCommand, timeoutMs: 60_000 });
+    expect(result.status).toBe("error");
+    expect(result.reason).toContain("cannot be extended safely");
+  }
+  expect(await readdir(path.join(root, "tests"))).toEqual(["value.test.js"]);
+});
+
+test("a test command that filters tests is refused, and one that ignores the added file does not pass", async () => {
+  const root = await project();
+  const bun = `"${process.execPath}"`;
+  const run2 = async (testCommand: string) => independentAcceptance({ complete: answer(generatedFailing), request: "Make value FIXED.", root,
+    changes: { added: [], modified: ["src/value.js"], removed: [] }, files: await snapshotTree(root), testCommand, timeoutMs: 60_000 });
+  expect((await run2(`${bun} test -t value`)).status).toBe("error");
+  expect((await run2(`${bun} test --test-name-pattern value`)).status).toBe("error");
+  const ignoring = await run2(`${bun} -e "process.exit(0)"`);
+  expect(ignoring.status).toBe("error");
+  expect(ignoring.reason).toContain("did not run");
+});
+
+test("python module runners and package-manager forms stay extendable; filters are refused even with the value attached", () => {
+  for (const command of ["python -m pytest", "python3 -m pytest -q", "python3 -m unittest discover -s tests", "uv run python -m unittest discover", "poetry run python -m pytest",
+    "pytest -q", "bun test", "npm test", "pnpm test", "yarn test", "npx vitest run", "npx jest", "go test ./...", "cargo test"]) {
+    expect(unextendableReason(command)).toBeUndefined();
+  }
+  for (const command of ["pytest -m slow", "python -m pytest -m slow", "pytest -mslow", "jest -tfoo", "jest -t'x y'", "pytest -kfoo", "pytest -k foo", "go test -run Foo"]) {
+    expect(unextendableReason(command)).toContain("filters");
+  }
 });
