@@ -41,11 +41,24 @@ const KEY_VARIABLES: Record<string, string> = {
 };
 
 /** What to do when the model's provider has no sign-in: its real name, its /login and its key variable. */
-export function missingSignIn(provider: string): string {
+export function missingSignIn(provider: string, baseUrl?: string): string {
+  if (baseUrl && !SIGN_IN_NAMES[provider] && !KEY_VARIABLES[provider]) return `${provider} at ${baseUrl} needs an apiKey line in models.json (any text works for a local server).`;
   const name = SIGN_IN_NAMES[provider];
   const variable = KEY_VARIABLES[provider];
   if (name) return `Not signed in to ${name}. Type /login ${provider}${variable ? `, or set ${variable}` : ""}.`;
   return `No key for ${provider}. ${variable ? `Set ${variable}` : "Set its API key"}, or /model to choose another.`;
+}
+
+/** The address of a provider set up in models.json with a baseUrl and no apiKey (a local server), else undefined. */
+export function keylessAddress(agentDir: string, provider: string): string | undefined {
+  try {
+    const parsed: unknown = Bun.JSONC.parse(readFileSync(path.join(agentDir, "models.json"), "utf8"));
+    const providers = parsed && typeof parsed === "object" ? (parsed as { providers?: unknown }).providers : undefined;
+    const entry = providers && typeof providers === "object" && !Array.isArray(providers) ? (providers as Record<string, unknown>)[provider] : undefined;
+    if (!entry || typeof entry !== "object") return undefined;
+    const { baseUrl, apiKey } = entry as { baseUrl?: unknown; apiKey?: unknown };
+    return typeof baseUrl === "string" && baseUrl && !(typeof apiKey === "string" && apiKey) ? baseUrl : undefined;
+  } catch { return undefined; }
 }
 
 /** What Casper says about a catalog model: its name, context window, input price and whether it sees images. */
@@ -281,7 +294,7 @@ export class PiModels {
     const blocked = !reference ? "No Casper model selected. Use /model to choose one, or /login to sign in."
       : stale ? "Credential state needs local refresh. Restart Casper before using this provider; do not repeat login blindly."
       : !model ? `Model ${reference.provider}/${reference.id} is unavailable. Use /model to choose another; no fallback was selected.`
-      : auth === "missing" ? missingSignIn(reference.provider) : undefined;
+      : auth === "missing" ? missingSignIn(reference.provider, keylessAddress(this.agentDir, reference.provider)) : undefined;
     const prices = model?.cost ? [model.cost.input, model.cost.output].filter((price) => typeof price === "number" && Number.isFinite(price)) : [];
     const priced = prices.length ? prices.some((price) => price > 0) : undefined;
     return { provider: reference?.provider, model: reference?.id, thinkingLevel: model ? session.thinkingLevel : undefined,
@@ -414,7 +427,7 @@ export class PiModels {
       const effort = resolved?.effort ?? saved?.effort ?? (this.autoDefault(model) ? "auto" : undefined);
       if (effort && effort !== "auto" && !nearestEffort(effort, getSupportedThinkingLevels(model))) throw new Error(`Unknown effort ${effort} for ${model.provider}/${model.id}.`);
       if (this.staleAuth.has(model.provider)) throw new Error("Credential state needs local refresh. Restart Casper before selecting this provider.");
-      if (!this.catalog.hasConfiguredAuth(model.provider)) throw new Error(`${missingSignIn(model.provider)} Model unchanged.`);
+      if (!this.catalog.hasConfiguredAuth(model.provider)) throw new Error(`${missingSignIn(model.provider, keylessAddress(this.agentDir, model.provider))} Model unchanged.`);
       await session.setModel(model, { persist: false });
       // Pi commits the model before awaiting model_select extension handlers.
       // Retain that committed conversation state even if cancellation arrived

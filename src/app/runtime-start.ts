@@ -148,7 +148,7 @@ export async function applyRunConversation(app: CasperApp, session: RuntimeSessi
 export async function applyRunSelection(app: CasperApp, session: RuntimeSession): Promise<void> {
   const flagError = (flag: string, error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
-    return /^(?:Credential|Not signed in to|No key for)/.test(message) ? new Error(message) : new UsageError(`${flag}: ${message}`);
+    return /^(?:Credential|Not signed in to|No key for|\S+ at \S+ needs an apiKey line)/.test(message) ? new Error(message) : new UsageError(`${flag}: ${message}`);
   };
   if (app.runModel) {
     if (!session.selectModel) throw new UsageError("--model: this runtime does not support model selection.");

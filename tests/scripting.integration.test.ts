@@ -67,7 +67,9 @@ test("a --model whose provider has no credentials fails (exit 1) with the sign-i
   const f = await fixture();
   const result = await f.run(["--model", "missing/no-auth", "hi"]);
   expect(result.exit).toBe(1);
-  expect(result.stderr).toContain("No key for missing. Set its API key, or /model to choose another.");
+  // A provider with an address and no key line gets the models.json hint, not the sign-in one.
+  expect(result.stderr).toContain("missing at ");
+  expect(result.stderr).toContain("needs an apiKey line in models.json");
   expect(f.payloads).toEqual([]);
 }, 180_000);
 
