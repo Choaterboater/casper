@@ -4,6 +4,7 @@
  * The record lives inside the task's delegate tool, so it starts empty in the next task.
  */
 import { redactPreview } from "../tui/format";
+import type { PartNotReviewed } from "../task/result";
 
 /** How much of a part's diff a reviewer is handed. */
 export const PART_EXCERPT_BYTES = 24 * 1024;
@@ -26,14 +27,30 @@ interface Part {
   /** Reviews started on this version (a review that did not run is given back). */
   started: number;
   reviewed: boolean;
+  /** Why the last review of this version did not finish (a timeout, a failure, a cutoff), in plain words. */
+  notFinished?: string;
   /** The one fix round this part gets was started. */
   fixed: boolean;
   report?: string;
 }
 
-export type PartReview = { context: string } | { refusal: string };
-/** A review's context, and the version of the part it was made from (hand it back to `markReviewed` and `release`). */
-export type ReviewStart = { context: string; version: number } | { refusal: string };
+/** What a fix builder is given, and the [crew] line that says a builder is fixing the part. */
+export type PartReview = { context: string; said: string } | { refusal: string };
+/** A review's context, the version of the part it was made from (hand it back to `markReviewed` and `release`), and
+ * the [crew] line that says a reviewer is checking it. */
+export type ReviewStart = { context: string; version: number; said: string } | { refusal: string };
+
+/** In plain words, why a reviewer that did not end `completed` leaves its part "not reviewed". */
+const NOT_FINISHED: Record<string, string> = {
+  timed_out: "the reviewer timed out", failed: "the reviewer failed", limited: "the reviewer was cut off", cancelled: "the reviewer was stopped",
+};
+
+/** Problems a reviewer's report lists: its top-level numbered or bulleted lines. Undefined when it lists none (it may
+ * be prose), so no number is guessed. */
+function problemCount(report: string | undefined): number | undefined {
+  const count = (report ?? "").split("\n").filter((line) => /^(?:\d+[.)]|[-*\u2022])\s+\S/.test(line)).length;
+  return count || undefined;
+}
 
 /** A diff as text: hunks of text files as they are, binary files by name only, cut at a line near the limit. */
 function excerptOf(patch: Buffer): string {
@@ -76,7 +93,8 @@ export class PartRecord {
         : `The part's first change:\n${part.stat.trim().slice(0, 2048)}\nThe fix's own change:\n${part.fixStat.trim().slice(0, 2048)}`,
       "The change as applied (a diff; review it, and read the files for the code around it):",
       part.excerpt,
-    ].filter(Boolean).join("\n"), version: part.version };
+    ].filter(Boolean).join("\n"), version: part.version,
+    said: `A reviewer is checking part ${n} (${part.files.length} file${part.files.length === 1 ? "" : "s"})` };
   }
 
   /** A review that did not run (turned away before it started) is not counted. */
@@ -91,12 +109,28 @@ export class PartRecord {
     const part = this.parts[n - 1];
     if (!part || part.version !== version) return;
     part.reviewed = true;
+    part.notFinished = undefined;
     part.report = text;
+  }
+
+  /** The reviewer ended without finishing (status other than `completed`): the part stays not reviewed, and says why.
+   * A review of an older version is ignored, as in `markReviewed`. */
+  reviewFailed(n: number, status: string, version: number): void {
+    const part = this.parts[n - 1];
+    if (!part || part.version !== version || part.reviewed) return;
+    part.notFinished = NOT_FINISHED[status] ?? "the reviewer did not finish";
   }
 
   /** The numbers of landed parts no reviewer finished. */
   unreviewed(): number[] {
     return this.parts.flatMap((part, index) => part.reviewed ? [] : [index + 1]);
+  }
+
+  /** The landed parts no reviewer finished, with the files and the reason (for the receipt and /crew). A part counts as
+   * reviewed only when its reviewer ended `completed`; a timeout, a failure or a cutoff leaves it here. */
+  notReviewed(): PartNotReviewed[] {
+    return this.parts.flatMap((part, index) => part.reviewed ? []
+      : [{ part: index + 1, files: [...part.files], why: part.notFinished ?? "no reviewer looked at it" }]);
   }
 
   /** What a fix builder is given for part `n` (the stored review, if any, and the fixer's rule), or why it can't have
@@ -107,7 +141,9 @@ export class PartRecord {
     if (part.fixed) return { refusal: `Part ${n} already had its fix round (one fix round per part); fix the rest yourself.` };
     part.fixed = true;
     const report = part.report?.trim();
-    return { context: [
+    const found = problemCount(report);
+    return { said: report ? `The reviewer found ${found === undefined ? "problems" : `${found} problem${found === 1 ? "" : "s"}`}; a builder is fixing them` : `A builder is fixing part ${n}`,
+      context: [
       `Part ${n}, landed in the project folder by a builder earlier in this task (not committed): ${part.files.slice(0, 40).join(", ")}`,
       FIX_RULE,
       report ? `The reviewer's report:\n${report.length > PART_REPORT_BYTES ? `${report.slice(0, PART_REPORT_BYTES)}\n[The report is cut here.]` : report}`
@@ -131,6 +167,7 @@ export class PartRecord {
     part.version++;
     part.started = 0;
     part.reviewed = false;
+    part.notFinished = undefined;
     part.report = undefined;
     if (!change) return [];
     const outside = change.files.filter((file) => !part.files.includes(file));

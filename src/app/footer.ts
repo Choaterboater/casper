@@ -40,14 +40,20 @@ export function updateFooter(app: CasperApp): void {
   } catch { app.terminal.setStatus("Session status unavailable · /status", app.projectContext.info.root); }
 }
 
-/** " │ 2 builders · $0.12" while builders work (what they spent so far joins the task when each ends). */
+/** " │ 1 reviewer · 2 builders · $0.19" while reviewers or builders work (what they spent so far joins the task when
+ * each ends). Explorers are not counted. */
 export function buildersText(app: Pick<CasperApp, "subagents">): string {
-  const builders = app.subagents.runs().filter((run) => run.role === "builder");
-  if (!builders.length) return "";
-  const tokens = builders.reduce((sum, run) => sum + (run.spent?.tokens ?? 0), 0);
-  const cost = builders.reduce((sum, run) => sum + (run.spent?.estimatedCost ?? 0), 0);
+  const runs = app.subagents.runs();
+  const reviewers = runs.filter((run) => run.role === "reviewer");
+  const builders = runs.filter((run) => run.role === "builder");
+  const counted = [...reviewers, ...builders];
+  if (!counted.length) return "";
+  const tokens = counted.reduce((sum, run) => sum + (run.spent?.tokens ?? 0), 0);
+  const cost = counted.reduce((sum, run) => sum + (run.spent?.estimatedCost ?? 0), 0);
   const spent = cost > 0 ? ` · ${formatCost(cost)}` : tokens ? ` · ${formatTokens(tokens)}` : "";
-  return ` │ ${builders.length} builder${builders.length === 1 ? "" : "s"}${spent}`;
+  const who = [...(reviewers.length ? [`${reviewers.length} reviewer${reviewers.length === 1 ? "" : "s"}`] : []),
+    ...(builders.length ? [`${builders.length} builder${builders.length === 1 ? "" : "s"}`] : [])].join(" · ");
+  return ` │ ${who}${spent}`;
 }
 
 export function conversationName(app: CasperApp): string {

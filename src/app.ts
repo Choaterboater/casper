@@ -50,6 +50,7 @@ import type { NetworkToolContext } from "./verify/registry";
 import type { NextItem } from "./tui/next-row";
 import { TaskUndo } from "./app/undo";
 import type { BuilderSteer } from "./crew/auto";
+import type { PartRecord } from "./crew/parts";
 import { SuggestionController } from "./app/suggestions";
 import type { SecurityAIReview, SecurityReviewHost } from "./app/security-review";
 import type { ChecksPlan, VerificationMode } from "./verify/mode";
@@ -442,6 +443,7 @@ export class CasperApp {
     this.events = new RuntimeEventView(this.terminal, this.output, {
       updateFooter: () => updateFooter(this),
       builderGoals: () => this.subagents.runs().filter(run => run.role === "builder").map(run => run.goal),
+      reviewerCount: () => this.subagents.runs().filter(run => run.role === "reviewer").length,
       display: () => displayLevel(this),
       onToolEnd: event => {
         this.observations.observeToolEnd(event, this.projectContext?.model.commands);
@@ -720,6 +722,8 @@ export class CasperApp {
    * boundaries (a new request, or an explicit /verify repair task) — never for repair rounds
    * of the current task. */
   delegateToolForTask?: RuntimeTool;
+  /** The parts builders landed this task (src/crew/parts.ts); lives and ends with the task's delegate tool. */
+  crewParts?: PartRecord;
   /** What this request's words say about builders ("in parallel", "by yourself"); set at each task's start. */
   builderSteer?: BuilderSteer;
   /** Why the AI can't start builders in this workspace now (src/crew/auto.ts); unset when it can. */

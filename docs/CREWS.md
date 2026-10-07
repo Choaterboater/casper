@@ -9,8 +9,8 @@ Say "run a crew" or "split this up" to ask for builders, "by yourself" to keep
 the AI from using them.
 
 Status: v0.3 Crews, built, not released. The AI starts builders itself; `/crew`
-shipped in v0.2.23. One fix round per part follows a review; the
-not-reviewed note comes next.
+shipped in v0.2.23. One fix round per part follows a review, and reviewers
+show while they work; the receipt names parts nobody reviewed.
 
 ## The AI splits big jobs itself
 
@@ -46,14 +46,24 @@ with its `delegate` tool. Nothing asks you first.
    folder with the part in it, lands the same way, and one `/undo` takes both
    back. A part gets one review before its fix and one after; the second sees
    the fix's own diff and stat. A file the fix touched that the part did not
-   is named in the result.
+   is named in the result. When the last builder ends, its result also lists
+the landed parts no reviewer has finished yet: a nudge, never a gate.
 
 Up to 3 builders work at once, and 6 per request, besides fix builders: those
 have their own count, and first builds and fixes together stop at 9. The
-footer shows them while they work: `│ 2 builders · $0.12`. What each one spent
+footer shows reviewers and builders while they work:
+`│ 1 reviewer · 2 builders · $0.19`, and the Working box names them too. Casper
+also says in a `[crew]` line when a reviewer starts ("A reviewer is checking
+part 2 (3 files)") and when a builder starts fixing what it found. What each one spent
 joins the task's total (and the receipt) when it ends, and counts toward the
 spend pause while it works: at the pause their tool calls wait for the answer
 too, and "Stop here" stops them, each copy kept.
+
+**Not reviewed.** A part counts as reviewed only when its reviewer finished. If a
+reviewer timed out, failed or was cut off, or none was started, the receipt says
+so in one line: `• Not reviewed: part 2 (a.ts, b.ts; the reviewer timed out)`.
+`/crew` lists those parts too. It is a note, not a failure: nothing is undone,
+no check changes, and nothing waits on you.
 
 **Not forced in.** A builder's change is not applied when a file it changed
 was also changed in your folder after its copy started (by you, the AI, or

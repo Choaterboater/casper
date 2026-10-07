@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { receiptEvent, storedTaskResult } from "../src/app/json-events";
 import type { PageReport } from "../src/services/page-report";
-import { checksPassed, formatReceipt, formatTaskResult, taskOutcome, type TaskResult } from "../src/task/result";
+import { checksPassed, formatReceipt, formatShortReceipt, formatTaskResult, taskOutcome, type TaskResult } from "../src/task/result";
 import type { VerificationReport, VerificationResult } from "../src/verify/evidence";
 
 const check = (fields: Partial<VerificationResult> = {}): VerificationResult => ({ name: "test", status: "pass", command: "bun test", cwd: "/", exitCode: 0,
@@ -107,4 +107,18 @@ test("files a plan turn changed anyway are named on the receipt", () => {
   expect(formatReceipt({ execution: "completed", changedPaths: ["notes.md"], changedWhilePlanning: ["notes.md"] }))
     .toContain("• Changed while planning: notes.md");
   expect(formatReceipt({ execution: "completed", changedPaths: ["notes.md"] })).not.toContain("while planning");
+});
+
+test("landed parts no reviewer finished are one plain line on the receipt, and /receipt says it too", () => {
+  const task: TaskResult = { execution: "completed", changedPaths: ["a.ts", "b.ts", "c.ts"], partsNotReviewed: [
+    { part: 1, files: ["a.ts", "b.ts"], why: "the reviewer timed out" },
+    { part: 2, files: ["c.ts"], why: "no reviewer looked at it" },
+  ] };
+  expect(formatReceipt(task)).toContain("• Not reviewed: part 1 (a.ts, b.ts; the reviewer timed out), part 2 (c.ts; no reviewer looked at it)");
+  expect(formatShortReceipt(task)).toContain("• Not reviewed: part 1 (a.ts, b.ts; the reviewer timed out)");
+  expect(formatTaskResult(task)).toContain("not reviewed part 1 (a.ts, b.ts; the reviewer timed out), part 2 (c.ts; no reviewer looked at it)");
+  const many: TaskResult = { execution: "completed", changedPaths: ["a.ts"], partsNotReviewed: [{ part: 1, files: ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"], why: "the reviewer failed" }] };
+  expect(formatReceipt(many)).toContain("part 1 (a.ts, b.ts, c.ts and 2 more; the reviewer failed)");
+  expect(formatReceipt({ execution: "completed", changedPaths: ["a.ts"] })).not.toContain("Not reviewed");
+  expect(formatReceipt({ execution: "completed", changedPaths: ["a.ts"], partsNotReviewed: [] })).not.toContain("Not reviewed");
 });

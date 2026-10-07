@@ -15,6 +15,7 @@ import { redactPreview, terminalText } from "../tui/format";
 import { formatProjectContext, type ProjectContext } from "../project/context";
 import type { RuntimeTool } from "../runtime/types";
 import { diffSnapshots, type TreeChanges } from "../task/changes";
+import type { PartNotReviewed } from "../task/result";
 import { assembleTaskTools } from "./capabilities";
 import { webTools } from "../web/tools";
 import type { BackgroundTask } from "./background";
@@ -27,6 +28,7 @@ import { projectPrivatePaths } from "./wiring";
 import { appAgentDir, observeEdit } from "./runtime-start";
 import { autoBuilders, builderAvailability } from "../crew/auto";
 import { crewShell } from "../crew/shell";
+import { PartRecord } from "../crew/parts";
 import { spendGate } from "./spend-gate";
 
 export async function prepareCapabilities(app: CasperApp, task: string): Promise<void> {
@@ -69,6 +71,8 @@ export function sessionTool(app: CasperApp): RuntimeTool {
 
 export function delegateTool(app: CasperApp): RuntimeTool {
   // The child's usage joins the current task's totals (observations are replaced per task).
+  // The part record lives with the delegate tool: the task's start clears both.
+  if (!app.delegateToolForTask) app.crewParts = new PartRecord();
   app.delegateToolForTask ??= app.subagents.createTool(() => ({
     cwd: app.activeWorkspaceRoot(),
     projectContext: formatProjectContext(app.projectContext!),
@@ -81,9 +85,12 @@ export function delegateTool(app: CasperApp): RuntimeTool {
     shell: (copy, note) => app.sandbox ? crewShell(app.sandbox, copy, note) : undefined,
     observeEdit: (file) => observeEdit(app, file),
     say: (line) => { if (!app.closing) { app.events.ensureLineBreak(); app.output.write(`[crew] ${terminalText(line)}\n`); } },
-  }, app.buildersOff, app.builderSteer));
+  }, app.buildersOff, app.builderSteer, app.crewParts));
   return app.delegateToolForTask;
 }
+
+/** The parts builders landed this task that no reviewer finished, for the receipt. */
+export function partsNotReviewed(app: CasperApp): PartNotReviewed[] { return app.crewParts?.notReviewed() ?? []; }
 
 /** One question per cloud metadata address the AI's browser reaches: 1 No · 2 Yes, this once · 3 Yes, for this
  * session, where a session yes covers that address only (a yes to other browser actions never does). */

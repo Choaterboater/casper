@@ -50,7 +50,7 @@ import { describeChecksPlan, type ChecksPlan } from "../verify/mode";
 import { detectedMigrations, MIGRATIONS_CHECK } from "../verify/migrations-check";
 import { detectedE2e, E2E_CHECK } from "../verify/e2e";
 import { TOOL_CALL_LIMIT, type TaskObservations } from "../task/observations";
-import { formatTaskResult, NO_CHECKS_FOUND, type TaskResult } from "../task/result";
+import { formatTaskResult, NO_CHECKS_FOUND, type PartNotReviewed, type TaskResult } from "../task/result";
 import { UndoStore } from "../task/undo";
 import { tildePath } from "../new/scaffold";
 import { conversationLabel, matchConversation, recentTurnLines } from "../sessions/resume";
@@ -88,6 +88,8 @@ export interface CommandHost {
   readonly interactive: boolean;
   readonly closing: boolean;
   readonly subagents: SubagentManager;
+  /** The parts builders landed in the last task (src/crew/parts.ts), for /crew. */
+  readonly crewParts?: { notReviewed(): PartNotReviewed[] };
   readonly lifecycle: LifecycleRegistry;
   readonly session?: RuntimeSession;
   /** The mode and checks this session uses after a change (shared with the banner and tasks). */
@@ -1323,6 +1325,7 @@ async function runCrew(host: CommandHost, argument: string): Promise<void> {
     pick: (question, options, signal) => host.terminal.pick(question, options, signal),
     ...(host.commandAbort ? { signal: host.commandAbort.signal } : {}),
     projectContext: formatProjectContext(context),
+    notReviewed: () => host.crewParts?.notReviewed() ?? [],
     runBuilder: (options) => host.subagents.runBuilder(options),
     shell: (copy, note) => sandbox ? crewShell(sandbox, copy, note) : undefined,
   }, argument);

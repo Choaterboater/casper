@@ -12,6 +12,7 @@ import type { BuilderRunOptions, SubagentResult } from "../agents/manager";
 import type { Choice } from "../app/safe-choices";
 import type { RuntimeShell } from "../runtime/types";
 import { formatCost } from "../task/spend";
+import type { PartNotReviewed } from "../task/result";
 import { redactPreview, terminalText } from "../tui/format";
 import { GitWorktreeManager, type WorktreePatch, type WorktreeRelation } from "../workspace/worktree";
 import { linkDependencies, unlinkDependencies } from "./copies";
@@ -28,6 +29,8 @@ export interface CrewHost {
   /** The project's rules and facts, as a helper gets them. */
   projectContext: string;
   runBuilder(options: BuilderRunOptions): Promise<SubagentResult>;
+  /** Parts a builder landed in the last task that no reviewer finished, for bare /crew. */
+  notReviewed?(): PartNotReviewed[];
   /** The builder's shell around its copy; `note` gets what was not run because it needed your OK. */
   shell(copy: string, note: (line: string) => void): (RuntimeShell & { close(): Promise<void> }) | undefined;
 }
@@ -109,6 +112,12 @@ export async function runCrewCommand(host: CrewHost, argument: string): Promise<
 
 async function copies(host: CrewHost, manager: GitWorktreeManager, typed?: { action: "apply" | "drop"; number: number }): Promise<void> {
   const found = await manager.crewCopies();
+  // Bare /crew also says which landed parts were never reviewed (a part a builder landed straight into your folder).
+  const unreviewed = host.notReviewed?.() ?? [];
+  if (!typed && unreviewed.length) {
+    host.write(`[crew] Landed in this task and never reviewed:\n${unreviewed.map(({ part, files, why }) =>
+      `  part ${part} · ${files.slice(0, 6).map(terminalText).join(", ")}${files.length > 6 ? ` and ${files.length - 6} more` : ""} · ${terminalText(why)}`).join("\n")}\n`);
+  }
   if (!found.length) {
     say(host, "No crew copies here. /crew <job> starts one: a builder does the job in its own copy of the project.");
     return;

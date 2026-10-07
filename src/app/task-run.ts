@@ -44,7 +44,7 @@ import { explainModelError } from "../runtime/model-errors";
 import { tildePath } from "../new/scaffold";
 import { offerNetworkServer } from "./network-host";
 import { updateFooter, nameConversation, phase, clearSteps } from "./footer";
-import { prepareCapabilities, serviceManager, stopDebugger, planPages, pageNotesFor, pagePaths } from "./task-tools";
+import { partsNotReviewed, prepareCapabilities, serviceManager, stopDebugger, planPages, pageNotesFor, pagePaths } from "./task-tools";
 import type { RequestWords } from "./request-words";
 import { applyWords, hasWords } from "./task-words";
 import { ensureModel, retryModelFailure, bigModelReceipt, bigModelNotice, imagesForModel, switchForPictures, restoreModel } from "./big-model";
@@ -98,6 +98,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   app.asksThisTask = 0;
   // A new request gets a fresh delegation budget (the budget belongs to the parent task).
   app.delegateToolForTask = undefined;
+  app.crewParts = undefined;
   app.builderSteer = builderSteer(prompt);
   app.editGateActive = app.interactive && app.terminal.rich
     && context.policy.behavior.askQuestions === "beforeChanges"
@@ -386,6 +387,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     const observations = app.observations.snapshot(changedPaths, changedDuringChecks);
     const browser = !app.closing && app.browser ? await app.browser.report() : undefined;
     const outsideWrites = outsideWritesReceipt(app.sandbox);
+    // Parts builders landed that no reviewer finished: one plain line, never a failure.
+    const notReviewed = partsNotReviewed(app);
     // Dangerous lines in the config files this task changed (reload, shutdown …): a report, never a pass or a fail.
     const riskyLines = changedPaths && !app.closing ? await riskyLinesIn(workspaceRoot, changedPaths, riskyBefore).catch(() => []) : [];
     const services = !app.closing && app.services && !app.services.closed
@@ -400,6 +403,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
       ...(autoChecks?.skipped && !verification?.smoke && !verification?.pages ? { autoSkipped: autoChecks.skipped } : {}),
       ...(pageNotes?.length && !verification?.pages ? { pageNotes } : {}), ...(pagesShown ? { pagesShown } : {}),
+      ...(notReviewed.length ? { partsNotReviewed: notReviewed } : {}),
       ...(app.taskTurnLimit !== undefined ? { turnLimit: app.taskTurnLimit } : {}), ...(app.taskSpendStop ? { spendLimit: { ...app.taskSpendStop } } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
       ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...bigModelReceipt(app),
       ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(app.sandbox ? { sandbox: sandboxReceipt(app.sandbox)! } : {}),

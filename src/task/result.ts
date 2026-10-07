@@ -103,6 +103,9 @@ export interface TaskResult {
   pageNotes?: string[];
   /** How many page screenshots the AI was shown to check the look (showPages). Advice, never a check. */
   pagesShown?: number;
+  /** Parts builders landed that no reviewer finished (a reviewer that timed out, failed or was cut off, or none was
+   * started): said in one line, never a failure. */
+  partsNotReviewed?: PartNotReviewed[];
   /** Whether /undo can put this task's files back, and why not. `left` names changed files Casper keeps no copy of. */
   undo?: { available: true; left?: Array<{ path: string; why: string }> } | { available: false; reason: string };
   /** Changes on other machines, read from the text of the AI's ssh and scp commands (never guessed beyond it). */
@@ -121,6 +124,14 @@ export interface TaskResult {
   riskyLines?: RiskyLine[];
   /** How many more risky lines there were past the 20 listed. */
   riskyMore?: number;
+}
+
+/** A landed part of a crew that no reviewer finished: its number, its files and why ("the reviewer timed out"). */
+export interface PartNotReviewed { part: number; files: string[]; why: string }
+
+/** "part 1 (a.ts, b.ts; the reviewer timed out), part 2 (c.ts; no reviewer looked at it)". */
+export function formatNotReviewed(items: readonly PartNotReviewed[], safe: (text: string) => string = lineText): string {
+  return items.map(({ part, files, why }) => `part ${part} (${files.length > 3 ? `${files.slice(0, 3).map(safe).join(", ")} and ${files.length - 3} more` : files.map(safe).join(", ")}; ${safe(why)})`).join(", ");
 }
 
 /** A security tools run in a receipt: how many problems, notes and checks not run, and each tool's state. */
@@ -253,6 +264,7 @@ export function formatTaskResult(task: TaskResult): string {
   }
   if (report?.pages) lines.push(receiptLine("pages", `${report.pages.status}: ${report.pages.pages.map((page) => `${safe(page.path)} ${page.status}${page.httpStatus !== null ? ` (${page.httpStatus})` : ""}`).join("; ") || "none opened"}${report.pages.reason ? `. ${safe(report.pages.reason)}` : ""}`));
   else if (task.pageNotes?.length) lines.push(receiptLine("pages", task.pageNotes.map((note) => safe(note.replace(/^• /, ""))).join("; ")));
+  if (task.partsNotReviewed?.length) lines.push(receiptLine("not reviewed", formatNotReviewed(task.partsNotReviewed, safe)));
   if (task.pagesShown) lines.push(receiptLine("look", pagesShownText(task.pagesShown)));
   if (task.bigModel) lines.push(receiptLine("big model", `${safe(task.bigModel.model)} for ${task.bigModel.attempts} ${task.bigModel.attempts === 1 ? "repair" : "repairs"}`));
   if (task.security) lines.push(receiptLine("security", securityText(task.security)));
@@ -440,6 +452,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
   else if (report?.pagesSkipped) lines.push(`• Pages not checked: ${report.pagesSkipped}`);
   for (const note of task.pageNotes ?? []) lines.push(safe(note));
   if (task.pagesShown) lines.push(`• ${pagesShownText(task.pagesShown)}`);
+  if (task.partsNotReviewed?.length) lines.push(`• Not reviewed: ${formatNotReviewed(task.partsNotReviewed, safe)}`);
   if (task.security) lines.push(`• Security tools: ${securityText(task.security)} (what the tools found; not proof the code has no problems)`);
   for (const remote of task.remoteChanges ?? []) lines.push(remote.changes.length
     ? `• Changed on ${safe(remote.host)} (from the commands Casper saw): ${remote.changes.map(safe).join("; ")}`

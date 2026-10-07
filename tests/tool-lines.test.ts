@@ -291,6 +291,28 @@ test("the Working box names the builders that are running, and nothing when none
     .toBe(`4 builders working: fix the parser, add tests, ${"x".repeat(39)}… +1 more`);
 });
 
+test("the Working box line names running reviewers too, before the builders", () => {
+  expect(buildersLine([], 1)).toBe("1 reviewer working");
+  expect(buildersLine(["fix the parser", "add tests"], 1)).toBe("1 reviewer, 2 builders working: fix the parser, add tests");
+  expect(buildersLine(["fix the parser"], 3)).toBe("3 reviewers, 1 builder working: fix the parser");
+  expect(buildersLine([], 0)).toBeUndefined();
+});
+
+test("rich terminal: the box carries the reviewers count and drops it when they end", () => {
+  let reviewers = 1;
+  const box: Array<readonly string[] | undefined> = [];
+  const terminal = { rich: true, columns: 100, setActivity(s?: string | readonly string[]) { box.push(s === undefined ? undefined : typeof s === "string" ? [s] : s); }, endAssistant() {}, write() {} };
+  const view = new RuntimeEventView(terminal as unknown as InteractiveTerminal, { write() {} }, {
+    updateFooter() {}, onToolEnd() {}, setTaskStop() {}, markRuntimeFailed() {}, turnLimitReached() {}, cancelled: () => false,
+    builderGoals: () => ["fix the parser"], reviewerCount: () => reviewers,
+  });
+  view.refreshBuilders();
+  expect(box.at(-1)).toEqual(["1 reviewer, 1 builder working: fix the parser"]);
+  reviewers = 0;
+  view.refreshBuilders();
+  expect(box.at(-1)).toEqual(["1 builder working: fix the parser"]);
+});
+
 test("rich terminal: the box carries the builders line, and drops it when they end", () => {
   let goals: string[] = ["fix the parser", "add tests"];
   const box: Array<readonly string[] | undefined> = [];

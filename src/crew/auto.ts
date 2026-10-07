@@ -85,6 +85,7 @@ export function autoBuilders(host: AutoBuildHost, off: string | undefined, steer
     refuse: () => steer === "solo" ? SOLO_REFUSAL : undefined,
     run: (job) => runAutoBuilder(host, job, parts),
     parts,
+    say: (line) => host.say(line),
   };
 }
 

@@ -147,16 +147,23 @@ export interface DelegateBuilders {
   run(job: { goal: string; context?: string; of?: number; signal?: AbortSignal }): Promise<BuildOutcome>;
   /** The parts builders landed this task, which a reviewer can be given by number, or a fix builder (`of`). */
   parts?: {
-    reviewContext(n: number): { context: string; version: number } | { refusal: string };
+    /** `said` is the [crew] line that tells the person a reviewer is checking the part. */
+    reviewContext(n: number): { context: string; version: number; said: string } | { refusal: string };
     /** A review that never ran is given back. */
     release(n: number, version: number): void;
     /** What a fix builder is given for the part; spends the part's one fix round. */
-    fixContext(n: number): { context: string } | { refusal: string };
+    fixContext(n: number): { context: string; said: string } | { refusal: string };
     /** A fix that never started is given back. */
     releaseFix(n: number): void;
     /** A review of an older version of the part (a fix landed meanwhile) is ignored. */
     markReviewed(n: number, text: string, version: number): void;
+    /** The reviewer ended without finishing (a timeout, a failure, a cutoff): the part stays not reviewed. */
+    reviewFailed(n: number, status: string, version: number): void;
+    /** The landed parts no reviewer has finished. */
+    unreviewed(): number[];
   };
+  /** A line for the person ("[crew] ..."): a reviewer starts, or a builder starts fixing what it found. */
+  say?(line: string): void;
 }
 
 export type HelperActivity =
@@ -407,6 +414,7 @@ export class SubagentManager {
     if (!builders?.parts) throw new Error("No parts here: no builder has landed one this task. Give the reviewer the files in its goal instead.");
     const part = builders.parts.reviewContext(n);
     if ("refusal" in part) throw new Error(part.refusal);
+    builders.say?.(part.said);
     let result: SubagentResult;
     // run() throws only before a child starts: that review is not spent, so it can be asked for again.
     try {
@@ -418,7 +426,9 @@ export class SubagentManager {
         context: context ? `${given}\n\nThe lead's own context:\n${context}` : given, contextBytes: SUBAGENT_LIMITS.partContextBytes });
     } catch (error) { builders.parts.release(n, part.version); throw error; }
     onUsage?.(result.usage);
+    // Reviewed only when the reviewer ended `completed`: a timeout, a failure or a cutoff leaves the part not reviewed.
     if (result.status === "completed") builders.parts.markReviewed(n, result.response, part.version);
+    else builders.parts.reviewFailed(n, result.status, part.version);
     const isError = result.status !== "completed";
     const { goal: _goal, status, reason, usage: _usage, turns: _turns, ...report } = result;
     return { text: JSON.stringify(boundCapabilityResult({ isError, status, reason, part: n, ...report })), ...(isError ? { isError: true } : {}) };
@@ -452,6 +462,7 @@ export class SubagentManager {
       const found = builders.parts!.fixContext(of);
       if ("refusal" in found) throw new Error(found.refusal);
       fixing = found;
+      builders.say?.(found.said);
     }
     // Reserved before anything async, so a fourth call in the same turn is turned away (and not counted).
     this.autoBuilds++;
@@ -470,7 +481,11 @@ export class SubagentManager {
     catch (error) { count(-1); if (of !== undefined) builders.parts!.releaseFix(of); throw error; }
     finally { this.autoBuilds--; }
     onUsage?.(outcome.usage);
-    return { text: JSON.stringify(boundCapabilityResult(outcome.report)), ...(outcome.isError ? { isError: true } : {}) };
+    // The last builder to end says which landed parts no reviewer has finished: a nudge, never a gate. While another
+    // builder still works it would be early, so it stays quiet.
+    const left = this.autoBuilds === 0 ? builders.parts?.unreviewed() ?? [] : [];
+    const report = left.length ? { ...outcome.report, notReviewedYet: `Parts no reviewer has finished yet: ${left.join(", ")}. Have one look at each unless it is a few lines (delegate, role reviewer, of: the part number).` } : outcome.report;
+    return { text: JSON.stringify(boundCapabilityResult(report)), ...(outcome.isError ? { isError: true } : {}) };
   }
 
   async run(input: SubagentRunOptions): Promise<SubagentResult> {
