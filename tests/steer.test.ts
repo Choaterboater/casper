@@ -84,7 +84,7 @@ test("Enter mid-task sends the line to the AI while it works; otherwise it is qu
     app.input.write("write a poem\r");
     await app.until(() => state.prompts.length === 1);
     app.input.write("make it rhyme\r");
-    await app.until(text => text.includes("sent to the AI"));
+    await app.until(text => text.includes("sent to Casper"));
     expect(state.steered).toEqual(["make it rhyme"]);
     state.steering = false;
     app.input.write("then add a title\r");
@@ -137,7 +137,7 @@ test("a line steered in that the AI never read runs next, as a request", async (
     app.input.write("write a poem\r");
     await app.until(() => state.prompts.length === 1);
     app.input.write("make it rhyme\r");
-    await app.until(text => text.includes("sent to the AI"));
+    await app.until(text => text.includes("sent to Casper"));
     state.unsent.push("make it rhyme");
     state.gates[0]!.resolve();
     await app.until(() => state.prompts.length === 2);

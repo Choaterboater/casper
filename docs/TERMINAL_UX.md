@@ -462,7 +462,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   `plan first:`) and `ultrathink` anywhere in it set that task only; see
   [Words you can use](#words-you-can-use).
 - Anything else you type during work goes to the AI. While the model is working it reads the
-  line at its next step (`↳ sent to the AI · it reads this at its next step`); while Casper
+  line at its next step (`↳ sent to Casper · it reads this at its next step`); while Casper
   runs checks or writes the receipt, the line is queued and runs as the next request
   (`↳ queued · runs when this task ends`). A line the AI never got to read runs next too. Esc
   stops the task and puts queued lines back in the prompt instead of running them. Queued

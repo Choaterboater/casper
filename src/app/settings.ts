@@ -122,7 +122,7 @@ export function settingRows(context: ProjectContext): Setting[] {
     onOffRow("Suggestions", context.suggestions !== false,
       "The numbered next steps under a task's receipt (zero tokens).", ["suggestions"], true),
     { label: "Side questions with ?", value: context.sideQuestions === false ? "off" : "on",
-      question: context.sideQuestions === false ? "Side questions are off: a line that starts with ? goes to the AI as an ordinary request."
+      question: context.sideQuestions === false ? "Side questions are off: a line that starts with ? goes to Casper as an ordinary request."
         : "Side questions are on: a line that starts with ? (? what does ECONNRESET mean) goes to your fast model on the side, with no tools, and the task's AI never sees it. Each one uses a few tokens.",
       keep: `Keep them ${context.sideQuestions === false ? "off" : "on"}`,
       choices: [context.sideQuestions === false ? { label: "Turn them on", keys: ["sideQuestions"], value: true, shown: "on" }
