@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { stringify } from "yaml";
 import { CasperApp } from "../src/app";
+import { BUILDER_LIMITS, SubagentManager, type BuildOutcome } from "../src/agents/manager";
 import { PartRecord, PART_EXCERPT_BYTES } from "../src/crew/parts";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeBuilderStartOptions, RuntimeEvent, RuntimeEventListener, RuntimeReadOnlyStartOptions, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
@@ -35,6 +36,9 @@ async function repository() {
 class Children implements AgentRuntime {
   static builders: RuntimeBuilderStartOptions[] = [];
   static readers: Array<{ options: RuntimeReadOnlyStartOptions; prompt: string }> = [];
+  /** Each builder's prompt, and what b.txt held in its copy when it started. */
+  static builderPrompts: string[] = [];
+  static seenB: string[] = [];
   constructor(private readonly during?: () => Promise<void>) {}
   async start(): Promise<RuntimeSession> { throw new Error("not the main session"); }
   private session(cwd: string, run: (text: string, emit: (event: RuntimeEvent) => void) => Promise<void>): RuntimeSession {
@@ -47,8 +51,10 @@ class Children implements AgentRuntime {
   async startBuilder(options: RuntimeBuilderStartOptions): Promise<RuntimeSession> {
     Children.builders.push(options);
     return this.session(options.cwd, async (text, emit) => {
+      Children.builderPrompts.push(text);
+      Children.seenB.push(await readFile(path.join(options.cwd, "b.txt"), "utf8").catch(() => ""));
       const file = /Job:\nwrite (\S+)/.exec(text)?.[1] ?? "none.txt";
-      const body = file.startsWith("big") ? "a line of the builder's work\n".repeat(2000)
+      const body = text.includes("Fix only") ? "fixed by the fix builder\n" : file.startsWith("big") ? "a line of the builder's work\n".repeat(2000)
         : file.startsWith("keys") ? "API_KEY=sk-live-abcdef1234567890abcdef\n" : "from the builder\n";
       await writeFile(path.join(options.cwd, file), body);
       await this.during?.();
@@ -59,7 +65,7 @@ class Children implements AgentRuntime {
   async startReadOnly(options: RuntimeReadOnlyStartOptions): Promise<RuntimeSession> {
     return this.session(options.cwd, async (text, emit) => {
       Children.readers.push({ options, prompt: text });
-      emit({ type: "assistant_text_delta", delta: "No findings." });
+      emit({ type: "assistant_text_delta", delta: text.includes("keys.txt") ? "Finding: the key is hard coded.\nAPI_KEY=sk-live-abcdef1234567890abcdef\n" : "No findings." });
       emit({ type: "assistant_response_end", stopReason: "stop", usage: { tokens: 500, estimatedCost: 0.01 } });
     });
   }
@@ -82,7 +88,7 @@ class Main implements AgentRuntime {
 }
 
 async function app(repo: string, home: string, main: Main, children: () => AgentRuntime = () => new Children()) {
-  Children.builders = []; Children.readers = [];
+  Children.builders = []; Children.readers = []; Children.builderPrompts = []; Children.seenB = [];
   await mkdir(path.join(repo, ".casper"), { recursive: true });
   await writeFile(path.join(repo, ".casper", "project.yaml"), stringify({ name: "review-app" }));
   const casper = new CasperApp({ runtimeFactory: () => main, subagentRuntimeFactory: children, noSandbox: true,
@@ -212,7 +218,7 @@ test("the record cuts the diff to text hunks, names binary files, and counts rev
   expect(text).toContain("logo.png (binary file, not shown)");
   expect(text).not.toContain("literal 3");
   expect(record.unreviewed()).toEqual([n]);
-  record.markReviewed(n, "fine");
+  record.markReviewed(n, "fine", 0);
   expect(record.unreviewed()).toEqual([]);
   expect("refusal" in record.reviewContext(n)).toBe(true);
   // After a fix refreshes the diff, one more review is allowed.
@@ -241,3 +247,226 @@ test("a renamed binary file keeps its name in the excerpt", () => {
   expect(text).toContain("old.png -> new.png (binary file, not shown)");
   expect(text).not.toContain("literal 3");
 });
+
+const fix = (delegate: RuntimeTool, goal: string, of: number, context?: string) =>
+  delegate.execute({ role: "builder", goal, of, ...(context ? { context } : {}) });
+
+test("a fix builder gets the stored review report and the fixer rule, starts from the folder with the part in it, and lands with the part", async () => {
+  const { home, repo } = await repository();
+  let fixed: Record<string, unknown> | undefined;
+  const casper = await app(repo, home, new Main(async (delegate) => {
+    const landed = await build(delegate, "b.txt");
+    await review(delegate, landed.part);
+    fixed = data((await fix(delegate, "write b.txt", landed.part, "Mind the first line.")).text);
+  }));
+  await casper.runOnce("Split this up", repo);
+  expect(fixed!.part).toBe(1);
+  expect(fixed!.applied).toEqual(["b.txt"]);
+  const prompt = Children.builderPrompts[1]!;
+  expect(prompt).toContain("No findings.");
+  expect(prompt).toContain("Fix only");
+  expect(prompt).toContain("Mind the first line.");
+  expect(prompt.indexOf("No findings.")).toBeLessThan(prompt.indexOf("Mind the first line."));
+  expect(Children.seenB).toEqual(["b.txt\n", "from the builder\n"]);
+  expect(await readFile(path.join(repo, "b.txt"), "utf8")).toBe("fixed by the fix builder\n");
+  // One /undo takes the part and its fix back.
+  await casper.runOnce("/undo");
+  expect(await readFile(path.join(repo, "b.txt"), "utf8")).toBe("b.txt\n");
+}, 30_000);
+
+test("a second fix for the same part is refused and not counted; a fix with no review on file is allowed", async () => {
+  const { home, repo } = await repository();
+  const replies: string[] = [];
+  const casper = await app(repo, home, new Main(async (delegate) => {
+    const landed = await build(delegate, "b.txt");
+    replies.push(data((await fix(delegate, "write b.txt", landed.part)).text).status);
+    replies.push(data((await fix(delegate, "write b.txt", landed.part)).text).error);
+    replies.push(data((await fix(delegate, "write b.txt", 9)).text).error);
+  }));
+  await casper.runOnce("Split this up", repo);
+  expect(replies[0]).toBe("completed");
+  expect(replies[1]).toContain("one fix round per part");
+  expect(replies[1]).toContain("yourself");
+  expect(replies[2]).toContain("Part 9");
+  expect(Children.builderPrompts).toHaveLength(2);
+}, 30_000);
+
+test("a refused second fix does not move the fix counter", async () => {
+  const { home, repo } = await repository();
+  const out: string[] = [];
+  const casper = await app(repo, home, new Main(async (delegate) => {
+    for (let i = 1; i <= 6; i++) await build(delegate, `n${i}.txt`);
+    for (const i of [1, 1, 1, 2, 3, 4]) {
+      const reply = data((await fix(delegate, `write n${i}.txt`, i)).text);
+      out.push(reply.error ?? reply.status);
+    }
+  }));
+  await casper.runOnce("Split this up", repo);
+  // Six first builds, then three fixes fit under the nine; the two repeats on part 1 used none of it.
+  expect(out.slice(0, 1)).toEqual(["completed"]);
+  expect(out[1]).toContain("one fix round per part");
+  expect(out[2]).toContain("one fix round per part");
+  expect(out.slice(3, 5)).toEqual(["completed", "completed"]);
+  expect(out[5]).toContain(`${BUILDER_LIMITS.maxWithFixes} builders`);
+}, 90_000);
+
+test("a fix whose builder never started gives the part's fix round back", async () => {
+  const record = new PartRecord();
+  const n = record.landed({ files: ["x.txt"], stat: "", patch: Buffer.from("diff --git a/x.txt b/x.txt\n+a\n"), goal: "x" });
+  let tries = 0;
+  const agents = new SubagentManager({ runtimeFactory: () => { throw new Error("no children here"); } });
+  cleanup.push(() => agents.close());
+  const outcome: BuildOutcome = { report: { applied: [] }, isError: false, usage: null };
+  const tool = agents.createTool(() => ({ cwd: "/", projectContext: "" }), undefined, {
+    parts: record,
+    run: async () => { if (++tries === 1) throw new Error("the copy could not be made"); return outcome; },
+  });
+  expect(data((await tool.execute({ role: "builder", goal: "fix", of: n })).text).error).toContain("copy could not be made");
+  expect(data((await tool.execute({ role: "builder", goal: "fix", of: n })).text).error).toBeUndefined();
+  expect(tries).toBe(2);
+  // That one went through, so the round is spent now.
+  expect(data((await tool.execute({ role: "builder", goal: "fix", of: n })).text).error).toContain("one fix round per part");
+  expect(tries).toBe(2);
+});
+
+test("a stored reviewer report is scrubbed before the fix builder sees it", async () => {
+  const { home, repo } = await repository();
+  const casper = await app(repo, home, new Main(async (delegate) => {
+    const landed = await build(delegate, "keys.txt");
+    await review(delegate, landed.part);
+    await fix(delegate, "write keys.txt", landed.part);
+  }));
+  await casper.runOnce("Split this up: add keys", repo);
+  const prompt = Children.builderPrompts[1]!;
+  expect(prompt).toContain("the key is hard coded");
+  expect(prompt).toContain("API_KEY=");
+  expect(prompt).not.toContain("sk-live-abcdef1234567890abcdef");
+}, 30_000);
+
+test("a review that started before a fix landed does not mark the part reviewed", () => {
+  const record = new PartRecord();
+  const n = record.landed({ files: ["x.txt"], stat: "", patch: Buffer.from("diff --git a/x.txt b/x.txt\n+a\n"), goal: "x" });
+  const early = record.reviewContext(n) as { context: string; version: number };
+  record.refreshExcerpt(n, Buffer.from("diff --git a/x.txt b/x.txt\n+b\n"));
+  record.markReviewed(n, "late and about the old diff", early.version);
+  expect(record.unreviewed()).toEqual([n]);
+  // The stale report is not kept for a fix either.
+  expect((record.fixContext(n) as { context: string }).context).not.toContain("late and about");
+  // The review of the new diff counts.
+  const fresh = record.reviewContext(n) as { context: string; version: number };
+  record.markReviewed(n, "about the fix", fresh.version);
+  expect(record.unreviewed()).toEqual([]);
+});
+
+test("a part fixed without a review gets one review after the fix, and a reviewed one gets one before and one after", () => {
+  const record = new PartRecord();
+  const patch = Buffer.from("diff --git a/x.txt b/x.txt\n+a\n");
+  const bare = record.landed({ files: ["x.txt"], stat: "", patch, goal: "x" });
+  record.refreshExcerpt(bare, patch);
+  expect("context" in record.reviewContext(bare)).toBe(true);
+  expect("refusal" in record.reviewContext(bare)).toBe(true);
+  const both = record.landed({ files: ["y.txt"], stat: "", patch, goal: "y" });
+  expect("context" in record.reviewContext(both)).toBe(true);
+  expect("refusal" in record.reviewContext(both)).toBe(true);
+  record.refreshExcerpt(both, patch);
+  expect("context" in record.reviewContext(both)).toBe(true);
+  expect("refusal" in record.reviewContext(both)).toBe(true);
+});
+
+test("after a fix the stat is labeled as the fix's own change, next to the part's first one", () => {
+  const record = new PartRecord();
+  const n = record.landed({ files: ["x.txt"], stat: "x.txt | 1 +", patch: Buffer.from("diff --git a/x.txt b/x.txt\n+a\n"), goal: "x" });
+  record.refreshExcerpt(n, Buffer.from("diff --git a/y.txt b/y.txt\n+b\n"), { files: ["y.txt"], stat: "y.txt | 2 ++" });
+  const text = (record.reviewContext(n) as { context: string }).context;
+  expect(text).toContain("x.txt, y.txt");
+  expect(text).toContain("The part's first change:\nx.txt | 1 +");
+  expect(text).toContain("The fix's own change:\ny.txt | 2 ++");
+});
+
+test("a fix whose file changed meanwhile keeps its copy and says so", async () => {
+  const { home, repo } = await repository();
+  let reply: Record<string, unknown> | undefined;
+  let during = false;
+  const casper = await app(repo, home, new Main(async (delegate) => {
+    const landed = await build(delegate, "b.txt");
+    during = true;
+    reply = data((await fix(delegate, "write b.txt", landed.part)).text);
+  }), () => new Children(async () => { if (during) await writeFile(path.join(repo, "b.txt"), "yours\n"); }));
+  await casper.runOnce("Split this up", repo);
+  expect(reply!.kept).toBeDefined();
+  expect(reply!.applied).toEqual([]);
+  expect(await readFile(path.join(repo, "b.txt"), "utf8")).toBe("yours\n");
+}, 30_000);
+
+test("the post-fix re-review sees the fix's diff, once", async () => {
+  const { home, repo } = await repository();
+  const casper = await app(repo, home, new Main(async (delegate) => {
+    const landed = await build(delegate, "b.txt");
+    await review(delegate, landed.part);
+    const fixed = data((await fix(delegate, "write b.txt", landed.part)).text);
+    expect(fixed.next).toContain("of: 1");
+    await review(delegate, landed.part);
+    expect(data((await review(delegate, landed.part)).text).error).toContain("already reviewed");
+  }));
+  await casper.runOnce("Split this up", repo);
+  expect(Children.readers).toHaveLength(2);
+  expect(Children.readers[1]!.prompt).toContain("+fixed by the fix builder");
+  expect(Children.readers[1]!.prompt).toContain("-from the builder");
+}, 30_000);
+
+test("the record notes files a fix touched outside the part", () => {
+  const record = new PartRecord();
+  const n = record.landed({ files: ["x.txt"], stat: "", patch: Buffer.from("diff --git a/x.txt b/x.txt\n+a\n"), goal: "x" });
+  expect(record.refreshExcerpt(n, Buffer.from("diff --git a/y.txt b/y.txt\n+b\n"), { files: ["y.txt"], stat: "" })).toEqual(["y.txt"]);
+  expect((record.reviewContext(n) as { context: string }).context).toContain("x.txt, y.txt");
+});
+
+test("fixes have their own count: six first builds stay six, fixes stop at nine builders", async () => {
+  const { home, repo } = await repository();
+  const out: string[] = [];
+  const casper = await app(repo, home, new Main(async (delegate) => {
+    for (let i = 1; i <= 6; i++) await build(delegate, `n${i}.txt`);
+    out.push((await build(delegate, "n7.txt")).error);
+    for (const i of [1, 2, 3, 4, 5, 6]) {
+      const reply = data((await fix(delegate, `write n${i}.txt`, i)).text);
+      out.push(reply.error ?? reply.status);
+    }
+  }));
+  await casper.runOnce("Split this up", repo);
+  expect(out[0]).toContain("Builder budget used up");
+  expect(out.slice(1, 4)).toEqual(["completed", "completed", "completed"]);
+  for (const reply of out.slice(4)) expect(reply).toContain("9 builders");
+  expect(Children.builders).toHaveLength(9);
+}, 90_000);
+
+test("three fixes at once are the most; a fourth is turned away without using the part's one fix", async () => {
+  const { home, repo } = await repository();
+  const out: string[] = [];
+  const casper = await app(repo, home, new Main(async (delegate) => {
+    for (let i = 1; i <= 4; i++) await build(delegate, `n${i}.txt`);
+    const four = await Promise.all([1, 2, 3, 4].map((i) => fix(delegate, `write n${i}.txt`, i)));
+    out.push(...four.map((r) => data(r.text).error ?? data(r.text).status));
+    out.push(data((await fix(delegate, "write n4.txt", 4)).text).status);
+  }), () => new Children(() => new Promise((resolve) => setTimeout(resolve, 150))));
+  await casper.runOnce("Split this up", repo);
+  expect(out.slice(0, 3)).toEqual(["completed", "completed", "completed"]);
+  expect(out[3]).toContain("3 builders are already working");
+  expect(out[4]).toBe("completed");
+}, 90_000);
+
+test("a fix builder waits on the task's spend pause like any builder", async () => {
+  const { home, repo } = await repository();
+  const casper = await app(repo, home, new Main(async (delegate) => { await fix(delegate, "write b.txt", (await build(delegate, "b.txt")).part); }));
+  await casper.runOnce("Split this up", repo);
+  expect(Children.builders).toHaveLength(2);
+  for (const options of Children.builders) expect(options.beforeToolWait).toBeDefined();
+}, 30_000);
+
+test("a fix for a part that was never landed is refused in plain words", async () => {
+  const { home, repo } = await repository();
+  let reply = "";
+  const casper = await app(repo, home, new Main(async (delegate) => { reply = data((await fix(delegate, "write b.txt", 1)).text).error; }));
+  await casper.runOnce("Split this up", repo);
+  expect(reply).toContain("Part 1");
+  expect(Children.builders).toHaveLength(0);
+}, 30_000);
