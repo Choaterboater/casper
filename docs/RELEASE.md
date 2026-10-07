@@ -1314,7 +1314,10 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
 - **Checks where it was built, with gh.** When `gh` is installed and signed in, the
   binary's GitHub build provenance must match (`gh attestation verify --repo
   Choaterboater/casper`): `Verified: built by GitHub Actions from Choaterboater/casper.`,
-  or `This download doesn't match a Casper build from GitHub. Nothing installed.` The shell installer's
+  or `This download doesn't match a Casper build from GitHub. Nothing installed.` A `gh` older
+  than 2.49 has no `attestation` command; the installers and `casper update` then go on with the
+  SHA-256 (and signature) checks, and the installers say `This gh is too old to check where it was
+  built (gh 2.49 or newer can).` The shell installer's
   `CASPER_BASE_URL` accepts an `http(s)` URL, a `file://` URL or a local directory for
   offline/internal installs. PowerShell downloads through `Invoke-WebRequest`; use an
   HTTP(S) base URL there.

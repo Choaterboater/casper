@@ -197,8 +197,9 @@ test("binary: with a release key, a signed list that names the installer lets it
   const key = testReleaseKey();
   const result = await signedUpdate(signedRelease("0.2.22", key), key);
   expect(result.exitCode).toBe(0);
-  expect(result.calls.map((argv) => argv.slice(0, 3).join(" "))).toEqual(["gh auth status", "gh attestation verify", expect.stringMatching(/^sh .*install\.sh --dir$/)]);
-  expect(result.calls[1]!.slice(-2)).toEqual(["--repo", "Choaterboater/casper"]);
+  expect(result.calls.map((argv) => argv.slice(0, 3).join(" "))).toEqual(["gh auth status", "gh attestation verify", "gh attestation verify", expect.stringMatching(/^sh .*install\.sh --dir$/)]);
+  expect(result.calls[1]).toEqual(["gh", "attestation", "verify", "--help"]);
+  expect(result.calls[2]!.slice(-2)).toEqual(["--repo", "Choaterboater/casper"]);
 });
 
 test("binary: with a release key, a missing or bad signature, or a list without the installer, never runs it", async () => {
@@ -249,9 +250,9 @@ test("windows: the installer gets this program's file and digest from the list C
   expect(calls[0]!.env).toMatchObject({ CASPER_SHA256: "c".repeat(64), CASPER_ARCH: "x64" });
 });
 
-test("binary: gh signed in and saying the installer isn't a Casper build stops the update; gh missing or signed out does not", async () => {
+test("binary: gh signed in and saying the installer isn't a Casper build stops the update; gh missing, signed out or too old does not", async () => {
   const key = testReleaseKey();
-  const refused = await signedUpdate(signedRelease("0.2.22", key), key, (argv) => argv[1] === "attestation" ? 1 : 0);
+  const refused = await signedUpdate(signedRelease("0.2.22", key), key, (argv) => argv[1] === "attestation" && !argv.includes("--help") ? 1 : 0);
   expect(refused.exitCode).toBe(1);
   expect(refused.lines.at(-1)).toBe("The downloaded installer doesn't match a Casper build from GitHub, so it was not run. Nothing was changed.");
   expect(refused.calls.some((argv) => argv[0] === "sh")).toBe(false);
@@ -260,6 +261,10 @@ test("binary: gh signed in and saying the installer isn't a Casper build stops t
     expect(result.exitCode).toBe(0);
     expect(result.calls.map((argv) => argv[0])).toEqual(["gh", "sh"]);
   }
+  // A gh from before 2.49 has no `attestation` command, so even its help fails: that is not a mismatch.
+  const old = await signedUpdate(signedRelease("0.2.22", key), key, (argv) => argv[1] === "attestation" ? 1 : 0);
+  expect(old.exitCode).toBe(0);
+  expect(old.calls.map((argv) => argv.slice(0, 4).join(" "))).toEqual(["gh auth status", "gh attestation verify --help", expect.stringMatching(/^sh /)]);
 });
 
 test("binary: an installer that points at another release is never run", async () => {

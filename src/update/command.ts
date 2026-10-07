@@ -302,11 +302,13 @@ function listedDigest(sums: string, file: string): string | undefined {
   return sums.split(/\r?\n/).map((line) => /^([0-9a-f]{64})\s+\*?(\S+)$/i.exec(line.trim())).find((match) => match?.[2] === file)?.[1]?.toLowerCase();
 }
 
-/** False only when gh is installed and signed in and says the file is not a build from the Casper repository. */
+/** False only when gh is installed and signed in and says the file is not a build from the Casper repository.
+ * A gh older than 2.49 has no `attestation` command; its help, asked without the file, tells that apart from a mismatch. */
 async function builtByGitHub(run: ProcessRunner, file: string, options: UpdateOptions): Promise<boolean> {
   const env = options.env ?? process.env;
   const signal = options.signal ? { signal: options.signal } : {};
   if ((await run(["gh", "auth", "status"], { env, timeoutMs: 30_000, ...signal })).code !== 0) return true;
+  if ((await run(["gh", "attestation", "verify", "--help"], { env, timeoutMs: 30_000, ...signal })).code !== 0) return true;
   return (await run(["gh", "attestation", "verify", file, "--repo", RELEASE_REPO], { env, timeoutMs: 120_000, ...signal })).code === 0;
 }
 
