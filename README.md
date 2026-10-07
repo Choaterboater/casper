@@ -19,8 +19,17 @@ Sign in with OpenRouter, Anthropic (Claude), OpenAI Codex or GitHub Copilot, so 
 to one model company. Many things cost zero tokens: the checks, `/verify`, `/mcp`, `/diff`,
 `/receipt` and local reference search make no model call.
 
+Casper itself is free and open source. A task spends money only with your own model provider
+(OpenRouter, Anthropic, OpenAI or Copilot, whichever you sign in with). Casper has no prices of its own.
+
 > **Preview, unsigned.** This is an early preview. The programs are not signed, so your system
-> may warn you. See [what is tested and the limits](docs/RELEASE.md#known-preview-limits).
+> may warn you. macOS is the best tested. Windows and Linux are tested less: Windows x64 and Linux run
+> the test suite in CI, but nobody has tried the interactive screen on a real Windows desktop or a real
+> Linux machine, and Windows ARM64 is only built, started and installed in CI. See
+> [what is tested and the limits](docs/RELEASE.md#known-preview-limits) and
+> [PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md).
+
+**Found a bug or have feedback?** [Open an issue](https://github.com/Choaterboater/casper/issues).
 
 ## Install
 
@@ -42,6 +51,16 @@ No admin rights, Bun or source checkout needed. The installer checks the file's 
 if anything is wrong. These commands pin **v0.2.24**; after that,
 `casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.24`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
+
+Use the one-line command above rather than downloading a program in your browser: the installer
+checks the file and clears the macOS quarantine flag for you. If you did download one in a browser
+and macOS refuses to open it, run `xattr -d com.apple.quarantine <file>` on it.
+
+**Uninstall.** There is no uninstaller and nothing is installed system-wide. On macOS / Linux,
+run `rm ~/.local/bin/casper` (or the folder you gave `--dir`). On Windows, delete the folder
+`%LOCALAPPDATA%\Programs\casper` and remove it from your user PATH (the installer added it).
+Your settings, sign-ins and saved chats are in `~/.casper` (`rm -rf ~/.casper` on macOS / Linux;
+the `.casper` folder in your user folder on Windows). Delete it only if you want those gone.
 
 ## Get started
 
