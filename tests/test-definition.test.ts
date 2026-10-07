@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { definitionChanges, testDefinition } from "../src/verify/test-definition";
@@ -91,4 +91,56 @@ test("vite.config counts when the script runs vitest and there is no vitest.conf
   expect(await changed(root, "npm test", { "vite.config.ts": "export default { test: { include: [] } };\n" })).toEqual(["vite.config.ts"]);
   const own = await project({ "package.json": JSON.stringify({ scripts: { test: "vitest run" } }), "vite.config.ts": "export default {};\n", "vitest.config.ts": "export default {};\n" });
   expect(await changed(own, "npm test", { "vite.config.ts": "export default { plugins: [] };\n" })).toEqual([]);
+});
+
+async function relink(root: string, name: string, destination: string) {
+  const link = path.join(root, name);
+  await unlink(link).catch(() => undefined);
+  await symlink(destination, link);
+}
+
+test("retargeting a runner symlink is a change to the test definition", async () => {
+  const root = await project({ "scripts/strict.js": "process.exit(1);\n", "scripts/other.js": "process.exit(0);\n" });
+  await symlink("strict.js", path.join(root, "scripts", "check.js"));
+  const before = await testDefinition(root, "bun scripts/check.js");
+  expect(before.has("scripts/check.js")).toBe(true);
+  await relink(root, "scripts/check.js", "other.js");
+  expect(definitionChanges(before, await testDefinition(root, "bun scripts/check.js"))).toEqual(["scripts/check.js"]);
+});
+
+test("editing the file a runner symlink points at is a change; leaving it alone is not", async () => {
+  const root = await project({ "scripts/strict.js": "process.exit(1);\n" });
+  await symlink("strict.js", path.join(root, "scripts", "check.js"));
+  const before = await testDefinition(root, "bun scripts/check.js");
+  expect(definitionChanges(before, await testDefinition(root, "bun scripts/check.js"))).toEqual([]);
+  await put(root, "scripts/strict.js", "process.exit(0);\n");
+  expect(definitionChanges(before, await testDefinition(root, "bun scripts/check.js"))).toEqual(["scripts/check.js"]);
+});
+
+test("a broken runner symlink counts when its destination text changes", async () => {
+  const root = await project({});
+  await mkdir(path.join(root, "scripts"));
+  await symlink("missing-a.js", path.join(root, "scripts", "check.js"));
+  const before = await testDefinition(root, "bun scripts/check.js");
+  expect(before.has("scripts/check.js")).toBe(true);
+  expect(definitionChanges(before, await testDefinition(root, "bun scripts/check.js"))).toEqual([]);
+  await relink(root, "scripts/check.js", "missing-b.js");
+  expect(definitionChanges(before, await testDefinition(root, "bun scripts/check.js"))).toEqual(["scripts/check.js"]);
+});
+
+test("a runner symlink pointing outside the project is not read, but retargeting it is still a change", async () => {
+  const outside = await project({ "a.js": "one\n", "b.js": "two\n" });
+  const root = await project({});
+  await mkdir(path.join(root, "scripts"));
+  await symlink(path.join(outside, "a.js"), path.join(root, "scripts", "check.js"));
+  const before = await testDefinition(root, "bun scripts/check.js");
+  await put(outside, "a.js", "edited\n");
+  expect(definitionChanges(before, await testDefinition(root, "bun scripts/check.js"))).toEqual([]);
+  await relink(root, "scripts/check.js", path.join(outside, "b.js"));
+  expect(definitionChanges(before, await testDefinition(root, "bun scripts/check.js"))).toEqual(["scripts/check.js"]);
+});
+
+test("an ordinary runner script file still counts when edited", async () => {
+  const root = await project({ "scripts/check.js": "process.exit(1);\n" });
+  expect(await changed(root, "bun scripts/check.js", { "scripts/check.js": "process.exit(0);\n" })).toEqual(["scripts/check.js"]);
 });
