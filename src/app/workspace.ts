@@ -17,8 +17,8 @@ import { workFolderChoices } from "./safe-choices";
 import { isOutside } from "../platform/inside";
 import { planAutoChecks } from "../verify/mode";
 import { NEW_USAGE, parseNewArgs } from "../cli-args";
-import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestions, newProjectInEmptyFolder, offerMissingFolder, opened, type NewProjectFlow } from "./new-project";
-import { listLines } from "../new/command";
+import { askBuildRequest, buildFromFirstRequest, buildInEmptyFolder, buildRequestNote, isEmptyFolder, newProjectFromQuestions, offerMissingFolder, opened, type NewProjectFlow } from "./new-project";
+import { listLines, projectsFolder } from "../new/command";
 import { defaultNameFor } from "../new/templates";
 import { tildePath } from "../new/scaffold";
 import { updateFooter, phase } from "./footer";
@@ -87,17 +87,7 @@ export async function openProjectFolder(app: CasperApp, cwd: string): Promise<st
   if (!broad) {
     if (await hasProjectSignals(cwd) || (await inspectProject(cwd)).isGit) return cwd;
     candidates = await findProjectCandidates(cwd, { homeDir: home, limit: 50 });
-    // An empty folder: one numbered question, on either terminal, offers to start a project right here.
-    // Piped input can't answer it, so a pipe gets the command instead.
-    // A resumed conversation already belongs to this folder: no question.
-    if (!candidates.length && !app.runConversation && await isEmptyFolder(cwd)) {
-      if (!app.terminal.canAsk) { app.output.write("[folder] This folder is empty. To start a new project in ~/Projects: casper new\n"); return cwd; }
-      const result = await newProjectFlowWithAbort(app, (flow) => newProjectInEmptyFolder(flow, cwd, (text) => queueTypedRequest(app, text)));
-      if (opened(result)) return result.dir;
-      // "Not now" means this folder: a later build request doesn't ask again.
-      app.newProjectOffered = true;
-      return cwd;
-    }
+    // An empty folder starts quietly: no question. A first request that fits a template builds it here (offerNewProject).
     if (candidates.length > 1) candidates = await orderProjectChoices(candidates, { base: cwd, agentDir: appAgentDir(app) });
     const line = projectsHeldLine(cwd, candidates);
     if (line) app.output.write(line);
@@ -137,8 +127,12 @@ export async function openProjectFolder(app: CasperApp, cwd: string): Promise<st
   const choice = answer?.[0]?.trim();
   if (!choice) return cwd; // Esc, empty, or the plain-line fallback keeps the launch folder.
   if (choice === NEW_PROJECT_CHOICE) {
-    const result = await newProjectFlowWithAbort(app, (flow) => newProjectFromQuestions(flow, {}, undefined, (text) => queueTypedRequest(app, text)));
-    return opened(result) ? result.dir : cwd;
+    // No questions: Casper starts in ~/Projects, and the first request makes the project (offerNewProject).
+    const parent = await projectsFolder(home).catch(() => undefined);
+    if (!parent) { app.output.write("[new] Couldn't make ~/Projects; staying here.\n"); return cwd; }
+    app.pendingNewProject = true;
+    app.output.write(`[new] Starting a new project in ${terminalText(tildePath(parent, home))}. Say what you want; its folder is made from your first request.\n`);
+    return parent;
   }
   const resolved = byLabel.get(choice) ?? path.resolve(cwd, choice.replace(/^~(?=\/|$)/, home));
   const relative = path.relative(path.resolve(base), path.resolve(resolved));
@@ -265,28 +259,47 @@ export async function newProjectCommand(app: CasperApp, args: string): Promise<v
 }
 
 /**
- * A build request outside a project, before the model starts: one numbered question, zero tokens.
- * Yes (2) builds the project and opens it, so the conversation and its checks start there. Use this folder
- * (1, Enter) or Esc changes nothing. One-shot and --json runs can't ask: they keep the folder and say so.
+ * A request outside a project, before the model starts, zero tokens. In an empty folder (and after "New project"
+ * from home) nothing is asked: a request that fits a template builds it, one plain line says which, and the
+ * conversation starts in the project. Any other request goes to the model as it is. In a folder that holds other
+ * things (Documents) one numbered question stays: Use this folder (1, Enter), Yes (2) or Other kind (3). One-shot
+ * and --json runs can't be asked and can't see a line: they keep the folder and say the command.
  * "stop" when the project could not be built: nothing goes to the model.
  */
 export async function offerNewProject(app: CasperApp, prompt: string): Promise<"stop" | undefined> {
-  if (app.newProjectOffered || !canMoveWorkspace(app)) return undefined;
+  const pending = app.pendingNewProject;
+  if ((app.newProjectOffered && !pending) || !canMoveWorkspace(app)) return undefined;
   const context = app.projectContext!;
-  if (context.info.isGit || await hasProjectSignals(context.info.root)) return undefined;
-  if (!app.interactive || !app.terminal.canAsk) {
+  if (context.info.isGit || await hasProjectSignals(context.info.root)) { app.pendingNewProject = false; return undefined; }
+  const templatesOn = context.templates !== false;
+  let built: Awaited<ReturnType<typeof buildInEmptyFolder>> | undefined;
+  if (pending && app.interactive) {
+    app.pendingNewProject = false;
+    built = await buildFromFirstRequest(newProjectFlow(app), prompt, templatesOn);
+    if (!built) { app.newProjectOffered = true; return undefined; }
+  } else if (app.interactive && await isEmptyFolder(context.info.root)) {
+    built = await buildInEmptyFolder(newProjectFlow(app), context.info.root, prompt, templatesOn);
+  } else if (!app.interactive || !app.terminal.canAsk) {
     const note = buildRequestNote(prompt);
     if (note) { app.newProjectOffered = true; app.output.write(`${note}\n`); }
     return undefined;
+  } else {
+    const answer = await askBuildRequest(newProjectFlow(app), prompt);
+    if (!answer) return undefined;
+    app.newProjectOffered = true;
+    app.beforeWorkAsked = true;
+    if (app.closing || app.commandAbort?.signal.aborted) return "stop";
+    if ("keep" in answer) return undefined;
+    if ("stopped" in answer) { app.output.write("Nothing was sent to the model.\n"); return "stop"; }
+    await openWorkspaceBeforeRuntime(app, answer.result.dir);
+    return undefined;
   }
-  const answer = await askBuildRequest(newProjectFlow(app), prompt);
-  if (!answer) return undefined;
+  if ("none" in built) return undefined;
   app.newProjectOffered = true;
   app.beforeWorkAsked = true;
   if (app.closing || app.commandAbort?.signal.aborted) return "stop";
-  if ("keep" in answer) return undefined;
-  if ("stopped" in answer) { app.output.write("Nothing was sent to the model.\n"); return "stop"; }
-  await openWorkspaceBeforeRuntime(app, answer.result.dir);
+  if ("stopped" in built) { app.output.write("Nothing was sent to the model.\n"); return "stop"; }
+  await openWorkspaceBeforeRuntime(app, built.result.dir);
   return undefined;
 }
 

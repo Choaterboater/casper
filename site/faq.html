@@ -290,7 +290,7 @@ sum now turns its inputs into numbers first.
             <li>a public link for <code>/preview</code> (your network needs no question);</li>
             <li>each fix <code>casper doctor</code> offers;</li>
             <li>which product, when you type <code>/mcp login</code> on its own;</li>
-            <li>starting a new project from a template, or in an empty folder.</li>
+            <li>building a request as a new project when you started in a folder that holds other things (an empty folder asks nothing).</li>
           </ul>
           <p>Answers are numbered: press the number. <kbd>Esc</kbd> skips.</p>
           <figure class="capture">
@@ -469,6 +469,12 @@ lint could not start. Casper did not try to fix it. What now?
           a number, or <kbd>Esc</kbd> to stay. In any other folder Casper just opens there; if the
           folder holds several projects it prints one line naming them, such as
           <code>casper aibot</code> to work in one.</dd>
+
+          <dt>Casper built a template in my empty folder</dt>
+          <dd>Your first request fitted a template (a NOC dashboard, an MCP server), so Casper built it
+          there and said so in one <code>[new]</code> line. Nothing was asked. Say "from scratch" in the
+          request to skip it, or turn <b>Starter templates</b> off in <code>/settings</code>
+          (<code>templates: off</code>). A request that fits no template just goes to the AI.</dd>
 
           <dt>No colours or live footer</dt>
           <dd>Casper switches to plain text with <code>NO_COLOR</code>, <code>TERM=dumb</code> or

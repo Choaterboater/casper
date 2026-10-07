@@ -8,8 +8,8 @@ import { defaultNameFor, EMPTY_TEMPLATE, getTemplate, isBuildable, listTemplates
 import { missingFolderChoices } from "./safe-choices";
 
 /**
- * The new-project questions inside an app session: `casper new` on a terminal, the question when Casper
- * starts in an empty folder or a folder of projects, the question before the model starts on a build
+ * The new-project questions inside an app session: `casper new` on a terminal, the quiet build in an empty folder,
+ * "New project" from home, the question before the model starts on a build
  * request outside a project, and /new. All local: numbered choices, no model call, zero tokens. The
  * answer is always the user's own (Casper's questions never reach the AI's ask tool).
  */
@@ -190,18 +190,50 @@ export async function isEmptyFolder(dir: string): Promise<boolean> {
   try { return (await readdir(dir)).length === 0; } catch { return false; }
 }
 
-/** Started in an empty folder: "This folder is empty. Start a new project here?" "Not now" first (so Enter builds
- * nothing), then the kinds. A request typed (or pasted) at the question means Not now: it goes to `request`,
- * to run as the first request here.
- * The folder's own name is used when it is a valid name; otherwise Casper asks one and builds inside it. */
-export async function newProjectInEmptyFolder(flow: NewProjectFlow, dir: string, request?: (text: string) => void): Promise<NewProjectResult | undefined> {
-  const template = await askTemplate(flow, { question: "This folder is empty. Start a new project here?",
-    extra: { label: "Not now", description: "just work in this folder" }, empty: false, ...(request ? { request } : {}) });
-  if (!template || template === "extra") return undefined;
+/** Words in a request that mean "no template": the model builds it from nothing. */
+const FROM_SCRATCH = /\b(from scratch|no template|without (?:a )?template|empty project)\b/i;
+
+/** "please can you build ..." up to the verb: not part of a name made from the request. */
+const REQUEST_LEAD = /^\W*(?:(?:please|pls|ok|okay|hey|so|now)[,\s]+)*(?:(?:can|could|would|will) you\s+|i (?:want|need|would like|'d like) (?:you )?to\s+|let'?s\s+|help me\s+)?(?:build|create|make|write|start|scaffold|set up|setup)\b\s*/i;
+
+/** The way out, said in the same line that names the template. */
+const SKIP_HINT = 'To skip a template, say "from scratch" in the request, or turn it off in /settings (Starter templates).';
+
+export type FirstRequestBuild = { result: NewProjectResult } | { stopped: true } | { none: true };
+
+/** A first request in an empty folder: when it fits a template, build it right here with one plain line and no
+ * question (the folder is empty and the person asked to build). The folder's own name is the project name when
+ * it is valid; otherwise the template goes in a subfolder with its usual name. Nothing for any other request
+ * (the model builds it), for "from scratch", or when `templates` is off. Nothing here calls a model. */
+export async function buildInEmptyFolder(flow: NewProjectFlow, dir: string, prompt: string, templatesOn: boolean): Promise<FirstRequestBuild> {
+  if (!templatesOn || FROM_SCRATCH.test(prompt)) return { none: true };
+  const suggestion = newProjectSuggestion(prompt, listTemplates());
+  if (typeof suggestion !== "object") return { none: true };
   const own = path.basename(dir);
-  if (validName(own)) return buildProject(flow, path.dirname(dir), template, own);
-  const name = await askName(flow, dir, defaultNameFor(template));
-  return name ? buildProject(flow, dir, template, name) : undefined;
+  const [parent, name] = validName(own) ? [path.dirname(dir), own] : [dir, defaultNameFor(suggestion.template)];
+  flow.write(`[new] Using the ${suggestion.kind} template here (installs packages, first commit). ${SKIP_HINT}`);
+  const result = await buildProject(flow, parent, suggestion.template, name);
+  return opened(result) ? { result } : { stopped: true };
+}
+
+/** The first request after "New project": no questions before it. A template match builds that template in
+ * ~/Projects/<name from the request>; any other request builds an empty git project named from its words;
+ * only when no usable name can be made does it ask once ("Name it? (Enter for my-project)"). Undefined when
+ * the person stopped at that question. */
+export async function buildFromFirstRequest(flow: NewProjectFlow, prompt: string, templatesOn: boolean): Promise<FirstRequestBuild | undefined> {
+  const parent = await projectsFolder(flow.homeDir);
+  const suggestion = newProjectSuggestion(prompt, listTemplates());
+  const template = templatesOn && typeof suggestion === "object" && !FROM_SCRATCH.test(prompt) ? suggestion.template : EMPTY_TEMPLATE;
+  let name: string | undefined = typeof suggestion === "object" ? suggestion.name : projectSlug(prompt.replace(REQUEST_LEAD, ""));
+  const taken = name ? await nameProblem(parent, name, flow.homeDir) : undefined;
+  if (taken) flow.write(`[new] ${taken}`);
+  if (!name || taken) name = await askName(flow, parent, defaultNameFor(template));
+  if (!name) return undefined;
+  const where = tildePath(path.join(parent, name), flow.homeDir);
+  if (template === EMPTY_TEMPLATE) flow.write(`[new] Using an empty project at ${where} (git only, no template).`);
+  else flow.write(`[new] Using the ${getTemplate(template)?.manifest.kind ?? template} template at ${where} (installs packages, first commit). ${SKIP_HINT}`);
+  const result = await buildProject(flow, parent, template, name);
+  return opened(result) ? { result } : { stopped: true };
 }
 
 export type BuildRequestAnswer = { result: NewProjectResult } | { keep: true; said?: string } | { stopped: true };

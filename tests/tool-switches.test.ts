@@ -144,3 +144,24 @@ test("/settings first screen shows every row's state at a glance, within 80 colu
   for (const line of glance.split("\n")) expect(line.length).toBeLessThanOrEqual(80);
   expect(first).toContain("\n1 Done\n2 Web lookups\n");
 });
+
+test("templates: on by default, off from your config, never turned on or off by a project file, and a /settings row saves it", async () => {
+  const { home, project, config, projectFile } = await folders();
+  const load = () => loadConfiguration({ projectRoot: project, homeDir: home });
+  expect((await load()).templates).toBeUndefined();
+  await writeFile(config, "templates: off\n");
+  expect((await load()).templates).toBe(false);
+  await writeFile(projectFile, "templates: on\n");
+  await expect(load()).rejects.toThrow("templates is a user setting");
+  await writeFile(projectFile, "");
+  await writeFile(config, "templates: maybe\n");
+  await expect(load()).rejects.toThrow("templates must be on or off");
+  await writeFile(config, "");
+  const host = fakeHost(home, project, ["Starter templates", "Turn it off", "Done"]);
+  await runSettings(host);
+  expect(host.asked[1]).toContain("a first request that fits a template");
+  expect(await readFile(config, "utf8")).toContain("templates: false");
+  const context = (await host.context())!;
+  expect(context.templates).toBe(false);
+  expect(settingRows(context).find((row) => row.label === "Starter templates")?.value).toBe("off");
+});

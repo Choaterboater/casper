@@ -300,18 +300,6 @@ test("piped input can't answer: the session keeps the folder and names the comma
     expect(h.starts).toEqual([dirs.work]);
     await h.until(text => text.endsWith("> "));
   } finally { await finish(h, running, false); await dirs.cleanup(); }
-
-  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-new-empty-piped-")));
-  const empty = path.join(root, "demo");
-  await mkdir(path.join(root, "home"), { recursive: true });
-  await mkdir(empty);
-  const piped = harness(path.join(root, "home"), { surface: "piped" });
-  const again = piped.app.runInteractive(empty);
-  try {
-    await piped.until(text => text.endsWith("> "));
-    expect(piped.visible()).toContain("[folder] This folder is empty. To start a new project in ~/Projects: casper new");
-    expect(piped.visible()).not.toContain("Start a new project here?");
-  } finally { await finish(piped, again, false); await removeTempDir(root); }
 });
 
 test("a project that can't be built sends nothing to the model", async () => {
@@ -330,69 +318,223 @@ test("a project that can't be built sends nothing to the model", async () => {
   } finally { await finish(h, running); await dirs.cleanup(); }
 });
 
-test("starting in an empty folder offers a new project there, named after the folder", async () => {
-  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-new-empty-")));
+/** A temp home beside an empty folder (named `name`), for the cases that start in an empty folder. */
+async function emptySetup(prefix: string, name = "demo-app") {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), prefix)));
   const home = path.join(root, "home");
-  const empty = path.join(root, "demo-app");
+  const empty = path.join(root, name);
   await mkdir(home, { recursive: true });
   await mkdir(empty);
-  const h = harness(home);
-  const running = h.app.runInteractive(empty);
+  return { root, home, empty, cleanup: () => removeTempDir(root) };
+}
+
+test("starting in an empty folder asks nothing: the prompt is there at once and nothing is built", async () => {
+  const dirs = await emptySetup("casper-new-empty-quiet-");
+  const h = harness(dirs.home);
+  const running = h.app.runInteractive(dirs.empty);
   try {
-    await h.until(text => text.includes("This folder is empty. Start a new project here?"));
-    expect(h.visible()).toContain("1 Not now");
-    expect(h.visible()).not.toContain("My own");
-    h.input.write("5");
     await h.until(text => text.includes("idle"));
-    expect(h.created.map(({ parent, name, template }) => ({ parent, name, template }))).toEqual([{ parent: root, name: "demo-app", template: "python-cli" }]);
-    expect(h.visible()).toMatch(/\bproject\s+demo-app\b/);
-  } finally { await finish(h, running); await removeTempDir(root); }
+    expect(h.visible()).not.toContain("Start a new project here?");
+    expect(h.visible()).not.toContain("What are you building?");
+    expect(h.visible()).not.toContain("This folder is empty");
+    expect(h.created).toEqual([]);
+  } finally { await finish(h, running); await dirs.cleanup(); }
 });
 
-test("in an empty folder, Enter (1 Not now) on the plain terminal builds nothing", async () => {
-  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-new-empty-plain-")));
-  const home = path.join(root, "home");
-  const empty = path.join(root, "scratch");
-  await mkdir(home, { recursive: true });
-  await mkdir(empty);
-  const h = harness(home, { surface: "plain" });
-  const running = h.app.runInteractive(empty);
+test("an empty folder and a request that fits a template: one line, the build in place named after the folder, then the model", async () => {
+  const dirs = await emptySetup("casper-new-empty-build-");
+  const h = harness(dirs.home);
+  const running = h.app.runInteractive(dirs.empty);
   try {
-    await h.until(text => text.includes("This folder is empty. Start a new project here?"));
-    await h.until(text => /Type 1(, \d)* or \d: /.test(text));
-    expect(h.visible()).toContain("  1 Not now · just work in this folder\n");
-    h.input.write("\n");
-    await h.until(text => text.endsWith("> "));
+    await h.until(text => text.includes("idle"));
+    h.input.write(`${REQUEST}\r`);
+    await h.until(() => h.prompts.length === 1);
+    expect(h.created.map(({ parent, name, template }) => ({ parent, name, template })))
+      .toEqual([{ parent: path.dirname(dirs.empty), name: "demo-app", template: "mist-python" }]);
+    const shown = h.visible();
+    expect(shown).toContain("[new] Using the Mist Python project template here (installs packages, first commit).");
+    expect(shown).toContain('say "from scratch"');
+    expect(shown).toContain("/settings");
+    expect(shown).not.toContain("Build this as a new");
+    expect(h.starts).toEqual([dirs.empty]);
+    expect(h.prompts[0]).toContain(REQUEST);
+    expect(h.completes).toBe(0);
+    await h.until(settled);
+  } finally { await finish(h, running); await dirs.cleanup(); }
+});
+
+test("a folder name that can't be a project name gets the template in a subfolder with the template's usual name", async () => {
+  const dirs = await emptySetup("casper-new-empty-sub-", "My Folder");
+  const h = harness(dirs.home);
+  const running = h.app.runInteractive(dirs.empty);
+  try {
+    await h.until(text => text.includes("idle"));
+    h.input.write(`${REQUEST}\r`);
+    await h.until(() => h.prompts.length === 1);
+    expect(h.created.map(({ parent, name, template }) => ({ parent, name, template })))
+      .toEqual([{ parent: dirs.empty, name: "mist-scripts", template: "mist-python" }]);
+    expect(h.starts).toEqual([path.join(dirs.empty, "mist-scripts")]);
+    expect(h.visible()).not.toContain("Name it?");
+    await h.until(settled);
+  } finally { await finish(h, running); await dirs.cleanup(); }
+});
+
+test("an empty folder: a request with no template (a todo app, something, from scratch) goes straight to the model, no line and no question", async () => {
+  for (const request of ["make me a todo app in python", "build something", `${REQUEST}, from scratch`]) {
+    const dirs = await emptySetup("casper-new-empty-none-");
+    const h = harness(dirs.home);
+    const running = h.app.runInteractive(dirs.empty);
+    try {
+      await h.until(text => text.includes("idle"));
+      h.input.write(`${request}\r`);
+      await h.until(() => h.prompts.length === 1);
+      expect(h.created).toEqual([]);
+      expect(h.visible()).not.toContain("[new]");
+      expect(h.visible()).not.toContain("Build this as a new");
+      expect(h.starts).toEqual([dirs.empty]);
+      await h.until(settled);
+    } finally { await finish(h, running); await dirs.cleanup(); }
+  }
+});
+
+test("templates: off in your config builds nothing in an empty folder", async () => {
+  const dirs = await emptySetup("casper-new-empty-off-");
+  await mkdir(path.join(dirs.home, ".casper"), { recursive: true });
+  await writeFile(path.join(dirs.home, ".casper", "config.yaml"), "templates: off\n");
+  const h = harness(dirs.home);
+  const running = h.app.runInteractive(dirs.empty);
+  try {
+    await h.until(text => text.includes("idle"));
+    h.input.write(`${REQUEST}\r`);
+    await h.until(() => h.prompts.length === 1);
     expect(h.created).toEqual([]);
-    // Not now already answered it: a build request goes straight to work in this folder.
+    expect(h.visible()).not.toContain("[new]");
+    expect(h.starts).toEqual([dirs.empty]);
+    await h.until(settled);
+  } finally { await finish(h, running); await dirs.cleanup(); }
+});
+
+test("a project that can't be built in an empty folder sends nothing to the model", async () => {
+  const dirs = await emptySetup("casper-new-empty-fail-");
+  const h = harness(dirs.home, { status: "not_created" });
+  const running = h.app.runInteractive(dirs.empty);
+  try {
+    await h.until(text => text.includes("idle"));
+    h.input.write(`${REQUEST}\r`);
+    await h.until(text => text.includes("Nothing was sent to the model."));
+    expect(h.visible()).toContain("Not created: uv is missing.");
+    expect(h.prompts).toEqual([]);
+  } finally { await finish(h, running); await dirs.cleanup(); }
+});
+
+test("a one-shot run in an empty folder builds nothing: it prints the note and keeps the folder", async () => {
+  const dirs = await emptySetup("casper-new-empty-oneshot-");
+  const h = harness(dirs.home, { surface: "piped" });
+  try {
+    await h.app.runOnce(REQUEST, dirs.empty);
+    expect(h.visible()).toContain("[new] This reads like a new project. Casper can't ask here, so it works in this folder. To start a project instead: casper new mist-python mist-aps");
+    expect(h.visible()).not.toContain("[new] Using");
+    expect(h.created).toEqual([]);
+    expect(h.starts).toEqual([dirs.empty]);
+  } finally { await h.app.close(); h.input.destroy(); await dirs.cleanup(); }
+});
+
+test("the plain terminal in an empty folder asks nothing either", async () => {
+  const dirs = await emptySetup("casper-new-empty-plain-");
+  const h = harness(dirs.home, { surface: "plain" });
+  const running = h.app.runInteractive(dirs.empty);
+  try {
+    await h.until(text => text.endsWith("> "));
+    expect(h.visible()).not.toContain("Type 1");
     h.input.write(`${REQUEST}\n`);
     await h.until(() => h.prompts.length === 1);
-    expect(h.visible()).not.toContain("Build this as a new");
-    expect(h.starts).toEqual([empty]);
+    expect(h.created.map(({ template }) => template)).toEqual(["mist-python"]);
     await h.until(text => text.endsWith("> "));
-  } finally { await finish(h, running, false); await removeTempDir(root); }
+  } finally { await finish(h, running, false); await dirs.cleanup(); }
 });
 
-test("the home-folder question ends with New project, which asks the kind and the name", async () => {
-  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-new-home-")));
+async function homeWithProject(prefix: string) {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), prefix)));
   const home = path.join(root, "home");
   await mkdir(path.join(home, "Documents", "MyApp"), { recursive: true });
   await writeFile(path.join(home, "Documents", "MyApp", "package.json"), "{}");
-  const h = harness(home);
-  const running = h.app.runInteractive(home);
+  return { root, home, cleanup: () => removeTempDir(root) };
+}
+
+test("New project from the home folder asks no kind and no name: it starts in ~/Projects and the first request makes the project", async () => {
+  const dirs = await homeWithProject("casper-new-home-");
+  const h = harness(dirs.home);
+  const running = h.app.runInteractive(dirs.home);
   try {
     await h.until(text => text.includes("Work in which project?"));
     expect(h.visible()).toContain("3 New project");
     h.input.write("3");
-    await h.until(text => text.includes("What are you building?"));
-    h.input.write("3");
-    await h.until(text => text.includes("Name it? (Enter for "));
-    h.input.write("site-mcp\r");
     await h.until(text => text.includes("idle"));
+    expect(h.visible()).toContain("Starting a new project in ~/Projects");
+    expect(h.visible()).not.toContain("What are you building?");
+    expect(h.visible()).not.toContain("Name it?");
+    expect(h.created).toEqual([]);
+    h.input.write(`${REQUEST}\r`);
+    await h.until(() => h.prompts.length === 1);
     expect(h.created.map(({ parent, name, template }) => ({ parent, name, template })))
-      .toEqual([{ parent: path.join(home, "Projects"), name: "site-mcp", template: "network-mcp" }]);
-    expect(h.visible()).toMatch(/\bproject\s+site-mcp\b/);
-  } finally { await finish(h, running); await removeTempDir(root); }
+      .toEqual([{ parent: path.join(dirs.home, "Projects"), name: "mist-aps", template: "mist-python" }]);
+    expect(h.visible()).toContain("[new] Using the Mist Python project template at ~/Projects/mist-aps");
+    expect(h.starts).toEqual([path.join(dirs.home, "Projects", "mist-aps")]);
+    expect(h.prompts[0]).toContain(REQUEST);
+    await h.until(settled);
+  } finally { await finish(h, running); await dirs.cleanup(); }
+});
+
+test("New project, then a request with no template: an empty git project named from the request, said in one line", async () => {
+  const dirs = await homeWithProject("casper-new-home-empty-");
+  const h = harness(dirs.home);
+  const running = h.app.runInteractive(dirs.home);
+  try {
+    await h.until(text => text.includes("Work in which project?"));
+    h.input.write("3");
+    await h.until(text => text.includes("idle"));
+    h.input.write("make me a todo app in python\r");
+    await h.until(() => h.prompts.length === 1);
+    expect(h.created.map(({ parent, name, template }) => ({ parent, name, template })))
+      .toEqual([{ parent: path.join(dirs.home, "Projects"), name: "todo-app", template: "empty" }]);
+    expect(h.visible()).toContain("[new] Using an empty project at ~/Projects/todo-app");
+    expect(h.visible()).not.toContain("Name it?");
+    await h.until(settled);
+  } finally { await finish(h, running); await dirs.cleanup(); }
+});
+
+test("New project, then a request that gives no usable name: one Name it? question, Enter takes my-project", async () => {
+  const dirs = await homeWithProject("casper-new-home-name-");
+  const h = harness(dirs.home);
+  const running = h.app.runInteractive(dirs.home);
+  try {
+    await h.until(text => text.includes("Work in which project?"));
+    h.input.write("3");
+    await h.until(text => text.includes("idle"));
+    h.input.write("42\r");
+    await h.until(text => text.includes("Name it? (Enter for my-project)"));
+    h.input.write("\r");
+    await h.until(() => h.prompts.length === 1);
+    expect(h.created.map(({ name, template }) => ({ name, template }))).toEqual([{ name: "my-project", template: "empty" }]);
+    await h.until(settled);
+  } finally { await finish(h, running); await dirs.cleanup(); }
+});
+
+test("New project with templates: off still makes an empty project from the request", async () => {
+  const dirs = await homeWithProject("casper-new-home-off-");
+  await mkdir(path.join(dirs.home, ".casper"), { recursive: true });
+  await writeFile(path.join(dirs.home, ".casper", "config.yaml"), "templates: off\n");
+  const h = harness(dirs.home);
+  const running = h.app.runInteractive(dirs.home);
+  try {
+    await h.until(text => text.includes("Work in which project?"));
+    h.input.write("3");
+    await h.until(text => text.includes("idle"));
+    h.input.write(`${REQUEST}\r`);
+    await h.until(() => h.prompts.length === 1);
+    expect(h.created.map(({ name, template }) => ({ name, template }))).toEqual([{ name: "mist-aps", template: "empty" }]);
+    await h.until(settled);
+  } finally { await finish(h, running); await dirs.cleanup(); }
 });
 
 test("casper new at a terminal builds the project and opens Casper there; Esc builds nothing and exits 1", async () => {

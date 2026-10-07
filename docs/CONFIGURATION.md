@@ -13,7 +13,7 @@ writes your answer into `~/.casper/config.yaml` for you, keeping your comments a
 
 ```text
 Settings (saved in ~/.casper/config.yaml for you):
-  Web lookups: on (DuckDuckGo) · Browser tool: on · Diagram tool: on
+  Web lookups: on (DuckDuckGo) · Browser tool: on · Starter templates: on · Diagram tool: on
   New-version notice: on · Suggestions: on · Built-in skills: on
   Spend notes: at $1 a task · Spend pause: off · Prompt cache: auto
   Page checks: on · Show the AI the pages: ask once a session
@@ -23,11 +23,12 @@ Pick one to change:
   1 Done                              nothing changes
   2 Web lookups                       on (DuckDuckGo)
   3 Browser tool                      on
-  4 Diagram tool                      on
-  5 New-version notice                on
-  6 Suggestions                       on
-  7 Side questions with ?             on
-  8 Built-in skills                   on
+  4 Starter templates                 on
+  5 Diagram tool                      on
+  6 New-version notice                on
+  7 Suggestions                       on
+  8 Side questions with ?             on
+  9 Built-in skills                   on
   9 Spend notes                       at $1 a task
  10 Spend pause                       off
  11 Prompt cache                      auto
@@ -89,6 +90,13 @@ It is on. Turn it off with `/settings` (it writes `browser: off`): the AI is nev
 `browser` tool. The page checks after a change still run, since they are Casper's own check, not
 the AI's browser; `/browser`, typed by you, still works. A project file (or a profile it picks)
 can't turn it on or off.
+
+### Starter templates
+
+In an empty folder, a first request that fits a template (a NOC dashboard, an MCP server) is built
+from it, with one `[new]` line and no question (see [NEW.md](NEW.md)). It is on. Turn it off with
+`/settings` (it writes `templates: off`): the request goes straight to the AI. Say "from scratch" in a
+request to skip it once. A project file (or a profile it picks) can't turn it on or off.
 
 ### Diagram tool
 

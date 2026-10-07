@@ -472,7 +472,14 @@
           preview.</p>
         </aside>
 
-        <p>Nothing right now: everything built so far shipped in v0.2.24.</p>
+        <ul>
+          <li><strong>An empty folder starts quietly.</strong> No type picker at startup and none from
+          <strong>New project</strong>. In an empty folder, a first request that fits a template (a NOC
+          dashboard, an MCP server) builds it with one plain line; any other request goes to the AI.
+          <strong>New project</strong> from home starts in <code>~/Projects</code> and your first request
+          makes the project. Say "from scratch" to skip a template, or turn <strong>Starter templates</strong>
+          off in <code>/settings</code> (<code>templates: off</code>).</li>
+        </ul>
       </section>
 
       <section id="coming" aria-labelledby="coming-h">
