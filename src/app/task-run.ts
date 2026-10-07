@@ -288,7 +288,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     if (!cancelled && app.taskRuntimeFailed && app.checkTask && verificationMode === "auto") {
       const edited = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
       const failedChecks = edited?.length ? planAutoChecks({ selected: context.verification.checks, commands: context.model.commands,
-        scopes: context.model.verificationScopes, named: context.model.namedChecks, detected: autoDetectedChecks(context.model), changedPaths: edited }).run : [];
+        scopes: context.model.verificationScopes, named: context.model.namedChecks, detected: autoDetectedChecks(context.model), changedPaths: edited, root: workspaceRoot }).run : [];
       if (failedChecks.length) {
         app.events.ensureLineBreak();
         app.output.write(`… Casper checking the edits the model made before it failed: ${failedChecks.join(", ")}\n`);
@@ -299,7 +299,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       const changedByModel = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
       autoChecks = planAutoChecks({
         selected: context.verification.checks, commands: context.model.commands, scopes: context.model.verificationScopes,
-        named: context.model.namedChecks, detected: autoDetectedChecks(context.model), changedPaths: changedByModel,
+        named: context.model.namedChecks, detected: autoDetectedChecks(context.model), changedPaths: changedByModel, root: workspaceRoot,
       });
       // Configured smoke checks run after a change; checks the model recorded always run.
       const smokeDue = Boolean(app.smokeTask?.recordedCount || (app.smokeTask?.size && autoChecks.skipped !== "no-changes"));
