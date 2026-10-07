@@ -39,10 +39,10 @@
         <img class="hero-logo" src="assets/logo.svg" alt="Casper's ghost logo" width="88" height="88">
         <h1 id="hero-title">Casper</h1>
         <p class="lead">A coding helper for your terminal. Build web apps, APIs, command-line tools and scripts in the language your project uses, and Casper checks the AI's work before it tells you "done". Network engineers get extra care built in.</p>
-        <p class="muted small">Version 0.2.26 · early preview, not signed · MIT licence</p>
+        <p class="muted small">Version 0.2.27 · early preview, not signed · MIT licence</p>
 
-        <div class="cmd"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.26/install.sh | sh</code></pre></div>
-        <div class="cmd"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.26/install.ps1 | iex</code></pre></div>
+        <div class="cmd"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.27/install.sh | sh</code></pre></div>
+        <div class="cmd"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.27/install.ps1 | iex</code></pre></div>
         <p class="small muted">No Bun or source checkout needed. The installer checks the file's SHA-256 and runs the new program's <code>--version</code> before it replaces an older install. Then run <code>casper</code> in your project folder.</p>
 
         <div class="actions">
@@ -175,8 +175,8 @@ Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
       </section>
 
       <section aria-labelledby="next">
-        <h2 id="next">New in 0.2.26</h2>
-        <p>Casper can use a model running on your own computer: the docs have the exact lines for Ollama, LM Studio, llama.cpp and vLLM, and the errors are plain words when a model can't use tools or a provider has no key. <code>casper update</code> now works on Windows. Casper opens in the folder you launched from and no longer asks which project to open when that is your home folder.</p>
+        <h2 id="next">New in 0.2.27</h2>
+        <p><code>/mcp</code> is now one line per server with an arrow-key picker to connect, disconnect, forget or change writes and the sandbox. A picture you paste is also saved where the AI can open it. The network server it installs (0.1.2) returns far shorter Central answers and a firmware upgrade that works, and an older <code>gh</code> no longer stops an install.</p>
       </section>
     </div>
   </main>
@@ -184,7 +184,7 @@ Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.26</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.27</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

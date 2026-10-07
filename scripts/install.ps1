@@ -1,6 +1,6 @@
 # Casper installer for Windows.
 #
-#   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.26/install.ps1 | iex
+#   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.27/install.ps1 | iex
 #
 # Downloads the self-contained casper-windows-x64.exe (casper-windows-arm64.exe on an ARM64
 # PC), verifies its SHA-256 against the release's SHA256SUMS (and SHA256SUMS against the release signature, when
@@ -30,7 +30,7 @@ if ($PSVersionTable.PSVersion -lt [version]'5.1') {
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 # GitHub's latest/download excludes prereleases; this preview pins an explicit tag.
-$BaseUrl = if ($env:CASPER_BASE_URL) { $env:CASPER_BASE_URL } else { 'https://github.com/Choaterboater/casper/releases/download/v0.2.26' }
+$BaseUrl = if ($env:CASPER_BASE_URL) { $env:CASPER_BASE_URL } else { 'https://github.com/Choaterboater/casper/releases/download/v0.2.27' }
 $InstallDir = if ($env:CASPER_INSTALL_DIR) { $env:CASPER_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\casper' }
 $Version = $env:CASPER_VERSION
 $ExpectedSha = $env:CASPER_SHA256

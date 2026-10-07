@@ -4,11 +4,49 @@
 published, and what the installers promise. **When you'd use it:** to see what is new
 before you upgrade, or when you build or publish a release yourself.
 
-Casper distributes an unsigned **v0.2.26 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.26`,
+Casper distributes an unsigned **v0.2.27 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.27`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.27: `/mcp` you can click through, pasted pictures the AI can find, and the network server 0.1.2
+
+`/mcp` is now one line per server with an arrow-key picker, a picture you paste is saved where the AI can
+open it, and the network server it installs returns far less text per answer.
+
+**`/mcp` in one screen.** Before, each server took four to six lines and `/mcp connect` printed the whole list
+again. Now `/mcp` prints one line per server (name, state, tools, writes, sandbox, where it was found). On a
+normal terminal an Up/Down picker sits under it: choose a server, then Details, Connect (or Reconnect),
+Disconnect, Forget, Writes on, Writes off (all servers), or Sandbox on or off. Each choice runs the same code
+as the typed command, so every approval box and safety message is unchanged. `/mcp detail [name]` prints the
+full output as before, `/mcp connect` prints one result line, and one "Heads up" line appears only when a
+connected server is not sandboxed or writes are on. Plain terminals, scripts and `--json` keep the list with
+command hints and no picker.
+
+**Pasted pictures.** A picture pasted with Ctrl+V (Alt+V on Windows) already went to the model. It is now also
+saved in a private temp folder (only you can read it) and a line under your request says
+`[image 1] is the file <path>`, the same as for a dragged file, so a model that cannot see pictures, or a task
+that needs the file, has something to point at. The folder is deleted when the session closes; a crash can
+leave a `casper-pasted-*` folder in your temp directory. Requests without a pasted picture are unchanged.
+
+**An org is "the org".** `login: can change <name> org` showed the organisation's name in `/mcp` and in the
+change box. A single org now shows as "the org". Site and site group names still show.
+
+**Network server 0.1.2.** Casper now installs casper-network-mcp 0.1.2: Central alerts, clients, events and
+radios return short rows by default (the full data is one option away and each tool's description says how),
+so one answer costs far fewer tokens; `trigger_device_upgrade` writes the firmware policy Central accepts, and
+its dry run now catches a body the endpoint would reject; an accepted firmware change says "queued, not
+applied yet". Installs on 0.1.1 are offered the update by `/mcp setup network`.
+
+**An older `gh` no longer stops an install.** A signed-in `gh` older than 2.49 has no `attestation` command,
+and `install.sh`, `install.ps1` and `casper update` read that as "this download isn't a Casper build". They now
+ask `gh` whether it has the command first; if not, they continue with the SHA-256 and signature checks and
+say "This gh is too old to check where it was built (gh 2.49 or newer can)." A `gh` that has the command and
+says the file does not match still stops the install.
+
+**Not done yet.** `/login` has no "a model on this computer" choice; the site's sample `/mcp` output still
+shows the old layout; copying a file in Finder and pressing Ctrl+V does not attach it (drag the file in).
 
 ## v0.2.26: local models, updating on Windows, and opening where you launched
 
