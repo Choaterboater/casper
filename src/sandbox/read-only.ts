@@ -1,4 +1,4 @@
-import { lstatSync, readdirSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { privatePlaces, realpathLongest, within } from "../platform/project-paths";
@@ -39,9 +39,13 @@ interface Spec {
   recursive?: boolean | ((options: ReadonlySet<string>) => boolean);
   /** It prints what is in the files it reads (grep, rg, git grep): a whole-folder read asks when a .env or key is inside. */
   contents?: boolean;
+  /** git: the words may be pathspecs, which git expands itself (* ? [): one with such a character asks. */
+  pathspec?: boolean;
   /** Words are only allowed with one of these options (git branch -l). */
   wordsOnlyWith?: readonly string[];
   maxWords?: number;
+  /** Every file word must be a regular file or not exist (a folder or a device asks). */
+  regularFiles?: boolean;
   /** A last check on the words (date's +FORMAT). */
   check?: (words: readonly string[]) => boolean;
 }
@@ -78,7 +82,10 @@ const READERS: Record<string, Spec> = {
   du: { short: "shacdkmxbHl", value: "d", long: ["--max-depth=", "--summarize", "--human-readable", "--apparent-size", "--all", "--total"], recursive: true },
   df: { short: "hHkiTPla", long: ["--human-readable", "--inodes", "--total", "--print-type"] },
   tree: { short: "adfiFpsughDCnJQN", value: "LIP", long: ["--gitignore", "--dirsfirst", "--noreport", "--du", "--charset="], recursive: true },
-  echo: { anyOption: true, words: "text" }, printf: { anyOption: true, words: "text" },
+  echo: { anyOption: true, words: "text" },
+  // printf -v NAME assigns a shell variable (PATH, IFS, BASH_ENV...) that the next command then uses: no options at all.
+  // The format's %n assigns the count of printed characters to the variable named by the next word (bash), so it asks too.
+  printf: { words: "text", check: (words) => !/%[^a-zA-Z\\]*[hlLqjzt]*n/.test(words[0] ?? "") },
   basename: { short: "az", value: "s", words: "text" }, dirname: { short: "z", words: "text" },
   realpath: { short: "eqsmLPz", long: ["--relative-to=", "--relative-base="], pathOptions: ["--relative-to", "--relative-base"] },
   readlink: { short: "fenmqsvz" },
@@ -94,8 +101,9 @@ const READERS: Record<string, Spec> = {
   cut: { short: "snz", value: "dfcb", long: ["--complement", "--only-delimited", "--zero-terminated", "--delimiter=", "--fields=", "--characters=",
     "--bytes=", "--output-delimiter="] },
   tr: { short: "cdsCt", words: "text" },
-  diff: { short: "uqNawbBiEtTypcs", value: "UCIW", long: ["--unified", "--unified=", "--brief", ...COLOR, "--side-by-side", "--ignore-space-change",
-    "--ignore-all-space", "--ignore-blank-lines", "--ignore-case", "--text", "--strip-trailing-cr", "--label=", "--new-file",
+  // Files only (regularFiles): given a folder, diff compares the files inside it, and a link in there can lead out of the project.
+  diff: { regularFiles: true, short: "uqawbBiEtTypcs", value: "UCIW", long: ["--unified", "--unified=", "--brief", ...COLOR, "--side-by-side", "--ignore-space-change",
+    "--ignore-all-space", "--ignore-blank-lines", "--ignore-case", "--text", "--strip-trailing-cr", "--label=",
     "--report-identical-files", "--expand-tabs", "--ignore-matching-lines=", "--context", "--context=", "--suppress-common-lines", "--width=",
     "--minimal", "--normal"] },
   cmp: { short: "bls", value: "ni" },
@@ -134,24 +142,25 @@ const LOG_LONG = ["--oneline", "--graph", "--all", "--decorate", "--decorate=", 
  * those set a program to run, write a file or read outside the project. -U, --unified and --abbrev take a value only
  * when it is joined (-U5, --abbrev=7), as git reads them: the word after them is a file and is checked. */
 const GIT_READERS: Record<string, Spec> = {
-  status: { short: "sbvz", optional: "u", long: ["--short", "--branch", "--porcelain", "--porcelain=", "--long", "--show-stash", "--ahead-behind",
+  status: { pathspec: true, short: "sbvz", optional: "u", long: ["--short", "--branch", "--porcelain", "--porcelain=", "--long", "--show-stash", "--ahead-behind",
     "--no-ahead-behind", "--renames", "--no-renames", "--untracked-files", "--untracked-files=", "--ignored", "--verbose"] },
-  diff: { short: "pusbwRMz", optional: "U", long: DIFF_LONG },
-  log: { short: "psuwgiEFPMz", value: "nSG", optional: "U", number: true, long: [...DIFF_LONG, ...LOG_LONG] },
-  show: { short: "psuwMz", value: "n", optional: "U", number: true, long: [...DIFF_LONG, ...LOG_LONG] },
+  diff: { pathspec: true, short: "pusbwRMz", optional: "U", long: DIFF_LONG },
+  log: { pathspec: true, short: "psuwgiEFPMz", value: "nSG", optional: "U", number: true, long: [...DIFF_LONG, ...LOG_LONG] },
+  show: { pathspec: true, short: "psuwMz", value: "n", optional: "U", number: true, long: [...DIFF_LONG, ...LOG_LONG] },
   "rev-parse": { short: "q", long: ["--show-toplevel", "--abbrev-ref", "--abbrev-ref=", "--short", "--short=", "--git-dir", "--is-inside-work-tree",
     "--is-inside-git-dir", "--verify", "--symbolic-full-name", "--show-prefix", "--show-cdup", "--quiet", "--absolute-git-dir", "--git-common-dir",
     "--is-bare-repository"] },
   "ls-files": { short: "cdmoisuktvzf", long: ["--cached", "--deleted", "--modified", "--others", "--ignored", "--stage", "--unmerged",
     "--exclude-standard", "--full-name", "--error-unmatch", "--directory", "--no-empty-directory", "--eol", "--deduplicate"] },
-  blame: { short: "wMCesltfnpb", value: "L", long: ["--porcelain", "--line-porcelain", "--show-email", "--show-name", "--show-number", "--root",
+  blame: { pathspec: true, short: "wMCesltfnpb", value: "L", long: ["--porcelain", "--line-porcelain", "--show-email", "--show-name", "--show-number", "--root",
     "--abbrev", "--abbrev=", "--date="] },
   describe: { long: ["--tags", "--always", "--long", "--all", "--dirty", "--dirty=", "--exact-match", "--first-parent", "--abbrev", "--abbrev=", "--match=",
     "--exclude=", "--candidates="] },
   shortlog: { short: "sne", long: ["--summary", "--numbered", "--email", "--no-merges", "--all", "--format=", "--since=", "--until=", "--author=",
     "--group="] },
-  grep: { short: "nilLcwvEFPhHIqopWz", value: "efABCm", long: ["--line-number", "--ignore-case", "--files-with-matches", "--files-without-match",
-    "--count", "--word-regexp", "--invert-match", "--extended-regexp", "--fixed-strings", "--perl-regexp", "--basic-regexp", "--cached",
+  // No --cached: it searches the index, which can hold a private file that is deleted from the work tree (the whole-folder rule only sees the work tree).
+  grep: { pathspec: true, short: "nilLcwvEFPhHIqopWz", value: "efABCm", long: ["--line-number", "--ignore-case", "--files-with-matches", "--files-without-match",
+    "--count", "--word-regexp", "--invert-match", "--extended-regexp", "--fixed-strings", "--perl-regexp", "--basic-regexp",
     "--untracked", "--full-name", "--heading", "--break", "--only-matching", "--show-function", "--function-context", "--all-match", "--and",
     "--or", "--not", "--column", "--null", "--quiet", "--recurse-submodules", "--exclude-standard", "--max-depth=", "--context=",
     "--after-context=", "--before-context=", "--max-count=", "--threads=", ...COLOR],
@@ -194,10 +203,35 @@ function placeOf(where: ReadPlace | string | undefined): Place {
   return { root, realRoot: realpathLongest(root), private: [...new Set(places)] };
 }
 
+/** A ".." is only plain text when nothing before it can be a link: leading ../ steps (with a root that is not itself
+ * reached through a link) are fine; a ".." after a name is not, since the kernel follows the link first (sshl/.. is
+ * not the project). */
+function plainDots(word: string, place: Place): boolean {
+  const parts = word.split("/");
+  let index = 0;
+  while (index < parts.length && (parts[index] === ".." || parts[index] === "." || parts[index] === "")) index++;
+  if (parts.slice(index).includes("..")) return false;
+  return !parts.includes("..") || place.root === place.realRoot;
+}
+
+/** On NTFS, `.env::$DATA` (a data stream) and `.env `, `.env.` (a trailing space or dot is dropped) open the same file as `.env`.
+ * A file operand with a colon (but a drive letter and a slash, C:/x) or a name ending in a space or a dot (not . or ..) asks,
+ * on every OS: cheap and fails closed. Pattern arguments are never checked here. */
+function plainWindowsName(word: string): boolean {
+  const parts = word.split("/");
+  return parts.every((part, at) => {
+    if (part.includes(":") && !(at === 0 && parts.length > 1 && /^[A-Za-z]:$/.test(part))) return false;
+    return part === "." || part === ".." || !(part.endsWith(" ") || part.endsWith("."));
+  });
+}
+
 /** A file word is fine when it, and where its links lead, is in the project and not private. `folder`: the command
  * reads all of it, so a private place inside counts too. */
-function fileOk(word: string, place: Place, folder: boolean, contents = false): boolean {
+function fileOk(word: string, place: Place, folder: boolean, contents = false, windowsNames = true): boolean {
   if (word === "-") return true;
+  // A backslash is a separator on Windows (Git Bash): a path word with one can't be checked by its text.
+  if (word.includes("\\") || !plainDots(word, place)) return false;
+  if (windowsNames && !plainWindowsName(word)) return false;
   const absolute = path.resolve(place.root, word);
   const real = realpathLongest(absolute);
   if (!within(place.root, absolute) || !within(place.realRoot, real)) return false;
@@ -235,21 +269,12 @@ function holdsPrivateFile(folder: string): boolean {
   return false;
 }
 
-/** The file a git word names: `HEAD:src/a.ts`, `:src/a.ts` and `:0:src/a.ts` read that path from git's own copy.
- * Undefined for pathspec magic (`:(glob).env`, `:!src`), which this check can't follow. */
-function gitWordPath(word: string): string | undefined {
-  if (/^:[(!^/]/.test(word)) return undefined;
-  const staged = /^:\d:/.exec(word);
-  if (staged) return word.slice(staged[0].length) || ".";
-  const colon = word.indexOf(":");
-  return colon < 0 ? word : word.slice(colon + 1) || ".";
-}
-
-/** Checks one program's words against its spec. `git`: its words may name a file as <rev>:<path>. */
+/** Checks one program's words against its spec. `git`: a word with a colon in it (rev:path, :path, ::path, :(magic), a colon inside braces) asks. */
 function allowed(spec: Spec, args: readonly string[], place: Place, git = false): boolean {
   const options = new Set<string>();
   const words: string[] = [];
   const files: string[] = [];
+  let dashAt = Infinity;
   const longs = spec.long ?? [];
   let index = 0;
   // A value given as the next word is never an option: `git diff -U --no-index` would hide --no-index from this
@@ -266,7 +291,7 @@ function allowed(spec: Spec, args: readonly string[], place: Place, git = false)
   };
   for (; index < args.length; index++) {
     const arg = args[index]!;
-    if (arg === "--") { words.push(...args.slice(index + 1)); break; }
+    if (arg === "--") { dashAt = words.length; words.push(...args.slice(index + 1)); break; }
     if (!arg.startsWith("-") || arg === "-") { words.push(arg); continue; }
     if (spec.anyOption) continue;
     if (spec.number && /^-\d+$/.test(arg)) continue;
@@ -301,11 +326,34 @@ function allowed(spec: Spec, args: readonly string[], place: Place, git = false)
   if (spec.maxWords !== undefined && words.length > spec.maxWords) return false;
   if (!files.every((file) => fileOk(file, place, false))) return false;
   if (kind === "text") return true;
-  const given = spec.pattern && !spec.pattern.some((option) => options.has(option)) ? words.slice(1) : words;
-  const paths = git ? given.map(gitWordPath) : given;
-  if (!paths.every((word): word is string => word !== undefined)) return false;
+  const skip = spec.pattern && !spec.pattern.some((option) => options.has(option)) ? 1 : 0;
+  const given = words.slice(skip);
+  // git reads rev:path, :path (short magic), ::path and :(magic) from any word, before or after `--`, so any git word that
+  // is not an option and has a colon in it asks. Option values (--grep=a:b, -S a:b, -e a:b) are not words.
+  if (git && given.some((word) => word.includes(":"))) return false;
+  // After `--` every word is a pathspec; before it a word may also be a revision.
+  const afterDash = (at: number) => at + skip >= dashAt;
+  // git expands * ? [ in a pathspec itself (git grep -- '.en*' prints .env): the text check can't follow that.
+  if (git && spec.pathspec && given.some((word) => /[*?[]/.test(word))) return false;
+  const paths = given;
   const recursive = typeof spec.recursive === "function" ? spec.recursive(options) : Boolean(spec.recursive);
-  return (paths.length ? paths : recursive ? ["."] : []).every((word) => fileOk(word, place, recursive, Boolean(spec.contents)));
+  if (spec.regularFiles && !paths.every((word) => word === "-" || isRegularFile(path.resolve(place.root, word)))) return false;
+  const list = paths.length ? [...paths] : recursive ? ["."] : [];
+  // git grep REV with no path in the project and none after `--` searches that revision's whole tree (HEAD:.env): the
+  // whole-folder rule applies, as it does for `git grep X` with no word at all.
+  if (git && spec.contents && paths.length && given.some((word, at) => !afterDash(at) && !existsInProject(word, place))
+    && !given.some((word, at) => afterDash(at) || existsInProject(word, place))) list.push(".");
+  return list.every((word) => fileOk(word, place, recursive, Boolean(spec.contents), !git));
+}
+
+/** True when the word names something that is there in the project (links not followed): then it is a path, not a revision. */
+function existsInProject(word: string, place: Place): boolean {
+  try { lstatSync(path.resolve(place.root, word)); return true; } catch { return false; }
+}
+
+/** True when the path (links followed) is a regular file, or is not there at all (the program only reports that). */
+function isRegularFile(file: string): boolean {
+  try { return statSync(file).isFile(); } catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT"; }
 }
 
 /** find: start folders, then tests and -print only. No -exec, -ok, -delete, -fprint, -L or -follow. */
@@ -334,10 +382,13 @@ function findAllowed(args: readonly string[], place: Place): boolean {
 function readerSegment(words: string[], place: Place): boolean {
   const [name, ...args] = words;
   if (!name || name.includes("=") || name.includes("/") || name.includes("\\")) return false;
-  // $HOME, ${X}, ~ and the like: the shell would change the word, so its text can't be checked.
-  if (words.some((word) => word.includes("$") || word.startsWith("~"))) return false;
+  // A word starting with ~ (even a quoted one: the text check would read it as a folder named ~). A $ can only be here
+  // from inside single quotes (safeLine refuses every other one), where it is plain text.
+  if (words.some((word) => word.startsWith("~"))) return false;
   if (name === "find") return findAllowed(args, place);
   if (name === "git") {
+    // git descends into submodules and runs their own config (core.fsmonitor): not a plain read there.
+    if (hasSubmodules(place.root)) return false;
     let index = 0;
     while (args[index] === "--no-pager" || args[index] === "-P") index++;
     const sub = args[index];
@@ -348,16 +399,155 @@ function readerSegment(words: string[], place: Place): boolean {
   return Boolean(spec) && allowed(spec!, args, place);
 }
 
+/** Outside quotes only these characters may appear: letters, digits, space, tab and the punctuation of paths, options and
+ * the allowed operators. Anything else (a backslash, $, backtick, !, ( ) { } * ?, a control or non-ASCII character) means
+ * the line is not read by this check. < and > are kept here only so a later check can see and refuse them. */
+const SAFE_BARE = /^[A-Za-z0-9 \t._\-/:=@%+,|&;^~#<>]$/;
+/** Inside double quotes the same, plus the characters of a search pattern and !, which is plain text in a script. Never $,
+ * backtick, " (the quote tracker does not model an escaped quote), < or > or a non-ASCII one; a backslash only as a pair. */
+const SAFE_QUOTED = /^[A-Za-z0-9 ._\-/:=@%+,|&;^~*?[\]{}()#'!]$/;
+/** What may follow a backslash inside double quotes: bash keeps both as plain text unless the next one is $, backtick, " or
+ * a backslash (or a newline), so any other printable ASCII character is fine. */
+const QUOTED_BACKSLASH = /^[\x20-\x7e]$/;
+/** Inside single quotes bash reads every character as plain text (a backslash, $, !, < >, backtick, * ? [ ] { } ( ) too), so any
+ * printable ASCII one but the closing quote may be there. No tab, newline, CR, NUL, control or non-ASCII character. */
+const SAFE_SINGLE = /^[\x20-\x26\x28-\x7e]$/;
+
+/** The line itself when every character is in the safe set, else undefined. Done before any parsing, so a comment, a
+ * backslash-newline, a CR, a no-break space and the like never reach the word splitter (which would read them differently
+ * from bash). One trailing newline is just the end of the line. */
+function safeLine(command: string): string | undefined {
+  const text = command.endsWith("\n") ? command.slice(0, -1) : command;
+  let quote: string | undefined;
+  let wordStart = true;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index]!;
+    if (quote) {
+      if (char === quote) { quote = undefined; wordStart = false; continue; }
+      if (quote === "\"" && char === "\\") {
+        const next = text[index + 1];
+        if (next === undefined || !QUOTED_BACKSLASH.test(next) || "$`\"\\".includes(next)) return undefined;
+        index++;
+        continue;
+      }
+      if (!(quote === "'" ? SAFE_SINGLE : SAFE_QUOTED).test(char)) return undefined;
+      continue;
+    }
+    if (char === "'" || char === "\"") { quote = char; wordStart = false; continue; }
+    if (!SAFE_BARE.test(char)) return undefined;
+    // A # that starts a word begins a comment, which hides what follows from this check but not from bash.
+    if (char === "#" && wordStart) return undefined;
+    // ~ is only safe inside a word: bash expands it at a word start or after = or : .
+    if (char === "~" && (wordStart || text[index - 1] === "=" || text[index - 1] === ":")) return undefined;
+    wordStart = " \t|&;".includes(char);
+  }
+  return quote ? undefined : text;
+}
+
+/** The line with the contents of every quoted string replaced by x (same length, quotes kept), so a check for an operator
+ * or a redirect sees only what bash reads as one. Run on a line safeLine has passed, whose quotes are balanced. */
+function maskQuoted(text: string): string {
+  let quote: string | undefined;
+  let out = "";
+  for (const char of text) {
+    if (quote) { if (char === quote) { quote = undefined; out += char; } else out += "x"; continue; }
+    if (char === "'" || char === "\"") quote = char;
+    out += char;
+  }
+  return out;
+}
+
+/** A redirect that only discards or merges output (never &>, which dash, ash and ksh read as "run in the background"), as its own word followed by a space, the end or one of ; | &&. */
+const HARMLESS_REDIRECT = /(?<=^|[ \t])(?:[12]?>\/dev\/null|2>&1)(?=$|[ \t;|]|&&)/g;
+
+/** The line with those redirects (2>/dev/null, 2>&1, >/dev/null, 1>/dev/null) blanked out. Outside quotes only: the match
+ * is made on the masked line, and the same places are blanked in the real one. */
+function withoutHarmlessRedirects(text: string): string {
+  const masked = maskQuoted(text);
+  let out = "";
+  let last = 0;
+  for (const match of masked.matchAll(HARMLESS_REDIRECT)) {
+    out += text.slice(last, match.index) + " ".repeat(match[0].length);
+    last = match.index + match[0].length;
+  }
+  return out + text.slice(last);
+}
+
 /** True when every command on the line only reads files in the project: no redirect, no substitution, no
  * background job, no glob, no option it doesn't know, nothing outside the project or private. Pipes and && between
  * readers are fine. `where`: the project folder, or the project, your home and the private places. */
 export function readOnlyCommand(command: string, where?: ReadPlace | string): boolean {
-  const text = command.trim();
-  if (!text || /[<>`]|\$\(|(?:^|[^&])&(?!&)/.test(text) || hasGlob(text)) return false;
+  const safe = safeLine(command);
+  if (safe === undefined) return false;
+  const text = withoutHarmlessRedirects(safe).trim();
+  if (!text || /[<>`]|\$\(|(?:^|[^&])&(?!&)/.test(maskQuoted(text)) || hasGlob(text)) return false;
   const line = splitShell(text);
   if (!line.segments.length) return false;
   const place = placeOf(where);
   return line.segments.every((segment) => readerSegment(segment.words, place));
+}
+
+/** The git folder a project belongs to, found the way git does: the nearest .git going up from the project (a folder,
+ * a link to one, or a .git file that points to one). "unknown" when it can't be worked out: callers then ask. */
+function gitDirOf(folder: string): string | undefined | "unknown" {
+  for (let dir = folder; ; dir = path.dirname(dir)) {
+    const dot = path.join(dir, ".git");
+    try {
+      if (statSync(dot).isDirectory()) return realpathSync(dot);
+      const target = /^gitdir:\s*(.+)$/m.exec(readFileSync(dot, "utf8"))?.[1]?.trim();
+      return target ? realpathSync(path.resolve(dir, target)) : "unknown";
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") return "unknown";
+    }
+    if (dir === path.dirname(dir)) return undefined;
+  }
+}
+
+/** True when an index entry has the gitlink mode (a submodule or nested repository). A version 4 index, or one that
+ * can't be read, counts as holding one: asking costs less than guessing. */
+function indexHasGitlink(file: string): boolean {
+  let data: Buffer;
+  try { data = readFileSync(file); } catch (error) { return (error as NodeJS.ErrnoException).code !== "ENOENT"; }
+  if (data.length < 12 || data.toString("latin1", 0, 4) !== "DIRC") return true;
+  const version = data.readUInt32BE(4);
+  if (version !== 2 && version !== 3) return true;
+  const count = data.readUInt32BE(8);
+  let at = 12;
+  for (let entry = 0; entry < count; entry++) {
+    if (at + 62 > data.length) return true;
+    if ((data.readUInt32BE(at + 24) >> 12) === 0o16) return true;
+    const flags = data.readUInt16BE(at + 60);
+    let nameStart = at + 62;
+    if (version === 3 && flags & 0x4000) nameStart += 2;
+    let nameEnd = nameStart + (flags & 0xfff);
+    if ((flags & 0xfff) === 0xfff) { nameEnd = data.indexOf(0, nameStart); if (nameEnd < 0) return true; }
+    at += Math.ceil((nameEnd - at + 1) / 8) * 8;
+  }
+  // Extensions: a split index ("link") keeps its entries in a shared file, a sparse index ("sdir") folds them into trees.
+  while (at + 8 <= data.length - 20) {
+    const name = data.toString("latin1", at, at + 4);
+    if (name === "link" || name === "sdir") return true;
+    at += 8 + data.readUInt32BE(at + 4);
+  }
+  return false;
+}
+
+/** True when the project's git repository has submodules or gitlinks: a .gitmodules file in the project or any folder
+ * above it, a .git/modules folder (also the main repository's, for a worktree), or a gitlink in the index. */
+function hasSubmodules(root: string): boolean {
+  for (let folder = root; ; folder = path.dirname(folder)) {
+    try { lstatSync(path.join(folder, ".gitmodules")); return true; } catch { /* none here */ }
+    if (folder === path.dirname(folder)) break;
+  }
+  const gitDir = gitDirOf(root);
+  if (gitDir === undefined) return false;
+  if (gitDir === "unknown") return true;
+  const common = path.basename(path.dirname(gitDir)) === "worktrees" ? path.resolve(gitDir, "..", "..") : gitDir;
+  for (const dir of new Set([gitDir, common])) {
+    try { if (lstatSync(path.join(dir, "modules")).isDirectory()) return true; } catch { /* none */ }
+    try { if (readdirSync(dir).some((name) => name.startsWith("sharedindex."))) return true; } catch { return true; }
+  }
+  return indexHasGitlink(path.join(gitDir, "index"));
 }
 
 /** Programs that run whatever follows them, or can (an editor, a pager, curl, tar): never a prefix of their own, and

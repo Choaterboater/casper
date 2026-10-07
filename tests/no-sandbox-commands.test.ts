@@ -318,7 +318,7 @@ test("git's -U, --unified and --abbrev take only a joined value: the next word i
     "git show -U HEAD:secrets/k.txt", "git diff -U .env", "git show --unified HEAD:.env", "git describe --abbrev HEAD:secrets/k.txt"]) {
     expect({ command, read: readOnlyCommand(command, where) }).toEqual({ command, read: false });
   }
-  for (const command of ["git show -U HEAD:src/a.ts", "git blame --abbrev src/a.ts", "git log -U5 src/a.ts"]) {
+  for (const command of ["git show -U HEAD~1", "git blame --abbrev src/a.ts", "git log -U5 src/a.ts"]) {
     expect({ command, read: readOnlyCommand(command, where) }).toEqual({ command, read: true });
   }
 });
@@ -332,7 +332,7 @@ test("a git reader's <rev>:<path> is checked as that path: a private or denyRead
     "git show HEAD:../outside.txt"]) {
     expect({ command, read: readOnlyCommand(command, where) }).toEqual({ command, read: false });
   }
-  for (const command of ["git show HEAD:src/a.ts", "git show HEAD~1 --stat", "git cat-file -p HEAD:README.md", "git show HEAD", "git log -p -5 --stat"]) {
+  for (const command of ["git show HEAD~2", "git show HEAD~1 --stat", "git cat-file -p HEAD", "git show HEAD", "git log -p -5 --stat"]) {
     expect({ command, read: readOnlyCommand(command, where) }).toEqual({ command, read: true });
   }
 });
