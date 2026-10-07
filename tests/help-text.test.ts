@@ -67,5 +67,6 @@ test("/help lists setting up Casper's network server and its logins", () => {
   for (const text of [HELP_TEXT, FULL_HELP_TEXT]) expect(text).toContain("/mcp setup network");
   expect(HELP_TEXT).toContain("/mcp login ");
   expect(FULL_HELP_TEXT).toContain("/mcp login [mist|central|clearpass] [forget]");
+  expect(FULL_HELP_TEXT).toContain("/allowed forget <n>");
   expect(FULL_HELP_TEXT).toContain("/mcp setup ssh [host] [command]");
 });

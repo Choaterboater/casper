@@ -12,10 +12,10 @@ afterAll(() => { if (ambientTerm === undefined) delete process.env.TERM; else pr
 test("commands that only show something run during a task; ones that change things wait", () => {
   for (const line of ["/help", "/help all", "/status", "/usage", "/context", "/permissions", "/diff", "/diff 12", "/diff list",
     "/tasks", "/tasks stop 2", "/tasks stop all", "/details", "/details quiet", "/receipt", "/receipt 3", "/receipt list",
-    "/output", "/output 2", "/output all", "/mcp", "/tree", "/project", "/sandbox", "/secrets", "/skills", "/lsp",
+    "/output", "/output 2", "/output all", "/mcp", "/tree", "/project", "/sandbox", "/allowed", "/secrets", "/skills", "/lsp",
     "/effort", "/effort low", "/effort high --session", "/pane", "/pane off",
     "/model", "/model --session", "/model fixture/other", "/model --session fixture/other", "/model @reason", "/model roles"]) expect([line, runsDuringWork(line)]).toEqual([line, true]);
-  for (const line of ["/undo", "/redo", "/clear", "/resume", "/model role fast x", "/model big x", "/model a b", "/mcp connect x", "/mcp writes on", "/sandbox forget h",
+  for (const line of ["/undo", "/redo", "/clear", "/resume", "/model role fast x", "/model big x", "/model a b", "/mcp connect x", "/mcp writes on", "/sandbox forget h", "/allowed forget 1", "/allowed forget all",
     "/secrets files off", "/skills trust a b", "/lsp connect x", "/project other", "/compact", "/verify", "/details loud"])
     expect([line, runsDuringWork(line)]).toEqual([line, false]);
 });

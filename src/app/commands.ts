@@ -60,6 +60,7 @@ import { formatProjectContext } from "../project/context";
 import { runSecurityReview, type SecurityAIReview, type SecurityReviewHost } from "./security-review";
 import { runCrewCommand } from "../crew/command";
 import { crewShell } from "../crew/shell";
+import { allowedCommand } from "./allowed";
 import { sandboxReport, sandboxStatusLine } from "./sandbox";
 import type { SessionYes } from "./session-yes";
 import { webStatusLine } from "../web/tools";
@@ -273,6 +274,12 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     }
     if (prompt === "/lab" || prompt.startsWith("/lab ")) {
       await handleLabCommand(host, prompt);
+      return;
+    }
+    if (prompt === "/allowed" || prompt.startsWith("/allowed ")) {
+      const store = host.sandbox?.store;
+      if (!store) throw new Error("The shell sandbox starts with the project.");
+      await allowedCommand(prompt, store, (text) => host.output.write(text));
       return;
     }
     if (prompt === "/sandbox" || prompt.startsWith("/sandbox ")) {
@@ -1272,6 +1279,7 @@ export function permissionsText(sandbox: ShellSandbox | undefined): string {
       ? "With the sandbox off, an edit or write outside the project doesn't ask." : "An edit or write outside the project asks first (temp and caches don't; --no-sandbox turns this off)."}`,
     "Web lookups (web_search, web_fetch) read public pages without asking. Private and local addresses, other ports, and a search or address holding a secret are refused; what comes back has its secrets hidden. /settings turns them off.",
     "The untrusted-text reader (casper_read_untrusted) reads a file, a read-only command or an MCP tool through a separate model call with no tools; the AI gets only JSON that matches its schema, never the text. It changes nothing; an MCP tool keeps its own approval. /settings turns it off.",
+    "The shell commands you said yes to, for this session or always for this project, are listed by /allowed, which also takes them back.",
     "MCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals. The AI can't approve anything for you.",
     "No SAFE/YOLO or read-only mode is implied. /verify and /services may execute project scripts (the declared checks and service commands). See docs/SECURITY.md.",
   ].join("\n");

@@ -36,6 +36,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "doctor", description: "Check Casper's own setup and fix what it can (no model, asks first)" },
   { name: "permissions", description: "Understand native-tool risks and exact approval boundaries" },
   { name: "sandbox", description: "What the shell sandbox holds here; forget a remembered host" },
+  { name: "allowed", description: "The shell commands you said yes to for this project; forget one" },
   { name: "lab", description: "Your lab devices; /lab import <file> marks more; /lab ssh off makes ssh to them ask" },
   { name: "tree", description: "Inspect named conversations and workspaces" },
   { name: "branch", description: "Create a named workspace conversation (requires approval)" },
@@ -53,12 +54,12 @@ export const COMMANDS: SlashCommand[] = [
 /** Commands that only show something (or set the model, effort or display level) and so run while a task works. */
 export const RUNS_DURING_WORK: ReadonlySet<string> = new Set([
   "help", "status", "usage", "context", "permissions", "effort", "diff", "tasks", "details", "receipt", "output",
-  "mcp", "tree", "project", "sandbox", "secrets", "skills", "lsp", "pane", "model",
+  "mcp", "tree", "project", "sandbox", "allowed", "secrets", "skills", "lsp", "pane", "model",
 ]);
 
 /** This exact line runs now during a task; every other line waits for the task to end. */
 export function runsDuringWork(line: string): boolean {
-  return /^\/(?:help(?: \S.*)?|status|usage|context|permissions|tree|project|sandbox|secrets|skills|lsp|mcp)$/.test(line)
+  return /^\/(?:help(?: \S.*)?|status|usage|context|permissions|tree|project|sandbox|allowed|secrets|skills|lsp|mcp)$/.test(line)
     || /^\/(?:diff|receipt)(?:\s+(?:\d+|list))?$/.test(line)
     || /^\/output(?:\s+(?:\d+|all))?$/.test(line)
     || /^\/details(?:\s+(?:quiet|normal|detailed))?(?:\s+--session)?$/.test(line)

@@ -13,6 +13,9 @@ import { matchesPrefix } from "./read-only";
  */
 interface StoreFile { version: 1; hosts: string[]; commands: string[]; prefixes?: string[]; reach?: string[]; labReach?: false }
 
+/** One thing you said yes to: a command and anything after it (prefix) or exactly that command. */
+export interface AllowedEntry { kind: "prefix" | "command"; value: string; session: boolean }
+
 const MAX_ENTRIES = 500;
 
 export class SandboxStore {
@@ -75,9 +78,46 @@ export class SandboxStore {
     }).then(() => found);
   }
   addCommand(command: string): Promise<void> { return this.update((data) => { if (!data.commands.includes(command)) data.commands.push(command); }); }
-  forgetCommands(): Promise<number> {
+  /** What you said "Yes, for this session" to: kept only in memory, gone when Casper exits. */
+  readonly sessionCommands = new Set<string>();
+  readonly sessionPrefixes = new Set<string>();
+  /** Everything allowed for this project, in the order /allowed numbers it: saved prefixes, saved commands, then the
+   * session ones that are not also saved. */
+  async allowed(): Promise<AllowedEntry[]> {
+    const data = await this.load();
+    const entries: AllowedEntry[] = [
+      ...(data.prefixes ?? []).map((value) => ({ kind: "prefix" as const, value, session: false })),
+      ...data.commands.map((value) => ({ kind: "command" as const, value, session: false })),
+    ];
+    for (const value of this.sessionPrefixes) if (!data.prefixes?.includes(value)) entries.push({ kind: "prefix", value, session: true });
+    for (const value of this.sessionCommands) if (!data.commands.includes(value)) entries.push({ kind: "command", value, session: true });
+    return entries;
+  }
+  /** Take back a command prefix, saved or for this session. False when it was not there. */
+  async removePrefix(prefix: string): Promise<boolean> {
+    let found = this.sessionPrefixes.delete(prefix);
+    await this.update((data) => {
+      if (data.prefixes?.includes(prefix)) { found = true; data.prefixes = data.prefixes.filter((entry) => entry !== prefix); if (!data.prefixes.length) delete data.prefixes; }
+    });
+    return found;
+  }
+  /** Take back an exact command, saved or for this session. False when it was not there. */
+  async removeCommand(command: string): Promise<boolean> {
+    let found = this.sessionCommands.delete(command);
+    await this.update((data) => {
+      if (data.commands.includes(command)) { found = true; data.commands = data.commands.filter((entry) => entry !== command); }
+    });
+    return found;
+  }
+  /** Take back every allowed command and prefix, saved and for this session; how many were there. */
+  async forgetAll(): Promise<number> {
     let count = 0;
-    return this.update((data) => { count = data.commands.length + (data.prefixes?.length ?? 0); data.commands = []; delete data.prefixes; }).then(() => count);
+    await this.update((data) => {
+      count = new Set([...data.commands, ...this.sessionCommands].map((v) => `c:${v}`).concat([...data.prefixes ?? [], ...this.sessionPrefixes].map((v) => `p:${v}`))).size;
+      data.commands = []; delete data.prefixes;
+    });
+    this.sessionCommands.clear(); this.sessionPrefixes.clear();
+    return count;
   }
 
   private update(change: (data: StoreFile) => void): Promise<void> {
