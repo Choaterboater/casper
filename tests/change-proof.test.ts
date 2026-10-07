@@ -203,5 +203,6 @@ test.skipIf(!python)("a Python project installed from its own folder is tested a
   });
   const changes = diffSnapshots(before, await snapshotTree(root));
   const proof = await baseline.prove({ root, changes, check: "test", command, timeoutMs: 20_000 });
-  expect(proof?.status).toBe("proven");
+  // The whole proof in the failure message: on a machine where this fails, the old-source run's output says why.
+  expect({ status: proof?.status, proof }).toMatchObject({ status: "proven" });
 });
