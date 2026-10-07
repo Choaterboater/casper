@@ -87,49 +87,48 @@ test("a project in a normal place stays, on every platform's rules", () => {
   expect(isNoiseFolder("D:\\Claude\\ComfyUI", win)).toBe(false);
 });
 
-/** Just enough of the app for the start-up question. */
+/** Just enough of the app for the start-up hint. Asking is never expected from home: a regression that asks fails. */
 function fakeApp(home: string, rich: boolean) {
   const out: string[] = [];
-  const asked: { question: string; labels: string[]; descriptions: string[] }[] = [];
   const app = {
     sessionHomeDir: home,
     output: { write: (text: string) => { out.push(text); } },
     terminal: {
       rich,
-      ask: async (question: string, choices: { label: string; description?: string }[]) => {
-        asked.push({ question, labels: choices.map(c => c.label), descriptions: choices.map(c => c.description ?? "") });
-        return [choices.find(c => c.label === "New project")!.label];
-      },
+      ask: async () => { throw new Error("the home folder must not ask which project"); },
     },
   } as unknown as CasperApp;
-  return { app, out, asked };
+  return { app, out };
 }
 
-test("the question never lists the junk folders", async () => {
-  const { home, real, second, noise } = await homeWithJunk();
+test("the home-folder hint never names a junk folder, rich or not, and asks nothing", async () => {
+  const { home, real, noise } = await homeWithJunk();
   try {
-    const { app, asked } = fakeApp(home, true);
-    await openProjectFolder(app, home, { platform: process.platform, noise });
-    // Windows shows the real path; elsewhere the home folder is ~.
-    const label = (dir: string) => process.platform === "win32" ? dir : `~/${path.relative(home, dir)}`.split("/").join(path.sep);
-    expect(asked[0]!.labels.slice(0, 2)).toEqual([label(real), label(second)]);
-    expect(asked[0]!.labels.some(name => /bench|scratch|cache|node_modules|faketmp/i.test(name))).toBe(false);
+    for (const rich of [true, false]) {
+      const { app, out } = fakeApp(home, rich);
+      expect(await openProjectFolder(app, home, { platform: process.platform, noise })).toBe(home);
+      const text = out.join("");
+      // The most recently used real project is named; Windows shows the real path, elsewhere ~/.
+      const shown = process.platform === "win32" ? real : `~/${path.relative(home, real)}`.split("/").join(path.sep);
+      expect(text).toContain(`[folder] Opened in your home folder. To work in ${path.basename(real)}: casper ${shown}\n`);
+      expect(text).not.toMatch(/bench|scratch|cache|node_modules|faketmp|somerun|smoke/i);
+      expect(text).toContain("[folder] To start a new project instead: casper new\n");
+    }
   } finally { await removeTempDir(home); }
 });
 
-test("on Windows the question and the new-project line show the real path, elsewhere ~/Projects", async () => {
-  const { home, noise } = await homeWithJunk();
+test("with no recent project the example shows the real path on Windows, ~/Projects elsewhere", async () => {
+  const home = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-noise-empty-")));
   try {
-    const win = fakeApp(home, true);
-    await openProjectFolder(win.app, home, { platform: "win32", noise });
-    expect(win.asked[0]!.descriptions).toContain(`start one in ${path.win32.join(home, "Projects")}`);
-    expect(win.asked[0]!.labels.filter(name => name.startsWith("~"))).toEqual([]);
-    expect(win.out.join("")).toContain(`[new] Starting a new project in ${path.join(home, "Projects")}.`);
-    expect(win.out.join("")).not.toContain("~/Projects");
+    for (const rich of [true, false]) {
+      const win = fakeApp(home, rich);
+      await openProjectFolder(win.app, home, { platform: "win32" });
+      expect(win.out.join("")).toContain(`To work in a project: casper ${path.win32.join(home, "Projects", "myapp")}\n`);
+      expect(win.out.join("")).not.toContain("~/Projects");
 
-    const mac = fakeApp(home, true);
-    await openProjectFolder(mac.app, home, { platform: "darwin", noise });
-    expect(mac.asked[0]!.descriptions).toContain("start one in ~/Projects");
-    expect(mac.out.join("")).toContain("[new] Starting a new project in ~/Projects.");
+      const mac = fakeApp(home, rich);
+      await openProjectFolder(mac.app, home, { platform: "darwin" });
+      expect(mac.out.join("")).toContain("To work in a project: casper ~/Projects/myapp\n");
+    }
   } finally { await removeTempDir(home); }
 });

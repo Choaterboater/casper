@@ -9,7 +9,7 @@ import { missingFolderChoices } from "./safe-choices";
 
 /**
  * The new-project questions inside an app session: `casper new` on a terminal, the quiet build in an empty folder,
- * "New project" from home, the question before the model starts on a build
+ * the question before the model starts on a build
  * request outside a project, and /new. All local: numbered choices, no model call, zero tokens. The
  * answer is always the user's own (Casper's questions never reach the AI's ask tool).
  */
@@ -193,9 +193,6 @@ export async function isEmptyFolder(dir: string): Promise<boolean> {
 /** Words in a request that mean "no template": the model builds it from nothing. */
 const FROM_SCRATCH = /\b(from scratch|no template|without (?:a )?template|empty project)\b/i;
 
-/** "please can you build ..." up to the verb: not part of a name made from the request. */
-const REQUEST_LEAD = /^\W*(?:(?:please|pls|ok|okay|hey|so|now)[,\s]+)*(?:(?:can|could|would|will) you\s+|i (?:want|need|would like|'d like) (?:you )?to\s+|let'?s\s+|help me\s+)?(?:build|create|make|write|start|scaffold|set up|setup)\b\s*/i;
-
 /** The way out, said in the same line that names the template. */
 const SKIP_HINT = 'To skip a template, say "from scratch" in the request, or turn it off in /settings (Starter templates).';
 
@@ -213,26 +210,6 @@ export async function buildInEmptyFolder(flow: NewProjectFlow, dir: string, prom
   const [parent, name] = validName(own) ? [path.dirname(dir), own] : [dir, defaultNameFor(suggestion.template)];
   flow.write(`[new] Using the ${suggestion.kind} template here (installs packages, first commit). ${SKIP_HINT}`);
   const result = await buildProject(flow, parent, suggestion.template, name);
-  return opened(result) ? { result } : { stopped: true };
-}
-
-/** The first request after "New project": no questions before it. A template match builds that template in
- * ~/Projects/<name from the request>; any other request builds an empty git project named from its words;
- * only when no usable name can be made does it ask once ("Name it? (Enter for my-project)"). Undefined when
- * the person stopped at that question. */
-export async function buildFromFirstRequest(flow: NewProjectFlow, prompt: string, templatesOn: boolean): Promise<FirstRequestBuild | undefined> {
-  const parent = await projectsFolder(flow.homeDir);
-  const suggestion = newProjectSuggestion(prompt, listTemplates());
-  const template = templatesOn && typeof suggestion === "object" && !FROM_SCRATCH.test(prompt) ? suggestion.template : EMPTY_TEMPLATE;
-  let name: string | undefined = typeof suggestion === "object" ? suggestion.name : projectSlug(prompt.replace(REQUEST_LEAD, ""));
-  const taken = name ? await nameProblem(parent, name, flow.homeDir) : undefined;
-  if (taken) flow.write(`[new] ${taken}`);
-  if (!name || taken) name = await askName(flow, parent, defaultNameFor(template));
-  if (!name) return undefined;
-  const where = tildePath(path.join(parent, name), flow.homeDir);
-  if (template === EMPTY_TEMPLATE) flow.write(`[new] Using an empty project at ${where} (git only, no template).`);
-  else flow.write(`[new] Using the ${getTemplate(template)?.manifest.kind ?? template} template at ${where} (installs packages, first commit). ${SKIP_HINT}`);
-  const result = await buildProject(flow, parent, template, name);
   return opened(result) ? { result } : { stopped: true };
 }
 
@@ -289,7 +266,7 @@ export function buildRequestNote(prompt: string): string | undefined {
 }
 
 /**
- * A folder name typed at "Work in which one?" that isn't there: "sample-tools isn't a folder in Documents.
+ * A folder name typed to /project that isn't there: "sample-tools isn't a folder in Documents.
  * 1 Stay in Documents · 2 Make sample-tools here". Enter stays. Choice 2 runs the /new questions with that name in
  * `parent`. Undefined when nothing was made.
  */

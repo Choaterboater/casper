@@ -283,7 +283,6 @@ sum now turns its inputs into numbers first.
             it;</li>
             <li>a model error that repeated, to retry or stop;</li>
             <li>the request checklist before a code change (edit it, or <kbd>Esc</kbd> to skip);</li>
-            <li>which project to open, when you start in your home folder or at the top of a drive;</li>
             <li><code>Next: 1 Show diff · 2 Undo</code> after each task (Enter runs nothing);</li>
             <li>before the AI's shell reaches another machine, or writes outside the project;</li>
             <li>a shell command to a host the sandbox does not know;</li>
@@ -466,12 +465,11 @@ lint could not start. Casper did not try to fix it. What now?
           <dt>No diagram files on Windows</dt>
           <dd>On Windows, diagrams show in the chat instead. Diagram files need macOS or Linux.</dd>
 
-          <dt>Casper asks which project to open</dt>
-          <dd>You started it in your home folder or at the top of a drive, which are too broad to work
-          in. The project you last worked in is first, so <kbd>Enter</kbd> usually opens it. Press
-          a number, or <kbd>Esc</kbd> to stay. In any other folder Casper just opens there; if the
-          folder holds several projects it prints one line naming them, such as
-          <code>casper aibot</code> to work in one.</dd>
+          <dt>Casper opened in my home folder</dt>
+          <dd>Casper opens exactly where you started it and asks nothing. From your home folder or the
+          top of a drive it prints one line naming the project you last worked in, such as
+          <code>casper ~/Projects/aibot</code> to work there, and <code>casper new</code> to start a new
+          one. In any other folder, if it holds several projects, one line names them.</dd>
 
           <dt>Casper built a template in my empty folder</dt>
           <dd>Your first request fitted a template (a NOC dashboard, an MCP server), so Casper built it

@@ -128,66 +128,20 @@ function interactiveHarness(home: string, project: string) {
   return { app, input, until, output: () => output };
 }
 
-test("launching from the home folder asks which project to open and opens the choice", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "casper-folder-ask-"));
+test("launching from the home folder opens right there with no question, and one line says how to open a project", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-folder-home-"));
   const home = path.join(root, "home");
   const project = path.join(home, "Documents", "MyApp");
-  await mkdir(path.join(home, "Documents"), { recursive: true });
   await mkdir(project, { recursive: true });
   await writeFile(path.join(project, "package.json"), "{}");
-  const harness = interactiveHarness(home, project);
-  const interactive = harness.app.runInteractive(home);
-  try {
-    await harness.until(text => Bun.stripANSI(text).includes("Work in which project?"));
-    // The detected project is first, so Enter opens it.
-    harness.input.write("\r");
-    await harness.until(text => /\bproject\s+MyApp\b/.test(Bun.stripANSI(text)));
-    await harness.until(text => Bun.stripANSI(text).includes("idle"));
-  } finally {
-    harness.input.write("/exit\r");
-    await interactive;
-    await harness.app.close();
-    harness.input.destroy();
-    await removeTempDir(root);
-  }
-});
-
-test("escaping the folder question keeps the home folder as the workspace", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "casper-folder-skip-"));
-  const home = path.join(root, "home");
-  await mkdir(home, { recursive: true });
   const harness = interactiveHarness(home, home);
   const interactive = harness.app.runInteractive(home);
   try {
-    await harness.until(text => Bun.stripANSI(text).includes("Work in which project?"));
-    harness.input.write("\x1b");
     await harness.until(text => new RegExp(`\\bproject\\s+${path.basename(home)}\\b`).test(Bun.stripANSI(text)));
     await harness.until(text => Bun.stripANSI(text).includes("idle"));
-  } finally {
-    harness.input.write("/exit\r");
-    await interactive;
-    await harness.app.close();
-    harness.input.destroy();
-    await removeTempDir(root);
-  }
-});
-
-test("folder selection rejects sibling paths that only share the home prefix", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "casper-folder-outside-"));
-  const home = path.join(root, "home");
-  const sibling = path.join(root, "home-other");
-  await mkdir(home, { recursive: true });
-  await mkdir(sibling, { recursive: true });
-  await writeFile(path.join(sibling, "package.json"), "{}");
-  const harness = interactiveHarness(home, home);
-  const interactive = harness.app.runInteractive(home);
-  try {
-    await harness.until(text => Bun.stripANSI(text).includes("Work in which project?"));
-    harness.input.write("../home-other\r");
-    await harness.until(text => Bun.stripANSI(text).includes("../home-other is outside your home directory"));
-    await harness.until(text => new RegExp(`\\bproject\\s+${path.basename(home)}\\b`).test(Bun.stripANSI(text)));
-    // Enter while Casper is still starting keeps /exit as a draft; wait until it reads commands.
-    await harness.until(text => Bun.stripANSI(text).includes("idle"));
+    const shown = Bun.stripANSI(harness.output());
+    expect(shown).not.toContain("Work in which project?");
+    expect(shown).toContain("[folder] Opened in your home folder.");
   } finally {
     harness.input.write("/exit\r");
     await interactive;
@@ -288,7 +242,7 @@ test("the folder-of-projects line caps the names at four and stays silent with f
   await removeTempDir(root);
 });
 
-test("only the home folder and a drive root count as too broad to open without asking", async () => {
+test("only the home folder and a drive root count as too broad to start in without a word about it", async () => {
   const { isDriveRoot } = await import("../src/app/workspace");
   expect(isDriveRoot(path.parse(process.cwd()).root)).toBe(true);
   expect(isDriveRoot(path.join(path.parse(process.cwd()).root, "work"))).toBe(false);

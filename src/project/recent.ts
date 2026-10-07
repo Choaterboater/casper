@@ -1,4 +1,4 @@
-/** The order of the "Work in which project?" question: the folders the person last had conversations in, then
+/** The order of the projects the home-folder hint and /project list: the folders the person last had conversations in, then
  * the scan's projects by when they last changed. Reads only what Casper already keeps (the saved conversations
  * behind /resume), never a new record. */
 
