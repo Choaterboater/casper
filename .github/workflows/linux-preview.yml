@@ -9,10 +9,10 @@ on:
     paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/linux-preview.yml']
 permissions:
   contents: read
-# A newer push to the same branch or PR stops the older run.
+# A newer push to a pull request stops the older run. Runs on main always finish.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   source:
     # Draft PRs wait until "Ready for review"; pushes to main and manual runs always run.

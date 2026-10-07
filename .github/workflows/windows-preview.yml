@@ -10,10 +10,10 @@ on:
     paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'docs/WINDOWS.md', 'docs/PLATFORM_VERIFICATION.md', 'package.json', 'bun.lock', 'tsconfig.json', 'bunfig.toml', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/windows-preview.yml']
 permissions:
   contents: read
-# A newer push to the same branch or PR stops the older run.
+# A newer push to a pull request stops the older run. Runs on main always finish.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   # The build, the real-console screen and both installers. The full suite runs beside it in three parts.
   standalone:
