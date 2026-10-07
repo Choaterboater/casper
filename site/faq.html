@@ -280,7 +280,7 @@ sum now turns its inputs into numbers first.
             it;</li>
             <li>a model error that repeated, to retry or stop;</li>
             <li>the request checklist before a code change (edit it, or <kbd>Esc</kbd> to skip);</li>
-            <li>which project to open, when you start in your home folder;</li>
+            <li>which project to open, when you start in your home folder or at the top of a drive;</li>
             <li><code>Next: 1 Show diff · 2 Undo</code> after each task (Enter runs nothing);</li>
             <li>before the AI's shell reaches another machine, or writes outside the project;</li>
             <li>a shell command to a host the sandbox does not know;</li>
@@ -464,9 +464,11 @@ lint could not start. Casper did not try to fix it. What now?
           <dd>On Windows, diagrams show in the chat instead. Diagram files need macOS or Linux.</dd>
 
           <dt>Casper asks which project to open</dt>
-          <dd>You started it in your home folder or a folder of projects. The project you last
-          worked in is first, so <kbd>Enter</kbd> usually opens it. Press a number, or
-          <kbd>Esc</kbd> to stay.</dd>
+          <dd>You started it in your home folder or at the top of a drive, which are too broad to work
+          in. The project you last worked in is first, so <kbd>Enter</kbd> usually opens it. Press
+          a number, or <kbd>Esc</kbd> to stay. In any other folder Casper just opens there; if the
+          folder holds several projects it prints one line naming them, such as
+          <code>casper aibot</code> to work in one.</dd>
 
           <dt>No colours or live footer</dt>
           <dd>Casper switches to plain text with <code>NO_COLOR</code>, <code>TERM=dumb</code> or

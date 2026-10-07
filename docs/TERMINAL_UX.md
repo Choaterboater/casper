@@ -114,11 +114,14 @@ sign-in, the banner and footer say `not signed in · type a request to sign in`,
 opens sign-in instead of an empty picker. Where sign-in can't open (a plain or piped terminal,
 a one-shot run) they say `not signed in · run casper in a terminal and type /login` instead.
 
-If you start Casper in your home folder or a folder that only holds projects (such as
-`~/Projects`), it asks which project to open: press its number, or Esc to stay where you are.
-The projects you last had conversations in come first (the ones `/resume` keeps), so Enter
-usually opens the right one; the rest follow by when they last changed. Without a rich
-terminal Casper names the project you last worked in as a `casper <folder>` command instead.
+Casper opens the folder you started it in. A project, or a folder inside a git repository, opens
+with no question. Only your home folder or a drive root (`C:\`, `/`), which are too broad to work
+in, ask which project to open: press its number, or Esc to stay where you are. The projects you
+last had conversations in come first (the ones `/resume` keeps), so Enter usually opens the right
+one; the rest follow by when they last changed. Without a rich terminal Casper names the project
+you last worked in as a `casper <folder>` command instead. Any other folder opens exactly there,
+even one that only holds projects (such as `~/Projects`); when it holds two or more, one line
+names them (up to four) and the command to open one, such as `casper aibot`.
 
 On a rich terminal at least 58 columns wide the transcript opens with the
 wordmark — the Casper ghost (bold white) beside a block-letter `CASPER` (accent)
