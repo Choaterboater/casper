@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to create; must match package.json (for example v0.2.24)
+        description: Release tag to create; must match package.json (for example v0.2.25)
         required: true
 # Nothing by default. The build job reads code and runs bun; only the publish job may write,
 # and it runs no project code: it takes the checked build and creates the release.

@@ -57,6 +57,7 @@
         <ul>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0225">v0.2.25: a stricter plain-read check, reviewers for builders, a calmer start</a></li>
               <li><a href="#v0224">v0.2.24: builders the AI starts, plain words, an off switch for every default</a></li>
               <li><a href="#v0223">v0.2.23: casper doctor, a sandboxed network server, a reader for untrusted text</a></li>
               <li><a href="#v0222">v0.2.22: one box for every yes, a network server Casper sets up</a></li>
@@ -99,8 +100,31 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <article class="card" id="v0225" aria-labelledby="v0225-h">
+          <h3 id="v0225-h">v0.2.25 · A stricter plain-read check, reviewers for builders, a calmer start <span class="badge ok">current preview</span></h3>
+          <p>The check that lets harmless shell reads run without a question is stricter, checks that could
+          pass without earning it are closed, builders get a reviewer and a fix round, and Casper opens the
+          folder you launched in.</p>
+          <ul>
+            <li><strong>Safer plain reads.</strong> A comment could hide a second command, a link followed by
+            <code>..</code> read outside the project, and a git repository's submodule config could run a
+            program, among others. They now ask. This affects v0.2.24 and earlier. A project's own
+            <code>.git/config</code> running git settings is unchanged: it is the trust you give a
+            repository you open.</li>
+            <li><strong>Checks that can't pass for free.</strong> Acceptance won't pass when its test never ran,
+            a smoke check won't pass a cut-off body, and the proof that tests fail without the change works
+            on Python projects installed from their own folder.</li>
+            <li><strong>Reviewers for builders.</strong> A read-only reviewer per landed part, then one fix
+            round; the footer shows <code>1 reviewer · 2 builders</code> and the receipt says which parts
+            were not reviewed.</li>
+            <li><strong>A calmer start.</strong> Casper opens where you launched and asks only from home or a
+            drive root; no startup menus for kind or name, the first request can pick a template.</li>
+            <li><strong><code>/allowed</code></strong> lists and forgets the commands you said yes to.</li>
+          </ul>
+        </article>
+
         <article class="card" id="v0224" aria-labelledby="v0224-h">
-          <h3 id="v0224-h">v0.2.24 · Builders the AI starts, plain words, an off switch for every default <span class="badge ok">current preview</span></h3>
+          <h3 id="v0224-h">v0.2.24 · Builders the AI starts, plain words, an off switch for every default</h3>
           <p>The AI splits a big job across builders itself, you steer a task with plain words, every
           default can be turned off in <code>/settings</code>, and every request carries about 790 fewer
           fixed tokens.</p>
@@ -486,14 +510,14 @@
         <h2 id="coming-h">Planned, not started</h2>
         <aside class="callout soon">
           <strong class="callout-title">Not in any release yet</strong>
-          <p>Nothing else in this section is in v0.2.24: the first part of Crews shipped in v0.2.23, AI-started
-          builders in v0.2.24, and the rest has not been started. Names, commands and details may change, or move to a later version, before
+          <p>Nothing else in this section is in v0.2.25: the first part of Crews shipped in v0.2.23, AI-started
+          builders in v0.2.24, reviewers and a fix round in v0.2.25, and the rest has not been started. Names, commands and details may change, or move to a later version, before
           they ship.</p>
         </aside>
 
         <div class="stack">
         <article class="card" id="v030" aria-labelledby="v030-h">
-          <h3 id="v030-h">v0.3 · Crews <span class="badge soon">first parts shipped in v0.2.23 and v0.2.24</span></h3>
+          <h3 id="v030-h">v0.3 · Crews <span class="badge soon">first parts shipped in v0.2.23, v0.2.24 and v0.2.25</span></h3>
           <p>Big jobs get a team. The AI splits a big job itself, as Claude Code and omp do; <code>/crew</code>
           is the manual way.</p>
           <ul>
@@ -508,7 +532,7 @@
             the task back. A change that touches a file changed after its copy started stays in its copy for
             <code>/crew</code>. "run a crew" or "split this up" asks for them, "by yourself" keeps them out; /settings
             turns them off. The footer shows them (<code>2 builders · $0.12</code>).</li>
-            <li><strong>Review, fix.</strong> The AI can have a reviewer check each landed part and one
+            <li><strong>Review, fix</strong> <span class="badge">in v0.2.25</span>. The AI can have a reviewer check each landed part and one
             builder fix what it finds. The footer shows <code>1 reviewer · 2 builders · $0.19</code>, and
             the receipt says in one line which landed parts were not reviewed. Next: the full tests.</li>
             <li><strong>Your limits apply to the crew.</strong> A limit said in the request ("keep it
@@ -661,7 +685,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.24</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.25</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

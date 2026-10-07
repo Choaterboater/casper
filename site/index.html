@@ -39,10 +39,10 @@
         <img class="hero-logo" src="assets/logo.svg" alt="Casper's ghost logo" width="88" height="88">
         <h1 id="hero-title">Casper</h1>
         <p class="lead">A coding helper for your terminal. Build web apps, APIs, command-line tools and scripts in the language your project uses, and Casper checks the AI's work before it tells you "done". Network engineers get extra care built in.</p>
-        <p class="muted small">Version 0.2.24 · early preview, not signed · MIT licence</p>
+        <p class="muted small">Version 0.2.25 · early preview, not signed · MIT licence</p>
 
-        <div class="cmd"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.24/install.sh | sh</code></pre></div>
-        <div class="cmd"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.24/install.ps1 | iex</code></pre></div>
+        <div class="cmd"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.25/install.sh | sh</code></pre></div>
+        <div class="cmd"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.25/install.ps1 | iex</code></pre></div>
         <p class="small muted">No Bun or source checkout needed. The installer checks the file's SHA-256 and runs the new program's <code>--version</code> before it replaces an older install. Then run <code>casper</code> in your project folder.</p>
 
         <div class="actions">
@@ -175,8 +175,8 @@ Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
       </section>
 
       <section aria-labelledby="next">
-        <h2 id="next">New in 0.2.24</h2>
-        <p>For a job with separate parts, the AI now starts up to 3 builders itself, each in its own copy of your project, and their work comes back uncommitted so one <code>/undo</code> takes it all back. You can steer a task with plain words (<code>think hard:</code>, <code>quick:</code>, <code>big model:</code>), ask Casper which model you're on or what you've spent, and ask a side question with a line starting with <code>?</code>. <code>/settings</code> now shows every setting at a glance and has an off switch for every default, including the browser and diagram tools. Each request carries about 790 fewer fixed tokens. The home-folder question lists the projects you last worked in first, and <code>/mcp setup ssh</code> adds an MCP server that runs on another machine, writes off. The AI's browser asks before a cloud metadata address. <a href="roadmap.html">See the roadmap</a>.</p>
+        <h2 id="next">New in 0.2.25</h2>
+        <p>The check that lets harmless shell reads run without a question is stricter: it fixes lines that were accepted as plain reads but did more (a comment hiding a command, a link followed by <code>..</code>, a git repository's own submodule config), so this one is worth updating for. Several ways the checks could report a pass they hadn't earned are closed. The AI's builders can now get a read-only reviewer for each landed part and one fix round, with the footer showing <code>1 reviewer · 2 builders</code>. Casper opens the folder you launched in and asks only from your home folder or a drive root; the startup kind and name menus are gone, and your first request can pick a template. <code>/allowed</code> lists and forgets the commands you said yes to. <a href="roadmap.html">See the roadmap</a>.</p>
       </section>
     </div>
   </main>
@@ -184,7 +184,7 @@ Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.24</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.25</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
