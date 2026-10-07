@@ -1,8 +1,9 @@
-import { constants } from "node:fs";
+import { constants, realpath as realpathCallback } from "node:fs";
 import { copyFile, lstat, mkdir, mkdtemp, readdir, readFile, readlink, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parentsStayInside } from "../platform/files";
+import { isOutside } from "../platform/inside";
 import type { ProjectCommand } from "../project/model";
 import type { TreeChanges } from "../task/changes";
 import { runCommandCheck } from "./command";
@@ -90,8 +91,13 @@ async function editableRoots(root: string, tree: string, links: readonly string[
         const text = await readFile(path.join(folder, name), "utf8").catch(() => "");
         for (const line of text.split(/\r?\n/).map((entry) => entry.trim())) {
           if (!line || line.startsWith("#") || line.startsWith("import") || !path.isAbsolute(line)) continue;
-          const inside = path.relative(root, line);
-          if (inside.startsWith("..") || path.isAbsolute(inside)) continue;
+          let inside = path.relative(root, line);
+          if (isOutside(inside)) {
+            // The same folder can be spelled two ways (a Windows 8.3 short name such as RUNNER~1, or another case):
+            // compare where both really are before deciding it is somewhere else.
+            inside = path.relative(await realPathOf(root), await realPathOf(line));
+            if (isOutside(inside)) continue;
+          }
           const mapped = path.join(tree, inside);
           if (!found.includes(mapped)) found.push(mapped);
         }
@@ -100,6 +106,8 @@ async function editableRoots(root: string, tree: string, links: readonly string[
   }
   return found;
 }
+/** Where a path really is (long names, real case); the path itself when it can't be resolved. */
+const realPathOf = (target: string) => new Promise<string>((resolve) => realpathCallback.native(target, (error, real) => resolve(error ? target : real)));
 /** The environment for a run in a copy: no uv sync, and Python imports the copy's own code first. */
 async function copyEnv(root: string, tree: string, links: readonly string[]): Promise<NodeJS.ProcessEnv> {
   const roots = await editableRoots(root, tree, links);
