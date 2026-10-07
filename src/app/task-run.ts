@@ -18,6 +18,7 @@ import { formatSelectedSkills } from "../skills/registry";
 import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "../task/classify";
 import { answerClaimsBrowserPass, formatShortReceipt, undoPathsShown, formatTaskResult, type TaskResult } from "../task/result";
 import { TaskObservations } from "../task/observations";
+import { isToolCallAsText, TOOL_CALL_AS_TEXT_LINE } from "../task/text-tool-call";
 import { diffSnapshots, type TreeChanges } from "../task/changes";
 import type { CheckName, VerificationReport } from "../verify/evidence";
 import { VerifierRegistry } from "../verify/registry";
@@ -84,6 +85,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   const previous = app.observations.spent();
   app.spentBefore = { tokens: app.spentBefore.tokens + previous.tokens, cost: app.spentBefore.cost + previous.cost };
   app.observations = new TaskObservations();
+  app.lastAnswer = "";
   // A limit said in the request ("keep it under $2") is this task's pause, whatever the config says.
   const said = requestSpendLimit(prompt);
   const limits = app.projectContext?.spend ?? DEFAULT_SPEND_LIMITS;
@@ -397,7 +399,9 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       edited: observations.observedEdits.map((file) => { const relative = path.relative(workspaceRoot, path.resolve(workspaceRoot, file));
         return relative && !isOutside(relative) ? relative.split(path.sep).join("/") : file; }) } : undefined;
     const modelError = execution === "failed" ? explainModelError(app.events.lastError ?? thrownError ?? "")?.cause : undefined;
-    app.lastTaskResult = { execution, ...(modelError ? { modelError } : {}), verification, ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && answerClaimsBrowserPass(app.lastAnswer) ? { browserClaimed: true } : {}) } : {}),
+    // The whole answer is a tool call written as text and no tool ran: shown, never run, never retried.
+    const wroteToolCall = execution === "completed" && !app.observations.madeToolCalls && isToolCallAsText(app.lastAnswer);
+    app.lastTaskResult = { execution, ...(modelError ? { modelError } : {}), ...(wroteToolCall ? { wroteToolCallAsText: true as const } : {}), verification, ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && answerClaimsBrowserPass(app.lastAnswer) ? { browserClaimed: true } : {}) } : {}),
       ...(services.length ? { services } : {}), ...(riskyLines.length ? { riskyLines: [...riskyLines], ...(riskyLines.more ? { riskyMore: riskyLines.more } : {}) } : {}),
       // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
       verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
@@ -414,10 +418,11 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     if (!app.closing) {
       app.terminal.endAssistant();
       app.events.ensureLineBreak();
+      if (wroteToolCall) app.output.write(`${TOOL_CALL_AS_TEXT_LINE}\n`);
       // A question that changed nothing and ran no tests gets no receipt, like a general one.
       const answeredOnly = changedPaths?.length === 0 && !app.lastTaskResult.testRunner;
       // A stop at --max-turns or at the spend limit is always said on a receipt.
-      if ((classification.intent !== "general" && !answeredOnly) || execution !== "completed" || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
+      if ((classification.intent !== "general" && !answeredOnly) || execution !== "completed" || wroteToolCall || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
         || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand) {
         // The second copy and the saved receipt; the change summary lists only this task's files.
         const { stat } = await app.taskUndo.finish(undoStart, { request: prompt, task: app.lastTaskResult, session, servers: [...app.taskChangeServers] });

@@ -54,6 +54,7 @@ export class TaskObservations {
   /** The last known test-runner command the model ran without error while the project had no test command. */
   private testRunner?: string;
   private turns = 0;
+  private toolStarts = 0;
   private tokens: number | null = 0;
   private estimatedCost: number | null = 0;
   /** What the reported calls add up to so far, kept even when a call went unreported (footer and spend limits). */
@@ -73,6 +74,7 @@ export class TaskObservations {
    * subagent's model calls are added by `recordDelegatedUsage`; until every delegate call has
    * reported, the totals are unknown rather than an undercount. Turns stay the parent's own. */
   observeUsage(event: RuntimeEvent): void {
+    if (event.type === "tool_start") this.toolStarts++;
     if (event.type === "tool_start" && event.toolName === "delegate") this.delegations++;
     if (event.type !== "assistant_response_end") return;
     this.turns++;
@@ -182,6 +184,9 @@ export class TaskObservations {
 
   /** Every tool call of the task, oldest first (the first TOOL_CALL_LIMIT). */
   get toolCalls(): ToolCallLine[] { return this.calls.map(call => ({ ...call, ...(call.input ? { input: { ...call.input } } : {}) })); }
+
+  /** Whether the model started any tool call this task. */
+  get madeToolCalls(): boolean { return this.toolStarts > 0 || this.calls.length > 0; }
 
   /** An approved MCP change ran: like a shell command, it may have changed files Casper did not see. */
   recordChangeCall(): void { this.mutationToolRan = true; }

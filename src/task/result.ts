@@ -38,6 +38,8 @@ export interface TaskUsage {
 /** Execution completion is not behavioral acceptance or proof of correctness. */
 export interface TaskResult {
   execution: "completed" | "failed" | "cancelled";
+  /** The model's whole answer was a tool call written as text, and the task made no tool calls: nothing was done. */
+  wroteToolCallAsText?: true;
   /** Why the model run failed, when the provider's error names a cause (bad key, no credits, rate limit …). */
   modelError?: ModelErrorCause;
   verification?: VerificationReport;
@@ -179,6 +181,8 @@ export function taskOutcome(report?: VerificationReport, task?: TaskResult): Tas
   if (status === "incomplete" || task?.browser?.status === "incomplete") return "incomplete";
   // Commands to another machine that Casper stopped: whatever the AI said about that machine did not happen.
   if (task?.remoteNotRun?.length) return "incomplete";
+  // The model only wrote a tool call as text: it did not act, which is not "unchanged and fine".
+  if (task?.wroteToolCallAsText && status !== "pass") return "incomplete";
   const changed = Boolean(task?.changedPaths?.length || task?.changedDuringChecks?.length || (!task?.changedPaths && task?.possibleMutations));
   // "verified" is what the verdict line calls Verified (ADR 0001): the checks pass on changed files and a test fails
   // without the change. Checks that passed without that proof are not_verified; checksPassed still says they passed.
@@ -568,6 +572,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
         : task.turnLimit !== undefined
         ? `• Incomplete — stopped after ${task.turnLimit} ${task.turnLimit === 1 ? "turn" : "turns"} (--max-turns); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
         : task.remoteNotRun?.length ? `• Incomplete — ${remoteNotRunVerdict(task.remoteNotRun, safe)}`
+        : task.wroteToolCallAsText ? "• Did not act — the model wrote a tool call as text instead of using it"
         : report?.reason === NO_CHECKS_FOUND && !report.results.length ? NO_CHECKS_LINE
         : "• Incomplete — not every check ran", ...body];
       break;
