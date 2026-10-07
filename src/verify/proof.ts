@@ -83,7 +83,8 @@ const COPY_ENV = { UV_NO_SYNC: "1" };
 async function editableRoots(root: string, tree: string, links: readonly string[]): Promise<string[]> {
   const found: string[] = [];
   for (const link of links.filter((relative) => /(^|\/)\.?venv$/.test(relative))) {
-    const packages: string[] = [path.join(root, link, "Lib", "site-packages")];
+    // On Windows Python also reads .pth files from the environment's own top folder (site.getsitepackages() lists it first).
+    const packages: string[] = [path.join(root, link), path.join(root, link, "Lib", "site-packages")];
     const lib = path.join(root, link, "lib");
     for (const entry of await readdir(lib).catch(() => [])) packages.push(path.join(lib, entry, "site-packages"));
     for (const folder of packages) {

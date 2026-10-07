@@ -189,8 +189,9 @@ test.skipIf(!python)("a Python project installed from its own folder is tested a
   });
   const made = Bun.spawnSync([python!, "-m", "venv", "--without-pip", path.join(root, ".venv")]);
   expect(made.exitCode).toBe(0);
+  // Where an installer puts packages (and so an editable install's .pth), on every OS.
   const site = Bun.spawnSync([path.join(root, ".venv", process.platform === "win32" ? "Scripts" : "bin", "python"), "-c",
-    "import site; print(site.getsitepackages()[0])"]).stdout.toString().trim();
+    "import sysconfig; print(sysconfig.get_paths()['purelib'])"]).stdout.toString().trim();
   await writeFile(path.join(site, "pkg.pth"), `${path.join(root, "src")}\n`);
   const interpreter = path.join(".venv", process.platform === "win32" ? "Scripts" : "bin", "python");
   const command = `${JSON.stringify(interpreter)} tests/check.py`;
