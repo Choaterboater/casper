@@ -138,8 +138,11 @@ export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; c
   for (const file of work.files) host.observeEdit(path.join(manager.primaryWorkspace, file));
   await inTurn(manager.commonDir, () => manager.remove(copy, work)).catch(() => {});
   host.say(`A builder's change was applied to your folder, uncommitted: ${work.files.slice(0, 6).join(", ")}${work.files.length > 6 ? ` and ${work.files.length - 6} more` : ""}.`);
-  return outcome({ applied: work.files, stat: work.stat });
+  return outcome({ applied: work.files, stat: work.stat, next: REVIEW_NEXT });
 }
+
+/** Said in the result of a part that landed: the lead decides whether a reviewer is worth it. */
+const REVIEW_NEXT = "Have a reviewer look at these files before you finish; fix what it finds with a builder or yourself. Skip it for a few-line part.";
 
 /** Whether a line the patch adds has the hidden-secret marker. */
 function writesMarker(patch: Buffer): boolean {

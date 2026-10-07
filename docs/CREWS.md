@@ -9,7 +9,7 @@ Say "run a crew" or "split this up" to ask for builders, "by yourself" to keep
 the AI from using them.
 
 Status: v0.3 Crews, built, not released. The AI starts builders itself; `/crew`
-shipped in v0.2.23. A reviewer per part comes next.
+shipped in v0.2.23. A fix round for what a reviewer finds comes next.
 
 ## The AI splits big jobs itself
 
@@ -29,7 +29,8 @@ with its `delegate` tool. Nothing asks you first.
    servers, the receipt and `/undo` treat it the same way, so one `/undo` takes
    the whole task back, builders' work included.
 4. The main AI gets back what changed (files and a short report), what was not
-   run and why, and what it cost. It does the rest itself.
+   run and why, and what it cost, with a reminder to have a read-only reviewer
+   look at a landed part (skipped for a few-line part). It does the rest itself.
 
 Up to 3 builders work at once, and 6 per request. The footer shows them while
 they work: `│ 2 builders · $0.12`. What each one spent joins the task's total

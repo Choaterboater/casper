@@ -331,11 +331,11 @@ export class SubagentManager {
     let built = 0;
     const offered = Boolean(builders && !builders.off);
     const buildText = !builders ? "" : offered
-      ? ` Role builder (a job with separate parts, not small tasks): edits and runs commands in its own copy; its change lands here when it ends, unless a file it touched changed here meanwhile. Up to ${BUILDER_LIMITS.maxConcurrent} at once.`
+      ? ` Role builder (a job with separate parts, not small tasks): edits and runs commands in its own copy; lands here when it ends unless a file it touched changed here meanwhile; then have a reviewer check it, unless it is a few lines. Up to ${BUILDER_LIMITS.maxConcurrent} at once.`
       : ` No builders here: ${builders.off}.`;
     return {
       name: "delegate",
-      description: `Delegate only when an independent read-only explorer (locate files and evidence) or reviewer (find defects in specified code/plan) adds value, with one narrow goal per call; a broad audit exhausts the child's budget and yields only a partial report. Provide a self-contained goal and optional context; children do not inherit conversation history. Only read/grep/find/ls, no shell, edits, MCP/LSP, or recursion. At most ${SUBAGENT_LIMITS.maxDelegationsPerTask} per task, ${SUBAGENT_LIMITS.maxConcurrent} at once; each child has a small time and tool-call budget. Results are advisory, capped at 16 KiB, with incomplete/error status disclosed.${buildText}`,
+      description: `Delegate only when an independent read-only explorer (locate files and evidence) or reviewer (find defects in specified code/plan) adds value, with one narrow goal per call; a broad audit runs out of budget and gives a partial report. Give a self-contained goal and optional context; children do not inherit conversation history. Only read/grep/find/ls, no shell, edits, MCP/LSP, or recursion. At most ${SUBAGENT_LIMITS.maxDelegationsPerTask} per task, ${SUBAGENT_LIMITS.maxConcurrent} at once; each child has a small time and tool-call budget. Results are advisory, capped at 16 KiB, with incomplete/error status disclosed.${buildText}`,
       inputSchema: {
         type: "object", additionalProperties: false, required: ["role", "goal"],
         properties: {

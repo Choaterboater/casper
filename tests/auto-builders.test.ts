@@ -393,3 +393,29 @@ test("under the pause a builder's tool calls are not held", async () => {
   expect(SpendingBuilder.waits).toEqual([undefined]);
   expect(data(result!.text).applied).toEqual(["b.txt"]);
 }, 30_000);
+
+test("a landed builder's result nudges the lead to have the part reviewed; kept, failed and no-change results do not", async () => {
+  const { home, repo } = await repository();
+  const run = (write: boolean, status: "completed" | "failed" = "completed") => runAutoBuilder(quietHost(repo, home, async (options) => {
+    if (write) await writeFile(path.join(options.cwd, "b.txt"), "from the builder\n");
+    return { ...done(options), status };
+  }), { goal: "edit b.txt" });
+  const landed = await run(true);
+  expect(landed.report.applied).toEqual(["b.txt"]);
+  expect(landed.report.next).toBe("Have a reviewer look at these files before you finish; fix what it finds with a builder or yourself. Skip it for a few-line part.");
+  await git(repo, "checkout", "--", "b.txt");
+  expect((await run(false)).report.next).toBeUndefined();
+  expect((await run(true, "failed")).report.next).toBeUndefined();
+}, 30_000);
+
+test("delegate says a reviewer can check a landed part when builders are offered, and says nothing when they are off", async () => {
+  const { home, repo } = await repository();
+  let offered = "";
+  await (await app(repo, home, new Main(async (delegate) => { offered = delegate.description; }))).casper.runOnce("Change b.txt", repo);
+  expect(offered).toContain("have a reviewer check it");
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await writeFile(path.join(home, ".casper", "config.yaml"), "delegate:\n  build: false\n");
+  let off = "";
+  await (await app(repo, home, new Main(async (delegate) => { off = delegate.description; }))).casper.runOnce("Change b.txt", repo);
+  expect(off).not.toContain("have a reviewer check it");
+}, 30_000);
