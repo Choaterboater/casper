@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { diffSnapshots, snapshotTree } from "../src/task/changes";
@@ -206,4 +206,32 @@ test.skipIf(!python)("a Python project installed from its own folder is tested a
   const proof = await baseline.prove({ root, changes, check: "test", command, timeoutMs: 20_000 });
   // The whole proof in the failure message: on a machine where this fails, the old-source run's output says why.
   expect({ status: proof?.status, proof }).toMatchObject({ status: "proven" });
+});
+
+/** A workspace `repo` beside a shared `deps` folder, where `node_modules` is made by `link`, then proven with a change to src/value.js. */
+async function proveWithLink(link: (root: string, deps: string) => Promise<void>) {
+  const outer = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-proof-")));
+  cleanup.push(() => removeTempDir(outer));
+  const root = path.join(outer, "repo");
+  await write(outer, { "deps/marker": "dependency\n" });
+  await write(root, { "src/value.js": "old\n", "tests/check.js": check(has("node_modules/marker"), says("src/value.js", "new")) });
+  await link(root, path.join(outer, "deps"));
+  const before = await snapshotTree(root);
+  const baseline = await ChangeBaseline.capture(root);
+  cleanup.push(() => baseline.dispose());
+  await write(root, { "src/value.js": "new\n" });
+  return baseline.prove({ root, changes: diffSnapshots(before, await snapshotTree(root)), check: "test", command: CHECK, timeoutMs: 20_000 });
+}
+
+test.skipIf(process.platform === "win32")("a dependency folder that is a relative or an absolute link keeps working in the proof copies", async () => {
+  expect((await proveWithLink((root) => symlink("../deps", path.join(root, "node_modules"), "dir")))?.status).toBe("proven");
+  expect((await proveWithLink((root, deps) => symlink(deps, path.join(root, "node_modules"), "dir")))?.status).toBe("proven");
+  expect((await proveWithLink((root) => write(root, { "node_modules/marker": "dependency\n" })))?.status).toBe("proven");
+});
+
+test.skipIf(process.platform === "win32")("a dependency link to a missing folder stays broken, and one to the workspace's own parent says it was not linked", async () => {
+  const broken = await proveWithLink((root) => symlink("../missing", path.join(root, "node_modules"), "dir"));
+  expect(broken).toMatchObject({ status: "unavailable" });
+  const parent = await proveWithLink((root) => symlink("..", path.join(root, "node_modules"), "dir"));
+  expect(parent).toMatchObject({ status: "unavailable", reason: expect.stringContaining("which is the workspace or holds it") });
 });
