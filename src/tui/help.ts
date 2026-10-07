@@ -100,7 +100,9 @@ Local commands:
   /permissions                      What each tool may do and when Casper asks you
   /sandbox                          What the shell sandbox holds: write folders, private folders, hosts
   /sandbox forget <host>            Forget a host or machine you allowed for this project (Yes, always)
-  /lab                              Your lab devices: lab checks and the lab list use them
+  /allowed                          The shell commands you said yes to for this project (saved, and for this session), numbered
+  /allowed forget <n>               Forget one by its number, its words (git log) or all of them; Casper asks before running it again
+  /lab                            Your lab devices: lab checks and the lab list use them
   /lab import <file>                Add devices to your lab list from a file (GreenCLI's lab export, or one host per line); asks first
   /login [provider]                 Codex, Copilot, Anthropic or OpenRouter (Casper's credential store)
   /project                          Show project context

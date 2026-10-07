@@ -56,6 +56,9 @@ test("with the sandbox on, /status and /sandbox say what it holds, and the AI's 
     await f.app.runOnce("/sandbox", f.project);
     expect(f.text()).toContain("Hosts:   registry.npmjs.org");
     expect(f.text()).toContain("Not in the sandbox: MCP servers, language servers, the debugger, the browser and lab checks.");
+    expect(f.text()).toContain("/allowed lists them and takes them back.");
+    await f.app.runOnce("/allowed", f.project);
+    expect(f.text()).toContain("Nothing is allowed yet.");
     await f.app.runOnce("Write the notes", f.project);
     const shell = f.started()!.shell!;
     const wrapped = await shell.wrap("npm test", f.project);

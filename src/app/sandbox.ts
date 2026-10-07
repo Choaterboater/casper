@@ -37,7 +37,7 @@ export interface SandboxHost {
 
 export const hostQuestion = (host: string) => `A shell command wants to reach ${terminalText(host)}. Allow it?`;
 /** A command as a question shows it: one line, with any secret the AI typed into it hidden. */
-const shownCommand = (command: string) => terminalText(hideCommandSecrets(command).text).replace(/\s+/g, " ").trim();
+export const shownCommand = (command: string) => terminalText(hideCommandSecrets(command).text).replace(/\s+/g, " ").trim();
 export const shellQuestion = (command: string) => `Run this command?  ${shownCommand(command)}`;
 /** "Reach 10.0.0.5 (build-server)?  ssh root@build-server uptime" */
 export const reachQuestion = (target: RemoteTarget, command: string) => `Reach ${terminalText(targetLabel(target))}?  ${shownCommand(command)}`;
@@ -97,8 +97,8 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
   /** Hosts you said "Yes, for this session" to. */
   const sessionReach = new Set<string>();
   /** With no sandbox: commands (or command prefixes) you said "Yes, for this session" to. */
-  const sessionCommands = new Set<string>();
-  const sessionPrefixes = new Set<string>();
+  // Kept on the store, so /allowed lists and forgets them.
+  const { sessionCommands, sessionPrefixes } = store;
   /** Commands you said yes to just now, with the hosts they reach (wrap lets them through). */
   const cleared = new Map<string, RemoteTarget[]>();
   const said = new Set<string>();
@@ -246,6 +246,8 @@ export function sandboxStatusLine(sandbox: ShellSandbox): string {
   return describeSandbox(sandbox.state, sandbox.on ? sandbox.allowedHosts().length : undefined);
 }
 
+const ALLOWED_POINTER = "Shell commands you said yes to (for this session or always for this project): /allowed lists them and takes them back.";
+
 /** /sandbox: what the sandbox holds, on this machine, now. `reach`: machines ssh may reach without asking. */
 export function sandboxReport(sandbox: ShellSandbox, root: string, reach: readonly string[] = []): string {
   const home = sandbox.home;
@@ -257,6 +259,7 @@ export function sandboxReport(sandbox: ShellSandbox, root: string, reach: readon
       ? "Shell commands, checks, services and dev servers run with your permissions, files and network."
       : "Shell commands, checks, services and dev servers run with your permissions, files and network. The AI's shell commands ask first.");
     lines.push(machines);
+    lines.push(ALLOWED_POINTER);
     return `${lines.join("\n")}\n`;
   }
   const policy = sandbox.policy();
@@ -269,6 +272,7 @@ export function sandboxReport(sandbox: ShellSandbox, root: string, reach: readon
   const folders = sandbox.allowedWriteFolders();
   lines.push(`Other writes outside the project: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session)${folders.length ? `; allowed this session: ${[...new Set(folders.map(show))].join(", ")}` : ""}.`);
   lines.push(machines);
+  lines.push(ALLOWED_POINTER);
   lines.push("Not in the sandbox: MCP servers, language servers, the debugger, the browser and lab checks.");
   return `${lines.join("\n")}\n`;
 }

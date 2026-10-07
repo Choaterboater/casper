@@ -58,6 +58,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/project [name]` | Project context and checks; open a project folder inside this one |
 | `/permissions` | What each tool may do here and when Casper asks you |
 | `/sandbox`, `/sandbox forget <host>` | What the shell sandbox holds; forget a host you allowed |
+| `/allowed`, `/allowed forget <n, command or all>` | The shell commands you said yes to for this project (saved, and for this session); take one back |
 | `/lab`, `/lab import <file>` | Your lab devices; add more from a file ([NETWORK-CHECKS.md](NETWORK-CHECKS.md)) |
 | `/skills` | Skills and whether you trust them ([SKILLS.md](SKILLS.md)) |
 | `/mcp` | MCP servers: set up Casper's network server (`/mcp setup network`) and its logins (`/mcp login`), add a server over ssh (`/mcp setup ssh`), connect, writes on or off, allow, forget, docs ([MCP.md](MCP.md)) |
@@ -491,7 +492,7 @@ tree digest), or how many past three. The per-file table (a bounded `git diff --
 with `--verbose`; `/diff` shows the task's full changes.
 `/permissions` explains actual boundaries from the state Casper is in: whether the shell
 sandbox holds shell commands and checks here, or (without it) that the AI's shell asks
-before each command that changes something (reads like `ls` don't). `/sandbox` lists what it holds. Existing integration-specific
+before each command that changes something (reads like `ls` don't). `/sandbox` lists what it holds and `/allowed` the commands you said yes to. Existing integration-specific
 approvals remain in force. Verification is still separate from tool completion.
 
 ### Local debugger
