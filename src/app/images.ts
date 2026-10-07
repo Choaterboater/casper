@@ -1,9 +1,11 @@
 /**
  * Pictures with a request: an image pasted with Ctrl+V, or an image file dropped (or typed) into the prompt.
  * Each becomes `[image N]` in the request text and goes to the model as an image. A dropped file's path is kept
- * on a line under the request, so the model can still copy or move the file.
+ * on a line under the request, so the model can still copy or move the file. A pasted picture has no file, so it is
+ * saved to a private temp folder for the session and that path goes on the same kind of line.
  */
-import { readFile, stat } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { RuntimeImage } from "../runtime/types";
@@ -23,6 +25,33 @@ export function imageMimeType(bytes: Uint8Array): string | undefined {
   return undefined;
 }
 
+const EXTENSIONS: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" };
+
+/** Pasted pictures saved as files for one session, in one private folder (0700, files 0600) made on the first save. */
+export class PastedImageFiles {
+  private folder?: Promise<string>;
+  constructor(private readonly root: string = os.tmpdir()) {}
+
+  /** Saves the picture and returns its absolute path; undefined when it could not be written. */
+  async save(number: number, image: RuntimeImage): Promise<string | undefined> {
+    try {
+      this.folder ??= mkdtemp(path.join(this.root, "casper-pasted-")).then(async (dir) => { await chmod(dir, 0o700); return dir; });
+      const dir = await this.folder;
+      const file = path.join(dir, `pasted-image-${number}-${randomBytes(4).toString("hex")}.${EXTENSIONS[image.mimeType] ?? "png"}`);
+      await writeFile(file, Buffer.from(image.data, "base64"), { flag: "wx", mode: 0o600 });
+      return file;
+    } catch { return undefined; }
+  }
+
+  /** Deletes the folder and every picture in it. */
+  async remove(): Promise<void> {
+    const folder = this.folder;
+    this.folder = undefined;
+    const dir = await folder?.catch(() => undefined);
+    if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 export const imageLabel = (number: number) => `[image ${number}]`;
 
 const EXTENSION = String.raw`\.(?:png|jpe?g|gif|webp)`;
@@ -39,6 +68,8 @@ export interface AttachOptions {
   home?: string;
   /** Pictures pasted into the prompt, by their number in `[image N]`. */
   pasted?: ReadonlyMap<number, RuntimeImage>;
+  /** Where pasted pictures are saved so the model has a path for them; without it they are only sent inline. */
+  saveTo?: PastedImageFiles;
   platform?: NodeJS.Platform;
   /** Where a typed path is on disk (tests stand in for a Windows disk). */
   resolve?: (typed: string) => string;
@@ -105,6 +136,15 @@ export async function attachImages(text: string, options: AttachOptions): Promis
   }
   out += text.slice(last);
   if (limited) notes.push(`Only ${MAX_IMAGES} pictures go with one request; the rest stay as file names`);
+  const saved: string[] = [];
+  if (options.saveTo) {
+    for (const [number, image] of [...numbered.entries()].sort(([a], [b]) => a - b)) {
+      if (!pasted.has(number)) continue;
+      const file = await options.saveTo.save(number, image);
+      if (file) saved.push(`${imageLabel(number)} is the file ${file}`);
+    }
+  }
+  files.unshift(...saved);
   const images = [...numbered.entries()].sort(([a], [b]) => a - b).map(([, image]) => image);
   return { text: files.length ? `${out}\n\n${files.join("\n")}` : out, images, notes };
 }
