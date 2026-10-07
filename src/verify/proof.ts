@@ -141,6 +141,8 @@ async function cloneTree(source: string, destination: string, limits: Limits, si
         if (Object.hasOwn(LINKED, entry.name) && (entry.name !== "venv" || environment)) links.push(next);
         if (!Object.hasOwn(SKIPPED, entry.name) && !environment) pending.push(next);
       } else if (entry.isSymbolicLink()) {
+        // A dependency location that is a link (node_modules -> ../deps) is linked again in each copy, since its text may not resolve there.
+        if (Object.hasOwn(LINKED, entry.name) && (entry.name !== "venv" || await lstat(path.join(from, "pyvenv.cfg")).then(() => true, () => false))) links.push(next);
         await symlink(await readlink(from), to);
       } else if (entry.isFile()) {
         if (++files > limits.fileLimit) throw new RangeError(`the workspace has more than ${limits.fileLimit} files`);
@@ -151,6 +153,28 @@ async function cloneTree(source: string, destination: string, limits: Limits, si
     }
   }
   return links;
+}
+
+/** Link the workspace's dependency location `relative` into `tree`. A real folder is linked as it is; a link is
+ * followed to where it really points, which is linked instead (a link text like `../deps` means nothing in a
+ * copy). A broken link or a plain file is left alone. Throws when the folder is the workspace or holds it. */
+async function linkDependency(root: string, tree: string, relative: string): Promise<void> {
+  if (!await parentsStayInside(tree, relative)) return;
+  const location = path.join(root, relative);
+  const stats = await lstat(location).catch(() => undefined);
+  if (!stats) return;
+  let target = location;
+  if (stats.isSymbolicLink()) {
+    target = await realPathOf(location);
+    if (target === location || !await lstat(target).then((real) => real.isDirectory(), () => false)) return;
+    const real = await realPathOf(root);
+    const inside = path.relative(real, target);
+    if (!isOutside(inside) && inside) target = path.join(tree, inside);
+    else if (!isOutside(path.relative(target, real))) throw new Error(`${relative} links to ${target}, which is the workspace or holds it, so Casper will not link it into a copy`);
+  } else if (!stats.isDirectory()) return;
+  await rm(path.join(tree, relative), { recursive: true, force: true });
+  await mkdir(path.dirname(path.join(tree, relative)), { recursive: true });
+  await symlink(target, path.join(tree, relative), "dir");
 }
 
 /** The workspace as it was before the model's request, kept to rebuild it "without the change". */
@@ -192,15 +216,7 @@ export class ChangeBaseline {
     const copies = await mkdtemp(path.join(this.scratch, "compare-"));
     try {
       const linkDependencies = async (tree: string, links: readonly string[]) => {
-        for (const relative of links) {
-          const target = path.join(options.root, relative);
-          if (!await parentsStayInside(tree, relative)) continue;
-          if (await lstat(target).then((stats) => stats.isDirectory(), () => false)) {
-            await rm(path.join(tree, relative), { recursive: true, force: true });
-            await mkdir(path.dirname(path.join(tree, relative)), { recursive: true });
-            await symlink(target, path.join(tree, relative), "dir");
-          }
-        }
+        for (const relative of links) await linkDependency(options.root, tree, relative);
       };
       // Without the change: the tree from before, with the tests as they are now.
       const without = path.join(copies, "without");
@@ -245,14 +261,7 @@ export class ChangeBaseline {
     try {
       const tree = path.join(copies, "before");
       await cloneTree(this.tree, tree, this.limits, options.signal);
-      for (const relative of this.links) {
-        if (!await parentsStayInside(tree, relative)) continue;
-        const target = path.join(options.root, relative);
-        if (!await lstat(target).then((stats) => stats.isDirectory(), () => false)) continue;
-        await rm(path.join(tree, relative), { recursive: true, force: true });
-        await mkdir(path.dirname(path.join(tree, relative)), { recursive: true });
-        await symlink(target, path.join(tree, relative), "dir");
-      }
+      for (const relative of this.links) await linkDependency(options.root, tree, relative);
       const result = await runCommandCheck({ name: options.check, command: options.command, cwd: tree, timeoutMs: options.timeoutMs,
         signal: options.signal, env: await copyEnv(options.root, tree, this.links) });
       // The same reading as the proof's: a crash, a signal or a timeout in the copy is not the check failing.
