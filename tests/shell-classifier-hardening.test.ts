@@ -101,7 +101,8 @@ test("a backslash-newline joins words, so a line with a backslash or a newline i
 test("a carriage return, no-break space or form feed inside a word is part of the file name, not a separator", async () => {
   const { project, home, where } = await area();
   const files: Array<[string, string]> = [["x\r", "CR-FILE"], ["x y", "NBSP-FILE"], ["y\fz", "FF-FILE"]];
-  for (const [name, content] of files) await writeFile(path.join(project, name), content);
+  // Windows cannot have a file name with a carriage return or form feed, so the files only exist (and bash only runs) on POSIX.
+  if (posix) for (const [name, content] of files) await writeFile(path.join(project, name), content);
   for (const [line, content] of [["cat x\r", "CR-FILE"], ["cat x y", "NBSP-FILE"], ["cat y\fz", "FF-FILE"]] as const) {
     expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: false });
     if (posix) expect({ line, out: bash(line, project, home) }).toEqual({ line, out: expect.stringContaining(content) });
