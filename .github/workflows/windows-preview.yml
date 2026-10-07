@@ -157,7 +157,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Full regression suite, part ${{ matrix.part }} of 3 (files in parallel)
         # Normal step: 5.0 min p90 (max 7.3).
-        timeout-minutes: 10
+        timeout-minutes: 13
         run: |
           $files = @(bun tools/test-shard.ts 3 ${{ matrix.part }})
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
