@@ -20,14 +20,24 @@ test("a repo check runs without AI provider keys; product tokens stay", async ()
   process.env.OPENROUTER_API_KEY = "sk-or-provider-fixture";
   process.env.MIST_API_TOKEN = "mist-product-fixture";
   process.env.CASPER_TEST_SECRET_TOKEN = "casper-own-fixture";
+  // This takes ~0.3 s locally but about 30 s on macOS CI, cause unconfirmed: a slow step says so in the failure.
+  const steps: string[] = [];
+  const timed = async (label: string, run: () => ReturnType<typeof runCommandCheck>) => {
+    const began = performance.now();
+    const result = await run();
+    const wall = Math.round(performance.now() - began);
+    steps.push(`${label}: ${wall} ms wall, ${result.durationMs} ms in the check (${result.status})`);
+    if (wall > 5000) throw new Error(`Slow repo check, unconfirmed cause. Steps so far: ${steps.join("; ")}`);
+    return result;
+  };
   // Casper's own environment (no env given), as registry checks run.
-  const inherited = await runCommandCheck({ name: "test", command: PRINT, cwd: os.tmpdir(), timeoutMs: 10_000 });
+  const inherited = await timed("own environment", () => runCommandCheck({ name: "test", command: PRINT, cwd: os.tmpdir(), timeoutMs: 10_000 }));
   expect(inherited.stdout).toContain("mist-product-fixture");
   expect(inherited.stdout).not.toContain("sk-or-provider-fixture");
   expect(inherited.stdout).not.toContain("casper-own-fixture");
   // An explicit environment (proof and trace copies pass one) is cleaned too.
-  const given = await runCommandCheck({ name: "test", command: PRINT, cwd: os.tmpdir(), timeoutMs: 10_000,
-    env: { ...process.env, ANTHROPIC_API_KEY: "sk-ant-fixture" } });
+  const given = await timed("given environment", () => runCommandCheck({ name: "test", command: PRINT, cwd: os.tmpdir(), timeoutMs: 10_000,
+    env: { ...process.env, ANTHROPIC_API_KEY: "sk-ant-fixture" } }));
   expect(given.stdout).not.toContain("sk-ant-fixture");
   expect(given.stdout).toContain("mist-product-fixture");
 });
