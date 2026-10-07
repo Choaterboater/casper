@@ -18,7 +18,8 @@ jobs:
     # Draft PRs wait until "Ready for review"; pushes to main and manual runs always run.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # Normal job: 8.4 min p90 of the last 40 successful runs (max 9.1). 15 is about 1.8x p90.
+    timeout-minutes: 15
     defaults:
       run:
         shell: bash
@@ -71,11 +72,17 @@ jobs:
         run: bun run lint 2>&1 | tee "$RUNNER_TEMP/linux-preview/lint.log"
       - name: Focused platform and terminal regressions
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        # Normal step: 2.0 min p90 (max 2.1).
+        timeout-minutes: 5
         run: |
           bun test tests/sandbox-live.test.ts tests/sandbox-wiring.test.ts tests/platform-processes.test.ts tests/login-picker.test.ts tests/login.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts tests/terminal-discovery.test.ts tests/daily-terminal.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts tests/model-selection.test.ts tests/phase10-debugger-app.test.ts 2>&1 | tee "$RUNNER_TEMP/linux-preview/platform-terminal.log"
       - name: Full regression suite (files in parallel)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: bun run test 2>&1 | tee "$RUNNER_TEMP/linux-preview/full-suite.log"
+        # Normal step: 4.8 min p90 (max 5.0). tools/stall-guard.sh stops a run whose log has been silent for
+        # 180 s, after writing stall-dump.txt (every process, each test worker's kernel stack, the test files
+        # that printed and those that did not) next to the log, which the evidence upload below keeps.
+        timeout-minutes: 8
+        run: bash tools/stall-guard.sh "$RUNNER_TEMP/linux-preview/full-suite.log" 180 "$RUNNER_TEMP/linux-preview/stall-dump.txt" -- bun run test
       - name: Eval bench tests
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test:evals 2>&1 | tee "$RUNNER_TEMP/linux-preview/evals.log"

@@ -5,6 +5,7 @@ import path from "node:path";
 import { freePort, ManagedProcess, ManagedProcessError, portInUse, type ManagedProcessOptions } from "../src/platform/managed-process";
 import { OwnedProcesses, osSupportsProcessGroups, ProcessCleanupError, type ProcessPlatform } from "../src/platform/processes";
 import { BrowserServer } from "../src/browser/server";
+import { reapMarker } from "./support/reap";
 import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => unknown> = [];
@@ -27,6 +28,7 @@ async function fixture(env: Record<string, string>, options: Partial<ManagedProc
   const marker = path.join(root, "grandchild.pid");
   const managed = new ManagedProcess({ command: COMMAND, cwd: root, env: { PORT: String(port), HOST: "127.0.0.1", SPAWN_CHILD: marker, ...env },
     ready: { log: "listening" }, timeoutMs: 10_000, ...typeof options === "function" ? options(`http://127.0.0.1:${port}`) : options });
+  cleanups.push(() => reapMarker(marker));
   cleanups.push(() => managed.close().catch(() => {}));
   const grandchild = async () => { await until(async () => (await readFile(marker, "utf8").catch(() => "")).length > 0); return Number(await readFile(marker, "utf8")); };
   return { root, port, managed, grandchild, origin: `http://127.0.0.1:${port}` };

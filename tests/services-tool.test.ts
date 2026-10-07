@@ -6,6 +6,7 @@ import { CORE_PACK, NETWORK_PACK } from "../evals/packs";
 import type { ServiceSpec } from "../src/services/config";
 import { ServiceManager } from "../src/services/manager";
 import { serviceRequested, serviceTool } from "../src/services/tool";
+import { reapMarker } from "./support/reap";
 import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => unknown> = [];
@@ -30,6 +31,7 @@ async function fixture(spec: Partial<ServiceSpec> = {}) {
   const manager = new ServiceManager({ projectRoot: root, services: {
     api: { command: COMMAND, port: "auto", ready: { http: "/health" }, timeoutMs: 10_000, scope: { inputs: ["src"] }, ...spec, env: { SPAWN_CHILD: marker, ...spec.env } },
   } });
+  cleanups.push(() => reapMarker(marker));
   cleanups.push(() => manager.close().catch(() => {}));
   const tool = serviceTool(() => manager);
   /** The tool's text is the bounded envelope; its data is what the model reads. */

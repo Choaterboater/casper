@@ -13,7 +13,11 @@ console.log("booting");
 if (env.PID_LOG) appendFileSync(env.PID_LOG, `${process.pid}\n`);
 if (env.PRINT_ENV) console.log(`env ${JSON.stringify(Object.fromEntries(env.PRINT_ENV.split(",").map(name => [name, env[name] ?? null])))}`);
 if (env.SPAWN_CHILD) {
-  const child = Bun.spawn([process.execPath, "-e", "setInterval(() => {}, 1000)"], { stdio: ["ignore", "ignore", "ignore"] });
+  // The grandchild leaves on its own once this server has been gone for 15 s (a test that failed or timed out
+  // before it stopped the service would otherwise leave it running). 15 s is well past the 5 s the tests wait
+  // for a stopped service's tree to be gone, so a tree kill that missed it is still caught.
+  const watch = `const parent = ${process.pid}; let gone = 0; setInterval(() => { try { process.kill(parent, 0); gone = 0; } catch { if (++gone >= 15) process.exit(0); } }, 1000)`;
+  const child = Bun.spawn([process.execPath, "-e", watch], { stdio: ["ignore", "ignore", "ignore"] });
   writeFileSync(env.SPAWN_CHILD, String(child.pid));
 }
 if (env.NOISE_BYTES) for (let written = 0, line = 0; written < Number(env.NOISE_BYTES); line++) {
