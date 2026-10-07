@@ -2,4 +2,7 @@
 
 
 def main() -> None:
-    print("Start the dashboard with: uv run streamlit run src/{{module}}/app.py")
+    print(
+        "Start the dashboard with: "
+        "uv run streamlit run src/{{module}}/app.py"
+    )

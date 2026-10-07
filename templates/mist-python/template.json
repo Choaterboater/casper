@@ -1,6 +1,6 @@
 {
   "id": "mist-python",
-  "version": 1,
+  "version": 2,
   "kind": "Mist Python project",
   "title": "Mist Python scripts",
   "description": "Read-only Mist scripts in Python (mistapi), with recorded sample data so tests run offline.",

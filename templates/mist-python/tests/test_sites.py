@@ -6,7 +6,13 @@ answer fails. To record your own, see README.md.
 
 import pytest
 
-from {{module}}.sites import connect, format_rows, inventory, list_sites, main
+from {{module}}.sites import (
+    connect,
+    format_rows,
+    inventory,
+    list_sites,
+    main,
+)
 
 
 @pytest.mark.vcr

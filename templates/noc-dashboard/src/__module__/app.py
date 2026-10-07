@@ -1,4 +1,7 @@
-"""The dashboard page. Start it with: uv run streamlit run src/{{module}}/app.py"""
+"""The dashboard page.
+
+Start it with: uv run streamlit run src/{{module}}/app.py
+"""
 
 import streamlit as st
 

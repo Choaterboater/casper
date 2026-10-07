@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
-APP = Path(__file__).resolve().parents[1] / "src" / "{{module}}" / "app.py"
+SRC = Path(__file__).resolve().parents[1] / "src"
+APP = SRC / "{{module}}" / "app.py"
 
 
 @pytest.fixture(autouse=True)

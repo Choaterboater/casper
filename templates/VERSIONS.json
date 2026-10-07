@@ -8,20 +8,20 @@
     "sha256": "36c57a119e5a095adcbdd2fcd0d0017ad6cff6c48490ae6e04f50391179be4e6"
   },
   "mist-python": {
-    "version": 1,
-    "sha256": "4d063b17be8c6332c979d45b8951c56a697c0ce1b8e4d6d0b8de02d90430381a"
+    "version": 2,
+    "sha256": "1183746011e42facfe1954185d4e853534ddb783417cd5998eb1f86d6085633a"
   },
   "network-mcp": {
-    "version": 3,
-    "sha256": "a760262bf8facc13f7635fa12a793064a7eeda0f3662a92af6f80406937cd4f9"
+    "version": 4,
+    "sha256": "e708a7cd423c84df428a4bc0ac19362601110d71feca9e58f0c1920c73520bcb"
   },
   "noc-dashboard": {
-    "version": 1,
-    "sha256": "ecad3a9ab35a98c9522e74fa243c6a0851354dd6df5ac29de7f313227aebe6c3"
+    "version": 2,
+    "sha256": "6edda9ca13a2c2276ec641b0c4f9f3903ecd9a551b3e02d19e198e23a4a0855c"
   },
   "python-cli": {
-    "version": 1,
-    "sha256": "21b759377ab8afb9f2f957cb9bc669eeb15f9e5bdfe051cc7668424479a68fee"
+    "version": 2,
+    "sha256": "8a514b43b4bbcf7ba835eb948faac0c41223699c832a6b2b0fd99219b21ff375"
   },
   "vite-react": {
     "version": 1,
