@@ -184,8 +184,15 @@ export async function switchForPictures(app: CasperApp, session: RuntimeSession,
   return back;
 }
 
+/** Close a /model picker still open from during the task; it holds the model switch, so nothing can switch back
+ * until it is gone. Closing it picks nothing, so a model the person chose in it stays theirs. */
+export async function closeModelPicker(app: CasperApp): Promise<void> {
+  await app.openModelPicker?.close();
+}
+
 /** Back to the model the user was on, with its own effort. */
 export async function restoreModel(app: CasperApp, session: RuntimeSession, back: string): Promise<void> {
+  await closeModelPicker(app);
   try {
     await session.selectModel!({ query: back, persist: false });
     if (!app.closing) app.output.write(`[model] Back on ${terminalText(back)} for your next request.\n`);

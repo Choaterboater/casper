@@ -105,6 +105,8 @@ export async function setEffortDuringWork(app: CasperApp, level: string, persist
 export async function setModelDuringWork(app: CasperApp, argument: string): Promise<void> {
   const yielded = new AbortController();
   let watch: ReturnType<typeof setInterval> | undefined;
+  const closed = Promise.withResolvers<void>();
+  const handle = { close: () => { yielded.abort(); return closed.promise; } };
   try {
     const session = app.session;
     if (!session?.selectModel) throw new Error("model selection unavailable");
@@ -112,6 +114,7 @@ export async function setModelDuringWork(app: CasperApp, argument: string): Prom
     const query = (sessionOnly ? argument.slice(9) : argument).trim();
     const picker = query ? undefined : app.terminal.exclusiveHost({ onYield: () => yielded.abort() });
     if (!query && !picker) { app.output.write("[model] The picker needs the full terminal; type /model <provider/id>.\n"); return; }
+    if (picker) app.openModelPicker = handle;
     if (picker) watch = setInterval(() => { if (!app.commandActive || !session.getState().isStreaming) yielded.abort(); }, 200);
     const signal = app.commandAbort ? AbortSignal.any([yielded.signal, app.commandAbort.signal]) : yielded.signal;
     const result = await session.selectModel({ ...(query ? { query } : {}), persist: !sessionOnly, signal, ...(picker ? { picker } : {}) });
@@ -126,7 +129,11 @@ export async function setModelDuringWork(app: CasperApp, argument: string): Prom
   } catch (error) {
     if (yielded.signal.aborted) app.output.write("[model] Model unchanged.\n");
     else app.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`);
-  } finally { if (watch) clearInterval(watch); }
+  } finally {
+    if (watch) clearInterval(watch);
+    if (app.openModelPicker === handle) app.openModelPicker = undefined;
+    closed.resolve();
+  }
 }
 
 /** Shift+Tab. A held key walks the ring; the level the presses stop at is saved once, like `/effort`. During a task

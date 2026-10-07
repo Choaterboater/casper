@@ -6,7 +6,7 @@ import type { RuntimeSession } from "../runtime/types";
 import { nearestEffort } from "../runtime/auto-effort";
 import { terminalText } from "../tui/format";
 import type { RequestWords } from "./request-words";
-import { restoreModel, switchToBigModel } from "./big-model";
+import { closeModelPicker, restoreModel, switchToBigModel } from "./big-model";
 import { updateFooter } from "./footer";
 
 const ROLE_NAMES = { reason: "big model", fast: "fast model" } as const;
@@ -45,7 +45,7 @@ export async function applyWords(app: CasperApp, session: RuntimeSession, words:
         else {
           app.output.write(`[model] ${name} for this task: ${terminalText(label)} (you asked)\n`);
           // A model you picked with /model during the task stays: only the word's own switch is put back.
-          undo.unshift(async () => { if (currentModel(session) === label) await restoreModel(app, session, back); });
+          undo.unshift(async () => { await closeModelPicker(app); if (currentModel(session) === label) await restoreModel(app, session, back); });
         }
       }
     }

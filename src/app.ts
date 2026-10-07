@@ -353,6 +353,8 @@ export class CasperApp {
   readonly undoNamed = new Set<string>();
   /** The next repair runs on this model (the big model), then Casper switches back. */
   repairOnBigModel?: BigModelChoice;
+  /** The /model picker opened during a task: `close` shuts it (nothing chosen) and waits until it is gone. */
+  openModelPicker?: { close(): Promise<void> };
   /** The user said yes to one more try on the big model at the repair limit. */
   bigModelGrant?: BigModelChoice;
   /** Repairs this task ran on the big model, for the receipt. */
