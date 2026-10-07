@@ -121,3 +121,20 @@ test("a missing sign-in names the real provider, its /login and its key variable
   for (const provider of ["openrouter", "anthropic", "deepseek"]) expect(missingSignIn(provider)).not.toContain("OpenAI Codex or");
 });
 
+
+test("a provider with an address and no apiKey in models.json is told to add an apiKey line", async () => {
+  const { missingSignIn, keylessAddress } = await import("../src/runtime/pi-models");
+  expect(missingSignIn("ollama", "http://127.0.0.1:11434/v1")).toBe("ollama at http://127.0.0.1:11434/v1 needs an apiKey line in models.json (any text works for a local server).");
+  expect(missingSignIn("openrouter", "https://openrouter.ai/api/v1")).toBe("Not signed in to OpenRouter. Type /login openrouter, or set OPENROUTER_API_KEY.");
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const nodePath = await import("node:path");
+  const dir = mkdtempSync(nodePath.join(tmpdir(), "casper-keyless-"));
+  try {
+    writeFileSync(nodePath.join(dir, "models.json"), JSON.stringify({ providers: { ollama: { baseUrl: "http://127.0.0.1:11434/v1" }, lmstudio: { baseUrl: "http://127.0.0.1:1234/v1", apiKey: "x" } } }));
+    expect(keylessAddress(dir, "ollama")).toBe("http://127.0.0.1:11434/v1");
+    expect(keylessAddress(dir, "lmstudio")).toBeUndefined();
+    expect(keylessAddress(dir, "nothing")).toBeUndefined();
+    expect(keylessAddress(nodePath.join(dir, "none"), "ollama")).toBeUndefined();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

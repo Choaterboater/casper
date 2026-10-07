@@ -371,6 +371,72 @@ attribution; `PI_TELEMETRY` has no effect. OpenRouter shows the icon of the refe
 referer is Casper's site (its ghost icon) rather than the GitHub page. OpenRouter keys apps by
 referer, so after this change your usage may show under a new Casper app entry.
 
+## Local models
+
+Casper can use a model that runs on your own computer, through any server that speaks the OpenAI
+chat format: Ollama, LM Studio, llama.cpp's `llama-server` and vLLM all do. You tell Casper where
+the server is in `models.json`. No `/login` is needed.
+
+**Where the file is.** `~/.casper/agent/models.json` (create it if it isn't there). If you moved
+Casper's store with `CASPER_AGENT_DIR`, it is `models.json` in that folder. Pi's own docs say
+`~/.pi/agent`; that is not where Casper reads. Only you can set this up: a project can't add a
+server address, and the AI's tools can't read or change the file.
+**The file.** Pick the server you run and use its address:
+
+| Server | `baseUrl` |
+| --- | --- |
+| Ollama | `http://127.0.0.1:11434/v1` |
+| LM Studio | `http://127.0.0.1:1234/v1` |
+| llama.cpp (`llama-server`) | `http://127.0.0.1:8080/v1` |
+| vLLM | `http://127.0.0.1:8000/v1` |
+
+```json
+{
+  "providers": {
+    "ollama": {
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "api": "openai-completions",
+      "apiKey": "local",
+      "compat": { "supportsDeveloperRole": false, "supportsReasoningEffort": false },
+      "models": [{ "id": "qwen2.5-coder:7b", "contextWindow": 32768 }]
+    }
+  }
+}
+```
+
+- `ollama` is a name you choose. It becomes the first half of the model name (`ollama/qwen2.5-coder:7b`).
+  Use a different name for each server (`lmstudio`, `llamacpp`, `vllm`) if you run more than one.
+- `baseUrl`, `api` and `models` are required. Keep `"api": "openai-completions"`.
+- `apiKey` is required too, but a local server ignores it: any text works. Without the line Casper says
+  `<name> at <address> needs an apiKey line in models.json`. The key is kept per provider, so no other
+  provider's key is ever sent to your server.
+- The two `compat` lines stop Casper sending parts of the request that most local servers don't know.
+  Leave them in unless your server handles them.
+- `contextWindow` is optional; set it to what you started the server with so the footer's context
+  figure is right. A local model shows as free.
+
+**Pick the model id.** The id is the name the server itself uses, exactly.
+Ollama: `ollama list`. LM Studio and vLLM: the id shown on the server's page, or open
+`<baseUrl>/models` in a browser. llama.cpp: `<baseUrl>/models`.
+
+**Use it.** Start with `casper --model ollama/qwen2.5-coder:7b`, or type `/model` inside Casper and pick
+it. Start the server first; if Casper can't reach it, it says it can't reach the provider.
+
+**Privacy.** A model on the same computer sends nothing off it. A server that forwards your request
+elsewhere does send it: Ollama's `:cloud` models run on Ollama's servers, and a `baseUrl` that points at
+another machine goes there. Check what the model really is before you rely on this.
+
+**Know the limits.**
+- Small models often can't use tools. Casper then says the model can't edit files or run commands;
+  pick another with `/model`, or use it for questions only. Tool use needs a model made for it
+  (look for "tools" on the model's page) and, on some servers, a switch to turn it on.
+- Context size matters most. Casper's fixed request, before your words, is about 4,600 tokens. Start
+  the server with a window of 16k (16,384) tokens or more: Ollama's default is smaller and will cut the
+  request off without warning. Set it with `num_ctx` in Ollama, the context field in LM Studio, `-c` in
+  `llama-server` and `--max-model-len` in vLLM.
+- Helpers (up to 2 read-only ones, and up to 3 builders) and your main conversation all send to the same
+  server. A single computer answers one at a time, so expect them to wait for each other.
+
 ## Model roles and automatic effort
 
 The normal path is still: pick a model with `/model`, then describe the task. Roles are optional

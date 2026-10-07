@@ -340,7 +340,9 @@ await session.switchSession({ cwd: process.cwd(), sessionFile: ${JSON.stringify(
 let failure; try { await session.prompt('MUST_NOT_SEND'); } catch (error) { failure = error.message; }
 console.log('RESULT=' + JSON.stringify({ status: session.getStatus(), failure }));`);
   expect(restored.status).toMatchObject({ provider: "fixture", model: "second", auth: "missing", selectionSource: "conversation" });
-  expect(restored.failure).toContain("No key for fixture");
+  // This fixture is a provider with an address and no key line, so the message says where to add one.
+  expect(restored.failure).toContain("fixture at ");
+  expect(restored.failure).toContain("needs an apiKey line in models.json");
 }, 90_000);
 
 test("missing auth, unknown models and cancelled selection leave the active model and default unchanged", async () => {
@@ -354,7 +356,8 @@ for (const query of ['missing/no-auth', 'fixture/not-real']) {
 const controller = new AbortController(); controller.abort();
 try { await session.selectModel({ query: 'fixture/second', signal: controller.signal }); } catch (error) { failures.push(error.name); }
 console.log('RESULT=' + JSON.stringify({ failures, status: session.getStatus() }));`);
-  expect(result.failures[0]).toContain("No key for missing");
+  expect(result.failures[0]).toContain("missing at ");
+  expect(result.failures[0]).toContain("needs an apiKey line in models.json");
   expect(result.failures[1]).toContain("Unknown model");
   expect(result.failures[2]).toBe("AbortError");
   expect(result.status).toMatchObject({ model: "first", defaultModel: { provider: "fixture", id: "first" } });

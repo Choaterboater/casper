@@ -16,7 +16,7 @@ proves a test fails without the change. You get a short receipt that says what w
 Network engineers get extra care: MCP servers (tool servers the AI can call) start with writes
 off, every change asks you in one numbered box, and the AI can't approve anything for you.
 Sign in with OpenRouter, Anthropic (Claude), OpenAI Codex or GitHub Copilot, so you are not tied
-to one model company. Many things cost zero tokens: the checks, `/verify`, `/mcp`, `/diff`,
+to one model company, or run a model on your own computer ([Local models](docs/CONFIGURATION.md#local-models)). Many things cost zero tokens: the checks, `/verify`, `/mcp`, `/diff`,
 `/receipt` and local reference search make no model call.
 
 Casper itself is free and open source. A task spends money only with your own model provider

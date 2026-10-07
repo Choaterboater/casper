@@ -239,6 +239,8 @@ Each row names the test that fails without it.
   provider you picked, with secrets hidden as [SECRETS.md](SECRETS.md) says (known formats only; there is
   no full secret scanner). They may also stay on disk as plain text. Use read-only credentials for AI
   work where you can.
+  A model that runs on your own computer ([Local models](CONFIGURATION.md#local-models)) sends nothing
+  off it, unless that server forwards requests elsewhere (such as Ollama's `:cloud` models).
 - **Some things look like walls and are not.** Worktrees, read-only agent roles and connection prompts
   do not isolate anything at the OS level.
 - **No hard spending cap.** Casper shows what a task spends, and `spend.pauseAt` pauses a task at a

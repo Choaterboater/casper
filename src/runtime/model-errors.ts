@@ -3,9 +3,11 @@
  * rules read words every vendor uses (status codes, "rate limit", "context length"); anything else keeps the
  * provider's own text. The provider's words stay available (ctrl+t, or a second line on a plain terminal).
  */
-export type ModelErrorCause = "key" | "refused" | "credits" | "rate" | "offline" | "context" | "model";
+export type ModelErrorCause = "key" | "refused" | "credits" | "rate" | "offline" | "context" | "model" | "tools";
 
 const RULES: ReadonlyArray<{ cause: ModelErrorCause; test: RegExp; line: string }> = [
+  // A model that can't take tools (small local models often can't). The line is built in explainModelError, which has the name.
+  { cause: "tools", test: /does not support tools|do(?:es)? not support tool (?:use|calling)|tools? (?:are|is|use is|calling is) not supported|tool use is not supported/i, line: "" },
   // Credits before rate: OpenAI says "exceeded your current quota" with a 429.
   { cause: "credits", test: /\b402\b|payment required|insufficient[_ ](?:credits|funds|quota|balance)|credit balance|requires more credits|exceeded your current quota|billing/i,
     line: "The provider says the account is out of credits. Next: add credits on the provider's site, or /model to pick another model." },
@@ -26,6 +28,11 @@ const RULES: ReadonlyArray<{ cause: ModelErrorCause; test: RegExp; line: string 
 
 export function explainModelError(message: string): { cause: ModelErrorCause; line: string } | undefined {
   const rule = RULES.find((candidate) => candidate.test.test(message));
+  if (rule?.cause === "tools") {
+    const named = /([^\s"'`,]*[\w.-])["'`]?\s+does not support tools/i.exec(message)?.[1]?.split("/").pop();
+    const model = named && named.length <= 60 ? named : "This model";
+    return { cause: "tools", line: `${model} can't use tools, so it can't edit files or run commands here. Pick another model with /model, or use it for questions only.` };
+  }
   return rule && { cause: rule.cause, line: rule.line };
 }
 
