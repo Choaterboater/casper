@@ -19,7 +19,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
     # Normal job: 8.4 min p90 of the last 40 successful runs (max 9.1). 15 is about 1.8x p90.
-    timeout-minutes: 15
+    timeout-minutes: 18
     defaults:
       run:
         shell: bash
@@ -48,9 +48,16 @@ jobs:
       - name: Install the shell sandbox's tools (bubblewrap, socat, ripgrep) and let bubblewrap start
         # Ubuntu 24.04 blocks unprivileged user namespaces through AppArmor; the live sandbox tests need them.
         # The sandbox runtime scans the project with ripgrep, and Pi's grep uses it (PI_OFFLINE: no download).
+        # A hung mirror once held this step for the whole 15 minutes, twice: so apt retries downloads and waits for its
+        # lock, each try is cut off, and it tries three times before the step fails.
+        timeout-minutes: 10
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q bubblewrap socat ripgrep
+          printf 'Acquire::Retries "3";\nDPkg::Lock::Timeout "60";\n' | sudo tee /etc/apt/apt.conf.d/80casper-ci >/dev/null
+          for attempt in 1 2 3; do
+            if timeout 120 sudo apt-get update -q && timeout 180 sudo apt-get install -y -q bubblewrap socat ripgrep; then break; fi
+            [ "$attempt" = 3 ] && { echo "apt did not finish after 3 tries"; exit 1; }
+            echo "apt try $attempt did not finish; trying again"
+          done
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net --unshare-pid -- /bin/true
       - name: Audit Casper's own workflows with zizmor (the pinned, hash-locked copy Casper installs)
@@ -81,7 +88,7 @@ jobs:
         # Normal step: 4.8 min p90 (max 5.0). tools/stall-guard.sh stops a run whose log has been silent for
         # 180 s, after writing stall-dump.txt (every process, each test worker's kernel stack, the test files
         # that printed and those that did not) next to the log, which the evidence upload below keeps.
-        timeout-minutes: 8
+        timeout-minutes: 12
         run: bash tools/stall-guard.sh "$RUNNER_TEMP/linux-preview/full-suite.log" 180 "$RUNNER_TEMP/linux-preview/stall-dump.txt" -- bun run test
       - name: Eval bench tests
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
