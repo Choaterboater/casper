@@ -64,7 +64,7 @@ export async function builderAvailability(input: { root: string; homeDir: string
   return root === manager.primaryWorkspace ? undefined : "not the project's main folder";
 }
 
-/** Applies and copy-making take turns per repository: one builder's change lands before the next copy is made. */
+/** Applies, copy-making and copy-removing take turns per repository: one builder's change lands before the next copy is made, and Git never unregisters two copies at once. */
 const turns = new Map<string, Promise<unknown>>();
 async function inTurn<T>(key: string, work: () => Promise<T>): Promise<T> {
   const before = turns.get(key) ?? Promise.resolve();
@@ -95,7 +95,7 @@ export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; c
   const note = (line: string) => { if (notRun.length < 12 && !notRun.includes(line)) notRun.push(shown(line)); };
   const shell = host.shell(copy.path, note);
   if (!shell) {
-    await manager.remove(copy).catch(() => {});
+    await inTurn(manager.commonDir, () => manager.remove(copy)).catch(() => {});
     throw new Error("No builders here: this session's shell is not ready for them");
   }
   await linkDependencies(manager.primaryWorkspace, copy.path);
@@ -126,7 +126,7 @@ export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; c
   try { await unlinkDependencies(copy.path); work = await manager.capturePatch(copy); }
   catch (error) { return keep(`its changes can't be read: ${message(error)}`); }
   if (!work.files.length) {
-    await manager.remove(copy, work).catch(() => {});
+    await inTurn(manager.commonDir, () => manager.remove(copy, work)).catch(() => {});
     return outcome({ applied: [], note: "No changes were made; the copy was removed." });
   }
   // Only a builder that finished lands by itself; a stopped one may have left half a change.
@@ -136,7 +136,7 @@ export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; c
   const applied = await inTurn(manager.commonDir, () => apply(manager, copy, work));
   if (typeof applied === "string") return keep(applied, work);
   for (const file of work.files) host.observeEdit(path.join(manager.primaryWorkspace, file));
-  await manager.remove(copy, work).catch(() => {});
+  await inTurn(manager.commonDir, () => manager.remove(copy, work)).catch(() => {});
   host.say(`A builder's change was applied to your folder, uncommitted: ${work.files.slice(0, 6).join(", ")}${work.files.length > 6 ? ` and ${work.files.length - 6} more` : ""}.`);
   return outcome({ applied: work.files, stat: work.stat });
 }
