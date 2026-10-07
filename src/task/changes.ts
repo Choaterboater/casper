@@ -73,7 +73,8 @@ export interface TreeChanges {
  * untracked files it does not ignore), so an ignored .venv or build folder of any size is left out;
  * elsewhere the folder is walked without dependency trees, virtual environments and caches.
  * Symlinks are never followed (`link:<target>`), oversized files are identified by
- * `size:<bytes>:<mtime>`, unreadable ones by `error:<code>`. Throws when aborted or when the tree
+ * `size:<bytes>:<mtime>`, unreadable ones by `error:<code>`. A trailing `:x` marks a file anyone can run
+ * (POSIX only; Windows has no such bit, so a mode change there is never a change). Throws when aborted or when the tree
  * exceeds the file limit (SNAPSHOT_FILE_LIMIT). */
 export async function snapshotTree(root: string, signal?: AbortSignal, options: { fileLimit?: number; git?: boolean; include?: Iterable<string> } = {}): Promise<Map<string, string>> {
   const limit = options.fileLimit ?? SNAPSHOT_FILE_LIMIT;
@@ -134,7 +135,9 @@ async function digestEntry(target: string, chunk: Buffer): Promise<string | unde
     const stats = await lstat(target);
     if (stats.isSymbolicLink()) return `link:${await readlink(target)}`;
     if (!stats.isFile()) return undefined;
-    if (stats.size > HASH_LIMIT) return `size:${stats.size}:${stats.mtimeMs}`;
+    // Whether anyone can run the file is part of what it is (chmod +x is a change); Windows has no such bit.
+    const run = process.platform !== "win32" && (stats.mode & 0o111) !== 0 ? ":x" : "";
+    if (stats.size > HASH_LIMIT) return `size:${stats.size}:${stats.mtimeMs}${run}`;
     const handle = await openNoFollow(target);
     try {
       const hash = createHash("sha256");
@@ -143,7 +146,7 @@ async function digestEntry(target: string, chunk: Buffer): Promise<string | unde
         if (!bytesRead) break;
         hash.update(chunk.subarray(0, bytesRead));
       }
-      return hash.digest("hex");
+      return hash.digest("hex") + run;
     } finally { await handle.close(); }
   } catch (error) {
     const code = errorCode(error);
