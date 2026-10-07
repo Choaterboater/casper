@@ -145,6 +145,55 @@ test("a prefix is the command and, for tools with subcommands, its subcommand; c
   expect(matchesPrefix("npm run build", "npm test")).toBe(false);
 });
 
+test("a saved prefix matches the tool by its plain name, and only whole words match, never odd spaces", () => {
+  expect(matchesPrefix("npm.cmd test", "npm test", true)).toBe(true);
+  expect(matchesPrefix("npm test", "npm.cmd test", true)).toBe(true);
+  expect(matchesPrefix("npm.cmd test -- --watch", "npm test", true)).toBe(true);
+  expect(matchesPrefix("npm.cmd test", "npm test", false)).toBe(false);
+  expect(matchesPrefix("NPM Test", "npm test", false)).toBe(false);
+  expect(matchesPrefix("NPM test", "npm test", true)).toBe(true);
+  // Only the program name is relaxed on Windows: a script, a target or a file name is case-sensitive.
+  expect(matchesPrefix("NPM Test", "npm test", true)).toBe(false);
+  expect(matchesPrefix("npm run Build", "npm run build", true)).toBe(false);
+  expect(matchesPrefix("npm.cmd run build", "npm run build", true)).toBe(true);
+  expect(matchesPrefix("NPM.CMD test", "npm test", false)).toBe(false);
+  expect(matchesPrefix("npm   test", "npm test")).toBe(true);
+  // The shell reads these spaces as part of a word, so "npm<no-break space>test" is one program, not npm test.
+  for (const space of ["\u00a0", "\u3000", "\f", "\v", "\u2003"]) {
+    for (const windows of [false, true]) expect({ space, windows, match: matchesPrefix(`npm${space}test`, "npm test", windows) }).toEqual({ space, windows, match: false });
+  }
+  for (const command of ["./npm test", "/tmp/npm test", "C:\\tmp\\npm.cmd test", "\uFF2E\uFF30\uFF2D test", "npm\u200b test", "npm\ttest; curl x",
+    "npm test && curl x"]) {
+    expect({ command, match: matchesPrefix(command, "npm test", true) }).toEqual({ command, match: false });
+  }
+  // Other program names never match on any platform; only Windows endings are dropped, and only on Windows.
+  for (const windows of [false, true]) {
+    for (const command of ["npm2 test", "npm-1.2 test", "npm- test", "npm. test", "npm.1 test"]) {
+      expect({ command, windows, match: matchesPrefix(command, "npm test", windows) }).toEqual({ command, windows, match: false });
+    }
+    expect(matchesPrefix("make-4", "make", windows)).toBe(false);
+    expect(matchesPrefix("ls2 -la", "ls", windows)).toBe(false);
+  }
+  expect(matchesPrefix("npm.com test", "npm test", false)).toBe(false);
+  expect(matchesPrefix("npm.bat test", "npm test", false)).toBe(false);
+  // The check looks at the line as typed: trimming first would strip a leading or trailing no-break space and let it through.
+  for (const space of ["\u00a0", "\u3000", "\ufeff", "\u2003", "\f", "\v"]) {
+    for (const windows of [false, true]) {
+      expect({ space, windows, lead: matchesPrefix(`${space}npm test`, "npm test", windows), trail: matchesPrefix(`npm test${space}`, "npm test", windows) })
+        .toEqual({ space, windows, lead: false, trail: false });
+    }
+  }
+  // A program word with a folder never relaxes, whatever the shell's escape rules did to it.
+  for (const command of ["\\npm.cmd test", "\\\\npm.cmd test", "\"C:\\tmp\\npm.cmd\" test", ".\\npm.cmd test", "C:\\tmp\\npm.cmd test", "x/npm.cmd test"]) {
+    expect({ command, match: matchesPrefix(command, "npm test", true) }).toEqual({ command, match: false });
+  }
+  // Windows folds ASCII case only: the Kelvin sign is not a k. A program word that is only an ending keeps it.
+  expect(matchesPrefix("\u212Aubectl get", "kubectl get", true)).toBe(false);
+  expect(matchesPrefix("Kubectl get", "kubectl get", true)).toBe(true);
+  expect(matchesPrefix(".cmd test", ".exe test", true)).toBe(false);
+  expect(matchesPrefix(".bat test", "", true)).toBe(false);
+});
+
 async function fixture() {
   const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-no-sandbox-")));
   roots.push(base);

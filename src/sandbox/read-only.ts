@@ -406,11 +406,27 @@ function plainName(name: string): string {
   return base.replace(/[\d.-]+$/, "") || base;
 }
 
-/** True when `command` is one plain command starting with the prefix's words. */
-export function matchesPrefix(command: string, prefix: string): boolean {
+/** True when `command` is one plain command starting with the prefix's words, each the same word. Only the program
+ * name is relaxed, and only on Windows: npm.cmd and NPM.EXE are npm (a name with a folder never is). A line with any
+ * space other than a plain space or tab (a no-break space, a form feed) never matches: the shell reads those as part of
+ * a word, so they are a different command from the one that was approved. */
+export function matchesPrefix(command: string, prefix: string, windows = process.platform === "win32"): boolean {
+  // The line as typed: trim() would strip a leading or trailing no-break space and hide the very thing this looks for.
+  if (/[^\S \t]/.test(command)) return false;
   const line = splitShell(command.trim());
   if (!line.simple) return false;
   const words = line.segments[0]?.words ?? [];
-  const wanted = prefix.split(" ");
-  return wanted.every((word, index) => words[index] === word);
+  // The folder test looks at the program word as typed: after splitting, a backslash is gone (`\npm.cmd` becomes `npm.cmd`).
+  const typedTool = command.trimStart().split(/[ \t]/)[0] ?? "";
+  // ASCII letters only: toLowerCase also turns the Kelvin sign (U+212A) into "k", which Windows file names do not do.
+  // An ending is dropped only when something is left (".cmd" alone stays ".cmd").
+  const tool = (word: string) => {
+    if (!windows || /[\\/]/.test(typedTool) || /[\\/]/.test(word)) return word;
+    const lower = word.replace(/[A-Z]/g, (char) => char.toLowerCase());
+    return lower.replace(/(?<=.)\.(?:exe|cmd|bat|com|ps1)$/, "");
+  };
+  return prefix.split(" ").every((word, index) => {
+    const have = words[index];
+    return have !== undefined && (index === 0 ? tool(have) === tool(word) : have === word);
+  });
 }
