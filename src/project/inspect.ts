@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import type { Dirent } from "node:fs";
 import { safeGitArgs } from "../platform/git";
 import { PROJECT_SIGNAL_NAMES } from "./model";
+import { noiseFilter, type NoiseOptions } from "./noise";
 
 const execFileAsync = promisify(execFile);
 
@@ -66,10 +67,11 @@ const CODE_CONTAINERS = new Set(["code", "projects", "src", "dev", "repos", "wor
  * hidden and heavyweight dirs) that carry a project marker themselves or one level below.
  * From home: ~/Documents, then the common code folders (~/code, ~/Projects, …), then direct
  * children of home. Bounded so a launch from the home folder stays fast. */
-export async function findProjectCandidates(cwd: string, options: { homeDir?: string; limit?: number } = {}): Promise<string[]> {
+export async function findProjectCandidates(cwd: string, options: { homeDir?: string; limit?: number; noise?: NoiseOptions } = {}): Promise<string[]> {
   const limit = options.limit ?? CANDIDATE_CAP;
   const homeDir = options.homeDir ?? os.homedir();
   const found: string[] = [];
+  const skip = noiseFilter(cwd, { homeDir, ...options.noise });
   let budget = CANDIDATE_SCAN_BUDGET;
   async function probe(dir: string, depth: number): Promise<void> {
     if (budget <= 0 || found.length >= limit) return;
@@ -84,6 +86,7 @@ export async function findProjectCandidates(cwd: string, options: { homeDir?: st
       if (budget <= 0 || found.length >= limit) return;
       if (!entry.isDirectory() || entry.name.startsWith(".") || CANDIDATE_SKIP.has(entry.name)) continue;
       const child = path.join(dir, entry.name);
+      if (skip(child)) continue;
       let childEntries: string[] | undefined;
       try {
         childEntries = await readdir(child);

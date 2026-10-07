@@ -5,6 +5,7 @@
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { isOutside } from "../platform/inside";
+import { noiseFilter, type NoiseOptions } from "./noise";
 
 /** Conversation folders looked at, newest first: enough for the six choices without reading old history. */
 const RECENT_FOLDERS = 30;
@@ -67,12 +68,14 @@ function under(bases: readonly string[], dir: string): string | undefined {
 }
 
 /** Folders inside `base` (not `base` itself) with a saved conversation, most recently used first. A folder that
- * is gone, is not a folder, or sits outside `base` is skipped. */
-export async function recentlyUsedProjects(options: { base: string; agentDir: string }): Promise<string[]> {
+ * is gone, is not a folder, sits outside `base`, or is a temp, cache or scratch folder is skipped. */
+export async function recentlyUsedProjects(options: { base: string; agentDir: string; noise?: NoiseOptions }): Promise<string[]> {
   const base = path.resolve(options.base);
+  // Temp, cache, package and scratch folders are not projects (unless the opened folder is one itself).
+  const skip = noiseFilter(base, options.noise);
   const bases = [...new Set([base, await realpath(base).catch(() => base)])];
   const times = await conversationTimes(options.agentDir);
-  const inside = [...times].flatMap(([dir, at]) => { const mapped = under(bases, dir); return mapped ? [[mapped, at] as const] : []; });
+  const inside = [...times].flatMap(([dir, at]) => { const mapped = under(bases, dir); return mapped && !skip(dir) && !skip(mapped) ? [[mapped, at] as const] : []; });
   const present = await Promise.all(inside.map(async ([dir, at]) =>
     (await stat(dir).then(info => info.isDirectory(), () => false)) ? { dir, at } : undefined));
   const ordered = present.filter(item => item !== undefined).sort((a, b) => b.at - a.at).map(item => item.dir);
@@ -87,7 +90,7 @@ async function changedAt(dir: string): Promise<number> {
 
 /** The question's order: recently used projects first, then the remaining `candidates` by last change, newest
  * first (the name breaks a tie). */
-export async function orderProjectChoices(candidates: readonly string[], options: { base: string; agentDir: string }): Promise<string[]> {
+export async function orderProjectChoices(candidates: readonly string[], options: { base: string; agentDir: string; noise?: NoiseOptions }): Promise<string[]> {
   const used = await recentlyUsedProjects(options);
   const seen = new Set(used.map(dir => path.resolve(dir)));
   const rest = await Promise.all(candidates.filter(dir => !seen.has(path.resolve(dir)))

@@ -21,6 +21,7 @@ import { askBuildRequest, buildFromFirstRequest, buildInEmptyFolder, buildReques
 import { listLines, projectsFolder } from "../new/command";
 import { defaultNameFor } from "../new/templates";
 import { tildePath } from "../new/scaffold";
+import type { NoiseOptions } from "../project/noise";
 import { updateFooter, phase } from "./footer";
 import { revokeWorkspaceCapabilities } from "./session-branches";
 import { writeCheckResult, networkOptions } from "./verification";
@@ -78,17 +79,21 @@ export function projectsHeldLine(cwd: string, candidates: readonly string[]): st
  * path is validated and must stay inside the launch folder; Esc/empty keeps it. Any other folder, even one that
  * only holds projects, opens exactly there, with one line naming them. Without a rich surface the question cannot
  * render, so the launch folder is stated plainly with the most recent project as the command to open it. */
-export async function openProjectFolder(app: CasperApp, cwd: string): Promise<string> {
+export async function openProjectFolder(app: CasperApp, cwd: string, env: { platform?: NodeJS.Platform; noise?: NoiseOptions } = {}): Promise<string> {
   const home = app.sessionHomeDir ?? os.homedir();
+  const platform = env.platform ?? process.platform;
+  const noise: NoiseOptions = { platform, homeDir: home, ...env.noise };
+  // Windows shows real paths (C:\Users\alex\Projects); macOS and Linux keep ~/Projects.
+  const projectsDisplay = platform === "win32" ? path.win32.join(home, "Projects") : "~/Projects";
   const fromHome = path.resolve(cwd) === path.resolve(home);
   const atRoot = !fromHome && isDriveRoot(cwd);
   const broad = fromHome || atRoot;
   let candidates: string[] | undefined;
   if (!broad) {
     if (await hasProjectSignals(cwd) || (await inspectProject(cwd)).isGit) return cwd;
-    candidates = await findProjectCandidates(cwd, { homeDir: home, limit: 50 });
+    candidates = await findProjectCandidates(cwd, { homeDir: home, limit: 50, noise });
     // An empty folder starts quietly: no question. A first request that fits a template builds it here (offerNewProject).
-    if (candidates.length > 1) candidates = await orderProjectChoices(candidates, { base: cwd, agentDir: appAgentDir(app) });
+    if (candidates.length > 1) candidates = await orderProjectChoices(candidates, { base: cwd, agentDir: appAgentDir(app), noise });
     const line = projectsHeldLine(cwd, candidates);
     if (line) app.output.write(line);
     return cwd;
@@ -96,19 +101,19 @@ export async function openProjectFolder(app: CasperApp, cwd: string): Promise<st
   if (!app.terminal.rich) {
     // `casper <folder>` opens that folder, so the hint is one command, no cd and no restart. From home it names
     // the project last worked in (no scan: only the saved conversations), else an example.
-    const recent = (await recentlyUsedProjects({ base: fromHome ? home : cwd, agentDir: appAgentDir(app) }))[0];
+    const recent = (await recentlyUsedProjects({ base: fromHome ? home : cwd, agentDir: appAgentDir(app), noise }))[0];
     const where = fromHome ? "your home folder" : "the top of a drive";
     app.output.write(
-      recent ? `[folder] Opened in ${where}. To work in ${terminalText(path.basename(recent))}: casper ${terminalText(tildePath(recent, home))}\n`
-        : `[folder] Opened in ${where}. To work in a project: casper ~/Projects/myapp\n`);
+      recent ? `[folder] Opened in ${where}. To work in ${terminalText(path.basename(recent))}: casper ${terminalText(tildePath(recent, home, platform))}\n`
+        : `[folder] Opened in ${where}. To work in a project: casper ${platform === "win32" ? path.win32.join(projectsDisplay, "myapp") : "~/Projects/myapp"}\n`);
     app.output.write("[folder] To start a new project instead: casper new\n");
     return cwd;
   }
   // Projects worked in lately lead (Enter opens the last one), then the scan's by last change.
-  candidates ??= await orderProjectChoices(await findProjectCandidates(cwd, { homeDir: home }), { base: fromHome ? home : cwd, agentDir: appAgentDir(app) });
+  candidates ??= await orderProjectChoices(await findProjectCandidates(cwd, { homeDir: home, noise }), { base: fromHome ? home : cwd, agentDir: appAgentDir(app), noise });
   const base = fromHome ? home : cwd;
   const folderLabel = (folder: string) => fromHome
-    ? folder === home ? "~" : `~${folder.slice(home.length)}`
+    ? platform === "win32" ? folder : folder === home ? "~" : `~${folder.slice(home.length)}`
     : folder === cwd ? "." : path.relative(cwd, folder);
   // Messages name the folder: "staying in Documents", never "staying in .".
   const folderName = fromHome ? "your home folder" : atRoot ? "the top of the drive" : path.basename(cwd) || cwd;
@@ -120,7 +125,7 @@ export async function openProjectFolder(app: CasperApp, cwd: string): Promise<st
     [
       ...candidates.slice(0, 6).map(candidate => ({ label: folderLabel(candidate) })),
       { label: folderLabel(cwd), description: fromHome ? "stay in the home folder" : "stay at the top of the drive" },
-      { label: NEW_PROJECT_CHOICE, description: "start one in ~/Projects" },
+      { label: NEW_PROJECT_CHOICE, description: `start one in ${projectsDisplay}` },
     ],
     false,
   );
@@ -129,9 +134,9 @@ export async function openProjectFolder(app: CasperApp, cwd: string): Promise<st
   if (choice === NEW_PROJECT_CHOICE) {
     // No questions: Casper starts in ~/Projects, and the first request makes the project (offerNewProject).
     const parent = await projectsFolder(home).catch(() => undefined);
-    if (!parent) { app.output.write("[new] Couldn't make ~/Projects; staying here.\n"); return cwd; }
+    if (!parent) { app.output.write(`[new] Couldn't make ${terminalText(projectsDisplay)}; staying here.\n`); return cwd; }
     app.pendingNewProject = true;
-    app.output.write(`[new] Starting a new project in ${terminalText(tildePath(parent, home))}. Say what you want; its folder is made from your first request.\n`);
+    app.output.write(`[new] Starting a new project in ${terminalText(tildePath(parent, home, platform))}. Say what you want; its folder is made from your first request.\n`);
     return parent;
   }
   const resolved = byLabel.get(choice) ?? path.resolve(cwd, choice.replace(/^~(?=\/|$)/, home));
