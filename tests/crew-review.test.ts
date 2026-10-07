@@ -8,6 +8,7 @@ import { stringify } from "yaml";
 import { CasperApp } from "../src/app";
 import { BUILDER_LIMITS, SubagentManager, type BuildOutcome } from "../src/agents/manager";
 import { PartRecord, PART_EXCERPT_BYTES } from "../src/crew/parts";
+import { formatReceipt } from "../src/task/result";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeBuilderStartOptions, RuntimeEvent, RuntimeEventListener, RuntimeReadOnlyStartOptions, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
@@ -39,6 +40,8 @@ class Children implements AgentRuntime {
   /** Each builder's prompt, and what b.txt held in its copy when it started. */
   static builderPrompts: string[] = [];
   static seenB: string[] = [];
+  /** What a read-only child answers, when a test sets it. */
+  static readerReply: string | undefined;
   constructor(private readonly during?: () => Promise<void>) {}
   async start(): Promise<RuntimeSession> { throw new Error("not the main session"); }
   private session(cwd: string, run: (text: string, emit: (event: RuntimeEvent) => void) => Promise<void>): RuntimeSession {
@@ -65,7 +68,7 @@ class Children implements AgentRuntime {
   async startReadOnly(options: RuntimeReadOnlyStartOptions): Promise<RuntimeSession> {
     return this.session(options.cwd, async (text, emit) => {
       Children.readers.push({ options, prompt: text });
-      emit({ type: "assistant_text_delta", delta: text.includes("keys.txt") ? "Finding: the key is hard coded.\nAPI_KEY=sk-live-abcdef1234567890abcdef\n" : "No findings." });
+      emit({ type: "assistant_text_delta", delta: Children.readerReply ?? (text.includes("keys.txt") ? "Finding: the key is hard coded.\nAPI_KEY=sk-live-abcdef1234567890abcdef\n" : "No findings.") });
       emit({ type: "assistant_response_end", stopReason: "stop", usage: { tokens: 500, estimatedCost: 0.01 } });
     });
   }
@@ -87,12 +90,15 @@ class Main implements AgentRuntime {
   async dispose() {}
 }
 
+/** What the app printed, for the [crew] lines. */
+let written: string[] = [];
+
 async function app(repo: string, home: string, main: Main, children: () => AgentRuntime = () => new Children()) {
-  Children.builders = []; Children.readers = []; Children.builderPrompts = []; Children.seenB = [];
+  Children.builders = []; Children.readers = []; Children.builderPrompts = []; Children.seenB = []; Children.readerReply = undefined; written = [];
   await mkdir(path.join(repo, ".casper"), { recursive: true });
   await writeFile(path.join(repo, ".casper", "project.yaml"), stringify({ name: "review-app" }));
   const casper = new CasperApp({ runtimeFactory: () => main, subagentRuntimeFactory: children, noSandbox: true,
-    output: { write: () => {} }, sessionHomeDir: home,
+    output: { write: (text: string) => { written.push(text); } }, sessionHomeDir: home,
     loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
     loadSkillRegistry: (context) => SkillRegistry.discover({ homeDir: home, projectRoot: context.info.root }),
     loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
@@ -469,4 +475,121 @@ test("a fix for a part that was never landed is refused in plain words", async (
   await casper.runOnce("Split this up", repo);
   expect(reply).toContain("Part 1");
   expect(Children.builders).toHaveLength(0);
+}, 30_000);
+
+/** A reader whose run fails, as a reviewer that timed out or broke would. */
+class FailingReader extends Children {
+  override async startReadOnly(options: RuntimeReadOnlyStartOptions): Promise<RuntimeSession> {
+    const session = await super.startReadOnly(options);
+    return { ...session, prompt: async () => { throw new Error("the model went away"); } };
+  }
+}
+
+test("the record says which landed parts no reviewer finished, and why", () => {
+  const record = new PartRecord();
+  const patch = Buffer.from("diff --git a/x.txt b/x.txt\n+new\n");
+  expect(record.notReviewed()).toEqual([]);
+  const one = record.landed({ files: ["x.txt"], stat: "", patch, goal: "one" });
+  const two = record.landed({ files: ["y.txt", "z.txt"], stat: "", patch, goal: "two" });
+  const three = record.landed({ files: ["w.txt"], stat: "", patch, goal: "three" });
+  expect(record.notReviewed().map((item) => item.why)).toEqual(Array(3).fill("no reviewer looked at it"));
+  record.markReviewed(one, "fine", 0);
+  record.reviewFailed(two, "timed_out", 0);
+  expect(record.notReviewed()).toEqual([
+    { part: two, files: ["y.txt", "z.txt"], why: "the reviewer timed out" },
+    { part: three, files: ["w.txt"], why: "no reviewer looked at it" },
+  ]);
+  for (const [status, why] of [["failed", "the reviewer failed"], ["limited", "the reviewer was cut off"], ["cancelled", "the reviewer was stopped"]] as const) {
+    record.reviewFailed(three, status, 0);
+    expect(record.notReviewed().at(-1)!.why).toBe(why);
+  }
+  // A later review that finishes clears the reason; a fix makes the part new again.
+  record.markReviewed(two, "fine", 0);
+  expect(record.notReviewed().map((item) => item.part)).toEqual([three]);
+  record.refreshExcerpt(one, Buffer.from("diff --git a/x.txt b/x.txt\n+newer\n"));
+  expect(record.notReviewed().map((item) => [item.part, item.why])).toEqual([[one, "no reviewer looked at it"], [three, "the reviewer was stopped"]]);
+});
+
+test("the receipt says which landed parts were not reviewed when the reviewer failed, and not when all were reviewed or none landed", async () => {
+  const { home, repo } = await repository();
+  const failed = await app(repo, home, new Main(async (delegate) => {
+    await review(delegate, (await build(delegate, "b.txt")).part);
+    await build(delegate, "c.txt");
+  }), () => new FailingReader());
+  await failed.runOnce("Split this up", repo);
+  const task = failed.getLastTaskResult()!;
+  expect(task.partsNotReviewed).toEqual([
+    { part: 1, files: ["b.txt"], why: "the reviewer failed" },
+    { part: 2, files: ["c.txt"], why: "no reviewer looked at it" },
+  ]);
+  expect(formatReceipt(task)).toContain("• Not reviewed: part 1 (b.txt; the reviewer failed), part 2 (c.txt; no reviewer looked at it)");
+
+  const reviewed = await app(repo, home, new Main(async (delegate) => { await review(delegate, (await build(delegate, "b.txt")).part); }));
+  await reviewed.runOnce("Split this up", repo);
+  expect(reviewed.getLastTaskResult()!.partsNotReviewed).toBeUndefined();
+  expect(formatReceipt(reviewed.getLastTaskResult()!)).not.toContain("Not reviewed");
+
+  const none = await app(repo, home, new Main(async (delegate) => { await delegate.execute({ role: "explorer", goal: "look" }); }));
+  await none.runOnce("Look around", repo);
+  expect(none.getLastTaskResult()!.partsNotReviewed).toBeUndefined();
+}, 60_000);
+
+test("the parts not reviewed are listed on the receipt of the task that landed them only", async () => {
+  const { home, repo } = await repository();
+  const casper = await app(repo, home, new Main(async (delegate, task) => { if (task === 1) await build(delegate, "b.txt"); }));
+  await casper.runOnce("Split this up", repo);
+  expect(casper.getLastTaskResult()!.partsNotReviewed).toHaveLength(1);
+  await casper.runOnce("Something else", repo);
+  expect(casper.getLastTaskResult()!.partsNotReviewed).toBeUndefined();
+}, 30_000);
+
+test("the last builder's result lists the parts no reviewer has finished, and an earlier one's does not while another builder works", async () => {
+  const { home, repo } = await repository();
+  const replies: Array<Record<string, unknown>> = [];
+  const casper = await app(repo, home, new Main(async (delegate) => {
+    // b.txt's builder is slow, c.txt's is not: c.txt ends first while b.txt still works.
+    const both = await Promise.all([build(delegate, "b.txt"), build(delegate, "c.txt")]);
+    replies.push(...both);
+    replies.push(await build(delegate, "a.txt").catch(() => ({})));
+  }), () => new Children(() => new Promise((resolve) => setTimeout(resolve, 100))));
+  await casper.runOnce("Split this up", repo);
+  const [first, second] = replies;
+  const withNote = [first, second].filter((reply) => reply!.notReviewedYet !== undefined);
+  expect(withNote).toHaveLength(1);
+  expect(String(withNote[0]!.notReviewedYet)).toMatch(/Parts no reviewer has finished yet: [12], [12]/);
+}, 60_000);
+
+test("a lone builder's result lists its part, and a reviewed part is left off", async () => {
+  const { home, repo } = await repository();
+  const replies: Array<Record<string, unknown>> = [];
+  const casper = await app(repo, home, new Main(async (delegate) => {
+    replies.push(await build(delegate, "b.txt"));
+    await review(delegate, 1);
+    replies.push(await build(delegate, "c.txt"));
+  }));
+  await casper.runOnce("Split this up", repo);
+  expect(replies[0]!.notReviewedYet).toContain("1");
+  expect(String(replies[1]!.notReviewedYet)).toContain(": 2");
+  expect(String(replies[1]!.notReviewedYet)).not.toContain("1");
+}, 30_000);
+
+test("[crew] lines say a reviewer is checking the part, and that a builder is fixing what it found", async () => {
+  const { home, repo } = await repository();
+  const casper = await app(repo, home, new Main(async (delegate) => {
+    Children.readerReply = "Findings:\n1. **High** b.txt:1 is wrong\n   evidence: the line\n2. **Low** b.txt:1 is odd\n";
+    const landed = await build(delegate, "b.txt");
+    await review(delegate, landed.part);
+    await fix(delegate, "write b.txt", landed.part);
+  }));
+  await casper.runOnce("Split this up", repo);
+  const lines = written.join("");
+  expect(lines).toContain("[crew] A reviewer is checking part 1 (1 file)");
+  expect(lines).toContain("[crew] The reviewer found 2 problems; a builder is fixing them");
+}, 30_000);
+
+test("a fix with no review on file says a builder is fixing the part, without a count", async () => {
+  const { home, repo } = await repository();
+  const casper = await app(repo, home, new Main(async (delegate) => { await fix(delegate, "write b.txt", (await build(delegate, "b.txt")).part); }));
+  await casper.runOnce("Split this up", repo);
+  expect(written.join("")).toContain("[crew] A builder is fixing part 1");
 }, 30_000);

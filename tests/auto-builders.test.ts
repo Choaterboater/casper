@@ -295,10 +295,34 @@ test("a builder's change next to yours in the same file is not merged in: the wh
 }, 30_000);
 
 test("the footer shows running builders and what they spent so far", () => {
-  const run = (role: "builder" | "explorer", estimatedCost: number) => ({ id: 1, role, goal: "g", startedAt: 0, spent: { tokens: 500, estimatedCost } });
+  const run = (role: "builder" | "explorer" | "reviewer", estimatedCost: number) => ({ id: 1, role, goal: "g", startedAt: 0, spent: { tokens: 500, estimatedCost } });
   expect(buildersText({ subagents: { runs: () => [] } } as never)).toBe("");
   expect(buildersText({ subagents: { runs: () => [run("builder", 0.05), run("builder", 0.07), run("explorer", 1)] } } as never)).toBe(" │ 2 builders · $0.12");
   expect(buildersText({ subagents: { runs: () => [run("builder", 0)] } } as never)).toBe(" │ 1 builder · 500 tok");
+});
+
+test("the footer counts running reviewers before builders, and a reviewer alone shows too", () => {
+  const run = (role: "builder" | "explorer" | "reviewer", estimatedCost: number) => ({ id: 1, role, goal: "g", startedAt: 0, spent: { tokens: 500, estimatedCost } });
+  expect(buildersText({ subagents: { runs: () => [run("reviewer", 0.05), run("builder", 0.07), run("builder", 0.07), run("explorer", 1)] } } as never)).toBe(" │ 1 reviewer · 2 builders · $0.19");
+  expect(buildersText({ subagents: { runs: () => [run("reviewer", 0.01), run("reviewer", 0.02)] } } as never)).toBe(" │ 2 reviewers · $0.03");
+  expect(buildersText({ subagents: { runs: () => [run("reviewer", 0)] } } as never)).toBe(" │ 1 reviewer · 500 tok");
+  expect(buildersText({ subagents: { runs: () => [run("explorer", 1)] } } as never)).toBe("");
+});
+
+test("the footer line with reviewers and builders fits 40, 80 and 120 columns, and shows the counts when there is room", async () => {
+  const { interactiveTerminal } = await import("./support/tty");
+  const run = (role: "builder" | "reviewer", estimatedCost: number) => ({ id: 1, role, goal: "g", startedAt: 0, spent: { tokens: 500, estimatedCost } });
+  const counts = buildersText({ subagents: { runs: () => [run("reviewer", 0.05), run("builder", 0.07), run("builder", 0.07)] } } as never);
+  process.env.TERM = "xterm-256color";
+  const session = interactiveTerminal();
+  try {
+    session.terminal.setStatus(`proj/main │ model │ ctx 9%~${counts} │ working`); session.terminal.start();
+    const { visibleWidth } = await import("@earendil-works/pi-tui");
+    for (const width of [40, 80, 120]) expect(visibleWidth(Bun.stripANSI(session.terminal.footerLine(width)!))).toBeLessThanOrEqual(width);
+    expect(Bun.stripANSI(session.terminal.footerLine(80)!)).toContain("1 reviewer · 2 builders · $0.19");
+    expect(Bun.stripANSI(session.terminal.footerLine(120)!)).toContain("1 reviewer · 2 builders · $0.19 │ working");
+    expect(Bun.stripANSI(session.terminal.footerLine(40)!)).toContain("proj/main");
+  } finally { session.close(); }
 });
 
 const done = (options: BuilderRunOptions): SubagentResult => ({ role: "builder", cwd: options.cwd, goal: options.goal, status: "completed", response: "done",

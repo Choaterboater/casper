@@ -16,6 +16,8 @@ export interface RuntimeEventCallbacks {
   updateFooter(): void;
   /** The goals of the builders running now, for the Working box. Unset: no line. */
   builderGoals?(): readonly string[];
+  /** How many reviewers run now, for the same line. Unset: none. */
+  reviewerCount?(): number;
   /** Bounded tool-output retention plus downstream invalidation for mutation tools. */
   onToolEnd(event: Extract<RuntimeEvent, { type: "tool_end" }>): void;
   /** Final provider stop outcome of the current model turn. */
@@ -97,15 +99,17 @@ export const PLAIN_START_AFTER_MS = 2000;
 /** How many steps the Working box shows. */
 const BOX_STEPS = 3;
 
-/** "2 builders working: fix the parser, add tests": the first line of each goal, short, the first few named. */
-export function buildersLine(goals: readonly string[]): string | undefined {
-  if (!goals.length) return undefined;
+/** "2 builders working: fix the parser, add tests": the first line of each goal, short, the first few named.
+ * Running reviewers come first: "1 reviewer, 2 builders working: ...". */
+export function buildersLine(goals: readonly string[], reviewers = 0): string | undefined {
+  if (!goals.length && !reviewers) return undefined;
+  const who = [...(reviewers ? [`${reviewers} reviewer${reviewers === 1 ? "" : "s"}`] : []), ...(goals.length ? [`${goals.length} builder${goals.length === 1 ? "" : "s"}`] : [])].join(", ");
   const short = goals.slice(0, 3).map(goal => {
     const first = (goal.split("\n").find(line => line.trim()) ?? "").trim();
     return first.length > 40 ? `${first.slice(0, 39)}…` : first;
   }).filter(Boolean);
   const more = goals.length > 3 ? ` +${goals.length - 3} more` : "";
-  return `${goals.length} builder${goals.length === 1 ? "" : "s"} working${short.length ? `: ${short.join(", ")}` : ""}${more}`;
+  return `${who} working${short.length ? `: ${short.join(", ")}` : ""}${more}`;
 }
 
 /** One line for a finished group of steps: "✓ 14 edits · 6 commands · 38s", or "• 14 edits · 6 commands · 1 failed · 38s"
@@ -200,7 +204,7 @@ export class RuntimeEventView {
   private renderBox(): void {
     if (!this.terminal.rich) return;
     const lines = this.steps.slice(-BOX_STEPS).map(step => step.line);
-    const builders = buildersLine(this.callbacks.builderGoals?.() ?? []);
+    const builders = buildersLine(this.callbacks.builderGoals?.() ?? [], this.callbacks.reviewerCount?.() ?? 0);
     if (builders) lines.push(builders);
     if (this.status) lines.push(this.status);
     this.terminal.setActivity(lines.length ? lines : undefined);

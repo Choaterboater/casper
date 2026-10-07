@@ -41,7 +41,7 @@ export async function runVerification(app: CasperApp, checks: readonly CheckName
   const controller = new AbortController();
   // A standalone verification task (/verify, branch checks) owns its objective; post-task
   // verification passes `task` and continues the parent request's delegation budget.
-  if (!task) { app.delegateToolForTask = undefined; app.builderSteer = undefined; }
+  if (!task) { app.delegateToolForTask = undefined; app.crewParts = undefined; app.builderSteer = undefined; }
   // Your own /verify (no parent task) may use a saved "Always"; anything the AI asked for shows the box every time.
   const evidence = task ?? new VerificationTask(
     VerifierRegistry.forProject(context.model, context.verification.timeoutMs, app.blockOnCleanupFailure, taskNetworkOptions(app, task ? "ai" : "user")), app.activeWorkspaceRoot(),
