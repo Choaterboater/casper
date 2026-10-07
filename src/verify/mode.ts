@@ -2,6 +2,7 @@ import type { ProjectCommand } from "../project/model";
 import { CHECK_NAMES, type CheckName } from "./evidence";
 import { autoNamedChecks, modelNamedChecks, type NamedCheckSpec } from "./named";
 import type { VerificationScope } from "./scope";
+import { editAffects } from "./task";
 
 /** `auto`: Casper runs the selected checks after the model's edits. `offer`: the model may use
  * casper_check and the receipt suggests /verify. `off`: no managed checks during tasks. */
@@ -103,7 +104,9 @@ export type AutoCheckSkip = "no-changes" | "no-checks" | "not-covered";
 
 /** The checks auto mode runs after a model turn. `changedPaths` undefined means the change set
  * is unknown (a snapshot failed), so nothing can be skipped for being unaffected. A check with a
- * declared scope runs only when a changed path lies inside its inputs and outside its excludes. */
+ * declared scope runs only when a changed path lies inside its inputs and outside its excludes. With `root` (the
+ * folder `changedPaths` are relative to), a path also counts when the filesystem says it is the same place as an
+ * input (a case spelling like SRC and src, or a link), and a path whose place cannot be told counts as covered. */
 export function planAutoChecks(input: {
   selected?: readonly CheckName[];
   commands: Partial<Record<ProjectCommand, string>>;
@@ -112,17 +115,24 @@ export function planAutoChecks(input: {
   /** Checks Casper found in the project, each with the files that make it worth running (the migrations check). */
   detected?: ReadonlyArray<{ name: CheckName; scope: VerificationScope }>;
   changedPaths?: readonly string[];
+  root?: string;
 }): { run: CheckName[]; skipped?: AutoCheckSkip } {
   if (input.changedPaths && !input.changedPaths.length) return { run: [], skipped: "no-changes" };
   const detected = input.detected ?? [];
   const candidates = selectedChecks(input.selected, input.commands, input.named, detected.map((check) => check.name));
   if (!candidates.length) return { run: [], skipped: "no-checks" };
   const within = (file: string, entry: string) => entry === "." || file === entry || file.startsWith(`${entry}/`);
+  const affects = new Map<string, ReturnType<typeof editAffects>>();
+  const sameFolder = (file: string, scope: VerificationScope) => {
+    if (input.root === undefined) return false;
+    if (!affects.has(file)) affects.set(file, editAffects(input.root, file));
+    return affects.get(file)!(scope);
+  };
   const run = candidates.filter((name) => {
     const scope = input.scopes?.[name as ProjectCommand] ?? detected.find((check) => check.name === name)?.scope;
     if (!scope || !input.changedPaths) return true;
-    return input.changedPaths.some((file) => scope.inputs.some((entry) => within(file, entry))
-      && !scope.exclude?.some((entry) => within(file, entry)));
+    return input.changedPaths.some((file) => (scope.inputs.some((entry) => within(file, entry))
+      && !scope.exclude?.some((entry) => within(file, entry))) || sameFolder(file, scope));
   });
   return run.length ? { run } : { run, skipped: "not-covered" };
 }

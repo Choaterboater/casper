@@ -283,7 +283,7 @@ export async function childProjectOfTask(app: CasperApp, context: ProjectContext
 export async function runChildChecks(app: CasperApp, child: ChildProject, changed: readonly string[]): Promise<VerificationReport | undefined> {
   const prefix = `${child.relative}/`;
   const inside = changed.filter((file) => file.split(path.sep).join("/").startsWith(prefix)).map((file) => file.split(path.sep).join("/").slice(prefix.length));
-  const plan = planAutoChecks({ commands: child.model.commands, scopes: child.model.verificationScopes, changedPaths: inside });
+  const plan = planAutoChecks({ commands: child.model.commands, scopes: child.model.verificationScopes, changedPaths: inside, root: child.dir });
   if (!plan.run.length) return undefined;
   const label = `checks from ${child.relative}`;
   app.events.ensureLineBreak();
