@@ -269,7 +269,7 @@ test("ctrl+o restarts it read-only and ends the grant", async () => {
 test("a read-only login hides changes", async () => {
   const s = await networkSession({
     reach: { mist: { access: "read-only" } },
-    steps: ["/mcp", async (ai) => {
+    steps: ["/mcp detail", async (ai) => {
       await ai.call("find_tool", { query: "change the guest wlan vlan" });
       await ai.call("invoke_tool", WLAN);
     }],
@@ -296,7 +296,7 @@ test("one-shot: a change is not executed", async () => {
 test("/mcp says the read-only pin was confirmed", async () => {
   let confirmed: boolean | undefined;
   const s = await networkSession({
-    steps: [async (ai) => { confirmed = gatesConfirmedOff(ai.manager().policy("network").access); }, "/mcp"],
+    steps: [async (ai) => { confirmed = gatesConfirmedOff(ai.manager().policy("network").access); }, "/mcp detail"],
   });
   expect(confirmed).toBe(true);
   expect(s.output).toContain("preset: casper-network-mcp (read-only pinned: --read-only)");

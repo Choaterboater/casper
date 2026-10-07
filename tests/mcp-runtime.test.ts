@@ -269,12 +269,14 @@ test("/mcp shows each server's limits and, for a failed start, the server's last
   });
   cleanup.push(() => app.close());
   const error = await app.runOnce("/mcp connect broken", project).then(() => undefined, (caught: Error) => caught);
+  expect(output).not.toContain("limits:");
+  await app.runOnce("/mcp detail");
   expect(output).toContain("  limits: start 20 s · call 90 s");
   expect(output).toContain("  limits: start 20 s · call 400 s");
   expect(output).toContain("  Last lines from the server:\n");
   // The reason comes once, after the server's own lines, as the command's error.
   expect(error?.message).toBe("broken did not start: The server stopped while starting (exit code 1).");
-  expect(output).toContain("    | KeyError: 'CENTRAL_BASE_URL'");
+  expect(output).toContain("  | KeyError: 'CENTRAL_BASE_URL'");
   expect(output).not.toContain("hunter2-very-secret");
   expect(output).not.toContain("abc123");
 });

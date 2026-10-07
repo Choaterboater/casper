@@ -822,7 +822,7 @@ async function handleDelegateCommand(host: CommandHost, prompt: string): Promise
     if (result.status !== "completed") throw new Error(`Delegation ${result.status}; see the bounded report above`);
   }
 
-const MCP_USAGE = "Usage: /mcp | /mcp setup network | /mcp setup ssh [--name <name>] [host] [command] | /mcp login [mist|central|clearpass] [forget] | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp sandbox <name> on|off | /mcp docs";
+const MCP_USAGE = "Usage: /mcp (a picker on a normal terminal) | /mcp detail [name] | /mcp setup network | /mcp setup ssh [--name <name>] [host] [command] | /mcp login [mist|central|clearpass] [forget] | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp sandbox <name> on|off | /mcp docs";
 /** What "writes off" means, said once under the list: the server runs pinned and every change asks. */
 const WRITES_OFF_TEXT = `${WRITES_OFF_MEANING} Answer 2 or 3 in the change box to allow it, or /mcp writes <name> to turn writes on now.`;
 
@@ -838,6 +838,7 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       // A changed command/URL is a different program; consent never carries over silently.
       if (diff.revoked.length) host.output.write(`[mcp] consent revoked for ${diff.revoked.join(", ")}; reconnect with /mcp connect <name>\n`);
       host.updateFooter();
+      return;
     } else if (action === "writes") {
       if (!name || extra.length) throw new Error(MCP_USAGE);
       await handleMCPWrites(host, name);
@@ -877,17 +878,12 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       return;
     } else if (action === "forget") {
       if (!name || extra.length) throw new Error(MCP_USAGE);
-      host.output.write(await mcp.forget(name)
-        ? `[mcp] Forgot ${name}. Casper asks again before it connects next time.\n`
-        : `[mcp] ${name} was not remembered.\n`);
+      await runMCPForget(host, name);
       return;
     } else if (action === "sandbox") {
       if (!name || extra.length !== 1 || !["on", "off"].includes(extra[0]!)) throw new Error(MCP_USAGE);
       // Only the user types this; the model has no way to run a slash command. Kept for next time.
-      const status = await mcp.setSandbox(name, extra[0] === "on");
-      host.output.write(extra[0] === "on"
-        ? `[mcp] ${name} runs in the sandbox${status?.state === "failed" ? ` once it can (${status.why})` : ""}.\n`
-        : `[mcp] ${name} runs outside the sandbox from now on. /mcp sandbox ${name} on puts it back.\n`);
+      await runMCPSandbox(host, name, extra[0] === "on");
       return;
     } else if (action === "junos-show") {
       if (!name || extra.length !== 1 || !["on", "off"].includes(extra[0]!)) throw new Error(MCP_USAGE);
@@ -897,14 +893,36 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
         ? `[mcp] Plain show commands on ${name} run without asking.\n`
         : `[mcp] Show commands on ${name} ask you again.\n`);
       return;
+    } else if (action === "detail") {
+      if (extra.length) throw new Error(MCP_USAGE);
+      const all = mcp.status();
+      const shown = name ? all.filter((status) => status.name === name) : all;
+      if (name && !shown.length) throw new Error("Unknown MCP server; use /mcp to list definitions");
+      host.output.write(mcpDetailText(shown));
+      if (!name) await writeNetworkSetupLine(host);
+      return;
     } else if (action && (!name || extra.length || !["connect", "disconnect"].includes(action))) {
       throw new Error(MCP_USAGE);
     }
-    if (action === "connect" && !await approveProjectDefinition(host, "mcp", name, mcp.review(name))) return;
-    if (action === "connect") await mcp.connect(name);
-    if (action === "disconnect") await mcp.disconnect(name);
-    const statuses = mcp.status();
-    host.output.write(statuses.length ? statuses.map((status) => [
+    if (action === "connect") { await runMCPConnect(host, name!); return; }
+    if (action === "disconnect") { await runMCPDisconnect(host, name!); return; }
+    // /mcp: one line per server. On a normal terminal the arrow-key picker sits right under it, so nothing needs typing.
+    const picker = host.interactive && host.terminal.rich && host.terminal.canAsk;
+    host.output.write(mcpListText(mcp.status(), !picker));
+    await writeNetworkSetupLine(host);
+    if (picker) await mcpPicker(host);
+  }
+
+async function writeNetworkSetupLine(host: CommandHost): Promise<void> {
+  const network = host.networkSetupHost();
+  const line = await networkSetupLine(network.homeDir, await network.configured());
+  if (line) host.output.write(`${line}\n`);
+}
+
+/** The full per-server block /mcp detail prints (the whole list before /mcp became one line per server). */
+function mcpDetailText(statuses: readonly MCPStatus[]): string {
+  if (!statuses.length) return "No MCP servers configured.\n";
+  return statuses.map((status) => [
       `${status.name} [${status.transport}; ${status.state}] ${status.toolCount} tools${status.importedFrom ? ` · from ${status.importedFrom}` : ""}`
         + `${status.preset ? ` · preset: ${status.preset.id}` : ""} · writes ${status.writes}${status.state === "ready" ? ` · ${status.access}` : ""}`,
       `  source: ${status.source}`,
@@ -913,21 +931,126 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       ...(status.preset?.lines ?? []).map((line) => `  ${terminalText(line)}`),
       ...(status.showOptIn ? ["  Plain show commands run without asking (/mcp junos-show " + status.name + " off)."] : []),
       ...sandboxLines(status.name, status.sandbox).map(terminalText),
-      // The server just asked for says why in the error below, once.
-      ...(status.error && !(action === "connect" && status.name === name) ? [`  ${terminalText(status.error)}`] : []),
+      ...(status.error ? [`  ${terminalText(status.error)}`] : []),
       // Already redacted by the manager (known secrets and token shapes); shown to you, never to the model.
       ...(status.serverOutput?.length ? ["  Last lines from the server:", ...status.serverOutput.map((line) => `    | ${terminalText(line)}`)] : []),
     ].join("\n")).join("\n") + `\n${statuses.some((status) => status.writes === "off") ? `${WRITES_OFF_TEXT}\n` : ""}`
-      + `${sandboxSummary(statuses) ? `${terminalText(sandboxSummary(statuses)!)}\n` : ""}` : "No MCP servers configured.\n");
-    if (!action) {
-      const network = host.networkSetupHost();
-      const line = await networkSetupLine(network.homeDir, await network.configured());
-      if (line) host.output.write(`${line}\n`);
-    }
-    const asked = action === "connect" ? statuses.find((status) => status.name === name) : undefined;
-    if (asked && asked.state !== "ready") throw new Error(`${name} did not start${asked.error ? `: ${terminalText(asked.error)}` : "."}`);
-    if (action === "connect") await offerRemember(host, name);
+      + `${sandboxSummary(statuses) ? `${terminalText(sandboxSummary(statuses)!)}\n` : ""}`;
+}
+
+function sandboxWord(status: MCPStatus): string | undefined {
+  if (!status.sandbox) return undefined;
+  return status.sandbox.state === "on" ? "sandboxed" : "not sandboxed";
+}
+
+function stateWords(status: MCPStatus): string {
+  if (status.state === "ready") return "ready";
+  if (status.state === "connecting") return "connecting";
+  if (status.state === "disabled") return "disabled";
+  if (status.state === "failed") {
+    const why = terminalText((status.error ?? "").split("\n")[0] ?? "").trim();
+    return `failed${why ? ` (${why.length > 60 ? `${why.slice(0, 57)}...` : why})` : ""}`;
   }
+  return status.consent === "changed" && !status.approved ? "not connected (changed since you approved it)" : "not connected";
+}
+
+/** One line per server. Command hints only where there is no picker to choose from. */
+function mcpListText(statuses: readonly MCPStatus[], hints: boolean): string {
+  if (!statuses.length) return "No MCP servers configured.\n";
+  const width = Math.min(24, Math.max(...statuses.map((status) => status.name.length)));
+  const lines = statuses.map((status) => {
+    const ready = status.state === "ready";
+    const access = ready && status.access !== "access not checked" ? status.access.replace(/ \(checked\)$/, "") : undefined;
+    const parts = [
+      stateWords(status),
+      ...(ready ? [`${status.toolCount} ${status.toolCount === 1 ? "tool" : "tools"}`, `writes ${status.writes}`] : []),
+      ...(ready && sandboxWord(status) ? [sandboxWord(status)!] : []),
+      ...(access ? [access] : []),
+      ...(status.importedFrom ? [`from ${status.importedFrom}`] : []),
+      ...(hints && status.state === "disconnected" ? [`/mcp connect ${status.name}`] : []),
+    ];
+    return terminalText(`${status.name.padEnd(width)}  ${parts.join(" · ")}`);
+  });
+  const writesOn = statuses.filter((status) => status.writes === "on").map((status) => status.name);
+  const open = statuses.filter((status) => status.state === "ready" && status.sandbox && status.sandbox.state !== "on").map((status) => status.name);
+  const warn = [
+    ...(writesOn.length ? [`writes are on for ${writesOn.join(", ")}`] : []),
+    ...(open.length ? [`${open.join(", ")} ${open.length === 1 ? "runs" : "run"} outside the sandbox`] : []),
+  ];
+  return `${lines.join("\n")}\n${warn.length ? `${terminalText(`Heads up: ${warn.join("; ")}.`)}${hints ? " /mcp detail shows more." : ""}\n` : ""}${hints ? "Details: /mcp detail [name]\n" : ""}`;
+}
+
+/** The one line a connect, disconnect or writes change prints: the same words the list uses. */
+function mcpResultLine(status: MCPStatus): string {
+  return terminalText(`[mcp] ${status.name} ${status.state === "ready" ? "connected" : stateWords(status)}`
+    + `${status.state === "ready" ? ` · ${status.toolCount} ${status.toolCount === 1 ? "tool" : "tools"} · writes ${status.writes}` : ""}`);
+}
+
+/** /mcp connect <name> (and the picker's Connect): the approval box, the connection, one result line, then the remember offer. */
+async function runMCPConnect(host: CommandHost, name: string): Promise<void> {
+  const mcp = host.mcp!;
+  if (!await approveProjectDefinition(host, "mcp", name, mcp.review(name))) return;
+  await mcp.connect(name);
+  const asked = mcp.status().find((status) => status.name === name);
+  if (asked && asked.state !== "ready") {
+    if (asked.serverOutput?.length) host.output.write(["[mcp] Last lines from the server:", ...asked.serverOutput.map((line) => `  | ${terminalText(line)}`)].join("\n") + "\n");
+    throw new Error(`${name} did not start${asked.error ? `: ${terminalText(asked.error)}` : "."}`);
+  }
+  if (asked) host.output.write(`${mcpResultLine(asked)}\n`);
+  await offerRemember(host, name);
+}
+
+async function runMCPDisconnect(host: CommandHost, name: string): Promise<void> {
+  await host.mcp!.disconnect(name);
+  host.output.write(`[mcp] ${terminalText(name)} disconnected.\n`);
+}
+
+async function runMCPForget(host: CommandHost, name: string): Promise<void> {
+  host.output.write(await host.mcp!.forget(name)
+    ? `[mcp] Forgot ${name}. Casper asks again before it connects next time.\n`
+    : `[mcp] ${name} was not remembered.\n`);
+}
+
+async function runMCPSandbox(host: CommandHost, name: string, on: boolean): Promise<void> {
+  const status = await host.mcp!.setSandbox(name, on);
+  host.output.write(on
+    ? `[mcp] ${name} runs in the sandbox${status?.state === "failed" ? ` once it can (${status.why})` : ""}.\n`
+    : `[mcp] ${name} runs outside the sandbox from now on. /mcp sandbox ${name} on puts it back.\n`);
+}
+
+const PICKER_DONE = "Done";
+const PICKER_BACK = "Back";
+
+/** The arrow-key picker under the list: pick a server, pick what to do, see the result line, and come back to the servers. */
+async function mcpPicker(host: CommandHost): Promise<void> {
+  const mcp = host.mcp!;
+  const signal = host.commandAbort?.signal;
+  while (!signal?.aborted) {
+    const statuses = mcp.status();
+    if (!statuses.length) return;
+    const servers = await host.terminal.pick("Pick a server",
+      [...statuses.map((status) => ({ label: terminalText(status.name), description: stateWords(status) })), { label: PICKER_DONE }], signal);
+    const status = servers === undefined ? undefined : statuses.find((entry) => terminalText(entry.name) === servers);
+    if (!status) return;
+    const name = status.name;
+    const ready = status.state === "ready";
+    const actions: { label: string; run: () => Promise<void> }[] = [
+      { label: "Details", run: async () => { host.output.write(mcpDetailText([status])); } },
+      { label: ready ? "Reconnect" : "Connect", run: () => runMCPConnect(host, name) },
+      ...(status.state !== "disconnected" ? [{ label: "Disconnect", run: () => runMCPDisconnect(host, name) }] : []),
+      ...(status.consent !== "none" ? [{ label: "Forget", run: () => runMCPForget(host, name) }] : []),
+      ...(ready && status.writes === "off" ? [{ label: "Writes on", run: () => handleMCPWrites(host, name) }] : []),
+      ...(status.writes === "on" ? [{ label: "Writes off (all servers)", run: () => handleMCPWrites(host, "off") }] : []),
+      ...(status.sandbox && status.sandbox.state !== "none"
+        ? [{ label: status.sandbox.state === "on" ? "Sandbox off" : "Sandbox on", run: () => runMCPSandbox(host, name, status.sandbox!.state !== "on") }] : []),
+    ];
+    const picked = await host.terminal.pick(terminalText(name), [...actions.map((action) => ({ label: action.label })), { label: PICKER_BACK }], signal);
+    const action = actions.find((entry) => entry.label === picked);
+    if (!action) continue;
+    try { await action.run(); }
+    catch (error) { host.output.write(`[mcp] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); }
+  }
+}
 
 /** /secrets and /secrets files on|off. Only the user types these; the model can't run slash commands. */
 async function handleSecretsCommand(host: CommandHost, prompt: string): Promise<void> {

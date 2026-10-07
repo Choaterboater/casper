@@ -130,7 +130,8 @@ Local commands:
   /skills inspect <id>              Show a skill and its fingerprint (sha256)
   /skills trust <id>                Show a skill, then 1 No · 2 Trust it (exactly what was shown)
   /skills block <id>                Never use this skill
-  /mcp                              Show MCP status, secrets hidden (no connection)
+  /mcp                              One line per server; on a normal terminal pick one with the arrow keys to connect, disconnect, forget or see details
+  /mcp detail [name]                The full status of every server, or one; secrets hidden (no connection)
   /mcp setup network                Set up Casper's network server (Mist, Central, ClearPass): 1 Not now · 2 Set it up
   /mcp setup ssh [host] [command]   Add an MCP server that runs on another machine over ssh; writes off
   /mcp login [mist|central|clearpass] [forget]  Add, replace or forget a network login; only you type it

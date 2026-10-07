@@ -473,7 +473,7 @@ test("app: /mcp setup network → 2 installs, adds and connects it remembered wi
   const file = JSON.parse(await readFile(path.join(home, ".casper/mcp.json"), "utf8"));
   expect(file.mcpServers.network.command).toBe(networkServerEntry(home).command);
   // The next session connects it on its own and never offers setup again.
-  const next = await session(home, project, ["show the Mist sites", "/mcp"]);
+  const next = await session(home, project, ["show the Mist sites", "/mcp detail"]);
   expect(next.output).not.toContain("Casper can set up its network server");
   expect(next.output).toContain("  Remembered: connects on its own, with writes off.");
 });
