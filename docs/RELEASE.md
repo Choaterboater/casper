@@ -37,6 +37,17 @@ want it kept to one. The line skips temporary and scratch folders and shows real
 program aside". It now hands the checked installer to a separate process that waits for Casper to
 exit, then runs it. The installer is still checked against its published SHA-256 first, as before.
 
+**Network server setup with the sandbox on.** `/mcp setup network` stopped with "uv could not make a
+Python >=3.12 environment" whenever the shell sandbox was on, which is the default on macOS and Linux:
+Casper's install ran inside the sandbox, which cannot write `~/.casper` or reach pypi.org. The install
+now runs outside it (it only runs Casper's own steps on hash-checked files), and when uv cannot make a
+Python environment the message says why: a blocked download from github.com, downloads turned off, or
+no Python found.
+
+**Plainer wording.** A line you type while Casper works now says "sent to Casper", not "sent to the
+AI". Dependabot no longer proposes moving the pinned Pi packages or the TypeScript and Node type
+majors.
+
 **Not done yet.** `/login` has no "a model on this computer" choice; you edit `models.json` as the
 recipe shows. Builders the AI starts are still not shown as a panel with one row each.
 
