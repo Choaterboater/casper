@@ -17,8 +17,8 @@ import { workFolderChoices } from "./safe-choices";
 import { isOutside } from "../platform/inside";
 import { planAutoChecks } from "../verify/mode";
 import { NEW_USAGE, parseNewArgs } from "../cli-args";
-import { askBuildRequest, buildFromFirstRequest, buildInEmptyFolder, buildRequestNote, isEmptyFolder, newProjectFromQuestions, offerMissingFolder, opened, type NewProjectFlow } from "./new-project";
-import { listLines, projectsFolder } from "../new/command";
+import { askBuildRequest, buildInEmptyFolder, buildRequestNote, isEmptyFolder, newProjectFromQuestions, offerMissingFolder, opened, type NewProjectFlow } from "./new-project";
+import { listLines } from "../new/command";
 import { defaultNameFor } from "../new/templates";
 import { tildePath } from "../new/scaffold";
 import type { NoiseOptions } from "../project/noise";
@@ -28,7 +28,6 @@ import { writeCheckResult, networkOptions } from "./verification";
 import { loadWorkspace } from "./wiring";
 
 /** The last choice of the home-folder and folder-of-projects question. */
-const NEW_PROJECT_CHOICE = "New project";
 
 /** A request answered at a question runs next, as if typed at the prompt, keeping what was pasted into it. */
 export function queueTypedRequest(app: CasperApp, text: string, pasted: readonly string[] = app.terminal.takeSubmittedPastes()): void {
@@ -72,13 +71,10 @@ export function projectsHeldLine(cwd: string, candidates: readonly string[]): st
     + `To work in one: casper ${terminalText(path.relative(cwd, candidates[0]!))}\n`;
 }
 
-/** Interactive startup opens the folder Casper was launched in. A project, or a folder inside a git repository,
- * opens with no question. The home folder or a drive root is too broad to work in (the sandbox lets the AI write
- * anywhere in the workspace and tasks scan it), so those ask which project to open: the projects last worked in
- * (saved conversations) lead, then the scan's by last change; staying put and New project come after. A typed
- * path is validated and must stay inside the launch folder; Esc/empty keeps it. Any other folder, even one that
- * only holds projects, opens exactly there, with one line naming them. Without a rich surface the question cannot
- * render, so the launch folder is stated plainly with the most recent project as the command to open it. */
+/** Interactive startup opens the folder Casper was launched in, always, with no question. A folder that holds
+ * projects gets one line naming them. The home folder or a drive root is broad (the sandbox lets the AI write
+ * anywhere in the workspace and tasks scan it), so there one line says where Casper opened and the command that
+ * opens the project last worked in (no scan: only the saved conversations), else an example. */
 export async function openProjectFolder(app: CasperApp, cwd: string, env: { platform?: NodeJS.Platform; noise?: NoiseOptions } = {}): Promise<string> {
   const home = app.sessionHomeDir ?? os.homedir();
   const platform = env.platform ?? process.platform;
@@ -98,64 +94,15 @@ export async function openProjectFolder(app: CasperApp, cwd: string, env: { plat
     if (line) app.output.write(line);
     return cwd;
   }
-  if (!app.terminal.rich) {
-    // `casper <folder>` opens that folder, so the hint is one command, no cd and no restart. From home it names
-    // the project last worked in (no scan: only the saved conversations), else an example.
-    const recent = (await recentlyUsedProjects({ base: fromHome ? home : cwd, agentDir: appAgentDir(app), noise }))[0];
-    const where = fromHome ? "your home folder" : "the top of a drive";
-    app.output.write(
-      recent ? `[folder] Opened in ${where}. To work in ${terminalText(path.basename(recent))}: casper ${terminalText(tildePath(recent, home, platform))}\n`
-        : `[folder] Opened in ${where}. To work in a project: casper ${platform === "win32" ? path.win32.join(projectsDisplay, "myapp") : "~/Projects/myapp"}\n`);
-    app.output.write("[folder] To start a new project instead: casper new\n");
-    return cwd;
-  }
-  // Projects worked in lately lead (Enter opens the last one), then the scan's by last change.
-  candidates ??= await orderProjectChoices(await findProjectCandidates(cwd, { homeDir: home, noise }), { base: fromHome ? home : cwd, agentDir: appAgentDir(app), noise });
-  const base = fromHome ? home : cwd;
-  const folderLabel = (folder: string) => fromHome
-    ? platform === "win32" ? folder : folder === home ? "~" : `~${folder.slice(home.length)}`
-    : folder === cwd ? "." : path.relative(cwd, folder);
-  // Messages name the folder: "staying in Documents", never "staying in .".
-  const folderName = fromHome ? "your home folder" : atRoot ? "the top of the drive" : path.basename(cwd) || cwd;
-  const byLabel = new Map<string, string>(candidates.map(candidate => [folderLabel(candidate), candidate]));
-  const answer = await app.terminal.ask(
-    fromHome ? "Opened from your home folder. Work in which project?" : "Opened from the top of a drive. Work in which project?",
-    // The projects lead, so Enter opens the first (the workspace is too broad to stay in by default); staying put is
-    // the next-to-last choice.
-    [
-      ...candidates.slice(0, 6).map(candidate => ({ label: folderLabel(candidate) })),
-      { label: folderLabel(cwd), description: fromHome ? "stay in the home folder" : "stay at the top of the drive" },
-      { label: NEW_PROJECT_CHOICE, description: `start one in ${projectsDisplay}` },
-    ],
-    false,
-  );
-  const choice = answer?.[0]?.trim();
-  if (!choice) return cwd; // Esc, empty, or the plain-line fallback keeps the launch folder.
-  if (choice === NEW_PROJECT_CHOICE) {
-    // No questions: Casper starts in ~/Projects, and the first request makes the project (offerNewProject).
-    const parent = await projectsFolder(home).catch(() => undefined);
-    if (!parent) { app.output.write(`[new] Couldn't make ${terminalText(projectsDisplay)}; staying here.\n`); return cwd; }
-    app.pendingNewProject = true;
-    app.output.write(`[new] Starting a new project in ${terminalText(tildePath(parent, home, platform))}. Say what you want; its folder is made from your first request.\n`);
-    return parent;
-  }
-  const resolved = byLabel.get(choice) ?? path.resolve(cwd, choice.replace(/^~(?=\/|$)/, home));
-  const relative = path.relative(path.resolve(base), path.resolve(resolved));
-  if (isOutside(relative)) {
-    app.output.write(`[folder] ${terminalText(choice)} is outside ${fromHome ? "your home directory" : "the folder you opened"}; staying in ${folderName}.\n`);
-    return cwd;
-  }
-  const info = await stat(resolved).catch(() => undefined);
-  if (!info) {
-    // A name that isn't there: offer to make it (Enter stays). From home it goes in ~/Projects, like /new.
-    const result = await newProjectFlowWithAbort(app, (flow) => offerMissingFolder(flow, terminalText(choice), undefined, folderName, "in ~/Projects"));
-    return opened(result) ? result.dir : cwd;
-  }
-  if (!info.isDirectory()) {
-    app.output.write(`[folder] ${terminalText(choice)} is not a folder; staying in ${folderName}.\n`);
-    return cwd;
-  }
-  return resolved;
+  // `casper <folder>` opens that folder, so the hint is one command, no cd and no restart. From home it names
+  // the project last worked in (no scan: only the saved conversations), else an example.
+  const recent = (await recentlyUsedProjects({ base: fromHome ? home : cwd, agentDir: appAgentDir(app), noise }))[0];
+  const where = fromHome ? "your home folder" : "the top of a drive";
+  app.output.write(
+    recent ? `[folder] Opened in ${where}. To work in ${terminalText(path.basename(recent))}: casper ${terminalText(tildePath(recent, home, platform))}\n`
+      : `[folder] Opened in ${where}. To work in a project: casper ${platform === "win32" ? path.win32.join(projectsDisplay, "myapp") : "~/Projects/myapp"}\n`);
+  app.output.write("[folder] To start a new project instead: casper new\n");
+  return cwd;
 }
 
 /**
@@ -264,25 +211,19 @@ export async function newProjectCommand(app: CasperApp, args: string): Promise<v
 }
 
 /**
- * A request outside a project, before the model starts, zero tokens. In an empty folder (and after "New project"
- * from home) nothing is asked: a request that fits a template builds it, one plain line says which, and the
+ * A request outside a project, before the model starts, zero tokens. In an empty folder nothing is asked: a request that fits a template builds it, one plain line says which, and the
  * conversation starts in the project. Any other request goes to the model as it is. In a folder that holds other
  * things (Documents) one numbered question stays: Use this folder (1, Enter), Yes (2) or Other kind (3). One-shot
  * and --json runs can't be asked and can't see a line: they keep the folder and say the command.
  * "stop" when the project could not be built: nothing goes to the model.
  */
 export async function offerNewProject(app: CasperApp, prompt: string): Promise<"stop" | undefined> {
-  const pending = app.pendingNewProject;
-  if ((app.newProjectOffered && !pending) || !canMoveWorkspace(app)) return undefined;
+  if (app.newProjectOffered || !canMoveWorkspace(app)) return undefined;
   const context = app.projectContext!;
-  if (context.info.isGit || await hasProjectSignals(context.info.root)) { app.pendingNewProject = false; return undefined; }
+  if (context.info.isGit || await hasProjectSignals(context.info.root)) return undefined;
   const templatesOn = context.templates !== false;
   let built: Awaited<ReturnType<typeof buildInEmptyFolder>> | undefined;
-  if (pending && app.interactive) {
-    app.pendingNewProject = false;
-    built = await buildFromFirstRequest(newProjectFlow(app), prompt, templatesOn);
-    if (!built) { app.newProjectOffered = true; return undefined; }
-  } else if (app.interactive && await isEmptyFolder(context.info.root)) {
+  if (app.interactive && await isEmptyFolder(context.info.root)) {
     built = await buildInEmptyFolder(newProjectFlow(app), context.info.root, prompt, templatesOn);
   } else if (!app.interactive || !app.terminal.canAsk) {
     const note = buildRequestNote(prompt);

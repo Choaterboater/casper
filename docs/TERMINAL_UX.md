@@ -115,19 +115,17 @@ opens sign-in instead of an empty picker. Where sign-in can't open (a plain or p
 a one-shot run) they say `not signed in · run casper in a terminal and type /login` instead.
 
 Casper opens the folder you started it in. A project, or a folder inside a git repository, opens
-with no question. Only your home folder or a drive root (`C:\`, `/`), which are too broad to work
-in, ask which project to open: press its number, or Esc to stay where you are. The projects you
-last had conversations in come first (the ones `/resume` keeps), so Enter usually opens the right
-one; the rest follow by when they last changed. Temporary, cache, `node_modules`, benchmark and `scratchpad`
-folders are never listed. Windows shows real paths (`C:\Users\alex\Projects`) where macOS and Linux show `~/Projects`. Without a rich terminal Casper names the project
-you last worked in as a `casper <folder>` command instead. Any other folder opens exactly there,
+with no question. Your home folder or a drive root (`C:\`, `/`) opens exactly there too, with no question: one line
+names the project you last had conversations in (the ones `/resume` keeps) as a `casper <folder>` command,
+or gives an example, and a second line says `casper new` starts a new project. Temporary, cache,
+`node_modules`, benchmark and `scratchpad` folders are never named. Windows shows real paths
+(`C:\Users\alex\Projects`) where macOS and Linux show `~/Projects`. Any other folder opens exactly there,
 even one that only holds projects (such as `~/Projects`); when it holds two or more, one line
 names them (up to four) and the command to open one, such as `casper aibot`.
 
 An empty folder opens the same way, quietly: no question and no kind menu. A first request that fits a
 template (a NOC dashboard, an MCP server) builds it there after one `[new]` line; any other request goes to
-the model. **New project** from the home-folder question asks nothing either: it starts in `~/Projects` and
-your first request makes the project. `/settings` has a **Starter templates** switch for both ([NEW.md](NEW.md)).
+the model. `/settings` has a **Starter templates** switch ([NEW.md](NEW.md)).
 
 On a rich terminal at least 58 columns wide the transcript opens with the
 wordmark — the Casper ghost (bold white) beside a block-letter `CASPER` (accent)
