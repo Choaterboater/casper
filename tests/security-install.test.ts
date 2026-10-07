@@ -3,8 +3,10 @@ import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { findTool, installedVersion, installLockedSpec, installQuestion, installTool, lockedEntryPath, numberedChoices, ownCopyLine, UV_MISSING } from "../src/security/install";
+import { findTool, installedVersion, installLockedSpec, pythonFailure, installQuestion, installTool, lockedEntryPath, numberedChoices, ownCopyLine, UV_MISSING } from "../src/security/install";
 import { SecurityCheck } from "../src/security/run";
+import { runInstallStep } from "../src/security/spawn";
+import { useSandbox, type ShellSandbox } from "../src/sandbox/manager";
 import type { ToolRunner } from "../src/security/spawn";
 import { hostPlatform, pinnedToolDir, pinnedToolPath, SECURITY_TOOLS, type LockedSpec, type SecurityToolSpec } from "../src/security/tools";
 import { fakeProgram, fakeTools, fixtureRepo, run, SEMGREP_NOT_ON_WINDOWS, SEMGREP_RUNS } from "./fixtures/security-tools/setup";
@@ -301,4 +303,25 @@ test("a failed hash-locked install says why in plain words, with uv's own last l
   expect(wheel.message).toContain("ruff S: there is no ready-made build of it for this computer.");
   const other = await failing("error: something else\n");
   expect(other.message).toBe("ruff S: the install failed. (uv: error: something else)");
+});
+
+test("when uv cannot make the Python environment, the message says why in plain words and keeps uv's last line", () => {
+  const blocked = pythonFailure(">=3.12", "error: Failed to install cpython-3.12\n  Caused by: error sending request for url (https://github.com/astral-sh/python-build-standalone): dns error: failed to lookup address");
+  expect(blocked).toContain("no Python >=3.12 and uv could not download one");
+  expect(blocked).toContain("github.com");
+  expect(blocked).toContain("(uv: Caused by: error sending request");
+  expect(pythonFailure(">=3.12", "error: Python downloads are disabled")).toContain("UV_PYTHON_DOWNLOADS");
+  expect(pythonFailure(">=3.12", "error: No interpreter found for Python >=3.12 in managed installations or search path")).toContain('uv python install 3.12');
+  expect(pythonFailure(">=3.12", "")).toContain('Try "uv python install 3.12"');
+});
+
+test("Casper's own install steps are not held by the session's shell sandbox, which cannot write ~/.casper or reach pypi.org", async () => {
+  const wrapped: string[] = [];
+  const held = { on: true, wrap: async (command: string) => { wrapped.push(command); return { command: "false", id: "1", held: true }; }, finished() {} } as unknown as ShellSandbox;
+  useSandbox(held);
+  try {
+    const result = await runInstallStep({ file: process.execPath, args: ["-e", "process.exit(0)"], cwd: os.tmpdir(), env: { PATH: process.env.PATH ?? "" }, timeoutMs: 20_000 });
+    expect(result.exitCode).toBe(0);
+    expect(wrapped).toEqual([]);
+  } finally { useSandbox(undefined); }
 });

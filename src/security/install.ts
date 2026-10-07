@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { chmod, copyFile, lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installEnv, securityEnv } from "./env";
-import { runTool, type ToolRunner } from "./spawn";
+import { runInstallStep, runTool, type ToolRunner } from "./spawn";
 import { hostPlatform, pinnedToolDir, pinnedToolPath, SECURITY_TOOLS, type LockedSpec, type SecurityToolSpec, type UvLockSource } from "./tools";
 import type { SecurityToolId } from "./types";
 
@@ -211,7 +211,7 @@ async function installBinary(spec: SecurityToolSpec, options: InstallOptions): P
       const extract = path.join(staging, "extract");
       await writeFile(archive, bytes);
       await mkdir(extract);
-      const unpacked = await (options.run ?? runTool)({
+      const unpacked = await (options.run ?? runInstallStep)({
         file: await tarProgram(platform, options.env ?? process.env), args: [asset.archive === "zip" ? "-xf" : "-xzf", archive, "-C", extract, asset.member],
         cwd: staging, env: installEnv(options.env ?? process.env), timeoutMs: 120_000,
       });
@@ -250,6 +250,25 @@ export function installFailure(stderr: string): string {
   return `the install failed.${uv}`;
 }
 
+/** Why uv could not make the Python environment, in plain words with one next step, and uv's own last line.
+ * uv fetches Python itself from GitHub when none that fits is installed, so this is often a network that allows
+ * pypi.org but not github.com, or a setting that turns downloads off. */
+export function pythonFailure(python: string, stderr: string): string {
+  const lines = stderr.split("\n").map((line) => line.trim()).filter(Boolean);
+  const last = lines.at(-1);
+  const uv = last ? ` (uv: ${last.length > 200 ? `${last.slice(0, 199)}…` : last})` : "";
+  if (/downloads? (?:are |is )?(?:disabled|not allowed)|python-downloads|automatic.*disabled/i.test(stderr)) {
+    return `uv is set not to download Python, and this computer has no Python ${python}. Install Python ${python} yourself, or allow uv to download it (UV_PYTHON_DOWNLOADS), then try again.${uv}`;
+  }
+  if (/dns error|failed to fetch|connection (?:refused|reset)|timed out|network is unreachable|could not connect|failed to lookup|certificate|proxy|tls/i.test(stderr)) {
+    return `this computer has no Python ${python} and uv could not download one (it downloads from github.com, which your network may block). Install Python ${python}, or fix the connection, then try again.${uv}`;
+  }
+  if (/no interpreter found|no python|not found/i.test(stderr)) {
+    return `this computer has no Python ${python}. Install it (for example with "uv python install ${python.replace(/^>=/, "")}"), then try again.${uv}`;
+  }
+  return `uv could not make a Python ${python} environment. Try "uv python install ${python.replace(/^>=/, "")}" to see why.${uv}`;
+}
+
 interface LockedBuild { label: string; version: string; source: UvLockSource; relocatable: boolean }
 
 /** The program inside a locked venv folder. */
@@ -266,7 +285,7 @@ async function buildLockedVenv(build: LockedBuild, dir: string, uv: string, opti
   // ~/.cache/uv: a cache in ~/.casper, which they can't write, keeps the hash lock meaningful.
   const env = { ...installEnv(options.env ?? process.env), UV_CACHE_DIR: path.join(options.homeDir, ".casper", "uv-cache") };
   const platform = options.platform ?? process.platform;
-  const run = options.run ?? runTool;
+  const run = options.run ?? runInstallStep;
   const { label, version, source } = build;
   await rm(dir, { recursive: true, force: true });
   await mkdir(dir, { recursive: true, mode: 0o700 });
@@ -277,7 +296,7 @@ async function buildLockedVenv(build: LockedBuild, dir: string, uv: string, opti
     const venv = path.join(dir, "venv");
     // A venv built in one folder and moved to another needs relative paths in its scripts.
     const made = await run({ file: uv, args: ["venv", "--quiet", "--no-project", ...(build.relocatable ? ["--relocatable"] : []), "--python", source.python, venv], cwd: dir, env, timeoutMs: 600_000 });
-    if (made.exitCode !== 0) throw new Error(`${label}: uv could not make a Python ${source.python} environment`);
+    if (made.exitCode !== 0) throw new Error(`${label}: ${pythonFailure(source.python, made.stderr)}`);
     const python = platform === "win32" ? path.join(venv, "Scripts", "python.exe") : path.join(venv, "bin", "python");
     const installed = await run({
       file: uv, args: ["pip", "install", "--quiet", "--refresh", "--python", python, "--require-hashes", "--no-deps", "--only-binary", ":all:", "-r", lockFile],
