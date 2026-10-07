@@ -47,12 +47,16 @@ async function fixture(roles: Record<string, string> = {}) {
   let level = "medium";
   const prompts: Array<{ model: string; configured: string; level: string; text: string; classified: boolean }> = [];
   const efforts: string[] = [];
+  let selecting = false;
+  let holding = false;
+  const pickerOpen = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
   const selections: string[] = [];
   const status = (): RuntimeStatus => ({ provider: "fixture", model: model.split("/")[1], auth: "configured", configuredEffort: configured,
     thinkingLevel: level, availableThinkingLevels: ["off", "low", "medium", "high", "xhigh"] });
   const session: RuntimeSession = {
     getStatus: status,
-    getState: () => ({ cwd: project, isStreaming: false }),
+    getState: () => ({ cwd: project, isStreaming: holding }),
     subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
     abort: async () => {}, setTools: () => {},
     getModelRoles: () => ({ ...roles }),
@@ -61,6 +65,17 @@ async function fixture(roles: Record<string, string> = {}) {
       return selector ? { provider: "fixture", id: selector.split("/")[1]! } : undefined;
     },
     selectModel: async (selection) => {
+      // Like the real session: one selection at a time; an open picker holds it until it closes.
+      if (selecting) throw new Error("Wait for active work before changing models.");
+      if (selection.picker) {
+        selecting = true;
+        pickerOpen.resolve();
+        try {
+          await new Promise<void>((resolve) => selection.signal!.addEventListener("abort", () => resolve(), { once: true }));
+          return { status: status(), selected: false, savedDefault: false };
+        } finally { selecting = false; }
+      }
+      holding = false;
       const query = selection.query!;
       selections.push(query);
       model = query.startsWith("@") ? roles[query.slice(1)]! : query;
@@ -75,6 +90,8 @@ async function fixture(roles: Record<string, string> = {}) {
     prompt: async (text) => {
       // Automatic effort classifies only while the effort is auto, as PiModels.preparePrompt does.
       prompts.push({ model, configured, level, text, classified: configured === "auto" });
+      // Streaming stays on until a model switch is attempted, so the open picker is still there when the task ends.
+      if (text.includes("hold open")) { holding = true; await gate.promise; }
       emit({ type: "assistant_response_start", provider: "fixture", model });
       emit({ type: "assistant_text_delta", delta: "Done.\n" });
       emit({ type: "assistant_response_end", stopReason: "stop" });
@@ -100,7 +117,7 @@ async function fixture(roles: Record<string, string> = {}) {
     await view.until((output) => prompts.length > before && output.slice(output.lastIndexOf(line.split("\n")[0]!.slice(-12))).includes("idle"));
     await view.until(() => !app.commandActive);
   };
-  return { app, view, input, prompts, efforts, selections, send, model: () => model,
+  return { app, view, input, prompts, efforts, selections, send, pickerOpen: pickerOpen.promise, release: gate.resolve, model: () => model,
     cleanup: async () => { input.write("/exit\r"); await interactive; await app.close(); input.destroy(); await removeTempDir(root); } };
 }
 
@@ -116,6 +133,20 @@ test("big model: this task runs on the reason role, the words are not sent, and 
     await f.send("now list the files");
     expect(f.prompts[1]!.model).toBe("fixture/main");
     expect(f.selections).toEqual(["@reason", "fixture/main"]);
+  } finally { await f.cleanup(); }
+});
+
+test("big model: the switch back works when the /model picker is still open at the end of the task", async () => {
+  const f = await fixture({ reason: "fixture/big" });
+  try {
+    f.input.write("big model: hold open\r");
+    await f.view.until(() => f.prompts.length === 1 && f.app.commandActive);
+    f.input.write("/model\r");
+    await f.pickerOpen;
+    f.release();
+    await f.view.until((output) => output.includes("Back on fixture/main") || output.includes("could not switch back"));
+    expect(f.view.output).not.toContain("could not switch back");
+    expect(f.model()).toBe("fixture/main");
   } finally { await f.cleanup(); }
 });
 
