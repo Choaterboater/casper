@@ -1,6 +1,6 @@
 {
   "id": "python-cli",
-  "version": 1,
+  "version": 2,
   "kind": "Python tool",
   "title": "Python tool (command line)",
   "description": "A command-line tool in Python, with uv, pytest and ruff.",

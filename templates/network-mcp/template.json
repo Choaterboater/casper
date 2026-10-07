@@ -1,6 +1,6 @@
 {
   "id": "network-mcp",
-  "version": 3,
+  "version": 4,
   "kind": "MCP server",
   "title": "MCP server for your network",
   "description": "An MCP server in Python (official MCP SDK 2.x), read-only with --read-only, with in-memory tests.",

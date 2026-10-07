@@ -65,7 +65,10 @@ def format_rows(rows: list[dict[str, str]]) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="{{name}}", description="List Mist sites and devices.")
+    parser = argparse.ArgumentParser(
+        prog="{{name}}",
+        description="List Mist sites and devices.",
+    )
     parser.add_argument("--org", default=os.environ.get("MIST_ORG_ID"), help="org id (MIST_ORG_ID)")
     args = parser.parse_args(argv)
     token = os.environ.get("MIST_APITOKEN", "").strip()

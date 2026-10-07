@@ -7,7 +7,10 @@ import sys
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="{{name}}", description="A command-line tool.")
+    parser = argparse.ArgumentParser(
+        prog="{{name}}",
+        description="A command-line tool.",
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     hello = commands.add_parser("hello", help="say hello")
     hello.add_argument("--who", default="world", help="who to greet (default: world)")

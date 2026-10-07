@@ -1,4 +1,7 @@
-"""{{name}}: an MCP server for your network. Read-only by default."""
+"""{{name}}: an MCP server for your network.
+
+Read-only by default.
+"""
 
 from .server import main, server
 

@@ -47,10 +47,10 @@ posixOnly("runs uv init as-is, fills the template and makes one commit with the 
   expect(result.checks.map((check) => `${check.name}:${check.status}`)).toEqual(["lint:pass", "test:pass"]);
   const log = gitLog(dir, env);
   expect(log).toHaveLength(1);
-  expect(log[0]).toBe("Start mist-aps from Casper template python-cli v1|Test Person");
+  expect(log[0]).toBe("Start mist-aps from Casper template python-cli v2|Test Person");
   expect(result.commit).toMatch(/^[0-9a-f]{7,}$/);
   expect(steps).toEqual(["  uv init …", "  Getting packages from pypi.org", "  adding pytest, ruff …", "  running lint …", "  running tests …", "  first commit …"]);
-  expect(formatNewProjectReceipt(result)[0]).toBe(`Ready: ~/Projects/mist-aps · tests passed · first commit ${result.commit} (template python-cli v1)`);
+  expect(formatNewProjectReceipt(result)[0]).toBe(`Ready: ~/Projects/mist-aps · tests passed · first commit ${result.commit} (template python-cli v2)`);
 });
 
 posixOnly("a template file never overwrites what the init tool wrote unless it is listed in replace", async () => {

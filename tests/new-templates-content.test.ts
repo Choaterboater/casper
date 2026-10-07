@@ -197,3 +197,17 @@ test("the templates never say verified or secure", () => {
     }
   }
 });
+
+test("a long project name keeps every generated Python line within the template's own line limit", () => {
+  const longName = "my-very-long-project-name-for-network-tools";
+  for (const template of allTemplates()) {
+    const files = render(template.id, longName);
+    const limit = Number(/line-length\s*=\s*(\d+)/.exec(text(files, "pyproject.toml"))?.[1] ?? 0);
+    if (!limit) continue;
+    expect(limit).toBe(100);
+    for (const file of files.filter((entry) => entry.path.endsWith(".py"))) {
+      const longest = Math.max(...file.text.split("\n").map((line) => line.length));
+      expect(`${template.id}/${file.path}: ${longest <= limit}`).toBe(`${template.id}/${file.path}: true`);
+    }
+  }
+});

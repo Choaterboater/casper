@@ -129,7 +129,10 @@ async def access_check() -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> None:
     """Start the server on stdio. --read-only keeps every change off."""
     global READ_ONLY
-    parser = argparse.ArgumentParser(prog="{{name}}", description="The {{name}} MCP server.")
+    parser = argparse.ArgumentParser(
+        prog="{{name}}",
+        description="The {{name}} MCP server.",
+    )
     parser.add_argument(
         "--read-only", action="store_true", help="never send a change (read once at start)"
     )

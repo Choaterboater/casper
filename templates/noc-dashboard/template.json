@@ -1,6 +1,6 @@
 {
   "id": "noc-dashboard",
-  "version": 1,
+  "version": 2,
   "kind": "NOC dashboard",
   "title": "NOC dashboard (Streamlit, Mist first)",
   "description": "A Streamlit NOC dashboard: Mist devices up and down, sample data until you set a read-only token.",
