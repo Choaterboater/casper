@@ -9,7 +9,8 @@ Say "run a crew" or "split this up" to ask for builders, "by yourself" to keep
 the AI from using them.
 
 Status: v0.3 Crews, built, not released. The AI starts builders itself; `/crew`
-shipped in v0.2.23. A fix round for what a reviewer finds comes next.
+shipped in v0.2.23. One fix round per part follows a review; the
+not-reviewed note comes next.
 
 ## The AI splits big jobs itself
 
@@ -36,14 +37,23 @@ with its `delegate` tool. Nothing asks you first.
    the diff along. The diff is cut at 24 KiB, with a note, and binary files are
    named only. Such a reviewer is read-only like any other, its cost joins the
    task's total, and it does not use up the 4 helpers a task allows: each part
-   gets one review. A part that was kept in its copy, or failed, has no number.
-   It does the rest itself.
+   gets one review. A part that was kept in its copy, or failed, has no
+   number. It does the rest itself. A builder started with that number (`of`)
+   fixes the part: it is handed the reviewer's report (cut at 8 KiB) and told
+   to fix only those findings, check each is real, and not widen the change.
+   That works without a review too. Each part gets one fix round; a second is
+   turned away and the AI fixes the rest itself. The fix starts from your
+   folder with the part in it, lands the same way, and one `/undo` takes both
+   back. A part gets one review before its fix and one after; the second sees
+   the fix's own diff and stat. A file the fix touched that the part did not
+   is named in the result.
 
-Up to 3 builders work at once, and 6 per request. The footer shows them while
-they work: `│ 2 builders · $0.12`. What each one spent joins the task's total
-(and the receipt) when it ends, and counts toward the spend pause while it
-works: at the pause their tool calls wait for the answer too, and "Stop here"
-stops them, each copy kept.
+Up to 3 builders work at once, and 6 per request, besides fix builders: those
+have their own count, and first builds and fixes together stop at 9. The
+footer shows them while they work: `│ 2 builders · $0.12`. What each one spent
+joins the task's total (and the receipt) when it ends, and counts toward the
+spend pause while it works: at the pause their tool calls wait for the answer
+too, and "Stop here" stops them, each copy kept.
 
 **Not forced in.** A builder's change is not applied when a file it changed
 was also changed in your folder after its copy started (by you, the AI, or

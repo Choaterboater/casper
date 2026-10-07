@@ -89,7 +89,7 @@ export function autoBuilders(host: AutoBuildHost, off: string | undefined, steer
 }
 
 /** `parts` records what lands, so a reviewer can be given a part by number; without it parts have no number. */
-export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; context?: string; signal?: AbortSignal }, parts?: PartRecord): Promise<BuildOutcome> {
+export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; context?: string; of?: number; signal?: AbortSignal }, parts?: PartRecord): Promise<BuildOutcome> {
   const manager = await GitWorktreeManager.open(host.root, host.homeDir);
   if (!manager) throw new Error("No builders here: this folder is not a Git repository");
   const id = randomBytes(3).toString("hex");
@@ -141,14 +141,20 @@ export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; c
   for (const file of work.files) host.observeEdit(path.join(manager.primaryWorkspace, file));
   await inTurn(manager.commonDir, () => manager.remove(copy, work)).catch(() => {});
   host.say(`A builder's change was applied to your folder, uncommitted: ${work.files.slice(0, 6).join(", ")}${work.files.length > 6 ? ` and ${work.files.length - 6} more` : ""}.`);
-  const part = parts?.landed({ goal: job.goal, files: work.files, stat: work.stat, patch: work.patch });
-  return outcome({ applied: work.files, stat: work.stat, ...(part ? { part } : {}), next: reviewNext(part) });
+  // A fix refreshes the part it fixed (the next review sees the fix's diff); anything else is a new part.
+  let outside: string[] = [];
+  if (job.of !== undefined && parts) outside = parts.refreshExcerpt(job.of, work.patch, { files: work.files, stat: work.stat });
+  const part = job.of !== undefined && parts ? job.of : parts?.landed({ goal: job.goal, files: work.files, stat: work.stat, patch: work.patch });
+  return outcome({ applied: work.files, stat: work.stat, ...(part ? { part } : {}),
+    ...(outside.length ? { outsideThePart: `The fix also changed ${outside.join(", ")}, which the part did not touch before.` } : {}),
+    next: reviewNext(part, job.of !== undefined) });
 }
 
 /** Said in the result of a part that landed: the lead decides whether a reviewer is worth it. */
-function reviewNext(part: number | undefined): string {
+function reviewNext(part: number | undefined, fixed = false): string {
+  if (fixed) return `This was part ${part}'s one fix round. Have a reviewer look again (delegate, role reviewer, of: ${part}), or check it yourself; fix what is left yourself.`;
   const who = part ? `a reviewer (delegate, role reviewer, of: ${part}, which hands it the diff)` : "a reviewer";
-  return `Have ${who} look at these files before you finish; fix what it finds with a builder or yourself. Skip it for a few-line part.`;
+  return `Have ${who} look at these files before you finish; fix what it finds with a builder${part ? ` (delegate, role builder, of: ${part}, once per part)` : ""} or yourself. Skip it for a few-line part.`;
 }
 
 /** Whether a line the patch adds has the hidden-secret marker. */

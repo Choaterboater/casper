@@ -47,6 +47,8 @@ export const BUILDER_LIMITS = Object.freeze({
   totalTextBytes: 1_048_576,
   /** Builders the AI may start in one task (delegate role builder), besides its read-only helpers. */
   maxPerTask: 6,
+  /** First builds and fix builders (delegate role builder with `of`) together: a fix has its own count, up to this. */
+  maxWithFixes: 9,
 });
 
 export type SubagentRole = "explorer" | "reviewer" | "builder";
@@ -141,13 +143,19 @@ export interface DelegateBuilders {
   off?: string;
   /** Why not now (the request said to work alone), asked at each call. */
   refuse?(): string | undefined;
-  run(job: { goal: string; context?: string; signal?: AbortSignal }): Promise<BuildOutcome>;
-  /** The parts builders landed this task, which a reviewer can be given by number (`of`). */
+  /** `of` is the landed part this builder fixes (its goal and context are already complete). */
+  run(job: { goal: string; context?: string; of?: number; signal?: AbortSignal }): Promise<BuildOutcome>;
+  /** The parts builders landed this task, which a reviewer can be given by number, or a fix builder (`of`). */
   parts?: {
-    reviewContext(n: number): { context: string } | { refusal: string };
+    reviewContext(n: number): { context: string; version: number } | { refusal: string };
     /** A review that never ran is given back. */
-    release(n: number): void;
-    markReviewed(n: number, text: string): void;
+    release(n: number, version: number): void;
+    /** What a fix builder is given for the part; spends the part's one fix round. */
+    fixContext(n: number): { context: string } | { refusal: string };
+    /** A fix that never started is given back. */
+    releaseFix(n: number): void;
+    /** A review of an older version of the part (a fix landed meanwhile) is ignored. */
+    markReviewed(n: number, text: string, version: number): void;
   };
 }
 
@@ -339,10 +347,10 @@ export class SubagentManager {
   createTool(getContext: () => { cwd: string; projectContext: string }, onUsage?: (usage: SubagentUsage | null) => void,
     builders?: DelegateBuilders): RuntimeTool {
     let dispatched = 0;
-    let built = 0;
+    const tally = { built: 0, fixes: 0 };
     const offered = Boolean(builders && !builders.off);
     const buildText = !builders ? "" : offered
-      ? ` Role builder (a job with separate parts, not small tasks): edits and runs commands in its own copy; lands here when it ends unless a file it touched changed here meanwhile; then have a reviewer check it, unless it is a few lines: reviewer with "of" = the result's part number gets its diff and is not one of the ${SUBAGENT_LIMITS.maxDelegationsPerTask}. Up to ${BUILDER_LIMITS.maxConcurrent} at once.`
+      ? ` Role builder (a job with separate parts): works in its own copy; lands here when it ends unless a file it touched changed meanwhile; then have a reviewer check it unless it is a few lines: reviewer with "of" = the result's part number gets its diff and is not one of the ${SUBAGENT_LIMITS.maxDelegationsPerTask}; builder with "of" fixes that part from its review, once. Up to ${BUILDER_LIMITS.maxConcurrent} at once.`
       : ` No builders here: ${builders.off}.`;
     return {
       name: "delegate",
@@ -364,8 +372,8 @@ export class SubagentManager {
           if (args.of !== undefined && (typeof args.of !== "number" || !Number.isSafeInteger(args.of) || args.of < 1)) {
             throw new Error("of must be a whole number: the part number in a builder's result");
           }
-          if (args.of !== undefined && args.role !== "reviewer") throw new Error("of is for a reviewer: it names the landed part to check. Give a builder or an explorer a goal instead.");
-          if (args.role === "builder") return await this.dispatchBuilder(builders, args, signal, () => built, (change) => { built += change; }, onUsage);
+          if (args.of !== undefined && args.role !== "reviewer" && args.role !== "builder") throw new Error("of is for a reviewer (check a landed part) or a builder (fix one). Give an explorer a goal instead.");
+          if (args.role === "builder") return await this.dispatchBuilder(builders, args, signal, tally, onUsage);
           const role = validateRole(args.role);
           const goal = requireString(args.goal, "goal", SUBAGENT_LIMITS.goalBytes);
           const context = args.context === undefined || args.context === "" ? undefined : requireString(args.context, "context", SUBAGENT_LIMITS.contextBytes);
@@ -408,9 +416,9 @@ export class SubagentManager {
       const given = scrubbed?.texts[0] ?? part.context;
       result = await this.run({ ...getContext(), role: "reviewer", goal, signal, reportTurn: true,
         context: context ? `${given}\n\nThe lead's own context:\n${context}` : given, contextBytes: SUBAGENT_LIMITS.partContextBytes });
-    } catch (error) { builders.parts.release(n); throw error; }
+    } catch (error) { builders.parts.release(n, part.version); throw error; }
     onUsage?.(result.usage);
-    if (result.status === "completed") builders.parts.markReviewed(n, result.response);
+    if (result.status === "completed") builders.parts.markReviewed(n, result.response, part.version);
     const isError = result.status !== "completed";
     const { goal: _goal, status, reason, usage: _usage, turns: _turns, ...report } = result;
     return { text: JSON.stringify(boundCapabilityResult({ isError, status, reason, part: n, ...report })), ...(isError ? { isError: true } : {}) };
@@ -420,7 +428,7 @@ export class SubagentManager {
   private autoBuilds = 0;
 
   private async dispatchBuilder(builders: DelegateBuilders | undefined, args: Record<string, unknown>, signal: AbortSignal | undefined,
-    built: () => number, count: (change: number) => void, onUsage?: (usage: SubagentUsage | null) => void) {
+    tally: { built: number; fixes: number }, onUsage?: (usage: SubagentUsage | null) => void) {
     if (!builders) throw new Error("role must be explorer or reviewer");
     if (builders.off) throw new Error(`No builders here: ${builders.off}. Do the work yourself, or use an explorer or reviewer.`);
     const refused = builders.refuse?.();
@@ -428,17 +436,38 @@ export class SubagentManager {
     const goal = requireString(args.goal, "goal", BUILDER_LIMITS.goalBytes);
     const context = args.context === undefined || args.context === "" ? undefined : requireString(args.context, "context", BUILDER_LIMITS.contextBytes);
     if (this.closed) throw new Error("Subagent manager is closed");
-    if (built() >= BUILDER_LIMITS.maxPerTask) throw new Error(`Builder budget used up for this task (${BUILDER_LIMITS.maxPerTask}); do the rest yourself`);
+    const of = args.of as number | undefined;
+    if (of === undefined && tally.built >= BUILDER_LIMITS.maxPerTask) throw new Error(`Builder budget used up for this task (${BUILDER_LIMITS.maxPerTask}); do the rest yourself`);
+    if (of !== undefined && tally.built + tally.fixes >= BUILDER_LIMITS.maxWithFixes) {
+      throw new Error(`At most ${BUILDER_LIMITS.maxWithFixes} builders in one task, fixes included; do the rest yourself`);
+    }
+    if (of !== undefined && !builders.parts) throw new Error("No parts here: no builder has landed one this task. Fix it yourself.");
     const running = [...this.active].filter((run) => run.info.role === "builder").length;
     if (this.autoBuilds >= BUILDER_LIMITS.maxConcurrent || running >= BUILDER_LIMITS.maxConcurrent) {
       throw new Error(`${BUILDER_LIMITS.maxConcurrent} builders are already working; wait for one to finish`);
     }
+    // A fix is given the stored review and the fixer's rule ahead of the lead's own context (cut to what is left).
+    let fixing: { context: string } | undefined;
+    if (of !== undefined) {
+      const found = builders.parts!.fixContext(of);
+      if ("refusal" in found) throw new Error(found.refusal);
+      fixing = found;
+    }
     // Reserved before anything async, so a fourth call in the same turn is turned away (and not counted).
     this.autoBuilds++;
+    const count = (change: number) => { if (of === undefined) tally.built += change; else tally.fixes += change; };
     count(1);
     let outcome: BuildOutcome;
-    try { outcome = await builders.run({ goal, ...(context ? { context } : {}), ...(signal ? { signal } : {}) }); }
-    catch (error) { count(-1); throw error; }
+    try {
+      let given = context;
+      if (fixing) {
+        // The stored report is a model's own text about project files, so secrets in it are hidden as they are in a reviewer's diff.
+        const report = (await this.options.scrubToolOutput?.("bash", {}, [fixing.context], signal))?.texts[0] ?? fixing.context;
+        given = context ? `${report}\n\nThe lead's own context:\n${context.slice(0, Math.max(0, BUILDER_LIMITS.contextBytes - Buffer.byteLength(report) - 64))}` : report;
+      }
+      outcome = await builders.run({ goal, ...(given ? { context: given } : {}), ...(of !== undefined ? { of } : {}), ...(signal ? { signal } : {}) });
+    }
+    catch (error) { count(-1); if (of !== undefined) builders.parts!.releaseFix(of); throw error; }
     finally { this.autoBuilds--; }
     onUsage?.(outcome.usage);
     return { text: JSON.stringify(boundCapabilityResult(outcome.report)), ...(outcome.isError ? { isError: true } : {}) };
