@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, readdir, readFile } from "node:fs/promises";
+import { lstat, readdir, readFile, readlink, realpath } from "node:fs/promises";
 import path from "node:path";
 import { isTestPath } from "./proof";
 
@@ -193,9 +193,22 @@ async function readText(root: string, relative: string): Promise<string | undefi
   const file = path.join(root, relative);
   const stats = await lstat(file).catch(() => undefined);
   if (!stats) return undefined;
-  if (stats.isSymbolicLink()) return `link:${relative}`;
+  if (stats.isSymbolicLink()) return linkIdentity(root, file);
   if (!stats.isFile() || stats.size > 1024 * 1024) return `size:${stats.size}`;
   return readFile(file, "utf8").catch(() => undefined);
+}
+
+/** A link is what it points at: the destination text, plus that file's content hash when it is a regular file inside the
+ * project within the size bound. Anything else (broken, outside the project, too big) is marked unread, never followed. */
+async function linkIdentity(root: string, file: string): Promise<string> {
+  const destination = await readlink(file).catch(() => undefined);
+  if (destination === undefined) return "link:unreadable";
+  const [base, real] = await Promise.all([realpath(root).catch(() => undefined), realpath(file).catch(() => undefined)]);
+  const inside = base !== undefined && real !== undefined && real.startsWith(base + path.sep);
+  const stats = inside ? await lstat(real).catch(() => undefined) : undefined;
+  if (!real || !stats?.isFile() || stats.size > 1024 * 1024) return `link:${destination}:unread`;
+  const text = await readFile(real, "utf8").catch(() => undefined);
+  return text === undefined ? `link:${destination}:unread` : `link:${destination}:${digest(text)}`;
 }
 
 async function readJson(root: string, relative: string): Promise<Record<string, unknown> | undefined> {
