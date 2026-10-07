@@ -404,7 +404,7 @@ export class CasperApp {
     onActivity: (activity) => {
       if (activity.kind !== "usage") this.terminal.logHelper(helperActivityLine(activity, this.projectContext ? this.activeWorkspaceRoot() : undefined));
       // The footer counts running builders and what they have spent so far.
-      if (activity.run.role === "builder" && activity.kind !== "tool") updateFooter(this);
+      if (activity.run.role === "builder" && activity.kind !== "tool") { updateFooter(this); if (this.commandActive) this.events.refreshBuilders(); }
     },
     });
     this.lifecycle.add({ name: "subagents", close: () => this.subagents.close() });
@@ -439,6 +439,7 @@ export class CasperApp {
     this.output = { write: (text) => { this.terminal.write(text); } };
     this.events = new RuntimeEventView(this.terminal, this.output, {
       updateFooter: () => updateFooter(this),
+      builderGoals: () => this.subagents.runs().filter(run => run.role === "builder").map(run => run.goal),
       display: () => displayLevel(this),
       onToolEnd: event => {
         this.observations.observeToolEnd(event, this.projectContext?.model.commands);
