@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, realpath, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { diffSnapshots, snapshotTree } from "../src/task/changes";
@@ -234,4 +234,23 @@ test.skipIf(process.platform === "win32")("a dependency link to a missing folder
   expect(broken).toMatchObject({ status: "unavailable" });
   const parent = await proveWithLink((root) => symlink("..", path.join(root, "node_modules"), "dir"));
   expect(parent).toMatchObject({ status: "unavailable", reason: expect.stringContaining("which is the workspace or holds it") });
+});
+
+test.skipIf(process.platform === "win32")("making a file executable, or not, is a change; the same content and mode is not", async () => {
+  const root = await project({ "run.sh": "#!/bin/sh\nexit 0\n", "big.bin": "x".repeat(9 * 1024 * 1024) });
+  const file = path.join(root, "run.sh");
+  const big = path.join(root, "big.bin");
+  await chmod(file, 0o644);
+  await chmod(big, 0o644);
+  const before = await snapshotTree(root, undefined, { git: false });
+  expect(diffSnapshots(before, await snapshotTree(root, undefined, { git: false }))).toEqual({ added: [], modified: [], removed: [] });
+  await chmod(file, 0o755);
+  await chmod(big, 0o755);
+  const executable = await snapshotTree(root, undefined, { git: false });
+  expect(diffSnapshots(before, executable).modified).toEqual(["big.bin", "run.sh"]);
+  await chmod(file, 0o644);
+  expect(diffSnapshots(executable, await snapshotTree(root, undefined, { git: false })).modified).toEqual(["run.sh"]);
+  // Read and write bits are not the file's identity: only whether anyone can run it.
+  await chmod(file, 0o600);
+  expect(diffSnapshots(before, await snapshotTree(root, undefined, { git: false })).modified).toEqual(["big.bin"]);
 });
