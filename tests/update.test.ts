@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
-import { compareVersions, defaultRunner, gitEnv, newestRelease, runUpdate, type Fetcher, type ProcessRunner } from "../src/update/command";
+import { HANDOFF_SCRIPT, compareVersions, defaultRunner, gitEnv, newestRelease, runUpdate, type Fetcher, type ProcessRunner } from "../src/update/command";
 import { runningFromBinary } from "../src/update/mode";
 import { CHECK_EVERY_MS, refreshUpdateCheck, updateChecksOff, updateNotice } from "../src/update/notice";
 import { testReleaseKey, type TestKey } from "./support/release-signing";
@@ -241,10 +241,11 @@ test("windows: the installer gets this program's file and digest from the list C
   const { executable } = await binaryInstall("casper.exe");
   const sums = `${"c".repeat(64)}  casper-windows-x64.exe\n`;
   const github = fakeGitHub([{ tag_name: "v0.2.22" }], { ...releaseFiles("0.2.22"), [`${DOWNLOAD}/v0.2.22/SHA256SUMS`]: sums });
-  const { run, calls } = recordingRunner();
-  const installs: ProcessRunner = async (argv, options) => { await writeFile(executable, "new"); return run(argv, options); };
-  const result = await runUpdate({ releaseKey: NO_KEY, check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: () => {}, fetch: github.fetch, run: installs, platform: "win32", arch: "x64" });
+  const { run } = recordingRunner();
+  const handoff = fakeHandoff();
+  const result = await runUpdate({ releaseKey: NO_KEY, check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: () => {}, fetch: github.fetch, run, startDetached: handoff.start, platform: "win32", arch: "x64" });
   expect(result.exitCode).toBe(0);
+  const calls = handoff.calls;
   expect(calls[0]!.env).toMatchObject({ CASPER_SHA256: "c".repeat(64), CASPER_ARCH: "x64" });
 });
 
@@ -294,59 +295,89 @@ test("binary: a program not named casper is not replaced by an installer that wr
   expect(lines.at(-1)).toContain("is named casper-darwin-arm64");
 });
 
-test("windows: the running casper.exe moves aside, the installer runs with its settings, and the old copy goes next time", async () => {
-  const { dir, executable } = await binaryInstall("casper.exe");
-  await writeFile(path.join(dir, "casper.old.exe"), "older");
-  const github = fakeGitHub([{ tag_name: "v0.2.22" }], releaseFiles("0.2.22"));
-  let presentDuringInstall: string[] = [];
-  const { run, calls } = recordingRunner(() => 0);
-  const wrapped: ProcessRunner = async (argv, options) => {
-    presentDuringInstall = (await readdir(dir)).sort();
-    await writeFile(path.join(dir, "casper.exe"), "new");
-    return run(argv, options);
+/** A stand-in for the detached start: records the command and the installer file as it was at that moment. */
+function fakeHandoff(started = true) {
+  const calls: Array<{ argv: string[]; env: NodeJS.ProcessEnv; installer?: string; script?: string }> = [];
+  const start = async (argv: string[], options: { env: NodeJS.ProcessEnv }) => {
+    const at = (flag: string) => argv[argv.indexOf(flag) + 1]!;
+    calls.push({ argv, env: options.env, installer: await readFile(at("-Installer"), "utf8").catch(() => undefined), script: await readFile(at("-File"), "utf8").catch(() => undefined) });
+    return started;
   };
+  return { start, calls };
+}
+
+test("windows: the verified installer is handed to a detached process that waits for this one, and Casper exits 0", async () => {
+  const { dir, executable } = await binaryInstall("casper.exe");
+  const files = releaseFiles("0.2.22");
+  const github = fakeGitHub([{ tag_name: "v0.2.22" }], files);
+  const { run, calls: ran } = recordingRunner();
+  const handoff = fakeHandoff();
   const lines: string[] = [];
-  const result = await runUpdate({ releaseKey: NO_KEY, check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: (line) => lines.push(line), fetch: github.fetch, run: wrapped, platform: "win32", env: { CASPER_SHA256: "x" } });
+  const result = await runUpdate({ releaseKey: NO_KEY, check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: (line) => lines.push(line), fetch: github.fetch, run, startDetached: handoff.start, pid: 4242, platform: "win32" });
   expect(result.exitCode).toBe(0);
-  const call = calls[0]!;
-  expect(call.argv.slice(0, 5)).toEqual(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]);
-  expect(call.argv[5]).toEndWith("install.ps1");
-  expect(call.env).toMatchObject({ CASPER_INSTALL_DIR: await realDir(dir), CASPER_VERSION: "0.2.22", CASPER_BASE_URL: `${DOWNLOAD}/v0.2.22` });
-  expect(call.env.CASPER_SHA256).toBeUndefined();
-  // The leftover from last time is gone and the running program was out of the way while the installer ran.
-  expect(presentDuringInstall).toEqual(["casper.old.exe"]);
-  expect(await readFile(path.join(dir, "casper.exe"), "utf8")).toBe("new");
-  expect(await readFile(path.join(dir, "casper.old.exe"), "utf8")).toBe("old");
+  expect(ran).toEqual([]);
+  expect(handoff.calls).toHaveLength(1);
+  const { argv, env, installer: handed } = handoff.calls[0]!;
+  expect(argv.slice(0, 9)).toEqual(["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", argv[8]!]);
+  const arg = (flag: string) => argv[argv.indexOf(flag) + 1];
+  expect(arg("-WaitPid")).toBe("4242");
+  expect(arg("-InstallDir")).toBe(await realDir(dir));
+  expect(arg("-Version")).toBe("0.2.22");
+  // The file it will run is exactly the verified installer, and its hash travels with it.
+  expect(handed).toBe(files[`${DOWNLOAD}/v0.2.22/install.ps1`]);
+  expect(arg("-InstallerSha256")).toBe(sha(files[`${DOWNLOAD}/v0.2.22/install.ps1`]));
+  expect(env).toMatchObject({ CASPER_BASE_URL: `${DOWNLOAD}/v0.2.22` });
+  // Nothing is downloaded again and the running program is untouched.
+  expect(github.asked.filter((url) => url.endsWith("install.ps1"))).toHaveLength(1);
+  expect(await readdir(dir)).toEqual(["casper.exe"]);
+  expect(lines.at(-1)).toBe("Casper will finish updating when this window closes: it is replacing its own program. Run casper --version afterwards.");
+  // The temp folder stays for the handoff, which removes it itself.
+  const cleanup = arg("-Cleanup")!;
+  expect(await readdir(cleanup)).toContain("install.ps1");
+  await removeTempDir(cleanup);
 });
 
-test("windows: when the installer fails, the running casper.exe is put back", async () => {
-  const { dir, executable } = await binaryInstall("casper.exe");
-  const github = fakeGitHub([{ tag_name: "v0.2.22" }], releaseFiles("0.2.22"));
-  const { run } = recordingRunner(() => 1);
-  const lines: string[] = [];
-  const result = await runUpdate({ releaseKey: NO_KEY, check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: (line) => lines.push(line), fetch: github.fetch, run, platform: "win32" });
-  expect(result.exitCode).toBe(1);
-  expect((await readdir(dir)).sort()).toEqual(["casper.exe"]);
-  expect(await readFile(executable, "utf8")).toBe("old");
+test("windows: the handoff script waits on one pid, runs nothing when the check is unclear, and builds no command text", () => {
+  expect(HANDOFF_SCRIPT).toContain("Get-Process -Id $WaitPid");
+  expect(HANDOFF_SCRIPT).toContain("WaitForExit");
+  expect(HANDOFF_SCRIPT).toContain("Get-FileHash");
+  expect(HANDOFF_SCRIPT).not.toMatch(/Invoke-Expression|iex\b|DownloadString|Invoke-WebRequest|irm\b/i);
 });
 
-test("windows: Ctrl-C while the installer runs stops it and puts the running casper.exe back", async () => {
+test("windows: when the detached start fails, the old message is shown and nothing is left behind", async () => {
   const { dir, executable } = await binaryInstall("casper.exe");
   const github = fakeGitHub([{ tag_name: "v0.2.22" }], releaseFiles("0.2.22"));
-  const controller = new AbortController();
-  let tempScript = "";
-  // Like a real child: it ends only once it is told to stop.
-  const run: ProcessRunner = (argv, options) => new Promise((resolve) => {
-    tempScript = argv.at(-1)!;
-    options.signal?.addEventListener("abort", () => setTimeout(() => resolve({ code: 1, stdout: "", stderr: "" }), 20), { once: true });
-    setTimeout(() => controller.abort(), 10);
-  });
+  const { run } = recordingRunner();
+  const handoff = fakeHandoff(false);
   const lines: string[] = [];
-  const result = await runUpdate({ releaseKey: NO_KEY, check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: (line) => lines.push(line), fetch: github.fetch, run, platform: "win32", signal: controller.signal });
+  const result = await runUpdate({ releaseKey: NO_KEY, check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: (line) => lines.push(line), fetch: github.fetch, run, startDetached: handoff.start, platform: "win32" });
   expect(result.exitCode).toBe(1);
-  expect((await readdir(dir)).sort()).toEqual(["casper.exe"]);
-  expect(await readFile(executable, "utf8")).toBe("old");
-  expect(await readdir(path.dirname(tempScript)).catch(() => "gone")).toBe("gone");
+  expect(lines.at(-1)).toBe(`Windows would not let Casper move its own program aside. Close Casper, then run this in PowerShell: irm ${DOWNLOAD}/v0.2.22/install.ps1 | iex`);
+  expect(await readdir(dir)).toEqual(["casper.exe"]);
+  const folder = path.dirname(handoff.calls[0]!.argv[handoff.calls[0]!.argv.indexOf("-Installer") + 1]!);
+  expect(await readdir(folder).catch(() => "gone")).toBe("gone");
+  const threw = await runUpdate({ releaseKey: NO_KEY, check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: () => {}, fetch: github.fetch, run, startDetached: async () => { throw new Error("no"); }, platform: "win32" });
+  expect(threw.exitCode).toBe(1);
+});
+
+test("windows: an installer that fails verification is never handed off", async () => {
+  const { executable } = await binaryInstall("casper.exe");
+  const github = fakeGitHub([{ tag_name: "v0.2.22" }], { ...releaseFiles("0.2.22"), [`${DOWNLOAD}/v0.2.22/install.ps1`]: "Write-Host tampered\n" });
+  const handoff = fakeHandoff();
+  const result = await runUpdate({ releaseKey: NO_KEY, check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: () => {}, fetch: github.fetch, run: recordingRunner().run, startDetached: handoff.start, platform: "win32" });
+  expect(result.exitCode).toBe(1);
+  expect(handoff.calls).toEqual([]);
+});
+
+test("non-Windows: the installer still runs in this process and nothing is handed off", async () => {
+  const { executable } = await binaryInstall();
+  const github = fakeGitHub([{ tag_name: "v0.2.22" }], releaseFiles("0.2.22"));
+  const { run, calls } = recordingRunner();
+  const handoff = fakeHandoff();
+  const result = await runUpdate({ releaseKey: NO_KEY, check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: () => {}, fetch: github.fetch, run, startDetached: handoff.start, platform: "linux" });
+  expect(result.exitCode).toBe(0);
+  expect(calls[0]!.argv[0]).toBe("sh");
+  expect(handoff.calls).toEqual([]);
 });
 
 test("a GitHub token in GITHUB_TOKEN or GH_TOKEN goes only to the release lookup, and a rejected one is named", async () => {

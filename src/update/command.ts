@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { safeGitArgs } from "../platform/git";
@@ -9,7 +10,9 @@ import { checkInstaller } from "./verify-installer";
 /**
  * `casper update`: no model, no tokens and no saved state.
  * - A release binary asks GitHub for the newest release (previews count; drafts do not) and, when it is newer,
- *   runs that release's own installer on the folder this program is in, pinned to the new version. The installer is
+ *   runs that release's own installer on the folder this program is in, pinned to the new version. On Windows the
+ *   running casper.exe cannot be replaced, so the checked installer is handed to a separate hidden process that waits
+ *   for Casper to exit and then runs that same file. The installer is
  *   checked first (verify-installer.ts): against the signed SHA256SUMS once there is a release key, and against
  *   GitHub's build provenance when gh is signed in.
  * - A source checkout never looks at releases: it pulls with git (fast-forward only) and, when the lockfile
@@ -34,6 +37,8 @@ export type Fetcher = (url: string, init?: { headers?: Record<string, string>; s
 export interface ProcessRun { code: number | null; stdout: string; stderr: string }
 export type ProcessRunner = (argv: string[], options: { cwd?: string; env: NodeJS.ProcessEnv; inherit?: boolean; signal?: AbortSignal; timeoutMs?: number }) => Promise<ProcessRun>;
 
+export type DetachedStarter = (argv: string[], options: { env: NodeJS.ProcessEnv }) => Promise<boolean>;
+
 export interface UpdateOptions {
   check: boolean;
   install: Install;
@@ -45,6 +50,10 @@ export interface UpdateOptions {
   env?: NodeJS.ProcessEnv;
   fetch?: Fetcher;
   run?: ProcessRunner;
+  /** Windows only: starts a program fully detached (own process, no window, not tied to this console) and says whether it started. */
+  startDetached?: DetachedStarter;
+  /** The id of this process, which the Windows handoff waits on; tests pass one. */
+  pid?: number;
   /** The bun that runs the checkout; `bun install` uses it. */
   bun?: string;
   /** The release key SHA256SUMS must be signed with (tests pass a throwaway one); empty checks no signature. */
@@ -78,6 +87,50 @@ export const defaultRunner: ProcessRunner = (argv, options) => new Promise((reso
     resolve({ code: started ? code ?? 1 : null, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") });
   });
 });
+
+/** Starts a program that outlives this one: no shell, no window, no link to this console. True once it has started. */
+export const defaultDetachedStarter: DetachedStarter = (argv, options) => new Promise((resolve) => {
+  try {
+    const child = spawn(argv[0]!, argv.slice(1), { env: options.env, shell: false, detached: true, windowsHide: true, stdio: "ignore" });
+    child.once("error", () => resolve(false));
+    child.once("spawn", () => { child.unref(); resolve(true); });
+  } catch { resolve(false); }
+});
+
+/** How long the handoff waits for Casper to exit before giving up without installing. */
+export const HANDOFF_WAIT_SECONDS = 300;
+
+/** The program Windows runs after Casper has exited. It takes everything as parameters (nothing is built into a command
+ * string), waits for exactly one process id, checks the installer file is the one Casper verified, and runs only that file. */
+export const HANDOFF_SCRIPT = `param(
+  [Parameter(Mandatory = $true)][ValidateRange(1, 4194304)][int]$WaitPid,
+  [Parameter(Mandatory = $true)][string]$Installer,
+  [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-fA-F]{64}$')][string]$InstallerSha256,
+  [Parameter(Mandatory = $true)][string]$InstallDir,
+  [Parameter(Mandatory = $true)][ValidatePattern('^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?$')][string]$Version,
+  [Parameter(Mandatory = $true)][string]$Cleanup,
+  [int]$WaitSeconds = ${HANDOFF_WAIT_SECONDS}
+)
+$ErrorActionPreference = 'Stop'
+try {
+  # Wait for Casper to exit. A process that is already gone is fine; any other answer means do nothing.
+  $casper = $null
+  try { $casper = Get-Process -Id $WaitPid -ErrorAction Stop }
+  catch [Microsoft.PowerShell.Commands.ProcessCommandException] { $casper = $null }
+  if ($casper) {
+    if (-not $casper.WaitForExit($WaitSeconds * 1000)) { exit 1 }
+    $casper.Dispose()
+  }
+  Start-Sleep -Seconds 1
+  if ((Get-FileHash -LiteralPath $Installer -Algorithm SHA256).Hash -ne $InstallerSha256) { exit 1 }
+  $env:CASPER_INSTALL_DIR = $InstallDir
+  $env:CASPER_VERSION = $Version
+  Remove-Item -LiteralPath (Join-Path $InstallDir 'casper.old.exe') -Force -ErrorAction SilentlyContinue
+  & $Installer
+} finally {
+  Remove-Item -LiteralPath $Cleanup -Recurse -Force -ErrorAction SilentlyContinue
+}
+`;
 
 export async function runUpdate(options: UpdateOptions): Promise<{ exitCode: number }> {
   return options.install.kind === "checkout" ? updateCheckout(options, options.install.root) : updateBinary(options, options.install.executable);
@@ -210,10 +263,12 @@ async function updateBinary(options: UpdateOptions, executable: string): Promise
   env.CASPER_BASE_URL = base;
   if (binaryDigest) Object.assign(env, { CASPER_SHA256: binaryDigest, CASPER_ARCH: arch, ...(windows ? {} : { CASPER_OS: options.platform ?? process.platform }) });
   const run = options.run ?? defaultRunner;
+  // Private to this user: the folder is made with owner-only access (Windows: inside the user's own temp folder).
   const temp = await mkdtemp(path.join(os.tmpdir(), "casper-update-"));
+  let handedOff = false;
   try {
     const file = path.join(temp, script);
-    await writeFile(file, installer);
+    await writeFile(file, installer, { mode: 0o600 });
     // Where it was built: a release that lists its installers in SHA256SUMS has build provenance for them too.
     if (listed && !(await builtByGitHub(run, file, options))) {
       write(`The downloaded installer doesn't match a Casper build from GitHub, so it was not run. ${NOTHING_CHANGED}`);
@@ -224,12 +279,22 @@ async function updateBinary(options: UpdateOptions, executable: string): Promise
       const result = await run(["sh", file, "--dir", folder, "--version", version], { env, inherit: true, ...(options.signal ? { signal: options.signal } : {}) });
       return finished(write, result.code === 0, currentVersion, version);
     }
-    return await windowsSwap(options, program, version, async () => {
-      Object.assign(env, { CASPER_INSTALL_DIR: folder, CASPER_VERSION: version });
-      const result = await run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", file], { env, inherit: true, ...(options.signal ? { signal: options.signal } : {}) });
-      return result.code === 0;
-    });
-  } finally { await rm(temp, { recursive: true, force: true }); }
+    // Windows will not replace casper.exe while it runs, so a separate process does it once this one has exited.
+    const handoff = path.join(temp, "handoff.ps1");
+    await writeFile(handoff, HANDOFF_SCRIPT, { mode: 0o600 });
+    const started = await (options.startDetached ?? defaultDetachedStarter)([
+      "powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", handoff,
+      "-WaitPid", String(options.pid ?? process.pid), "-Installer", file, "-InstallerSha256", createHash("sha256").update(installer).digest("hex"),
+      "-InstallDir", folder, "-Version", version, "-Cleanup", temp,
+    ], { env }).catch(() => false);
+    if (!started) {
+      write(`Windows would not let Casper move its own program aside. Close Casper, then run this in PowerShell: irm ${DOWNLOAD}/v${version}/install.ps1 | iex`);
+      return { exitCode: 1 };
+    }
+    handedOff = true;
+    write("Casper will finish updating when this window closes: it is replacing its own program. Run casper --version afterwards.");
+    return { exitCode: 0 };
+  } finally { if (!handedOff) await rm(temp, { recursive: true, force: true }); }
 }
 
 /** The SHA-256 a SHA256SUMS list gives for `file`, or undefined when it doesn't name it. */
@@ -248,31 +313,6 @@ async function builtByGitHub(run: ProcessRunner, file: string, options: UpdateOp
 function finished(write: (line: string) => void, ok: boolean, from: string, to: string): { exitCode: number } {
   write(ok ? `Casper is now ${to}.` : `The installer stopped before it finished; Casper ${from} is still installed.`);
   return { exitCode: ok ? 0 : 1 };
-}
-
-const exists = (file: string) => stat(file).then(() => true, () => false);
-
-/** Windows will not overwrite a running casper.exe but will rename it. It moves aside to casper.old.exe so the installer
- * can put the new one in place; if the installer does not finish, it is moved back. The old copy goes on the next update. */
-async function windowsSwap(options: UpdateOptions, program: string, version: string, install: () => Promise<boolean>): Promise<{ exitCode: number }> {
-  const { write, currentVersion } = options;
-  const aside = path.join(path.dirname(program), "casper.old.exe");
-  await rm(aside, { force: true }).catch(() => undefined);
-  try { await rename(program, aside); }
-  catch {
-    write(`Windows would not let Casper move its own program aside. Close Casper, then run this in PowerShell: irm ${DOWNLOAD}/v${version}/install.ps1 | iex`);
-    return { exitCode: 1 };
-  }
-  let ok = false;
-  try { ok = await install() && await exists(program); }
-  finally {
-    if (!ok && !(await exists(program))) {
-      await rename(aside, program).catch(() => {
-        write(`Rename casper.old.exe back to casper.exe in ${path.dirname(program)} to use Casper ${currentVersion} again.`);
-      });
-    }
-  }
-  return finished(write, ok, currentVersion, version);
 }
 
 // --- A source checkout ---
