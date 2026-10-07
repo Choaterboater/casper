@@ -140,6 +140,28 @@ export function formatDuration(ms: number | undefined): string {
   return `${Math.floor(whole / 60)}m${String(whole % 60).padStart(2, "0")}s`;
 }
 
+/** A running step shows its elapsed time only once it has run this long. */
+export const RUNNING_ELAPSED_AFTER_MS = 10_000;
+
+/** " · 4m12s" for a step still running after 10 s; "" before that. */
+export function runningElapsed(ms: number): string {
+  if (!Number.isFinite(ms) || ms < RUNNING_ELAPSED_AFTER_MS) return "";
+  const seconds = Math.floor(ms / 1000);
+  return seconds < 60 ? ` · ${seconds}s` : ` · ${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
+}
+
+/** The last non-empty line of a command's output so far: control characters stripped, secrets redacted,
+ * cut to `max` characters. "" when there is nothing to show. */
+export function lastOutputLine(text: string, max: number): string {
+  const lines = redactPreview(text.replace(/\r(?!\n)/g, "\n")).split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]!.replace(/\s+/g, " ").trim();
+    if (!line) continue;
+    return line.length > max ? `${line.slice(0, Math.max(0, max - 1))}…` : line;
+  }
+  return "";
+}
+
 /** `root`: paths under it print relative to it; `home` (default the real one) shortens other paths to ~.
  * `width`: the line fits it. */
 export interface ToolLineFit { root?: string; width?: number; home?: string }

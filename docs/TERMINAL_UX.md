@@ -179,7 +179,7 @@ is no "completed".
 
 On a rich terminal the main screen keeps the model's words, questions and receipts. Tool calls live
 in a transient `Working` box that shows the last 3 steps, each updated in place (`• read · src/x.ts`
-while it runs, `✓ read · src/x.ts` once done), even with calls running side by side. When the model
+while it runs, `✓ read · src/x.ts` once done), even with calls running side by side. A step still running after 10 s adds its elapsed time (`• bash · python -m pytest · 4m12s`), and a running command shows its latest output line dimly under it (not at `/details quiet`; plain terminals and `--json` get nothing extra). When the model
 moves on (its next words, or the end of its turn), the finished steps fold into one line:
 `✓ 14 edits · 6 commands · 38s` (`•` instead of `✓` when a step failed), with the changed files on one line under
 it (`  changed app.py, tests/test_app.py`, five at most, then `+N more`); a single step prints its own line. A failed command

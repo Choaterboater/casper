@@ -255,7 +255,7 @@ export class TerminalSurface {
       render: width => {
         const editorLines = this.editor.render(width);
         const rule = this.muted("─".repeat(width));
-        const activity = this.activity ? renderPanel(`${SPINNER_FRAMES[this.spinnerFrame]} Working`, this.activity.map(line => truncateToWidth(line, Math.max(1, width - 4))), width, this.io.color, "accent") : [];
+        const activity = this.activity ? renderPanel(`${SPINNER_FRAMES[this.spinnerFrame]} Working`, this.activity.map(line => { const fitted = truncateToWidth(line, Math.max(1, width - 4)); return line.startsWith("↳ ") ? this.muted(fitted) : fitted; }), width, this.io.color, "accent") : [];
         const block = this.slot ? this.slot.render(width).map(line => truncateToWidth(line, width))
           : this.lending ? [rule, this.muted(truncateToWidth("  exclusive input in progress · Esc or Ctrl+C cancels", width)), rule]
           : this.pendingAsk ? [rule, ...this.renderAsk(width, this.terminal.rows - editorLines.length - 2), ...editorLines]

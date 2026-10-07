@@ -1,5 +1,5 @@
 import type { InteractiveTerminal } from "../tui/terminal";
-import { BUSY_GLYPH, displayPath, formatDuration, formatToolActivity, redactPreview, terminalText } from "../tui/format";
+import { BUSY_GLYPH, displayPath, formatDuration, formatToolActivity, lastOutputLine, redactPreview, runningElapsed, terminalText } from "../tui/format";
 import type { RuntimeEvent } from "../runtime/types";
 import type { OutputWriter } from "./commands";
 import { SPEND_STOP_REASON } from "../task/spend";
@@ -50,6 +50,10 @@ interface Step {
   path?: string;
   startedAt: number;
   endedAt?: number;
+  /** The start event, to redraw the running line with its elapsed time. */
+  start?: ToolStart;
+  /** The last line of a running command's output so far (rich terminal, not quiet). */
+  tail?: string;
   /** Its line in the Working box (running, then finished). */
   line: string;
   /** The finished line as printed on the main screen, with a failure's detail. */
@@ -95,6 +99,9 @@ export function refusalForScreen(text: string): string | undefined {
 
 /** Plain terminal: a command still running after this long prints its start line. */
 export const PLAIN_START_AFTER_MS = 2000;
+
+/** Starts the Working box line that shows a running command's latest output (the surface draws it dim). */
+export const TAIL_MARK = "↳ ";
 
 /** How many steps the Working box shows. */
 const BOX_STEPS = 3;
@@ -145,6 +152,7 @@ export class RuntimeEventView {
   private responseActivity?: string;
   private responseStartedAt?: number;
   private activityTimer?: NodeJS.Timeout;
+  private stepTimer?: NodeJS.Timeout;
   private endedWithNewline = true;
   private displayedError?: string;
   private expanded?: ExpandedStep;
@@ -203,11 +211,32 @@ export class RuntimeEventView {
   /** The Working box: the latest steps, then what the model is doing now. */
   private renderBox(): void {
     if (!this.terminal.rich) return;
-    const lines = this.steps.slice(-BOX_STEPS).map(step => step.line);
+    const now = performance.now();
+    const shown = this.steps.slice(-BOX_STEPS);
+    const lines = shown.flatMap(step => {
+      if (step.endedAt !== undefined || !step.start) return [step.line];
+      // Still running: after 10 s say for how long, and for a command show the last line it printed.
+      const suffix = runningElapsed(now - step.startedAt);
+      const head = suffix ? `${formatToolActivity(step.start, undefined, this.fit(4 + suffix.length))}${suffix}` : step.line;
+      const width = this.terminal.columns ? Math.max(10, this.terminal.columns - 8) : 80;
+      const tail = step.tail && this.level() !== "quiet" ? lastOutputLine(step.tail, width) : "";
+      return tail ? [head, `${TAIL_MARK}${tail}`] : [head];
+    });
+    // The elapsed time moves on its own: redraw once a second while a step runs, never otherwise.
+    const running = this.steps.some(step => step.endedAt === undefined && step.start);
+    if (running && !this.stepTimer) {
+      this.stepTimer = setInterval(() => this.renderBox(), 1000);
+      this.stepTimer.unref?.();
+    } else if (!running && this.stepTimer) this.stopStepTimer();
     const builders = buildersLine(this.callbacks.builderGoals?.() ?? [], this.callbacks.reviewerCount?.() ?? 0);
     if (builders) lines.push(builders);
     if (this.status) lines.push(this.status);
     this.terminal.setActivity(lines.length ? lines : undefined);
+  }
+
+  private stopStepTimer(): void {
+    if (this.stepTimer) clearInterval(this.stepTimer);
+    this.stepTimer = undefined;
   }
 
   /** A builder started, ended or spent more: redraw the box so its line is current. */
@@ -311,6 +340,7 @@ export class RuntimeEventView {
   reset(): void {
     this.fold();
     this.steps = [];
+    this.stopStepTimer();
     this.clearResponseActivity();
     this.status = undefined;
     this.toolStarted.clear();
@@ -432,8 +462,17 @@ export class RuntimeEventView {
         const path = typeof event.input?.path === "string" ? event.input.path : undefined;
         if (last?.failed && last.kind === "edit" && stepKind(event.toolName) === "edit" && path !== undefined && last.path === path) last.retried = true;
         this.steps.push({ ...(event.toolCallId ? { id: event.toolCallId } : {}), toolName: event.toolName, kind: stepKind(event.toolName),
-          ...(path !== undefined ? { path } : {}), startedAt: performance.now(), line: formatToolActivity(event, undefined, this.fit(4)) });
+          ...(path !== undefined ? { path } : {}), start: event, startedAt: performance.now(), line: formatToolActivity(event, undefined, this.fit(4)) });
         this.clearResponseActivity(); this.status = undefined;
+        this.renderBox();
+        break;
+      }
+      case "tool_progress": {
+        // Rich terminal only, bash only, never in quiet: the plain terminal and --json get no extra lines.
+        if (!this.terminal.rich || event.toolName !== "bash" || this.level() === "quiet") break;
+        const step = this.steps.find(candidate => candidate.endedAt === undefined && (event.toolCallId ? candidate.id === event.toolCallId : candidate.toolName === event.toolName));
+        if (!step) break;
+        step.tail = event.text;
         this.renderBox();
         break;
       }
