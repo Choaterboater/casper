@@ -1,7 +1,7 @@
 import { afterAll, expect, spyOn, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { PLAIN_START_AFTER_MS, refusalForScreen, RuntimeEventView, stepSummary } from "../src/app/events";
+import { buildersLine, PLAIN_START_AFTER_MS, refusalForScreen, RuntimeEventView, stepSummary } from "../src/app/events";
 import { reachCantAsk, reachDeclined, SHELL_CANT_ASK } from "../src/app/sandbox";
 import { commandLabel, displayPath, formatToolActivity, toolTarget } from "../src/tui/format";
 import { InteractiveTerminal } from "../src/tui/terminal";
@@ -282,4 +282,26 @@ test("a skipped casper_check shows as skipped on both terminals; its payload nev
   const failed = fakeTerminal(false);
   failed.handle(start("f", "casper_check", { check: "test" }), end("f", "casper_check", { check: "test" }, true, JSON.stringify({ name: "test", status: "fail" })));
   expect(failed.screen.join("\n")).not.toContain("status");
+});
+
+test("the Working box names the builders that are running, and nothing when none are", () => {
+  expect(buildersLine([])).toBeUndefined();
+  expect(buildersLine(["Fix the parser\nmore detail"])).toBe("1 builder working: Fix the parser");
+  expect(buildersLine(["fix the parser", "add tests", "x".repeat(60), "four"]))
+    .toBe(`4 builders working: fix the parser, add tests, ${"x".repeat(39)}… +1 more`);
+});
+
+test("rich terminal: the box carries the builders line, and drops it when they end", () => {
+  let goals: string[] = ["fix the parser", "add tests"];
+  const box: Array<readonly string[] | undefined> = [];
+  const terminal = { rich: true, columns: 100, setActivity(s?: string | readonly string[]) { box.push(s === undefined ? undefined : typeof s === "string" ? [s] : s); }, endAssistant() {}, write() {} };
+  const view = new RuntimeEventView(terminal as unknown as InteractiveTerminal, { write() {} }, {
+    updateFooter() {}, onToolEnd() {}, setTaskStop() {}, markRuntimeFailed() {}, turnLimitReached() {}, cancelled: () => false,
+    builderGoals: () => goals,
+  });
+  view.refreshBuilders();
+  expect(box.at(-1)).toEqual(["2 builders working: fix the parser, add tests"]);
+  goals = [];
+  view.refreshBuilders();
+  expect(box.at(-1)).toBeUndefined();
 });

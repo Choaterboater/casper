@@ -14,6 +14,8 @@ import { explainModelError } from "../runtime/model-errors";
 /** Session-owned effects the renderer needs; the app implements these against its state. */
 export interface RuntimeEventCallbacks {
   updateFooter(): void;
+  /** The goals of the builders running now, for the Working box. Unset: no line. */
+  builderGoals?(): readonly string[];
   /** Bounded tool-output retention plus downstream invalidation for mutation tools. */
   onToolEnd(event: Extract<RuntimeEvent, { type: "tool_end" }>): void;
   /** Final provider stop outcome of the current model turn. */
@@ -94,6 +96,17 @@ export const PLAIN_START_AFTER_MS = 2000;
 
 /** How many steps the Working box shows. */
 const BOX_STEPS = 3;
+
+/** "2 builders working: fix the parser, add tests": the first line of each goal, short, the first few named. */
+export function buildersLine(goals: readonly string[]): string | undefined {
+  if (!goals.length) return undefined;
+  const short = goals.slice(0, 3).map(goal => {
+    const first = (goal.split("\n").find(line => line.trim()) ?? "").trim();
+    return first.length > 40 ? `${first.slice(0, 39)}…` : first;
+  }).filter(Boolean);
+  const more = goals.length > 3 ? ` +${goals.length - 3} more` : "";
+  return `${goals.length} builder${goals.length === 1 ? "" : "s"} working${short.length ? `: ${short.join(", ")}` : ""}${more}`;
+}
 
 /** One line for a finished group of steps: "✓ 14 edits · 6 commands · 38s", or "• 14 edits · 6 commands · 1 failed · 38s"
  * (never a green ✓ over a failure). */
@@ -187,9 +200,14 @@ export class RuntimeEventView {
   private renderBox(): void {
     if (!this.terminal.rich) return;
     const lines = this.steps.slice(-BOX_STEPS).map(step => step.line);
+    const builders = buildersLine(this.callbacks.builderGoals?.() ?? []);
+    if (builders) lines.push(builders);
     if (this.status) lines.push(this.status);
     this.terminal.setActivity(lines.length ? lines : undefined);
   }
+
+  /** A builder started, ended or spent more: redraw the box so its line is current. */
+  refreshBuilders(): void { this.renderBox(); }
 
   private setResponseActivity(activity: string): void {
     if (!this.terminal.rich) return;
