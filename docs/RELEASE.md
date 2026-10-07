@@ -1322,8 +1322,14 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
   program's own file (`CASPER_OS`/`CASPER_ARCH`) and its SHA-256 from the list it checked
   (`CASPER_SHA256`), so the installer fetches no list of its own; a signed list that does
   not name that file installs nothing. Any failure says why in one line and
-  runs nothing; on Windows the running
-  `casper.exe` is renamed to `casper.old.exe` first and put back if the installer fails.
+  runs nothing. On Windows the
+  running `casper.exe` cannot be replaced, so after the same checks Casper saves the checked
+  installer to a private temporary folder and starts a separate, hidden, detached PowerShell
+  (arguments only, no command text built from the release) that waits up to five minutes for
+  Casper's process id to exit, checks the file still has the checked SHA-256, runs it on the
+  install folder with the version pinned, and removes the folder. Casper prints one line and
+  exits 0; if the detached start fails it prints the `irm ... | iex` line and exits 1. The
+  hand-off is covered by tests with a fake spawner; it is unverified on a real Windows machine.
   A token in `GITHUB_TOKEN` or `GH_TOKEN` is sent with the release lookup only (not the
   downloads), for GitHub's higher limit.
 - **Clears the macOS quarantine flag** on the staged binary before it is run (best

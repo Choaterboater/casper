@@ -59,8 +59,13 @@ line should point into the install folder, not an old checkout or some other pro
 called casper.
 
 The command above always installs **v0.2.25**. Running it again reinstalls v0.2.25.
-To get a newer preview, run `casper update`; it renames `casper.exe` to `casper.old.exe`
-and installs the new one with that release's own installer.
+To get a newer preview, run `casper update`. Windows will not replace a running `casper.exe`,
+so Casper checks that release's own installer (checksum and build provenance, as on other systems),
+saves it to a private temporary folder and starts a separate hidden PowerShell that waits for
+Casper to exit, then runs that same file. Casper prints one line and exits; once its window has
+closed, run `casper --version` to see the new version. The waiting step gives up after five minutes
+without installing. If that separate step cannot be started, Casper shows the `irm ... | iex` line
+to run yourself. This hand-off has not been run on a real Windows machine yet.
 
 ## 2. Automated checks (CI)
 
