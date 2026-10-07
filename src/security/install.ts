@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { chmod, copyFile, lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installEnv, securityEnv } from "./env";
-import { runTool, type ToolRunner } from "./spawn";
+import { runInstallStep, runTool, type ToolRunner } from "./spawn";
 import { hostPlatform, pinnedToolDir, pinnedToolPath, SECURITY_TOOLS, type LockedSpec, type SecurityToolSpec, type UvLockSource } from "./tools";
 import type { SecurityToolId } from "./types";
 
@@ -211,7 +211,7 @@ async function installBinary(spec: SecurityToolSpec, options: InstallOptions): P
       const extract = path.join(staging, "extract");
       await writeFile(archive, bytes);
       await mkdir(extract);
-      const unpacked = await (options.run ?? runTool)({
+      const unpacked = await (options.run ?? runInstallStep)({
         file: await tarProgram(platform, options.env ?? process.env), args: [asset.archive === "zip" ? "-xf" : "-xzf", archive, "-C", extract, asset.member],
         cwd: staging, env: installEnv(options.env ?? process.env), timeoutMs: 120_000,
       });
@@ -285,7 +285,7 @@ async function buildLockedVenv(build: LockedBuild, dir: string, uv: string, opti
   // ~/.cache/uv: a cache in ~/.casper, which they can't write, keeps the hash lock meaningful.
   const env = { ...installEnv(options.env ?? process.env), UV_CACHE_DIR: path.join(options.homeDir, ".casper", "uv-cache") };
   const platform = options.platform ?? process.platform;
-  const run = options.run ?? runTool;
+  const run = options.run ?? runInstallStep;
   const { label, version, source } = build;
   await rm(dir, { recursive: true, force: true });
   await mkdir(dir, { recursive: true, mode: 0o700 });

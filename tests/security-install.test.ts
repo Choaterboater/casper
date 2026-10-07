@@ -5,6 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { findTool, installedVersion, installLockedSpec, pythonFailure, installQuestion, installTool, lockedEntryPath, numberedChoices, ownCopyLine, UV_MISSING } from "../src/security/install";
 import { SecurityCheck } from "../src/security/run";
+import { runInstallStep } from "../src/security/spawn";
+import { useSandbox, type ShellSandbox } from "../src/sandbox/manager";
 import type { ToolRunner } from "../src/security/spawn";
 import { hostPlatform, pinnedToolDir, pinnedToolPath, SECURITY_TOOLS, type LockedSpec, type SecurityToolSpec } from "../src/security/tools";
 import { fakeProgram, fakeTools, fixtureRepo, run, SEMGREP_NOT_ON_WINDOWS, SEMGREP_RUNS } from "./fixtures/security-tools/setup";
@@ -311,4 +313,15 @@ test("when uv cannot make the Python environment, the message says why in plain 
   expect(pythonFailure(">=3.12", "error: Python downloads are disabled")).toContain("UV_PYTHON_DOWNLOADS");
   expect(pythonFailure(">=3.12", "error: No interpreter found for Python >=3.12 in managed installations or search path")).toContain('uv python install 3.12');
   expect(pythonFailure(">=3.12", "")).toContain('Try "uv python install 3.12"');
+});
+
+test("Casper's own install steps are not held by the session's shell sandbox, which cannot write ~/.casper or reach pypi.org", async () => {
+  const wrapped: string[] = [];
+  const held = { on: true, wrap: async (command: string) => { wrapped.push(command); return { command: "false", id: "1", held: true }; }, finished() {} } as unknown as ShellSandbox;
+  useSandbox(held);
+  try {
+    const result = await runInstallStep({ file: process.execPath, args: ["-e", "process.exit(0)"], cwd: os.tmpdir(), env: { PATH: process.env.PATH ?? "" }, timeoutMs: 20_000 });
+    expect(result.exitCode).toBe(0);
+    expect(wrapped).toEqual([]);
+  } finally { useSandbox(undefined); }
 });

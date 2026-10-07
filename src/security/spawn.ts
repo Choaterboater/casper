@@ -45,6 +45,11 @@ export const runTool: ToolRunner = async (options) => {
   return plan.held && result.exitCode === 127 && !result.ended ? { ...result, ended: "no_start", error: `${options.file} could not start` } : result;
 };
 
+/** Casper's own install steps (unpack a pinned download, build a hash-locked Python environment). They write into
+ * ~/.casper and need the network, which the session's shell sandbox does not allow, and they run only Casper's own
+ * arguments on files whose hashes were checked, never a repository's code: so they run as they are. */
+export const runInstallStep: ToolRunner = (options) => runPlanned(options, { file: options.file, args: [...options.args], shell: false });
+
 const runPlanned = (options: ToolRunOptions, plan: SandboxedSpawn): Promise<ToolRunResult> => new Promise((resolve) => {
   const maxStdout = options.maxStdoutBytes ?? DEFAULT_STDOUT_BYTES;
   const stdout: Buffer[] = [];
