@@ -210,7 +210,7 @@ conpty("ConPTY: Enter during a task steers it, Ctrl+C stops a task, and Ctrl+C t
   // Steering needs the model call under way; a line typed before that is queued (the next test).
   await s.waitFor("the model call", () => requests.includes("slow one"));
   s.send("also this\n");
-  await s.until("↳ sent to the AI");
+  await s.until("↳ sent to Casper");
   release();
   await s.until("Finished slow one.");
   await s.until("Answer: also this");

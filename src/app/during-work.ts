@@ -76,7 +76,7 @@ export async function steerOrQueue(app: CasperApp, line: string): Promise<void> 
   let sent = false;
   try { sent = await app.session?.steer?.(line) ?? false; } catch { sent = false; }
   if (app.closing) return;
-  if (sent) { app.output.write("  ↳ sent to the AI · it reads this at its next step\n"); return; }
+  if (sent) { app.output.write("  ↳ sent to Casper · it reads this at its next step\n"); return; }
   // The task ended while Casper asked the AI: nothing would run the queue now, so the line goes back in the prompt.
   if (!app.commandActive) {
     if (app.terminal.restoreDraft(line, takeLinePastes(app, [line]))) app.output.write("  ↳ the task had just ended · your line is back in the prompt\n");
