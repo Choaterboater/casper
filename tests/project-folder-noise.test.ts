@@ -35,19 +35,23 @@ async function homeWithJunk() {
   const now = Date.now();
   const real = await project(path.join(home, "Documents", "bravo-real"), now - 5 * DAY);
   const second = await project(path.join(home, "Projects", "alpha-real"), now - 9 * DAY);
+  // The rules of the platform running the test (the fixtures are real folders): macOS and Linux treat the cache
+  // folders as junk, Windows treats AppData as junk.
+  const cacheJunk = process.platform === "win32"
+    ? [path.join(home, "AppData", "Local", "tool", "checkout")]
+    : [path.join(home, ".cache", "tool", "checkout"), path.join(home, "Library", "Caches", "tool", "checkout")];
   const junk = [
     await project(path.join(home, "casper-bench-runs-v3", "a-casper-1", "app"), now - DAY),
     await project(path.join(tmp, "claude", "scratchpad", "smoke"), now - DAY),
     await project(path.join(tmp, "somerun"), now - DAY),
-    await project(path.join(home, ".cache", "tool", "checkout"), now - DAY),
-    await project(path.join(home, "Library", "Caches", "tool", "checkout"), now - DAY),
+    ...(await Promise.all(cacheJunk.map(dir => project(dir, now - DAY)))),
     await project(path.join(home, "Documents", "app", "node_modules", "dep"), now - DAY),
     await project(path.join(home, "Documents", "scratchpad", "idea"), now - DAY),
   ];
   await savedConversation(agentDir, real, now - 2 * DAY);
   await savedConversation(agentDir, second, now - 3 * DAY);
   for (const dir of junk) await savedConversation(agentDir, dir, now - DAY / 2);
-  return { home, agentDir, tmp, real, second, junk, noise: { platform: "linux" as const, tmpDirs: [tmp], homeDir: home } };
+  return { home, agentDir, tmp, real, second, junk, noise: { platform: process.platform, tmpDirs: [tmp], homeDir: home } };
 }
 
 test("recent projects skip temp, cache, node_modules, benchmark and scratch folders; real ones keep their order", async () => {
@@ -105,8 +109,9 @@ test("the question never lists the junk folders", async () => {
   const { home, real, second, noise } = await homeWithJunk();
   try {
     const { app, asked } = fakeApp(home, true);
-    await openProjectFolder(app, home, { platform: "linux", noise });
-    const label = (dir: string) => `~/${path.relative(home, dir)}`.split("/").join(path.sep);
+    await openProjectFolder(app, home, { platform: process.platform, noise });
+    // Windows shows the real path; elsewhere the home folder is ~.
+    const label = (dir: string) => process.platform === "win32" ? dir : `~/${path.relative(home, dir)}`.split("/").join(path.sep);
     expect(asked[0]!.labels.slice(0, 2)).toEqual([label(real), label(second)]);
     expect(asked[0]!.labels.some(name => /bench|scratch|cache|node_modules|faketmp/i.test(name))).toBe(false);
   } finally { await removeTempDir(home); }
@@ -116,7 +121,7 @@ test("on Windows the question and the new-project line show the real path, elsew
   const { home, noise } = await homeWithJunk();
   try {
     const win = fakeApp(home, true);
-    await openProjectFolder(win.app, home, { platform: "win32", noise: { ...noise, platform: "linux" } });
+    await openProjectFolder(win.app, home, { platform: "win32", noise });
     expect(win.asked[0]!.descriptions).toContain(`start one in ${path.win32.join(home, "Projects")}`);
     expect(win.asked[0]!.labels.filter(name => name.startsWith("~"))).toEqual([]);
     expect(win.out.join("")).toContain(`[new] Starting a new project in ${path.join(home, "Projects")}.`);

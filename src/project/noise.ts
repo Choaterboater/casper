@@ -5,6 +5,7 @@
 import { realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isOutside } from "../platform/inside";
 
 export interface NoiseOptions {
   /** Defaults to this machine's platform; injected so Windows paths can be checked anywhere. */
@@ -27,7 +28,8 @@ function defaultTmpDirs(): string[] {
 /** True when `dir` is `root` or inside it. */
 function within(p: path.PlatformPath, root: string, dir: string, fold: (text: string) => string): boolean {
   const relative = p.relative(fold(p.resolve(root)), fold(p.resolve(dir)));
-  return relative === "" || (!relative.startsWith("..") && !p.isAbsolute(relative));
+  // isOutside checks the host's notion of absolute; `p` also covers another drive on an injected Windows platform.
+  return relative === "" || (!isOutside(relative) && !p.isAbsolute(relative));
 }
 
 /** Whether `dir` sits in a temp, cache, package or scratch place. */
@@ -43,7 +45,7 @@ export function isNoiseFolder(dir: string, options: NoiseOptions = {}): boolean 
   ];
   if (roots.some(root => within(p, root, dir, fold))) return true;
   return p.resolve(dir).split(/[\\/]+/).some(segment =>
-    fold(segment) === "node_modules" || (windows && fold(segment) === "appdata") || SCRATCH_NAME.test(segment));
+    fold(segment) === "node_modules" || SCRATCH_NAME.test(segment));
 }
 
 /** A test for the folders to skip under `base`, or one that skips nothing when `base` is itself such a place: a

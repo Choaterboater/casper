@@ -207,7 +207,9 @@ test("without a rich terminal the home-folder hint gives a command that actually
     const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
     expect(code).toBe(0);
     // `casper <folder>` opens that folder: no cd, no restart.
-    expect(stdout).toContain("[folder] Opened in your home folder. To work in a project: casper ~/Projects/myapp");
+    // Windows shows the real path; elsewhere the home folder is ~.
+    const shown = process.platform === "win32" ? path.join(home, "Projects", "myapp") : "~/Projects/myapp";
+    expect(stdout).toContain(`[folder] Opened in your home folder. To work in a project: casper ${shown}`);
     expect(stdout).not.toContain("restart");
     expect(stdout).not.toContain("pass a path");
   } finally { await removeTempDir(home); }

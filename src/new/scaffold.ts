@@ -159,8 +159,9 @@ const spawnPlanned = (plan: SandboxedSpawn, { cwd, env, signal, timeoutMs }: Par
   child.on("close", (exitCode) => done({ exitCode, stdout, stderr }));
 });
 
-/** A path with the home folder shown as ~ (macOS and Linux). Windows shows the real path, as its own tools do. */
-export function tildePath(dir: string, home: string, platform: NodeJS.Platform = process.platform): string {
+/** A path with the home folder shown as ~. Only the start-up list passes `platform: "win32"` to get the real path
+ * back, as Windows tools show it; every other caller keeps ~ on every platform. */
+export function tildePath(dir: string, home: string, platform?: NodeJS.Platform): string {
   if (platform === "win32") return dir;
   // git names folders by their real path, so a home behind a link (macOS's /var is /private/var) counts too.
   let real = home;

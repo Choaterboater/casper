@@ -165,6 +165,8 @@ test("without a rich terminal the home-folder hint names the most recently used 
     });
     const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
     expect(code).toBe(0);
-    expect(stdout).toContain("[folder] Opened in your home folder. To work in charlie-used: casper ~/Documents/charlie-used");
+    // Windows shows the real path; elsewhere the home folder is ~.
+    const shown = process.platform === "win32" ? path.join(home, "Documents", "charlie-used") : "~/Documents/charlie-used";
+    expect(stdout).toContain(`[folder] Opened in your home folder. To work in charlie-used: casper ${shown}`);
   } finally { await removeTempDir(home); }
 });
