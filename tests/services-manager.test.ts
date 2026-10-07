@@ -6,6 +6,7 @@ import { freePort, portInUse } from "../src/platform/managed-process";
 import { OwnedProcesses, osSupportsProcessGroups, ProcessCleanupError, type ProcessPlatform } from "../src/platform/processes";
 import type { ServiceSpec } from "../src/services/config";
 import { ServiceManager } from "../src/services/manager";
+import { reapMarker } from "./support/reap";
 import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => unknown> = [];
@@ -34,6 +35,7 @@ async function fixture(spec: Partial<ServiceSpec> = {}, options: { root?: string
   const manager = new ServiceManager({ projectRoot: root, platform: options.platform, services: {
     api: { command: COMMAND, port: "auto", ready: { http: "/health" }, timeoutMs: 10_000, ...spec, env: { SPAWN_CHILD: marker, ...spec.env } },
   } });
+  cleanups.push(() => reapMarker(marker));
   cleanups.push(() => manager.close().catch(() => {}));
   const grandchild = async () => { await until(async () => (await readFile(marker, "utf8").catch(() => "")).length > 0); return Number(await readFile(marker, "utf8")); };
   return { root, manager, grandchild };

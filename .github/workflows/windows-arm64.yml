@@ -16,7 +16,8 @@ jobs:
   arm64:
     # GitHub's Windows 11 ARM64 runner: the release file and the installer run on real ARM64 here.
     runs-on: windows-11-arm
-    timeout-minutes: 30
+    # Normal job: 4.4 min p90 of the last 40 successful runs (max 5.1). 12 is about 2.7x p90.
+    timeout-minutes: 12
     defaults:
       run:
         shell: pwsh

@@ -16,8 +16,8 @@ import { removeTempDir } from "./support/temp-dir";
 const DIR = path.resolve(import.meta.dir, "../.github/workflows");
 const files = readdirSync(DIR).filter((name) => /\.ya?ml$/.test(name));
 
-interface Step { uses?: string; run?: string; name?: string; with?: Record<string, unknown> }
-interface Job { permissions?: Record<string, string>; steps: Step[]; needs?: string | string[] }
+interface Step { uses?: string; run?: string; name?: string; with?: Record<string, unknown>; "timeout-minutes"?: number }
+interface Job { "timeout-minutes"?: number; permissions?: Record<string, string>; steps: Step[]; needs?: string | string[] }
 interface Workflow { permissions?: Record<string, string>; jobs: Record<string, Job> }
 const temps: string[] = [];
 afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });
@@ -113,7 +113,8 @@ test("the full suite runs files in parallel, slowest first, with the eval tests 
   expect(scripts["test:fast"]).toBeUndefined();
   for (const name of ["linux-preview.yml", "macos-preview.yml"]) {
     const runs = Object.values(load(name).jobs).flatMap((job) => (job.steps ?? []).map((step) => step.run ?? ""));
-    expect(runs.some((run) => run.startsWith("bun run test 2>&1"))).toBe(true);
+    // Run straight, or through tools/stall-guard.sh (which stops a run that goes silent and dumps what it was doing).
+    expect(runs.some((run) => run.startsWith("bun run test 2>&1") || /^bash tools\/stall-guard\.sh .* -- bun run test\s*$/.test(run))).toBe(true);
     expect(runs.some((run) => /^bun test 2>&1/.test(run))).toBe(false);
   }
 });
@@ -174,4 +175,20 @@ test.skipIf(process.platform === "win32" || !sshKeygenVerifies())("the signing s
   expect((await runSigningStep(key.publicKey, other.privateKey)).exitCode).not.toBe(0);
   expect((await runSigningStep(key.publicKey, "")).exitCode).not.toBe(0);
   expect((await runSigningStep("", key.privateKey)).exitCode).not.toBe(0);
+});
+
+test("a stuck preview run is cut off in minutes, not at the old 30 to 45 minute job limit, and the evidence is still kept", () => {
+  for (const name of ["linux-preview.yml", "macos-preview.yml", "windows-preview.yml", "windows-arm64.yml"]) {
+    for (const [jobName, job] of Object.entries(load(name).jobs)) {
+      expect(job["timeout-minutes"], `${name} ${jobName}`).toBeLessThanOrEqual(20);
+    }
+  }
+  for (const name of ["linux-preview.yml", "macos-preview.yml"]) {
+    const steps = Object.values(load(name).jobs).flatMap((job) => job.steps);
+    const suite = steps.find((step) => step.name?.startsWith("Full regression suite"));
+    expect(suite?.["timeout-minutes"], name).toBeLessThanOrEqual(10);
+    expect(suite?.run).toContain("tools/stall-guard.sh");
+    // The dump sits next to the log, in the folder the always-run upload keeps.
+    expect(steps.some((step) => step.uses?.startsWith("actions/upload-artifact@") && (step as { if?: string }).if === "always()")).toBe(true);
+  }
 });

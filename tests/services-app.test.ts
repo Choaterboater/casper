@@ -11,6 +11,7 @@ import { SkillRegistry } from "../src/skills/registry";
 import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { COMMANDS } from "../src/tui/commands";
 import { FULL_HELP_TEXT, HELP_TEXT } from "../src/tui/help";
+import { reapMarker } from "./support/reap";
 import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => unknown> = [];
@@ -64,6 +65,7 @@ async function fixture(env: Record<string, string> = {}, options: { input?: Pass
     loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
     loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
   });
+  cleanups.push(() => reapMarker(marker));
   cleanups.push(() => app.close().catch(() => {}));
   const grandchild = async () => { await until(async () => (await readFile(marker, "utf8").catch(() => "")).length > 0); return Number(await readFile(marker, "utf8")); };
   return { app, runtime, output, project, grandchild, marker, text: () => output.join("") };

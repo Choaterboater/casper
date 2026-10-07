@@ -18,7 +18,8 @@ jobs:
   # The build, the real-console screen and both installers. The full suite runs beside it in three parts.
   standalone:
     runs-on: windows-latest
-    timeout-minutes: 45
+    # Normal job: 7.3 min p90 (standalone), 9.1 (suite part 1), of the last 40 successful runs. 20 is 2x p90 or more.
+    timeout-minutes: 20
     defaults:
       run:
         shell: pwsh
@@ -125,7 +126,8 @@ jobs:
   # (tools/test-shard.ts), each on its own runner at the same time.
   suite:
     runs-on: windows-latest
-    timeout-minutes: 45
+    # Normal job: 7.3 min p90 (standalone), 9.1 (suite part 1), of the last 40 successful runs. 20 is 2x p90 or more.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -154,6 +156,8 @@ jobs:
           bun install --frozen-lockfile
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Full regression suite, part ${{ matrix.part }} of 3 (files in parallel)
+        # Normal step: 5.0 min p90 (max 7.3).
+        timeout-minutes: 10
         run: |
           $files = @(bun tools/test-shard.ts 3 ${{ matrix.part }})
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
