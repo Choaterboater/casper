@@ -9,7 +9,7 @@ import { BUILDER_LIMITS, SubagentManager, type BuilderRunOptions, type SubagentR
 import { CasperApp } from "../src/app";
 import { settingRows } from "../src/app/settings";
 import { buildersText } from "../src/app/footer";
-import { autoBuilders, builderSteer, builderSteerLine, runAutoBuilder, SOLO_REFUSAL, type AutoBuildHost } from "../src/crew/auto";
+import { autoBuilders, builderAvailability, builderSteer, builderSteerLine, runAutoBuilder, SOLO_REFUSAL, type AutoBuildHost } from "../src/crew/auto";
 import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
 import type { AgentRuntime, RuntimeBuilderStartOptions, RuntimeEvent, RuntimeEventListener, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
@@ -199,6 +199,12 @@ test("outside a Git repository builders are not offered and the tool says why on
   expect(main.prompts[0]).not.toContain(builderSteerLine("split")!);
   expect(data((await build(delegate!, "write b.txt")).text).error).toContain("not a Git repository");
 }, 30_000);
+
+test("a repository with no commits offers no builders and says why", async () => {
+  const { home, repo } = await repository(false);
+  await git(repo, "init", "-b", "main");
+  expect(await builderAvailability({ root: repo, homeDir: home, off: false, sandbox: "ready" })).toBe("the repository has no commits yet");
+});
 
 test("request words steer builders", () => {
   expect(builderSteer("Use a crew for this")).toBe("split");
