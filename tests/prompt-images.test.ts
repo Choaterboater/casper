@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { readFile, readdir, stat, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { attachImages, imageMimeType, MAX_IMAGES, shareHost, startsWithImageFile } from "../src/app/images";
+import { attachImages, imageMimeType, MAX_IMAGES, PastedImageFiles, shareHost, startsWithImageFile } from "../src/app/images";
 import { removeTempDir } from "./support/temp-dir";
 
 const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
@@ -163,4 +163,40 @@ test.skipIf(process.platform === "win32")("a line that starts with a picture fil
   expect(await startsWithImageFile("/help", options)).toBe(false);
   expect(await startsWithImageFile(`${dir}/missing.png fix it`, options)).toBe(false);
   expect(await startsWithImageFile(`/model ${dir}/Screen\\ Shot.png`, options)).toBe(false);
+});
+
+const WEBP = Buffer.from("52494646000000005745425050", "hex");
+
+test("a pasted picture is saved as a private file and its path goes on a line under the request", async () => {
+  const dir = await folder();
+  const files = new PastedImageFiles(dir);
+  const pasted = new Map([[1, { data: PNG.toString("base64"), mimeType: "image/png" }], [2, { data: WEBP.toString("base64"), mimeType: "image/webp" }]]);
+  const result = await attachImages("compare [image 1] with [image 2]", { cwd: dir, home: dir, pasted, saveTo: files, platform: HOST });
+  const [request, blank, first, second] = result.text.split("\n");
+  expect(request).toBe("compare [image 1] with [image 2]");
+  expect(blank).toBe("");
+  const one = /^\[image 1\] is the file (.+pasted-image-1-[0-9a-f]{8}\.png)$/.exec(first!)?.[1];
+  const two = /^\[image 2\] is the file (.+pasted-image-2-[0-9a-f]{8}\.webp)$/.exec(second!)?.[1];
+  expect(one).toBeDefined(); expect(two).toBeDefined();
+  expect(one).not.toBe(two);
+  expect(path.isAbsolute(one!)).toBe(true);
+  expect(await readFile(one!)).toEqual(PNG);
+  expect(await readFile(two!)).toEqual(WEBP);
+  expect(result.images).toHaveLength(2);
+  if (process.platform !== "win32") {
+    expect((await stat(one!)).mode & 0o777).toBe(0o600);
+    expect((await stat(path.dirname(one!))).mode & 0o777).toBe(0o700);
+  }
+  await files.remove();
+  expect(await readdir(dir)).toEqual([]);
+});
+
+test("without a pasted picture nothing is saved and no line is added", async () => {
+  const dir = await folder();
+  const files = new PastedImageFiles(dir);
+  const pasted = new Map([[1, { data: PNG.toString("base64"), mimeType: "image/png" }]]);
+  const result = await attachImages("no picture after all", { cwd: dir, home: dir, pasted, saveTo: files, platform: HOST });
+  expect(result.text).toBe("no picture after all");
+  expect(await attachImages("plain", { cwd: dir, home: dir, saveTo: files, platform: HOST })).toMatchObject({ text: "plain", images: [] });
+  expect(await readdir(dir)).toEqual([]);
 });

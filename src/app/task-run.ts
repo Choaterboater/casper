@@ -70,7 +70,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     finally { if (!app.closing) await restore(); }
   }
   // Pictures with the request: pasted ones and dropped image files are [image N] from here on (app/images.ts).
-  const attached = await attachImages(prompt, { cwd: app.activeWorkspaceRoot(), pasted: app.pastedImages,
+  const attached = await attachImages(prompt, { cwd: app.activeWorkspaceRoot(), pasted: app.pastedImages, saveTo: app.pastedImageFiles,
     // Windows: a picture on another computer's share is opened only on a yes (opening it sends your login's hash there).
     confirmShare: (file, host) => confirmYes(app, `${terminalText(file)} is on another computer, ${terminalText(host)}.\nOpening it sends your Windows login (a hash of it) to that computer.\n`,
       "Attach this picture?", app.commandAbort?.signal) });

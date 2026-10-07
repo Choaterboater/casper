@@ -222,6 +222,11 @@ test(`${PASTE_IMAGE_KEY} pastes the clipboard's picture as [image 1] and it goes
     await f.screen.until(idleAfter("Looked."));
     expect(f.prompts[0]!.text).toContain("fix this [image 1]");
     expect(f.prompts[0]!.images).toEqual([{ data: PNG.toString("base64"), mimeType: "image/png" }]);
+    const saved = /\n\[image 1\] is the file (.+pasted-image-1-[0-9a-f]{8}\.png)$/.exec(f.prompts[0]!.text)?.[1];
+    expect(saved).toBeDefined();
+    expect(await Bun.file(saved!).bytes()).toEqual(new Uint8Array(PNG));
+    f.input.write("/exit\r"); await interactive; await app.close();
+    expect(await Bun.file(saved!).exists()).toBe(false);
   } finally {
     Object.assign(clipboardDefaults, previous);
     f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();

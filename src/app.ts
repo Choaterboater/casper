@@ -36,6 +36,7 @@ import type { AgentRuntime, RuntimeAuthProvider, RuntimeSession, RuntimeImage, R
 import { SkillRegistry, skillRegistryOptions } from "./skills/registry";
 import type { TaskResult, TaskUsage } from "./task/result";
 import { TaskObservations } from "./task/observations";
+import { PastedImageFiles } from "./app/images";
 import { LifecycleRegistry } from "./app/lifecycle";
 import { helperActivityLine, RuntimeEventView } from "./app/events";
 import { snapshotFailureReason, snapshotTree } from "./task/changes";
@@ -411,6 +412,7 @@ export class CasperApp {
     this.lifecycle.add({ name: "subagents", close: () => this.subagents.close() });
     // telemetry: off in your config (/settings) stops Casper's name going to OpenRouter, from the next request.
     const stopTelemetry = useTelemetrySetting(() => this.projectContext?.telemetry);
+    this.lifecycle.add({ name: "pasted-pictures", close: () => this.pastedImageFiles.remove() });
     this.lifecycle.add({ name: "telemetry", close: async () => stopTelemetry() });
     this.inspectProjectFn = options.inspectProject ?? inspectProject;
     this.loadProjectContextFn = options.loadProjectContext ?? loadProjectContext;
@@ -698,6 +700,8 @@ export class CasperApp {
 
   /** Pictures pasted into the line being handled; runModelTask takes them. */
   pastedImages?: Map<number, RuntimeImage>;
+  /** Those pictures as files in a private temp folder, so the model has a path; deleted when the session closes. */
+  readonly pastedImageFiles = new PastedImageFiles();
 
   /** Looked up once: the answer decides whether the browser tool is there from the first turn. */
   browserInstalled?: Promise<boolean>;
