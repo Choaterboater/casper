@@ -1,0 +1,25 @@
+ls
+ls -la src
+cat README.md
+git log --oneline -5
+git diff HEAD~1 --stat
+rg -n hi src
+grep -rn hi src
+find src -type f -name '*.py'
+find src -type f -name x
+wc -l README.md src/a.txt
+cd src && ls
+cd src && cat a.txt
+head -20 README.md
+tail -n 5 README.md
+tree -L 1
+du -sh src
+stat README.md
+git show HEAD --stat
+git branch -a
+git blame README.md
+pwd
+which git
+echo "---"; cat README.md 2>/dev/null | head -3
+cd src && cat ../README.md
+diff README.md src/a.txt

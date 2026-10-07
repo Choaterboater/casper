@@ -4,11 +4,96 @@
 published, and what the installers promise. **When you'd use it:** to see what is new
 before you upgrade, or when you build or publish a release yourself.
 
-Casper distributes an unsigned **v0.2.24 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.24`,
+Casper distributes an unsigned **v0.2.25 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.25`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.25: a stricter "plain read" check, verification that is harder to fool, reviewers for builders, and a calmer start
+
+The check that lets harmless reads run without a question is stricter, several ways the checks could
+report a pass they hadn't earned are closed, the AI's builders get a reviewer and one fix round, and
+starting Casper in a folder no longer asks which project or what kind.
+
+**Safer: what counts as a plain read.** On Windows, and anywhere the sandbox is off, the AI's shell
+lines that only read files in the project run without a question. Adversarial testing against real
+bash and dash found lines that were accepted as plain reads but did more. This affects v0.2.24 and
+earlier. Each case below was reproduced with a harmless marker file first and has a test that failed
+before the fix:
+- A `#` comment could hide a second command (`cat README.md # '` and a newline, then `touch MARK`).
+- A link inside the project followed by `..` (`cat link/../notes.txt`) read outside the project,
+  including `~/.ssh`. A repository can ship such a link. A `..` after a name now asks.
+- Backslash-newline joined words, and a carriage return, no-break space or form feed inside a file
+  name read files the check never saw.
+- `printf -v PATH bin; ls` ran a program the project ships. `printf` now takes no options, and a
+  format with `%n` asks.
+- `diff` on folders read through a link inside them; it takes plain files only.
+- git in a repository with submodules or gitlinks ran the submodule's own configured program. git now
+  asks there. A git pathspec glob (`-- '.en*'`), short pathspec magic (`-- :.env.local`),
+  `revision:path` words (`HEAD~2:.netrc`), and `git grep --cached` printed private files; they ask.
+- On every OS, a file name with a colon (`.env::$DATA`) or ending in a space or dot asks.
+
+The check is now a strict set of safe characters before any parsing, not a model of the shell.
+Single quotes and most of what goes in double quotes still pass, so `grep -rn 'foo\.ts' src`,
+`git log --oneline -5 2>/dev/null` and `find . -name '*.ts'` keep running without a box. What now
+asks: comments, a backslash or `$` outside quotes, `..` after a name, `printf` with options, `diff` on
+folders, `git show HEAD:path`, git globs, and every git command in a repository with submodules.
+**Not changed (the trust you give a repository you open):** a project's own `.git/config` can set
+`core.fsmonitor`, a `textconv` or an external diff, and git runs it; a bare-repository layout does the
+same; `git log -p`, `git show` and `git diff` with a revision and no path word, `git grep` for a file
+that exists only in history, and `git cat-file -p <hash>` print committed content. The NTFS name rules
+are covered by unit tests only, not on a real Windows machine.
+
+**Checks that could pass without earning it.** Found by an outside review of the verification code:
+- Independent acceptance appended its test file to the project's test command, so
+  `bun test x && true` ran the file as an argument to `true` and reported a pass. It now refuses
+  compound or filtered commands and says so. `python -m pytest` and `python -m unittest` still work.
+- A smoke check passed a whole-body pattern on a response cut at 64 KiB when the start matched. It now
+  says "could not check".
+- Retargeting a runner symlink (`scripts/check.js`) wasn't a change to the test command. It is now.
+- On a case-insensitive volume a check declared on `SRC` was skipped when `src/` changed.
+- Making a file executable, or not, wasn't a change.
+- The proof that tests fail without the change imported the *changed* code through a Python project's
+  editable install, so it said "not proven" for tests that did fail. It now runs against the copy's own
+  source (also when the environment's `.pth` is in its top folder, as on Windows). A dependency folder
+  that is itself a relative link now works in the proof copy.
+
+**Reviewers for builders.** After a builder's part lands, the AI can start a read-only reviewer on it;
+the reviewer gets the part's diff, goal and files from Casper, with secrets hidden, not relayed by the
+AI. If it finds real problems, one fix builder can follow (up to 9 builders in a task, 3 at once). The
+footer reads `1 reviewer · 2 builders · $0.19`, the Working box lists the builders and reviewers, and
+the receipt says in one line which landed parts were never reviewed. All of it goes through the same
+spend gate, sandbox and `/undo`. `delegate: { build: false }` turns builders and review off together.
+Builders aren't offered in a repository with no commits, and finished copies are removed one at a
+time. See [CREWS.md](CREWS.md).
+
+**Starting Casper.** Casper opens the folder you launched in. It asks only from your home folder or a
+drive root (`C:\`, `D:\`, `/`), where a whole-folder workspace is too broad; any other folder, even
+one that only holds projects, opens there with one line naming them. The kind menus are gone: an empty
+folder starts quietly, and when your first request fits a template (NOC dashboard, MCP server, Mist,
+Ansible plus a vendor, web app, Vite) Casper says so and builds it; otherwise it starts an empty
+project. Say "from scratch" to skip a template, or turn it off in `/settings` (Starter templates).
+
+**`/allowed`.** Lists what you've said "always" or "this session" to, scrubbed of secrets, and forgets
+one entry by number or words, or all. On Windows a saved `npm test` also covers `npm.cmd test`.
+
+**Windows.** Lock folders (memory, `learn`, saved sessions, worktrees, undo) now retry on `EPERM`
+when another process is deleting the lock, instead of failing.
+
+**Fixed from v0.2.24's known issues.** `/model` during work now says where the context goes, switching
+back after a `big model:` task works while the picker is open, and builders aren't offered with no
+commits. Correction: the v0.2.24 notes said a spend pause can't stop a builder in the middle of a tool
+call. Reading the code, "Stop here" already stops every builder through the same path Esc uses; no
+test covers it yet.
+
+**For contributors and testers.** The README says where to report a bug, how to install safely and
+uninstall, and that tasks spend your own model provider's money. Runs on `main` finish instead of being
+cancelled by the next push (a pull request still cancels its older run), and a stalled test run is
+cut off in about 3 minutes with a dump of what every worker was doing, with job limits set from real
+run times (the cause of the rare stalls is still unknown). Test servers the service tests left running
+are cleaned up. Templates no longer generate a line too long for their own lint when the project name
+is long.
 
 ## v0.2.24: builders the AI starts, plain words, an off switch for every default, and fewer tokens
 
