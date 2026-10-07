@@ -15,6 +15,8 @@ export const SUBAGENT_LIMITS = Object.freeze({
   maxToolCalls: 48,
   goalBytes: 4096,
   contextBytes: 8192,
+  /** The context of a reviewer given a landed part by number: the part's diff (src/crew/parts.ts) plus the lead's own 8 KiB. */
+  partContextBytes: 40_960,
   projectContextBytes: 32_768,
   responseBytes: 12_288,
   totalTextBytes: 131_072,
@@ -56,6 +58,8 @@ export interface SubagentRunOptions {
   cwd: string;
   projectContext: string;
   context?: string;
+  /** Casper's own cap for `context` when it adds a landed part's diff to it; unset: the usual limit. */
+  contextBytes?: number;
   /** Spend one tool-free turn after the budget is exhausted so the caller receives what the
    * child found instead of an empty report. Callers that reject a limited run anyway, such as
    * learn, leave it off and get budgets exactly as asked. */
@@ -138,6 +142,13 @@ export interface DelegateBuilders {
   /** Why not now (the request said to work alone), asked at each call. */
   refuse?(): string | undefined;
   run(job: { goal: string; context?: string; signal?: AbortSignal }): Promise<BuildOutcome>;
+  /** The parts builders landed this task, which a reviewer can be given by number (`of`). */
+  parts?: {
+    reviewContext(n: number): { context: string } | { refusal: string };
+    /** A review that never ran is given back. */
+    release(n: number): void;
+    markReviewed(n: number, text: string): void;
+  };
 }
 
 export type HelperActivity =
@@ -331,28 +342,34 @@ export class SubagentManager {
     let built = 0;
     const offered = Boolean(builders && !builders.off);
     const buildText = !builders ? "" : offered
-      ? ` Role builder (a job with separate parts, not small tasks): edits and runs commands in its own copy; lands here when it ends unless a file it touched changed here meanwhile; then have a reviewer check it, unless it is a few lines. Up to ${BUILDER_LIMITS.maxConcurrent} at once.`
+      ? ` Role builder (a job with separate parts, not small tasks): edits and runs commands in its own copy; lands here when it ends unless a file it touched changed here meanwhile; then have a reviewer check it, unless it is a few lines: reviewer with "of" = the result's part number gets its diff and is not one of the ${SUBAGENT_LIMITS.maxDelegationsPerTask}. Up to ${BUILDER_LIMITS.maxConcurrent} at once.`
       : ` No builders here: ${builders.off}.`;
     return {
       name: "delegate",
-      description: `Delegate only when an independent read-only explorer (locate files and evidence) or reviewer (find defects in specified code/plan) adds value, with one narrow goal per call; a broad audit runs out of budget and gives a partial report. Give a self-contained goal and optional context; children do not inherit conversation history. Only read/grep/find/ls, no shell, edits, MCP/LSP, or recursion. At most ${SUBAGENT_LIMITS.maxDelegationsPerTask} per task, ${SUBAGENT_LIMITS.maxConcurrent} at once; each child has a small time and tool-call budget. Results are advisory, capped at 16 KiB, with incomplete/error status disclosed.${buildText}`,
+      description: `Delegate only when an independent read-only explorer (locate files) or reviewer (find defects in specified code/plan) adds value, with one narrow goal per call; a broad audit gives a partial report. Goals must be self-contained; children do not inherit the conversation. Only read/grep/find/ls, no shell, edits, MCP/LSP, or recursion. At most ${SUBAGENT_LIMITS.maxDelegationsPerTask} per task, ${SUBAGENT_LIMITS.maxConcurrent} at once, each with a small budget. Results are advisory, capped at 16 KiB.${buildText}`,
       inputSchema: {
         type: "object", additionalProperties: false, required: ["role", "goal"],
         properties: {
           role: { type: "string", enum: offered ? ["explorer", "reviewer", "builder"] : ["explorer", "reviewer"] },
           goal: { type: "string", minLength: 1, maxLength: offered ? BUILDER_LIMITS.goalBytes : SUBAGENT_LIMITS.goalBytes },
           context: { type: "string", maxLength: offered ? BUILDER_LIMITS.contextBytes : SUBAGENT_LIMITS.contextBytes },
+          ...(offered ? { of: { type: "integer" } } : {}),
         },
       },
       execute: async (args, signal) => {
         try {
-          if (!args || Array.isArray(args) || typeof args !== "object" || Object.keys(args).some((key) => !["role", "goal", "context"].includes(key))) {
-            throw new Error("Invalid delegate arguments; only role, goal, and context are accepted");
+          if (!args || Array.isArray(args) || typeof args !== "object" || Object.keys(args).some((key) => !["role", "goal", "context", "of"].includes(key))) {
+            throw new Error("Invalid delegate arguments; only role, goal, context, and of are accepted");
           }
+          if (args.of !== undefined && (typeof args.of !== "number" || !Number.isSafeInteger(args.of) || args.of < 1)) {
+            throw new Error("of must be a whole number: the part number in a builder's result");
+          }
+          if (args.of !== undefined && args.role !== "reviewer") throw new Error("of is for a reviewer: it names the landed part to check. Give a builder or an explorer a goal instead.");
           if (args.role === "builder") return await this.dispatchBuilder(builders, args, signal, () => built, (change) => { built += change; }, onUsage);
           const role = validateRole(args.role);
           const goal = requireString(args.goal, "goal", SUBAGENT_LIMITS.goalBytes);
           const context = args.context === undefined || args.context === "" ? undefined : requireString(args.context, "context", SUBAGENT_LIMITS.contextBytes);
+          if (args.of !== undefined) return await this.reviewPart(builders, args.of as number, goal, context, signal, getContext, onUsage);
           if (dispatched >= SUBAGENT_LIMITS.maxDelegationsPerTask) throw new Error(`Delegation budget exhausted for this parent task (at most ${SUBAGENT_LIMITS.maxDelegationsPerTask} per task)`);
           dispatched++;
           let result: SubagentResult;
@@ -373,6 +390,30 @@ export class SubagentManager {
         }
       },
     };
+  }
+
+  /** A reviewer on a part a builder landed: it is handed the part's goal, files and diff, then the lead's own context.
+   * It has its own budget (src/crew/parts.ts: one review per part, one more after a fix), not the shared delegations. */
+  private async reviewPart(builders: DelegateBuilders | undefined, n: number, goal: string, context: string | undefined, signal: AbortSignal | undefined,
+    getContext: () => { cwd: string; projectContext: string }, onUsage?: (usage: SubagentUsage | null) => void) {
+    if (!builders?.parts) throw new Error("No parts here: no builder has landed one this task. Give the reviewer the files in its goal instead.");
+    const part = builders.parts.reviewContext(n);
+    if ("refusal" in part) throw new Error(part.refusal);
+    let result: SubagentResult;
+    // run() throws only before a child starts: that review is not spent, so it can be asked for again.
+    try {
+      // The diff is text from files in the project, so secrets in it are hidden before the reviewer sees it. The "read"
+      // rule needs a file path and does nothing without one; the command-output rule works on any text.
+      const scrubbed = await this.options.scrubToolOutput?.("bash", {}, [part.context], signal);
+      const given = scrubbed?.texts[0] ?? part.context;
+      result = await this.run({ ...getContext(), role: "reviewer", goal, signal, reportTurn: true,
+        context: context ? `${given}\n\nThe lead's own context:\n${context}` : given, contextBytes: SUBAGENT_LIMITS.partContextBytes });
+    } catch (error) { builders.parts.release(n); throw error; }
+    onUsage?.(result.usage);
+    if (result.status === "completed") builders.parts.markReviewed(n, result.response);
+    const isError = result.status !== "completed";
+    const { goal: _goal, status, reason, usage: _usage, turns: _turns, ...report } = result;
+    return { text: JSON.stringify(boundCapabilityResult({ isError, status, reason, part: n, ...report })), ...(isError ? { isError: true } : {}) };
   }
 
   /** Builders started from the delegate tool and not yet done (copy made, working, or being applied). */
@@ -405,7 +446,7 @@ export class SubagentManager {
 
   async run(input: SubagentRunOptions): Promise<SubagentResult> {
     const options = { ...input, role: validateRole(input.role), goal: requireString(input.goal, "goal", SUBAGENT_LIMITS.goalBytes) };
-    options.context = input.context === undefined ? undefined : requireString(input.context, "context", SUBAGENT_LIMITS.contextBytes);
+    options.context = input.context === undefined ? undefined : requireString(input.context, "context", input.contextBytes ?? SUBAGENT_LIMITS.contextBytes);
     requireString(options.projectContext, "projectContext", SUBAGENT_LIMITS.projectContextBytes);
     requireString(options.cwd, "cwd", 4096);
     return this.runChild({

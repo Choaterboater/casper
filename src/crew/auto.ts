@@ -15,6 +15,7 @@ import { redactPreview } from "../tui/format";
 import { GitWorktreeManager, type WorktreePatch, type WorktreeRelation } from "../workspace/worktree";
 import { costText } from "./command";
 import { linkDependencies, unlinkDependencies } from "./copies";
+import { PartRecord } from "./parts";
 
 export interface AutoBuildHost {
   /** The project folder the change lands in. */
@@ -78,15 +79,17 @@ const shown = (text: string) => redactPreview(text).replace(/\s+/g, " ").trim();
 const message = (error: unknown) => shown(error instanceof Error ? error.message : String(error));
 
 /** The delegate tool's builders for this task. */
-export function autoBuilders(host: AutoBuildHost, off: string | undefined, steer: BuilderSteer): DelegateBuilders {
+export function autoBuilders(host: AutoBuildHost, off: string | undefined, steer: BuilderSteer, parts = new PartRecord()): DelegateBuilders {
   return {
     ...(off ? { off } : {}),
     refuse: () => steer === "solo" ? SOLO_REFUSAL : undefined,
-    run: (job) => runAutoBuilder(host, job),
+    run: (job) => runAutoBuilder(host, job, parts),
+    parts,
   };
 }
 
-export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; context?: string; signal?: AbortSignal }): Promise<BuildOutcome> {
+/** `parts` records what lands, so a reviewer can be given a part by number; without it parts have no number. */
+export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; context?: string; signal?: AbortSignal }, parts?: PartRecord): Promise<BuildOutcome> {
   const manager = await GitWorktreeManager.open(host.root, host.homeDir);
   if (!manager) throw new Error("No builders here: this folder is not a Git repository");
   const id = randomBytes(3).toString("hex");
@@ -138,11 +141,15 @@ export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; c
   for (const file of work.files) host.observeEdit(path.join(manager.primaryWorkspace, file));
   await inTurn(manager.commonDir, () => manager.remove(copy, work)).catch(() => {});
   host.say(`A builder's change was applied to your folder, uncommitted: ${work.files.slice(0, 6).join(", ")}${work.files.length > 6 ? ` and ${work.files.length - 6} more` : ""}.`);
-  return outcome({ applied: work.files, stat: work.stat, next: REVIEW_NEXT });
+  const part = parts?.landed({ goal: job.goal, files: work.files, stat: work.stat, patch: work.patch });
+  return outcome({ applied: work.files, stat: work.stat, ...(part ? { part } : {}), next: reviewNext(part) });
 }
 
 /** Said in the result of a part that landed: the lead decides whether a reviewer is worth it. */
-const REVIEW_NEXT = "Have a reviewer look at these files before you finish; fix what it finds with a builder or yourself. Skip it for a few-line part.";
+function reviewNext(part: number | undefined): string {
+  const who = part ? `a reviewer (delegate, role reviewer, of: ${part}, which hands it the diff)` : "a reviewer";
+  return `Have ${who} look at these files before you finish; fix what it finds with a builder or yourself. Skip it for a few-line part.`;
+}
 
 /** Whether a line the patch adds has the hidden-secret marker. */
 function writesMarker(patch: Buffer): boolean {
