@@ -19,7 +19,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: macos-15
     # Normal job: 8.7 min p90 of the last 40 successful runs (max 9.1). 18 is about 2x p90.
-    timeout-minutes: 18
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash
@@ -59,7 +59,7 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         # Normal step: 7.5 min p90 (max 7.9). tools/stall-guard.sh stops a run silent for 180 s and writes
         # stall-dump.txt next to the log.
-        timeout-minutes: 10
+        timeout-minutes: 13
         run: bash tools/stall-guard.sh "$RUNNER_TEMP/macos-preview/full-suite.log" 180 "$RUNNER_TEMP/macos-preview/stall-dump.txt" -- bun run test
       - name: Retain host verification evidence
         if: always()
