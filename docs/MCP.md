@@ -45,8 +45,15 @@ read-only. Only you can approve a call or turn writes on; the AI can't. See
    }
    ```
 
-2. Start Casper and type `/mcp` to see it. It shows `disconnected` until you connect it.
-3. Type `/mcp connect junos`. Casper asks if it should remember the server.
+2. Start Casper and type `/mcp` to see it. It shows `not connected` until you connect it.
+   `/mcp` prints one line for each server (name, state, tools, writes, sandbox, where it
+   was found). On a normal terminal an arrow-key list sits right under it: pick a server,
+   then pick what to do (details, connect or reconnect, disconnect, forget, writes on or
+   off, sandbox on or off). Nothing to remember. `/mcp detail [name]` prints the full
+   status, with limits, the preset and its pins. Plain terminals and scripts get the same
+   one-line list with the typed commands shown.
+3. Pick Connect (or type `/mcp connect junos`). Casper asks if it should remember the server.
+   It then prints one line, such as `[mcp] junos connected · 4 tools · writes off`.
 4. Ask your question, for example "show the BGP summary on my lab router". Each
    command still asks you first. For a plain `show` command the box offers
    `3 Yes, show commands on junos for this session`: later show commands run without a
@@ -151,7 +158,9 @@ On macOS and Linux the network server runs inside the same sandbox as the AI's s
   temp folders and the open project are hidden from it. On Linux it may also run Casper's seccomp
   helper and `socat`, read-only, even when they sit in your home folder.
 
-`/mcp` shows it under the server and in one line under the list:
+`/mcp` lists it as `sandboxed` or `not sandboxed` on each connected server's line, and adds one
+"Heads up" line if a connected server runs outside the sandbox or any writes are on.
+`/mcp detail` shows the full lines, and one summary under them:
 
 ```text
   sandbox: on · reaches only api.mist.com · writes only its cache · can't read your keys, ~/.casper or projects (/mcp sandbox network off)
@@ -250,9 +259,11 @@ anything.
 - **`/mcp` shows where each came from:**
 
   ```text
-  junos [stdio; disconnected] 0 tools · from ~/.claude.json · writes off
-    Found in ~/.claude.json. Not approved yet · /mcp connect junos
+  junos  not connected · from ~/.claude.json · /mcp connect junos
   ```
+
+  (The `/mcp connect` hint is left out on a normal terminal, where you pick the server instead.
+  `/mcp detail junos` says `Found in ~/.claude.json. Not approved yet`.)
 
 - **Once per new set of names**, an interactive session says:
   `[mcp] Found 3 servers in ~/.claude.json and VS Code. Run /mcp to see them.`

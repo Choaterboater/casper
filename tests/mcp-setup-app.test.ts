@@ -33,7 +33,7 @@ const entry = (env: Record<string, string>, args: string[] = []) => ({ command: 
  * each "Type 1 or 2" box, in order. `model` runs when a command is not a slash command.
  */
 async function session(home: string, project: string, commands: string[], answers: string[] = [],
-  model?: (tools: RuntimeTool[]) => Promise<void>) {
+  model?: (tools: RuntimeTool[]) => Promise<void>, prepare?: (app: CasperApp) => void) {
   const runtime: AgentRuntime = {
     async start(options: RuntimeStartOptions) {
       let tools = options.tools ?? [];
@@ -61,6 +61,7 @@ async function session(home: string, project: string, commands: string[], answer
     } },
   });
   cleanup.push(() => app.close());
+  prepare?.(app);
   await app.runInteractive(project);
   return { output, app };
 }
@@ -70,7 +71,8 @@ test("imported servers are announced once per new set, listed with where they ca
     "aruba-central": entry({ FIXTURE_MODE: "access-bad", CENTRALMCP_READONLY: "0" }),
     lab: entry({ FIXTURE_MODE: "access-bad" }),
   } } });
-  const first = await session(home, project, ["/mcp"]);
+  const first = await session(home, project, ["/mcp", "/mcp detail"]);
+  expect(first.output).toContain("aruba-central  not connected · from ~/.claude.json · /mcp connect aruba-central\nlab            not connected · from ~/.claude.json · /mcp connect lab\nDetails: /mcp detail [name]\n");
   expect(first.output).toContain("[mcp] Found 2 servers in ~/.claude.json. Run /mcp to see them.");
   expect(first.output).toContain("aruba-central [stdio; disconnected] 0 tools · from ~/.claude.json · preset: centralmcp · writes off");
   expect(first.output).toContain("  Found in ~/.claude.json. Not approved yet · /mcp connect aruba-central");
@@ -89,7 +91,7 @@ test("after /mcp connect, 1 remembers nothing; 2 remembers it, and the next sess
   const remembered = await session(home, project, ["/mcp connect lab"], ["2"]);
   expect(remembered.output).toContain("[mcp] Remembered lab. It connects on its own next time, with writes off. /mcp forget lab undoes this.");
   expect(await Bun.file(consentFile).exists()).toBe(true);
-  const next = await session(home, project, ["/mcp", "/mcp disconnect lab"]);
+  const next = await session(home, project, ["/mcp detail", "/mcp disconnect lab"]);
   expect(next.output).toContain("  Remembered: connects on its own, with writes off.");
   // After /mcp disconnect it no longer connects on its own in this session, so /mcp doesn't say it does.
   expect(next.output.split("Remembered: connects on its own").length - 1).toBe(1);
@@ -157,7 +159,7 @@ test("the enable text says when your own settings still keep writes off, and a r
     hpe: entry({ FIXTURE_MODE: "hpe-router", HPE_MCP_ACCESS_PROFILE: "safe-read-only" }),
     ro: entry({ FIXTURE_MODE: "access-ro" }),
   } } });
-  const { output } = await session(home, project, ["/mcp connect hpe", "/mcp writes hpe", "/mcp connect ro", "/mcp writes ro"], ["1", "2", "1"]);
+  const { output } = await session(home, project, ["/mcp connect hpe", "/mcp writes hpe", "/mcp connect ro", "/mcp writes ro", "/mcp detail ro"], ["1", "2", "1"]);
   expect(output).toContain("HPE networking writes are off.");
   // A file under HOME is shown as ~/...; on Windows the temp folder is under HOME.
   const source = path.join(home, ".casper/mcp.json");
@@ -177,7 +179,7 @@ test("a changed definition says so in /mcp; junos-show is a per-server opt-in th
   await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: {
     lab: entry({ FIXTURE_MODE: "access-bad", SITE: "two" }), junos: entry({ FIXTURE_MODE: "junos" }, ["jmcp.py"]),
   } }));
-  const { output } = await session(home, project, ["/mcp", "/mcp connect junos", "/mcp junos-show junos on", "/mcp", "/mcp junos-show lab on"], ["1"]);
+  const { output } = await session(home, project, ["/mcp detail", "/mcp connect junos", "/mcp junos-show junos on", "/mcp detail", "/mcp junos-show lab on"], ["1"]);
   expect(output).toContain("  Changed since you approved it. Run /mcp connect lab.");
   expect(output).toContain("[mcp] Plain show commands on junos run without asking.");
   expect(output).toContain("  Plain show commands run without asking (/mcp junos-show junos off).");
@@ -256,7 +258,7 @@ posixOnly("/mcp says which servers run sandboxed; /mcp sandbox <name> off is kep
   await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: {
     network: { command: path.join(venv, "bin/casper-network-mcp"), args: [], env: {} }, lab: entry({ FIXTURE_MODE: "access-bad" }),
   } }));
-  const { output } = await session(home, project, ["/mcp", "/mcp sandbox network off", "/mcp", "/mcp sandbox lab off", "/mcp sandbox network on"]);
+  const { output } = await session(home, project, ["/mcp detail", "/mcp sandbox network off", "/mcp detail", "/mcp sandbox lab off", "/mcp sandbox network on"]);
   expect(output).toContain("  sandbox: on · reaches only its login hosts · writes only its cache · can't read your keys, ~/.casper or projects (/mcp sandbox network off)");
   expect(output).toContain("Sandboxed: network. Run as they are: lab (Casper doesn't know what it needs).");
   expect(output).toContain("[mcp] network runs outside the sandbox from now on. /mcp sandbox network on puts it back.");
@@ -277,4 +279,81 @@ test("/mcp setup ssh in the app: asks the host in the numbered box, keeps the ty
   expect(output).toContain("That isn't an ssh host name (one that starts with - is never used). Nothing changed.");
   expect(output).toContain("/mcp setup ssh [--name <name>] [host] [command]");
   expect(await Bun.file(path.join(home, ".casper/mcp.json")).exists()).toBe(false);
+});
+
+// --- /mcp: one line per server, /mcp detail, and the arrow-key picker -------------------------------
+
+/** The text the last command printed: between the last two prompts. */
+const lastPrinted = (output: string) => output.split("> ").at(-2)!;
+
+test("/mcp is one line per server plus a Details line; connect prints one result line; warnings appear only when relevant", async () => {
+  const { home, project } = await fixture({ claude: { mcpServers: { "aruba-central": entry({ FIXTURE_MODE: "access-bad" }) } },
+    casper: { mcpServers: { lab: entry({ FIXTURE_MODE: "access-bad" }) } } });
+  const cold = await session(home, project, ["/mcp"]);
+  const coldLines = lastPrinted(cold.output).trimEnd().split("\n").filter((line) => !line.startsWith("network:"));
+  expect(coldLines).toHaveLength(3);
+  expect(coldLines[2]).toBe("Details: /mcp detail [name]");
+  expect(coldLines[0]).toMatch(/^aruba-central {2}not connected · from ~\/\.claude\.json · \/mcp connect aruba-central$/);
+  expect(cold.output).not.toContain("Heads up");
+  expect(cold.output).not.toContain("source:");
+  const run = await session(home, project, ["/mcp connect lab", "/mcp"], ["1"]);
+  expect(run.output).toMatch(/> \[mcp\] lab connected · \d+ tools · writes off\nNext time it connects/);
+  expect(run.output.split("[mcp] lab connected").length - 1).toBe(1);
+  const lines = lastPrinted(run.output).trimEnd().split("\n").filter((line) => !line.startsWith("network:"));
+  expect(lines).toHaveLength(4);
+  expect(lines[1]).toMatch(/^lab {12}ready · \d+ tools · writes off/);
+  expect(lines[2]).toMatch(/^Heads up: lab runs outside the sandbox\./);
+  const detail = await session(home, project, ["/mcp connect lab", "/mcp detail lab", "/mcp detail nope"], ["1"]);
+  expect(detail.output).toContain("lab [stdio; ready]");
+  expect(detail.output).toContain("  source: ");
+  expect(detail.output).toContain("  limits: start ");
+  expect(detail.output).toContain("Writes off: the server runs with its read-only settings");
+  expect(detail.output).toContain("Unknown MCP server");
+});
+
+test("a warning line names servers with writes on", async () => {
+  const { home, project } = await fixture({ casper: { mcpServers: { lab: entry({ FIXTURE_MODE: "access-bad" }) } } });
+  const { output } = await session(home, project, ["/mcp connect lab", "/mcp writes lab", "/mcp"], ["1", "2"]);
+  expect(lastPrinted(output)).toContain("Heads up: writes are on for lab;");
+});
+
+function rich(app: CasperApp, picks: (string | undefined)[], asked: { question: string; labels: string[] }[]) {
+  Object.defineProperty(app.terminal, "rich", { get: () => true });
+  Object.defineProperty(app.terminal, "canAsk", { get: () => true });
+  app.terminal.pick = async (question, options) => { asked.push({ question, labels: options.map((option) => option.label) }); return picks.shift(); };
+}
+
+test("rich terminal: /mcp prints the list without command hints and opens the picker; Esc changes nothing", async () => {
+  const { home, project } = await fixture({ claude: { mcpServers: { lab: entry({ FIXTURE_MODE: "access-bad" }) } } });
+  const asked: { question: string; labels: string[] }[] = [];
+  const { output, app } = await session(home, project, ["/mcp"], [], undefined, (a) => rich(a, [undefined], asked));
+  expect(output).toContain("lab  not connected · from ~/.claude.json\n");
+  expect(output).not.toContain("/mcp connect lab");
+  expect(output).not.toContain("Details: /mcp detail");
+  expect(asked).toEqual([{ question: "Pick a server", labels: ["lab", "Done"] }]);
+  expect(app.mcp!.status()[0]!.state).toBe("disconnected");
+});
+
+test("rich terminal: Connect runs the same path as /mcp connect, then returns to the servers; Details prints the full block; Forget uses /mcp forget", async () => {
+  const { home, project } = await fixture({ casper: { mcpServers: { lab: entry({ FIXTURE_MODE: "access-bad" }) } } });
+  const asked: { question: string; labels: string[] }[] = [];
+  const { output, app } = await session(home, project, ["/mcp"], [], undefined,
+    (a) => rich(a, ["lab", "Connect", "Yes", "lab", "Details", "lab", "Forget", "Done"], asked));
+  expect(asked[1]).toEqual({ question: "lab", labels: ["Details", "Connect", "Back"] });
+  expect(output).toMatch(/\[mcp\] lab connected · \d+ tools · writes off/);
+  // Connecting asks the same remember box as the typed command (2 remembers).
+  expect(asked[2]!.question).toBe("Remember lab?");
+  expect(asked[4]).toEqual({ question: "lab", labels: ["Details", "Reconnect", "Disconnect", "Forget", "Writes on", "Back"] });
+  expect(output).toContain("lab [stdio; ready]");
+  expect(output).toContain("[mcp] Forgot lab. Casper asks again before it connects next time.");
+  expect(asked.filter((entry) => entry.question === "Pick a server")).toHaveLength(4);
+  expect(app.mcp!.status()[0]).toMatchObject({ consent: "none" });
+});
+
+test("non-rich terminals never open the picker", async () => {
+  const { home, project } = await fixture({ casper: { mcpServers: { lab: entry({ FIXTURE_MODE: "access-bad" }) } } });
+  let opened = 0;
+  const { output } = await session(home, project, ["/mcp"], [], undefined, (a) => { a.terminal.pick = async () => { opened += 1; return undefined; }; });
+  expect(opened).toBe(0);
+  expect(output).toContain("Details: /mcp detail [name]");
 });

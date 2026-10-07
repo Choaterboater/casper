@@ -67,7 +67,7 @@ test("app keeps status/connect local, replaces task surfaces, and denies one-sho
   });
   cleanup.push(() => app.close());
   await app.runOnce("/mcp", project);
-  expect(output).toContain("disconnected");
+  expect(output).toContain("not connected");
   expect(runtime.starts).toBe(0);
   await app.runOnce("/mcp connect fixture");
   expect(runtime.starts).toBe(0);
@@ -110,6 +110,9 @@ test("every server starts with writes off: a one-shot run can't ask, so a change
   });
   cleanup.push(() => app.close());
   await app.runOnce("/mcp connect fixture", project);
+  expect(output).toContain("[mcp] fixture connected · 340 tools · writes off\n");
+  expect(output).not.toContain("source:");
+  await app.runOnce("/mcp detail fixture");
   expect(output).toContain("fixture [stdio; ready] 340 tools · writes off · access not checked");
   expect(output).toContain("Writes off: the server runs with its read-only settings, and every change asks you first. Answer 2 or 3 in the change box to allow it, or /mcp writes <name> to turn writes on now.");
   await app.runOnce("Change site");
@@ -488,8 +491,11 @@ test("/mcp reload revokes consent only for approved changed servers and ignores 
   // fixture and alpha change programs (only fixture was approved); steady only reorders env keys.
   await write({ fixture: server(["--changed"], { A: "1", B: "2" }), alpha: server(["--changed"], {}), steady: server([], { B: "2", A: "1" }) });
   await app.runOnce("/mcp reload");
+  const reloaded = output;
+  await app.runOnce("/mcp detail");
   expect(output).toContain("[mcp] reloaded: 0 added, 0 removed, 2 changed");
   expect(output).toContain("[mcp] consent revoked for fixture; reconnect with /mcp connect <name>");
+  expect(reloaded).not.toContain("steady [stdio");
   expect(output).not.toMatch(/consent revoked for [^\n]*alpha/);
   expect(output).toMatch(/steady \[stdio; ready\]/);
   expect(output).toMatch(/fixture \[stdio; disconnected\]/);
