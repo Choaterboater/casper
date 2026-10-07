@@ -259,6 +259,8 @@ export type RuntimeEvent =
    * the current block; this is liveness for the person watching, never transcript content. */
   | { type: "assistant_progress"; kind: "thinking" | "tool_call"; toolName?: string; chars: number }
   | { type: "tool_start"; toolName: string; toolCallId?: string; input?: ToolObservationInput }
+  /** A running bash command printed more: the tail of its output so far (screen only, throttled; never in --json). */
+  | { type: "tool_progress"; toolName: string; toolCallId?: string; text: string }
   /** Diagnostic tool status only: isError=false is not process-exit evidence. */
   | { type: "tool_end"; toolName: string; toolCallId?: string; input?: ToolObservationInput; output?: ToolObservationOutput; isError: boolean;
       /** A successful edit's size, from the runtime's patch. */

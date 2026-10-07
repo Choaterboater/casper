@@ -83,6 +83,8 @@ class PiToolController {
 class PiRuntimeSession implements RuntimeSession {
   private readonly listeners = new Set<RuntimeEventListener>();
   private readonly toolInputs = new Map<string, ToolObservationInput>();
+  /** When each running command's output was last forwarded (throttle), by call id. */
+  private readonly progressAt = new Map<string, number>();
   private readonly writes = new Map<string, { before: string | undefined | null; after: string }>();
   private unsubscribePi?: () => void;
   private promptActive = false;
@@ -467,7 +469,18 @@ class PiRuntimeSession implements RuntimeSession {
           this.emit({ type: "tool_start", toolName: event.toolName, toolCallId: event.toolCallId, input });
           break;
         }
+        case "tool_execution_update": {
+          if (event.toolName !== "bash") break;
+          // At most ~2 a second per call: a chatty command must not flood the screen.
+          const now = Date.now();
+          if (now - (this.progressAt.get(event.toolCallId) ?? 0) < 500) break;
+          if (this.progressAt.size < 64 || this.progressAt.has(event.toolCallId)) this.progressAt.set(event.toolCallId, now);
+          const text = observationOutput(event.partialResult).text;
+          if (text) this.emit({ type: "tool_progress", toolName: event.toolName, toolCallId: event.toolCallId, text: text.slice(-2000) });
+          break;
+        }
         case "tool_execution_end": {
+          this.progressAt.delete(event.toolCallId);
           const input = this.toolInputs.get(event.toolCallId);
           this.toolInputs.delete(event.toolCallId);
           const write = this.writes.get(event.toolCallId);
@@ -481,6 +494,7 @@ class PiRuntimeSession implements RuntimeSession {
         }
         case "agent_end": {
           this.toolInputs.clear();
+          this.progressAt.clear();
           const held = this.heldError; this.heldError = undefined;
           if (held) this.emit(event.willRetry ? { ...held, retrying: true } : held);
           this.emit({ type: "message_end" });
