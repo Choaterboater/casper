@@ -491,6 +491,12 @@ export class RuntimeEventView {
         this.ensureLineBreak();
         this.sayOutsideReads();
         break;
+      case "notice":
+        this.terminal.endAssistant();
+        this.ensureLineBreak();
+        this.output.write(`${event.message}\n`);
+        this.endedWithNewline = true;
+        break;
       case "turn_limit":
         this.callbacks.turnLimitReached(event.turns);
         break;
