@@ -8,6 +8,7 @@ import { isEffortSelection, isModelRole, resolveModelSelection, type ModelRefere
 import type { RuntimeModelInfo, RuntimeModelSelection, RuntimeModelSelectionOptions, RuntimeReadOnlyStartOptions, RuntimeStatus, RuntimeUsage } from "./types";
 import { pickPiModel } from "./pi-model-picker";
 import { openRouterRequestHeaders } from "./openrouter-attribution";
+import { compactionReserveFor, smallWindowWarning } from "./small-window";
 
 type Selection = { reference?: ModelReference; source: "conversation" | "default" | "none"; role?: string; effort?: string; auto?: RuntimeStatus["autoEffort"] };
 type Settings = ReturnType<SettingsManager["getGlobalSettings"]>;
@@ -231,6 +232,31 @@ export class PiModels {
     }
   }
 
+  /** A model with a small window gets a compaction reserve of a quarter of it instead of Pi's fixed
+   * 16,384, which would otherwise compact on every turn. Keyed per model so /model switches follow;
+   * a reserve the person set themselves is left alone. */
+  private shrinkCompactionReserve(settingsManager: SettingsManager): void {
+    const settings = settingsManager.getGlobalSettings();
+    const overrides: Record<string, { reserveTokens: number }> = {};
+    if (settings.compaction?.reserveTokens === undefined) {
+      for (const model of this.catalog.getModels()) {
+        const reserve = compactionReserveFor(model.contextWindow);
+        const key = `${model.provider}/${model.id}`;
+        if (reserve !== undefined && settings.compaction?.modelOverrides?.[key]?.reserveTokens === undefined) overrides[key] = { reserveTokens: reserve };
+      }
+    }
+    if (Object.keys(overrides).length) settingsManager.applyOverrides({ compaction: { modelOverrides: overrides } });
+  }
+
+  private warned = new WeakSet<AgentSession>();
+  /** The plain-words warning for a small window, once per session and only for the selected main model. */
+  smallWindowNotice(session: AgentSession): string | undefined {
+    if (this.warned.has(session)) return undefined;
+    const message = smallWindowWarning(session.model?.contextWindow);
+    if (message) this.warned.add(session);
+    return message;
+  }
+
   async create<T extends { session: AgentSession }>(cwd: string, manager: SessionManager,
     create: (options: { settingsManager: SettingsManager; modelRuntime: ModelRuntime; model: AgentSession["model"] }) => Promise<T>,
     readOnly?: Pick<RuntimeReadOnlyStartOptions, "modelRole"> & { compact?: boolean }): Promise<T> {
@@ -247,6 +273,7 @@ export class PiModels {
       defaultThinkingLevel: preferences.getDefaultThinkingLevel(), modelThinkingLevels: preferences.getAllModelThinkingLevels(),
     }, { projectTrusted: false });
     if (shared) settingsManager.applyOverrides(withoutModels(shared.getProjectSettings()));
+    this.shrinkCompactionReserve(settingsManager);
     const recorded = manager.buildSessionContext().model;
     const roles = this.getRoles();
     const routed = readOnly?.modelRole && roles[readOnly.modelRole]

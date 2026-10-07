@@ -437,6 +437,17 @@ another machine goes there. Check what the model really is before you rely on th
 - Helpers (up to 2 read-only ones, and up to 3 builders) and your main conversation all send to the same
   server. A single computer answers one at a time, so expect them to wait for each other.
 
+### Small context windows
+
+Casper's own instructions and tool list take about 4,600 tokens of every request. Local models
+often have a window of 4k to 32k, so Casper says so once per session when the model you picked has a
+window under 16,000 tokens; expect short tasks only, or pick a model with 16k or more.
+
+For a window under 32,000 tokens, Casper also keeps a quarter of the window (at least 2,000 tokens)
+free for the reply when it decides whether to compact, instead of the usual 16,384. Without that, an
+8k model would compact on every turn. Windows of 32,000 and up are unchanged, and a
+`compaction.reserveTokens` you set yourself is kept.
+
 ## Model roles and automatic effort
 
 The normal path is still: pick a model with `/model`, then describe the task. Roles are optional

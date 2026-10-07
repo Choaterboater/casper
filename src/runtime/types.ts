@@ -268,6 +268,8 @@ export type RuntimeEvent =
   | { type: "message_end" }
   /** The prompt's `maxTurns` ended it after that many model turns, with the model still working. */
   | { type: "turn_limit"; turns: number }
+  /** A plain-words heads-up for the person, not part of the conversation. */
+  | { type: "notice"; message: string }
   | { type: "error"; message: string };
 
 export type RuntimeEventListener = (event: RuntimeEvent) => void;

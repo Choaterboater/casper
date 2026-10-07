@@ -347,6 +347,8 @@ class PiRuntimeSession implements RuntimeSession {
       promptSignal.throwIfAborted();
       const status = await this.models.preparePrompt(session, options?.request ?? text, promptSignal);
       promptSignal.throwIfAborted();
+      const notice = this.readOnly ? undefined : this.models.smallWindowNotice(session);
+      if (notice) this.emit({ type: "notice", message: notice });
       if (status.configuredEffort === "auto") this.emit({ type: "model_controls_changed", status });
       promptSignal.throwIfAborted();
       const images = options?.images?.map(({ data, mimeType }) => ({ type: "image" as const, data, mimeType }));
