@@ -100,6 +100,15 @@ test("v2: the products say where the login can change things; Casper shows it pl
   expect(changeScopeText(result)).toBe("Lab site");
 });
 
+test("v2: a single org is shown as \"the org\", never by name (it can identify a customer)", () => {
+  const org = parseAccessCheck(answer({ contract: "casper/access-check v2", products: [
+    { product: "mist", access: "read-write", can_change: [{ kind: "org", id: "o-1", name: "Acme Corp" }] },
+  ] }));
+  expect(changeScopeText(org)).toBe("the org");
+  expect(accessStatusText(org)).toBe("login: can change the org (checked)");
+  expect(accessStatusText(org)).not.toContain("Acme");
+});
+
 test("v2: several places are counted; v1 answers still parse with no scope", () => {
   const three = parseAccessCheck(answer({ contract: "casper/access-check v2", products: [
     { product: "mist", access: "read-write", can_change: [

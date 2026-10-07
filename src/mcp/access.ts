@@ -85,13 +85,14 @@ function scopes(value: unknown): AccessScope[] | undefined {
   return kept;
 }
 
-/** Where the login can change things, in plain words ("Lab site", "2 sites and 1 org"); undefined when not reported. */
+/** Where the login can change things, in plain words ("Lab site", "the org", "2 sites and 1 org"); undefined when not reported. */
 export function changeScopeText(check: AccessCheck | undefined): string | undefined {
   // A product that can make changes but didn't say where: the reach is unknown, so no line rather than a short one.
   if (check?.products.some((product) => product.access === "read-write" && !product.canChange)) return undefined;
   const all = check?.products.flatMap((product) => product.canChange ?? []) ?? [];
   if (!all.length) return undefined;
-  if (all.length === 1) return `${all[0]!.name} ${all[0]!.kind === "sitegroup" ? "site group" : all[0]!.kind}`;
+  // An org's name can identify a customer or company, and this line lands in screenshots and logs: say "the org".
+  if (all.length === 1) return all[0]!.kind === "org" ? "the org" : `${all[0]!.name} ${all[0]!.kind === "sitegroup" ? "site group" : all[0]!.kind}`;
   const counts = new Map<string, number>();
   for (const scope of all) counts.set(scope.kind, (counts.get(scope.kind) ?? 0) + 1);
   const words = [...counts].map(([kind, count]) => {

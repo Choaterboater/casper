@@ -510,7 +510,7 @@ may do.
 - **Where the login can change things (v2).** A `casper/access-check v2` answer may add, per
   product, `"can_change"` and `"read_only"` lists of `{"kind": "org" | "site" | "sitegroup",
   "id", "name"}`. Casper shows them; the server enforces them. `/mcp` then shows
-  `login: can change Lab site (checked)` (or `2 sites and 1 org`), and the change box adds
+  `login: can change Lab site (checked)` (or `2 sites and 1 org`; an org shows as `the org`, never by name), and the change box adds
   `Your login can change: Lab site` under its first line. A name that isn't plain text, an
   unknown kind, or more than 64 entries drops the whole list, and a product that can make
   changes without saying where hides the line: Casper never shows a shorter reach than
