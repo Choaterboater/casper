@@ -15,6 +15,15 @@ async function openStateFile(filePath: string, access: number, noFollow: boolean
   return open(filePath, access | (noFollow ? NO_FOLLOW : 0) | NONBLOCK);
 }
 
+/** True when a failed lock-folder (or lock-file) create means "someone else has it, try again". On Windows, creating
+ * a name that another process is deleting fails with EPERM, EACCES or EBUSY instead of EEXIST; elsewhere those
+ * codes are real permission problems and must not be retried. */
+export function lockBusy(error: unknown, platform: NodeJS.Platform = process.platform): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  if (code === "EEXIST") return true;
+  return platform === "win32" && (code === "EPERM" || code === "EACCES" || code === "EBUSY");
+}
+
 /** Read-only source open that never follows a final symlink or waits on a special file. */
 export const openNoFollow = (filePath: string): Promise<FileHandle> =>
   openStateFile(filePath, constants.O_RDONLY, true);

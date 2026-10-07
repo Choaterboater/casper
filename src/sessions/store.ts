@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { lockBusy } from "../platform/files";
 import type { WorktreeRelation } from "../workspace/worktree";
 
 export type SessionBranchStatus = "open" | "applied" | "discarded";
@@ -154,7 +155,7 @@ export class SessionBranchStore {
         acquired = true;
         break;
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        if (!lockBusy(error)) throw error;
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
     }
