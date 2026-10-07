@@ -30,7 +30,14 @@ with its `delegate` tool. Nothing asks you first.
    the whole task back, builders' work included.
 4. The main AI gets back what changed (files and a short report), what was not
    run and why, and what it cost, with a reminder to have a read-only reviewer
-   look at a landed part (skipped for a few-line part). It does the rest itself.
+   look at a landed part (skipped for a few-line part). Each landed part has a
+   number in that result. A reviewer started with that number (`of`) is given
+   the part's job, files and diff by Casper, so the AI does not have to pass
+   the diff along. The diff is cut at 24 KiB, with a note, and binary files are
+   named only. Such a reviewer is read-only like any other, its cost joins the
+   task's total, and it does not use up the 4 helpers a task allows: each part
+   gets one review. A part that was kept in its copy, or failed, has no number.
+   It does the rest itself.
 
 Up to 3 builders work at once, and 6 per request. The footer shows them while
 they work: `│ 2 builders · $0.12`. What each one spent joins the task's total
