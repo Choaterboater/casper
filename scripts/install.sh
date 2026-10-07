@@ -198,9 +198,13 @@ if [ "$actual_sha" != "$EXPECTED_SHA" ]; then
 fi
 
 # Where it was built: the release's GitHub build provenance, checked with gh when it is installed and
-# signed in. A download that doesn't match is never installed.
+# signed in. A download that doesn't match is never installed. A gh older than 2.49 has no
+# `attestation` command; asking its help, with nothing from the download, tells that apart from a
+# build that doesn't match.
 if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-  if gh attestation verify "$tmp/$artifact" --repo Choaterboater/casper >/dev/null 2>&1; then
+  if ! gh attestation verify --help >/dev/null 2>&1; then
+    echo "Checked SHA-256. This gh is too old to check where it was built (gh 2.49 or newer can)."
+  elif gh attestation verify "$tmp/$artifact" --repo Choaterboater/casper >/dev/null 2>&1; then
     echo "Verified: built by GitHub Actions from Choaterboater/casper."
   else
     echo "This download doesn't match a Casper build from GitHub. Nothing installed." >&2
