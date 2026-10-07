@@ -470,7 +470,8 @@ test("New project from the home folder asks no kind and no name: it starts in ~/
     expect(h.visible()).toContain("3 New project");
     h.input.write("3");
     await h.until(text => text.includes("idle"));
-    expect(h.visible()).toContain("Starting a new project in ~/Projects");
+    // The start-up line shows the real folder on Windows and ~/Projects elsewhere.
+    expect(h.visible()).toContain(`Starting a new project in ${tildePath(path.join(dirs.home, "Projects"), dirs.home, process.platform)}`);
     expect(h.visible()).not.toContain("What are you building?");
     expect(h.visible()).not.toContain("Name it?");
     expect(h.created).toEqual([]);
