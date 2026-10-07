@@ -177,3 +177,31 @@ test("before(): a run that crashed or was killed in the copy can't tell; only a 
   expect(await run(`${JSON.stringify(process.execPath)} -e "process.exit(137)"`)).toBeUndefined();
   if (process.platform !== "win32") expect(await run(`${JSON.stringify(process.execPath)} -e "process.kill(process.pid, 'SIGKILL')"`)).toBeUndefined();
 });
+
+// An editable install leaves a .pth file in the environment that names the project's own source folder.
+// The comparison links that environment into its copies, so the copy must still import its own source.
+const python = Bun.which("python3") ?? Bun.which("python");
+test.skipIf(!python)("a Python project installed from its own folder is tested against the copy's source, not the changed folder", async () => {
+  const root = await project({
+    "src/pkg/__init__.py": "",
+    "src/pkg/data.py": "def old():\n    return 1\n",
+    "tests/check.py": "import pkg.data\nraise SystemExit(0)\n",
+  });
+  const made = Bun.spawnSync([python!, "-m", "venv", "--without-pip", path.join(root, ".venv")]);
+  expect(made.exitCode).toBe(0);
+  const site = Bun.spawnSync([path.join(root, ".venv", process.platform === "win32" ? "Scripts" : "bin", "python"), "-c",
+    "import site; print(site.getsitepackages()[0])"]).stdout.toString().trim();
+  await writeFile(path.join(site, "pkg.pth"), `${path.join(root, "src")}\n`);
+  const interpreter = path.join(".venv", process.platform === "win32" ? "Scripts" : "bin", "python");
+  const command = `${JSON.stringify(interpreter)} tests/check.py`;
+  const before = await snapshotTree(root);
+  const baseline = await ChangeBaseline.capture(root);
+  cleanup.push(() => baseline.dispose());
+  await write(root, {
+    "src/pkg/data.py": "def old():\n    return 1\n\n\ndef added():\n    return 2\n",
+    "tests/check.py": "from pkg.data import added\nraise SystemExit(0 if added() == 2 else 1)\n",
+  });
+  const changes = diffSnapshots(before, await snapshotTree(root));
+  const proof = await baseline.prove({ root, changes, check: "test", command, timeoutMs: 20_000 });
+  expect(proof?.status).toBe("proven");
+});

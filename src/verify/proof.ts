@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { copyFile, lstat, mkdir, mkdtemp, readdir, readlink, rm, symlink } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, readdir, readFile, readlink, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parentsStayInside } from "../platform/files";
@@ -75,6 +75,38 @@ const LINKED: Record<string, true> = { node_modules: true, ".venv": true, venv: 
 /** Runs in the copies never change the user's environment: uv must not sync the linked .venv to the
  * copy's (older) dependency list. */
 const COPY_ENV = { UV_NO_SYNC: "1" };
+/** Where a linked Python environment imports the workspace's own code from: the folders its `.pth` files
+ * name (an editable install) that sit inside the workspace, as paths inside `tree` instead. Without this
+ * the copy would import the changed workspace through the shared environment, and the old code would
+ * look like it still had the change. */
+async function editableRoots(root: string, tree: string, links: readonly string[]): Promise<string[]> {
+  const found: string[] = [];
+  for (const link of links.filter((relative) => /(^|\/)\.?venv$/.test(relative))) {
+    const packages: string[] = [path.join(root, link, "Lib", "site-packages")];
+    const lib = path.join(root, link, "lib");
+    for (const entry of await readdir(lib).catch(() => [])) packages.push(path.join(lib, entry, "site-packages"));
+    for (const folder of packages) {
+      for (const name of (await readdir(folder).catch(() => [])).filter((file) => file.endsWith(".pth"))) {
+        const text = await readFile(path.join(folder, name), "utf8").catch(() => "");
+        for (const line of text.split(/\r?\n/).map((entry) => entry.trim())) {
+          if (!line || line.startsWith("#") || line.startsWith("import") || !path.isAbsolute(line)) continue;
+          const inside = path.relative(root, line);
+          if (inside.startsWith("..") || path.isAbsolute(inside)) continue;
+          const mapped = path.join(tree, inside);
+          if (!found.includes(mapped)) found.push(mapped);
+        }
+      }
+    }
+  }
+  return found;
+}
+/** The environment for a run in a copy: no uv sync, and Python imports the copy's own code first. */
+async function copyEnv(root: string, tree: string, links: readonly string[]): Promise<NodeJS.ProcessEnv> {
+  const roots = await editableRoots(root, tree, links);
+  if (!roots.length) return { ...process.env, ...COPY_ENV };
+  const existing = process.env.PYTHONPATH;
+  return { ...process.env, ...COPY_ENV, PYTHONPATH: [...roots, ...(existing ? [existing] : [])].join(path.delimiter) };
+}
 const FILE_LIMIT = 20_000;
 const BYTE_LIMIT = 256 * 1024 * 1024;
 
@@ -146,8 +178,8 @@ export class ChangeBaseline {
     const tests = changed.filter(isTestPath);
     if (!changesCode(options.changes)) return undefined;
     const { check, command } = options;
-    const run = (cwd: string) => runCommandCheck({ name: check, command, cwd, timeoutMs: options.timeoutMs, signal: options.signal,
-      onCleanupFailure: options.onCleanupFailure, env: { ...process.env, ...COPY_ENV } });
+    const run = async (cwd: string) => runCommandCheck({ name: check, command, cwd, timeoutMs: options.timeoutMs, signal: options.signal,
+      onCleanupFailure: options.onCleanupFailure, env: await copyEnv(options.root, cwd, this.links) });
     const copies = await mkdtemp(path.join(this.scratch, "compare-"));
     try {
       const linkDependencies = async (tree: string, links: readonly string[]) => {
@@ -213,7 +245,7 @@ export class ChangeBaseline {
         await symlink(target, path.join(tree, relative), "dir");
       }
       const result = await runCommandCheck({ name: options.check, command: options.command, cwd: tree, timeoutMs: options.timeoutMs,
-        signal: options.signal, env: { ...process.env, ...COPY_ENV } });
+        signal: options.signal, env: await copyEnv(options.root, tree, this.links) });
       // The same reading as the proof's: a crash, a signal or a timeout in the copy is not the check failing.
       if (result.ended || result.exitCode === null) return undefined;
       const ended = withoutEnded(result.exitCode, result.reason);
