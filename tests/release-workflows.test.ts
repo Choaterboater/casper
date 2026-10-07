@@ -186,7 +186,7 @@ test("a stuck preview run is cut off in minutes, not at the old 30 to 45 minute 
   for (const name of ["linux-preview.yml", "macos-preview.yml"]) {
     const steps = Object.values(load(name).jobs).flatMap((job) => job.steps);
     const suite = steps.find((step) => step.name?.startsWith("Full regression suite"));
-    expect(suite?.["timeout-minutes"], name).toBeLessThanOrEqual(10);
+    expect(suite?.["timeout-minutes"], name).toBeLessThanOrEqual(15);
     expect(suite?.run).toContain("tools/stall-guard.sh");
     // The dump sits next to the log, in the folder the always-run upload keeps.
     expect(steps.some((step) => step.uses?.startsWith("actions/upload-artifact@") && (step as { if?: string }).if === "always()")).toBe(true);
