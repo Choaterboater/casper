@@ -7,6 +7,7 @@ import { projectStateDirectory } from "../project/model";
 import { readReferenceFile, referenceText } from "../references/files";
 import { READ_ONLY_STATE_CONFLICT, type AgentRuntime } from "../runtime/types";
 import { MAX_SKILL_BYTES } from "../skills/metadata";
+import { lockBusy } from "../platform/files";
 import { isOutside } from "../platform/inside";
 export { formatTerminalJSON as formatLearningResult } from "../tui/json";
 
@@ -405,7 +406,7 @@ export class CandidateLibrary {
       signal.throwIfAborted();
       try { await mkdir(lock, { mode: 0o700 }); return; }
       catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        if (!lockBusy(error)) throw error;
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
     }

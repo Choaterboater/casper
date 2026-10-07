@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { openNoFollow } from "../platform/files";
+import { lockBusy, openNoFollow } from "../platform/files";
 import { CHECK_NAMES, summarizeVerification, summarizeVerificationCheck, type VerificationReport, type VerificationCheckSummary } from "../verify/evidence";
 import { isVerificationScope } from "../verify/scope";
 
@@ -162,7 +162,7 @@ export class ProjectMemory {
     for (let attempt = 0; attempt < 100; attempt++) {
       try { await mkdir(lock, { mode: 0o700 }); acquired = true; break; }
       catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        if (!lockBusy(error)) throw error;
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
     }

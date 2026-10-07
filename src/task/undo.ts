@@ -19,7 +19,7 @@ import { constants } from "node:fs";
 import { chmod, lstat, mkdir, open, readFile, readlink, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { openNoFollow, parentsStayInside, removeProjectFile, writeProjectFile, writeProjectLink } from "../platform/files";
+import { lockBusy, openNoFollow, parentsStayInside, removeProjectFile, writeProjectFile, writeProjectLink } from "../platform/files";
 import { isSecretFile } from "../secrets/files";
 import { HASH_LIMIT, SKIPPED_DIRECTORIES, SNAPSHOT_FILE_LIMIT } from "./changes";
 
@@ -213,7 +213,7 @@ export class UndoStore {
         await handle.writeFile(String(process.pid)); await handle.close();
         break;
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        if (!lockBusy(error)) throw error;
         const held = await lstat(lock).catch(() => undefined);
         if (held && (Date.now() - held.mtimeMs > STALE_LOCK_MS || await holderGone(lock))) { await unlink(lock).catch(() => {}); continue; }
         if (Date.now() > deadline) throw new GitError("another Casper is saving a copy", "ELOCKED");

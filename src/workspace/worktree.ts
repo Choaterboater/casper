@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { safeGitArgs } from "../platform/git";
+import { lockBusy } from "../platform/files";
 import { isOutside } from "../platform/inside";
 
 const execFileAsync = promisify(execFile);
@@ -354,7 +355,7 @@ export class GitWorktreeManager {
     for (let attempt = 0; attempt < 100; attempt++) {
       try { await mkdir(lock, { mode: 0o700 }); acquired = true; break; }
       catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        if (!lockBusy(error)) throw error;
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
     }
