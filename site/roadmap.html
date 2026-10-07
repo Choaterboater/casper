@@ -57,6 +57,7 @@
         <ul>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0226">v0.2.26: local models, updating on Windows, opening where you launched</a></li>
               <li><a href="#v0225">v0.2.25: a stricter plain-read check, reviewers for builders, a calmer start</a></li>
               <li><a href="#v0224">v0.2.24: builders the AI starts, plain words, an off switch for every default</a></li>
               <li><a href="#v0223">v0.2.23: casper doctor, a sandboxed network server, a reader for untrusted text</a></li>
@@ -100,8 +101,23 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <article class="card" id="v0226" aria-labelledby="v0226-h">
+          <h3 id="v0226-h">v0.2.26 · Local models, updating on Windows, opening where you launched <span class="badge ok">current preview</span></h3>
+          <p>A model on your own computer works with a written recipe, <code>casper update</code> works on
+          Windows, and Casper opens the folder you launched in without a question.</p>
+          <ul>
+            <li><strong>Local models.</strong> The configuration guide has the lines for Ollama, LM Studio,
+            llama.cpp and vLLM; a model that can't use tools or a provider with no key gets a plain message;
+            a small context window is said once.</li>
+            <li><strong>Updating on Windows.</strong> The checked installer runs in a separate process that
+            waits for Casper to exit.</li>
+            <li><strong>Opening where you launched.</strong> From your home folder or a drive root, Casper
+            opens there and prints one line with the command for your last project.</li>
+          </ul>
+        </article>
+
         <article class="card" id="v0225" aria-labelledby="v0225-h">
-          <h3 id="v0225-h">v0.2.25 · A stricter plain-read check, reviewers for builders, a calmer start <span class="badge ok">current preview</span></h3>
+          <h3 id="v0225-h">v0.2.25 · A stricter plain-read check, reviewers for builders, a calmer start <span class="badge">released</span></h3>
           <p>The check that lets harmless shell reads run without a question is stricter, checks that could
           pass without earning it are closed, builders get a reviewer and a fix round, and Casper opens the
           folder you launched in.</p>
@@ -682,7 +698,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.25</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.26</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

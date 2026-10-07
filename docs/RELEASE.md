@@ -4,11 +4,41 @@
 published, and what the installers promise. **When you'd use it:** to see what is new
 before you upgrade, or when you build or publish a release yourself.
 
-Casper distributes an unsigned **v0.2.25 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.25`,
+Casper distributes an unsigned **v0.2.26 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.26`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.26: local models, updating on Windows, and opening where you launched
+
+Casper can now be pointed at a model running on your own computer (Ollama, LM Studio, llama.cpp or vLLM)
+with a written recipe and plain errors when something is missing. `casper update` works on Windows,
+and Casper no longer asks which project to open when you start it in your home folder.
+
+**Local models.** `docs/CONFIGURATION.md` has a "Local models" section with the exact lines for Ollama,
+LM Studio, llama.cpp and vLLM: the address, a placeholder key, and the setting that fits each. Some
+messages are now plain words:
+- A model that cannot use tools says so, and says what to do, instead of a bare provider error.
+- A provider that needs a key and has none says which provider and where the key goes. A local server
+  on this computer needs no real key and is not asked for one.
+- A model with a small context window is told so once, and Casper no longer tidies up the
+  conversation (compaction) on every turn.
+- A model that writes its tool call as ordinary text (some small models do) is told so. Before, the
+  run ended with a silent "unchanged".
+
+**Opening where you launched, always.** From your home folder or the top of a drive, Casper opened with a
+question, "Work in which project?". It now opens right there and asks nothing. One line says where it
+opened and the command that opens the project you last worked in (`casper new` starts a new one). Those
+folders are broad, so the AI can see and change files anywhere in them; open a project folder when you
+want it kept to one. The line skips temporary and scratch folders and shows real Windows paths.
+
+**Updating on Windows.** `casper update` could stop with "Windows would not let Casper move its own
+program aside". It now hands the checked installer to a separate process that waits for Casper to
+exit, then runs it. The installer is still checked against its published SHA-256 first, as before.
+
+**Not done yet.** `/login` has no "a model on this computer" choice; you edit `models.json` as the
+recipe shows. Builders the AI starts are still not shown as a panel with one row each.
 
 ## v0.2.25: a stricter "plain read" check, verification that is harder to fool, reviewers for builders, and a calmer start
 

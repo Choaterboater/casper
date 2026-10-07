@@ -36,20 +36,20 @@ Casper itself is free and open source. A task spends money only with your own mo
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.25/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.26/install.sh | sh
 ```
 
 Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.25/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.26/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
 [release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.2.25**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.25`,
+if anything is wrong. These commands pin **v0.2.26**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.26`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 Use the one-line command above rather than downloading a program in your browser: the installer
@@ -82,7 +82,7 @@ From the shell:
 ```sh
 casper "Explain this project"
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.2.25 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.2.26 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
@@ -156,7 +156,7 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 
 ## What's new
 
-v0.2.25: a stricter "plain read" check (fixes lines that ran more than a plain read), verification that is harder to fool, reviewers and a fix round for the AI's builders, and Casper opening the folder you launched in.
+v0.2.26: local models (a written recipe for Ollama, LM Studio, llama.cpp and vLLM, with plain errors), `casper update` working on Windows, and Casper opening where you launched without asking, even from your home folder.
 [Release notes](docs/RELEASE.md#v0225-a-stricter-plain-read-check-verification-that-is-harder-to-fool-reviewers-for-builders-and-a-calmer-start) ·
 [Roadmap](https://choaterboater.github.io/casper/roadmap.html).
 
