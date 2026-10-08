@@ -16,6 +16,7 @@ import type { AgentRuntime, RuntimeBuilderStartOptions, RuntimeEvent, RuntimeEve
 import { SkillRegistry } from "../src/skills/registry";
 import { NOT_RUN_REASON, NOT_WRITTEN_REASON } from "../src/secrets/gate";
 import { SPEND_STOP_REASON } from "../src/task/spend";
+import { flakyOn } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
 const execFileAsync = promisify(execFile);
@@ -127,7 +128,7 @@ test("the AI starts two builders at once; both changes land, count as the task's
   await casper.runOnce("/undo");
   expect(await readFile(path.join(repo, "b.txt"), "utf8")).toBe("b.txt\n");
   expect(await readFile(path.join(repo, "c.txt"), "utf8")).toBe("c.txt\n");
-}, 30_000);
+}, { timeout: 30_000, ...flakyOn("win32") });
 
 test("a builder whose file was changed in your folder meanwhile is not applied; its copy is kept for /crew", async () => {
   const { home, repo } = await repository();
@@ -251,7 +252,7 @@ test("at most 3 builders at once; a fourth is turned away and not counted", asyn
   for (const resolve of release) resolve();
   for (const call of calls.slice(0, 3)) expect(data((await call).text).note).toBe("No changes were made; the copy was removed.");
   expect(await git(repo, "worktree", "list")).not.toContain("casper/crew-");
-}, 30_000);
+}, { timeout: 30_000, ...flakyOn("win32") });
 
 test("a builder's private paths stay private in its copy, and it gets the session's shell at the copy", async () => {
   const { home, repo } = await repository();

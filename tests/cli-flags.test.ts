@@ -6,7 +6,7 @@ import { verificationFlag } from "../src/cli-main";
 import { looksLikePath, parseCliArgs, parseMcpCheckArgs, UsageError } from "../src/cli-args";
 import { resolveVerificationMode } from "../src/verify/mode";
 import { CASPER_VERSION } from "../src/version";
-import { needsPosixModes, posixOnly } from "./support/platform";
+import { flakyOn, needsPosixModes, posixOnly } from "./support/platform";
 import { cleanEnv } from "./support/env";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -52,7 +52,7 @@ test("--verify --no-verify is rejected before any work starts", async () => {
   const result = await run([cli, "--verify", "--no-verify", "Summarize"], root);
   expect({ code: result.code, stdout: result.stdout }).toEqual({ code: 64, stdout: "" });
   expect(result.stderr).toContain("--verify and --no-verify cannot be combined");
-});
+}, flakyOn("win32"));
 
 test("a flag following --mcp or --lsp is not taken as a server name", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));

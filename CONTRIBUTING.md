@@ -59,7 +59,15 @@ CI runner, whatever the change. To tell which:
 3. If it passes alone and the test has nothing to do with your change, use **Re-run failed jobs** on the run
    (or ask on the PR if you can't). A flake passes on the rerun; a real failure fails the same way again.
 4. A test that times out at its limit (`timed out after 30000ms`) on one OS only, and passes on the others,
-   is most often a flake. Say so on the PR; the maintainer keeps a list of the known ones.
+   is most often a flake. Say so on the PR.
+
+The known flaky tests already get one more try on the OS they flake on. The list is in
+`tests/flaky-list.test.ts`. A test that passed on its second try says `(attempt 2)` on its `(pass)` line.
+
+To add one: it must start a real child process (Bun, a language server, Chrome, git) and have failed on CI
+for no reason in the change. Add `...flakyOn("win32")` (the OS it flaked on) to the test's options, and its
+file, name and OS to the list in `tests/flaky-list.test.ts`. Nothing else may retry: never a test without a
+child process, and never the whole suite.
 
 Never make a test pass by weakening what it checks or adding a fixed sleep. A test that waits for something
 should wait for the real signal with a deadline (`waitUntil`, `waitForFile` and `processGone` in

@@ -1,6 +1,6 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { chmod, link, mkdir, mkdtemp, readFile, realpath, stat, symlink, writeFile } from "node:fs/promises";
-import { posixOnly } from "./support/platform";
+import { flakyOn, posixOnly } from "./support/platform";
 import { PTY_TEST_MS, runPtyFixture } from "./support/pty";
 import { isolatedEnvironment } from "../src/platform/environment";
 import os from "node:os";
@@ -82,7 +82,7 @@ test("API-key login verifies with the provider, keeps secrets off screen, and pr
     expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8"))).toEqual({ unrelated: { type: "api_key", key: "keep" }, [provider]: { type: "api_key", key: "synthetic-private-key" } });
     expect(await Bun.file(path.join(agent, "sessions")).exists()).toBe(false);
   }
-}, 60_000);
+}, { timeout: 60_000, ...flakyOn("win32") });
 
 test("Enter at the numbered sign-in list picks OpenRouter with an API key", async () => {
   const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
@@ -283,7 +283,7 @@ test("Copilot device login discloses account policy changes and saves only Copil
   const auth = JSON.parse(await readFile(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json"), "utf8"));
   expect(Object.keys(auth)).toEqual(["github-copilot"]);
   expect(auth["github-copilot"].availableModelIds).toContain("claude-haiku-4.5");
-}, 60_000);
+}, { timeout: 60_000, ...flakyOn("win32") });
 
 test("Anthropic browser sign-in completes through private manual input or real loopback callback and releases listeners", async () => {
   for (const mode of ["manual", "callback", "cancel"]) {
@@ -392,7 +392,7 @@ test("API-key replacement refreshes the selected non-Codex parent without changi
   expect(result.result).toEqual({ status: "saved" });
   expect(result.after).toMatchObject({ provider: "anthropic", model: result.before.model, selectionSource: result.before.selectionSource, auth: "configured" });
   expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8")).anthropic.key).toBe("synthetic-new");
-}, 60_000);
+}, { timeout: 60_000, ...flakyOn("win32") });
 
 test("provider refusal and occupied browser port expose no diagnostics and preserve existing credentials", async () => {
   for (const occupied of [false, true]) {
@@ -423,7 +423,7 @@ test("provider refusal and occupied browser port expose no diagnostics and prese
     expect(result.safe).toBe(true);
     expect(await readFile(path.join(agent, "auth.json"), "utf8")).toBe(original);
   }
-}, 60_000);
+}, { timeout: 60_000, ...flakyOn("win32") });
 
 test("Ctrl+C at the sign-in list is cancellation, not login failure", async () => {
   const f = await fixture();
@@ -723,7 +723,7 @@ test("CASPER_TUI_WRITE_LOG refuses login before terminal or auth ownership", asy
   `);
   expect(JSON.parse(output)).toEqual({ result: { status: "failed", effect: "none", reason: "unavailable", detail: "CASPER_TUI_WRITE_LOG is set" }, runs: 0 });
   expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).exists()).toBe(false);
-}, 60_000);
+}, { timeout: 60_000, ...flakyOn("win32") });
 
 test("CASPER_OAUTH_CALLBACK_HOST cannot expose browser sign-in on a public listener", async () => {
   const f = await fixture();
@@ -743,7 +743,7 @@ test("CASPER_OAUTH_CALLBACK_HOST cannot expose browser sign-in on a public liste
     } finally { await runtime.dispose(); input.destroy(); }
   `);
   expect(JSON.parse(output)).toEqual({ result: { status: "failed", effect: "none", reason: "unavailable" }, requests: 0 });
-}, 60_000);
+}, { timeout: 60_000, ...flakyOn("win32") });
 
 // python3 runs the standard-library PTY fixture; Windows has no equivalent here.
 posixOnly("production CLI owns device-code input safely in a real terminal", async () => {

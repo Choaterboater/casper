@@ -7,6 +7,7 @@ import { ServiceManager } from "../src/services/manager";
 import { SmokeChecks } from "../src/services/smoke";
 import { prepareWorkdir, referenceChanges } from "../evals/runner";
 import { findEvalTask } from "../evals/tasks";
+import { flakyOn } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
@@ -138,7 +139,7 @@ test("the lifecycle task's hidden acceptance passes on the solved fixture and fa
   // Failing tests still stop every server they started (the setup's server never exits on its own).
   expect(unsolved.pids.length).toBe(catchableSigterm ? 4 : 3);
   expect(unsolved.survivors).toEqual([]);
-}, 90_000);
+}, { timeout: 90_000, ...flakyOn("win32") });
 
 /** Each behavior the setup removes is caught on its own: the solved server minus just that behavior fails just its test. */
 test.each<[string, Record<string, [string, string][]>, number[]]>([

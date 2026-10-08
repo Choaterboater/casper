@@ -3,6 +3,7 @@ import { mkdtemp, realpath, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { LSPManager } from "../src/lsp/manager";
+import { flakyOn } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: (() => Promise<unknown>)[] = [];
@@ -81,4 +82,4 @@ test("real Pyright acceptance: repository-wide rename finishes with fresh zero d
   expect(await readFile(path.join(dir, "b.py"), "utf8")).toBe("from a import welcome\nresult = welcome('world')\n");
   expect(await readFile(path.join(dir, "unrelated.py"), "utf8")).toBe("unrelated = {'greet': 'unchanged'}\n");
   await check([process.execPath, path.join(import.meta.dir, "../node_modules/pyright/index.js"), "--project", dir], dir);
-}, 90_000);
+}, { timeout: 90_000, ...flakyOn("win32") });

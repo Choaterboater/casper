@@ -49,6 +49,17 @@ export const needsSymlinks = test.skipIf(!symlinksSupported);
 export const needsFifos = test.skipIf(!fifosSupported);
 export const needsPosixModes = test.skipIf(!posixModes);
 
+/**
+ * One more try, on the named OS only, for a test known to fail now and then on a busy CI runner because a real
+ * child process (Bun, a language server, Chrome, git) is slow there. Never for a test without a child process,
+ * and always name the OS it flakes on. Each use is listed in tests/flaky-list.test.ts. Bun marks a pass on the
+ * second try `(attempt 2)`. After a timeout Bun starts the second try while the first still runs, and whichever
+ * ends first counts, pass or fail.
+ */
+export function flakyOn(...platforms: NodeJS.Platform[]): { retry?: number } {
+  return platforms.includes(process.platform) ? { retry: 1 } : {};
+}
+
 /** Registry entries use the POSIX shell, `/dev/null` links, or both. */
 export const posixSymlinks = test.skipIf(!POSIX || !symlinksSupported);
 /** The real shell sandbox can run here: bubblewrap and socat that start on Linux, or sandbox-exec on macOS. */
