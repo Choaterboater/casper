@@ -30,6 +30,12 @@ export const PLAN_CHOICES = [
   { label: "Build", description: "the model builds these steps and tests these cases (uses tokens)" },
 ] as const satisfies readonly Choice[];
 
+/** The same, on a rich terminal: a third choice opens the plan's lines to change. Stop stays first and Build second. */
+export const PLAN_CHOICES_EDIT = [
+  ...PLAN_CHOICES,
+  { label: "Edit the plan", description: "change the steps and cases first, then choose again" },
+] as const satisfies readonly Choice[];
+
 /** "<model> can't see pictures, and this request has one." Both send the request: 1 on your model without the
  * pictures, 2 on one that sees them, for this request only. */
 export function pictureChoices(model: string, count: number): Choice[] {

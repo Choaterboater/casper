@@ -255,11 +255,13 @@ requirements (two or more list lines, most with a detail such as a command, numb
 is built as asked, with no question. Plan first (or `/plan <request>`) runs a
 plan turn: the model may only read (read, grep, find, ls and look-only shell commands such as `ls`,
 `cat` or `git log`); every other tool, MCP and Casper's own tools included, is refused with "Planning
-only". This is Casper's gate, not a sandbox, and a file that changed anyway is named on the receipt
-(`• Changed while planning: …`). The plan and its cases open in the editor: edit the lines, then Enter
-goes on to "Build this plan?" (1 Stop · 2 Build, so Enter builds nothing); Esc stops without
-building. The plain terminal shows the plan and asks the same question, and a run that cannot ask
-stops after showing the plan.
+only" and shown as `— not run`, not as a failed step (the receipt does not count it). This is Casper's gate, not a
+sandbox, and a file that changed anyway is named on the receipt (`• Changed while planning: …`). The plan is shown
+once, as the model wrote it, then one line (`Casper plan: 9 steps, 9 cases to test.`) and "Build this plan?":
+1 Stop · 2 Build, and on a rich terminal 3 Edit the plan, so Enter builds nothing. 3 opens the plan and its cases
+in the editor: edit the lines, then Enter asks again; Esc stops without building. A plan you changed is listed
+again before it builds. The plain terminal asks the same question without 3, and a run that cannot ask
+stops after showing the plan. `/plan` on its own says what to type, with an example.
 
 ### Layout stability
 

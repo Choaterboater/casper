@@ -188,7 +188,7 @@ export function handleSlashCommand(app: CasperApp, prompt: string): Promise<Veri
   if (undoCommand) return runUndoCommand(app, undoCommand[1] as "undo" | "redo" | "diff" | "receipt", (undoCommand[2] ?? "").trim());
   if (/^\/plan(?:\s|$)/.test(prompt)) {
     const request = prompt.slice(5).trim();
-    if (!request) { app.output.write("Usage: /plan <request>. The model plans first; nothing is built until you choose Build.\n"); return Promise.resolve(undefined); }
+    if (!request) { app.output.write("Type /plan and then what you want, for example /plan add a --verbose flag to the CLI; the model plans first and nothing is built until you choose Build.\n"); return Promise.resolve(undefined); }
     return runModelTask(app, request, { planFirst: true });
   }
   return runSlashCommand(app, prompt);

@@ -20,6 +20,9 @@ import { lineText } from "../tui/format";
  * says about itself. */
 export const PLANNING_TOOLS = new Set(["read", "grep", "find", "ls", "web_search", "web_fetch"]);
 
+/** Casper's own refusals start with this, so the screen says "— not run" and the receipt does not count them as failed. */
+const NOT_RUN = "Not run: ";
+
 export const PLANNING_BLOCKED = "Planning only: Casper blocks file changes until you choose Build";
 
 /** Split one command line into words, honouring simple quotes. Undefined for anything Casper will not
@@ -156,10 +159,10 @@ export function planToolGate(toolName: string, input: Record<string, unknown> | 
   if (toolName === "bash" || toolName === "powershell") {
     const command = typeof input?.command === "string" ? input.command : "";
     if (isPlanningCommand(command, toolName)) return undefined;
-    return `${PLANNING_BLOCKED}. While planning it runs only look commands such as ls, cat, grep and git log.`;
+    return `${NOT_RUN}${PLANNING_BLOCKED}. While planning it runs only look commands such as ls, cat, grep and git log.`;
   }
-  if (toolName === "edit" || toolName === "write") return `${PLANNING_BLOCKED}.`;
-  return `${PLANNING_BLOCKED}. While planning it allows only read, grep, find, ls and web lookups, not ${toolName}.`;
+  if (toolName === "edit" || toolName === "write") return `${NOT_RUN}${PLANNING_BLOCKED}.`;
+  return `${NOT_RUN}${PLANNING_BLOCKED}. While planning it allows only read, grep, find, ls and web lookups, not ${toolName}.`;
 }
 
 export interface ParsedPlan {

@@ -5,13 +5,13 @@ import {
 
 describe("the plan turn's tool gate", () => {
   test("edits and writes are blocked with the planning message", () => {
-    expect(planToolGate("edit", { path: "a.ts" })).toBe("Planning only: Casper blocks file changes until you choose Build.");
-    expect(planToolGate("write", { path: "a.ts" })).toBe("Planning only: Casper blocks file changes until you choose Build.");
+    expect(planToolGate("edit", { path: "a.ts" })).toBe("Not run: Planning only: Casper blocks file changes until you choose Build.");
+    expect(planToolGate("write", { path: "a.ts" })).toBe("Not run: Planning only: Casper blocks file changes until you choose Build.");
   });
 
   test("every other state-changing tool is blocked too: MCP tools, services, the browser, delegation", () => {
     for (const tool of ["mcp", "service", "browser", "delegate", "netbox_create_device", "lsp"]) {
-      expect(planToolGate(tool, {})).toBe(`Planning only: Casper blocks file changes until you choose Build. While planning it allows only read, grep, find, ls and web lookups, not ${tool}.`);
+      expect(planToolGate(tool, {})).toBe(`Not run: Planning only: Casper blocks file changes until you choose Build. While planning it allows only read, grep, find, ls and web lookups, not ${tool}.`);
     }
   });
 
