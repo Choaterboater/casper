@@ -84,7 +84,7 @@ the operating system, not a list of words:
   this run can't ask you. Nothing was sent.` After your yes, a plain `ssh` or `scp` command (no pipe,
   redirect, port forward, or option that runs a program or writes a file here) runs outside the sandbox with your own keys,
   like lab checks, when it is the system's own: named bare, and found on your PATH with no folder a sandboxed command
-  may write searched first (a program of that name given by its path, like `./ssh`, stays in the sandbox); anything
+  may write searched first; anything
   more stays in the sandbox and may reach only the host you named (on Linux, ssh goes through the sandbox's proxy,
   but your `~/.ssh` keys are hidden there, so a login may fail). This
   reads the command text, so a script that opens its own connection is held only by the sandbox. It also
