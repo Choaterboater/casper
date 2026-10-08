@@ -439,12 +439,81 @@ function writesKnownHosts(value: string): boolean {
 /** ssh and scp flags that run a program here, forward ports or the agent, go to the background or print the settings. */
 const LOCAL_EFFECT_FLAG = new Set(["-D", "-L", "-R", "-W", "-w", "-f", "-N", "-M", "-S", "-O", "-E", "-A", "-X", "-Y", "-G", "-F", "-I", "-e", "-3"]);
 
+export interface ProgramSeams {
+  /** The PATH to search (default: this process's). */
+  pathEnv?: string;
+  /** A place commands may write to (default: the temp folder; the project is always one). */
+  writable?: (absolute: string) => boolean;
+  platform?: NodeJS.Platform;
+  /** A folder the shell puts in front of PATH (the engine's own bin folder). A bare ssh or scp found there is not the system's. */
+  shellBin?: string;
+}
+
+/**
+ * The real ssh or scp a command word names: the bare name (`ssh`, and `ssh.exe` on Windows, no directory part), found
+ * on a PATH made only of absolute folders, in a place no command can write to (not the project, the temp folder or
+ * anything the sandbox lets commands write). undefined for anything else, which is then an ordinary command.
+ */
+export function systemProgram(word: string, tool: RemoteTool, root: string, seams: ProgramSeams = {}): string | undefined {
+  const platform = seams.platform ?? process.platform;
+  const exact = platform === "win32" ? word.toLowerCase() === tool || word.toLowerCase() === `${tool}.exe` : word === tool;
+  if (!exact) return undefined;
+  const names = platform === "win32" ? [`${tool}.exe`, tool] : [tool];
+  const realRoot = realpathLongest(root);
+  const writable = seams.writable ?? ((place: string) => within(realpathLongest(os.tmpdir()), place));
+  if (seams.shellBin) {
+    for (const name of names) {
+      try { if (statSync(path.join(seams.shellBin, name)).isFile()) return undefined; } catch { /* not there */ }
+    }
+  }
+  for (const folder of (seams.pathEnv ?? process.env.PATH ?? "").split(platform === "win32" ? ";" : path.delimiter)) {
+    // An empty or relative PATH entry means "here", which is whatever folder the command runs in.
+    if (!folder || !path.isAbsolute(folder)) return undefined;
+    for (const name of names) {
+      const candidate = path.join(folder, name);
+      try { if (!statSync(candidate).isFile()) continue; } catch { continue; }
+      const real = realpathLongest(candidate);
+      if (within(realRoot, real) || within(root, candidate) || writable(real) || writable(candidate)) return undefined;
+      return real;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The program a command runs when it is named like ssh or scp but is not the system's one (`./ssh` or any name
+ * with a directory part): its path, for the question box to show. undefined for the system ssh or scp.
+ */
+export function lookalikeProgram(command: string, root: string, seams: ProgramSeams = {}): string | undefined {
+  for (const segment of commandSegments(command)) {
+    const start = commandStart(segment.words);
+    const word = segment.words[start];
+    if (!word) continue;
+    const parsed = segmentTargets(segment.words);
+    if (parsed.tool !== "ssh" && parsed.tool !== "scp") continue;
+    if (systemProgram(word, parsed.tool, root, seams)) continue;
+    if (/[\\/]/.test(word)) return path.resolve(root, word);
+  }
+  return undefined;
+}
+
+/** A plain `ssh` or `scp` by its bare name that has no safe system program to run: it runs inside the sandbox instead. */
+export function lacksSystemProgram(command: string, root: string, seams: ProgramSeams = {}): boolean {
+  const line = splitShell(command);
+  if (!line.simple) return false;
+  const words = line.segments[0]!.words;
+  if (commandStart(words) !== 0) return false;
+  const parsed = segmentTargets(words);
+  if ((parsed.tool !== "ssh" && parsed.tool !== "scp") || /[\\/]/.test(words[0]!)) return false;
+  return !systemProgram(words[0]!, parsed.tool, root, seams);
+}
+
 /**
  * Whether an approved ssh or scp command can run outside the sandbox, with your own keys: one plain ssh or scp (no
  * pipe, redirect or $(...)), no option that runs a program here, forwards a port or the agent, or goes to the
  * background, and (scp) local files only inside the project. Anything else stays in the sandbox.
  */
-export function runsAlone(command: string, root: string): boolean {
+export function runsAlone(command: string, root: string, seams: ProgramSeams = {}): boolean {
   const line = splitShell(command);
   if (!line.simple) return false;
   const words = line.segments[0]!.words;
@@ -452,7 +521,10 @@ export function runsAlone(command: string, root: string): boolean {
   // No sudo, env or VAR= in front: exactly what the question showed runs.
   if (start !== 0) return false;
   const parsed = segmentTargets(words);
-  if (!parsed.targets.length || parsed.targets.some((target) => target.unclear) || (parsed.tool !== "ssh" && parsed.tool !== "scp") || path.basename(words[0]!) !== parsed.tool) return false;
+  if (!parsed.targets.length || parsed.targets.some((target) => target.unclear) || (parsed.tool !== "ssh" && parsed.tool !== "scp")) return false;
+  // Only the system's own ssh or scp, found by its bare name: a name with a directory part, or a program that lives in
+  // a place the sandbox lets commands write, is an ordinary command and stays in the sandbox.
+  if (!systemProgram(words[0]!, parsed.tool, root, seams)) return false;
   for (const [flag, value] of parsed.values) {
     if (flag.startsWith("--") || LOCAL_EFFECT_FLAG.has(flag)) return false;
     if (flag === "-o" && (LOCAL_EFFECT_OPTION.test(value) || writesKnownHosts(value))) return false;

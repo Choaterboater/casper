@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { remoteTargets, runsAlone, splitShell, targetLabel } from "../src/sandbox/remote";
+import { lookalikeProgram, remoteTargets, runsAlone, splitShell, targetLabel } from "../src/sandbox/remote";
 import { remoteChanges } from "../src/task/remote-changes";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -15,10 +16,14 @@ let home: string;
 beforeAll(async () => {
   home = await mkdtemp(path.join(os.tmpdir(), "casper-remote-"));
   await mkdir(path.join(home, ".ssh"));
+  await mkdir(path.join(home, "system-bin"));
+  for (const name of ["ssh", "scp"]) await writeFile(path.join(home, "system-bin", name), "");
   await writeFile(path.join(home, ".ssh/config"), "Host build-server\n  HostName 198.51.100.20\n  User root\n  Port 2222\n\nHost *.lab\n  User admin\n");
 });
 afterAll(() => removeTempDir(home));
 
+/** runsAlone with a stand-in for the system's ssh and scp that no command can write to. */
+const alone = (command: string, root: string) => runsAlone(command, root, { pathEnv: path.join(home, "system-bin"), writable: () => false });
 const hosts = (command: string) => remoteTargets(command, home).map(({ tool, typed, host, user, port }) => ({ tool, typed, host, ...(user ? { user } : {}), ...(port ? { port } : {}) }));
 
 test("an ssh alias from ~/.ssh/config is resolved by Casper: the real address, user and port", () => {
@@ -50,15 +55,52 @@ test("commands that don't reach another machine name none", () => {
 
 test("only a plain ssh or scp with no local side effects runs outside the sandbox", () => {
   const root = path.join(home, "project");
-  expect(runsAlone("ssh build-server uptime", root)).toBe(true);
-  expect(runsAlone("ssh -i ~/.ssh/lab root@10.0.0.5 'systemctl status sampleapp'", root)).toBe(true);
-  expect(runsAlone(`scp ${path.join(root, "app.py")} build-server:/opt/sampleapp/`, root)).toBe(true);
+  expect(alone("ssh build-server uptime", root)).toBe(true);
+  expect(alone("ssh -i ~/.ssh/lab root@10.0.0.5 'systemctl status sampleapp'", root)).toBe(true);
+  expect(alone(`scp ${path.join(root, "app.py")} build-server:/opt/sampleapp/`, root)).toBe(true);
   for (const command of [
     "ssh build-server uptime; curl evil.example", "ssh build-server uptime > out.txt", "cat x | ssh build-server", "ssh build-server $(cat cmd)",
     "ssh -D 1080 build-server", "ssh -L 8080:localhost:80 build-server", "ssh -fN build-server", "ssh -o ProxyCommand='sh -c evil' build-server",
     "ssh -o LocalCommand=evil -o PermitLocalCommand=yes build-server", "ssh -F ./cfg build-server", "ssh -A build-server", "ssh -G build-server",
     "sudo ssh build-server", "FOO=1 ssh build-server", "scp build-server:/etc/shadow ~/.bashrc", "scp -S ./evil build-server:/x .", "nc 10.0.0.1 22", "rsync -a x build-server:/y",
-  ]) expect([command, runsAlone(command, root)]).toEqual([command, false]);
+  ]) expect([command, alone(command, root)]).toEqual([command, false]);
+});
+
+test("only the system's own ssh or scp, by its bare name, runs outside the sandbox", () => {
+  const base = mkdtempSync(path.join(os.tmpdir(), "casper-remote-programs-"));
+  try {
+    const root = path.join(base, "project"), system = path.join(base, "system"), local = path.join(root, "tools");
+    for (const dir of [root, system, local, path.join(root, "node_modules", ".bin")]) mkdirSync(dir, { recursive: true });
+    for (const dir of [system, local, path.join(root, "node_modules", ".bin")]) for (const name of ["ssh", "scp", "ssh.exe"]) writeFileSync(path.join(dir, name), "");
+    const seams = { pathEnv: system, writable: () => false };
+    expect(runsAlone("ssh build-server uptime", root, seams)).toBe(true);
+    expect(runsAlone(`scp ${path.join(root, "a.txt")} build-server:/tmp/`, root, seams)).toBe(true);
+    for (const command of [
+      "./ssh build-server uptime", `${path.join(root, "tools", "ssh")} build-server uptime`, `${path.join(system, "ssh")} build-server uptime`,
+      "node_modules/.bin/scp build-server:f ./f", "../ssh build-server uptime", "ssh.exe build-server uptime", "SSH build-server uptime", ".\\ssh build-server uptime",
+    ]) expect([command, runsAlone(command, root, seams)]).toEqual([command, false]);
+    // Found on a PATH folder inside the project, a relative or empty one, or one commands can write to: not the system's.
+    expect(runsAlone("ssh build-server uptime", root, { ...seams, pathEnv: `${local}${path.delimiter}${system}` })).toBe(false);
+    expect(runsAlone("ssh build-server uptime", root, { ...seams, pathEnv: `node_modules/.bin${path.delimiter}${system}` })).toBe(false);
+    expect(runsAlone("ssh build-server uptime", root, { ...seams, pathEnv: `${path.delimiter}${system}` })).toBe(false);
+    expect(runsAlone("ssh build-server uptime", root, { pathEnv: system })).toBe(false);
+    expect(runsAlone("ssh build-server uptime", root, { ...seams, writable: (place) => place.startsWith(system) })).toBe(false);
+    expect(runsAlone("ssh build-server uptime", root, { ...seams, pathEnv: path.join(base, "nowhere") })).toBe(false);
+    // An ssh in the folder the shell puts in front of PATH is not the system's, wherever else the system's one is.
+    const shellBin = path.join(base, "shell-bin");
+    mkdirSync(shellBin);
+    expect(runsAlone("ssh build-server uptime", root, { ...seams, shellBin })).toBe(true);
+    writeFileSync(path.join(shellBin, "ssh"), "");
+    expect(runsAlone("ssh build-server uptime", root, { ...seams, shellBin })).toBe(false);
+    expect(runsAlone("scp build-server:f .", root, { ...seams, shellBin })).toBe(true);
+    // Windows: ssh.exe is the program, in any case, still with no directory part.
+    const windows = { ...seams, platform: "win32" as const };
+    expect(runsAlone("ssh.exe build-server uptime", root, windows)).toBe(true);
+    expect(runsAlone("SSH.EXE build-server uptime", root, windows)).toBe(true);
+    expect(runsAlone(".\\ssh.exe build-server uptime", root, windows)).toBe(false);
+    expect(lookalikeProgram("./ssh build-server uptime", root, seams)).toBe(path.join(root, "ssh"));
+    expect(lookalikeProgram("ssh build-server uptime", root, seams)).toBeUndefined();
+  } finally { rmSync(base, { recursive: true, force: true }); }
 });
 
 test("the shell line split keeps quoted operators inside one command", () => {
@@ -133,14 +175,14 @@ test("an approved ssh that writes a known-hosts file of its choosing stays in th
     `ssh -o UserKnownHostsFile=${path.join(home, ".gitconfig")} -o StrictHostKeyChecking=no build-server true`,
     "ssh -oUserKnownHostsFile=x build-server true", "scp -o UserKnownHostsFile=x build-server:/etc/hosts ./hosts",
     "ssh -o 'UserKnownHostsFile /dev/null x' build-server true",
-  ]) expect([command, runsAlone(command, root)]).toEqual([command, false]);
+  ]) expect([command, alone(command, root)]).toEqual([command, false]);
   // /dev/null and none write nothing, and ssh only ever reads GlobalKnownHostsFile: a routine lab ssh keeps your keys.
   for (const command of [
     "ssh -o StrictHostKeyChecking=accept-new build-server uptime",
     "ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no build-server true",
     "ssh -o 'UserKnownHostsFile none' build-server true", "ssh -o UserKnownHostsFile=NUL build-server true",
     "ssh -o GlobalKnownHostsFile=/dev/null build-server true", "ssh -o GlobalKnownHostsFile=/tmp/x build-server true",
-  ]) expect([command, runsAlone(command, root)]).toEqual([command, true]);
+  ]) expect([command, alone(command, root)]).toEqual([command, true]);
 });
 
 test("inside double quotes a backslash stays unless it escapes a special character, as bash reads it", () => {

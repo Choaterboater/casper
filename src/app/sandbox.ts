@@ -14,7 +14,7 @@ import type { TaskResult } from "../task/result";
 import { terminalText } from "../tui/format";
 import { blockedBySandbox } from "../verify/command";
 import { hideCommandSecrets } from "../secrets/files";
-import { remoteTargets, runsAlone, targetLabel, type RemoteTarget } from "../sandbox/remote";
+import { lacksSystemProgram, lookalikeProgram, remoteTargets, runsAlone, targetLabel, type ProgramSeams, type RemoteTarget } from "../sandbox/remote";
 import { HOST_CHOICES, REACH_CHOICES, shellCommandChoices, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
 import { commandPrefix, matchesPrefix, readOnlyCommand } from "../sandbox/read-only";
 
@@ -40,7 +40,8 @@ export const hostQuestion = (host: string) => `A shell command wants to reach ${
 export const shownCommand = (command: string) => terminalText(hideCommandSecrets(command).text).replace(/\s+/g, " ").trim();
 export const shellQuestion = (command: string) => `Run this command?  ${shownCommand(command)}`;
 /** "Reach 10.0.0.5 (build-server)?  ssh root@build-server uptime" */
-export const reachQuestion = (target: RemoteTarget, command: string) => `Reach ${terminalText(targetLabel(target))}?  ${shownCommand(command)}`;
+export const reachQuestion = (target: RemoteTarget, command: string, program?: string) =>
+  `Reach ${terminalText(targetLabel(target))}?  ${shownCommand(command)}${program ? `\n(this runs ${terminalText(program)}, not the system's own program)` : ""}`;
 /** The AI reads these when a command to another machine does not run. */
 export const reachCantAsk = (target: RemoteTarget) => `Not run: this command reaches ${targetLabel(target)}${target.unclear ? "" : ", another machine,"} and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user; they can run it themselves${target.unclear ? " or in a Casper session" : `, in a Casper session, or with --allow-reach ${target.typed} for one run`}.`;
 export const reachDeclined = (target: RemoteTarget) => `Not run: the user said no to reaching ${targetLabel(target)}. Don't try it again another way; ask the user what to do instead.`;
@@ -89,7 +90,7 @@ export function sandboxStartupNotes(root: string): string[] {
 
 /** How the AI's bash runs this session (see RuntimeShell). Before a command reaches another machine (ssh, scp, sftp,
  * rsync, nc, telnet, socat) Casper asks "Reach <host>?", sandbox or not; a run that can't ask refuses it. */
-export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: SandboxStore): RuntimeShell & { close(): Promise<void> } {
+export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: SandboxStore, programs: ProgramSeams = {}): RuntimeShell & { close(): Promise<void> } {
   // The sandbox's own store when it has one, so /sandbox forget and the shell see the same answers.
   const store = sandbox.store ?? given;
   let logs: Promise<string> | undefined;
@@ -112,6 +113,8 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
     if (!lab.length || !await store.labReach()) return false;
     return lab.includes(target.typed.toLowerCase()) || lab.includes(target.host);
   };
+  /** Where ssh and scp may live to run outside the sandbox: not where commands can write. */
+  const seams = (): ProgramSeams => ({ writable: (place) => sandbox.writeAllowed(place), shellBin: path.join(casperAgentDir(), "bin"), ...programs });
   const sayOnce = (line: string) => { if (said.has(line)) return; said.add(line); host.write(`${line}\n`); };
   /** undefined: runs (and whether the question already showed the command); a string: refused, the AI reads why. */
   const reach = async (command: string, signal?: AbortSignal): Promise<{ refused?: string; asked: boolean }> => {
@@ -125,7 +128,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
         sayOnce(`[shell] Not run: the AI's command reaches ${targetLabel(target)}, and this run can't ask you. Nothing was sent.`);
         return { refused: reachCantAsk(target), asked };
       }
-      const answer = await host.pick(reachQuestion(target, command), [...REACH_CHOICES], signal);
+      const answer = await host.pick(reachQuestion(target, command, lookalikeProgram(command, sandbox.root, seams())), [...REACH_CHOICES], signal);
       asked = true;
       // A machine the command names as $HOST could be any machine next time: that yes counts for this command only.
       if (answer === YES_SESSION) { if (!target.unclear) sessionReach.add(target.host); }
@@ -145,16 +148,18 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       if (!sandbox.on) return { command };
       // You said yes to this ssh or scp: a plain one runs outside the sandbox, with your own keys (the sandbox hides
       // ~/.ssh), like lab checks. Anything more stays in the sandbox and may only reach the hosts you named.
-      if (targets && runsAlone(command, cwd)) {
+      if (targets && runsAlone(command, sandbox.root, seams())) {
         sayOnce(`[sandbox] ${targets.map(targetLabel).join(", ")}: plain ssh and scp you allow run outside the sandbox, with your own keys.`);
         return { command };
       }
+      if (targets && lacksSystemProgram(command, sandbox.root, seams())) sayOnce("[sandbox] No safe system ssh or scp was found (outside the project and places commands can write), so this runs inside the sandbox, where a login may fail.");
       let wrapped;
       try { wrapped = await sandbox.wrap(command, { cwd, network: "ask", ...(host.planning() ? { readOnlyProject: true } : {}) }); }
       catch (error) {
         // The sandbox failed to start on this command (it said so): from now on the AI's shell asks, this one too.
         if (!sandbox.failure) throw error;
-        const refused = targets ? undefined : await shell.approve!(command);
+        // Skipped only for the plain system ssh or scp, which runs on its own; anything else asks.
+        const refused = targets && runsAlone(command, sandbox.root, seams()) ? undefined : await shell.approve!(command);
         if (refused) throw new Error(refused);
         return { command };
       }
