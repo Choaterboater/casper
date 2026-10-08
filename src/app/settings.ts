@@ -6,7 +6,7 @@ import { DEFAULT_SPEND_LIMITS, formatLimit } from "../task/spend";
 import { PROMPT_CACHE_SETTINGS, type PromptCacheSetting } from "../runtime/cache";
 import { PROVIDER_LABELS } from "../web/providers";
 import type { DisplayLevel } from "../tui/display";
-import { findTheme, themeNames } from "../tui/theme";
+import { findTheme, shownThemeName, themeNames } from "../tui/theme";
 import type { OutputWriter } from "./commands";
 import type { MCPManager } from "../mcp/manager";
 
@@ -95,11 +95,15 @@ const THEME_WORDS: Record<string, string> = {
   default: "Casper's own colours", light: "for a light terminal background", "high-contrast": "bright colours, no faint text",
 };
 
-/** The screen's colours (theme:): the built-in themes and any a pack added. Colours only; nothing goes to the model. */
+/** The screen's colours (theme:): the built-in themes and any a pack added. Colours only; nothing goes to the model.
+ * A name Casper has no theme for shows as written, and every theme (default too) is offered in its place. */
 function themeRow(name: string | undefined): Setting {
-  const now = name && findTheme(name) ? name : "default";
+  const now = name ?? "default";
+  const found = findTheme(now) !== undefined;
+  const value = found ? now : `${shownThemeName(now)} (not found, using default)`;
   const capital = (text: string) => `${text[0]!.toUpperCase()}${text.slice(1)}`;
-  return { label: "Theme", value: now, question: `Theme: ${now}. It changes the colours only, from now on; NO_COLOR still turns colour off.`, keep: `Keep ${now}`,
+  return { label: "Theme", value, question: `Theme: ${value}. It changes the colours only, from now on; NO_COLOR still turns colour off.`,
+    keep: found ? `Keep ${now}` : "Keep it as it is",
     choices: themeNames().filter((theme) => theme !== now)
       .map((theme) => ({ label: capital(theme), ...(Object.hasOwn(THEME_WORDS, theme) ? { description: THEME_WORDS[theme]! } : {}), keys: ["theme"], value: theme, shown: theme })) };
 }

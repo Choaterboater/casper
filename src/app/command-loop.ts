@@ -13,7 +13,6 @@ import { runSettings } from "./settings";
 import { runPreview } from "../services/preview";
 import { detectWebService, isDetectedWebService } from "../services/detect";
 import { redactPreview, terminalText } from "../tui/format";
-import { useTheme } from "../tui/theme";
 import { leadingImagePath, startsWithImageFile } from "./images";
 import { serviceManager } from "./task-tools";
 import { updateFooter, loadPaneSetting, askPaneOnce, paneCommand, detailsCommand } from "./footer";
@@ -221,8 +220,6 @@ export function settingsCommand(app: CasperApp): Promise<void> {
       try { await reloadProject(app, { own: true }); } catch { return; }
       if (!app.projectContext) return;
       applyWeb(app, app.projectContext);
-      // A new theme colours what comes next; lines already on screen keep theirs.
-      useTheme(app.projectContext.theme);
       // A new default for the work shown replaces this session's /details choice.
       if (app.projectContext.display !== before.display) app.displayChoice = undefined;
     },

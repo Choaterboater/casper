@@ -5,6 +5,8 @@
 import type { CasperApp } from "../app";
 import type { ProjectContext } from "../project/context";
 import { projectFileDigest } from "../project/context";
+import { terminalText } from "../tui/format";
+import { themeNote, useTheme } from "../tui/theme";
 
 export const PROJECT_FILE_CHANGED = "[project] .casper/project.yaml changed in a task; restart Casper to use it\n";
 const NONE = "none";
@@ -22,13 +24,28 @@ export async function reloadProject(app: CasperApp, options: { own?: boolean } =
   const fresh = await app.loadProjectContextFn(context.info);
   if (app.trustedProjectFiles.has(fresh.projectFile ?? NONE)) {
     app.projectContext = fresh;
+    followTheme(app, context.theme);
     return true;
   }
   // /settings writes only your own settings (never a project file's): those apply now.
-  if (options.own) app.projectContext = withOwnSettings(context, fresh);
+  if (options.own) {
+    app.projectContext = withOwnSettings(context, fresh);
+    followTheme(app, context.theme);
+  }
   app.events.ensureLineBreak();
   app.output.write(PROJECT_FILE_CHANGED);
   return false;
+}
+
+/** The theme the settings just read colours what comes next (lines already on screen keep theirs), so the screen
+ * matches what /settings shows after a hand edit too. A new name Casper has no theme for is named once, as at start. */
+export function followTheme(app: CasperApp, before: string | undefined): void {
+  const theme = app.projectContext?.theme;
+  useTheme(theme);
+  const note = theme === before ? undefined : themeNote(theme);
+  if (!note) return;
+  app.events.ensureLineBreak();
+  app.output.write(`[config] ${terminalText(note)}\n`);
 }
 
 /** Casper writing .casper/project.yaml for you: the new version is yours when the one it changed was. */

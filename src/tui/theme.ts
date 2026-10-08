@@ -90,8 +90,11 @@ export function findTheme(name: string): Theme | undefined { return themes.get(n
 export function themeNote(name: string | undefined): string | undefined {
   if (name === undefined || themes.has(name)) return undefined;
   const names = themeNames();
-  return `theme ${name.replace(/\s+/g, " ").slice(0, 64)} is not one Casper has; using default. Themes: ${names.join(", ")}`;
+  return `theme ${shownThemeName(name)} is not one Casper has; using default. Themes: ${names.join(", ")}`;
 }
+
+/** A `theme:` value as written, on one short line, to name it back to you. */
+export function shownThemeName(name: string): string { return name.replace(/\s+/g, " ").slice(0, 64); }
 
 /** 24-bit colour where the terminal says it draws it (COLORTERM, or Windows Terminal); else the nearest of 256. */
 function trueColor(env: Record<string, string | undefined>): boolean {

@@ -4,9 +4,10 @@ import { COLOR_NAMES, DEFAULT_THEME, isThemeColor, isThemeName, THEME_ROLES, typ
 /** A theme file is a few lines; anything bigger is not one. */
 export const MAX_THEME_FILE_BYTES = 8 * 1024;
 
-/** Control characters (tab and a lone carriage return too), C1 controls, bidi overrides and backslashes: a theme
- * file needs none of them, so it can't carry an escape sequence, even one spelled out for YAML to decode. */
-const UNSAFE = /[\x00-\x09\x0b-\x1f\x7f-\x9f​-‏‪-‮⁦-⁩﻿\\]/;
+/** Every legal key and value is printable ASCII, so that is all a theme file may hold (and a newline): no control
+ * character, no C1, invisible, bidi or line-separator character, and no backslash, so it can't carry an escape
+ * sequence, even one spelled out for YAML or JSON to decode. */
+const UNSAFE = /[^\x20-\x7e\n]|\\/u;
 
 const FIELDS = ["name", "colors"];
 
@@ -16,8 +17,9 @@ export type ThemeFileResult = { theme: Theme } | { error: string };
  * A theme file (YAML or JSON, as a pack carries it) read strictly: colours only, no code. It holds `name` (the same
  * rule as a skill's name) and `colors`, a mapping from the roles in THEME_ROLES to #rrggbb or a name in COLOR_NAMES.
  * A role left out takes the default theme's colour. Anything else is refused with one plain reason: another field,
- * another role, another value, a file over 8 KiB, a control character or escape anywhere, YAML anchors, aliases and
- * tags (no theme builds on another or pulls in a file). The theme is not added anywhere: see registerTheme.
+ * another role, another value, a file over 8 KiB, anything but printable ASCII or a backslash anywhere, YAML
+ * anchors, aliases and tags (no theme builds on another or pulls in a file). The theme is not added anywhere: see
+ * registerTheme.
  */
 export function parseThemeFile(text: string): ThemeFileResult {
   if (typeof text !== "string") return { error: "a theme file must be text" };

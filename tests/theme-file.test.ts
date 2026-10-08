@@ -27,6 +27,14 @@ test("a hostile theme file is refused with one plain reason: escapes, controls, 
     ["name: x\ncolors:\n\taccent: red\n", "U+0009"],
     ["name: x\rcolors: {}\n", "U+000D"],
     ["\0name: x\n", "U+0000"],
+    // Invisible, bidi and line-separator characters: every legal key and value is printable ASCII, so nothing else is.
+    ['name: x\ncolors:\n  "a b": red\n', "U+2028"],
+    ["name: x\ncolors:\n  acc­ent: red\n", "U+00AD"],
+    ["name: x​\ncolors: {}\n", "U+200B"],
+    ["﻿name: x\ncolors: {}\n", "U+FEFF"],
+    ["name: x⁠\ncolors: {}\n", "U+2060"],
+    ["name: x\ncolors:\n  accent: red \u{1f600}\n", "U+1F600"],
+    ["# café\nname: x\ncolors: {}\n", "U+00E9"],
     // Anything but a name and colours.
     ["name: x\ncolors: {}\ncode: rm -rf ~\n", 'unknown field "code"'],
     ["name: x\ncolors: {}\nextends: default\n", 'unknown field "extends"'],
@@ -63,7 +71,7 @@ test("a hostile theme file is refused with one plain reason: escapes, controls, 
   const wrong = refusals.filter(([text, reason]) => !error(text)?.includes(reason)).map(([text, reason]) => `${JSON.stringify(text)} gave ${JSON.stringify(error(text))}, wanted ${reason}`);
   expect(wrong).toEqual([]);
   // No reason ever carries what it refused back to the screen.
-  for (const [text] of refusals) expect(error(text)).not.toMatch(/[\x00-\x1f\x7f-\x9f\u202a-\u202e]/);
+  for (const [text] of refusals) expect(error(text)).not.toMatch(/[\x00-\x1f\x7f-\x9f\xad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/);
 });
 
 test("a theme file over 8 KiB is refused before it is parsed", () => {

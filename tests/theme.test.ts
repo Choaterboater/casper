@@ -16,6 +16,7 @@ import { runSettings, settingRows, type SettingsHost } from "../src/app/settings
 import { checkConfig } from "../src/doctor/checks";
 import { formatDoctorLines } from "../src/doctor/run";
 import { CasperApp } from "../src/app";
+import { reloadProject } from "../src/app/project-file";
 import { removeTempDir } from "./support/temp-dir";
 
 const roots: string[] = [];
@@ -128,7 +129,7 @@ test("theme: is your own setting: a project file can't set it, a bad value is na
   const context = await loadProjectContext(await inspectProject(project), { homeDir: home });
   expect(context.theme).toBe("sunset");
   expect(context.warnings ?? []).toEqual([]);
-  expect(settingRows(context).find((row) => row.label === "Theme")!.value).toBe("default");
+  expect(settingRows(context).find((row) => row.label === "Theme")!.value).toBe("sunset (not found, using default)");
   // casper doctor names it as worth knowing, not as something to fix.
   const doctor = await checkConfig({ homeDir: home, projectRoot: project, env: {}, platform: process.platform, currentVersion: "0.0.0",
     install: { kind: "binary", executable: path.join(home, "casper") }, agentDir: path.join(home, ".casper", "agent") });
@@ -155,6 +156,48 @@ test("/settings: Theme lists every theme by name, 1 keeps it, and a pick is save
   expect(await Bun.file(config).text()).toBe("theme: high-contrast\n");
   expect(output).toContain("[settings] Theme: high-contrast. Saved in ~/.casper/config.yaml.\n");
   expect(asked[2]).toContain("Theme: high-contrast");
+});
+
+test("/settings: a theme name Casper doesn't have shows as written, and Default puts it right", async () => {
+  const { home, project, config } = await place();
+  await writeFile(config, "theme: ligth\n");
+  const asked: string[] = [];
+  const answers = ["Theme", "Default", "Done"];
+  let context: Awaited<ReturnType<typeof loadProjectContext>> | undefined;
+  const host: SettingsHost = {
+    output: { write: () => {} }, homeDir: () => home, canAsk: true,
+    context: async () => context ??= await loadProjectContext(await inspectProject(project), { homeDir: home }),
+    reload: async () => { context = await loadProjectContext(await inspectProject(project), { homeDir: home }); },
+    ask: async (question, options) => { asked.push(`${question}\n${options.map((option, index) => `${index + 1} ${option.label}`).join("\n")}`); return answers.shift(); },
+  };
+  await runSettings(host);
+  expect(asked[0]).toContain("Theme: ligth (not found, using default)");
+  expect(asked[1]).toBe("Theme: ligth (not found, using default). It changes the colours only, from now on; NO_COLOR still turns colour off.\n1 Keep it as it is\n2 Default\n3 Light\n4 High-contrast");
+  expect(await Bun.file(config).text()).toBe("theme: default\n");
+  expect(asked[2]).toContain("Theme: default");
+});
+
+test("a theme: edited by hand mid-session colours what comes next at the next reload, and a bad name is named once", async () => {
+  const { home, project, config } = await place();
+  await writeFile(config, "theme: light\n");
+  let output = "";
+  const app = new CasperApp({ output: { write: (text) => { output += text; } }, runtimeFactory() { throw new Error("No model expected"); }, sessionHomeDir: home,
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }) });
+  try {
+    await app.start(project);
+    expect(activeThemeName()).toBe("light");
+    // A task or /verify add reads the project again; your own settings come with it.
+    await writeFile(config, "theme: high-contrast\n");
+    expect(await reloadProject(app)).toBe(true);
+    expect([app.projectContext?.theme, activeThemeName()]).toEqual(["high-contrast", "high-contrast"]);
+    expect(settingRows(app.projectContext!).find((row) => row.label === "Theme")!.value).toBe("high-contrast");
+    output = "";
+    await writeFile(config, "theme: sunset\n");
+    await reloadProject(app);
+    await reloadProject(app);
+    expect(activeThemeName()).toBe("default");
+    expect(output).toBe("[config] theme sunset is not one Casper has; using default. Themes: default, light, high-contrast\n");
+  } finally { await app.close(); }
 });
 
 test("Casper starts in your theme, and names a theme it doesn't have once with the [config] lines", async () => {

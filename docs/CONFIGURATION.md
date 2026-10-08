@@ -649,7 +649,8 @@ whatever the theme.
 
 Pick **Theme** in `/settings`, or set it in your own config. A project's `.casper/project.yaml`
 can't set it, so a repository can't make a warning or an approval hard to read. A name Casper has
-no theme for uses `default`, and one `[config]` line at start (and `casper doctor`) says so.
+no theme for uses `default`, and one `[config]` line at start (and `casper doctor`) says so;
+`/settings` shows it as written, with every theme to pick instead.
 
 ```yaml
 # ~/.casper/config.yaml or a profile's config.yaml
@@ -663,7 +664,8 @@ and single hyphens, like a skill's) and `colors`, by role: `accent`, `muted`, `b
 `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `gray`, `bright-red`,
 `bright-green`, `bright-yellow`, `bright-blue`, `bright-magenta`, `bright-cyan` and
 `bright-white`. A role left out takes the default theme's colour. Nothing else is read: another
-field, an escape or control character, YAML anchors, aliases and tags, and a file over 8 KiB are
+field, any character but plain printable ASCII (so no escape, control or invisible character, not
+even in a comment), a backslash, YAML anchors, aliases and tags, and a file over 8 KiB are
 refused, so a theme can't build on another, pull in a file or run anything. A `#rrggbb` colour
 is drawn exactly where the terminal says it can (`COLORTERM=truecolor`, Windows Terminal), and as
 the nearest of 256 colours elsewhere.
