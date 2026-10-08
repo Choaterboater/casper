@@ -17,6 +17,10 @@ import { isPackPath, PackError } from "./manifest";
  * submodules, into a temp folder (through the shell sandbox's host list where a sandbox runs). Nothing is checked
  * out: each file is read from git's objects, so a filter, an attribute or LFS never runs. Then the files go through
  * the same checks as a folder.
+ *
+ * GitHub serves a commit made in any fork of a repository at the repository's own address, so a commit id alone
+ * doesn't say whose it is. Before any file is fetched, the commit must be on one of the repository's own branches or
+ * tags: a second fetch takes the history of those (commits only, no files) and git checks the commit is in it.
  */
 
 export const PACK_GIT_HOST = "github.com";
@@ -134,6 +138,11 @@ function fetchFailure(source: GitPackSource, stderr: string, ended?: string): st
   return `git could not fetch ${source.repo} at ${short}${gitSaid(stderr)}. Nothing was added.`;
 }
 
+/** The commit is somewhere GitHub serves it from, but not on the repository's own branches or tags: most likely a fork's. */
+function notOnBranch(source: GitPackSource): string {
+  return `Commit ${source.commit.slice(0, 12)} is not on any branch or tag of ${source.shown}. GitHub also serves commits made in other people's copies (forks) of a repository at its address, so Casper takes only a commit on the repository's own branches or tags. Nothing was added.`;
+}
+
 interface TreeEntry { mode: string; type: string; oid: string; size: number; path: string }
 
 function treeEntries(listing: Buffer): TreeEntry[] {
@@ -153,6 +162,7 @@ export async function fetchGitPack(source: GitPackSource, options: GitFetchOptio
   try {
     const hooks = path.join(scratch, "no-hooks");
     const repo = path.join(scratch, "repo");
+    const history = path.join(scratch, "history");
     const tree = path.join(scratch, "tree");
     await mkdir(hooks);
     await mkdir(tree);
@@ -162,14 +172,24 @@ export async function fetchGitPack(source: GitPackSource, options: GitFetchOptio
     const git = (args: string[], maxBytes = 64 * 1024) => local([...config, ...args], { cwd: scratch, env, maxBytes, ...(options.signal ? { signal: options.signal } : {}) });
     const version = await git(["--version"]);
     if (version.missing || version.code !== 0) throw new PackError(GIT_MISSING);
-    if ((await git(["init", "-q", "--template=", repo])).code !== 0) throw new PackError("git could not make a temp folder for the fetch. Nothing was added.");
-    const fetched = await (options.fetch ?? runFetchStep)({
-      file: "git", args: [...config, "-C", repo, "fetch", "--quiet", "--depth=1", "--no-tags", "--no-recurse-submodules", "--", source.url, source.commit],
-      cwd: scratch, env, timeoutMs: FETCH_TIMEOUT_MS, maxStdoutBytes: 64 * 1024, ...(options.signal ? { signal: options.signal } : {}),
-    });
-    if (fetched.ended === "no_start") throw new PackError(GIT_MISSING);
-    if (fetched.ended === "cancelled") throw new PackError("Stopped. Nothing was added.");
-    if (fetched.exitCode !== 0) throw new PackError(fetchFailure(source, fetched.stderr, fetched.ended));
+    if ((await git(["init", "-q", "--template=", repo])).code !== 0 || (await git(["init", "-q", "--template=", history])).code !== 0) {
+      throw new PackError("git could not make a temp folder for the fetch. Nothing was added.");
+    }
+    const fetch = async (args: string[]) => {
+      const run = await (options.fetch ?? runFetchStep)({
+        file: "git", args: [...config, ...args], cwd: scratch, env, timeoutMs: FETCH_TIMEOUT_MS, maxStdoutBytes: 64 * 1024,
+        ...(options.signal ? { signal: options.signal } : {}),
+      });
+      if (run.ended === "no_start") throw new PackError(GIT_MISSING);
+      if (run.ended === "cancelled") throw new PackError("Stopped. Nothing was added.");
+      if (run.exitCode !== 0) throw new PackError(fetchFailure(source, run.stderr, run.ended));
+    };
+    // The repository's own branches and tags, and the commit, with their history but no files (a partial fetch).
+    await fetch(["-c", "extensions.partialClone=casper", "-c", "remote.casper.promisor=true", "-C", history, "fetch", "--quiet", "--filter=tree:0",
+      "--no-tags", "--no-recurse-submodules", "--", source.url, "+refs/heads/*:refs/casper/heads/*", "+refs/tags/*:refs/casper/tags/*", source.commit]);
+    const owned = await git(["-C", history, "for-each-ref", "--count=1", "--format=%(refname)", "--contains", source.commit, "refs/casper/"]);
+    if (owned.code !== 0 || !owned.stdout.toString("utf8").trim()) throw new PackError(notOnBranch(source));
+    await fetch(["-C", repo, "fetch", "--quiet", "--depth=1", "--no-tags", "--no-recurse-submodules", "--", source.url, source.commit]);
     const resolved = await git(["-C", repo, "rev-parse", "--verify", "--quiet", `${source.commit}^{commit}`]);
     if (resolved.code !== 0 || resolved.stdout.toString("utf8").trim() !== source.commit) throw new PackError(`${source.repo} has no commit ${source.commit.slice(0, 12)}. Nothing was added.`);
     const listed = await git(["-C", repo, "ls-tree", "-r", "-l", "-z", "--full-tree", source.commit], 4 * 1024 * 1024);

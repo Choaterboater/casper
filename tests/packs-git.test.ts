@@ -101,7 +101,9 @@ async function packRepo(root: string, extra?: (repo: string) => void) {
   await writeFile(path.join(repo, "pack.yaml"), "name: writing-basics\nversion: 1.2.0\ndescription: Read-only help.\nskills: [skills/drafting]\n");
   await writeFile(path.join(repo, "skills", "drafting", "SKILL.md"), "---\nname: drafting\ndescription: Help with drafting.\n---\nWrite short sentences.\n");
   git(repo, "init", "-q");
+  // Like github.com: any commit it holds can be asked for, and a fetch can leave out files.
   git(repo, "config", "uploadpack.allowAnySHA1InWant", "true");
+  git(repo, "config", "uploadpack.allowFilter", "true");
   git(repo, "add", "pack.yaml", "skills");
   extra?.(repo);
   git(repo, "commit", "-q", "-m", "pack");
@@ -112,7 +114,7 @@ async function packRepo(root: string, extra?: (repo: string) => void) {
     ...options, env: { ...options.env, GIT_ALLOW_PROTOCOL: "file" },
     args: ["-c", "protocol.file.allow=always", ...options.args.map((arg) => arg === source.url ? pathToFileURL(repo).href : arg)],
   });
-  return { source, fetch };
+  return { source, fetch, repo };
 }
 
 test("a fetched commit goes through the folder checks; a link or a submodule in it is refused", async () => {
@@ -163,6 +165,23 @@ test("a fetched commit goes through the folder checks; a link or a submodule in 
     for (const file of [".DS_Store", "skills/drafting/Thumbs.db", "skills/desktop.ini"]) git(repo, "update-index", "--add", "--cacheinfo", `100644,${blob},${file}`);
   });
   expect((await fetchGitPack(leftovers.source, { fetch: leftovers.fetch })).files.map((file) => file.path)).toEqual(["pack.yaml", "skills/drafting/SKILL.md"]);
+});
+
+test("a commit that isn't on the repository's own branches or tags, like a fork's served at its address, is refused", async () => {
+  const root = await temp();
+  const { source, fetch, repo } = await packRepo(path.join(root, "origin"));
+  const at = (commit: string) => parseGitSource(`https://github.com/x/writing-basics@${commit}`);
+  // GitHub serves a fork's commit at the original's address: here, a commit the server holds that no branch or tag reaches.
+  const fork = git(repo, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "from a fork");
+  expect(await fetchGitPack(at(fork), { fetch }).then(() => "fetched", (error: Error) => error.message))
+    .toBe(`Commit ${fork.slice(0, 12)} is not on any branch or tag of github.com/x/writing-basics. GitHub also serves commits made in other people's copies (forks) of a repository at its address, so Casper takes only a commit on the repository's own branches or tags. Nothing was added.`);
+
+  // An older commit on a branch, and a commit only a tag reaches, are the repository's own.
+  git(repo, "commit", "-q", "--allow-empty", "-m", "later");
+  expect((await fetchGitPack(source, { fetch })).manifest.name).toBe("writing-basics");
+  const tagged = git(repo, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "release");
+  git(repo, "tag", "-a", "v1.2.0", "-m", "v1.2.0", tagged);
+  expect((await fetchGitPack(at(tagged), { fetch })).manifest.name).toBe("writing-basics");
 });
 
 test("with no git, a GitHub pack says so in plain words", async () => {

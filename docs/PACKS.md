@@ -155,12 +155,17 @@ colors:
 
 - **One commit, in full.** The 40-character commit id after `@`. A branch or tag can point somewhere
   else tomorrow, so neither is taken.
+- **A commit of that repository.** GitHub also serves a commit made in someone's fork at the original
+  repository's address, so the commit must be on one of the repository's own branches or tags.
+  Casper fetches their history first (commits only, no files) and checks; a commit on none of them
+  is refused before any file is fetched: `Commit 1234567890ab is not on any branch or tag of
+  github.com/example/writing-basics. …`
 - **https and github.com only.** Any other address, host, port or a login in the link is refused.
   For a pack from somewhere else, download it and add the folder.
 - **Public repositories only.** git never asks for a login.
 - **git runs with nothing of yours.** Your git settings and the system's are not read (no `GIT_*`
   from your environment either), hooks point at an empty folder, every protocol but https is
-  refused, and redirects are not followed. It fetches that one commit, without history, tags or
+  refused, and redirects are not followed. It fetches that one commit's files, without tags or
   submodules, into a temp folder. Nothing is checked out: each file is read straight from git's
   objects, so no filter, attribute or Git LFS step runs (a file stored with LFS refuses the pack, as
   do links and submodules). The files then go through the same checks as a folder.
