@@ -272,6 +272,42 @@ describe("Phase 7 sessions and worktrees", () => {
     expect(store.get("main")?.sessionFile).toBe(keptFile);
   });
 
+  test("a git worktree you made yourself keeps its own conversation apart from the main checkout's", async () => {
+    const { home, repo } = await repository();
+    const feature = path.join(path.dirname(repo), "feature");
+    await git(repo, "worktree", "add", "-b", "feature", feature);
+    const sessions = path.join(home, "fake-sessions"); await mkdir(sessions);
+    const mainFile = path.join(sessions, "main.jsonl"); await writeFile(mainFile, "main session");
+    const featureFile = path.join(sessions, "feature.jsonl"); await writeFile(featureFile, "feature session");
+    const policy = SAFE_DEFAULT_POLICY.workspace;
+    const atMain = { projectRoot: repo, gitBranch: "main", homeDir: home, policy };
+    const atFeature = { projectRoot: feature, gitBranch: "feature", homeDir: home, policy };
+    // /clear in the main checkout saves the main checkout's conversation.
+    await (await SessionWorkspaceManager.open(atMain)).rememberConversation(new BranchRuntimeSession(sessions, repo, mainFile));
+    // A task then starts in the worktree, and /clear there saves the worktree's own conversation.
+    const inFeature = await SessionWorkspaceManager.open(atFeature);
+    expect(inFeature.activeName).toBe("main");
+    const firstRuntime = new BranchRuntimeSession(sessions, feature, featureFile);
+    expect(await inFeature.resumeActive(firstRuntime)).toBeUndefined();
+    expect(firstRuntime.getSessionInfo().sessionFile).toBe(featureFile);
+    await inFeature.rememberConversation(firstRuntime);
+    // The next task in the worktree resumes the worktree's conversation, not the main checkout's.
+    const freshFile = path.join(sessions, "fresh.jsonl"); await writeFile(freshFile, "fresh");
+    const featureRuntime = new BranchRuntimeSession(sessions, feature, freshFile);
+    expect(await (await SessionWorkspaceManager.open(atFeature)).resumeActive(featureRuntime)).toBeUndefined();
+    expect(featureRuntime.getSessionInfo().sessionFile).toBe(featureFile);
+    // And the main checkout still resumes its own.
+    const mainFresh = new BranchRuntimeSession(sessions, repo, freshFile);
+    await (await SessionWorkspaceManager.open(atMain)).resumeActive(mainFresh);
+    expect(mainFresh.getSessionInfo().sessionFile).toBe(mainFile);
+    // A runtime in some other folder is still refused.
+    const elsewhere = await mkdtemp(path.join(os.tmpdir(), "casper-phase7-elsewhere-"));
+    cleanup.push(() => removeTempDir(elsewhere));
+    await expect((await SessionWorkspaceManager.open(atFeature)).resumeActive(new BranchRuntimeSession(sessions, elsewhere, freshFile))).rejects.toThrow("does not match");
+    // Isolated experiments still start from the main checkout only.
+    await expect(inFeature.branch("exp", { getRuntime: async () => firstRuntime, confirm: async () => true })).rejects.toThrow("primary worktree");
+  });
+
   test("review regression: a missing or detached experiment worktree can be left for main without deleting anything", async () => {
     for (const breakage of ["missing", "detached"] as const) {
       const { home, repo } = await repository();
