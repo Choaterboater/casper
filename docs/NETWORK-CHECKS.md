@@ -154,7 +154,8 @@ reaches one without your answer:
    ```
    – aoscx-check · not run: lab checks need your answer at the terminal, and this run cannot ask; nothing was sent
    ```
-2. **The `lab` list only labels devices.** Devices not on it are named in the box
+2. **The `lab` list only labels devices.** `/lab import <file>` adds devices from a file with one device per line; it does
+   not take an address (`/lab import 192.0.2.10` says so). Put an address in a file, or in the list below. Devices not on it are named in the box
    (`Not marked lab: core-sw1 (10.1.2.3).`) so a production box can't slip in unseen. The
    list is optional, in `~/.casper/config.yaml` (or a profile):
 

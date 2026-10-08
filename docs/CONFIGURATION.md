@@ -195,6 +195,13 @@ one-time codes are not, and ssh fails with a line saying so. A command that sets
 ask, and Casper leaves that alone: the AI is told to run it again without it. A run that can't show the box (a
 one-shot run, piped input, a helper) refuses with a plain line instead of asking.
 
+When ssh's own words say a login was refused (`Permission denied (publickey,password)`, `Authentication failed`, no
+authentication methods left), the AI reads one more line in the command's result, also when the command ended with
+`; echo done`. If ssh was not the whole command (a pipe, `;`, `2>&1`, `sudo`), it says: Casper can only ask for a
+password when ssh is the whole command, so run a plain `ssh user@host command` with no BatchMode, and never ask for the
+password in chat or use plink, sshpass or another window. A BatchMode=yes command gets the same words. A plain
+command whose box was offered gets only the "never in chat" part. On Windows `ssh.exe` is the same plain command as `ssh`.
+
 Turn it off with `ssh_login: off` in `~/.casper/config.yaml` (or a profile you chose), or **Private ssh passwords** in
 `/settings`; ssh then gets no box and a login that needs a password fails as it always did. A project file can't
 change `ssh_login:`. See [SECURITY.md](SECURITY.md) and [SECRETS.md](SECRETS.md).

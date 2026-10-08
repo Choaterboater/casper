@@ -51,7 +51,14 @@ const NO_TERMINAL: SshLoginHost = { canTypePrivately: () => false, ask: async ()
  * calls the password program. */
 const batchMode = (options: Array<[string, string]>) => options.some(([flag, value]) => flag === "-o" && /^BatchMode(?:=|\s+)(?:yes|true|1)$/i.test(value.trim()));
 export const SSH_NOT_STARTED_LINE = "[ssh] Casper's private password box could not start here, so ssh was not given one.";
-export const SSH_BATCH_MODE_LINE = "[ssh] This command sets BatchMode=yes, so ssh never asks for a password. If the login needs one, run it again without BatchMode=yes: Casper then asks the user in its own hidden box.";
+/** What the AI is told when a login is refused: how Casper asks for a password, and what never to do instead. */
+const SSH_RETRY = "Run it again as a plain `ssh user@host command`: no BatchMode, no `;`, no pipe, no 2>&1. Casper then asks the person in its own hidden box.";
+const SSH_NEVER = "Never ask for the password in chat, and never use plink, sshpass or another window.";
+export const SSH_BATCH_MODE_LINE = `[ssh] This command sets BatchMode=yes, so ssh never asks for a password. If the login needs one: ${SSH_RETRY} ${SSH_NEVER}`;
+/** A command that reaches a machine but is not one plain ssh or scp (a pipe, `;`, 2>&1, sudo, a loop). */
+export const SSH_NOT_PLAIN_LINE = `[ssh] The login was refused. Casper can only ask for a password when ssh is the whole command. ${SSH_RETRY} ${SSH_NEVER}`;
+/** A plain ssh or scp whose login was refused although Casper's box was offered (the person said no, or the password was wrong). */
+export const SSH_REFUSED_LINE = `[ssh] The login was refused. Casper's hidden password box was offered for this command; if the person said no or the password was wrong, ask them what to do. ${SSH_NEVER}`;
 
 export const hostQuestion = (host: string) => `A shell command wants to reach ${terminalText(host)}. Allow it?`;
 /** A command as a question shows it: one line, with any secret the AI typed into it hidden. */
@@ -176,8 +183,12 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
     const handler = sshLoginHandler(host.ssh ?? NO_TERMINAL, sshSessionMemory, targets.map(targetLabel).join(", "),
       targets.map((target) => ({ typed: target.typed, host: target.host, ...(target.user ? { user: target.user } : {}) })));
     const run = await (ssh.start ?? startAskpass)(handler, { home: sandbox.home });
-    return run ? { ssh: { env: run.env, done: () => run.close() } } : { ssh: { afterFail: SSH_NOT_STARTED_LINE } };
+    return run ? { ssh: { env: run.env, done: () => run.close(), afterAuthFail: SSH_REFUSED_LINE } } : { ssh: { afterFail: SSH_NOT_STARTED_LINE } };
   };
+  /** A command that reaches a machine but is not one plain ssh or scp gets no password box: if its login is refused, the AI is told
+   * how to run it so that Casper can ask. Not when the person turned the box off (ssh_login: off). */
+  const notPlain = (targets: RemoteTarget[] | undefined): { ssh?: SshRun } =>
+    targets?.length && !(ssh.on && !ssh.on()) ? { ssh: { afterAuthFail: SSH_NOT_PLAIN_LINE } } : {};
   const shell: RuntimeShell & { close(): Promise<void> } = {
     keepEnv: sandbox.user.keepEnv ?? [],
     async wrap(command, cwd) {
@@ -186,15 +197,17 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       // The password you typed for "Yes, this once" has done its job once the next command starts.
       forgetOnceSecrets();
       // Only the ssh or scp the PATH finds outside every place a sandboxed command may write counts as plain (see trustedProgram).
-      const plain = targets !== undefined && runsAlone(command, sandbox.root, cwd, localPlaces())
+      const shape = targets !== undefined && runsAlone(command, sandbox.root, cwd, localPlaces());
+      const plain = shape
         && trustedProgram(splitShell(command).segments[0]!.words[0]!, sandbox.searchPath, (place) => sandboxWrites(place, cwd), sandbox.ownBin) !== undefined;
-      if (!sandbox.on) return { command, ...(plain ? await sshLogin(command, targets) : {}) };
+      if (!sandbox.on) return { command, ...(plain ? await sshLogin(command, targets) : shape ? {} : notPlain(targets)) };
       // You said yes to this ssh or scp: a plain one runs outside the sandbox, with your own keys (the sandbox hides
       // ~/.ssh), like lab checks. Anything more stays in the sandbox and may only reach the hosts you named.
       if (plain) {
         sayOnce(`[sandbox] ${targets.map(targetLabel).join(", ")}: plain ssh and scp you allow run outside the sandbox, with your own keys.`);
         return { command, ...await sshLogin(command, targets) };
       }
+      const unplain = shape ? {} : notPlain(targets);
       let wrapped;
       try { wrapped = await sandbox.wrap(command, { cwd, network: "ask", ...(host.planning() ? { readOnlyProject: true } : {}) }); }
       catch (error) {
@@ -203,7 +216,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
         // A plain ssh or scp was already asked; anything else (a ./ssh, a bin/scp) is asked as any command is.
         const refused = plain ? undefined : await shell.approve!(command);
         if (refused) throw new Error(refused);
-        return { command };
+        return { command, ...unplain };
       }
       if (targets && wrapped.held) {
         sandbox.allowForRun(wrapped.id, targets.flatMap((target) => [target.host, target.typed]));
@@ -213,7 +226,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
           ? `[sandbox] ${targets.map(targetLabel).join(", ")}: this command runs in the sandbox, where your ~/.ssh keys and settings are hidden, so a login may fail. A plain ssh or scp command of its own runs with your keys.`
           : `[sandbox] ${targets.map(targetLabel).join(", ")}: direct connections like this are blocked in the sandbox, so this command can't reach it. A plain ssh or scp command of its own runs outside the sandbox with your keys.`);
       }
-      return wrapped.held ? { command: wrapped.command, id: wrapped.id } : { command };
+      return wrapped.held ? { command: wrapped.command, id: wrapped.id, ...unplain } : { command, ...unplain };
     },
     finished(id) { sandbox.finished(id); },
     async refused(id, output) {

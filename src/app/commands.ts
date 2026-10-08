@@ -1252,6 +1252,9 @@ async function handleMCPAllow(host: CommandHost, name: string, off: boolean): Pr
  * /lab shows your lab list; /lab import <file> adds devices to it from a file (GreenCLI's export of lab-tagged hosts,
  * or one host per line). The list only marks devices as lab: any device may be checked, after your answer.
  */
+/** An IPv4 address (with a /bits or last-octet range) or a dotted host name: what someone types when they mean a device, not a file. */
+const LOOKS_LIKE_ADDRESS = /^(?:\d{1,3}(?:\.\d{1,3}){3}(?:\/\d{1,2}|-\d{1,3})?|[A-Za-z0-9][A-Za-z0-9-]*(?:\.[A-Za-z0-9-]+)*\.(?!(?:txt|json|csv|ya?ml|cfg|conf|ini|list|lst|md|log|toml|xml)$)[A-Za-z]{2,})$/i;
+
 async function handleLabCommand(host: CommandHost, prompt: string): Promise<void> {
   const current = host.projectContext?.lab?.hosts ?? [];
   const profile = host.projectContext?.labProfile;
@@ -1282,7 +1285,13 @@ async function handleLabCommand(host: CommandHost, prompt: string): Promise<void
     const info = await stat(file);
     if (!info.isFile() || info.size > 256 * 1024) throw new Error("not a plain file under 256 KB");
     text = await readFile(file, "utf8");
-  } catch (error) { throw new Error(`Can't read ${terminalText(given)}: ${error instanceof Error ? error.message : String(error)}`); }
+  } catch (error) {
+    // `/lab import 192.0.2.1`: an address where a file belongs. There is no /lab add; a file or the config list holds devices.
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT" && LOOKS_LIKE_ADDRESS.test(given)) {
+      throw new Error(`${terminalText(given)} looks like a device address, and /lab import reads a file with one device per line. Put the address in a text file and run /lab import <file>, or list it under lab: in ${place}.`);
+    }
+    throw new Error(`Can't read ${terminalText(given)}: ${error instanceof Error ? error.message : String(error)}`);
+  }
   let hosts: string[];
   try { hosts = parseLabFile(text); } catch (error) { throw new Error(`${terminalText(given)}: ${error instanceof Error ? error.message : String(error)}`); }
   const known = new Set(current.map((entry) => entry.toLowerCase()));

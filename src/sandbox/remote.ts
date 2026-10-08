@@ -459,6 +459,12 @@ const LOCAL_EFFECT_FLAG = new Set(["-D", "-L", "-R", "-W", "-w", "-f", "-N", "-M
  * a program here, forwards a port or the agent, or goes to the background, and (scp) local files only inside the
  * project. Anything else stays in the sandbox.
  */
+/** `ssh`, or on Windows `ssh.exe` in any case: a bare name with no folder. Whether the program of that name is the
+ * system's is trustedProgram's question. */
+function isBareName(word: string, tool: string): boolean {
+  return word === tool || word.toLowerCase() === `${tool}.exe`;
+}
+
 export function runsAlone(command: string, root: string, cwd = root, places: LocalPlaces = {}): boolean {
   const line = splitShell(command);
   if (!line.simple) return false;
@@ -468,7 +474,7 @@ export function runsAlone(command: string, root: string, cwd = root, places: Loc
   if (start !== 0) return false;
   const parsed = segmentTargets(words);
   // `./ssh` or `bin/scp` is a program of that name, wherever it came from: only the bare name is ssh or scp.
-  if (!parsed.targets.length || parsed.targets.some((target) => target.unclear) || (parsed.tool !== "ssh" && parsed.tool !== "scp") || words[0] !== parsed.tool) return false;
+  if (!parsed.targets.length || parsed.targets.some((target) => target.unclear) || (parsed.tool !== "ssh" && parsed.tool !== "scp") || !isBareName(words[0]!, parsed.tool)) return false;
   for (const [flag, value] of parsed.values) {
     if (flag.startsWith("--") || LOCAL_EFFECT_FLAG.has(flag)) return false;
     if (flag === "-o" && (LOCAL_EFFECT_OPTION.test(value) || writesKnownHosts(value))) return false;

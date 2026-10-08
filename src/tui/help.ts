@@ -297,8 +297,16 @@ export function helpFor(word: string): string {
 /** The error for a slash command Casper doesn't know, with a did-you-mean when one is close. */
 export function unknownCommandMessage(command: string): string {
   const near = closestCommand(command);
-  return `Unknown command ${JSON.stringify(command)}.${near ? ` Did you mean ${near}?` : ""} Type /help for local commands.`;
+  const topic = TOPIC_COMMANDS[command.replace(/^\//, "").toLowerCase()];
+  return `Unknown command ${JSON.stringify(command)}.${near ? ` Did you mean ${near}?` : topic ? ` ${topic}` : ""} Type /help for local commands.`;
 }
+
+/** Words people type as a command for something that lives in another command, and where it is. */
+const TOPIC_COMMANDS: Record<string, string> = {
+  theme: "Themes are in /settings (Theme).", themes: "Themes are in /settings (Theme).",
+  colour: "Themes are in /settings (Theme).", colours: "Themes are in /settings (Theme).",
+  color: "Themes are in /settings (Theme).", colors: "Themes are in /settings (Theme).",
+};
 
 /**
  * Help text laid out for a terminal this wide. A command row whose words run past the edge continues under its own
