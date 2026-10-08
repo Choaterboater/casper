@@ -23,7 +23,9 @@ the operating system, not a list of words:
   places that hold programs you run yourself (`~/.cache/pre-commit`, Playwright's browsers, uv's own
   Pythons and tools) are not writable. `casper new` also lets `uv`
   write `~/.local/share/uv` to fetch a Python. It can't change your shell start-up files, your git
-  settings, anything in `~/.casper` (or the folder `CASPER_AGENT_DIR` names) and `~/.pi`, Claude Code's
+  settings, anything in `~/.casper` (or the folder `CASPER_AGENT_DIR` names; a `/branch` session's own folder, which
+  lives in `~/.casper/worktrees`, stays writable, and on macOS the rest of `~/.casper` is held entry by entry, so a
+  new file directly in `~/.casper` is the one thing there not held) and `~/.pi`, Claude Code's
   `~/.claude/debug` (which the sandbox library would otherwise allow), or git's own files: `.git/hooks`, `.git/config`,
   `.git/config.worktree`, `.git/info`, the `core.hooksPath` folder, a worktree's `.git` file and its
   `commondir`, and the same files of each submodule that was there when the command started

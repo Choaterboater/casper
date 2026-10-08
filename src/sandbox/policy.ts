@@ -269,7 +269,7 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
     .concat(submodules.flatMap((found) => found.dirs))
     .flatMap((dir) => GIT_OWN_FILES.map((name) => path.join(dir, name)));
   const open = openWorktree(allowWrite, [root, ...extra]);
-  const denyWrite = unique([
+  const denied = unique([
     ...gitOwn.flatMap(spellings),
     ...shared.flatMap((dir) => GIT_SHARED_FILES.map((name) => path.join(dir, name))).flatMap(spellings),
     ...hooks.flatMap(spellings),
@@ -286,6 +286,12 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
     ...(input.agentDir && !within(path.resolve(input.agentDir), home) && !within(path.resolve(input.agentDir), root) ? spellings(input.agentDir) : []),
     ...(input.project?.denyWrite ?? []).map((entry) => resolveEntry(entry, root, home)).flatMap(spellings),
   ]);
+  // macOS applies the last matching rule, so a denied folder (~/.casper) that holds the project (a /branch session's
+  // worktree is ~/.casper/worktrees/<key>/<branch>) would also deny the project. Its other entries are denied one by one.
+  // Casper's own names stay denied even when one is not there yet (a rule on a missing path holds on macOS).
+  const denyWrite = input.platform === "darwin"
+    ? unique([...denyAround(denied, openFolders(input, root)), ...inHome([".casper/agent", ".casper/config.yaml", ...CASPER_PRIVATE_PATHS])])
+    : denied;
   const denyRead = unique([
     ...inHome(PRIVATE_PATHS),
     ...inHome(CASPER_PRIVATE_PATHS),
@@ -295,6 +301,32 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
   ]);
   const allowedDomains = unique([...REGISTRY_HOSTS, ...LOCAL_HOSTS, ...(input.user?.allowedDomains ?? []), ...(input.rememberedHosts ?? [])]);
   return { allowWrite, denyWrite, denyRead, allowedDomains };
+}
+
+/** The folders a deny must not cover: the project and the folders a command may also write (not ones you allowed in
+ * config.yaml, which a deny of your own settings still wins over). */
+function openFolders(input: SandboxPolicyInput, root: string): string[] {
+  return input.readOnlyProject ? [] : unique([root, ...(input.extraWrite ?? [])].flatMap(spellings));
+}
+
+/** `denied`, with each folder that holds one of `open` replaced by the folder's other entries, down the path to it. */
+function denyAround(denied: string[], open: string[]): string[] {
+  const out: string[] = [];
+  const split = (folder: string, depth: number) => {
+    let names: string[];
+    try { names = readdirSync(folder); } catch { out.push(folder); return; }
+    for (const name of names) {
+      const entry = path.join(folder, name);
+      if (open.some((place) => place === entry)) continue;
+      if (depth < 8 && open.some((place) => within(entry, place))) split(entry, depth + 1);
+      else out.push(entry);
+    }
+  };
+  for (const entry of denied) {
+    if (open.some((place) => place !== entry && within(entry, place))) split(entry, 0);
+    else out.push(entry);
+  }
+  return unique(out);
 }
 
 /** An allowed folder and the git repos right inside it (~/code/<repo>), whose own git files stay read-only. */

@@ -218,6 +218,30 @@ test("in a linked worktree, the shared git folder's worktree pointers are read-o
   for (const name of ["index", "HEAD", "logs"]) expect(policy.denyWrite.some((entry) => within(entry, path.join(own, name)) || within(path.join(own, name), entry))).toBe(false);
 });
 
+test("on macOS a project inside ~/.casper (a /branch session's folder) stays writable while the rest of ~/.casper stays denied", async () => {
+  const { home } = await fixture();
+  const casper = path.join(home, ".casper");
+  const project = path.join(casper, "worktrees", "key-one", "feature");
+  const other = path.join(casper, "worktrees", "key-one", "other-branch");
+  const otherProject = path.join(casper, "worktrees", "key-two", "main");
+  for (const dir of [project, other, otherProject, path.join(casper, "agent"), path.join(casper, "packs")]) await mkdir(dir, { recursive: true });
+  await writeFile(path.join(casper, "config.yaml"), "sandbox: on\n");
+  const policy = sandboxPolicy({ root: project, home, tempDirs: [], platform: "darwin" });
+  // macOS applies the last matching rule: no deny may cover the project, or the allow for it is lost.
+  expect(policy.allowWrite).toContain(project);
+  expect(policy.denyWrite.filter((entry) => within(entry, project))).toEqual([]);
+  // Everything else in ~/.casper stays denied, entry by entry.
+  for (const denied of [path.join(casper, "agent"), path.join(casper, "config.yaml"), path.join(casper, "packs"), other, otherProject]) {
+    expect([denied, policy.denyWrite.some((entry) => within(entry, denied))]).toEqual([denied, true]);
+  }
+  // A name that is not there yet is denied too.
+  expect(policy.denyWrite).toContain(path.join(casper, "projects"));
+  // Linux keeps the whole folder denied (bubblewrap mounts the project over it).
+  expect(sandboxPolicy({ root: project, home, tempDirs: [], platform: "linux" }).denyWrite).toContain(casper);
+  // A plan turn makes the project read-only: nothing to carve out, ~/.casper stays denied as a whole.
+  expect(sandboxPolicy({ root: project, home, tempDirs: [], platform: "darwin", readOnlyProject: true }).denyWrite).toContain(casper);
+});
+
 test("in the main checkout, the sibling worktrees' pointers in its own git folder are read-only", async () => {
   const { home, main, common } = await worktreeLayout();
   const policy = sandboxPolicy({ root: main, home, tempDirs: [], platform: "linux" });

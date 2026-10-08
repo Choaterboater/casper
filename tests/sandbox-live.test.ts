@@ -340,3 +340,33 @@ test.skipIf(!sandboxAvailable || process.platform !== "linux")("closing the sand
   }
   expect(left).toEqual([]);
 });
+
+// Last: closing this second sandbox resets the runtime's shared proxy, which the tests above use.
+test.skipIf(!sandboxAvailable || process.platform !== "darwin")("macOS: a /branch session's folder inside ~/.casper is writable, the rest of ~/.casper is not", async () => {
+  const casper = path.join(home, ".casper");
+  const session = path.join(casper, "worktrees", "key-one", "feature");
+  const sibling = path.join(casper, "worktrees", "key-one", "other");
+  await mkdir(session, { recursive: true });
+  await mkdir(sibling, { recursive: true });
+  await mkdir(path.join(casper, "agent"), { recursive: true });
+  await writeFile(path.join(casper, "config.yaml"), "sandbox: on\n");
+  const inSession = new ShellSandbox({ root: () => session, home, tempDirs: [], engine: runtimeEngine(), problem: () => undefined, note: (line) => notes.push(line) });
+  try {
+    const attempt = async (command: string) => {
+      const wrapped = await inSession.wrap(command, { cwd: session, network: "none" });
+      expect(wrapped.held).toBe(true);
+      return new Promise<number | null>((resolve) => {
+        const child = spawn(wrapped.command, { cwd: session, shell: true, env: { ...process.env, HOME: home } });
+        child.on("close", (code) => { inSession.finished(wrapped.id); resolve(code); });
+      });
+    };
+    expect(await attempt("echo made > made.txt && mkdir sub && echo more > sub/more.txt")).toBe(0);
+    expect(await readFile(path.join(session, "sub", "more.txt"), "utf8")).toBe("more\n");
+    for (const command of [`echo x >> ${casper}/config.yaml`, `echo x > ${casper}/agent/auth.json`, `echo x > ${sibling}/stolen.txt`]) {
+      expect([command, await attempt(command)]).not.toEqual([command, 0]);
+    }
+    expect(await readFile(path.join(casper, "config.yaml"), "utf8")).toBe("sandbox: on\n");
+    expect(existsSync(path.join(casper, "agent", "auth.json"))).toBe(false);
+    expect(existsSync(path.join(sibling, "stolen.txt"))).toBe(false);
+  } finally { await inSession.close(); }
+});
