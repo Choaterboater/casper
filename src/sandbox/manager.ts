@@ -215,7 +215,9 @@ export class ShellSandbox {
   /** `command` as a shell line held by the sandbox, or as it is when no sandbox can run. */
   async wrap(command: string, options: SandboxWrapOptions): Promise<WrappedCommand> {
     const id = `casper-${randomUUID()}`;
-    if (!this.on || this.closed) return { command, id, held: false };
+    if (!this.on) return { command, id, held: false };
+    // A closed sandbox (the old folder's, after a workspace switch) must not hand a command back to run unheld.
+    if (this.closed) throw new Error("The sandbox is closed; start a new session or switch folders.");
     if (this.parent?.closed) throw new Error("the session's sandbox is closed");
     try { await this.start(); }
     catch (error) {

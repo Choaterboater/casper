@@ -238,6 +238,10 @@ Each row names the test that fails without it.
   opens its own connection (`curl` or `pvesh` to a Proxmox API on your LAN, a Python script, Ansible)
   runs with no question when you turned the sandbox off with `--no-sandbox` or `sandbox: off`. With the
   sandbox on, the proxy asks for these hosts.
+- **After `/branch` or `/switch`, the AI's file tools and shell start folder stay at the folder the
+  conversation began in,** while the sandbox follows the new folder. A command that writes next to its
+  start folder can then be refused; the sandbox is not loosened for it. Start a new session in the new
+  folder when that matters.
 - **The AI's own words are its own.** A secret the AI types into a command (a token it read somewhere,
   or made up) is hidden on the screen, in records and on the receipt, and the receipt says to change
   it; the AI still has it, and Pi's own saved conversation keeps the command as the AI sent it.

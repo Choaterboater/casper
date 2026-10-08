@@ -475,3 +475,11 @@ test("an ad-hoc service that reaches another machine asks Reach once, even when 
   expect(terminal.asked.map((entry) => entry.question)).toEqual(["Reach 198.51.100.20 (build-server)?  ssh -N -L 8080:localhost:80 build-server"]);
   await sandbox.close();
 });
+
+test("a closed sandbox refuses to wrap instead of handing the command back unheld", async () => {
+  const { home, project, context } = await fixture();
+  const sandbox = createSessionSandbox(host([]).value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
+  expect((await sandbox.wrap("true", { cwd: project })).held).toBe(true);
+  await sandbox.close();
+  await expect(sandbox.wrap("true", { cwd: project })).rejects.toThrow("The sandbox is closed; start a new session or switch folders.");
+});

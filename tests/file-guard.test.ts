@@ -1,3 +1,4 @@
+import { toolPathContext } from "../src/runtime/pi";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
@@ -255,4 +256,13 @@ test.skipIf(!shortHome)("a private place named by its Windows 8.3 short name is 
   // And a project named by its short name is the same project.
   const shortProject = shortName(realpathSync.native(project))!;
   expect(classifyPath(path.join(shortProject, "src/a.ts"), { ...context, root: realpathSync.native(project) }, true)).toBe("inside");
+});
+
+test("the file-tool path context reads denyRead fresh, so it follows the current workspace", () => {
+  let current = ["/one/private"];
+  const live = toolPathContext("/p", "/h", undefined, { currentPrivatePaths: () => current });
+  expect(live.denyRead).toEqual(["/one/private"]);
+  current = ["/two/private"];
+  expect(live.denyRead).toEqual(["/two/private"]);
+  expect("denyRead" in toolPathContext("/p", "/h", undefined, {})).toBe(false);
 });
