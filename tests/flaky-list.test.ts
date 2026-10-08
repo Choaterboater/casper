@@ -34,13 +34,18 @@ function testSources(): Array<{ file: string; source: string }> {
     .map((file) => ({ file, source: readFileSync(path.join(ROOT, file), "utf8") }));
 }
 
+/** A retry that would never be on the list: Bun's own retry option, whatever its count is written as (Pi's retry
+ * settings, an object, and a `retry` variable's type are not it), or flakyOn's two tries called straight. */
+function retriesOffTheList(source: string): boolean {
+  return /(?<!\b(?:let|const|var)\s+)\bretry\s*:(?!\s*\{)/.test(source) || /\btries\(/.test(source);
+}
+
 test("a test retries only through flakyOn, and only the known flaky tests listed here, on the OS each one flakes on", () => {
   const direct: string[] = [];
   const found: Array<[string, string, string[]]> = [];
   for (const { file, source } of testSources()) {
-    // Bun's own option written out with a count; Pi's retry settings and a `retry` variable's type are not.
-    if (/\bretry\s*:\s*\d/.test(source)) direct.push(file);
     if (file === THIS_FILE || file === HELPER) continue;
+    if (retriesOffTheList(source)) direct.push(file);
     for (const line of source.split("\n")) {
       if (!/\bflakyOn\(/.test(line) || /^import /.test(line)) continue;
       // Each use opens its test on the same line: flakyOn("win32")("title", ...
@@ -50,6 +55,15 @@ test("a test retries only through flakyOn, and only the known flaky tests listed
   }
   expect(direct).toEqual([]);
   expect(found.sort()).toEqual([...KNOWN_FLAKY].sort());
+});
+
+test("the guard sees Bun's retry option however its count is written, and a test built on tries directly", () => {
+  for (const text of ["{ retry: 3 }", "{ retry: count }", "{ retry: Number(\"3\") }", "test(\"t\", body, {retry:MAX})",
+    "const run = tries([\"win32\"], \"t\", body, 1000);\ntest(\"t\", run.body, run.timeout);"]) expect(retriesOffTheList(text)).toBe(true);
+  for (const text of ["JSON.stringify({ retry: { enabled: false } })", "let retry: ReturnType<SettingsManager[\"getRetrySettings\"]> | undefined;", "const retryCount = 1;",
+    "flakyOn(\"win32\")(\"t\", async () => {}, 1000);", "entries()"]) {
+    expect(retriesOffTheList(text)).toBe(false);
+  }
 });
 
 describe("flakyOn's two tries", () => {
@@ -70,18 +84,28 @@ describe("flakyOn's two tries", () => {
     expect(warned).toEqual([]);
   });
 
-  test("on the named OS a failed first try is tried once more, says so, and the limit covers both tries", async () => {
+  test("on the named OS a first try that runs out of time is tried once more, says so, and the limit covers both tries", async () => {
     let runs = 0;
-    const run = tries([here], "t", async () => { if (++runs === 1) throw new Error("slow child"); }, 500);
-    expect(run.timeout).toBeGreaterThanOrEqual(1_000);
+    const run = tries([here], "t", async () => { if (++runs === 1) await new Promise(() => {}); }, 100);
+    expect(run.timeout).toBeGreaterThanOrEqual(200);
     await run.body();
     expect(runs).toBe(2);
-    expect(warned).toEqual(["(retry) t: the first try failed, trying once more: Error: slow child"]);
+    expect(warned).toEqual(["(retry) t: the first try failed, trying once more: Error: timed out after 100ms"]);
+  });
+
+  test("a wrong result on the first try fails the test at once: it is never tried again", async () => {
+    let runs = 0;
+    const leak = tries([here], "t", async () => { runs++; expect(runs === 1 ? "secret-leaked" : "clean").toBe("clean"); }, 500);
+    await expect(leak.body()).rejects.toThrow("secret-leaked");
+    expect(runs).toBe(1);
+    await expect(tries([here], "t", async () => { throw new Error(`failure ${++runs}`); }, 500).body()).rejects.toThrow("failure 2");
+    expect(runs).toBe(2);
+    expect(warned).toEqual([]);
   });
 
   test("a second failure fails the test with its own error", async () => {
     let runs = 0;
-    await expect(tries([here], "t", async () => { throw new Error(`failure ${++runs}`); }, 500).body()).rejects.toThrow("failure 2");
+    await expect(tries([here], "t", async () => { if (++runs === 1) await new Promise(() => {}); throw new Error(`failure ${runs}`); }, 100).body()).rejects.toThrow("failure 2");
     expect(runs).toBe(2);
   });
 

@@ -61,9 +61,10 @@ CI runner, whatever the change. To tell which:
 4. A test that times out at its limit (`timed out after 30000ms`) on one OS only, and passes on the others,
    is most often a flake. Say so on the PR.
 
-The known flaky tests already get one more try on the OS they flake on. The list is in
-`tests/flaky-list.test.ts`. When the first try fails, the log shows a `(retry)` line with the test's name and
-why. A first try that timed out is left to finish on its own, and its late result is ignored.
+The known flaky tests already get one more try on the OS they flake on, and only when the first try runs out
+of time. The list is in `tests/flaky-list.test.ts`. When the first try times out, the log shows a `(retry)`
+line with the test's name. The timed-out try is left to finish on its own, and its late result is ignored. A
+first try that fails with a wrong result fails the test at once.
 
 To add one: it must start a real child process (Bun, a language server, git) and have failed on CI for no
 reason in the change. Write it as `flakyOn("win32")("name", async () => { ... }, 60_000)` (the OS it flaked
