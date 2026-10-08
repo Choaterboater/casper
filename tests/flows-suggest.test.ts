@@ -180,7 +180,7 @@ describe("before-work plan-first suggestion", () => {
     const panel = beforeWorkPanel({ id: "plan-first", reason: "this asks for 4 things" }, ["empty host is an error", "port 22 is default", "IPv6 works", "names are trimmed"]);
     expect(panel.question).toBe("Suggested: plan first — this asks for 4 things");
     expect(panel.options.map((option) => option.label)).toEqual(["Plan first", "Just build", "Edit the cases first"]);
-    expect(panel.options[0]!.description).toContain("Casper blocks file changes it can see until you choose Build (uses tokens)");
+    expect(panel.options[0]!.description).toContain("Casper blocks file changes it can see until you choose Build");
     expect(panel.options[0]!.description).not.toMatch(/read-only/i);
     expect(panel.options[1]!.description).toBe("with these 4 cases: empty host is an error; port 22 is default; IPv6 works; and 1 more");
     const noCases = beforeWorkPanel({ id: "plan-first", reason: "this is a long request" });

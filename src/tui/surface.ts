@@ -7,7 +7,7 @@ import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } fr
 import { readClipboardFiles } from "./clipboard-files";
 import { COMMANDS, fitDescriptions, RUNS_DURING_WORK } from "./commands";
 import { BUSY_GLYPH, formatElapsed, hasLineControls, hasTerminalControls, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
-import { choiceHint, choiceNumber, keyChoice, typedChoice } from "./choices";
+import { answerRecord, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, typedChoice } from "./choices";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
 import { renderPanel } from "./presentation";
@@ -201,6 +201,10 @@ export class TerminalSurface {
   private askActiveIndex = 0;
   /** When the open question appeared; keys before askDefaults.guardMs has passed are ignored. */
   private askOpenedAt = 0;
+  /** The open question takes a typed or pasted answer (the AI's questions, a name); a picker or approval takes keys only. */
+  private askTyped = false;
+  /** The draft the open question set aside, with what is pasted while it is open; back in the prompt when it closes. */
+  private askSetAside?: { draft: string; pasted: string[] };
   /** An open list edit: the editor holds the lines; Enter returns them, Esc/Ctrl+C/close return undefined. */
   private pendingEdit?: (lines: string[] | undefined) => void;
   /** The row under the last receipt: a lone key on an empty, idle prompt submits its command. Any other key clears it. */
@@ -213,6 +217,8 @@ export class TerminalSurface {
   private submittedPastes: string[] = [];
   private source = "";
   private plainAssistantOpen = false;
+  /** How many closed boxes have left their one-line record; a caller that sees it grow writes no outcome line of its own. */
+  records = 0;
 
   constructor(private readonly io: RuntimePickerIO, private readonly cancel: () => void, private readonly eof: () => void) {
     this.theme = markdownTheme(io.color);
@@ -300,6 +306,12 @@ export class TerminalSurface {
         if (this.lending && matchesKey(data, "ctrl+c")) { this.interrupt(); return { consume: true }; }
         return undefined;
       }
+      // A picker or approval takes keys, not pastes: a paste waits as the draft for after the box, so it never lands
+      // in the box's answer row. pi-tui delivers a whole paste as one input. A box that takes a typed answer takes it.
+      if (this.pendingAsk && !this.askTyped && data.startsWith("\x1b[200~")) {
+        this.keepPaste(data.slice(6).replace(/\x1b\[201~$/, ""));
+        return { consume: true };
+      }
       if (matchesKey(data, "enter") && this.editor.isShowingAutocomplete()) {
         if (COMMANDS.some(command => this.editor.getText().trim().split(/\s+/)[0] === `/${command.name}`)) {
           this.editor.handleInput("\x1b"); // Submit exact commands literally, not a stale completion.
@@ -340,6 +352,13 @@ export class TerminalSurface {
           if (this.askSelections.has(index)) this.askSelections.delete(index); else this.askSelections.add(index);
           this.render(); return { consume: true };
         }
+      }
+      // A picker or approval takes no typed answer: letters go nowhere (its row stays empty), and the footer says which
+      // keys work. Past nine rows a row's number is typed, so digits still go in.
+      if (this.pendingAsk && !this.askTyped && !data.startsWith("\x1b") && /^[^\x00-\x1f\x7f]+$/.test(data)
+        && !((this.askOptions?.length ?? 0) > KEY_PICK_MAX && /^\d+$/.test(data))) {
+        this.flashNote(`press a number · Esc ${this.askFrom === "approval" ? "is No" : "skips"}`);
+        return { consume: true };
       }
       if (matchesKey(data, "ctrl+l")) { this.tui.requestRender(true); return { consume: true }; }
       // A picture from the clipboard goes in as [image N]; with no picture, copied files' paths, else the clipboard's text.
@@ -403,6 +422,16 @@ export class TerminalSurface {
     this.editor.handleInput(`\x1b[200~${shown.map(promptPath).join(" ")} \x1b[201~`);
     this.render();
     return true;
+  }
+
+  /** A paste while a box is open: kept with the draft the box set aside, and back in the prompt when it closes. */
+  private keepPaste(text: string): void {
+    const kept = this.askSetAside;
+    const safe = text.replace(/\r\n?/g, "\n").replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "").trim();
+    if (!kept || !safe) return;
+    kept.draft = kept.draft ? `${kept.draft}\n${safe}` : safe;
+    kept.pasted.push(safe);
+    this.flashNote("paste kept for after this question");
   }
 
   /** What was pasted into the line just sent (empty when all of it was typed). */
@@ -668,8 +697,10 @@ private updateSpinner(): void {
     return options.some(option => option.label === answer[0]) ? answer[0] : options[0]!.label;
   }
 
-  /** One structured clarification with a standalone question, navigable choices and free-text input. */
-  ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal, from: AskOrigin = "casper"): Promise<string[] | undefined> {
+  /** One structured clarification with a standalone question and navigable choices. `typed`: the box also takes a typed
+   * (or pasted) answer; a picker or an approval doesn't, so keys go to it and a paste waits as the draft for after. */
+  ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal, from: AskOrigin = "casper",
+    typed = from !== "approval"): Promise<string[] | undefined> {
     this.yieldSlot();
     if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant(); this.activity = undefined;
@@ -681,38 +712,43 @@ private updateSpinner(): void {
       label: terminalText(option.label).replace(/\s+/g, " ").trim(),
       description: option.description ? terminalText(option.description).replace(/\s+/g, " ").trim() : undefined,
     }));
-    // The record re-wraps per width like the live panel, and commits after any open tail line.
-    // The record keeps the answer: a ✓ on each chosen option, a typed answer after →, or "skipped".
+    // A closed box leaves one line, "<question> → <answer>" or "<question> — skipped", re-fitted per width; the
+    // choices and the hint go with the box. It commits after any open tail line.
     let chosen: string[] | undefined;
-    const picked = (index: number) => Boolean(chosen?.includes(options[index]!.label));
     const record: Component = { render: width => {
-      const typed = chosen?.filter(answer => !options.some(option => option.label === answer)) ?? [];
-      return [
-        ...(from === "ai" ? [this.muted(AI_ASKS_LABEL)] : []),
-        ...wrapTextWithAnsi(this.accent(safeQuestion), width),
-        // Only the chosen option has a mark (• means running), the rest keep its indent.
-        ...shown.flatMap((option, index) => askOptionLines(picked(index) ? "✓ " : "  ", option, width,
-          { label: text => picked(index) ? this.selected(text) : text, description: this.muted })),
-        ...typed.flatMap(answer => wrapTextWithAnsi(`${this.accent("→")} ${terminalText(answer).replace(/\s+/g, " ")}`, width)),
-        ...(chosen === undefined ? [this.muted("  (skipped)")] : []),
-      ].map(line => truncateToWidth(line, width));
+      // The answer as the box showed it: a choice by its shown label, typed words as typed.
+      const said = chosen?.map(answer => {
+        const index = options.findIndex(option => option.label === answer);
+        return index >= 0 ? shown[index]!.label : terminalText(answer).replace(/\s+/g, " ").trim();
+      });
+      const { question: asked, answer } = answerRecord(safeQuestion, said);
+      const lead = from === "ai" ? `${AI_ASKS_LABEL} ` : "";
+      // An approval nobody answered is a No; the record says both.
+      const tail = answer !== undefined ? ` → ${answer}` : from === "approval" ? ` — skipped (${shown[0]?.label ?? "No"})` : " — skipped";
+      const paint = (question: string) => `${this.muted(lead)}${this.accent(question)}${answer !== undefined ? `${this.accent(" →")} ${this.selected(answer)}` : this.muted(tail)}`;
+      // The answer is never cut: a long question is cut short with "…" to leave it room, and a long answer wraps.
+      const room = width - visibleWidth(lead) - visibleWidth(tail);
+      if (room >= Math.min(24, visibleWidth(asked))) return [paint(truncateToWidth(asked, Math.max(1, room), "…"))];
+      return wrapTextWithAnsi(paint(asked), width).map(line => truncateToWidth(line, width));
     }, invalidate() {} };
     const { promise, resolve } = Promise.withResolvers<string[] | undefined>();
     let settled = false;
+    const setAside = this.askSetAside = { draft, pasted: [...draftPastes] };
     const finish = (answer: string[] | undefined) => {
       if (settled) return; settled = true;
       signal?.removeEventListener("abort", cancel);
       this.pendingAsk = undefined; this.askQuestion = undefined; this.askOptions = undefined; this.askLabels = []; this.askFrom = "casper";
-      this.askMulti = false; this.askSelections.clear(); this.askActiveIndex = 0;
-      // Typed words in an approval are a No (the first choice): the record ticks it, since it is the only record.
+      this.askMulti = false; this.askSelections.clear(); this.askActiveIndex = 0; this.askSetAside = undefined; this.askTyped = false;
+      // Typed words in an approval are a No (the first choice): the record says No, since it is the only record.
       chosen = from === "approval" && answer && !options.some(option => option.label === answer[0]) ? [options[0]!.label] : answer;
       this.writeBlock(record);
-      this.restoreSetAside(draft, draftPastes); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(answer);
+      this.records++;
+      this.restoreSetAside(setAside.draft, setAside.pasted); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(answer);
     };
     const cancel = () => finish(undefined);
     this.attention();
     this.pendingAsk = finish; this.askQuestion = safeQuestion; this.askOptions = shown; this.askFrom = from;
-    this.askLabels = options.map(option => option.label); this.askMulti = multi;
+    this.askLabels = options.map(option => option.label); this.askMulti = multi; this.askTyped = typed && from !== "approval";
     this.askSelections.clear(); this.askActiveIndex = 0; this.askOpenedAt = Date.now();
     this.configureAutocomplete(); this.updateSpinner(); this.render();
     signal?.addEventListener("abort", cancel, { once: true });
@@ -761,23 +797,42 @@ private updateSpinner(): void {
   private renderAsk(width: number, height: number): string[] {
     const count = this.askOptions?.length ?? 0;
     // A multi-select's numbers toggle rather than pick, so its keys say so.
-    const hint = this.askMulti ? `Press 1-${count} or Space to toggle · Up/Down move · Enter answer · type to answer · Esc skip`
+    // "type to answer" only where a typed answer is taken.
+    const typed = this.askTyped ? ["type to answer"] : [];
+    const hint = this.askMulti ? [`Press 1-${count} or Space to toggle · Up/Down move · Enter answer`, ...typed, "Esc skip"].join(" · ")
       : this.askFrom === "approval" ? choiceHint(count, "Esc is No")
-      : choiceHint(count, "type to answer", "Esc skip");
-    const lines = (compact: boolean) => [
+      : choiceHint(count, ...typed, "Esc skip");
+    const head = [
       ...(this.askFrom === "ai" ? [this.muted(AI_ASKS_LABEL)] : []),
       ...wrapTextWithAnsi(this.accent(this.askQuestion ?? ""), width),
-      ...(this.askOptions ?? []).flatMap((option, index) => {
-        const selected = index === this.askActiveIndex;
-        const marker = choiceNumber(index, count) + (this.askMulti ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "");
-        return askOptionLines(selected ? this.selected("→ ") : "  ",
-          { label: marker + option.label, description: compact && !selected ? undefined : option.description }, width,
-          selected ? { label: this.selected, description: this.selected } : { label: text => text, description: this.muted });
-      }),
-      ...wrapTextWithAnsi(this.muted(hint), width),
-    ].map(line => truncateToWidth(line, width));
-    const full = lines(false);
-    return full.length <= height ? full : lines(true);
+    ];
+    const tail = wrapTextWithAnsi(this.muted(hint), width);
+    const option = (index: number, compact: boolean) => {
+      const entry = this.askOptions![index]!;
+      const selected = index === this.askActiveIndex;
+      const marker = choiceNumber(index, count) + (this.askMulti ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "");
+      return askOptionLines(selected ? this.selected("→ ") : "  ",
+        { label: marker + entry.label, description: compact && !selected ? undefined : entry.description }, width,
+        selected ? { label: this.selected, description: this.selected } : { label: text => text, description: this.muted });
+    };
+    const fit = (lines: string[]) => lines.map(line => truncateToWidth(line, width));
+    const all = (compact: boolean) => fit([...head, ...Array.from({ length: count }, (_, index) => option(index, compact)).flat(), ...tail]);
+    const full = all(false);
+    if (full.length <= height) return full;
+    const compact = all(true);
+    // Still taller than the screen: the rows around the highlighted one, with how many more are above and below, so
+    // the box never pushes its own top into the scrollback (where it would stay once the box closes).
+    const room = height - head.length - tail.length - 2;
+    if (compact.length <= height || room < 1 || !count) return compact;
+    const rows = Array.from({ length: count }, (_, index) => option(index, true));
+    let start = this.askActiveIndex, end = start + 1, used = rows[start]!.length;
+    for (let grew = true; grew;) {
+      grew = false;
+      if (end < count && used + rows[end]!.length <= room) { used += rows[end]!.length; end++; grew = true; }
+      if (start > 0 && used + rows[start - 1]!.length <= room) { start--; used += rows[start]!.length; grew = true; }
+    }
+    return fit([...head, this.muted(start ? `  … ${start} more above` : ""), ...rows.slice(start, end).flat(),
+      this.muted(end < count ? `  … ${count - end} more below` : ""), ...tail]);
   }
 
   /** Enter on the list: the highlighted option, or every toggled option (the highlighted one if none). */

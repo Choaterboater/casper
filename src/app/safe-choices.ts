@@ -27,7 +27,7 @@ export const PLAN_QUESTION = "Build this plan?";
 /** The choices of PLAN_QUESTION. */
 export const PLAN_CHOICES = [
   { label: "Stop", description: "nothing is built" },
-  { label: "Build", description: "the model builds these steps and tests these cases (uses tokens)" },
+  { label: "Build", description: "the model builds these steps and tests these cases" },
 ] as const satisfies readonly Choice[];
 
 /** The same, on a rich terminal: a third choice opens the plan's lines to change. Stop stays first and Build second. */
@@ -49,15 +49,15 @@ export function pictureChoices(model: string, count: number): Choice[] {
 /** "<check> was already failing before this change. Fix it anyway?" */
 export const ALREADY_FAILING_CHOICES = [
   { label: "Leave it", description: "keep the change as it is; the receipt says the check fails" },
-  { label: "Fix it anyway", description: "ask the model to make it pass (uses tokens)" },
+  { label: "Fix it anyway", description: "ask the model to make it pass" },
 ] as const satisfies readonly Choice[];
 
 /** "The model failed again. What now?" Your big model, when one is set, comes last. */
 export function modelFailedChoices(bigModel?: string): Choice[] {
   return [
     { label: "Stop", description: "keep the changes so far; /model picks another model" },
-    { label: "Retry", description: "ask the same model to go on from where it stopped (uses tokens)" },
-    ...(bigModel ? [{ label: "Retry with your big model", description: `go on from where it stopped on ${bigModel} (uses tokens)` }] : []),
+    { label: "Retry", description: "ask the same model to go on from where it stopped" },
+    ...(bigModel ? [{ label: "Retry with your big model", description: `go on from where it stopped on ${bigModel}` }] : []),
   ];
 }
 
@@ -67,8 +67,8 @@ export function unfinishedChoices(had: number, longer: number): Array<Choice & {
   return [
     { label: "Stop", description: "keep the changes; the receipt says it did not finish", choice: undefined },
     { label: "Retry", description: "run it again with the same limit", choice: "retry" },
-    { label: "Fix it anyway", description: had ? "ask the model to make it finish in time, for example a hanging or slow test (uses tokens)"
-      : "ask the model to fix why it could not start (uses tokens)", choice: "repair" },
+    { label: "Fix it anyway", description: had ? "ask the model to make it finish in time, for example a hanging or slow test"
+      : "ask the model to fix why it could not start", choice: "repair" },
     ...(had && had < 3_600_000 ? [{ label: "Allow more time", description: `run it with ${formatDuration(longer)}, this time only`, choice: "more-time" as const },
       { label: "Allow more time from now on", description: `run it with ${formatDuration(longer)}, and give every check in this project that long (saved for you)`,
         choice: "more-time-saved" as const }] : []),
@@ -244,7 +244,7 @@ export const SHELL_COMMAND_CHOICES = shellCommandChoices();
 /** "Next: the AI can read the 12 changed files for security problems …" after /security-review's tools. Enter spends nothing. */
 export const AI_REVIEW_CHOICES = [
   { label: "Stop here", description: "no tokens are spent" },
-  { label: "Run the AI review", description: "uses tokens; its findings are its opinion" },
+  { label: "Run the AI review", description: "its findings are its opinion" },
 ] as const satisfies readonly Choice[];
 
 /** A typed folder name that isn't there: "sample-tools isn't a folder in Documents." Enter stays and makes nothing. */

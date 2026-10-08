@@ -1,7 +1,7 @@
 # Casper 0.2.27 · a write tool on an MCP server asks first; 1 (or Esc) says no
 
 ❯ set the lab site on the fixture server
-[model] scripted/site-capture · off · credentials configured
+[model] scripted/site-capture · effort off
 I will ask the fixture server to change the site.
 Change in fixture: set site
   site             lab
@@ -15,14 +15,9 @@ Make this change?
   confirm)
 Press 1-4 or Up/Down + Enter · Esc is No
 
-# (pressed 1: the box stays as the record of the answer)
+# (pressed 1: the box closes into one line, the record of the answer)
 
-Make this change?
-✓ No
-  Yes, this once
-  Yes, for this session
-  Yes to everything on fixture this session (no more asking, even reboots, deletes or an AI-set
-  confirm)
+Make this change? → No
 The change was not made.
 
 # (pressed Ctrl+O)

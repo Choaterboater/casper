@@ -377,7 +377,12 @@ own. A `trusted` flag in a project file or a skill can't connect one. Only your
   `1 No · 2 Yes, this once`.
 - Permission lasts for this run of Casper unless you remember the server (see
   [Remembered servers](#remembered-servers)). It is separate from skill trust.
-- `/mcp` lists one line per server: name, state (a failed one with a short reason),
+- `/mcp` on a normal terminal is an arrow-key picker of the servers: each row says its state and
+  where it came from (`from ~/.claude.json`, `from VS Code`), and Casper's own network server says
+  which products it covers (`network  not connected · Casper's (Mist, Central, ClearPass)`). No list
+  is printed before it, and each closed box leaves one line (`Pick a server → lab`, `lab → Connect`,
+  `Remember lab? → No`); after a connect the servers come back. Elsewhere (a plain terminal, or
+  during a task) `/mcp` lists one line per server: name, state (a failed one with a short reason),
   tool count, writes on/off, sandboxed or not, login access and where it came from.
   `/mcp detail [name]` adds the transport (stdio or http), preset, source file, time
   limits and the whole plain error message. Neither shows command arguments, URLs,
@@ -833,10 +838,10 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
     lines typed ahead on the plain terminal are discarded (`[input] Discarded 1 line(s)
     entered before this question appeared.`), and a terminal that can't show the box
     (TERM=dumb, or output redirected while input is a terminal) is refused.
-  - The answered box stays in the transcript with `✓` on your answer. The plain terminal (no
-    box) records `[approval] allowed`, `allowed for this session`, `allowed (allow all)`, `denied`
-    or `preview first`, and so does a box closed without an answer. A later change a session
-    answer covers prints `[approval] allowed (this session)`.
+  - A closed box leaves one line on both terminals: `Make this change? → Yes, this once`, or
+    `Make this change? — skipped (No)` after Esc. Only where no box could be shown does Casper print
+    `[approval] denied` instead. A later change a session answer covers prints
+    `[approval] allowed (this session)`.
 - **Server questions reach only you.** Some servers ask before a risky action (MCP
   "elicitation"), for example `Confirm PORT BOUNCE on SG1 ports [1/1/1]?`.
   - It is shown as `<server> asks about the <tool> call you approved:`, numbered like

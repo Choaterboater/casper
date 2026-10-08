@@ -137,7 +137,7 @@ test.skipIf(!python)("Enter at \"The work is in ...\" stays in the folder and ke
     await harness.until((text) => Bun.stripANSI(text).includes("The work is in ~/Documents/sample-tools."));
     harness.input.write("\r");
     await harness.until((text) => /\bidle\b/.test(Bun.stripANSI(text).split("The work is in").at(-1) ?? ""));
-    expect(harness.output()).toContain("✓ Stay here");
+    expect(Bun.stripANSI(harness.output())).toContain("The work is in ~/Documents/sample-tools. → Stay here");
     expect(harness.output()).not.toContain("[folder] Working in");
     expect(disposed()).toBe(0);
     expect(starts).toEqual([docs]);

@@ -296,7 +296,7 @@ test("the plain terminal asks Build this plan? with numbers: Enter stops and bui
         await f.screen.until((output) => output.includes("Build this plan?") && /Type [\d, ]*\d or \d:$/.test(output.trimEnd()));
         expect(f.screen.output).toContain("Casper plan: 2 steps, 2 cases to test.");
         expect(f.screen.output).toContain("  1 Stop · nothing is built");
-        expect(f.screen.output).toContain("  2 Build · the model builds these steps and tests these cases (uses tokens)");
+        expect(f.screen.output).toContain("  2 Build · the model builds these steps and tests these cases\n");
         f.input.write(`${answer}\n`);
         if (builds) await f.screen.until((output) => output.includes("Built."));
         else await f.screen.until((output) => output.includes("[plan] Stopped without building."));

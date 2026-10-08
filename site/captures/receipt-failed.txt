@@ -1,7 +1,7 @@
 # Casper 0.2.27 · a change that breaks a test; one repair try; still failing
 
 ❯ speed up sum in src/sum.js
-[model] scripted/site-capture · off · credentials configured
+[model] scripted/site-capture · effort off
 ✓ edit · src/sum.js
 Changed sum.
 • Casper checking: test

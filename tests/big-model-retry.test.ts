@@ -267,7 +267,9 @@ test("\"The model failed again\" offers the big model, which goes on there and t
     await f.screen.until((output) => output.includes("idle"));
     f.input.write("fix the add function in calc.py\r");
     await f.screen.until(waiting("The model failed again. What now?"));
-    expect(f.text()).toContain("go on from where it stopped on fixture/big (uses tokens)");
+    // The label and its words say the model does it; no "(uses tokens)" tag repeats that.
+    expect(f.text()).toContain("go on from where it stopped on fixture/big");
+    expect(f.text()).not.toContain("on fixture/big (uses tokens)");
     f.input.write("3");
     await f.screen.until((output) => /Back on fixture\/demo[\s\S]*idle/.test(output) && idle(output));
     expect(f.text()).toContain("[model] Trying again on your big model fixture/big.");

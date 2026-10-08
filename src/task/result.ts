@@ -57,7 +57,7 @@ export interface TaskResult {
   changedDuringChecks?: string[];
   /** A mutation-capable tool ran but no workspace snapshot could confirm or refute writes. */
   possibleMutations?: boolean;
-  /** Why Casper could not compare the folder ("this folder has over 20,000 files; open a project folder"), and
+  /** Why Casper could not compare the folder ("not a project folder (over 20,000 files)"), and
    * the files Casper's own edit and write tools changed meanwhile, relative to the folder when inside it. */
   snapshotFailure?: { reason: string; edited: string[] };
   observedChecks?: ObservedCheck[];
@@ -500,6 +500,9 @@ export const NO_CHECKS_LINE = '– Not checked — no tests yet. Say "add tests"
 /** The undo reason when a task changed nothing: nothing to say on the receipt. */
 export const UNDO_NOTHING_CHANGED = "no files changed";
 
+/** The undo reason in a folder too big to list: the "Changes unknown: not a project folder" line already says it. */
+export const UNDO_NOT_PROJECT = "not a project folder";
+
 /** The files undo can't put back that a receipt names: ones not named before, up to the limit. */
 export function undoPathsShown(task: Pick<TaskResult, "undo">, undoNamed?: ReadonlySet<string>): string[] {
   if (!task.undo?.available) return [];
@@ -511,7 +514,8 @@ export function undoPathsShown(task: Pick<TaskResult, "undo">, undoNamed?: Reado
 function undoLines(task: TaskResult, options: ReceiptOptions, safe: (text: string) => string): string[] {
   const undo = task.undo;
   if (!undo) return [];
-  if (!undo.available) return undo.reason === UNDO_NOTHING_CHANGED ? [] : [`– Undo not available: ${safe(undo.reason).replace(/\.$/, "")}`];
+  // A folder that is not a project is said once, on the "Changes unknown" line.
+  if (!undo.available) return undo.reason === UNDO_NOTHING_CHANGED || undo.reason === UNDO_NOT_PROJECT ? [] : [`– Undo not available: ${safe(undo.reason).replace(/\.$/, "")}`];
   const lines: string[] = [];
   const left = undo.left?.filter((entry) => !options.undoNamed?.has(entry.path)) ?? [];
   if (left.length) lines.push(`– Undo can't put back: ${left.slice(0, RECEIPT_PATH_LIMIT).map((entry) => `${safe(entry.path)} (${safe(entry.why)})`).join(", ")}${left.length > RECEIPT_PATH_LIMIT ? ` … +${left.length - RECEIPT_PATH_LIMIT} more` : ""}`);
@@ -561,7 +565,16 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
       }
       // Only unfinished checks: the change was not tested, which is not the same as the code being wrong.
       else if (failedChecks.length && report!.results.every((result) => result.status !== "fail" || result.kind === "report" || result.ended)) {
-        lines = [`✗ Not checked — ${failedChecks.join(", ")}, so the change was not tested`, ...body];
+        // A timeout is said once here, with its limit and how to run it again; its own check line is left out.
+        const failing = report!.results.filter((result) => result.status === "fail" && result.kind !== "report");
+        const timedOut = failing.filter((result) => result.ended === "timeout");
+        const what = failing.map((result, index) => {
+          const limit = result.ended === "timeout" ? /^Timed out after (\d+)ms$/.exec(result.reason ?? "") : null;
+          return limit ? `${result.name} timed out after ${duration(Number(limit[1]))}` : failedChecks[index]!;
+        });
+        const again = timedOut.length ? `; ${timedOut.map((result) => options.surface === "one-shot" ? `casper "/verify ${result.name}"` : `/verify ${result.name}`).join(", ")} runs it again` : "";
+        lines = [`✗ Not checked — ${what.join(", ")}, so the change was not tested${again}`,
+          ...body.filter((line) => !timedOut.some((result) => line.startsWith(`✗ ${result.name} timed out`)))];
       } else if (failedChecks.length) lines = [`✗ Failed — ${failedChecks.join(", ")}`, ...body];
       else if (report?.pages?.status === "fail") lines = [`✗ Failed — ${safe(pageFailureSummary(report.pages) ?? "a page failed")}`, ...body];
       else if (report?.status === "blocked") lines = [`✗ Failed — checks stopped${report.reason ? `: ${safe(report.reason).replace(/\.$/, "").toLowerCase()}` : ""}`, ...body];

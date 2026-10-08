@@ -177,10 +177,11 @@ conpty("ConPTY: numbered sign-in with hidden key entry, /settings, /resume picke
   s.send("/settings\n");
   await s.until("Pick one to change:");
   await s.waitFor("row 1 highlighted", () => /→ +1 Done/.test(s.visible()));
-  // Past nine rows every row keeps its number: the last one is typed, then Enter.
-  await s.waitFor("the last row numbered", () => /\b\d\d Private ssh passwords/.test(s.visible()));
-  expect(s.visible()).toMatch(/Type 1-\d\d \+ Enter or Up\/Down \+ Enter · type to answer · Esc skip/);
-  const last = /\b(\d\d) Private ssh passwords/.exec(s.visible())![1]!;
+  // Past nine rows every row keeps its number: the last one (Private ssh passwords) is typed, then Enter. A list taller
+  // than the window shows the rows around the highlighted one and counts the rest.
+  await s.waitFor("the list's hint", () => /Type 1-\d\d \+ Enter/.test(s.visible()));
+  expect(s.visible()).toMatch(/Type 1-\d\d \+ Enter or Up\/Down \+ Enter · Esc skip/);
+  const last = /Type 1-(\d\d) \+ Enter/.exec(s.visible())![1]!;
   await boxReady();
   s.send(`${last}\n`);
   await s.until("When ssh you allowed asks for a password");
@@ -189,7 +190,8 @@ conpty("ConPTY: numbered sign-in with hidden key entry, /settings, /resume picke
   await s.untilNew("Pick one to change:");
   await boxReady();
   s.press("escape");
-  await s.until("(skipped)");
+  // A closed list leaves one line, never its rows.
+  await s.until("(saved in ~/.casper/config.yaml for you) — skipped");
   await idle(s);
 
   s.send("hello one\n");
@@ -257,7 +259,7 @@ conpty("ConPTY: a resize redraws at the new width, also with a choice box open",
   expect(s.visible()).toContain("Up/Down + Enter");
   await boxReady();
   s.press("escape");
-  await s.until("(skipped)");
+  await s.until("— skipped");
   await idle(s);
 
   s.resize(40, 15);

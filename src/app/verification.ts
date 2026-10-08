@@ -145,8 +145,11 @@ export function writeCheckResult(app: CasperApp, result: VerificationResult): vo
   app.events.ensureLineBreak();
   // Each check Casper runs shows as it finishes; verbose output keeps the per-run evidence line
   // instead. A check the model ran with casper_check already has its tool line.
+  // A timeout where someone can answer: the question that follows says it ("test timed out after 10m. … What now?"),
+  // so no ✗ line before it; the receipt says it once more.
+  const asked = result.ended === "timeout" && app.interactive && app.terminal.canAsk;
   if (app.verbose) app.output.write(`${formatVerificationResult(result)}\n`);
-  else if (app.modelCheckCalls === 0) app.output.write(`${liveCheckLine(result)}\n`);
+  else if (app.modelCheckCalls === 0 && !asked) app.output.write(`${liveCheckLine(result)}\n`);
   if (result.status !== "fail") return;
   if (result.ended === "blocked") app.output.write(`${SANDBOX_CHECK_BLOCKED}\n`);
   for (const [stream, text] of [["stderr", result.stderr], ["stdout", result.stdout]] as const) {

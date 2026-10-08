@@ -244,7 +244,7 @@ export async function askBigModelRetry(app: CasperApp, failures: VerificationRes
   }
   const retry = big
     ? { label: "Retry with your big model", description: `${terminalText(big.label)} reads this conversation (${cost!.words}), then tries 1 more fix` }
-    : { label: "Retry with a bigger model", description: "pick one (uses tokens); Casper can remember it as your big model" };
+    : { label: "Retry with a bigger model", description: "pick one; Casper can remember it as your big model" };
   app.events.ensureLineBreak();
   const answer = await app.terminal.pick(question, [stop, retry], signal);
   if (answer !== retry.label || signal.aborted || app.closing) return 0;

@@ -9,7 +9,7 @@ import { TerminalSurface, type AskOrigin } from "./surface";
 import type { NextRow } from "./next-row";
 import { bellSequence, hostCommand, prepareTmuxPane, titleSequence, TITLE_RESTORE, TITLE_SAVE, type HostCommand, type HostTerminal } from "./host-terminal";
 import { SidePane, type ActivityPane } from "./side-pane";
-import { numberPrompt } from "./choices";
+import { answerRecordText, numberPrompt } from "./choices";
 
 export { numberPrompt } from "./choices";
 
@@ -43,6 +43,7 @@ export class InteractiveTerminal {
   private command?: (line?: string) => void;
   private confirmation?: (answer: string | undefined) => void;
   private plainQuestions = 0;
+  private plainRecords = 0;
   /** Plain line input that arrived while idle but not yet reading (startup, before the first
    * prompt). Lines typed during work are still dropped, and approvals never read this. */
   private readonly earlyLines: string[] = [];
@@ -300,9 +301,7 @@ export class InteractiveTerminal {
     if (!this.rl || this.closed || this.confirmation || signal?.aborted || !choices.length) return undefined;
     this.endAssistant(); this.discardPartialLine();
     if (preview.trim()) this.write(`${preview.replace(/\n+$/, "")}\n`);
-    const answer = await this.pick(question, choices, signal);
-    if (answer === undefined) return undefined;
-    return choices.some(choice => choice.label === answer) ? answer : choices[0]!.label;
+    return this.plainPick(question, choices, signal, true);
   }
 
   modelPickerHost(): RuntimeModelPickerHost | undefined { return this.exclusiveHost(); }
@@ -310,7 +309,8 @@ export class InteractiveTerminal {
 
   /** Structured clarification on the rich surface; undefined when skipped or unavailable. */
   ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal, from: AskOrigin = "casper"): Promise<string[] | undefined> {
-    return this.surface ? this.surface.ask(question, options, multi, signal, from) : Promise.resolve(undefined);
+    // Only the AI's own questions take a typed answer; Casper's are pickers (keys only).
+    return this.surface ? this.surface.ask(question, options, multi, signal, from, from === "ai") : Promise.resolve(undefined);
   }
 
   /**
@@ -320,8 +320,17 @@ export class InteractiveTerminal {
    * a number or a label picks, Enter picks the first, other text comes back as typed. Lines typed before the question
    * appeared never answer it.
    */
-  async pick(question: string, options: { label: string; description?: string }[], signal?: AbortSignal): Promise<string | undefined> {
-    if (this.surface) return (await this.surface.ask(question, options, false, signal, "casper"))?.[0];
+  async pick(question: string, options: { label: string; description?: string }[], signal?: AbortSignal, settings: { typed?: boolean } = {}): Promise<string | undefined> {
+    // Rich: a picker takes keys only (a paste waits for after it), unless `typed` says a typed answer means something here.
+    if (this.surface) return (await this.surface.ask(question, options, false, signal, "casper", settings.typed ?? false))?.[0];
+    return this.plainPick(question, options, signal, false);
+  }
+
+  /** How many closed boxes have left their one-line record ("Pick a server → lab"), on either terminal. */
+  get records(): number { return this.surface?.records ?? this.plainRecords; }
+
+  /** The plain terminal's numbered question. `approval`: typed words are a No, and the record says so. */
+  private async plainPick(question: string, options: { label: string; description?: string }[], signal: AbortSignal | undefined, approval: boolean): Promise<string | undefined> {
     if (this.earlyLines.length) {
       this.write(`[input] Discarded ${this.earlyLines.length} line(s) entered before this question appeared.\n`);
       this.earlyLines.length = 0;
@@ -336,11 +345,17 @@ export class InteractiveTerminal {
         if (settled) return; settled = true;
         signal?.removeEventListener("abort", cancel);
         this.confirmation = undefined; this.discardPartialLine();
-        if (answer === undefined) { resolve(undefined); return; }
-        const text = answer.trim();
-        const number = /^\d+$/.test(text) ? Number(text) : 0;
-        const named = options.find(option => option.label.toLowerCase() === text.toLowerCase());
-        resolve(!text ? options[0]!.label : number >= 1 && number <= options.length ? options[number - 1]!.label : named?.label ?? text);
+        const text = answer?.trim();
+        const number = text && /^\d+$/.test(text) ? Number(text) : 0;
+        const named = text === undefined ? undefined : options.find(option => option.label.toLowerCase() === text.toLowerCase());
+        const typed = text === undefined ? undefined : !text ? options[0]!.label : number >= 1 && number <= options.length ? options[number - 1]!.label : named?.label ?? text;
+        const picked = approval && typed !== undefined && !options.some(option => option.label === typed) ? options[0]!.label : typed;
+        // The same one-line record the rich terminal leaves, so both say what was answered in the same words.
+        if (!this.closed) {
+          this.write(`${picked === undefined && approval ? `${answerRecordText(question, undefined)} (${options[0]!.label})` : answerRecordText(question, picked === undefined ? undefined : [picked])}\n`);
+          this.plainRecords += 1;
+        }
+        resolve(picked);
       };
       const cancel = () => finish(undefined);
       this.confirmation = finish;

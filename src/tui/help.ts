@@ -122,8 +122,8 @@ Local commands:
   /switch <branch>                  Switch to a named conversation and its workspace (asks first)
   /switch main apply                Check, review and apply that workspace's changes, then clean up
   /switch main discard              Review and throw away that workspace's changes, then clean up
-  /delegate <explorer|reviewer> <goal>  Run a read-only helper AI on one goal (uses a model)
-  /crew <job>                       The manual way: a builder AI does the job in its own copy (uses a model); then 1 Keep the copy · 2 Apply to my folder · 3 Throw it away
+  /delegate <explorer|reviewer> <goal>  Run a read-only helper AI on one goal
+  /crew <job>                       The manual way: a builder AI does the job in its own copy; then 1 Keep the copy · 2 Apply to my folder · 3 Throw it away
   /crew                             Crew copies still here; /crew apply <n> or /crew drop <n>
   /skills                           List skills and whether you trust them
   /skills diagnostics               Show why a skill was skipped or warned about
@@ -264,8 +264,12 @@ function helpEntries(): string[][] {
 function closestCommand(word: string): string | undefined {
   const typed = word.replace(/^\//, "").toLowerCase();
   if (!typed) return undefined;
+  const names = [...COMMANDS.map((command) => command.name), "quit"];
+  // The start of exactly one command ("/q" for /quit) is that command.
+  const started = names.filter((name) => name.startsWith(typed));
+  if (started.length === 1) return `/${started[0]}`;
   let best: { name: string; distance: number } | undefined;
-  for (const name of [...COMMANDS.map((command) => command.name), "quit"]) {
+  for (const name of names) {
     const distance = editDistance(typed, name);
     if (distance <= Math.max(1, Math.min(2, Math.floor(name.length / 3))) && (!best || distance < best.distance)) best = { name, distance };
   }

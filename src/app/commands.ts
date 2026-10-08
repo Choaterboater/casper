@@ -23,7 +23,7 @@ import { ownSettingsNote, writesTitle, WRITES_OFF_MEANING } from "../mcp/presets
 import type { MCPConfiguration } from "../mcp/config";
 import { addUserServer, DOCS_TOOL_NAMES, docsOnlyDefinition, docsPinned, isDocsOnlyDefinition, MCP_FILE_LABEL } from "../mcp/docs";
 import { askForLogin, askToForgetLogin, askWhichLogin, type LoginHost } from "../mcp/network/ask-login";
-import { getsLogins, isNetworkProduct } from "../mcp/network/logins";
+import { getsLogins, isNetworkProduct, NETWORK_PRODUCTS, PRODUCT_LABELS, readLogins, type NetworkProduct } from "../mcp/network/logins";
 import { networkSetupLine, runNetworkSetup, type SetupHost } from "../mcp/network/setup";
 import { parseSshSetup, runSshSetup } from "../mcp/ssh/setup";
 import type { Scrubber } from "../secrets/netconan";
@@ -936,7 +936,9 @@ export async function runMCPListDuringWork(host: CommandHost): Promise<void> {
 }
 
 async function writeMCPList(host: CommandHost, picker: boolean): Promise<void> {
-  host.output.write(mcpListText(host.mcp!.status(), !picker));
+  // With the picker the servers are its rows (with where each came from): no list before it, only the heads-up.
+  const statuses = host.mcp!.status();
+  host.output.write(picker ? statuses.length ? headsUpText(statuses, false) : mcpListText(statuses, false) : mcpListText(statuses, true));
   await writeNetworkSetupLine(host);
   if (picker) await mcpPicker(host);
 }
@@ -999,13 +1001,31 @@ function mcpListText(statuses: readonly MCPStatus[], hints: boolean): string {
     ];
     return terminalText(`${status.name.padEnd(width)}  ${parts.join(" · ")}`);
   });
+  return `${lines.join("\n")}\n${headsUpText(statuses, hints)}${hints ? "Details: /mcp detail [name]\n" : ""}`;
+}
+
+/** "Heads up: writes are on for lab; lab runs outside the sandbox." under the list (or before the picker), or nothing. */
+function headsUpText(statuses: readonly MCPStatus[], hints: boolean): string {
   const writesOn = statuses.filter((status) => status.writes === "on").map((status) => status.name);
   const open = statuses.filter((status) => status.state === "ready" && status.sandbox && status.sandbox.state !== "on").map((status) => status.name);
   const warn = [
     ...(writesOn.length ? [`writes are on for ${writesOn.join(", ")}`] : []),
     ...(open.length ? [`${open.join(", ")} ${open.length === 1 ? "runs" : "run"} outside the sandbox`] : []),
   ];
-  return `${lines.join("\n")}\n${warn.length ? `${terminalText(`Heads up: ${warn.join("; ")}.`)}${hints ? " /mcp detail shows more." : ""}\n` : ""}${hints ? "Details: /mcp detail [name]\n" : ""}`;
+  return warn.length ? `${terminalText(`Heads up: ${warn.join("; ")}.`)}${hints ? " /mcp detail shows more." : ""}\n` : "";
+}
+
+/** A server's row in the /mcp picker: its state and where it came from. Casper's own network server says which
+ * products it covers: the ones with a saved login, else every product it serves. */
+async function mcpPickerRow(host: CommandHost, status: MCPStatus): Promise<{ label: string; description: string }> {
+  const definition = host.mcp!.definition(status.name);
+  let from = status.importedFrom ? `from ${status.importedFrom}` : status.scope === "project" ? "from this project" : undefined;
+  if (getsLogins(definition)) {
+    const saved = Object.keys(await readLogins(host.homeDir()).catch(() => ({}))) as NetworkProduct[];
+    const products = (saved.length ? saved : [...NETWORK_PRODUCTS]).map((product) => PRODUCT_LABELS[product]);
+    from = `Casper's (${products.join(", ")})`;
+  }
+  return { label: terminalText(status.name), description: terminalText([stateWords(status), ...(from ? [from] : [])].join(" · ")) };
 }
 
 /** The one line a connect, disconnect or writes change prints: the same words the list uses. */
@@ -1056,8 +1076,8 @@ async function mcpPicker(host: CommandHost): Promise<void> {
   while (!signal?.aborted) {
     const statuses = mcp.status();
     if (!statuses.length) return;
-    const servers = await host.terminal.pick("Pick a server",
-      [...statuses.map((status) => ({ label: terminalText(status.name), description: stateWords(status) })), { label: PICKER_DONE }], signal);
+    const rows = await Promise.all(statuses.map((status) => mcpPickerRow(host, status)));
+    const servers = await host.terminal.pick("Pick a server", [...rows, { label: PICKER_DONE }], signal);
     const status = servers === undefined ? undefined : statuses.find((entry) => terminalText(entry.name) === servers);
     if (!status) return;
     const name = status.name;
@@ -1148,9 +1168,12 @@ async function offerRemember(host: CommandHost, name: string): Promise<void> {
   if (!host.interactive || !status || status.scope === "project" || status.consent === "remembered") return;
   const block = host.mcp!.rememberBlock(name);
   if (block) { host.output.write(`[mcp] ${terminalText(block)}\n`); return; }
-  const answer = await host.approveChoice("Next time it connects on its own, with writes off. Every change still asks you.\n",
-    `Remember ${terminalText(name)}?`, MCP_REMEMBER_CHOICES, host.commandAbort?.signal);
-  if (answer !== MCP_REMEMBER_CHOICES[1]) { host.output.write(`[mcp] Not remembered. ${name} is connected for this session only.\n`); return; }
+  // The box's one-line record ("Remember lab? → No") is the whole outcome of a No; the choices say what each means.
+  const answer = await host.approveChoice("", `Remember ${terminalText(name)}?`, [
+    { label: MCP_REMEMBER_CHOICES[0], description: "connected for this session only" },
+    { label: MCP_REMEMBER_CHOICES[1], description: "it connects on its own next time, with writes off; every change still asks you" },
+  ], host.commandAbort?.signal);
+  if (answer !== MCP_REMEMBER_CHOICES[1]) return;
   const result = await host.mcp!.remember(name);
   host.output.write(result.remembered
     ? `[mcp] Remembered ${name}. It connects on its own next time, with writes off. /mcp forget ${name} undoes this.\n`
@@ -1183,7 +1206,8 @@ async function handleMCPWrites(host: CommandHost, name: string): Promise<void> {
   if (status.access === "login: read-only (checked)") { host.output.write(`[mcp] ${READ_ONLY_LOGIN_ENABLE_TEXT}\n`); return; }
   const policy = mcp.policy(name);
   const answer = await host.approveChoice("", terminalText(writesTitle(name, policy.match)), MCP_WRITES_CHOICES, host.commandAbort?.signal);
-  if (answer !== MCP_WRITES_CHOICES[1]) { host.output.write(`[mcp] Writes stay off for ${name}.\n`); return; }
+  // The box's record ("… → Keep writes off", or "— skipped (Keep writes off)") says writes stay off.
+  if (answer !== MCP_WRITES_CHOICES[1]) return;
   await mcp.setWrites(name, true);
   host.output.write(`[mcp] Writes on for ${name}. Each change still asks you. ${host.terminal.rich ? "Ctrl+O" : "/mcp writes off"} turns writes off.\n`);
   const note = ownSettingsNote(mcp.definition(name), policy.match);

@@ -713,7 +713,7 @@ export class CasperApp {
     const edited = this.observations.edited().map((file) => path.relative(root, path.resolve(root, file)).split(path.sep).join("/"));
     try { return await snapshotTree(root, signal, { include: [...this.snapshotBase?.keys() ?? [], ...edited] }); }
     catch (error) {
-      // Kept for the receipt: "Changes unknown: this folder has over 20,000 files; open a project folder".
+      // Kept for the receipt: "Changes unknown: not a project folder (over 20,000 files)".
       if (!signal?.aborted) this.snapshotFailure = snapshotFailureReason(error);
       return undefined;
     }

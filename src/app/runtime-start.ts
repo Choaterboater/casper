@@ -101,7 +101,9 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         app.onEvent(sessionStartEvent({ casper: CASPER_VERSION, cwd: context.info.root, session: conversation, status: app.session.getStatus?.() }));
       }
       const status = app.session.getStatus?.() ?? { auth: "unknown" as const };
-      if (!status.blocked) app.output.write(`${formatRuntimeStartLine(status)}\n`);
+      // One short line, or none when the banner already named this model and its effort.
+      const started = status.blocked ? undefined : formatRuntimeStartLine(status, app.runModel ? undefined : app.savedModelDisplay);
+      if (started) app.output.write(`${started}\n`);
       updateFooter(app);
       return app.session;
     }).catch(async (error) => {

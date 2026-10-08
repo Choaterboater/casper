@@ -34,7 +34,7 @@ test("a question past nine choices numbers every row; a row's number typed and s
     expect(visible).toMatch(/→ {2}1 Row 1\b/);
     expect(visible).toContain("  12 Row 12");
     expect(visible).toContain("  23 Row 23");
-    expect(visible).toContain("Type 1-23 + Enter or Up/Down + Enter · type to answer · Esc skip");
+    expect(visible).toContain("Type 1-23 + Enter or Up/Down + Enter · Esc skip");
     session.input.write("1"); // no pick yet: it could be the start of 12
     session.input.write("2\r");
     expect(await answer).toEqual(["Row 12"]);

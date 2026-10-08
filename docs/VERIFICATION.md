@@ -155,7 +155,7 @@ The full form's line 1 is the verdict, one of:
 – Checks passed — not proven: a refactor should not change behavior, so no test is expected to fail without it
 ✓ Checks passed — no files changed
 ✗ Failed — test failed
-✗ Not checked — test timed out, so the change was not tested
+✗ Not checked — test timed out after 10m, so the change was not tested; /verify test runs it again
 – Incomplete — stopped after 3 turns (--max-turns); changes so far are kept; send another request to go on
 – Not verified — the tests pass without the change too
 ✗ Stopped — cancelled; changes already made are kept
@@ -189,7 +189,7 @@ The lines below the verdict give the evidence:
 ⚠ Not proven: test passes without this change too, and no test was added or changed
 ✓ Service api at 127.0.0.1:53121; smoke 2/2 passed (model-declared, run by Casper: create note failed before the change)
 ✗ Service api at 127.0.0.1:53121; smoke 0/1 passed; failed: create note (status 404, expected 201)
-– Changes unknown: this folder has over 20,000 files; open a project folder
+– Changes unknown: not a project folder (over 20,000 files)
 – Changed (seen by Casper's edit and write tools): lab.md
 – Changed on 198.51.100.20 (build-server) (from the commands Casper saw): made an API token (pveum user token add …); installed a service (/etc/systemd/system/sampleapp.service)
 – Ran commands on build-server over ssh; Casper can't tell from the command text whether they changed anything there

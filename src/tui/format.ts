@@ -289,7 +289,7 @@ export function noModelFooter(signedIn: boolean | undefined, canSignIn = true): 
 /** The banner's model line before the model starts (one line), or /status's labeled block. `signedIn` false:
  * no saved sign-in or provider key was found. */
 export function formatRuntimeStatus(status?: RuntimeStatus, saved?: string, signedIn?: boolean, canSignIn = true): string {
-  if (!status && saved) return ` model     ${terminalText(saved)} (starts on your first prompt; /model to change)`;
+  if (!status && saved) return ` model     ${terminalText(saved)} (starts on your first request; /model to change)`;
   if (!status) return signedIn === false ? ` model     ${noModelFooter(false, canSignIn)}` : " model     none yet · your first request picks one (/model to choose)";
   const identity = status.provider && status.model ? `${status.provider}/${status.model}` : "none selected";
   const effort = formatEffort(status);
@@ -297,11 +297,14 @@ export function formatRuntimeStatus(status?: RuntimeStatus, saved?: string, sign
   return ` model     ${terminalText(identity)}${effort ? ` · effort ${effort}` : ""}${role}\n auth      ${status.auth === "configured" ? "credentials configured (not a connection test)" : status.auth === "missing" ? "credentials missing; use /login" : "unknown; use /login"}${status.selectionSource ? `\n selection ${status.selectionSource}${status.defaultModel ? ` · Casper default ${terminalText(status.defaultModel.provider)}/${terminalText(status.defaultModel.id)}` : " · no Casper default"}` : ""}${status.blocked ? `\n [model]   ${terminalText(status.blocked)}` : ""}`;
 }
 
-/** One transcript line when the runtime starts on first use; /status keeps the labeled block. */
-export function formatRuntimeStartLine(status: RuntimeStatus): string {
+/** The one short line when the runtime starts on first use, or undefined when it would only repeat the banner (`shown`:
+ * the model line the banner printed, "fixture/demo · effort auto"). Credentials are said only when they are not set
+ * up; /status keeps the labeled block. Automatic effort is "effort auto" until the request picks a level. */
+export function formatRuntimeStartLine(status: RuntimeStatus, shown?: string): string | undefined {
   const identity = status.provider && status.model ? `${terminalText(status.provider)}/${terminalText(status.model)}` : "no model selected (/model)";
-  // /status carries the "not a connection test" qualifier; this line stays short enough for one row.
-  const auth = status.auth === "configured" ? "credentials configured" : status.auth === "missing" ? "credentials missing (/login)" : "credentials unknown (/login)";
-  const effort = formatEffort(status);
-  return `[model] ${identity}${effort ? ` · ${effort}` : ""} · ${auth}`;
+  const auth = status.auth === "configured" ? "" : status.auth === "missing" ? " · credentials missing (/login)" : " · credentials unknown (/login)";
+  const effort = status.configuredEffort === "auto" ? "auto" : status.thinkingLevel ? terminalText(status.thinkingLevel) : undefined;
+  const line = `${identity}${effort ? ` · effort ${effort}` : ""}`;
+  if (!auth && shown !== undefined && (shown === line || shown === identity)) return undefined;
+  return `[model] ${line}${auth}`;
 }

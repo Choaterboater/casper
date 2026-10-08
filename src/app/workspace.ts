@@ -38,7 +38,7 @@ export function queueTypedRequest(app: CasperApp, text: string, pasted: readonly
 /** The new-project questions go through Casper's own numbered question, on the rich or the plain terminal. */
 export function newProjectFlow(app: CasperApp): NewProjectFlow {
   return {
-    pick: (question, options, signal) => app.terminal.pick(question, options, signal),
+    pick: (question, options, signal) => app.terminal.pick(question, options, signal, { typed: true }),
     write: (line) => { if (!app.closing) app.output.write(`${line}\n`); },
     homeDir: app.sessionHomeDir ?? os.homedir(),
     ...(app.createProjectFn ? { create: app.createProjectFn } : {}),

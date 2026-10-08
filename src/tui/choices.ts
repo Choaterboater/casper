@@ -40,3 +40,19 @@ export function numberPrompt(count: number): string {
   const digits = Array.from({ length: count }, (_, index) => String(index + 1));
   return `Type ${digits.length === 2 ? "1 or 2" : `${digits.slice(0, -1).join(", ")} or ${digits.at(-1)}`}: `;
 }
+
+/** What a closed question, picker or approval leaves in the transcript: one line, "<question> → <answer>", or
+ * "<question> — skipped" when nobody answered (Esc, Ctrl+C, a stopped task). The question is its first line; the
+ * choices, the hint and the lines under the question go with the box. */
+export function answerRecord(question: string, answer: readonly string[] | undefined): { question: string; answer?: string } {
+  const first = question.split("\n").map(line => line.trim()).find(Boolean) ?? "";
+  const asked = first.replace(/\s+/g, " ").replace(/:$/, "");
+  const said = answer?.map(part => part.replace(/\s+/g, " ").trim()).filter(Boolean).join(", ");
+  return said ? { question: asked, answer: said } : { question: asked };
+}
+
+/** The record as plain text: "Pick a server → lab", "Run this command? → Yes, this once", "Settings — skipped". */
+export function answerRecordText(question: string, answer: readonly string[] | undefined): string {
+  const record = answerRecord(question, answer);
+  return record.answer !== undefined ? `${record.question} → ${record.answer}` : `${record.question} — skipped`;
+}

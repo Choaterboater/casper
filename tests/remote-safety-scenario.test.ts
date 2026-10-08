@@ -131,7 +131,7 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
     ["idle", `${PROMPT}\r`],
     ...Array.from({ length: SSH_STEPS }, (): [string, string] => ["Press 1-4", "2"]),
     ["2 Switch there", "\r"],
-    ["✓ Stay here", ""],
+    ["→ Stay here", ""],
     ["idle", "/exit\r"],
   ];
   const result = await run.spawn([process.execPath, path.join(import.meta.dir, "fixtures/remote-safety-interactive.ts"), run.docs], { SCENARIO_ANSWERS: JSON.stringify(answers) });
@@ -177,7 +177,7 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
   expect(receipt.replace(/\s+/g, " ")).toContain("· changed tools/pyproject.toml, tools/stats.py, tools/tests/test_stats.py");
   // Offered to move there, Stay first; Enter stayed.
   expect(receipt).toContain("The work is in ~/Documents/tools.\n→ 1 Stay here");
-  expect(receipt).toContain("✓ Stay here");
+  expect(receipt).toContain("The work is in ~/Documents/tools. → Stay here");
   // No noise: no 0.0s, no memory warning.
   expect(screen).not.toMatch(/\b0\.\ds\b/);
   expect(screen).not.toContain("[memory]");

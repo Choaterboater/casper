@@ -38,14 +38,14 @@ test("look commands and ssh to another machine don't by themselves make the fold
 });
 
 test("the snapshot failure reason is plain words", () => {
-  expect(snapshotFailureReason(new RangeError(`Workspace exceeds ${SNAPSHOT_FILE_LIMIT} files`))).toBe("this folder has over 20,000 files; open a project folder");
+  expect(snapshotFailureReason(new RangeError(`Workspace exceeds ${SNAPSHOT_FILE_LIMIT} files`))).toBe("not a project folder (over 20,000 files)");
   expect(snapshotFailureReason(Object.assign(new Error("denied"), { code: "EACCES" }))).toBe("Casper could not read this folder (EACCES)");
 });
 
 test("the receipt keeps the reason and lists what Casper's edit and write tools changed", () => {
   const text = formatReceipt({ execution: "completed", possibleMutations: true, observedEdits: ["/home/u/Documents/lab.md"],
-    snapshotFailure: { reason: "this folder has over 20,000 files; open a project folder", edited: ["lab.md"] } }, { surface: "interactive" });
-  expect(text).toContain("– Changes unknown: this folder has over 20,000 files; open a project folder");
+    snapshotFailure: { reason: "not a project folder (over 20,000 files)", edited: ["lab.md"] } }, { surface: "interactive" });
+  expect(text).toContain("– Changes unknown: not a project folder (over 20,000 files)");
   expect(text).toContain("– Changed (seen by Casper's edit and write tools): lab.md");
 });
 
@@ -78,7 +78,9 @@ test("a task in a folder of over 20,000 files says why changes are unknown and n
     loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }) });
   try {
     await app.runOnce("write up the lab in lab.md", docs);
-    expect(output).toContain("– Changes unknown: this folder has over 20,000 files; open a project folder");
+    expect(output).toContain("– Changes unknown: not a project folder (over 20,000 files)");
+    // Said once: no "Undo not available" line after it, and no wait for an undo copy.
+    expect(output).not.toContain("Undo not available");
     expect(output).toContain("– Changed (seen by Casper's edit and write tools): lab.md");
   } finally { await app.close(); }
 }, 180_000);

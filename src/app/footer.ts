@@ -2,7 +2,7 @@
  * steps split in tmux or iTerm2) and ctrl+t. Moved from src/app.ts. */
 
 import type { CasperApp } from "../app";
-import path from "node:path";
+import { folderName } from "../project/inspect";
 import { PANE_MIN_COLUMNS } from "../tui/terminal";
 import { readPaneSetting, savePaneSetting, type PaneSetting } from "../tui/pane-setting";
 import { sessionTitle, windowTitle } from "../tui/session-title";
@@ -29,17 +29,19 @@ export function updateFooter(app: CasperApp): void {
     const status = app.session?.getStatus?.();
     const usage = app.session?.getUsage?.();
     const percent = usage?.context?.percent;
-    const effort = (status && formatEffort(status, true)) ?? "effort —";
-    const model = status?.model ? `${status.provider}/${status.model} · ${effort}`
+    // "<model> · <effort>", short: the saved default before the model starts drops its "effort" word to match.
+    const effort = status && formatEffort(status, true);
+    const model = status?.model ? `${status.provider}/${status.model}${effort ? ` · ${effort}` : ""}`
       : app.session ? app.signedIn === false ? noModelFooter(false, app.interactive && app.terminal.rich) : "no model selected · /model"
-      : (app.runModel ? `${terminalText(app.runModel)} (--model)` : app.savedModelDisplay) ?? noModelFooter(app.signedIn, app.interactive && app.terminal.rich);
+      : (app.runModel ? `${terminalText(app.runModel)} (--model)` : app.savedModelDisplay?.replace(" · effort ", " · ")) ?? noModelFooter(app.signedIn, app.interactive && app.terminal.rich);
     // The current task's tokens and the session's total, with cost from the provider or the model's price; a free
     // model shows tokens only. A subscription pays no per-token price: its figure is only what the tokens would cost.
     const spent = app.observations.spent();
     const session = { tokens: app.spentBefore.tokens + spent.tokens, cost: app.spentBefore.cost + spent.cost };
     const shown = formatFooterSpend(spent, session, app.commandActive, status?.priced, status?.billing);
     const task = shown ? ` │ ${shown}` : "";
-    app.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${task}${buildersText(app)}${app.commandActive ? "" : " │ idle"}`, project.root);
+    // The folder, and "/branch" only when there is one.
+    app.terminal.setStatus(`${project.name || project.root}${project.gitBranch ? `/${project.gitBranch}` : ""} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${task}${buildersText(app)}${app.commandActive ? "" : " │ idle"}`, project.root);
   } catch { app.terminal.setStatus("Session status unavailable · /status", app.projectContext.info.root); }
 }
 
@@ -60,8 +62,9 @@ export function buildersText(app: Pick<CasperApp, "subagents">): string {
 }
 
 export function conversationName(app: CasperApp): string {
-  try { return app.session?.getSessionInfo?.().name ?? path.basename(app.projectContext!.info.root); }
-  catch { return path.basename(app.projectContext!.info.root); }
+  const folder = folderName(app.projectContext!.info.root, app.homeDir());
+  try { return app.session?.getSessionInfo?.().name ?? folder; }
+  catch { return folder; }
 }
 
 /** A conversation's first request names it, for the window title and /resume. A resumed one keeps its name. */

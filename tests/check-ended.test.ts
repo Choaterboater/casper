@@ -54,7 +54,9 @@ test("the JSON check event carries ended only when set, and the receipt does not
   expect("ended" in checkEvent({ ...base, ended: undefined, reason: undefined, exitCode: 1 }, "casper")).toBe(false);
   const report = (result: VerificationResult) => ({ status: "fail" as const, repairAttempts: 0, rounds: [[result]], results: [result] });
   const timedOut = formatReceipt({ execution: "completed", changedPaths: ["a.js"], verification: report(base) });
-  expect(timedOut).toContain("✗ test timed out after 10m — it did not finish, so it was not checked; /verify test to run it again");
+  // Said once, on the verdict: the check's own line is not repeated under it.
+  expect(timedOut.split("\n")[0]).toBe("✗ Not checked — test timed out after 10m, so the change was not tested; /verify test runs it again");
+  expect(timedOut.match(/timed out/g)).toHaveLength(1);
   expect(timedOut).not.toContain("repair");
   const noStart = formatReceipt({ execution: "completed", changedPaths: ["a.js"],
     verification: report({ ...base, exitCode: 127, reason: undefined, ended: "no_start", stderr: "sh: 1: jest: not found" }) });
@@ -76,8 +78,8 @@ test("a receipt whose only failures are unfinished checks says the change was no
   const receipt = (results: VerificationResult[]) => formatReceipt({ execution: "completed", changedPaths: ["a.py"],
     verification: { status: "fail", results, repairAttempts: 0 } } as never, { surface: "interactive" });
   const unfinished = receipt([timedOut]);
-  expect(unfinished.split("\n")[0]).toBe("✗ Not checked — test timed out, so the change was not tested");
-  expect(unfinished).toContain("/verify test to run it again (a session offers more time)");
+  expect(unfinished.split("\n")[0]).toBe("✗ Not checked — test timed out after 5s, so the change was not tested; /verify test runs it again");
+  expect(unfinished.match(/timed out/g)).toHaveLength(1);
   expect(unfinished).not.toContain("verification.timeoutMs");
   expect(receipt([timedOut, failed]).split("\n")[0]).toBe("✗ Failed — test timed out, lint failed");
 });

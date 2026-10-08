@@ -171,7 +171,7 @@ def connect_with_writes(s):
     s.until("Remember fixture?")
     time.sleep(0.5)  # A box ignores keys for a moment after it opens.
     s.send("1")  # 1 No: one key, no Enter
-    s.until("fixture is connected for this session only")
+    s.until("Remember fixture? → No")  # the box closes into its one-line record
     s.until_ready()
     s.send("/mcp writes fixture\n")
     s.until("fixture writes are off.")

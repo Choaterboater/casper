@@ -76,7 +76,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/secrets` | What Casper hides from the AI ([SECRETS.md](SECRETS.md)) |
 | `/visualize [repo [dir]]` | Diagrams ([VISUALIZATION.md](VISUALIZATION.md)) |
 | `/delegate <explorer\|reviewer> <goal>` | A read-only helper AI on one goal (uses a model; [DELEGATION.md](DELEGATION.md)) |
-| `/crew <job>` | A builder AI does the job in its own copy of the project (uses a model), then 1 Keep the copy · 2 Apply to my folder · 3 Throw it away; bare `/crew` lists copies still here ([CREWS.md](CREWS.md)) |
+| `/crew <job>` | A builder AI does the job in its own copy of the project, then 1 Keep the copy · 2 Apply to my folder · 3 Throw it away; bare `/crew` lists copies still here ([CREWS.md](CREWS.md)) |
 | `/exit`, `/quit` | Exit |
 
 An unknown `/` command is rejected on your machine. It is never sent to a model.
@@ -145,7 +145,7 @@ prompt. Green marks success, red an error, amber a notice or decision, cyan the
 accent (banner, prompt echo, Markdown structure), dim the muted status lines. Each mark at the start
 of a line means one thing: `•` running now (a step, Casper's own checks, the prompt while Casper works),
 `✓` done, `✗` failed, `○` did not run (refused, stopped at the spend limit, a skipped check), `–` a note
-(not verified, not checked, a retry). An answered box keeps `✓` on what was chosen and no mark on the rest.
+(not verified, not checked, a retry). A closed box leaves one line, `<question> → <answer>`, with no mark.
 Those are the `default` theme's colours; `theme: light` or `high-contrast` (or **Theme** in
 `/settings`) swaps the colours of each role (`src/tui/theme.ts`) and nothing else
 ([CONFIGURATION.md](CONFIGURATION.md#theme)).
@@ -212,7 +212,7 @@ horizontally between states, so a draft keeps its wrapping. The footer shows a
 state mark once: the braille spinner while working, `? waiting for you` while a question,
 checklist or approval needs you (with the spinner stopped), and `idle` at its end when Casper waits for a request
 (led by `type / for commands` when the whole line fits; a narrow window cuts the details before `idle`, never
-`idle` itself). Then project/branch, provider/model, effort,
+`idle` itself). Then the folder (never blank: `~` for home, `C:\` or `/` at the top of a drive), with `/branch` only when there is a git branch, then `provider/model · effort` (no other words),
 estimated context occupancy, the current task's tokens and its cost from the model's price
 (`task 48.2k tok · $0.31`; from the second task on, the session's total too, so a new task never
 looks like a reset: `task 40k tok · session 1.1M tok · $0.04` while working, `session 1.1M tok · $0.04` idle; a free model shows tokens only; a subscription sign-in shows
@@ -330,12 +330,14 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
 - `/effort high`: apply and remember for that model. Unsupported levels fail.
 - `/effort high --session`: do not change the saved preference. Effort also survives
   switching away from a model and back within the current conversation.
-- `/effort auto`: classify each raw request before generation. `/status`, the
-  `[model]` start line and the footer show `effort auto → <level>`; before the first
-  request that reads `auto → <level> for now; your next request picks the level` (the footer
-  and a line said during work keep it to `auto → <level>`),
-  and `(fallback)`/`(unavailable)` follows when it could not classify, with an `[effort]`
-  notice in the transcript). A fixed level disables it.
+- `/effort auto`: classify each raw request before generation. `/status` and the footer show
+  `effort auto → <level>`; before the first request `/status` reads `auto → <level> for now; your
+  next request picks the level` (the footer keeps it to `<model> · auto`), and `(fallback)`/`(unavailable)`
+  follows when it could not classify, with an `[effort]` notice in the transcript. A fixed level
+  disables it. The banner's model line says the model and its effort once
+  (`fixture/demo · effort auto (starts on your first request; /model to change)`); the first
+  request adds a short `[model] <model> · effort <level>` line only when that differs from the banner
+  or the credentials are missing.
 - `/model roles`: inspect optional `fast`, `build`, `reason`, `review` mappings.
 - `/model role review provider/id:high`: save a shortcut without selecting it.
 - `/model --session @review:auto`: resolve that shortcut with an explicit effort
@@ -445,18 +447,29 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   (`Type 1-23 + Enter or Up/Down + Enter`).
 - Every numbered list draws the same way and ends with the same hint, `Press 1-4 or
   Up/Down + Enter`, followed by what else it takes: `type to answer · Esc skip` for a
-  question, `Esc is No` for an approval, `Esc cancels` for `/login`, and `Ctrl+S this
+  question that takes a typed answer (the AI's, a project name), `Esc skip` for a picker,
+  `Esc is No` for an approval, `Esc cancels` for `/login`, and `Ctrl+S this
   session only · Esc cancels` for `/effort`. Keys are spelled one way everywhere: `Ctrl+O`,
   `Ctrl+T`, `Ctrl+C`.
 - A question from the AI's `ask` tool starts with a muted `The AI asks:` line. Casper's own
   questions and approvals never do, so the AI can't pass off a question as a Casper approval.
-- An answered box stays in the transcript with `✓` on your choice (`→` before a typed answer,
-  `(skipped)` after Esc), and that is its only record: no `[ask]`, `[approval]` or `[server question]`
-  line and no `✓ ask` step under it. The plain terminal, which has no box, prints the line.
+- A closed box leaves one line and nothing else: `<question> → <answer>` (`Pick a server → network`,
+  `network → Connect`, `Run this command? → Yes, this once`), or `<question> — skipped` after Esc
+  (`… — skipped (No)` for an approval). The question is its first line; the choices, the hint and the
+  lines under the question go with the box, so a skipped `/settings` leaves one line, not its rows. A
+  long question is cut with `…` so the answer always shows. That line is the only record: no `[ask]`,
+  `[approval]` or `[server question]` line and no `✓ ask` step under it. The plain terminal prints the
+  same line after its numbered lines.
+- A list taller than the window shows the rows around the highlighted one, with `… 12 more below`
+  (and above), so the box never scrolls its own top away.
+- While a picker or approval is open, its `?` row takes no typing: keys go to the box (a number past
+  nine rows is still typed), and the footer says `press a number`. A paste waits as the draft for
+  after the box closes, so a 60-line paste never lands in the box. A question that takes a typed answer
+  (the AI's own, a new project's name) takes typing and pastes.
 - Every box takes the same input: approvals (an MCP change, a host, a shell command, a device
   check, `/mcp writes`) are the same numbered panel as any question. Press a choice's number
-  (no Enter), or Up/Down and Enter; Esc is No. An approval takes no typed answer: typed words are
-  a No. Keys pressed in the first moment after a box opens (about 0.3 s) are ignored, so a key
+  (no Enter), or Up/Down and Enter; Esc is No. An approval takes no typed answer: typed words go nowhere
+  (the box stays open). Keys pressed in the first moment after a box opens (about 0.3 s) are ignored, so a key
   typed mid-sentence never answers a box that just appeared.
 - Casper's own numbered questions and approvals also work on the plain terminal: it prints the
   choices as numbered lines and reads `Type 1, 2 or 3:` (`Type 1-23:` past nine); a number or

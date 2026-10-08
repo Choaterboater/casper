@@ -16,10 +16,10 @@ import type { ChildProject } from "../project/child";
 import type { RuntimeImage, RuntimeSession } from "../runtime/types";
 import { formatSelectedSkills } from "../skills/registry";
 import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "../task/classify";
-import { answerClaimsBrowserPass, formatShortReceipt, undoPathsShown, formatTaskResult, type TaskResult } from "../task/result";
+import { answerClaimsBrowserPass, formatShortReceipt, undoPathsShown, formatTaskResult, UNDO_NOT_PROJECT, type TaskResult } from "../task/result";
 import { TaskObservations } from "../task/observations";
 import { isToolCallAsText, TOOL_CALL_AS_TEXT_LINE } from "../task/text-tool-call";
-import { diffSnapshots, type TreeChanges } from "../task/changes";
+import { diffSnapshots, tooManyFiles, type TreeChanges } from "../task/changes";
 import type { CheckName, VerificationReport } from "../verify/evidence";
 import { VerifierRegistry } from "../verify/registry";
 import { PLAN_CHOICES, PLAN_CHOICES_EDIT, PLAN_QUESTION } from "./safe-choices";
@@ -157,8 +157,18 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   // alongside, with the conversation's position (the plan turn and repairs are part of the task).
   app.snapshotFailure = undefined;
   app.snapshotBase = undefined;
-  const [before, undoStart] = await Promise.all([app.snapshotWorkspace(workspaceRoot, app.commandAbort?.signal),
-    app.taskUndo.begin(workspaceRoot, session, app.commandAbort?.signal)]);
+  // A folder too big to list (a drive's top, a home folder) is not a project: the undo copy stops at once instead of
+  // running into its time limit, and the receipt says so once.
+  const notProject = new AbortController();
+  const undoSignal = app.commandAbort ? AbortSignal.any([app.commandAbort.signal, notProject.signal]) : notProject.signal;
+  const [before, undoStart] = await Promise.all([
+    app.snapshotWorkspace(workspaceRoot, app.commandAbort?.signal).then((snapshot) => {
+      if (!snapshot && app.snapshotFailure && tooManyFiles(app.snapshotFailure)) notProject.abort();
+      return snapshot;
+    }),
+    app.taskUndo.begin(workspaceRoot, session, undoSignal)]);
+  // An undo copy that finished before the snapshot failed is kept: only a copy that was not made says why this way.
+  if (notProject.signal.aborted && "unavailable" in undoStart.snapshot) undoStart.snapshot = { unavailable: UNDO_NOT_PROJECT };
   edits.before = before;
   app.snapshotBase = before;
   // What the test command means before the change (package.json scripts, runner settings): a change that rewrites
@@ -187,7 +197,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     // Editing needs the rich editor; the plain terminal offers the other two.
     if (!app.terminal.rich) panel.options = panel.options.filter((option) => option.choice !== "edit");
     app.events.ensureLineBreak();
-    const picked = await app.terminal.pick(panel.question, panel.options.map(({ label, description }) => ({ label, description })), app.commandAbort?.signal);
+    const picked = await app.terminal.pick(panel.question, panel.options.map(({ label, description }) => ({ label, description })), app.commandAbort?.signal, { typed: true });
     if (app.closing || app.commandAbort?.signal.aborted) return;
     const answer = readBeforeWorkAnswer(panel, picked === undefined ? undefined : [picked]);
     if (answer.kind === "plan-first") { planFirst = true; await planState.recordChosen(planOffer.id).catch(() => {}); }
@@ -422,8 +432,10 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       app.terminal.endAssistant();
       app.events.ensureLineBreak();
       if (wroteToolCall) app.output.write(`${TOOL_CALL_AS_TEXT_LINE}\n`);
-      // A question that changed nothing and ran no tests gets no receipt, like a general one.
-      const answeredOnly = changedPaths?.length === 0 && !app.lastTaskResult.testRunner;
+      // A question that changed nothing and ran no tests gets no receipt, like a general one: also in a folder too big
+      // to compare, when no tool that could change a file ran.
+      const answeredOnly = (changedPaths?.length === 0 || (!changedPaths && !observations.possibleMutations && !observations.observedEdits.length))
+        && !app.lastTaskResult.testRunner;
       // A stop at --max-turns or at the spend limit is always said on a receipt.
       if ((classification.intent !== "general" && !answeredOnly) || execution !== "completed" || wroteToolCall || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
         || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand) {

@@ -1,7 +1,7 @@
 # Casper 0.2.27 · checks pass, but the tests pass without the change too
 
 ❯ let sum take numeric strings too
-[model] scripted/site-capture · off · credentials configured
+[model] scripted/site-capture · effort off
 ✓ edit · src/sum.js
 sum now turns its inputs into numbers first.
 • Casper checking: test
