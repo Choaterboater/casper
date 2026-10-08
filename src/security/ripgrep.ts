@@ -100,3 +100,11 @@ export function addToPath(env: NodeJS.ProcessEnv, dir: string, platform: NodeJS.
   if (current.split(delimiter).includes(dir)) return;
   env[key] = current ? `${current}${delimiter}${dir}` : dir;
 }
+
+/** Casper never lets the engine fetch ripgrep itself (its grep tool downloads the newest, unchecked release when it finds
+ * none). When Casper's own step did not leave a usable `rg` (downloads off, offline, failed, unsupported, or the step
+ * itself broke), PI_OFFLINE=1 makes the engine skip that download; it reads it from this process's environment each time
+ * it looks for a tool, so the in-process engine and any child process see it. A usable copy changes nothing. */
+export function keepEngineFromFetchingRipgrep(env: NodeJS.ProcessEnv, result: RipgrepResult | undefined): void {
+  if (!result || result.source === "none") env.PI_OFFLINE = "1";
+}

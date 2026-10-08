@@ -237,3 +237,34 @@ test("a download larger than the cap is refused before it is hashed", async () =
   const declared = new Response("x", { headers: { "content-length": String(MAX_DOWNLOAD_BYTES + 1) } });
   await expect(readCapped(declared)).rejects.toThrow("larger than expected");
 });
+
+test("without a usable ripgrep the engine is kept from downloading one (PI_OFFLINE=1); with one it is not forced offline", async () => {
+  const saved = { path: process.env.PATH, offline: process.env.PI_OFFLINE };
+  // The engine's own check, as tools-manager.js does it when its grep tool finds no rg: read at the moment it looks.
+  const wouldDownload = () => !["1", "true", "yes"].includes((process.env.PI_OFFLINE ?? "").toLowerCase());
+  try {
+    for (const result of [{ source: "none", why: "off" }, { source: "none", why: "failed", message: "x" }, { source: "none", why: "offline" }] as const) {
+      delete process.env.PI_OFFLINE;
+      const a = await app({ ripgrep: async () => result }, "tools:\n  downloads: off\n");
+      await a.instance.runOnce("/status", a.project);
+      expect(process.env.PI_OFFLINE as string | undefined).toBe("1");
+      expect(wouldDownload()).toBe(false);
+      await a.instance.close();
+    }
+    delete process.env.PI_OFFLINE;
+    const thrown = await app({ ripgrep: async () => { throw new Error("boom"); } });
+    await thrown.instance.runOnce("/status", thrown.project);
+    expect(wouldDownload()).toBe(false);
+    await thrown.instance.close();
+    for (const result of [{ source: "pinned", path: path.join(home, "bin", "rg") }, { source: "path", path: "/usr/bin/rg" }] as const) {
+      delete process.env.PI_OFFLINE;
+      const good = await app({ ripgrep: async () => result });
+      await good.instance.runOnce("/status", good.project);
+      expect(process.env.PI_OFFLINE as string | undefined).toBeUndefined();
+      await good.instance.close();
+    }
+  } finally {
+    process.env.PATH = saved.path;
+    if (saved.offline === undefined) delete process.env.PI_OFFLINE; else process.env.PI_OFFLINE = saved.offline;
+  }
+});

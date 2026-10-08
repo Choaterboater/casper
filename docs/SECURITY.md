@@ -99,6 +99,8 @@ the operating system, not a list of words:
   It never uses `sudo` or a package manager, and the unpack step runs outside the sandbox like the security-tool installs
   above. Offline (`CASPER_OFFLINE=1`) or with `tools:` `downloads: off` in `~/.casper/config.yaml` (your own file
   only; a project file can't set it) nothing is downloaded. A failed download is one plain line and Casper carries on.
+  The same switches also keep the engine's own grep tool from fetching a ripgrep: whenever Casper ends up without a
+  usable `rg`, it sets `PI_OFFLINE=1` for itself, so the newest unchecked release is never downloaded behind its back.
 - **What the sandbox refused is said.** A check it stopped reads
   `✗ test — blocked by the sandbox (wanted to write /etc/hosts)` on the receipt, and the AI reads the
   same line, so it stops retrying. Such a check is never sent for repair.
