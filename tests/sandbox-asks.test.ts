@@ -263,7 +263,7 @@ test("Yes, this once lets a plain ssh run outside the sandbox with your keys, on
   const engine = fakeEngine();
   const terminal = host(["Yes, this once", "No"]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { ...seams, engine } });
-  const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+  const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory), { on: () => false });
   expect(await shell.approve!("ssh build-server uptime")).toBeUndefined();
   expect(await shell.wrap("ssh build-server uptime", project)).toEqual({ command: "ssh build-server uptime" });
   expect(engine.wrapped).toEqual([]);
@@ -278,7 +278,7 @@ test("Yes, for this session remembers the host until Casper exits; a command wit
   const engine = fakeEngine();
   const terminal = host(["Yes, for this session"]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { ...seams, engine } });
-  const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+  const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory), { on: () => false });
   expect(await shell.approve!("ssh build-server uptime")).toBeUndefined();
   await shell.wrap("ssh build-server uptime", project);
   const compound = "ssh build-server 'journalctl -u sampleapp' | tail -5";
@@ -301,14 +301,14 @@ test("Yes, always for this project keeps the machine in Casper's own folder: the
   const terminal = host(["Yes, always for this project"]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
   const store = new SandboxStore(context.stateDirectory);
-  const shell = runtimeShell(terminal.value, sandbox, store);
+  const shell = runtimeShell(terminal.value, sandbox, store, { on: () => false });
   expect(await shell.approve!("ssh build-server uptime")).toBeUndefined();
   expect(await readdir(project)).toEqual([]);
   expect(JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8")).reach).toEqual(["198.51.100.20"]);
   // A new session: no question, and a plain ssh still runs with your keys.
   const next = host([]);
   const later = createSessionSandbox(next.value, context, { root: () => project, home, seams });
-  const nextShell = runtimeShell(next.value, later, new SandboxStore(context.stateDirectory));
+  const nextShell = runtimeShell(next.value, later, new SandboxStore(context.stateDirectory), { on: () => false });
   expect(await nextShell.approve!("ssh deploy@198.51.100.20 hostname")).toBeUndefined();
   expect(await nextShell.wrap("ssh deploy@198.51.100.20 hostname", project)).toEqual({ command: "ssh deploy@198.51.100.20 hostname" });
   expect(next.asked).toEqual([]);

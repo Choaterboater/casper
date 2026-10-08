@@ -170,14 +170,17 @@ export function scrubAssignments(text: string, strict: boolean): ScrubTextResult
 
 /** Hide every exact copy of the given values (for example `printenv OPENROUTER_API_KEY`). */
 export function scrubExactValues(text: string, values: readonly string[]): ScrubTextResult {
-  let out = text;
+  const wanted = [...new Set(values.filter((value) => value && text.includes(value)))].sort((a, b) => b.length - a.length);
+  if (!wanted.length) return { text, hidden: 0, kinds: [] };
+  // One pass over the text, longest value first at each place, and a marker already in the text is skipped over: a short
+  // value ("e") can't match inside the "<secret hidden>" that another value (or an earlier pass) left behind.
+  const pattern = new RegExp([SECRET_MARKER, ...wanted].map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "g");
   let hidden = 0;
-  for (const value of values) {
-    if (!out.includes(value)) continue;
-    const parts = out.split(value);
-    hidden += parts.length - 1;
-    out = parts.join(SECRET_MARKER);
-  }
+  const out = text.replace(pattern, (found) => {
+    if (found === SECRET_MARKER) return found;
+    hidden++;
+    return SECRET_MARKER;
+  });
   return { text: out, hidden, kinds: hidden ? ["key"] : [] };
 }
 

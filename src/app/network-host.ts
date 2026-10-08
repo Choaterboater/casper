@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { casperAgentDir } from "../runtime/agent-store";
 import { loginFileValues, networkLoginValues, secretEnvValues } from "../secrets/files";
+import { typedSecretValues } from "../secrets/typed";
 import { terminalText } from "../tui/format";
 import type { LoginHost } from "../mcp/network/ask-login";
 import { loginFile } from "../mcp/network/logins";
@@ -99,7 +100,7 @@ export function networkLoginFile(app: CasperApp): string {
 /** Casper's own secrets, as exact values: secret-named environment values, its login file's keys and the saved
  * network logins. Hidden wherever they turn up, MCP results and reference excerpts too. */
 export function ownSecretValues(app: CasperApp): string[] {
-  return [...new Set([...secretEnvValues(), ...loginFileValues(path.join(casperAgentDir(), "auth.json")), ...networkLoginValues(networkLoginFile(app))])]
+  return [...new Set([...secretEnvValues(), ...loginFileValues(path.join(casperAgentDir(), "auth.json")), ...networkLoginValues(networkLoginFile(app)), ...typedSecretValues()])]
     .sort((a, b) => b.length - a.length);
 }
 

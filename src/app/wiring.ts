@@ -19,6 +19,9 @@ import { casperAgentDir } from "../runtime/agent-store";
 import { loginValuesFrom, WebLookup, webProvider } from "../web/lookup";
 import { refreshUpdateCheck, updateChecksOff, updateNotice } from "../update/notice";
 import { createSessionSandbox, runtimeShell, type SandboxHost } from "./sandbox";
+import { forgetSshSecrets } from "../ssh/login";
+import { withLoginDisplay } from "../tui/login";
+import { NO, YES_ONCE, YES_SESSION } from "./safe-choices";
 import { useSandbox, currentSandbox } from "../sandbox/manager";
 import { SandboxStore } from "../sandbox/store";
 import { loginMissingAnswer } from "../mcp/network/ask-login";
@@ -43,6 +46,29 @@ export function sandboxHost(app: CasperApp): SandboxHost {
     write: (text) => { if (!app.closing) app.output.write(text); },
     planning: () => app.planning,
     labHosts: () => app.projectContext?.lab?.hosts ?? [],
+    // ssh asks for a password: Casper's own numbered question, then its own hidden box (never "The AI asks"). Both in
+    // the one turn of the approval queue, so nothing slips in between.
+    ssh: {
+      canTypePrivately: () => app.interactive && app.terminal.canAsk && !app.closing && !!app.terminal.exclusiveHost(),
+      write: (text) => { if (!app.closing) app.output.write(text); },
+      ask: ({ question, label, canKeep }, signal) => oneAtATime(app, async () => {
+        if (app.closing) return undefined;
+        const answer = await app.terminal.pick(question, [
+          { label: NO, description: "ssh gets no password and the login fails" },
+          { label: YES_ONCE, description: "type it now; Casper forgets it when this connection ends" },
+          ...(canKeep ? [{ label: YES_SESSION, description: "type it now; Casper keeps it in memory for this login until you quit" }] : []),
+        ], signal);
+        if (answer === undefined) return undefined;
+        if (answer !== YES_ONCE && answer !== YES_SESSION) return "no" as const;
+        const picker = app.terminal.exclusiveHost();
+        if (!picker) return undefined;
+        const secret = await picker.run((io) => withLoginDisplay(io, signal, (display) => display.privateInput(label, undefined, {
+          title: "Enter ssh password", password: true,
+          hint: "It goes to ssh only. The AI never sees it, and Casper never saves it." }))).catch(() => undefined);
+        // Esc or Ctrl+C in the hidden box is a No.
+        return secret === undefined ? "no" as const : { secret, keep: answer === YES_SESSION ? "session" as const : "once" as const };
+      }),
+    },
   };
 }
 
@@ -73,7 +99,7 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   const host = sandboxHost(app);
   const sandbox = app.sandbox = createSessionSandbox(host, context, { root: () => app.activeWorkspaceRoot(), home: app.sessionHomeDir ?? os.homedir(),
     noSandbox: app.noSandbox, ...(app.allow ? { allow: app.allow } : {}), ...(app.sandboxSeams ? { seams: app.sandboxSeams } : {}) });
-  app.shell = runtimeShell(host, sandbox, new SandboxStore(context.stateDirectory));
+  app.shell = runtimeShell(host, sandbox, new SandboxStore(context.stateDirectory), { on: () => app.projectContext?.sshLogin !== false });
   useSandbox(sandbox);
   app.lifecycle.add({ name: "sandbox", close: async () => {
     if (currentSandbox() === sandbox) useSandbox(undefined);

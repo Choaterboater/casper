@@ -69,6 +69,7 @@ import { readerStatusLine } from "./reader";
 import type { ShellSandbox } from "../sandbox/manager";
 import { allowKindsChoices, DOCS_COPY_CHOICES, SKILL_TRUST_CHOICES, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES } from "./safe-choices";
 import { KIND_TEXT, RISKY_KINDS } from "../capabilities/kinds";
+import { forgetSshSecrets } from "../ssh/login";
 
 /** Output sink for the app; lives here so the command host stays import-cycle-free. */
 export interface OutputWriter {
@@ -368,6 +369,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       await host.stopDebugger(); host.debugSession = undefined;
       host.offeredTools.clear();
       host.resetToolPicks();
+      // A password typed for ssh belongs to the conversation it was typed in.
+      forgetSshSecrets();
       if (prompt === "/clear") {
         if (!session.clearConversation) throw new Error("This runtime does not support fresh conversations.");
         await session.clearConversation();

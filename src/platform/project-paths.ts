@@ -20,6 +20,8 @@ export const PRIVATE_PATHS: readonly string[] = [
   ".password-store", ".local/share/keyrings",
   // Casper's own: MCP servers (their tokens), profiles (each may hold an mcp.json) and every project's saved conversations.
   ".casper/mcp.json", ".casper/profiles", ".casper/agent/sessions",
+  // The private ssh login's per-run socket folders (src/ssh/askpass.ts).
+  ".casper/run",
   // Provider settings, which may hold provider keys.
   ".casper/agent/models.json", ".pi/agent/models.json",
 ];

@@ -101,6 +101,18 @@ through. Check what a tool returns before you share it.
   in the AI's shell output, in any MCP server's results, in check replies and reference
   excerpts, and in what the server prints on its error output. The
   addresses (Mist cloud, Central region, ClearPass address) are not secrets and stay.
+- **A password you type for ssh: always, any length.** When an ssh you allowed asks for a password or a key
+  passphrase, you type it into Casper's own hidden box (never "The AI asks"), and it goes to ssh through OpenSSH's own
+  password program (Casper itself, over a private local socket or named pipe), not through an argument, an
+  environment variable, a file or the AI. From the moment you type it, the exact text is hidden wherever text could
+  reach the AI: shell output, MCP results, check replies, reference excerpts, command previews and what the model
+  writes back. There is no minimum length (a 3-character password is hidden too, so a word that happens to equal it
+  is hidden as well: a password of `e` hides every `e` in what the AI reads, for as long as it is remembered). It is kept
+  only in Casper's memory: 2 Yes, this once is forgotten when the next command starts (by then the result of the command
+  it was typed for has been hidden); 3 Yes, for this session keeps a password for that user and machine until you clear
+  the conversation (`/clear`), change workspace or quit; nothing is saved to disk. Spaces and non-ASCII letters are
+  fine. Like the others, an encoded or split copy is not recognised.
+  See [CONFIGURATION.md](CONFIGURATION.md#private-ssh-passwords).
 - **Command and grep output: only when it looks like a config.** Output from
   `bash`, `powershell` or `grep` (failed commands too) is scrubbed when it has two
   config lines such as `hostname`, `version 23.4;`, `## Last commit` or
@@ -230,6 +242,9 @@ Casper.
   just before it; if it is longer than a piece, the rest of the line is hidden.
 - The approval box, `/mcp` and server questions mask secrets on your screen, but
   the server still gets the real value you approve.
+- A password typed for ssh stays out of the AI's reach, but the AI can still send ssh its own command: a rogue
+  server could ask for a password in words that look like another question, so the box names the machine and ssh's own
+  prompt, and you can say No.
 - Secrets the AI already had (for example ones you typed in a request, or ones in a
   file that is not a config file) stay in the conversation and the saved session
   like any other text.

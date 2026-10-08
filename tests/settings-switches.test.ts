@@ -110,6 +110,34 @@ test("Send Casper's name to OpenRouter row: 1 keeps it on, says what it sends, a
   expect(await valueOf(home, project, label)).toBe("off");
 });
 
+test("Private ssh passwords row: on by default, says what the box is, a pick writes ssh_login: false", async () => {
+  const { home, project, config } = await folders();
+  const label = "Private ssh passwords";
+  const host = fakeHost(home, project, [label, "Keep it on", label, "Turn it off", "Done"]);
+  await runSettings(host);
+  expect(host.asked[1]!.split("\n").slice(1)).toEqual(["1 Keep it on", "2 Turn it off"]);
+  expect(host.asked[1]).toContain("1 No, 2 Yes once, 3 Yes for this session");
+  expect(host.asked[1]).toContain("The AI never sees what you type");
+  expect(await readFile(config, "utf8")).toBe("ssh_login: false\n");
+  expect((await host.context())!.sshLogin).toBe(false);
+  expect(await valueOf(home, project, label)).toBe("off");
+});
+
+test("ssh_login: off loads from your own config; a project file can't set it", async () => {
+  const { home, project, config, projectFile } = await folders();
+  const load = () => loadConfiguration({ projectRoot: project, homeDir: home });
+  expect((await load()).sshLogin).toBeUndefined();
+  await writeFile(config, "ssh_login: off\n");
+  expect((await load()).sshLogin).toBe(false);
+  await writeFile(config, "ssh_login: on\n");
+  expect((await load()).sshLogin).toBe(true);
+  await writeFile(projectFile, "ssh_login: off\n");
+  await expect(load()).rejects.toThrow("ssh_login is a user setting");
+  await writeFile(projectFile, "");
+  await writeFile(config, "ssh_login: maybe\n");
+  await expect(load()).rejects.toThrow("ssh_login must be on or off");
+});
+
 test("page checks off in your config: no page check after a UI change, and a project file can't turn them back on", async () => {
   const { home, project, config, projectFile } = await folders();
   await writeFile(path.join(project, "package.json"), JSON.stringify({ scripts: { dev: "vite" }, dependencies: { react: "18", vite: "5" } }));

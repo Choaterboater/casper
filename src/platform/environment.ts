@@ -59,8 +59,12 @@ export function isProviderKeyName(name: string): boolean {
  */
 export function withoutProviderKeys(env: NodeJS.ProcessEnv, keep: readonly string[] = []): NodeJS.ProcessEnv {
   const clean: NodeJS.ProcessEnv = {};
+  // The private ssh login's pointer (src/ssh/askpass.ts) is for the one ssh command Casper starts it for. Where it turns up
+  // anywhere else it goes, with the SSH_ASKPASS that points at Casper; your own SSH_ASKPASS is left alone.
+  const ourAskpass = Boolean(env.CASPER_ASKPASS_ENDPOINT || env.CASPER_ASKPASS_TOKEN);
   for (const [name, value] of Object.entries(env)) {
     if (value === undefined) continue;
+    if (ourAskpass && /^(?:CASPER_ASKPASS_(?:ENDPOINT|TOKEN)|SSH_ASKPASS(?:_REQUIRE)?)$/.test(name)) continue;
     if (isProviderKeyName(name) && !keep.includes(name)) continue;
     clean[name] = value;
   }

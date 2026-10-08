@@ -61,7 +61,7 @@ export async function writeProjectFile<T>(app: CasperApp, root: string, write: (
 
 function withOwnSettings(context: ProjectContext, fresh: ProjectContext): ProjectContext {
   const next: ProjectContext = { ...context, web: fresh.web, spend: fresh.spend };
-  for (const key of ["updates", "display", "theme", "showPages", "delegate", "cache", "lab", "labProfile", "suggestions", "browser", "templates", "github", "diagrams", "pageChecks", "telemetry", "toolDownloads"] as const) {
+  for (const key of ["updates", "display", "theme", "showPages", "delegate", "cache", "lab", "labProfile", "suggestions", "browser", "templates", "github", "diagrams", "pageChecks", "telemetry", "toolDownloads", "sshLogin"] as const) {
     if (fresh[key] === undefined) delete next[key];
     else (next as unknown as Record<string, unknown>)[key] = fresh[key];
   }

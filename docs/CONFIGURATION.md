@@ -20,7 +20,7 @@ Settings (saved in ~/.casper/config.yaml for you):
   Page checks: on · Show the AI the pages: ask once a session
   Work shown: normal · Theme: default · Untrusted-text reader: on
   Helpers that build: on · Playwright tests: on
-  Send Casper's name to OpenRouter: on
+  Send Casper's name to OpenRouter: on · Private ssh passwords: on
 Pick one to change:
   1 Done                              nothing changes
   2 Web lookups                       on (DuckDuckGo)
@@ -44,6 +44,7 @@ Pick one to change:
  20 Helpers that build                on
  21 Playwright tests                  on
  22 Send Casper's name to OpenRouter  on
+ 23 Private ssh passwords             on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
@@ -166,6 +167,38 @@ Casper (kept out of its public rankings for now); nothing about your code. It is
 `/settings` (it writes `telemetry: false`) or `CASPER_TELEMETRY=0`; either one off is off. A project
 file can't change `telemetry:`. See [OpenRouter app attribution](#provider-credentials).
 
+### Private ssh passwords
+
+When an `ssh` or `scp` you allowed (the "Reach this machine?" question) asks for a **password** or a key's
+**passphrase**, Casper shows its own box, with its own numbered choices, and hides what you type:
+
+```text
+ssh to 192.0.2.10 asks for a password. Type it in Casper's hidden box? The AI never sees it.
+  1 No
+  2 Yes, this once
+  3 Yes, for this session
+```
+
+2 forgets the password when the next command starts. 3 (offered for a `user@host's password:` prompt only, not for a
+passphrase) keeps it in Casper's memory for that one login (user and machine) until you clear the conversation, change
+workspace or quit; it is never written to disk. Esc or 1 gives ssh nothing, and the AI is told you said no and
+not to ask for the password in chat. What you type goes to ssh and nowhere else: not into the command, not to the
+model, not into the conversation, and Casper hides it from then on in everything the AI reads (even a short one).
+Nothing to turn on: it is on, and there is no command for it. It needs OpenSSH 8.4 or later, which current macOS, Linux, WSL
+and Windows 10/11 have; an older one may not ask.
+
+Only a plain `ssh` or `scp` that runs on its own gets it: the same commands that already run outside the sandbox
+with your keys, typed as the bare word `ssh` or `scp` and found outside every place a sandboxed command may write (not `./ssh`, and
+not a script in the project). From a source checkout on Windows there is no box; the installed Casper has it. A command with a pipe, `;`, `&&`, `sudo`, `sshpass`, `-L` or `-o ProxyCommand` does not. Only
+password and passphrase questions are answered; "Are you sure you want to continue connecting" (a new host key) and
+one-time codes are not, and ssh fails with a line saying so. A command that sets `-o BatchMode=yes` tells ssh never to
+ask, and Casper leaves that alone: the AI is told to run it again without it. A run that can't show the box (a
+one-shot run, piped input, a helper) refuses with a plain line instead of asking.
+
+Turn it off with `ssh_login: off` in `~/.casper/config.yaml` (or a profile you chose), or **Private ssh passwords** in
+`/settings`; ssh then gets no box and a login that needs a password fails as it always did. A project file can't
+change `ssh_login:`. See [SECURITY.md](SECURITY.md) and [SECRETS.md](SECRETS.md).
+
 ### Fetching ripgrep
 
 Casper's file search and (on Linux) the shell sandbox need `rg`. With none on your PATH, the first start
@@ -231,7 +264,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
-`showPages`, `suggestions`, `updates`, `sideQuestions`, `telemetry`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
+`showPages`, `suggestions`, `updates`, `sideQuestions`, `telemetry`, `ssh_login`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
@@ -591,6 +624,7 @@ updates: false       # no "a newer Casper is out" line at the start of a session
 sideQuestions: false # a line starting with ? is an ordinary request, not a side question
 pages: off           # no page checks after a UI change, in any project
 telemetry: off       # don't send Casper's name to OpenRouter (same as CASPER_TELEMETRY=0)
+ssh_login: off       # ssh never gets Casper's hidden password box (see Private ssh passwords)
 ```
 
 A session checks for a newer Casper at most once a day, in the background (no model, no

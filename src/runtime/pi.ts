@@ -921,8 +921,8 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
     async exec(command, cwd, options) {
       const refused = await shell?.approve?.(command, options.signal);
       if (refused) throw new Error(refused);
-      const wrapped = shell ? await shell.wrap(command, cwd) : { command };
       const logDir = process.platform === "win32" ? undefined : await shell?.logDir?.();
+      const wrapped: Awaited<ReturnType<RuntimeShell["wrap"]>> = shell ? await shell.wrap(command, cwd) : { command };
       let tail = "";
       const onData = (data: Buffer) => {
         if (wrapped.id) tail = (tail + data.toString("utf8")).slice(-16_384);
@@ -933,13 +933,19 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
         finally { if (previous === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = previous; }
       };
       try {
-        const result = await local.exec(wrapped.command, cwd, { ...options, onData });
+        // The private ssh login's pointer goes to this one command, after the shell's environment was cleaned.
+        const env = wrapped.ssh?.env ? { ...(options.env ?? withoutProviderKeys(process.env, shell?.keepEnv ?? [])), ...wrapped.ssh.env } : options.env;
+        const result = await local.exec(wrapped.command, cwd, { ...options, ...(env ? { env } : {}), onData });
         if (wrapped.id && result.exitCode !== 0 && shell?.refused) {
           const line = await shell.refused(wrapped.id, tail);
           if (line) onData(Buffer.from(`\n${line}\n`));
         }
+        if (wrapped.ssh?.afterFail && result.exitCode !== 0) onData(Buffer.from(`\n${wrapped.ssh.afterFail}\n`));
         return result;
-      } finally { if (wrapped.id) shell?.finished?.(wrapped.id); }
+      } finally {
+        if (wrapped.id) shell?.finished?.(wrapped.id);
+        await wrapped.ssh?.done?.().catch(() => {});
+      }
     },
   };
 }

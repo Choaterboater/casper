@@ -52,6 +52,15 @@ test("Markdown theme stays plain without color and terminal controls are neutral
   expect(terminalText(clean)).toBe(clean);
 });
 
+test("a carriage return in tool output is a line break, not the literal text \\u{d}", () => {
+  // Windows and ssh output end lines with CRLF; a progress bar redraws its line with a lone CR.
+  expect(terminalText("one\r\ntwo\r\n")).toBe("one\ntwo\n");
+  expect(terminalText("10%\r20%\r100%")).toBe("10%\n20%\n100%");
+  expect(terminalText("a\rb\x1b[2Jc")).toBe("a\nbc");
+  expect(terminalText("ok\r\n‮fake")).toBe("ok\n\\u{202e}fake");
+  expect(terminalText("one\r\ntwo\r\n")).not.toContain("\\u{d}");
+});
+
 test("a wide-character and emoji line measures the cells a terminal draws", () => {
   // A text-default symbol plus U+FE0F is one cell in iTerm2 and xterm.js but two in Pi's layout;
   // without the selector both say one. CJK and emoji-presentation symbols stay two cells.

@@ -60,6 +60,8 @@ export interface ProjectContext {
   pageChecks?: boolean;
   /** `tools: { downloads: off }` in the user's config: Casper fetches no programs (ripgrep). Unset: on. */
   toolDownloads?: boolean;
+  /** `ssh_login: off` in the user's config: no private password box for ssh. Unset: on. */
+  sshLogin?: boolean;
   /** `telemetry: off` in the user's config: no OpenRouter app-name headers. Unset: on. */
   telemetry?: boolean;
   rules: {
@@ -158,6 +160,7 @@ export async function loadProjectContext(
     ...(configuration.pages ? { pages: configuration.pages } : {}),
     ...(configuration.pageChecks !== undefined ? { pageChecks: configuration.pageChecks } : {}),
     ...(configuration.telemetry !== undefined ? { telemetry: configuration.telemetry } : {}),
+    ...(configuration.sshLogin !== undefined ? { sshLogin: configuration.sshLogin } : {}),
     ...(configuration.toolDownloads !== undefined ? { toolDownloads: configuration.toolDownloads } : {}),
     rules: {
       profile: configuration.profileRules,
