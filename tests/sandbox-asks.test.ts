@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createSessionSandbox, runtimeShell, SHELL_CANT_ASK, SHELL_DECLINED, writeCantAsk, type SandboxHost } from "../src/app/sandbox";
@@ -369,6 +369,37 @@ test("only the system's own ssh and scp run outside the sandbox for an allowed m
     expect([searchPath, await run("ssh build-server uptime", searchPath)]).toEqual([searchPath, { alone: false, held: ["ssh build-server uptime"] }]);
   }
   expect(terminal.asked).toEqual([]);
+});
+
+test("an allowed ssh or scp whose options come after the host, or whose local files reach git's files or links out, stays in the sandbox", async () => {
+  const { home, project, context, bin, seams } = await labFixture();
+  const terminal = host([]);
+  terminal.value.labHosts = () => ["build-server"];
+  const outside = path.join(home, "outside-folder");
+  await mkdir(outside);
+  await mkdir(path.join(project, ".git", "hooks"), { recursive: true });
+  await mkdir(path.join(project, "out"));
+  await mkdir(path.join(project, "linked"));
+  await symlink(outside, path.join(project, "linked", "elsewhere"));
+  await writeFile(path.join(project, "notes.txt"), "x");
+  const run = async (command: string) => {
+    const engine = fakeEngine();
+    const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { ...seams, engine, searchPath: bin } });
+    const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+    try {
+      expect(await shell.approve!(command)).toBeUndefined();
+      const wrapped = await shell.wrap(command, project);
+      return wrapped.id === undefined;
+    } finally { await sandbox.close(); }
+  };
+  for (const command of [
+    "ssh build-server -o ProxyCommand=true", "ssh build-server -F notes.txt", 
+    "scp build-server:/tmp/x .git/hooks/entry", "scp build-server:/tmp/x .git/config", "scp -r build-server:/tmp/x linked/", "scp -r linked build-server:/tmp/x",
+    "scp build-server:/tmp/x linked/elsewhere/file",
+  ]) expect([command, await run(command)]).toEqual([command, false]);
+  for (const command of ["ssh build-server ls -la", "ssh -o StrictHostKeyChecking=yes build-server uptime", "scp notes.txt build-server:/tmp/x", "scp build-server:/tmp/x ./out.txt", "scp build-server:/tmp/x out/"]) {
+    expect([command, await run(command)]).toEqual([command, true]);
+  }
 });
 
 test("when the sandbox cannot start, a program named by its path that is not the system's ssh is asked about, not run", async () => {

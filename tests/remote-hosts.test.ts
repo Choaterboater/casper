@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { remoteTargets, runsAlone, splitShell, targetLabel, trustedProgram } from "../src/sandbox/remote";
@@ -193,4 +193,58 @@ test("scp's local files must be inside the project root, even when the command r
   expect(runsAlone("scp ../notes.txt build-server:/srv/", root, path.join(root, "sub"))).toBe(true);
   expect(runsAlone("scp ../notes.txt build-server:/srv/", root, root)).toBe(false);
   expect(runsAlone("scp notes.txt build-server:/srv/", root, home)).toBe(false);
+});
+
+test("ssh options placed after the host name are checked like those before it; the remote command's words are not options", () => {
+  const root = path.join(home, "project");
+  for (const command of [
+    "ssh build-server -o ProxyCommand=true", "ssh build-server -F notes.txt", "ssh build-server -E log.txt uptime",
+    "ssh build-server -D 1080", "ssh build-server -L 8080:localhost:80 uptime", "ssh build-server -oLocalCommand=x", "ssh -v build-server -o ControlPath=x uptime",
+    "ssh build-server -N", "ssh build-server -tt -S sock uptime",
+  ]) expect([command, runsAlone(command, root)]).toEqual([command, false]);
+  for (const command of [
+    "ssh build-server ls -la", "ssh -o StrictHostKeyChecking=yes build-server", "ssh build-server -v uptime", "ssh build-server -- -o X",
+    "ssh build-server cat -F x", "ssh -p 22 build-server df -h",
+  ]) expect([command, runsAlone(command, root)]).toEqual([command, true]);
+  // The jump host named after the host is a machine the command reaches.
+  expect(hosts("ssh build-server -J jump.example uptime").map((target) => target.typed)).toEqual(["jump.example", "build-server"]);
+  expect(hosts("ssh build-server -- -J jump.example").map((target) => target.typed)).toEqual(["build-server"]);
+});
+
+test("a plain scp keeps clear of git's files, links that lead out, and what the sandbox protects", async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), "casper-scp-"));
+  try {
+    const root = path.join(base, "project");
+    const outside = path.join(base, "outside-folder");
+    await mkdir(path.join(root, ".git", "hooks"), { recursive: true });
+    await mkdir(path.join(root, "out"));
+    await mkdir(path.join(root, "tree", "sub"), { recursive: true });
+    await mkdir(path.join(root, "planted"));
+    await mkdir(path.join(root, "secret-place"));
+    await mkdir(outside);
+    await writeFile(path.join(root, "notes.txt"), "x");
+    await writeFile(path.join(root, ".git", "config"), "");
+    await symlink(outside, path.join(root, "planted", "elsewhere"));
+    await symlink(outside, path.join(root, "tree", "sub", "back"));
+    await symlink(path.join(root, ".git", "hooks"), path.join(root, "out-hooks"));
+    await symlink(path.join(root, "nowhere"), path.join(root, "planted", "dangling"));
+    const places = {
+      writeBlocked: (place: string) => place.includes(`${path.sep}secret-place`),
+      readBlocked: (place: string) => place.includes(`${path.sep}secret-place`),
+    };
+    const alone = (command: string) => runsAlone(command, root, root, places);
+    for (const command of [
+      "scp build-server:/tmp/x .git/hooks/post-checkout", "scp build-server:/tmp/x .git/config", "scp build-server:/tmp/x out-hooks/post-checkout",
+      "scp build-server:/tmp/x planted/elsewhere/file", "scp build-server:/tmp/x planted/", "scp -r build-server:/tmp/x planted/", "scp -r tree build-server:/tmp/x",
+      "scp -r build-server:/tmp/x .", "scp build-server:/tmp/x secret-place/file", "scp secret-place/file build-server:/tmp/x", "scp notes.txt ../outside-folder/x build-server:/tmp/",
+      "scp build-server:/tmp/x planted/../../outside-folder/x", "scp -r build-server:/tmp/x .git",
+    ]) expect([command, alone(command)]).toEqual([command, false]);
+    for (const command of [
+      "scp build-server:/tmp/x ./out.txt", "scp notes.txt build-server:/tmp/x", "scp build-server:/tmp/x out/", "scp -r build-server:/tmp/x out/", "scp -r out build-server:/tmp/x",
+    ]) expect([command, alone(command)]).toEqual([command, true]);
+    // A folder with too many entries is unclear: not plain.
+    await mkdir(path.join(root, "big"));
+    await Promise.all(Array.from({ length: 2100 }, (_, index) => writeFile(path.join(root, "big", `f${index}`), "")));
+    expect(alone("scp -r big build-server:/tmp/x")).toBe(false);
+  } finally { await removeTempDir(base); }
 });

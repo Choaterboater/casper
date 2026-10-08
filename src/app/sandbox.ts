@@ -14,7 +14,7 @@ import type { TaskResult } from "../task/result";
 import { terminalText } from "../tui/format";
 import { blockedBySandbox } from "../verify/command";
 import { hideCommandSecrets } from "../secrets/files";
-import { remoteTargets, runsAlone, segmentTargets, splitShell, targetLabel, trustedProgram, type RemoteTarget } from "../sandbox/remote";
+import { remoteTargets, runsAlone, segmentTargets, splitShell, targetLabel, trustedProgram, type LocalPlaces, type RemoteTarget } from "../sandbox/remote";
 import { startAskpass } from "../ssh/askpass";
 import { forgetSshSecrets, sshLoginHandler, sshSessionMemory, type SshLoginHost } from "../ssh/login";
 import { forgetOnceSecrets } from "../secrets/typed";
@@ -133,6 +133,14 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
   /** A place a sandboxed command may write: the project, the folder it runs in, or one the sandbox allows. */
   const sandboxWrites = (place: string, cwd: string) =>
     [sandbox.root, cwd].some((folder) => within(realpathLongest(folder), realpathLongest(place))) || sandbox.writeAllowed(place);
+  /** What a sandboxed command may not write or read, asked of the sandbox itself: scp is held to the same places. */
+  const localPlaces = (): LocalPlaces => {
+    const denyRead = sandbox.policy().denyRead;
+    return {
+      writeBlocked: (place) => !sandbox.writeAllowed(place),
+      readBlocked: (place) => [path.resolve(place), realpathLongest(place)].some((name) => denyRead.some((entry) => within(entry, name))),
+    };
+  };
   const sayOnce = (line: string) => { if (said.has(line)) return; said.add(line); host.write(`${line}\n`); };
   /** undefined: runs (and whether the question already showed the command); a string: refused, the AI reads why. */
   const reach = async (command: string, signal?: AbortSignal): Promise<{ refused?: string; asked: boolean }> => {
@@ -178,7 +186,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       // The password you typed for "Yes, this once" has done its job once the next command starts.
       forgetOnceSecrets();
       // Only the ssh or scp the PATH finds outside every place a sandboxed command may write counts as plain (see trustedProgram).
-      const plain = targets !== undefined && runsAlone(command, sandbox.root, cwd)
+      const plain = targets !== undefined && runsAlone(command, sandbox.root, cwd, localPlaces())
         && trustedProgram(splitShell(command).segments[0]!.words[0]!, sandbox.searchPath, (place) => sandboxWrites(place, cwd), sandbox.ownBin) !== undefined;
       if (!sandbox.on) return { command, ...(plain ? await sshLogin(command, targets) : {}) };
       // You said yes to this ssh or scp: a plain one runs outside the sandbox, with your own keys (the sandbox hides
