@@ -94,28 +94,65 @@ export const GIT_SHARED_FILES: readonly string[] = ["refs", "packed-refs", "HEAD
  * and which settings it reads. The shared folder holds one per worktree, the project's own and its siblings'. */
 const WORKTREE_POINTER_FILES: readonly string[] = ["commondir", "gitdir", "config.worktree"];
 
-/** The `config.worktree` of the shared folder and of each worktree in it, present or not: git reads one only when
- * `extensions.worktreeConfig` is on (which `git sparse-checkout init` turns on). */
-export function worktreeConfigFiles(common: string | undefined): string[] {
-  if (!common) return [];
-  return [path.join(common, "config.worktree"), ...siblingWorktreeFiles(common).filter((file) => path.basename(file) === "config.worktree")];
-}
-
-function siblingWorktreeFiles(common: string | undefined): string[] {
+/** Each worktree's own folder in the git folder `common` (`<common>/worktrees/<name>`): every one git made (it holds
+ * a `commondir` or `gitdir`), however many other folders a command added beside them. */
+export function worktreeGitDirs(common: string | undefined): string[] {
   if (!common) return [];
   let names: string[] = [];
   try { names = readdirSync(path.join(common, "worktrees")); } catch { return []; }
-  return names.flatMap((name) => WORKTREE_POINTER_FILES.map((file) => path.join(common, "worktrees", name, file)));
+  return names.map((name) => path.join(common, "worktrees", name))
+    .filter((dir) => [path.join(dir, "commondir"), path.join(dir, "gitdir")].some(isFile));
+}
+
+function isFile(file: string): boolean {
+  try { return statSync(file).isFile(); } catch { return false; }
+}
+
+/** The checkout a worktree's own folder belongs to, from its `gitdir` file (which names the checkout's `.git`). */
+function worktreeCheckout(dir: string): string | undefined {
+  let pointer = "";
+  try { pointer = readFileSync(path.join(dir, "gitdir"), "utf8").trim(); } catch { return undefined; }
+  return pointer ? path.dirname(path.resolve(dir, pointer)) : undefined;
+}
+
+/** A worktree checked out where commands may write anyway (made in the project or in temp) can have its own `.git`
+ * file changed by a command, so holding its pointers would only stop `git worktree remove`, `move` and `prune` for
+ * it. `held` are the folders whose own `.git` file is read-only (see gitPointers): theirs are always held. */
+function openWorktree(writable: readonly string[], held: readonly string[]): (dir: string) => boolean {
+  const same = (a: string, b: string) => within(a, b) && within(b, a);
+  return (dir) => {
+    const checkout = worktreeCheckout(dir);
+    if (!checkout) return false;
+    const names = spellings(checkout);
+    return !held.some((place) => names.some((name) => same(place, name))) && names.some((name) => writable.some((place) => within(place, name)));
+  };
+}
+
+/** The `config.worktree` of the shared folder and of each worktree in it, present or not: git reads one only when
+ * `extensions.worktreeConfig` is on (which `git sparse-checkout init` turns on). */
+export function worktreeConfigFiles(common: string | undefined, open?: (dir: string) => boolean): string[] {
+  if (!common) return [];
+  return [path.join(common, "config.worktree"), ...siblingWorktreeFiles(common, open).filter((file) => path.basename(file) === "config.worktree")];
+}
+
+function siblingWorktreeFiles(common: string | undefined, open?: (dir: string) => boolean): string[] {
+  return worktreeGitDirs(common).filter((dir) => !open?.(dir))
+    .flatMap((dir) => WORKTREE_POINTER_FILES.map((file) => path.join(dir, file)));
 }
 
 /** Files that tell git where its folder is: a worktree's `.git` file and its folder's `commondir`. Held read-only
  * only when they exist (a stand-in for a missing one would break git); a main `.git/commondir` that appears
  * is removed by the sandbox (see ShellSandbox.guardGit). */
-function gitPointers(folder: string): string[] {
+function gitPointers(folder: string, open?: (dir: string) => boolean): string[] {
   const dotGit = path.join(folder, ".git");
   const dirs = gitDirs(folder);
-  const pointers = [dotGit, ...dirs.map((dir) => path.join(dir, "commondir")), ...siblingWorktreeFiles(dirs.at(-1))];
-  return pointers.filter((file) => { try { return statSync(file).isFile(); } catch { return false; } });
+  const pointers = [dotGit, ...dirs.map((dir) => path.join(dir, "commondir")), ...siblingWorktreeFiles(dirs.at(-1), open)];
+  return pointers.filter(isFile);
+}
+
+/** Submodules' own git folders (`.git/modules/<name>`, nested ones too) that `folder` has now. */
+export function submoduleGitDirs(folder: string): string[] {
+  return submoduleGitParts(folder).dirs;
 }
 
 /** Submodules' own git folders (`.git/modules/<name>`, nested ones too) and the `.git` files that point a
@@ -129,7 +166,8 @@ function submoduleGitParts(folder: string, depth = 0): { dirs: string[]; pointer
     if (level > 4) return;
     let entries: string[];
     try { entries = readdirSync(modules); } catch { return; }
-    for (const name of entries.slice(0, 200)) {
+    // Every entry, not the first so many: folders a command adds can't push a real submodule off the list.
+    for (const name of entries) {
       const dir = path.join(modules, name);
       try { if (!statSync(dir).isDirectory()) continue; } catch { continue; }
       if (existsSync(path.join(dir, "HEAD"))) {
@@ -230,14 +268,15 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
   const gitOwn = [root, ...extra].flatMap((folder) => [...gitDirs(folder), path.join(folder, ".git")])
     .concat(submodules.flatMap((found) => found.dirs))
     .flatMap((dir) => GIT_OWN_FILES.map((name) => path.join(dir, name)));
+  const open = openWorktree(allowWrite, [root, ...extra]);
   const denyWrite = unique([
     ...gitOwn.flatMap(spellings),
     ...shared.flatMap((dir) => GIT_SHARED_FILES.map((name) => path.join(dir, name))).flatMap(spellings),
     ...hooks.flatMap(spellings),
     ...extra.flatMap((folder) => hooksPathTargets(folder, home)).flatMap(spellings),
-    ...[root, ...extra].flatMap(gitPointers).flatMap(spellings),
+    ...[root, ...extra].flatMap((folder) => gitPointers(folder, open)).flatMap(spellings),
     // A missing one is denied too (a rule on a missing path holds on macOS; Linux has the sandbox remove a new one).
-    ...[root, ...extra].flatMap((folder) => worktreeConfigFiles(gitDirs(folder).at(-1))).flatMap(spellings),
+    ...[root, ...extra].flatMap((folder) => worktreeConfigFiles(gitDirs(folder).at(-1), open)).flatMap(spellings),
     ...submodules.flatMap((found) => found.pointers).flatMap(spellings),
     ...inHome(PROTECTED_WRITE_PATHS),
     ...inHome(PRIVATE_PATHS),

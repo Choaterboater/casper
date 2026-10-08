@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { linuxSandboxProblem, quote, ripgrepPath } from "./linux";
 import { gitDirs, realpathLongest, within } from "../platform/project-paths";
-import { hostListed, hostName, sandboxPolicy, systemTempDirs, worktreeConfigFiles, writeFileToOffer, writeFolderToOffer, type SandboxPolicy, type SandboxProjectSettings, type SandboxUserSettings } from "./policy";
+import { hostListed, hostName, sandboxPolicy, submoduleGitDirs, systemTempDirs, worktreeConfigFiles, writeFileToOffer, writeFolderToOffer, type SandboxPolicy, type SandboxProjectSettings, type SandboxUserSettings } from "./policy";
 import { runtimeEngine, type SandboxEngine } from "./runtime";
 import type { SandboxStore } from "./store";
 
@@ -123,6 +123,7 @@ export class ShellSandbox {
   private closed = false;
   private startError?: string;
   /** Main git folders watched for a `commondir` a command writes, with whether one was there first (yours). */
+  private readonly submoduleGuards = new Map<string, { hadPointer: boolean; watcher?: FSWatcher }>();
   private readonly gitGuards = new Map<string, { hadPointer: boolean; watcher?: FSWatcher; dir: string; configs: Set<string> }>();
   /** A crew copy's sandbox: the session's, whose runtime it shares, and your folder's private paths. */
   private parent?: ShellSandbox;
@@ -259,6 +260,7 @@ export class ShellSandbox {
    * file can't be held read-only without breaking git, so it is watched instead.
    */
   guardGit(folder: string, commandStarting = false): void {
+    this.guardSubmodules(folder);
     const dotGit = path.join(folder, ".git");
     let guard = this.gitGuards.get(dotGit);
     if (!guard) {
@@ -295,6 +297,31 @@ export class ShellSandbox {
       rmSync(pointer, { force: true, recursive: true });
       this.options.note?.(`[sandbox] Removed ${pointer}: a command wrote it, and it would point git at another folder's settings and hooks.`);
     } catch { /* gone meanwhile */ }
+  }
+
+  /** A submodule's git folder is watched the same way: `git status` in the project runs git in it, with its settings. */
+  private guardSubmodules(folder: string): void {
+    for (const dir of submoduleGitDirs(folder)) {
+      const pointer = path.join(dir, "commondir");
+      const present = () => { try { lstatSync(pointer); return true; } catch { return false; } };
+      let guard = this.submoduleGuards.get(dir);
+      if (!guard) {
+        guard = { hadPointer: present() };
+        this.submoduleGuards.set(dir, guard);
+        if (!guard.hadPointer) {
+          try {
+            guard.watcher = watch(dir, (_event, name) => { if (!name || String(name) === "commondir") this.guardSubmodules(folder); });
+            guard.watcher.on("error", () => {});
+            guard.watcher.unref();
+          } catch { /* checked before each command instead */ }
+        }
+      }
+      if (guard.hadPointer || this.closed || !present()) continue;
+      try {
+        rmSync(pointer, { force: true, recursive: true });
+        this.options.note?.(`[sandbox] Removed ${pointer}: a command wrote it, and it would point git at another folder's settings and hooks.`);
+      } catch { /* gone meanwhile */ }
+    }
   }
 
   /** Run `id` has ended: the sandbox cleans up after it (see SandboxEngine.finished). Safe to call more than once. */
@@ -508,6 +535,7 @@ export class ShellSandbox {
       guard.watcher?.close();
       this.guardGit(path.dirname(dotGit));
     }
+    for (const guard of this.submoduleGuards.values()) guard.watcher?.close();
     this.closed = true;
     if (this.parent) for (const [id, owner] of this.parent.crewRuns) if (owner === this) this.parent.crewRuns.delete(id);
     if (this.started && !this.parent) {
