@@ -104,6 +104,8 @@ export interface SubagentResult {
   usage: SubagentUsage | null;
   /** Model responses the child made (for a receipt's usage). Never shown to the parent model. */
   turns?: number;
+  /** The reason is the provider's own error text, which may echo what the child read, not Casper's. Never shown to the parent model. */
+  providerReason?: boolean;
 }
 
 export interface SubagentManagerOptions {
@@ -396,7 +398,7 @@ export class SubagentManager {
           const isError = result.status !== "completed";
           // The caller already has the goal. Put outcome first so even a byte-
           // bounded preview retains it instead of spending its budget echoing input.
-          const { goal: _goal, status, reason, usage: _usage, turns: _turns, ...report } = result;
+          const { goal: _goal, status, reason, usage: _usage, turns: _turns, providerReason: _provider, ...report } = result;
           return { text: JSON.stringify(boundCapabilityResult({ isError, status, reason, ...report })), ...(isError ? { isError: true } : {}) };
         } catch (error) {
           // run() throws only before it creates a child runtime: no model call was made.
@@ -430,7 +432,7 @@ export class SubagentManager {
     if (result.status === "completed") builders.parts.markReviewed(n, result.response, part.version);
     else builders.parts.reviewFailed(n, result.status, part.version);
     const isError = result.status !== "completed";
-    const { goal: _goal, status, reason, usage: _usage, turns: _turns, ...report } = result;
+    const { goal: _goal, status, reason, usage: _usage, turns: _turns, providerReason: _provider, ...report } = result;
     return { text: JSON.stringify(boundCapabilityResult({ isError, status, reason, part: n, ...report })), ...(isError ? { isError: true } : {}) };
   }
 
@@ -566,6 +568,8 @@ export class SubagentManager {
      * means Pi went on: it retries an error, and after a length stop it fails the cut-off tool
      * calls (the child sees why) and continues. Only a response the run ends on is the outcome. */
     let retrying = false;
+    /** The last reason that was the provider's own error text. */
+    let providerReason: string | undefined;
     let wake!: () => void;
     const cancelled = new Promise<void>((resolve) => { wake = resolve; });
     const stop = (status: SubagentStatus, reason: string) => {
@@ -636,6 +640,7 @@ export class SubagentManager {
         retrying = event.stopReason === "error" || event.stopReason === "length";
         result.status = ["length", "limit"].includes(event.stopReason) ? "limited" : "failed";
         result.reason = prefix(event.errorMessage ?? `Model stopped: ${event.stopReason}`, 1024);
+        if (event.errorMessage) providerReason = result.reason;
       }
     };
 
@@ -715,7 +720,8 @@ export class SubagentManager {
       if (controller.signal.aborted) await settleWithin(work, this.cleanupGraceMs);
       const pending = this.active.has(active);
       return { ...result, ...(pending ? { cleanupPending: true } : {}), toolsUsed: [...result.toolsUsed], toolErrors: [...result.toolErrors],
-        usage: pending || streaming || !result.usage ? null : { ...result.usage }, turns };
+        usage: pending || streaming || !result.usage ? null : { ...result.usage }, turns,
+        ...(result.reason !== undefined && result.reason === providerReason ? { providerReason: true } : {}) };
     } finally {
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", onCancel);

@@ -9,6 +9,8 @@
 #   STALL_POLL       seconds between checks of the log (default 5)
 #   STALL_TEST_DIR   directory whose *.test.ts files are listed as printed / not printed (default tests)
 #   STALL_GRACE      seconds between the polite kill and the forced kill (default 5)
+#   STALL_WORKERS    pgrep -f pattern for the test workers the dump looks into (default 'bun test --test-worker')
+#   STALL_STACK_LIMIT  seconds one native stack capture may take before it is stopped (default 20)
 set -uo pipefail
 
 if [ "$#" -lt 5 ] || [ "$4" != "--" ]; then
@@ -23,6 +25,8 @@ case "$stall" in '' | *[!0-9]*) echo "stall-guard: stall-seconds must be a whole
 poll=${STALL_POLL:-5}
 grace=${STALL_GRACE:-5}
 test_dir=${STALL_TEST_DIR:-tests}
+workers=${STALL_WORKERS:-bun test --test-worker}
+stack_limit=${STALL_STACK_LIMIT:-20}
 
 mkdir -p "$(dirname "$log")" "$(dirname "$dump")"
 : >"$log"
@@ -34,6 +38,65 @@ rm -f "$flag"
 isolate=()
 if command -v setsid >/dev/null 2>&1; then isolate=(setsid); fi
 
+# Runs a command with its output in a file, and stops it (politely, then by force) once it has taken
+# <seconds>, so a stuck debugger cannot hold up the dump. Gives the command's exit code, or 124 if stopped.
+bounded() {
+  local limit=$1 out=$2 job ticks=0
+  shift 2
+  "$@" >"$out" 2>&1 &
+  job=$!
+  while kill -0 "$job" 2>/dev/null; do
+    if [ "$ticks" -ge $((limit * 10)) ]; then
+      kill -TERM "$job" 2>/dev/null
+      sleep 1
+      kill -KILL "$job" 2>/dev/null
+      wait "$job" 2>/dev/null
+      echo "(stopped after ${limit}s)" >>"$out"
+      return 124
+    fi
+    sleep 0.1
+    ticks=$((ticks + 1))
+  done
+  wait "$job"
+}
+
+# Where a worker that is on the CPU is in its own code: macOS `sample` (built in), or gdb or eu-stack on
+# Linux when the host has one. When the system will not let this user look into the process (Linux
+# ptrace_scope, a hardened macOS binary), it tries once more through sudo if sudo needs no password.
+# Whatever happens, it only writes what it saw; it never fails the dump.
+native_stack() {
+  local pid=$1 name="" out code
+  out=$(mktemp)
+  if [ "$(uname -s)" = Darwin ] && command -v sample >/dev/null 2>&1; then
+    name=sample
+    set -- sample "$pid" 3 -file "$out.sample"
+  elif command -v gdb >/dev/null 2>&1; then
+    name=gdb
+    set -- gdb -batch -nx -p "$pid" -ex "thread apply all bt"
+  elif command -v eu-stack >/dev/null 2>&1; then
+    name=eu-stack
+    set -- eu-stack -p "$pid"
+  fi
+  if [ -z "$name" ]; then
+    echo "native stack: no native stack tool on this host (sample, gdb or eu-stack)"
+    rm -f "$out"
+    return 0
+  fi
+  echo "native stack ($name, stopped after ${stack_limit}s at most):"
+  bounded "$stack_limit" "$out" "$@"
+  code=$?
+  if [ "$code" -ne 0 ] && [ "$code" -ne 124 ] && sudo -n true >/dev/null 2>&1; then
+    sed 's/^/  /' "$out"
+    echo "  ($name failed as this user; trying again through sudo)"
+    rm -f "$out.sample"
+    bounded "$stack_limit" "$out" sudo -n "$@"
+  fi
+  sed 's/^/  /' "$out"
+  if [ -s "$out.sample" ]; then sed 's/^/  /' "$out.sample"; fi
+  rm -f "$out" "$out.sample" 2>/dev/null
+  return 0
+}
+
 write_dump() {
   {
     echo "== Stall dump: no output for ${stall}s while the command was still running ($(date -u +%FT%TZ))"
@@ -42,18 +105,25 @@ write_dump() {
     ps -eo pid,ppid,etime,stat,wchan:20,args 2>/dev/null || ps -eo pid,ppid,etime,stat,args 2>&1
     echo
     echo "== Test workers"
-    local pid
-    for pid in $(pgrep -f 'bun test --test-worker' 2>/dev/null); do
+    local pid state children
+    for pid in $(pgrep -f "$workers" 2>/dev/null); do
       echo "-- worker $pid"
       ps -o pid,ppid,etime,stat,args -p "$pid" 2>&1 | tail -n +2
-      echo "children:"
-      ps -o pid,etime,stat,args --ppid "$pid" 2>/dev/null | tail -n +2 || true
+      # Children are picked from the full list by parent pid: the BSD ps on macOS has no --ppid.
+      children=$(ps -eo pid,ppid,etime,stat,args 2>/dev/null | awk -v p="$pid" 'NR > 1 && $2 == p')
+      echo "children (pid ppid etime stat args):"
+      if [ -n "$children" ]; then echo "$children"; else echo "  none"; fi
       if [ -d "/proc/$pid" ]; then
         echo "wchan: $(cat "/proc/$pid/wchan" 2>&1)"
         echo "kernel stack:"
         cat "/proc/$pid/stack" 2>&1 | head -30
         echo "open files: $(ls "/proc/$pid/fd" 2>/dev/null | wc -l)"
       fi
+      state=$(ps -o stat= -p "$pid" 2>/dev/null | tr -d ' ')
+      case "$state" in
+        R*) native_stack "$pid" ;;
+        *) echo "native stack: not taken, the worker is not on the CPU (state ${state:-gone})" ;;
+      esac
     done
     echo
     echo "== Test files (from $test_dir)"

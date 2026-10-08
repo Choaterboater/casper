@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { notLocalSource } from "../src/learn/candidates";
+import { CandidateLibrary, notLocalSource } from "../src/learn/candidates";
 import { SkillRegistry } from "../src/skills/registry";
 import { classifyTask } from "../src/task/classify";
 import { needsFifos, needsSymlinks, posixModes, posixOnly } from "./support/platform";
@@ -486,6 +486,33 @@ test("concurrent learning processes preserve both immutable drafts and keep repo
   expect(JSON.parse((await f.run(["learn", "inspect", f.project, a.id])).stdout).draft).toEqual(a);
   expect(JSON.parse((await f.run(["learn", "list", f.cwd])).stdout).drafts).toEqual([]);
   expect((await f.run(["learn", "inspect", f.cwd, a.id])).exit).toBe(1);
+});
+
+test("a learning run that fails says why, on one short line", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-learn-"));
+  cleanup.push(() => removeTempDir(root));
+  const home = path.join(root, "home"); const project = path.join(root, "source repo");
+  await mkdir(home); await mkdir(project);
+  const reason = "Casper model defaults are in use by another Casper;\u001b\u0007 try again\r\nin a moment." + " more".repeat(200);
+  const library = new CandidateLibrary({ homeDir: home, runtimeFactory: () => { throw new Error(reason); } });
+  cleanup.push(() => library.close());
+  const failure = await library.generate(project).then(() => undefined, (error: Error) => error.message);
+  expect(failure).toStartWith("Learning run incomplete (failed); no draft saved: Casper model defaults are in use by another Casper; try again in a moment. more");
+  expect(failure).not.toMatch(/[\u0000-\u001f]/);
+  expect(failure!.length).toBeLessThan(400);
+});
+
+test("a long failure reason cut short never ends in half an emoji", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-learn-"));
+  cleanup.push(() => removeTempDir(root));
+  const home = path.join(root, "home"); const project = path.join(root, "source repo");
+  await mkdir(home); await mkdir(project);
+  // 298 letters, then emoji: the 299th character is an emoji, which is two UTF-16 units.
+  const library = new CandidateLibrary({ homeDir: home, runtimeFactory: () => { throw new Error("a".repeat(298) + "😀".repeat(5)); } });
+  cleanup.push(() => library.close());
+  const failure = await library.generate(project).then(() => undefined, (error: Error) => error.message);
+  expect(failure).toEndWith(`: ${"a".repeat(298)}😀…`);
+  expect(failure).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
 });
 
 test("inspection retains observed provenance after source edits or removal, never claiming refreshed evidence", async () => {

@@ -9,11 +9,29 @@ import type { RuntimeModelInfo, RuntimeModelSelection, RuntimeModelSelectionOpti
 import { pickPiModel } from "./pi-model-picker";
 import { openRouterRequestHeaders } from "./openrouter-attribution";
 import { compactionReserveFor, smallWindowWarning } from "./small-window";
+import { lockBusy } from "../platform/files";
 
 type Selection = { reference?: ModelReference; source: "conversation" | "default" | "none"; role?: string; effort?: string; auto?: RuntimeStatus["autoEffort"] };
 type Settings = ReturnType<SettingsManager["getGlobalSettings"]>;
 type Preferences = { modelRoles?: ModelRoles; autoEffortModels?: string[] };
 const ENTRY = "casper.model-selection";
+
+/** Pi takes a lock folder (settings.json.lock) even to read settings, and gives up when it is held (ELOCKED) after
+ * about 200 ms. On Windows, creating that folder while another process is still deleting it fails EPERM, EACCES or
+ * EBUSY, which Pi does not retry at all. Either means another Casper is reading or writing the file, not that the
+ * file is broken. */
+export function settingsLockBusy(error: unknown, platform: NodeJS.Platform = process.platform): boolean {
+  const failure = error as NodeJS.ErrnoException | undefined;
+  if (failure?.code === "ELOCKED") return true;
+  return typeof failure?.path === "string" && path.basename(failure.path) === "settings.json.lock" && lockBusy(error, platform);
+}
+/** Waits between reads of a busy settings.json: 650 ms in all. A held lock also costs each of the 5 reads Pi's own
+ * busy-loop retries (9 x 20 ms), so a lock that never frees gives up after about 1.6 s. preferences() is synchronous
+ * (it backs sync getters), so the wait blocks: Atomics.wait sleeps the thread instead of spinning, which leaves the
+ * CPU to the Casper holding the lock. It only runs while the file is busy, and a lock is held for one small read or
+ * write. */
+const SETTINGS_BUSY_WAITS_MS = [50, 100, 200, 300];
+const PAUSE = new Int32Array(new SharedArrayBuffer(4));
 
 /** Shared Pi configuration may supply non-model preferences, never routing policy. */
 function withoutModels(settings: Settings): Settings {
@@ -110,8 +128,19 @@ export class PiModels {
         }
       } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     }
-    const settings = SettingsManager.create(this.directory, this.directory, { projectTrusted: false });
-    if (settings.drainErrors().length) throw new Error(`Cannot read Casper model defaults at ${path.join(this.directory, "settings.json")}; repair the file before selecting a model.`);
+    const file = path.join(this.directory, "settings.json");
+    let settings: SettingsManager;
+    for (let attempt = 0; ; attempt++) {
+      settings = SettingsManager.create(this.directory, this.directory, { projectTrusted: false });
+      const errors = settings.drainErrors();
+      if (!errors.length) break;
+      const busy = errors.every(({ error }) => settingsLockBusy(error));
+      const wait = SETTINGS_BUSY_WAITS_MS[attempt];
+      if (busy && wait !== undefined) { Atomics.wait(PAUSE, 0, 0, wait); continue; }
+      throw new Error(busy
+        ? `Casper model defaults at ${file} are in use by another Casper; try again in a moment.`
+        : `Cannot read Casper model defaults at ${file}; repair the file before selecting a model.`, { cause: errors[0]!.error });
+    }
     const provider = settings.getDefaultProvider(); const model = settings.getDefaultModel();
     if ((provider !== undefined || model !== undefined) &&
       (typeof provider !== "string" || !provider.trim() || typeof model !== "string" || !model.trim())) {

@@ -58,7 +58,8 @@ jobs:
       - name: Full regression suite (files in parallel)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         # Normal step: 7.5 min p90 (max 7.9). tools/stall-guard.sh stops a run silent for 180 s and writes
-        # stall-dump.txt next to the log.
+        # stall-dump.txt next to the log (every process, each test worker's children, and a `sample` of
+        # where a worker on the CPU is stuck).
         timeout-minutes: 13
         run: bash tools/stall-guard.sh "$RUNNER_TEMP/macos-preview/full-suite.log" 180 "$RUNNER_TEMP/macos-preview/stall-dump.txt" -- bun run test
       - name: Retain host verification evidence
