@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { chmod, copyFile, lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { currentSandbox } from "../sandbox/manager";
 import { installEnv, securityEnv } from "./env";
 import { runInstallStep, runTool, type ToolRunner } from "./spawn";
 import { hostPlatform, pinnedToolDir, pinnedToolPath, SECURITY_TOOLS, type LockedSpec, type SecurityToolSpec, type UvLockSource } from "./tools";
@@ -448,22 +449,27 @@ export const OSV_UPDATE_QUESTION: NumberedQuestion = {
   choices: ["Stop", "Download it"],
 };
 
+/** A copy on PATH was never hash-checked, so the download leaves it in the sandbox, with no network. */
+export const OSV_PATH_SANDBOXED = "osv-scanner could not download the advisory data: your own osv-scanner on PATH runs in the shell sandbox, which has no network. Only the copy Casper installs downloads outside it; remove yours from PATH and /security-review installs it.";
+
 /**
  * Downloads osv-scanner's advisory data for the package types this repo uses. The only networked step
  * besides installing; the host asks first. Returns a plain line for the report. Like an install step it writes
- * ~/.casper and needs the network, so it runs outside the session's shell sandbox: the osv-scanner Casper installed
- * (or your own on PATH) with only Casper's own arguments, and --no-resolve, so it reads lock files and runs no repo code.
+ * ~/.casper and needs the network, so the osv-scanner Casper installed (hash-checked) runs outside the session's shell
+ * sandbox, with only Casper's own arguments and --no-resolve, so it reads lock files and runs no repo code. Your own copy
+ * on PATH was never checked, so it stays in the sandbox, which has no network.
  */
-export async function updateOsvDb(root: string, toolPath: string, options: InstallOptions & { signal?: AbortSignal }): Promise<{ ok: boolean; message: string }> {
+export async function updateOsvDb(root: string, tool: { kind: "pinned" | "path"; path: string }, options: InstallOptions & { signal?: AbortSignal }): Promise<{ ok: boolean; message: string }> {
   const dir = osvDbDir(options.homeDir);
   await mkdir(dir, { recursive: true, mode: 0o700 });
-  const result = await (options.run ?? runInstallStep)({
-    file: toolPath, args: ["scan", "source", "--offline-vulnerabilities", "--download-offline-databases", "--no-resolve", "--format", "json", "--recursive", "."],
+  const result = await (options.run ?? (tool.kind === "pinned" ? runInstallStep : runTool))({
+    file: tool.path, args: ["scan", "source", "--offline-vulnerabilities", "--download-offline-databases", "--no-resolve", "--format", "json", "--recursive", "."],
     cwd: root, env: { ...installEnv(options.env ?? process.env), OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY: dir }, timeoutMs: 600_000, signal: options.signal,
   });
   const state = await osvDbState(options.homeDir);
   if ((result.exitCode === 0 || result.exitCode === 1 || result.exitCode === 128) && state.present) {
     return { ok: true, message: `Advisory data downloaded for ${state.ecosystems.join(", ")}.` };
   }
+  if (tool.kind === "path" && currentSandbox()?.on) return { ok: false, message: OSV_PATH_SANDBOXED };
   return { ok: false, message: "osv-scanner could not download the advisory data." };
 }
