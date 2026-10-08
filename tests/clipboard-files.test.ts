@@ -96,7 +96,8 @@ test("the next tool is tried only when one is not installed; a Wayland clipboard
 const bun = (script: string, ...args: string[]): ClipboardFilesCommand => ({ file: process.execPath, args: ["-e", script, ...args], output: "paths" });
 
 test("a clipboard tool runs without a shell: its arguments reach it as they are", async () => {
-  const output = await runClipboardTool(bun("process.stdout.write(JSON.stringify(process.argv.slice(1)))", "a;b", "$(echo hi)", "`id`", "x && y", "%PATH%", "| more"));
+  // A generous limit: starting bun on a loaded runner can take longer than the tool's own default.
+  const output = await runClipboardTool(bun("process.stdout.write(JSON.stringify(process.argv.slice(1)))", "a;b", "$(echo hi)", "`id`", "x && y", "%PATH%", "| more"), 20_000);
   expect(JSON.parse(output!)).toEqual(["a;b", "$(echo hi)", "`id`", "x && y", "%PATH%", "| more"]);
 });
 
