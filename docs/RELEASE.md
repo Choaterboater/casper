@@ -1317,7 +1317,9 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
   or `This download doesn't match a Casper build from GitHub. Nothing installed.` A `gh` older
   than 2.49 has no `attestation` command; the installers and `casper update` then go on with the
   SHA-256 (and signature) checks, and the installers say `This gh is too old to check where it was
-  built (gh 2.49 or newer can).` The shell installer's
+  built (gh 2.49 or newer can).` A `gh` that has the command but whose check fails is still a
+  refusal; Windows CI runs both cases for `install.ps1` with a stand-in `gh`
+  (`scripts/test-install-signature-windows.ps1`). The shell installer's
   `CASPER_BASE_URL` accepts an `http(s)` URL, a `file://` URL or a local directory for
   offline/internal installs. PowerShell downloads through `Invoke-WebRequest`; use an
   HTTP(S) base URL there.

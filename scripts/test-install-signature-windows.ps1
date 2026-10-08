@@ -143,6 +143,18 @@ try {
   Reset-Install
   Assert-Refused 'a failed check with an old one''s words' (Invoke-Install 'install-keyed.ps1' ($Local + @{ Path = "$Fakes\new;$env:Path" })) $Refused
 
+  # Where it was built is asked of a signed-in gh. One older than 2.49 has no `attestation`: it is named and the
+  # SHA-256 decides. One that has it (its help works) but whose check fails is a refusal, never taken for an old one.
+  $FakeGh = Join-Path $Temp 'fake gh'
+  New-Item -ItemType Directory -Path (Join-Path $FakeGh 'old'), (Join-Path $FakeGh 'new') | Out-Null
+  [IO.File]::WriteAllText((Join-Path $FakeGh 'old\gh.cmd'), "@echo off`r`nif `"%~1`"==`"auth`" exit /b 0`r`necho unknown command `"%~1`" for `"gh`" 1>&2`r`nexit /b 1`r`n")
+  [IO.File]::WriteAllText((Join-Path $FakeGh 'new\gh.cmd'), "@echo off`r`nif `"%~1`"==`"auth`" exit /b 0`r`nif `"%~1 %~2 %~3`"==`"attestation verify --help`" exit /b 0`r`necho Error: verifying with issuer `"sigstore.dev`" 1>&2`r`nexit /b 1`r`n")
+  Set-Signature $Key $Sums
+  Reset-Install
+  Assert-Installed 'a signed-in gh too old to have attestation' (Invoke-Install 'install-keyed.ps1' ($Local + @{ Path = "$FakeGh\old;$env:Path" })) 'Checked SHA-256. This gh is too old to check where it was built (gh 2.49 or newer can).'
+  Reset-Install
+  Assert-Refused 'a gh whose build check fails' (Invoke-Install 'install-keyed.ps1' ($Local + @{ Path = "$FakeGh\new;$env:Path" })) "This download doesn't match a Casper build from GitHub. Nothing installed."
+
   # A 32-bit Windows PowerShell on 64-bit Windows is shown SysWOW64 for System32, where OpenSSH is not. It must still
   # find Windows' own ssh-keygen, so a 32-bit shell gets the same check. Only System32's OpenSSH stays on its PATH.
   $Shell32 = Join-Path $env:windir 'SysWOW64\WindowsPowerShell\v1.0\powershell.exe'
@@ -158,7 +170,7 @@ try {
   } else {
     Write-Host "skip: 32-bit PowerShell case (64-bit process: $([Environment]::Is64BitProcess), $Shell32 there: $(Test-Path $Shell32), $Native there: $(Test-Path $Native))"
   }
-  Write-Host 'PASS: install.ps1 installs a list signed with the pinned key; refuses another key, a changed list, a broken signature and a missing one from the release address; says so for a missing one elsewhere and an old ssh-keygen; a 32-bit PowerShell checks too'
+  Write-Host 'PASS: install.ps1 installs a list signed with the pinned key; refuses another key, a changed list, a broken signature and a missing one from the release address; says so for a missing one elsewhere, an old ssh-keygen and an old gh; refuses a failed gh build check; a 32-bit PowerShell checks too'
 } finally {
   if ($Server -and -not $Server.HasExited) { Stop-Process -Id $Server.Id -ErrorAction SilentlyContinue }
   # The installs above add their folder to the user PATH; put it back as it was, type and all.
