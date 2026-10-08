@@ -49,8 +49,10 @@ Pick one to change:
 The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
 A change applies from now on (built-in skills, packs and the prompt cache from the next start) and says so:
-`[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Where Casper can't ask (a one-shot
-run), `/settings` lists them. `/details <level>` saves the work shown the same way, like `/effort`.
+`[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` A switch turned off is written as
+`false` (`packs: false`); `off` in a config you write yourself works the same. Where Casper can't
+ask (a one-shot run), `/settings` lists them. `/details <level>` saves the work shown the same way,
+like `/effort`.
 
 ### Web lookups
 
@@ -58,9 +60,10 @@ The AI can search the web and read public pages, with no question: `web_search` 
 by default, and `web_fetch` reads one page. Both reach only public `https` pages on ports 80 and 443
 (`http` is upgraded), checked again on every redirect; a search or address holding a secret is
 refused and never sent, and secrets on a page are hidden before the AI sees it. Turn them off with
-`/settings` (it writes `web: off`). Brave Search (`web: { provider: brave }`, with your key saved
-as `brave` in `~/.casper/agent/auth.json`) and your own SearXNG (`web: { provider: searxng,
-searxngUrl: <address> }`) are the other choices. A project file can't change `web:`.
+`/settings` (it writes `web: false`, or `web.enabled: false` when your `web:` sets a provider).
+Brave Search (`web: { provider: brave }`, with your key saved as `brave` in
+`~/.casper/agent/auth.json`) and your own SearXNG (`web: { provider: searxng, searxngUrl: <address> }`)
+are the other choices. A project file can't change `web:`.
 
 ### Side questions
 
@@ -77,9 +80,10 @@ ordinary request. A project file can't change `sideQuestions:`. See
 `casper_read_untrusted` lets the AI read a log, an email or a web form through a separate model call
 with no tools; the AI gets back only JSON in the shape it asked for, never the text. It is on, and
 costs nothing until the AI calls it (then one small request on your `fast` model, or the session's
-model when none is set). Turn it off with `/settings` (it writes `reader: off`). `reader: { untrusted:
-["logs/**"] }` names paths the AI should read only this way; a project file (or a profile it picks) may add
-paths there but can't turn the reader on or off. See [READER.md](READER.md).
+model when none is set). Turn it off with `/settings` (it writes `reader: false`, or
+`reader.enabled: false` when your `reader:` lists paths). `reader: { untrusted: ["logs/**"] }` names
+paths the AI should read only this way; a project file (or a profile it picks) may add paths there
+but can't turn the reader on or off. See [READER.md](READER.md).
 
 ### Helpers that build
 
@@ -91,7 +95,7 @@ off for itself, never back on for you.
 ### Browser tool
 
 The AI's own browser opens pages and reads them when a task needs it (see [BROWSER.md](BROWSER.md)).
-It is on. Turn it off with `/settings` (it writes `browser: off`): the AI is never offered the
+It is on. Turn it off with `/settings` (it writes `browser: false`): the AI is never offered the
 `browser` tool. The page checks after a change still run, since they are Casper's own check, not
 the AI's browser; `/browser`, typed by you, still works. A project file (or a profile it picks)
 can't turn it on or off.
@@ -100,13 +104,13 @@ can't turn it on or off.
 
 In an empty folder, a first request that fits a template (a NOC dashboard, an MCP server) is built
 from it, with one `[new]` line and no question (see [NEW.md](NEW.md)). It is on. Turn it off with
-`/settings` (it writes `templates: off`): the request goes straight to the AI. Say "from scratch" in a
+`/settings` (it writes `templates: false`): the request goes straight to the AI. Say "from scratch" in a
 request to skip it once. A project file (or a profile it picks) can't turn it on or off.
 
 ### Packs
 
 Skill packs you add with `/pack add` (see [PACKS.md](PACKS.md)) are on. Their skills cost no tokens
-until a request fits one. Turn them off with `/settings` (it writes `packs: off`): the packs you added
+until a request fits one. Turn them off with `/settings` (it writes `packs: false`): the packs you added
 stay in `~/.casper/packs` but no skill of theirs is used, and `/pack add` adds none. It applies from
 the next start. A project file (or a profile it picks) can't turn packs on or off or name a pack:
 `packs:` in `.casper/project.yaml` stops configuration loading with an error.
@@ -120,7 +124,7 @@ packs: off # default on
 
 The AI checks this repo's pull requests and CI through GitHub's `gh` tool when a request names them
 (see [GITHUB.md](GITHUB.md)). It is on, and asks once per repo first. Turn it off with `/settings` (it
-writes `github: off`): the AI is never offered the `github` tool. A project file (or a profile it
+writes `github: false`): the AI is never offered the `github` tool. A project file (or a profile it
 picks) can't turn it on or off: `github:` in `.casper/project.yaml` stops configuration loading with
 an error.
 
@@ -128,7 +132,7 @@ an error.
 
 The AI draws a diagram when a task asks for a map, chart or flow (see
 [VISUALIZATION.md](VISUALIZATION.md)). It is on. Turn it off with `/settings` (it writes
-`visualize: off`, or `visualize.enabled: false` when your `visualize:` lists providers): the AI is
+`visualize: false`, or `visualize.enabled: false` when your `visualize:` lists providers): the AI is
 never offered the `visualize` tool. `/visualize`, typed by you, still works. A project file may pick
 `visualize.providers` but can't turn the tool on or off.
 
@@ -149,7 +153,7 @@ more). It applies from the next start. See [Prompt cache](#prompt-cache-1).
 
 After a UI change Casper opens the changed pages in its own headless browser and checks they load
 (see [VERIFICATION.md](VERIFICATION.md#page-checks)). They are on. Turn them off for every project
-with `/settings` (it writes `pages: off` in your own config). A project file can still turn them off
+with `/settings` (it writes `pages: false` in your own config). A project file can still turn them off
 for itself (`pages: off`), but its list of pages doesn't turn them back on for you, and neither does
 a profile it picks. In your own config `pages:` takes only on or off; the list of pages is the
 project's.
@@ -158,7 +162,7 @@ project's.
 
 On requests to OpenRouter Casper sends only the app name and site, so OpenRouter files the use under
 Casper (kept out of its public rankings for now); nothing about your code. It is on. Turn it off with
-`/settings` (it writes `telemetry: off`) or `CASPER_TELEMETRY=0`; either one off is off. A project
+`/settings` (it writes `telemetry: false`) or `CASPER_TELEMETRY=0`; either one off is off. A project
 file can't change `telemetry:`. See [OpenRouter app attribution](#provider-credentials).
 
 ### Fetching ripgrep
