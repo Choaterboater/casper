@@ -10,6 +10,7 @@ import path from "node:path";
 import { tildePath } from "../new/scaffold";
 import { isOutside } from "../platform/inside";
 import { explainModelError } from "../runtime/model-errors";
+import type { CheckProgressRun } from "../verify/progress";
 
 /** Session-owned effects the renderer needs; the app implements these against its state. */
 export interface RuntimeEventCallbacks {
@@ -33,7 +34,17 @@ export interface RuntimeEventCallbacks {
   homeDir?(): string;
   /** How much of the work shows (display: in the config, /details). Unset: normal. */
   display?(): DisplayLevel;
+  /** Plain terminal: say once a minute that a long check still runs. Unset: yes. (`--json` says no.) */
+  announceLongChecks?(): boolean;
 }
+
+/** A check Casper itself is running, for the Working box (rich) or the once-a-minute line (plain). */
+interface RunningCheck { name: string; startedAt: number; tail?: string; minutes?: ReturnType<typeof setInterval> }
+
+/** A plain terminal says a check still runs this often. */
+export const PLAIN_CHECK_EVERY_MS = 60_000;
+/** How many running checks the Working box lists. */
+const BOX_CHECKS = 3;
 
 /** The last finished step in full, for ctrl+t: an edit's whole diff, or what a tool printed. */
 export interface ExpandedStep { title: string; body: string; diff: boolean }
@@ -151,6 +162,12 @@ export class RuntimeEventView {
   private status?: string;
   private responseActivity?: string;
   private responseStartedAt?: number;
+  /** When the model or provider last said anything (a response starting, reasoning or a tool call being prepared). */
+  private heardAt?: number;
+  private waitingFor = "model response";
+  private readonly checks = new Map<number, RunningCheck>();
+  private checkSeq = 0;
+  private checkTitle?: string;
   private activityTimer?: NodeJS.Timeout;
   private stepTimer?: NodeJS.Timeout;
   private endedWithNewline = true;
@@ -222,8 +239,17 @@ export class RuntimeEventView {
       const tail = step.tail && this.level() !== "quiet" ? lastOutputLine(step.tail, width) : "";
       return tail ? [head, `${TAIL_MARK}${tail}`] : [head];
     });
-    // The elapsed time moves on its own: redraw once a second while a step runs, never otherwise.
-    const running = this.steps.some(step => step.endedAt === undefined && step.start);
+    // Checks Casper runs itself: a line each once they have run 10 s, with the last line they printed.
+    for (const check of [...this.checks.values()].slice(0, BOX_CHECKS)) {
+      const suffix = runningElapsed(now - check.startedAt);
+      if (!suffix) continue;
+      const width = this.terminal.columns ? Math.max(10, this.terminal.columns - 8) : 80;
+      lines.push(`${lastOutputLine(check.name, width - suffix.length)}${suffix}`);
+      const tail = check.tail ? lastOutputLine(check.tail, width) : "";
+      if (tail) lines.push(`${TAIL_MARK}${tail}`);
+    }
+    // The elapsed time moves on its own: redraw once a second while a step or a check runs, never otherwise.
+    const running = this.checks.size > 0 || this.steps.some(step => step.endedAt === undefined && step.start);
     if (running && !this.stepTimer) {
       this.stepTimer = setInterval(() => this.renderBox(), 1000);
       this.stepTimer.unref?.();
@@ -242,6 +268,41 @@ export class RuntimeEventView {
   /** A builder started, ended or spent more: redraw the box so its line is current. */
   refreshBuilders(): void { this.renderBox(); }
 
+  /** Names the checks that start next ("tests written from the request alone"); undefined: their own names. */
+  labelChecks(label?: string): void { this.checkTitle = label; }
+
+  /** A check Casper runs itself starts: returns what to tell about it, or nothing when no line is wanted. */
+  watchCheck(name: string): CheckProgressRun | undefined {
+    const level = this.level();
+    const title = this.checkTitle ?? name;
+    const id = ++this.checkSeq;
+    const entry: RunningCheck = { name: title, startedAt: performance.now() };
+    if (this.terminal.rich) {
+      if (level === "quiet") return undefined;
+      this.checks.set(id, entry);
+      this.renderBox();
+    } else {
+      if (level === "quiet" || this.callbacks.announceLongChecks?.() === false) return undefined;
+      this.checks.set(id, entry);
+      let minutes = 0;
+      entry.minutes = setInterval(() => {
+        minutes++;
+        this.terminal.endAssistant();
+        this.ensureLineBreak();
+        this.output.write(`[checks] ${terminalText(title)} still running · ${minutes}m\n`);
+        this.endedWithNewline = true;
+      }, PLAIN_CHECK_EVERY_MS);
+      entry.minutes.unref?.();
+    }
+    return {
+      update: (text) => { entry.tail = lastOutputLine(text, 300); if (this.terminal.rich) this.renderBox(); },
+      end: () => {
+        if (entry.minutes) clearInterval(entry.minutes);
+        if (this.checks.delete(id) && this.terminal.rich) this.renderBox();
+      },
+    };
+  }
+
   private setResponseActivity(activity: string): void {
     if (!this.terminal.rich) return;
     this.responseActivity = activity;
@@ -257,6 +318,9 @@ export class RuntimeEventView {
     if (!this.responseActivity || this.responseStartedAt === undefined) return;
     const seconds = Math.floor((performance.now() - this.responseStartedAt) / 1000);
     const minutes = Math.floor(seconds / 60);
+    // Nothing heard for 10 s: say plainly what Casper is waiting for, counting from the last word.
+    const silent = this.heardAt === undefined ? 0 : performance.now() - this.heardAt;
+    if (runningElapsed(silent)) { this.status = `Waiting for ${this.waitingFor}${runningElapsed(silent)}`; this.renderBox(); return; }
     const elapsed = minutes ? `${minutes}m${String(seconds % 60).padStart(2, "0")}s` : `${seconds}s`;
     this.status = `${this.responseActivity} · ${elapsed}`;
     this.renderBox();
@@ -264,7 +328,7 @@ export class RuntimeEventView {
 
   private clearResponseActivity(): void {
     if (this.activityTimer) clearInterval(this.activityTimer);
-    this.activityTimer = undefined; this.responseActivity = undefined; this.responseStartedAt = undefined;
+    this.activityTimer = undefined; this.responseActivity = undefined; this.responseStartedAt = undefined; this.heardAt = undefined;
   }
 
   private setStaticActivity(activity?: string): void {
@@ -341,6 +405,8 @@ export class RuntimeEventView {
     this.fold();
     this.steps = [];
     this.stopStepTimer();
+    for (const check of this.checks.values()) if (check.minutes) clearInterval(check.minutes);
+    this.checks.clear(); this.checkTitle = undefined;
     this.clearResponseActivity();
     this.status = undefined;
     this.toolStarted.clear();
@@ -382,13 +448,16 @@ export class RuntimeEventView {
       case "assistant_response_start": {
         this.clearResponseActivity();
         const model = [event.provider, event.model].filter((part): part is string => Boolean(part)).map(terminalText).join("/");
-        this.setResponseActivity(`Waiting for ${model || "model response"}`);
+        this.waitingFor = model || "model response";
+        this.heardAt = performance.now();
+        this.setResponseActivity(`Waiting for ${this.waitingFor}`);
         break;
       }
       case "assistant_progress": {
         if (!this.terminal.rich) break;
         // Some providers deliver tool arguments whole; the box then says what is being prepared.
         const size = event.chars === 0 ? "" : event.chars >= 1024 ? ` · ${(event.chars / 1024).toFixed(1)}k chars` : ` · ${event.chars} chars`;
+        this.heardAt = performance.now();
         const what = event.kind === "thinking" ? "Reasoning" : `Preparing ${terminalText(event.toolName ?? "tool call")}`;
         this.setResponseActivity(`${what}${size}`);
         break;
@@ -400,7 +469,7 @@ export class RuntimeEventView {
         const provider = terminalText(event.provider ?? "the model provider");
         const wait = `${Math.max(1, Math.ceil(event.delayMs / 1000))}s`;
         this.output.write(`… Can't reach ${provider} · trying again in ${wait} (${event.attempt} of ${event.maxAttempts})${this.terminal.rich ? " · Esc stops" : ""}\n`);
-        this.setStaticActivity(`Waiting to try ${provider} again`);
+        this.setStaticActivity(`Retrying ${provider} · attempt ${event.attempt} of ${event.maxAttempts}`);
         this.endedWithNewline = true;
         break;
       }

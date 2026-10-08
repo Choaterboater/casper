@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import type { CheckName, VerificationResult } from "./evidence";
 import { withoutProviderKeys } from "../platform/environment";
 import { osSupportsProcessGroups, ownSpawnedTree, type OwnedProcesses, terminateTree } from "../platform/processes";
+import { type CheckProgress, currentCheckProgress, ProgressFeed } from "./progress";
 import { currentSandbox, type SandboxWrapOptions, type ShellSandbox } from "../sandbox/manager";
 
 const OUTPUT_BYTES = 8192;
@@ -60,6 +61,8 @@ export interface CommandCheckOptions {
   onCleanupFailure?: () => void;
   /** The command's environment; unset inherits Casper's. AI provider keys are always taken out. */
   env?: NodeJS.ProcessEnv;
+  /** Told how the run goes (start, the end of its output, end) for the Working box. Unset: the app's own sink, if any. */
+  progress?: CheckProgress;
 }
 
 // cmd.exe's "not found", and `cmd /c` exits 1 (9009 inside a batch file).
@@ -127,6 +130,7 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
       resolve({ ...base(), status: "fail", exitCode: null, signal: null, reason: `Could not execute: ${error instanceof Error ? error.message : String(error)}`, ended: "no_start" });
       return;
     }
+    const feed = new ProgressFeed(options.progress ?? currentCheckProgress(), name);
     let killTimer: ReturnType<typeof setTimeout> | undefined;
     let settled = false;
     const kill = async (terminationSignal: NodeJS.Signals) => {
@@ -142,6 +146,7 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
     const finish = (exitCode: number | null, exitSignal: NodeJS.Signals | null) => {
       if (settled) return;
       settled = true;
+      feed.end();
       clearTimeout(timer); clearTimeout(killTimer);
       signal?.removeEventListener("abort", abort);
       child.stdout.destroy(); child.stderr.destroy();
@@ -166,8 +171,8 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
     const abort = () => stop("Verification cancelled");
     const timer = setTimeout(() => stop(`Timed out after ${timeoutMs}ms`), timeoutMs);
     signal?.addEventListener("abort", abort, { once: true });
-    child.stdout.on("data", (chunk: Buffer) => stdout.add(chunk));
-    child.stderr.on("data", (chunk: Buffer) => stderr.add(chunk));
+    child.stdout.on("data", (chunk: Buffer) => { stdout.add(chunk); feed.add(chunk); });
+    child.stderr.on("data", (chunk: Buffer) => { stderr.add(chunk); feed.add(chunk); });
     child.on("error", (error) => { reason = `Could not execute: ${error.message}`; });
     child.on("close", async (exitCode, exitSignal) => {
       clearTimeout(timer); clearTimeout(killTimer);

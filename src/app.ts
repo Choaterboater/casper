@@ -84,6 +84,7 @@ import { browserSession, serviceManager, stopDebugger, backgroundTasks } from ".
 import type { BigModelChoice } from "./app/big-model";
 import { openProjectCommand, offerWorkFolder } from "./app/workspace";
 import { ensureSessionWorkspace, handleBranchCommand, handleSwitchCommand } from "./app/session-branches";
+import { setCheckProgress } from "./verify/progress";
 import { runVerification, checksPlan, saveFoundCheck } from "./app/verification";
 import { runInteractive, handlePrompt, handleSlashCommand, cancelCurrent, writePrompt } from "./app/command-loop";
 import { loadWorkspace, reloadReferences, reloadSkills, projectPrivatePaths, reportSkillWarnings, bannerChecks, reportNewerCasper } from "./app/wiring";
@@ -454,6 +455,7 @@ export class CasperApp {
       builderGoals: () => this.subagents.runs().filter(run => run.role === "builder").map(run => run.goal),
       reviewerCount: () => this.subagents.runs().filter(run => run.role === "reviewer").length,
       display: () => displayLevel(this),
+      announceLongChecks: () => this.onEvent === undefined,
       onToolEnd: event => {
         this.observations.observeToolEnd(event, this.projectContext?.model.commands);
         if (["bash", "edit", "write"].includes(event.toolName)) this.browser?.invalidate();
@@ -474,6 +476,9 @@ export class CasperApp {
       projectRoot: () => this.projectContext ? this.activeWorkspaceRoot() : undefined,
       homeDir: () => this.sessionHomeDir ?? os.homedir(),
     });
+    // Checks Casper runs itself tell the Working box how they go (see verify/progress.ts).
+    const releaseCheckProgress = setCheckProgress(name => this.events.watchCheck(name));
+    this.lifecycle.add({ name: "check-progress", close: async () => { releaseCheckProgress(); } });
     this.verbose = options.verbose ?? false;
     this.startupWarnings = options.startupWarnings ?? [];
     this.updateCheck = options.updateCheck;
