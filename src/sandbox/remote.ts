@@ -1,7 +1,7 @@
-import { accessSync, constants, readFileSync, statSync } from "node:fs";
+import { accessSync, constants, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { realpathLongest, within } from "../platform/project-paths";
+import { gitInternalPart, realpathLongest, within } from "../platform/project-paths";
 
 /**
  * Commands that reach another machine directly: ssh, scp, sftp, rsync over ssh, nc/ncat/netcat, telnet and socat.
@@ -202,6 +202,20 @@ function parseOptions(words: string[], valued: Set<string>, stopAtFirstArg: bool
   return { args, values };
 }
 
+/**
+ * ssh's words as OpenSSH reads them: options up to the host name, then the host, then options again (ssh parses
+ * the rest a second time) until the first word that is not an option or a `--`. What follows is the remote command,
+ * whose words are never ssh options (`ssh host ls -la`). Options after the host count like those before it.
+ */
+function parseSshWords(words: string[]): ParsedOptions & { remote: string[] } {
+  const first = parseOptions(words, SSH_VALUE, true);
+  const host = first.args[0];
+  if (host === undefined) return { ...first, remote: [] };
+  const second = parseOptions(first.args.slice(1), SSH_VALUE, true);
+  const remote = second.args;
+  return { args: [host, ...remote], values: [...first.values, ...second.values], remote };
+}
+
 /** [user@]host[:port] and ssh://user@host:port. */
 function destination(text: string): { user?: string; host: string; port?: number } | undefined {
   let rest = text.replace(/^(?:ssh|sftp|scp|telnet|rsync):\/\//i, "");
@@ -280,11 +294,11 @@ export function segmentTargets(words: string[]): { tool?: RemoteTool; targets: R
     targets.push({ tool, typed: found.host, ...(user ? { user } : {}), ...(port ? { port } : {}), ...(alias ? { alias } : {}), ...(PLAIN_HOST.test(found.host) ? {} : { unclear: true as const }) });
   };
   if (name === "ssh" || name === "autossh" || name === "ssh-copy-id" || name === "mosh") {
-    const { args, values } = parseOptions(rest, SSH_VALUE, true);
+    const { args, values, remote } = parseSshWords(rest);
     const options = sshOptionTargets(values);
     for (const jump of options.jumps) add("ssh", destination(jump), {}, jump);
     add("ssh", args[0] ? destination(args[0]) : undefined, options, args[0]);
-    return { tool: "ssh", targets, remote: args.slice(1), values, args };
+    return { tool: "ssh", targets, remote, values, args };
   }
   if (name === "scp") {
     const { args, values } = parseOptions(rest, SCP_VALUE, false);
@@ -445,7 +459,7 @@ const LOCAL_EFFECT_FLAG = new Set(["-D", "-L", "-R", "-W", "-w", "-f", "-N", "-M
  * a program here, forwards a port or the agent, or goes to the background, and (scp) local files only inside the
  * project. Anything else stays in the sandbox.
  */
-export function runsAlone(command: string, root: string, cwd = root): boolean {
+export function runsAlone(command: string, root: string, cwd = root, places: LocalPlaces = {}): boolean {
   const line = splitShell(command);
   if (!line.simple) return false;
   const words = line.segments[0]!.words;
@@ -459,13 +473,85 @@ export function runsAlone(command: string, root: string, cwd = root): boolean {
     if (flag.startsWith("--") || LOCAL_EFFECT_FLAG.has(flag)) return false;
     if (flag === "-o" && (LOCAL_EFFECT_OPTION.test(value) || writesKnownHosts(value))) return false;
   }
-  if (parsed.tool === "scp") {
-    for (const arg of parsed.args) {
-      if (remoteFileHost(arg)) continue;
-      // ~, $VAR and globs expand in the shell to places this check can't see.
-      if (/^~|[$*?[{]/.test(arg)) return false;
-      const local = realpathLongest(path.resolve(cwd, arg));
-      if (!within(realpathLongest(root), local)) return false;
+  if (parsed.tool === "scp" && !scpLocalFilesSafe(parsed.args, parsed.values.some(([flag]) => flag === "-r"), root, cwd, places)) return false;
+  return true;
+}
+
+/** The sandbox's own answers about places, so scp is held to the same rules as a sandboxed command. */
+export interface LocalPlaces {
+  /** Whether a command run in the sandbox could not write `absolute` (read-only: git's own files, private places). */
+  writeBlocked?: (absolute: string) => boolean;
+  /** Whether `absolute` is a private place the sandbox hides. */
+  readBlocked?: (absolute: string) => boolean;
+}
+
+/** Where a path lands when the OS follows it step by step: a `..` after a link goes back from the link's target. */
+function physicalPath(cwd: string, arg: string): string {
+  let current = realpathLongest(cwd);
+  if (path.isAbsolute(arg)) current = path.parse(arg).root;
+  for (const part of arg.split(/[\\/]+/)) {
+    if (!part || part === ".") continue;
+    current = part === ".." ? path.dirname(current) : realpathLongest(path.join(current, part));
+  }
+  return current;
+}
+
+const WALK_LIMIT = 2000;
+const WALK_DEPTH = 16;
+
+/**
+ * Whether the files under `dir` can be copied without surprises: no link in it leads outside `root` or to a place
+ * `blocked` names, and (`deep`, for scp -r) the same for every folder below it. false when the walk is too big or
+ * can't be read: an unclear folder is not plain.
+ */
+function treeIsSafe(dir: string, root: string, blocked: (absolute: string) => boolean, deep: boolean, budget = { left: WALK_LIMIT }, depth = 0): boolean {
+  if (depth > WALK_DEPTH) return false;
+  let entries;
+  try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return false; }
+  for (const entry of entries) {
+    if (--budget.left < 0) return false;
+    const file = path.join(dir, entry.name);
+    if (entry.isSymbolicLink()) {
+      let real: string;
+      try { real = realpathSync(file); } catch { return false; } // a link to nowhere is created through
+      if (!within(root, real) || blocked(real)) return false;
+    } else if (entry.isDirectory() && deep) {
+      if (blocked(file) || !treeIsSafe(file, root, blocked, deep, budget, depth + 1)) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * scp's local side must be inside the project and clear of what the sandbox protects: git's own files, private
+ * places, links that lead out. The last argument is where files are written; a folder there (or any folder sent)
+ * gets its links checked, since the far side picks the names created in it.
+ */
+function scpLocalFilesSafe(args: string[], recursive: boolean, root: string, cwd: string, places: LocalPlaces): boolean {
+  const realRoot = realpathLongest(root);
+  const home = os.homedir();
+  const writeBlocked = (absolute: string) => gitInternalPart(absolute, root, home) !== undefined || places.writeBlocked?.(absolute) === true;
+  const readBlocked = (absolute: string) => places.readBlocked?.(absolute) === true;
+  const kind = (absolute: string) => { try { return statSync(absolute); } catch { return undefined; } };
+  const last = args.length - 1;
+  for (const [at, arg] of args.entries()) {
+    if (remoteFileHost(arg)) continue;
+    // ~, $VAR and globs expand in the shell to places this check can't see.
+    if (/^~|[$*?[{]/.test(arg)) return false;
+    const local = physicalPath(cwd, arg);
+    if (!within(realRoot, local) || readBlocked(local)) return false;
+    const written = at === last;
+    if (written && writeBlocked(local)) return false;
+    if (!kind(local)?.isDirectory()) continue;
+    if (!treeIsSafe(local, realRoot, written ? writeBlocked : readBlocked, written ? recursive : true)) return false;
+    if (!written) continue;
+    // Files land in this folder under names the far side picks: not over git's own entries (a folder of that name
+    // only with -r).
+    let names: string[];
+    try { names = readdirSync(local); } catch { return false; }
+    for (const name of names) {
+      const child = path.join(local, name);
+      if (writeBlocked(child) && (recursive || !kind(child)?.isDirectory())) return false;
     }
   }
   return true;

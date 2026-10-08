@@ -671,6 +671,19 @@ test("an ssh named with a path (./ssh, bin/ssh), or a bare ssh that is not the s
   await other.close();
 });
 
+test("an ssh with options after the host that are not plain, or an scp onto git's files, is never given the box; a plain one is", async () => {
+  const w = await world({ answers: Array.from({ length: 6 }, () => "Yes, this once") });
+  await mkdir(path.join(w.project, ".git", "hooks"), { recursive: true });
+  for (const command of ["ssh admin@192.0.2.10 -o ProxyCommand=true", "ssh admin@192.0.2.10 -F notes.txt uptime", "scp admin@192.0.2.10:/tmp/x .git/hooks/pre-commit"]) {
+    expect(await w.shell.approve!(command)).toBeUndefined();
+    const wrapped = await w.shell.wrap(command, w.project);
+    expect([command, wrapped.ssh?.env]).toEqual([command, undefined]);
+  }
+  expect(await w.shell.approve!("ssh admin@192.0.2.10 ls -la")).toBeUndefined();
+  expect((await w.shell.wrap("ssh admin@192.0.2.10 ls -la", w.project)).ssh?.env).toBeDefined();
+  await w.close();
+});
+
 viaBash("a project script named ssh on the path never sees the askpass pointer or the password", async () => {
   const w = await world({ system: false });
   const result = await w.run("ssh admin@192.0.2.10 uptime");
@@ -682,7 +695,7 @@ viaBash("a project script named ssh on the path never sees the askpass pointer o
 viaBash("BatchMode is read from ssh's options only: the same words in the command that runs over there change nothing", async () => {
   const typing = host([{ secret: "x9!", keep: "once" }, { secret: "x9!", keep: "once" }, { secret: "x9!", keep: "once" }]);
   const w = await world({ ssh: typing.value, answers: ["Yes, this once", "Yes, this once", "Yes, this once"] });
-  for (const command of ["ssh admin@192.0.2.10 echo -o BatchMode=yes", "ssh admin@192.0.2.10 'ssh -o BatchMode=yes inner'", "ssh admin@192.0.2.10 -o BatchMode=yes"]) {
+  for (const command of ["ssh admin@192.0.2.10 echo -o BatchMode=yes", "ssh admin@192.0.2.10 'ssh -o BatchMode=yes inner'"]) {
     const result = await w.run(command);
     expect([command, result.raw.includes("askpass: set")]).toEqual([command, true]);
     expect(result.raw).not.toContain(SSH_BATCH_MODE_LINE);
@@ -727,13 +740,13 @@ viaBash("a 'Yes, this once' password is forgotten when the next command starts; 
   await kept.close();
 }, 30_000);
 
-test("BatchMode is read from ssh's options only (no shell needed): before the machine it ends the box, after it nothing changes", async () => {
+test("BatchMode is read from ssh's options only (no shell needed): an option before or after the machine ends the box, the remote command's words change nothing", async () => {
   const w = await world({ answers: Array.from({ length: 8 }, () => "Yes, this once") });
   const wrapped = async (command: string) => { expect(await w.shell.approve!(command)).toBeUndefined(); return w.shell.wrap(command, w.project); };
-  for (const command of ["ssh -o BatchMode=yes admin@192.0.2.10 uptime", "ssh -oBatchMode=yes admin@192.0.2.10 uptime", "ssh -o 'BatchMode yes' admin@192.0.2.10 uptime"]) {
+  for (const command of ["ssh -o BatchMode=yes admin@192.0.2.10 uptime", "ssh -oBatchMode=yes admin@192.0.2.10 uptime", "ssh -o 'BatchMode yes' admin@192.0.2.10 uptime", "ssh admin@192.0.2.10 -o BatchMode=yes"]) {
     expect([command, await wrapped(command)]).toEqual([command, { command, ssh: { afterFail: SSH_BATCH_MODE_LINE } }]);
   }
-  for (const command of ["ssh admin@192.0.2.10 echo -o BatchMode=yes", "ssh admin@192.0.2.10 'ssh -o BatchMode=yes inner'", "ssh admin@192.0.2.10 -o BatchMode=yes", "ssh -o BatchMode=no admin@192.0.2.10 uptime"]) {
+  for (const command of ["ssh admin@192.0.2.10 echo -o BatchMode=yes", "ssh admin@192.0.2.10 'ssh -o BatchMode=yes inner'", "ssh -o BatchMode=no admin@192.0.2.10 uptime"]) {
     const result = await wrapped(command);
     expect([command, Object.keys(result.ssh?.env ?? {}).includes("SSH_ASKPASS")]).toEqual([command, true]);
     await result.ssh?.done?.();
