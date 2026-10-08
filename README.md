@@ -160,7 +160,7 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 
 ## What's new
 
-v0.2.27: skill packs you add from a folder or a GitHub commit after seeing every file, colour themes, `/mcp` as one line per server with an arrow-key picker, pasted pictures saved where the AI can open them, pasting a file you copied, the network server 0.1.2 (far smaller Central answers), checking pull requests and CI on GitHub from inside Casper, a quiet start on Linux and in WSL with ripgrep fetched for you, and an older `gh` no longer stopping an install.
+v0.2.27: skill packs you add from a folder or a GitHub commit after seeing every file, colour themes, `/mcp` as one line per server with an arrow-key picker, pasted pictures saved where the AI can open them, pasting a file you copied, the network server 0.1.2 (far smaller Central answers), checking pull requests and CI on GitHub from inside Casper, a quiet start on Linux and in WSL with ripgrep fetched for you, ssh passwords typed into Casper's own hidden box so the AI never sees them, and an older `gh` no longer stopping an install.
 [Release notes](docs/RELEASE.md#v0227-skill-packs-colour-themes-mcp-you-can-click-through-and-pasted-pictures-and-files) ·
 [Roadmap](https://choaterboater.github.io/casper/roadmap.html).
 

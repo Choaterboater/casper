@@ -109,6 +109,18 @@ sandbox after your yes; a program of that name in a project, or one in Casper's 
 limit on macOS: a brand-new file created directly in `~/.casper` during a `/branch` session is not blocked (the
 existing entries are); [SECURITY.md](SECURITY.md) has the detail.
 
+**Private ssh passwords.** When an `ssh` or `scp` you allowed asks for a password or a key's passphrase, Casper
+shows its own hidden box (`1 No · 2 Yes, this once · 3 Yes, for this session`; a passphrase is asked every time).
+What you type goes to `ssh` only: never to the AI, the command, the questions or the saved conversation, and it
+is hidden wherever the AI reads, whatever its length. Only the system's own `ssh` and `scp` to a host you
+approved can ask; a program of that name in a project gets nothing, and a prompt for another user or machine is
+refused. Nothing is saved to disk. `ssh_login: off` in your own config (or **Private ssh passwords** in
+`/settings`) turns it off; a run that cannot ask you (a one-shot, a builder) refuses in plain words. A command
+you or the AI wrote with `-o BatchMode=yes` is left as it is, and the AI is told to run it again without. Not
+yet tried against every kind of server, and on Windows only the installed Casper (not a source checkout) has it.
+A carriage return in tool output is now a line break instead of the text `\u{d}`. See
+[CONFIGURATION.md](CONFIGURATION.md#private-ssh-passwords).
+
 **Casper shows what it is doing while it waits.** A check Casper runs itself (typecheck, lint, test and the rest)
 adds a line such as `test · 3m05s` after 10 seconds, with the last line it printed dimly under it. If the model
 has said nothing for 10 seconds the box reads `Waiting for <provider/model> · 14s`, and during a provider retry
