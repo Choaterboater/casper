@@ -150,6 +150,8 @@ export function settingRows(context: ProjectContext): Setting[] {
       keep: `Keep them ${context.skills.bundled === false ? "off" : "on"}`,
       choices: [context.skills.bundled === false ? { label: "Turn them on", keys: ["skills", "bundled"], value: true, shown: "on" }
         : { label: "Turn them off", keys: ["skills", "bundled"], value: false, shown: "off" }] },
+    onOffRow("Packs", context.packs !== false,
+      "Skill packs you added with /pack add. Their skills cost no tokens until a request fits one. A change applies from the next start.", ["packs"], true),
     money("noteAt", "Spend notes", ["are", "come"], "A quiet line says what a task has spent; it never stops the task."),
     money("pauseAt", "Spend pause", ["is", "comes"], "The task stops and asks before it spends more."),
     cacheRow(context.cache ?? "auto"),

@@ -61,7 +61,7 @@ function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-async function readSmall(file: string, maxBytes: number): Promise<{ text: string; mode: number } | undefined> {
+export async function readSmall(file: string, maxBytes: number): Promise<{ text: string; mode: number } | undefined> {
   let handle;
   try { handle = await openNoFollow(file); } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
@@ -77,7 +77,7 @@ async function readSmall(file: string, maxBytes: number): Promise<{ text: string
   } finally { await handle.close(); }
 }
 
-async function writePrivate(file: string, text: string): Promise<void> {
+export async function writePrivate(file: string, text: string): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
   const temporary = `${file}.${randomUUID()}.tmp`;
   try {

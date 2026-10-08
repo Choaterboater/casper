@@ -44,6 +44,8 @@ export interface ProjectContext {
   browser?: boolean;
   /** `templates: off` in the user's config: a first request that fits a template is never built for you. Unset: on. */
   templates?: boolean;
+  /** `packs: off` in the user's config: the packs you added are not used and /pack add adds none. Unset: on. */
+  packs?: boolean;
   /** `visualize: off` in the user's config: the AI's diagram tool is never offered. Unset: on. */
   diagrams?: boolean;
   /** Managed services declared in .casper/project.yaml (see docs/SERVICES.md). */
@@ -144,6 +146,7 @@ export async function loadProjectContext(
     visualize: configuration.visualize,
     ...(configuration.browser !== undefined ? { browser: configuration.browser } : {}),
     ...(configuration.templates !== undefined ? { templates: configuration.templates } : {}),
+    ...(configuration.packs !== undefined ? { packs: configuration.packs } : {}),
     ...(configuration.diagrams !== undefined ? { diagrams: configuration.diagrams } : {}),
     services: configuration.services,
     smoke: configuration.smoke,

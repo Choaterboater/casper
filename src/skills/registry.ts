@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, realpath, rename, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { loadInstalledPacks } from "../packs/store";
 import { isOutside } from "../platform/inside";
 import { projectStateDirectory, type ProjectModel } from "../project/model";
 import type { TaskClassification } from "../task/classify";
@@ -11,7 +12,7 @@ import { allBundledSkills, MAX_BUNDLED_ACTIVE, parseSkillRule, safetyProblems, s
 
 export const SKILL_IMPORTS = ["pi", "agents", "claude", "codex"] as const;
 export type SkillImport = typeof SKILL_IMPORTS[number];
-export type SkillSource = "user" | "project" | "external" | "bundled";
+export type SkillSource = "user" | "project" | "external" | "bundled" | "pack";
 export type SkillTrust = "trusted" | "reviewed-external" | "untrusted" | "blocked";
 
 export interface SkillSummary extends SkillMetadata {
@@ -21,6 +22,8 @@ export interface SkillSummary extends SkillMetadata {
   source: SkillSource;
   sourceDirectory: string;
   trust: SkillTrust;
+  /** The pack it came with (source "pack"). */
+  pack?: string;
 }
 
 export interface LoadedSkill {
@@ -36,6 +39,8 @@ export interface SkillRegistryOptions {
   imports?: readonly SkillImport[];
   /** Index the network skills bundled with Casper (the app passes `skills.bundled`, default on). */
   bundled?: boolean;
+  /** Index the skills of the packs you added (the app passes `packs`, default on). */
+  packs?: boolean;
 }
 
 interface SkillEntry {
@@ -44,6 +49,9 @@ interface SkillEntry {
   userOwned: boolean;
   /** Set for a skill shipped inside Casper: its text comes from the binary, never from a file. */
   bundled?: AnyBundledSkill;
+  /** Set for a skill from a pack: the sha256 its SKILL.md had when you added the pack, and whether every file of
+   * the pack still matches what you were shown then. */
+  pack?: { name: string; sha256: string; matches: boolean };
 }
 
 interface TrustRecord {
@@ -203,6 +211,7 @@ export class SkillRegistry {
       };
       await walk(root.directory, 0);
     }
+    if (this.options.packs) await this.scanPacks(canonicalHome);
     if (this.options.bundled) {
       for (const skill of allBundledSkills()) {
         const filePath = `bundled:${skill.path}`;
@@ -231,11 +240,58 @@ export class SkillRegistry {
         : `${summary.id} has the same name as a bundled Casper skill; the bundled one is used`);
     }
     const names = new Set<string>();
-    for (const { summary, bundled } of this.entries) {
-      if (bundled || bundledNames.has(summary.name)) continue;
+    for (const { summary, bundled, pack } of this.entries) {
+      if (bundled || pack || bundledNames.has(summary.name)) continue;
       if (names.has(summary.name)) this.warnings.add(`Duplicate skill name ${summary.name}; use the full id to distinguish sources`);
       names.add(summary.name);
     }
+    // A pack's skills come last: one with the name of any other skill is never used.
+    for (const { summary, pack } of this.entries) {
+      if (pack && !bundledNames.has(summary.name) && names.has(summary.name)) {
+        this.warnings.add(`${summary.id} from pack ${pack.name} has the same name as another skill; the other one is used`);
+      }
+    }
+  }
+
+  /** The skills of the packs you added, from ~/.casper/packs.json only: a pack whose files changed since you said yes
+   * is listed but not used. */
+  private async scanPacks(home: string): Promise<void> {
+    let listing;
+    try { listing = await loadInstalledPacks(home); }
+    catch (error) { this.warnings.add(`Cannot read your packs: ${String(error)}`); return; }
+    for (const line of listing.diagnostics) this.warnings.add(line);
+    for (const { record, folder, problem } of listing.packs) {
+      if (problem) this.warnings.add(`Pack ${record.name} is not used: ${problem}. /pack add ${record.source} shows it again.`);
+      for (const skill of record.skills) {
+        const candidate = path.join(folder, ...skill.split("/"), "SKILL.md");
+        try {
+          const filePath = await realpath(candidate);
+          if (!isWithin(await realpath(folder), filePath)) throw new Error("leads outside the pack");
+          const header = await readSkillHeader(filePath);
+          const metadata = parseSkillMetadata(header);
+          const sha256 = record.files[`${skill}/SKILL.md`] ?? "";
+          const pack = { name: record.name, sha256, matches: !problem && Boolean(sha256) };
+          const entry: SkillEntry = {
+            summary: {
+              ...metadata, id: `${metadata.name}@${digest(filePath).slice(0, 12)}`, filePath, baseDir: path.dirname(filePath),
+              source: "pack", sourceDirectory: `pack ${record.name}`, trust: "untrusted", pack: record.name,
+            },
+            header, userOwned: false, pack,
+          };
+          entry.summary.trust = this.trustOf(entry);
+          this.entries.push(entry);
+        } catch (error) {
+          if (!problem) this.warnings.add(`Skipped ${skill} in pack ${record.name}: ${String(error)}`);
+        }
+      }
+    }
+  }
+
+  /** A skill's trust now: your block first; a pack's skill is reviewed while its pack matches what you were shown. */
+  private trustOf(entry: SkillEntry): SkillTrust {
+    const record = this.records[entry.summary.filePath];
+    if (entry.pack) return record?.status === "blocked" ? "blocked" : entry.pack.matches ? "reviewed-external" : "untrusted";
+    return record?.status ?? (entry.userOwned ? "trusted" : "untrusted");
   }
 
   private find(id: string): SkillEntry {
@@ -267,6 +323,8 @@ export class SkillRegistry {
   /** An explicit local user action, never registered as an LLM tool. */
   async trust(id: string, expectedSha256: string): Promise<void> {
     const entry = this.find(id);
+    // A pack is reviewed as a whole, in the box /pack add shows.
+    if (entry.pack) throw new Error(`${id} comes with pack ${entry.pack.name}. /pack add shows the whole pack and asks.`);
     const current = await this.readBody(entry);
     if (current.sha256 !== expectedSha256) throw new Error("Skill changed or digest is incorrect; inspect it again before trusting");
     await this.saveDecision(entry, current.sha256, "reviewed-external");
@@ -285,21 +343,22 @@ export class SkillRegistry {
     await writeFile(temporary, `${JSON.stringify(records, null, 2)}\n`, { mode: 0o600 });
     await rename(temporary, this.trustPath);
     this.records = records;
-    entry.summary.trust = status;
+    entry.summary.trust = this.trustOf(entry);
   }
 
   async loadForTask(request: string, project: ProjectModel, classification: TaskClassification): Promise<LoadedSkill[]> {
     this.records = await this.readTrustRecords();
-    for (const entry of this.entries) {
-      entry.summary.trust = this.records[entry.summary.filePath]?.status ?? (entry.userOwned ? "trusted" : "untrusted");
-    }
+    for (const entry of this.entries) entry.summary.trust = this.trustOf(entry);
     const usable = ({ summary }: SkillEntry) => summary.trust === "trusted" || summary.trust === "reviewed-external";
     const bundledByName = new Map(this.entries.filter((entry) => entry.bundled).map((entry) => [entry.summary.name, entry]));
     // `replaces`: the bundled skill a user's own same-name skill stands in for. It is used only while
     // it keeps the bundled skill's safety wording (checked when its body is read below).
     const candidates: Array<{ entry: SkillEntry; score: number; replaces?: SkillEntry }> = [];
+    // A pack's skill never stands in for another skill of the same name, wherever that one comes from.
+    const otherNames = new Set(this.entries.filter((entry) => !entry.pack).map((entry) => entry.summary.name));
     for (const entry of this.entries) {
       if (entry.bundled || !usable(entry)) continue;
+      if (entry.pack && otherNames.has(entry.summary.name)) continue;
       const replaces = bundledByName.get(entry.summary.name);
       // Only your own skills folder may stand in for a bundled skill; a project's copy never does.
       if (replaces && entry.summary.source !== "user") continue;
@@ -320,7 +379,7 @@ export class SkillRegistry {
       if (replacedNames.has(entry.summary.name) || !usable(entry)) continue;
       candidates.push({ entry, score: scoreBundledSkill(entry.bundled!, request, project, classification) });
     }
-    const priority: Record<SkillSource, number> = { project: 0, user: 1, external: 2, bundled: 3 };
+    const priority: Record<SkillSource, number> = { project: 0, user: 1, external: 2, bundled: 3, pack: 4 };
     const ranked = candidates
       .filter(({ score }) => score > 0)
       .sort((left, right) => right.score - left.score
@@ -342,6 +401,10 @@ export class SkillRegistry {
         if (!entry.bundled && record?.status === "reviewed-external" && record.sha256 !== skill.sha256) {
           entry.summary.trust = "untrusted";
           throw new Error("reviewed content changed; inspect and trust the new digest");
+        }
+        if (entry.pack && skill.sha256 !== entry.pack.sha256) {
+          entry.summary.trust = "untrusted";
+          throw new Error(`it changed since you added pack ${entry.pack.name}; /pack add shows the pack again`);
         }
         if (replaces && network) {
           const problems = safetyProblems(skill.body);
@@ -365,9 +428,9 @@ export class SkillRegistry {
   }
 }
 
-/** The registry options for a project's settings: the one place `skills.bundled` (default on) is read. */
+/** The registry options for a project's settings: the one place `skills.bundled` and `packs` (both default on) are read. */
 export function skillRegistryOptions(
-  context: { info: { root: string }; skills: { maxActive: number; imports: readonly SkillImport[]; bundled?: boolean } },
+  context: { info: { root: string }; skills: { maxActive: number; imports: readonly SkillImport[]; bundled?: boolean }; packs?: boolean },
   homeDir?: string,
 ): SkillRegistryOptions {
   return {
@@ -376,6 +439,7 @@ export function skillRegistryOptions(
     maxActive: context.skills.maxActive,
     imports: context.skills.imports,
     bundled: context.skills.bundled !== false,
+    packs: context.packs !== false,
   };
 }
 
@@ -390,6 +454,8 @@ export function formatSelectedSkills(skills: LoadedSkill[]): string {
       `--- Skill ${skill.id} ---`,
       ...(skill.source === "bundled"
         ? ["Source: bundled with Casper; trust: trusted"]
+        // A pack's folder is private to the AI's tools: its skill is this text alone.
+        : skill.source === "pack" ? [`Source: pack ${skill.pack}; trust: ${skill.trust}`]
         : [`Source: ${skill.source}; trust: ${skill.trust}`, `File: ${skill.filePath}`, `Base directory: ${skill.baseDir}`]),
       body,
       `--- End skill ${skill.id} ---`,

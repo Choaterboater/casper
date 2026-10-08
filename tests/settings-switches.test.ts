@@ -86,6 +86,17 @@ test("Page checks row: 1 keeps them on, a pick writes pages: off in your own con
   expect(await valueOf(home, project, "Page checks")).toBe("off");
 });
 
+test("Packs row: 1 keeps them on, a pick writes packs: false in your own config, and it reads back off", async () => {
+  const { home, project, config } = await folders();
+  const host = fakeHost(home, project, ["Packs", "Keep them on", "Packs", "Turn them off", "Done"]);
+  await runSettings(host);
+  expect(host.asked[1]!.split("\n").slice(1)).toEqual(["1 Keep them on", "2 Turn them off"]);
+  expect(host.asked[1]).toContain("cost no tokens until a request fits one");
+  expect(await readFile(config, "utf8")).toBe("packs: false\n");
+  expect((await host.context())!.packs).toBe(false);
+  expect(await valueOf(home, project, "Packs")).toBe("off");
+});
+
 test("Send Casper's name to OpenRouter row: 1 keeps it on, says what it sends, a pick writes telemetry: false", async () => {
   const { home, project, config } = await folders();
   const label = "Send Casper's name to OpenRouter";

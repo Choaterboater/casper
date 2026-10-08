@@ -215,7 +215,9 @@ commands.
   (reads like `ls`, `cat` or `git status` don't ask; 3 and 4 cover a command prefix such as `npm test`).
   A one-shot run refuses the AI's shell commands unless you pass `--no-sandbox`. On
   Windows your project's own checks, services and dev servers still run, not sandboxed,
-  with your permissions and network. See [SECURITY.md](SECURITY.md).
+  with your permissions and network. A pack from GitHub (`/pack add https://github.com/…@<commit>`) is
+  fetched not sandboxed too, with your git settings and hooks off; see [PACKS.md](PACKS.md#from-github).
+  See [SECURITY.md](SECURITY.md).
 - **Undo** needs git on PATH (Git for Windows). Without it
   the receipt says `Undo not available` and names why. Restoring a symbolic link or a
   file's run bit has not been tried on Windows yet. See [UNDO.md](UNDO.md).

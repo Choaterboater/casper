@@ -15,7 +15,7 @@ import { isOutside } from "./inside";
 /** Private places under your home folder: keys, logins and cloud credentials. */
 export const PRIVATE_PATHS: readonly string[] = [
   ".ssh", ".aws", ".gnupg", ".config/gh", ".kube", ".docker/config.json", ".netrc", ".git-credentials", ".claude.json", ".mcp.json",
-  ".claude/.credentials.json", ".casper/agent/auth.json", ".casper/mcp-consent.key", ".casper/network-logins.json", ".pi/agent/auth.json", "Library/Keychains",
+  ".claude/.credentials.json", ".casper/agent/auth.json", ".casper/mcp-consent.key", ".casper/packs.key", ".casper/network-logins.json", ".pi/agent/auth.json", "Library/Keychains",
   ".config/gcloud", ".azure", ".oci", ".terraform.d/credentials.tfrc.json", ".pgpass", ".npmrc", ".pypirc", ".config/hub",
   ".password-store", ".local/share/keyrings",
   // Casper's own: MCP servers (their tokens), profiles (each may hold an mcp.json) and every project's saved conversations.
@@ -24,8 +24,9 @@ export const PRIVATE_PATHS: readonly string[] = [
   ".casper/agent/models.json", ".pi/agent/models.json",
 ];
 
-/** Casper's own records: approvals, lab answers, remembered hosts, undo copies; MCP consent and skill trust. */
-export const CASPER_PRIVATE_PATHS: readonly string[] = [".casper/projects", ".casper/mcp-consent.json", ".casper/skills-trust.json"];
+/** Casper's own records: approvals, lab answers, remembered hosts, undo copies; MCP consent and skill trust; the packs
+ * you added and their record. */
+export const CASPER_PRIVATE_PATHS: readonly string[] = [".casper/projects", ".casper/mcp-consent.json", ".casper/skills-trust.json", ".casper/packs", ".casper/packs.json"];
 
 /** Home files the AI may read but never change: Casper's and Pi's own state, shell start-up files, git's settings. */
 export const PROTECTED_WRITE_PATHS: readonly string[] = [

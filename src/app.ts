@@ -84,7 +84,7 @@ import { openProjectCommand, offerWorkFolder } from "./app/workspace";
 import { ensureSessionWorkspace, handleBranchCommand, handleSwitchCommand } from "./app/session-branches";
 import { runVerification, checksPlan, saveFoundCheck } from "./app/verification";
 import { runInteractive, handlePrompt, handleSlashCommand, cancelCurrent, writePrompt } from "./app/command-loop";
-import { loadWorkspace, reloadReferences, projectPrivatePaths, reportSkillWarnings, bannerChecks, reportNewerCasper } from "./app/wiring";
+import { loadWorkspace, reloadReferences, reloadSkills, projectPrivatePaths, reportSkillWarnings, bannerChecks, reportNewerCasper } from "./app/wiring";
 import { acquireRuntime, ensureRuntime, checkSignIn, observeEdit } from "./app/runtime-start";
 
 export type { OutputWriter } from "./app/commands";
@@ -769,6 +769,9 @@ export class CasperApp {
   /** After /references add: the reference files read again; the next task's search tool uses them, and the old
    * library (and any tool that captured it) is closed. */
   async reloadReferences(): Promise<void> { return reloadReferences(this); }
+
+  /** After /pack add or /pack remove: skills indexed again, so the change counts from the next request. */
+  async reloadSkills(): Promise<void> { return reloadSkills(this); }
 
   /**
    * The network server's login host: the question in the numbered approval box and the values in the private prompt (only the

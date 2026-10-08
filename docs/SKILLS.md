@@ -5,6 +5,7 @@ skills and one frontend skill inside the `casper` binary, and you can add your o
 
 The network skills pack is new in v0.2.18; releases before it have no bundled skills.
 Your own skills work the same way in both; see [CONFIGURATION.md](CONFIGURATION.md#skills).
+Skills someone else wrote can come as a pack you add with `/pack add`; see [PACKS.md](PACKS.md).
 
 ## The network skills pack
 
