@@ -62,12 +62,14 @@ CI runner, whatever the change. To tell which:
    is most often a flake. Say so on the PR.
 
 The known flaky tests already get one more try on the OS they flake on. The list is in
-`tests/flaky-list.test.ts`. A test that passed on its second try says `(attempt 2)` on its `(pass)` line.
+`tests/flaky-list.test.ts`. When the first try fails, the log shows a `(retry)` line with the test's name and
+why. A first try that timed out is left to finish on its own, and its late result is ignored.
 
-To add one: it must start a real child process (Bun, a language server, Chrome, git) and have failed on CI
-for no reason in the change. Add `...flakyOn("win32")` (the OS it flaked on) to the test's options, and its
-file, name and OS to the list in `tests/flaky-list.test.ts`. Nothing else may retry: never a test without a
-child process, and never the whole suite.
+To add one: it must start a real child process (Bun, a language server, git) and have failed on CI for no
+reason in the change. Write it as `flakyOn("win32")("name", async () => { ... }, 60_000)` (the OS it flaked
+on, and its limit for one try), and add its file, name and OS to the list in `tests/flaky-list.test.ts`.
+Nothing else may retry: never a test without a child process, never a test that failed with a wrong result
+rather than a slow one (that is a bug to fix), and never the whole suite.
 
 Never make a test pass by weakening what it checks or adding a fixed sleep. A test that waits for something
 should wait for the real signal with a deadline (`waitUntil`, `waitForFile` and `processGone` in

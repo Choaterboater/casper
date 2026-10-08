@@ -46,13 +46,13 @@ test("unconfigured: Casper checks its own work by default; interactive offers in
   expect(resolveVerificationMode({ interactive: false, measuredMs: 600_000 })).toBe("auto");
 });
 
-test("--verify --no-verify is rejected before any work starts", async () => {
+flakyOn("win32")("--verify --no-verify is rejected before any work starts", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));
   tempDirs.push(root);
   const result = await run([cli, "--verify", "--no-verify", "Summarize"], root);
   expect({ code: result.code, stdout: result.stdout }).toEqual({ code: 64, stdout: "" });
   expect(result.stderr).toContain("--verify and --no-verify cannot be combined");
-}, flakyOn("win32"));
+}, 30_000);
 
 test("a flag following --mcp or --lsp is not taken as a server name", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));

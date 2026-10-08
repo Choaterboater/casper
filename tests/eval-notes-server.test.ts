@@ -128,7 +128,7 @@ const SIGTERM_CASE = 3;
 const results = (failing: number[]) => ALL.map((name, index) =>
   `${index === SIGTERM_CASE && !catchableSigterm ? "skip" : failing.includes(index) ? "fail" : "pass"} ${name}`);
 
-test("the lifecycle task's hidden acceptance passes on the solved fixture and fails on its start, leaving no server behind", async () => {
+flakyOn("win32")("the lifecycle task's hidden acceptance passes on the solved fixture and fails on its start, leaving no server behind", async () => {
   const solved = await lifecycleAcceptance(path.join(repoRoot, "evals/fixtures/notes-api"));
   expect({ exit: solved.exitCode, results: solved.results, survivors: solved.survivors, tail: solved.tail })
     .toEqual({ exit: 0, results: results([]), survivors: [], tail: "" });
@@ -139,7 +139,7 @@ test("the lifecycle task's hidden acceptance passes on the solved fixture and fa
   // Failing tests still stop every server they started (the setup's server never exits on its own).
   expect(unsolved.pids.length).toBe(catchableSigterm ? 4 : 3);
   expect(unsolved.survivors).toEqual([]);
-}, { timeout: 90_000, ...flakyOn("win32") });
+}, 90_000);
 
 /** Each behavior the setup removes is caught on its own: the solved server minus just that behavior fails just its test. */
 test.each<[string, Record<string, [string, string][]>, number[]]>([

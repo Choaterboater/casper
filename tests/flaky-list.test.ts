@@ -1,7 +1,7 @@
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { flakyOn } from "./support/platform";
+import { tries } from "./support/platform";
 
 /**
  * A retry can hide a real failure, so every one is a choice made in this file. These are the known flaky tests:
@@ -11,11 +11,6 @@ import { flakyOn } from "./support/platform";
 const KNOWN_FLAKY: Array<[file: string, title: string, platforms: NodeJS.Platform[]]> = [
   ["tests/auto-builders.test.ts", "the AI starts two builders at once; both changes land, count as the task's edits, and one /undo takes them back", ["win32"]],
   ["tests/auto-builders.test.ts", "at most 3 builders at once; a fourth is turned away and not counted", ["win32"]],
-  ["tests/browser-metadata.test.ts", "opening a metadata address asks once; a no leaves it unopened and nobody to ask is a no", ["darwin"]],
-  ["tests/browser-metadata.test.ts", "a yes opens it; a redirect there asks first and then follows", ["darwin"]],
-  ["tests/browser-metadata.test.ts", "a no to a redirect, a picture, a frame or a fetch there keeps them all from reaching it, one question each time", ["darwin"]],
-  ["tests/browser-metadata.test.ts", "a page check whose URL is a metadata address asks before it loads", ["darwin"]],
-  ["tests/browser-metadata.test.ts", "the automatic page check is not the AI's browser: its pages load as before, with no question and no block", ["darwin"]],
   ["tests/cli-flags.test.ts", "--verify --no-verify is rejected before any work starts", ["win32"]],
   ["tests/eval-notes-server.test.ts", "the lifecycle task's hidden acceptance passes on the solved fixture and fails on its start, leaving no server behind", ["win32"]],
   ["tests/login.test.ts", "API-key login verifies with the provider, keeps secrets off screen, and preserves unrelated credentials", ["win32"]],
@@ -45,26 +40,66 @@ test("a test retries only through flakyOn, and only the known flaky tests listed
   for (const { file, source } of testSources()) {
     // Bun's own option written out with a count; Pi's retry settings and a `retry` variable's type are not.
     if (/\bretry\s*:\s*\d/.test(source)) direct.push(file);
-    if (file === THIS_FILE) continue;
-    const lines = source.split("\n");
-    lines.forEach((line, index) => {
-      const call = /\bflakyOn\(([^)]*)\)/.exec(line);
-      if (!call) return;
-      // The test this call closes: the nearest test opening above it, at the start of a line.
-      let title = "";
-      for (let at = index; at >= 0 && !title; at--) title = /^[\w.]+\((["'`])(.+?)\1, /.exec(lines[at]!)?.[2] ?? "";
-      found.push([file, title, [...call[1]!.matchAll(/["'](\w+)["']/g)].map((match) => match[1]!)]);
-    });
+    if (file === THIS_FILE || file === HELPER) continue;
+    for (const line of source.split("\n")) {
+      if (!/\bflakyOn\(/.test(line) || /^import /.test(line)) continue;
+      // Each use opens its test on the same line: flakyOn("win32")("title", ...
+      const call = /^flakyOn\(([^)]*)\)\((["'`])(.+?)\2, /.exec(line);
+      found.push(call ? [file, call[3]!, [...call[1]!.matchAll(/["'](\w+)["']/g)].map((match) => match[1]!)] : [file, line.trim(), []]);
+    }
   }
   expect(direct).toEqual([]);
   expect(found.sort()).toEqual([...KNOWN_FLAKY].sort());
 });
 
-test("flakyOn gives one more try on the named OS and nothing elsewhere", () => {
-  const other: NodeJS.Platform = process.platform === "win32" ? "darwin" : "win32";
-  expect(flakyOn(process.platform).retry).toBe(1);
-  expect(flakyOn(other)).toEqual({});
-  expect(flakyOn()).toEqual({});
+describe("flakyOn's two tries", () => {
+  const here = process.platform;
+  const other: NodeJS.Platform = here === "win32" ? "darwin" : "win32";
+  let warned: string[] = [];
+  let warn: ReturnType<typeof spyOn> | undefined;
+  beforeEach(() => { warned = []; warn = spyOn(console, "warn").mockImplementation((line: string) => { warned.push(line); }); });
+  afterEach(() => warn?.mockRestore());
+
+  test("on any other OS the test is just as written: one try, its own limit", async () => {
+    let runs = 0;
+    const body = async () => { runs++; throw new Error("real failure"); };
+    expect(tries([other], "t", body, 500)).toEqual({ body, timeout: 500 });
+    expect(tries([], "t", body, 500)).toEqual({ body, timeout: 500 });
+    await expect(tries([other], "t", body, 500).body()).rejects.toThrow("real failure");
+    expect(runs).toBe(1);
+    expect(warned).toEqual([]);
+  });
+
+  test("on the named OS a failed first try is tried once more, says so, and the limit covers both tries", async () => {
+    let runs = 0;
+    const run = tries([here], "t", async () => { if (++runs === 1) throw new Error("slow child"); }, 500);
+    expect(run.timeout).toBeGreaterThanOrEqual(1_000);
+    await run.body();
+    expect(runs).toBe(2);
+    expect(warned).toEqual(["(retry) t: the first try failed, trying once more: Error: slow child"]);
+  });
+
+  test("a second failure fails the test with its own error", async () => {
+    let runs = 0;
+    await expect(tries([here], "t", async () => { throw new Error(`failure ${++runs}`); }, 500).body()).rejects.toThrow("failure 2");
+    expect(runs).toBe(2);
+  });
+
+  test("a first try that times out and then fails late cannot fail the second try", async () => {
+    // The first try's child is killed by its own guard after the try's limit, and its check then fails.
+    let killed!: () => void;
+    const late = new Promise<void>((resolve) => { killed = resolve; });
+    let runs = 0;
+    const run = tries([here], "t", async () => {
+      if (++runs === 2) { await late; return; }
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      killed();
+      throw new Error("exit 143");
+    }, 100);
+    await run.body();
+    expect(runs).toBe(2);
+    expect(warned).toEqual(["(retry) t: the first try failed, trying once more: Error: timed out after 100ms"]);
+  });
 });
 
 test("nothing retries the whole suite: no --retry or --rerun-each in the scripts, bunfig or CI", () => {

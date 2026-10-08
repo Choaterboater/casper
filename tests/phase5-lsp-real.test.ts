@@ -59,7 +59,7 @@ test("real TypeScript LSP resolves symbols/references and renames across files w
   await check(tsc, dir);
 }, 90_000);
 
-test("real Pyright acceptance: repository-wide rename finishes with fresh zero diagnostics", async () => {
+flakyOn("win32")("real Pyright acceptance: repository-wide rename finishes with fresh zero diagnostics", async () => {
   const dir = await root();
   await writeFile(path.join(dir, "pyrightconfig.json"), JSON.stringify({ include: ["*.py"], typeCheckingMode: "basic" }));
   await writeFile(path.join(dir, "a.py"), "def greet(name: str) -> str:\n    return name\n");
@@ -82,4 +82,4 @@ test("real Pyright acceptance: repository-wide rename finishes with fresh zero d
   expect(await readFile(path.join(dir, "b.py"), "utf8")).toBe("from a import welcome\nresult = welcome('world')\n");
   expect(await readFile(path.join(dir, "unrelated.py"), "utf8")).toBe("unrelated = {'greet': 'unchanged'}\n");
   await check([process.execPath, path.join(import.meta.dir, "../node_modules/pyright/index.js"), "--project", dir], dir);
-}, { timeout: 90_000, ...flakyOn("win32") });
+}, 90_000);

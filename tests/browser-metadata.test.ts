@@ -8,7 +8,6 @@ import { BrowserSession, type MetadataApproval } from "../src/browser/session";
 import { NO, YES_ONCE, YES_SESSION } from "../src/app/safe-choices";
 import { SessionYes } from "../src/app/session-yes";
 import { metadataQuestion } from "../src/app/task-tools";
-import { flakyOn } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
 /**
@@ -144,14 +143,15 @@ browserTest("opening a metadata address asks once; a no leaves it unopened and n
   cleanup.push(() => nobody.close());
   await expect(nobody.run({ action: "open", url: `${f.metadata}/secret` })).rejects.toThrow("nobody was there to ask");
   expect(reached(f.hits)).toEqual([]);
-}, { timeout: 30_000, ...flakyOn("darwin") });
+}, 30_000);
 
 browserTest("a yes opens it; a redirect there asks first and then follows", async () => {
   const f = await fixture(() => true);
   expect(await f.session.run({ action: "open", url: `${f.home}/redirect` })).toMatchObject({ url: `${f.metadata}/secret` });
   expect(f.asked).toEqual([{ address: "::1", url: `${f.metadata}/secret` }]);
-  expect(reached(f.hits)).toEqual(["metadata/secret"]);
-}, { timeout: 30_000, ...flakyOn("darwin") });
+  // Chrome may also ask for the page's icon there while the yes still holds (it ends with the action), or not.
+  expect(reached(f.hits).filter(hit => hit !== "metadata/favicon.ico")).toEqual(["metadata/secret"]);
+}, 30_000);
 
 browserTest("a no to a redirect, a picture, a frame or a fetch there keeps them all from reaching it, one question each time", async () => {
   const f = await fixture(() => false);
@@ -170,14 +170,14 @@ browserTest("a no to a redirect, a picture, a frame or a fetch there keeps them 
   expect(f.asked.length).toBeGreaterThanOrEqual(3);
   expect(new Set(f.asked.map(request => request.address))).toEqual(new Set(["::1"]));
   expect(reached(f.hits)).toEqual([]);
-}, { timeout: 30_000, ...flakyOn("darwin") });
+}, 30_000);
 
 browserTest("a page check whose URL is a metadata address asks before it loads", async () => {
   const f = await fixture(() => false);
   await expect(f.session.run({ action: "check", scenario: { name: "Secret", url: `${f.metadata}/secret`, steps: [], assertions: [{ kind: "visible", selector: "h1" }] } }))
     .rejects.toThrow("cloud metadata address");
   expect(reached(f.hits)).toEqual([]);
-}, { timeout: 30_000, ...flakyOn("darwin") });
+}, 30_000);
 
 browserTest("the automatic page check is not the AI's browser: its pages load as before, with no question and no block", async () => {
   const f = await fixture(() => false);
@@ -189,4 +189,4 @@ browserTest("the automatic page check is not the AI's browser: its pages load as
   expect(load.failedRequests.filter(request => /BLOCKED_BY_CLIENT/.test(request.error ?? ""))).toEqual([]);
   expect(f.asked).toEqual([]);
   expect(reached(f.hits)).toEqual(expect.arrayContaining(["metadata/secret", "metadata/secret.png", "metadata/secret-api"]));
-}, { timeout: 30_000, ...flakyOn("darwin") });
+}, 30_000);
