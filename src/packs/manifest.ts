@@ -14,6 +14,8 @@ export const MANIFEST_FILE = "pack.yaml";
 /** How many folders deep a file in a pack may be. */
 export const MAX_PACK_FOLDERS = 8;
 export const MAX_PACK_SKILLS = 64;
+/** The longest whole path inside a pack, in characters. */
+export const MAX_PACK_PATH = 400;
 
 export interface PackManifest {
   name: string;
@@ -28,17 +30,27 @@ export interface PackManifest {
 
 const FIELDS = ["name", "version", "description", "skills", "theme"] as const;
 const VERSION = /^\d{1,6}\.\d{1,6}\.\d{1,6}(?:-[0-9A-Za-z.-]{1,32})?$/;
-/** One part of a path inside a pack: letters, digits, dot, dash, underscore and space, starting with a letter or digit.
- * No "..", no hidden names, nothing a terminal or another system reads differently. */
-const PART = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,99}$/;
+/** One part of a path inside a pack: letters, digits, dot, dash, underscore and space, starting with a letter, digit
+ * or underscore (a skill's _examples.md). No "..", no hidden names, no name a command reads as an option (-x), nothing
+ * a terminal or another system reads differently. */
+const PART = /^[A-Za-z0-9_][A-Za-z0-9._ -]{0,99}$/;
 const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|com\d|lpt\d)(?:\..*)?$/i;
+/** What isPackPath takes, in the words a refusal and docs/PACKS.md use. */
+export const PACK_NAME_RULE = "Each part of a path starts with a letter, a digit or _, then has only letters, digits, . - _ and spaces, "
+  + "up to 100 characters in all; it doesn't end with a dot or a space, and isn't a name Windows keeps for itself (con, nul, aux, com1 and so on).";
 
 /** A relative path inside a pack, with forward slashes: every part plain, none "." or "..", no trailing dot or space,
  * and at most a file inside MAX_PACK_FOLDERS folders (a deeper one is refused as too deep before its name is read). */
 export function isPackPath(relative: string): boolean {
-  if (!relative || relative.length > 400 || relative.startsWith("/") || relative.includes("\\")) return false;
+  if (!relative || relative.length > MAX_PACK_PATH || relative.startsWith("/") || relative.includes("\\")) return false;
   const parts = relative.split("/");
   return parts.length <= MAX_PACK_FOLDERS + 1 && parts.every((part) => PART.test(part) && !/[. ]$/.test(part) && !WINDOWS_RESERVED.test(part));
+}
+
+/** Why isPackPath refuses `relative`, naming it as `shown`: a whole path too long, or a part outside PACK_NAME_RULE. */
+export function packPathRefusal(relative: string, shown: string): string {
+  if (relative.length > MAX_PACK_PATH) return `${shown} is more than ${MAX_PACK_PATH} characters long. A whole path in a pack is at most ${MAX_PACK_PATH}.`;
+  return `${shown} has a name Casper doesn't take in a pack. ${PACK_NAME_RULE}`;
 }
 
 export function parseManifest(text: string): PackManifest {

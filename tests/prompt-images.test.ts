@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { readFile, readdir, stat, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { attachImages, imageMimeType, MAX_IMAGES, PastedImageFiles, promptPath, shareHost, startsWithImageFile } from "../src/app/images";
+import { attachImages, imageMimeType, MAX_IMAGES, pastedFolderParent, PastedImageFiles, promptPath, shareHost, startsWithImageFile } from "../src/app/images";
 import { removeTempDir } from "./support/temp-dir";
 
 const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
@@ -232,4 +232,33 @@ test("without a pasted picture nothing is saved and no line is added", async () 
   expect(result.text).toBe("no picture after all");
   expect(await attachImages("plain", { cwd: dir, home: dir, saveTo: files, platform: HOST })).toMatchObject({ text: "plain", images: [] });
   expect(await readdir(dir)).toEqual([]);
+});
+
+test("a picture sent as the session closes is not saved, so no folder is left behind", async () => {
+  const dir = await folder();
+  const files = new PastedImageFiles(dir);
+  const image = { data: PNG.toString("base64"), mimeType: "image/png" };
+  expect(await files.save(1, image)).toBeDefined();
+  // Closing deletes the folder while a request (here at its share question) is still on its way to the save.
+  const closing = files.remove();
+  expect(await files.save(2, image)).toBeUndefined();
+  await closing;
+  expect(await readdir(dir)).toEqual([]);
+  const late = await attachImages("look at [image 3]", { cwd: dir, home: dir, pasted: new Map([[3, image]]), saveTo: files, platform: HOST });
+  expect(late.text).toBe("look at [image 3]");
+  expect(late.images).toHaveLength(1);
+  expect(await readdir(dir)).toEqual([]);
+});
+
+test("Windows: pasted pictures are saved under ~/.casper, not the temp folder, whose permissions chmod cannot change there", async () => {
+  const home = await folder();
+  expect(pastedFolderParent("win32", home)).toBe(path.join(home, ".casper", "pasted"));
+  expect(pastedFolderParent("linux", home)).toBe(os.tmpdir());
+  expect(pastedFolderParent("darwin", home)).toBe(os.tmpdir());
+  const files = new PastedImageFiles(() => pastedFolderParent("win32", home));
+  const saved = await files.save(1, { data: PNG.toString("base64"), mimeType: "image/png" });
+  expect(path.dirname(path.dirname(saved!))).toBe(path.join(home, ".casper", "pasted"));
+  expect(await readFile(saved!)).toEqual(PNG);
+  await files.remove();
+  expect(await readdir(path.join(home, ".casper", "pasted"))).toEqual([]);
 });

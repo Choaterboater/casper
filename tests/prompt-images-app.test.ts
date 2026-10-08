@@ -40,11 +40,11 @@ function plainScreen() {
 }
 
 /** A project with no checks and a model that sees pictures (`vision`) or not; `big` is a role that can. */
-async function fixture(options: { vision: boolean; big?: string }) {
+async function fixture(options: { vision: boolean; big?: string; projectYaml?: string }) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-images-app-"));
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(path.join(home, ".casper"), { recursive: true }); await mkdir(path.join(project, ".casper"), { recursive: true });
-  await writeFile(path.join(project, ".casper/project.yaml"), "verification:\n  mode: off\n");
+  await writeFile(path.join(project, ".casper/project.yaml"), `verification:\n  mode: off\n${options.projectYaml ?? ""}`);
   const shot = path.join(root, "shot.png");
   await writeFile(shot, PNG);
   const listeners = new Set<RuntimeEventListener>();
@@ -83,7 +83,7 @@ async function fixture(options: { vision: boolean; big?: string }) {
     loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
     loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
   });
-  return { project, shot, prompts, selections, model: () => current, input, screen, make, plain: () => plainOutput, cleanup: async () => { input.destroy(); await removeTempDir(root); } };
+  return { home, project, shot, prompts, selections, model: () => current, input, screen, make, plain: () => plainOutput, cleanup: async () => { input.destroy(); await removeTempDir(root); } };
 }
 
 /** Idle again after `marker`: the task is over and the prompt takes a command. */
@@ -228,8 +228,59 @@ test(`${PASTE_IMAGE_KEY} pastes the clipboard's picture as [image 1] and it goes
     const saved = /\n\[image 1\] is the file (.+pasted-image-1-[0-9a-f]{8}\.png)$/.exec(f.prompts[0]!.text)?.[1];
     expect(saved).toBeDefined();
     expect(await Bun.file(saved!).bytes()).toEqual(new Uint8Array(PNG));
+    // Windows: under ~/.casper (in your profile), since chmod cannot make a folder in %TEMP% private there.
+    expect(saved!.startsWith(process.platform === "win32" ? path.join(f.home, ".casper", "pasted") + path.sep : os.tmpdir())).toBe(true);
     f.input.write("/exit\r"); await interactive; await app.close();
     expect(await Bun.file(saved!).exists()).toBe(false);
+  } finally {
+    Object.assign(clipboardDefaults, previous);
+    f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
+  }
+});
+
+test(`${PASTE_IMAGE_KEY}: a vague request with a pasted picture is still under-specified; the saved file's line names no target`, async () => {
+  const f = await fixture({ vision: true, projectYaml: "behavior:\n  askQuestions: beforeChanges\n" });
+  const previous = { ...clipboardDefaults };
+  clipboardDefaults.image = async () => new Uint8Array(PNG);
+  clipboardDefaults.files = async () => null;
+  const app = f.make(true);
+  const interactive = app.runInteractive(f.project);
+  try {
+    await f.screen.until((output) => output.includes("idle"));
+    f.input.write("implement this design ");
+    f.input.write(PASTE_IMAGE_KEY === "ctrl+v" ? "\x16" : "\x1bv");
+    await f.screen.until((output) => output.includes("implement this design [image 1]"));
+    f.input.write("\r");
+    await f.screen.until(idleAfter("Looked."));
+    expect(f.prompts[0]!.text).toMatch(/\n\[image 1\] is the file .+pasted-image-1-[0-9a-f]{8}\.png$/);
+    expect(f.prompts[0]!.text).toContain("- target: under-specified");
+    expect(app.editGateActive).toBe(true);
+  } finally {
+    Object.assign(clipboardDefaults, previous);
+    f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
+  }
+});
+
+test(`${PASTE_IMAGE_KEY}: a vague two-part request with a pasted picture is still offered plan first`, async () => {
+  const f = await fixture({ vision: true });
+  const previous = { ...clipboardDefaults };
+  clipboardDefaults.image = async () => new Uint8Array(PNG);
+  clipboardDefaults.files = async () => null;
+  const app = f.make(true);
+  const interactive = app.runInteractive(f.project);
+  try {
+    await f.screen.until((output) => output.includes("idle"));
+    f.input.write("build a login page like ");
+    f.input.write(PASTE_IMAGE_KEY === "ctrl+v" ? "\x16" : "\x1bv");
+    await f.screen.until((output) => output.includes("build a login page like [image 1]"));
+    f.input.write("then add a signup page too");
+    await f.screen.until((output) => output.includes("build a login page like [image 1] then add a signup page too"));
+    f.input.write("\r");
+    // The saved file's line is not counted: the request still asks for 2 things and names no file.
+    await f.screen.until(waiting("Suggested: plan first — this asks for 2 things and names no file"));
+    f.input.write("2");
+    await f.screen.until(idleAfter("Looked."));
+    expect(f.prompts[0]!.text).toMatch(/\n\[image 1\] is the file .+pasted-image-1-[0-9a-f]{8}\.png$/);
   } finally {
     Object.assign(clipboardDefaults, previous);
     f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
@@ -403,7 +454,8 @@ test("the paste-picture key leaves out a copied file whose name has a control or
   const f = await fixture({ vision: true });
   const previous = { ...clipboardDefaults };
   clipboardDefaults.image = async () => null;
-  clipboardDefaults.files = copiedThroughTool([path.join(path.dirname(f.shot), "a\u202egnp.exe"), path.join(path.dirname(f.shot), "b\x1b[2J.png"), f.shot]);
+  clipboardDefaults.files = copiedThroughTool([path.join(path.dirname(f.shot), "a\u202egnp.exe"), path.join(path.dirname(f.shot), "b\x1b[2J.png"),
+    path.join(path.dirname(f.shot), "c\u2028d.png"), path.join(path.dirname(f.shot), "e\u200fgnp.png"), f.shot]);
   const app = f.make(true);
   const interactive = app.runInteractive(f.project);
   try {
@@ -413,7 +465,7 @@ test("the paste-picture key leaves out a copied file whose name has a control or
     f.input.write("\r");
     await f.screen.until(idleAfter("Looked."));
     expect(f.prompts[0]!.text).toContain("User request:\n[image 1]\n");
-    expect(f.prompts[0]!.text).not.toMatch(/[\x00-\x09\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/);
+    expect(f.prompts[0]!.text).not.toMatch(/[\x00-\x09\x0b-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/);
     expect(f.prompts[0]!.images).toHaveLength(1);
   } finally {
     Object.assign(clipboardDefaults, previous);

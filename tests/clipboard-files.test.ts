@@ -35,6 +35,10 @@ test("a file:// name with an escaped control or bidi character comes through as 
     ["file:///tmp/a%0Ab.png", "/tmp/a\nb.png"], ["file:///tmp/a%0D%0Ab.png", "/tmp/a\r\nb.png"], ["file:///tmp/%1B%5B31mred.png", "/tmp/\x1b[31mred.png"],
     ["file:///tmp/a%00.png", "/tmp/a\x00.png"], ["file:///tmp/a%7F.png", "/tmp/a\x7f.png"], ["file:///tmp/a%C2%9B.png", "/tmp/a\x9b.png"],
     ["file:///tmp/%E2%80%AEgnp.exe", "/tmp/‮gnp.exe"], ["file:///tmp/%E2%81%A6a.png", "/tmp/⁦a.png"],
+    // The direction marks (LRM, RLM, ALM), and the line and paragraph separators, which many readers take as a line break.
+    ["file:///tmp/a%E2%80%8Eb.png", "/tmp/a‎b.png"], ["file:///tmp/a%E2%80%8Fb.png", "/tmp/a‏b.png"],
+    ["file:///tmp/a%D8%9Cb.png", "/tmp/a؜b.png"], ["file:///tmp/a%E2%80%A8b.png", "/tmp/a b.png"],
+    ["file:///tmp/a%E2%80%A9b.png", "/tmp/a b.png"],
   ] as const) {
     expect(fileUriPath(uri)).toBe(name);
     expect(hasLineControls(name)).toBe(true);

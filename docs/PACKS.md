@@ -54,9 +54,13 @@ skill (its notes and examples). Any other file refuses the pack. A `.git` folder
 `.DS_Store`, `Thumbs.db` and `desktop.ini` files systems leave are skipped, in a folder or a GitHub
 commit: never copied or shown.
 
-**What the files may be.** Plain UTF-8 text files only: no links, no other kinds of files. Names use
-letters, digits, `.`, `-`, `_` and spaces, and don't start with a dot. At most 200 files, 256 KB each,
-2 MB in all, 8 folders deep. A file with a character you can't see (a control or escape character, a
+**What the files may be.** Plain UTF-8 text files only: no links, no other kinds of files. Each part
+of a file's path (a folder name or the file name) starts with a letter, a digit or `_` (so a skill's
+`_examples.md` or `_partials/` is fine), then has only letters, digits, `.`, `-`, `_` and spaces, up
+to 100 characters in all. It doesn't end with a dot or a space, and isn't a name Windows keeps for
+itself (`con`, `nul.md`, `aux.txt`, `com1` and so on), on every system. So a hidden name (`.notes`)
+or one that starts with `-` or a space refuses the pack, and the refusal says this rule. A whole path
+is at most 400 characters. At most 200 files, 256 KB each, 2 MB in all, 8 folders deep. A file with a character you can't see (a control or escape character, a
 right-to-left override, a zero-width space, a joiner or emoji selector that isn't part of an emoji)
 refuses the pack, because the AI would read text you couldn't.
 
@@ -67,7 +71,7 @@ refuses the pack, because the AI would read text you couldn't.
 | `/pack add <folder>` | Add a pack from a folder on this computer (a full path, `~/…`, or a path from the project folder) |
 | `/pack add https://github.com/<owner>/<repo>@<commit>` | Add a pack from GitHub, at one commit ([below](#from-github)) |
 | `/pack list` | The packs you added, where from, and any that aren't used and why |
-| `/pack remove <name>` | Take a pack out (its record, then its folder) |
+| `/pack remove <name>` | Take a pack out (its record, then its folder). If the folder can't be deleted (on Windows, a file in it held open by another program), the pack is still out from then on; delete the folder yourself |
 
 Only you can type these. The AI has no tool that reaches them, and a `/pack add` line in the AI's
 reply is just text.
@@ -96,7 +100,8 @@ wrapped by Casper, with the `│` on each of its rows, whatever the width. Then 
 `1 No · 2 Yes, add it`. Escape characters, controls and right-to-left characters in what is shown
 are taken out, so the author's words can't clear the screen or reorder the line. A run that can't ask
 you (one-shot, `--json`) adds nothing: `Adding a pack asks you first, and this run can't ask. Nothing
-was added.`
+was added.` In a one-shot run every `/pack` refusal (that one, `No pack named …`, a pack that can't be
+added) is an error, so the run exits 1; in a session it is a `[pack]` line and you go on.
 
 **What lands is what you saw.** Casper copies the files into a staging folder in `~/.casper/packs`,
 reads that copy back with the same checks, and shows you that copy. On `2` it checks every file's

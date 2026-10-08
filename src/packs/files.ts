@@ -7,7 +7,7 @@ import { isOutside } from "../platform/inside";
 import { parseSkillMetadata, splitSkill } from "../skills/metadata";
 import type { Theme } from "../tui/theme";
 import { parseThemeFile } from "../tui/theme-file";
-import { isPackPath, MANIFEST_FILE, MAX_PACK_FOLDERS, PackError, parseManifest, type PackManifest } from "./manifest";
+import { isPackPath, MANIFEST_FILE, MAX_PACK_FOLDERS, packPathRefusal, PackError, parseManifest, type PackManifest } from "./manifest";
 
 /**
  * What is in a pack folder, read the one way Casper reads every pack: from a folder you named, from a fetched
@@ -101,7 +101,7 @@ export async function readPackFolder(root: string): Promise<PackContents> {
     for (const name of (await readdir(dir)).sort()) {
       if ((!relative && SKIPPED_TOP.has(name)) || SKIPPED_ANYWHERE.has(name)) continue;
       const inside = relative ? `${relative}/${name}` : name;
-      if (!isPackPath(inside)) throw new PackError(`${JSON.stringify(shownLine(inside))} has a name Casper doesn't take in a pack (letters, digits, . - _ and spaces; no hidden files).`);
+      if (!isPackPath(inside)) throw new PackError(packPathRefusal(inside, JSON.stringify(shownLine(inside))));
       // Two names that differ only in case would be one file on Windows and macOS.
       if (seen.has(inside.toLowerCase())) throw new PackError(`${inside} is there twice, in different case.`);
       seen.add(inside.toLowerCase());

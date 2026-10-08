@@ -1,11 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
 import { packBox, PACK_ADD_CHOICES, PACK_CANT_ASK, runPackCommand, type PackHost } from "../src/packs/command";
 import { packFile, readPackFolder, shownText } from "../src/packs/files";
-import { parseManifest } from "../src/packs/manifest";
+import { isPackPath, parseManifest } from "../src/packs/manifest";
 import { installPack, loadInstalledPacks, PACK_RECORDS, stagePack } from "../src/packs/store";
 import { packThemeOwner, registerPackThemes } from "../src/packs/themes";
 import { findTheme, themeNames } from "../src/tui/theme";
@@ -14,7 +14,7 @@ import { Transcript } from "../src/tui/transcript";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { sandboxPolicy } from "../src/sandbox/policy";
 import { formatSelectedSkills, SkillRegistry } from "../src/skills/registry";
-import { needsPosixModes, needsSymlinks } from "./support/platform";
+import { needsPosixModes, needsSymlinks, posixModes } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
 const dirs: string[] = [];
@@ -594,4 +594,67 @@ test("/pack add asks first (No first); 3 shows every file in full, 2 adds it, ad
   await runPackCommand(packHost(home, root, removed), "remove writing-basics");
   expect(removed).toEqual(["Removed pack writing-basics."]);
   expect((await loadInstalledPacks(home)).packs).toEqual([]);
+});
+
+/** Makes a file in the pack folder impossible to delete until the returned function runs: on Windows another
+ * program holds it open without letting it be deleted (as an editor, indexer or virus scanner can); elsewhere its
+ * folder is read-only. */
+async function holdUndeletable(file: string): Promise<() => Promise<void>> {
+  if (process.platform !== "win32") {
+    await chmod(path.dirname(file), 0o500);
+    return () => chmod(path.dirname(file), 0o700);
+  }
+  const quoted = `'${file.replaceAll("'", "''")}'`;
+  const holder = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+    `$f = [IO.File]::Open(${quoted}, 'Open', 'Read', 'None'); [Console]::Out.WriteLine('held'); [Console]::Out.Flush(); [void][Console]::In.ReadLine(); $f.Close()`],
+  { stdin: "pipe", stdout: "pipe", stderr: "ignore" });
+  const reader = holder.stdout.getReader();
+  let said = "";
+  while (!said.includes("held")) {
+    const { value, done } = await reader.read();
+    if (done) throw new Error(`could not hold ${file} open`);
+    said += new TextDecoder().decode(value);
+  }
+  return async () => { holder.stdin.end(); await holder.exited; };
+}
+
+test.skipIf(process.platform !== "win32" && !posixModes)("a pack whose folder can't be deleted (a file in it held open on Windows) is still taken out of the session: skills indexed again, its theme off the list", async () => {
+  const root = await temp();
+  const home = path.join(root, "home");
+  await addPack(home, await writePack(path.join(root, "pack"), { theme: OCEAN, extra: { "skills/drafting/Examples.md": "Dear Sam,\n" } }));
+  await registerPackThemes(home, true);
+  expect(themeNames()).toContain("ocean");
+  const folder = path.join(home, ".casper", "packs", "writing-basics");
+  const release = await holdUndeletable(path.join(folder, "skills", "drafting", "Examples.md"));
+  let reloads = 0;
+  const printed: string[] = [];
+  try {
+    await runPackCommand(packHost(home, root, printed, { reload: async () => { reloads += 1; } }), "remove writing-basics");
+  } finally { await release(); }
+  expect(printed).toEqual(["[pack] Pack writing-basics is no longer used, but Casper couldn't delete its folder ~/.casper/packs/writing-basics. Delete it yourself."]);
+  expect(await stat(folder).then(() => true, () => false)).toBe(true);
+  // "No longer used" holds from now, not only after Casper starts again.
+  expect(reloads).toBe(1);
+  expect(themeNames()).not.toContain("ocean");
+  expect((await loadInstalledPacks(home)).packs).toEqual([]);
+});
+
+test("a file or folder in a pack may start with _ (a skill's _examples.md); a name it can't have is refused with the whole rule", async () => {
+  const root = await temp();
+  const fine = await writePack(path.join(root, "fine"), { extra: { "skills/drafting/_examples.md": "Dear Sam,\n", "skills/drafting/_partials/sign-off.md": "Best,\n" } });
+  expect((await readPackFolder(fine)).files.map((file) => file.path)).toEqual([
+    "pack.yaml", "skills/drafting/SKILL.md", "skills/drafting/_examples.md", "skills/drafting/_partials/sign-off.md", "skills/proofreading/SKILL.md",
+  ]);
+  for (const name of ["_examples.md", "skills/_drafting", "a_b.md", "x".repeat(100)]) expect(isPackPath(name)).toBe(true);
+  // Not an option-looking or hidden name, nothing a system trims or keeps for a device, at most 100 characters a part.
+  for (const name of ["-draft.md", " notes.md", ".notes.md", "notes.", "notes ", "nul.md", "com1.txt", "x".repeat(101), "notes?.md"]) expect(isPackPath(name)).toBe(false);
+  const dash = await writePack(path.join(root, "dash"), { extra: { "skills/drafting/-draft.md": "x\n" } });
+  expect(await refusal(readPackFolder(dash))).toBe("\"skills/drafting/-draft.md\" has a name Casper doesn't take in a pack. Each part of a path starts with a letter, a digit or _, "
+    + "then has only letters, digits, . - _ and spaces, up to 100 characters in all; it doesn't end with a dot or a space, and isn't a name Windows keeps for itself (con, nul, aux, com1 and so on).");
+  // Every part keeps the rule but the whole path is over 400 characters: the refusal says that, not the rule it keeps.
+  const long = `skills/drafting/${["a", "b", "c"].map((letter) => letter.repeat(99)).join("/")}/${"d".repeat(85)}.md`;
+  expect(long.length).toBe(404);
+  expect(long.split("/").every((part) => isPackPath(part))).toBe(true);
+  const deep = await writePack(path.join(root, "long"), { extra: { [long]: "x\n" } });
+  expect(await refusal(readPackFolder(deep))).toBe(`${JSON.stringify(long)} is more than 400 characters long. A whole path in a pack is at most 400.`);
 });

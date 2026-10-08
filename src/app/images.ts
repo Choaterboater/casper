@@ -2,10 +2,10 @@
  * Pictures with a request: an image pasted with Ctrl+V, or an image file dropped (or typed) into the prompt.
  * Each becomes `[image N]` in the request text and goes to the model as an image. A dropped file's path is kept
  * on a line under the request, so the model can still copy or move the file. A pasted picture has no file, so it is
- * saved to a private temp folder for the session and that path goes on the same kind of line.
+ * saved to a private folder for the session and that path goes on the same kind of line.
  */
 import { randomBytes } from "node:crypto";
-import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { RuntimeImage } from "../runtime/types";
@@ -27,15 +27,27 @@ export function imageMimeType(bytes: Uint8Array): string | undefined {
 
 const EXTENSIONS: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" };
 
+/** Where the pasted pictures' folder is made: the temp folder, except on Windows. There chmod sets no ACL, so a folder
+ * in %TEMP% gets whatever that folder grants (a shared C:\Temp, or users a tool added to it). ~/.casper is in your
+ * profile, which Windows keeps to you (and SYSTEM and Administrators). */
+export function pastedFolderParent(platform: NodeJS.Platform = process.platform, home: string = os.homedir()): string {
+  return platform === "win32" ? path.join(home, ".casper", "pasted") : os.tmpdir();
+}
+
 /** Pasted pictures saved as files for one session, in one private folder (0700, files 0600) made on the first save. */
 export class PastedImageFiles {
   private folder?: Promise<string>;
-  constructor(private readonly root: string = os.tmpdir()) {}
+  private removed = false;
+  constructor(private readonly root: string | (() => string) = () => pastedFolderParent()) {}
 
-  /** Saves the picture and returns its absolute path; undefined when it could not be written. */
+  /** Saves the picture and returns its absolute path; undefined when it could not be written, or after remove() (a
+   * picture sent as the session closes would make a folder that nothing deletes). */
   async save(number: number, image: RuntimeImage): Promise<string | undefined> {
+    if (this.removed) return undefined;
     try {
-      this.folder ??= mkdtemp(path.join(this.root, "casper-pasted-")).then(async (dir) => { await chmod(dir, 0o700); return dir; });
+      const root = typeof this.root === "string" ? this.root : this.root();
+      this.folder ??= mkdir(root, { recursive: true, mode: 0o700 }).then(() => mkdtemp(path.join(root, "casper-pasted-")))
+        .then(async (dir) => { await chmod(dir, 0o700); return dir; });
       const dir = await this.folder;
       const file = path.join(dir, `pasted-image-${number}-${randomBytes(4).toString("hex")}.${EXTENSIONS[image.mimeType] ?? "png"}`);
       await writeFile(file, Buffer.from(image.data, "base64"), { flag: "wx", mode: 0o600 });
@@ -43,8 +55,9 @@ export class PastedImageFiles {
     } catch { return undefined; }
   }
 
-  /** Deletes the folder and every picture in it. */
+  /** Deletes the folder and every picture in it; nothing is saved after this. */
   async remove(): Promise<void> {
+    this.removed = true;
     const folder = this.folder;
     this.folder = undefined;
     const dir = await folder?.catch(() => undefined);

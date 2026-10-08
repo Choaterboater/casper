@@ -32,6 +32,8 @@ export interface PackHost {
   packsOn: boolean;
   /** Someone can answer the box now (never a one-shot run). */
   canAsk: boolean;
+  /** A one-shot run (`casper "/pack …"`): a refusal is an error, so the run exits 1, not printed with exit 0. */
+  oneShot?: boolean;
   print(line: string): void;
   /** Rows laid out for the screen's width, again whenever it changes: "Show me what's inside", where every row of a
    * file, wrapped ones too, needs its bar. Without it, `print` gets the text with one bar per line. */
@@ -243,7 +245,16 @@ async function listPacks(host: PackHost): Promise<void> {
 async function removeNamed(host: PackHost, name: string): Promise<void> {
   // Its theme on screen now stays until Casper starts again; then theme: no longer finds it and default is used.
   const inUse = packThemeOwner(activeThemeName()) === name ? activeThemeName() : undefined;
-  if (!(await removePack(host.homeDir, name))) { host.print(`No pack named ${shownLine(name)}. /pack list shows yours.`); return; }
+  let removed: boolean;
+  try { removed = await removePack(host.homeDir, name); }
+  catch (error) {
+    // Its record is gone though its folder stays (a file in it held open, on Windows): this session stops using it
+    // now, as the message says, not only after Casper starts again.
+    await host.reload?.();
+    await registerPackThemes(host.homeDir, host.packsOn);
+    throw error;
+  }
+  if (!removed) throw new PackError(`No pack named ${shownLine(name)}. /pack list shows yours.`);
   await host.reload?.();
   await registerPackThemes(host.homeDir, host.packsOn);
   host.print(`Removed pack ${name}.${inUse ? ` Its theme ${inUse} stays on screen until you start Casper again; then the colours go back to default.` : ""}`);
@@ -257,9 +268,10 @@ export async function runPackCommand(host: PackHost, argument: string): Promise<
     if ((action === "list" || action === "") && !rest.length) await listPacks(host);
     else if (action === "add" && remainder) await addPack(host, remainder);
     else if (action === "remove" && rest.length === 1) await removeNamed(host, rest[0]!);
+    else if (host.oneShot) throw new PackError(PACK_USAGE);
     else host.print(PACK_USAGE);
   } catch (error) {
-    if (error instanceof PackError) { host.print(`[pack] ${error.message}`); return; }
+    if (error instanceof PackError && !host.oneShot) { host.print(`[pack] ${error.message}`); return; }
     throw error;
   }
 }
