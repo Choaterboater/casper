@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
 import { packBox, PACK_ADD_CHOICES, PACK_CANT_ASK, runPackCommand, type PackHost } from "../src/packs/command";
-import { readPackFolder, shownText } from "../src/packs/files";
+import { packFile, readPackFolder, shownText } from "../src/packs/files";
 import { parseManifest } from "../src/packs/manifest";
 import { installPack, loadInstalledPacks, PACK_RECORDS, stagePack } from "../src/packs/store";
 import { packThemeOwner, registerPackThemes } from "../src/packs/themes";
@@ -196,6 +196,21 @@ test("a line too long for the screen keeps the bar on every row it wraps to, so 
     expect(rows.filter((row) => row.includes("Casper checked"))).toEqual([expect.stringMatching(/^ {2}│ /)]);
     expect(rows.filter((row) => row.includes("word")).length).toBeGreaterThan(1);
     expect(rows.filter((row) => row.includes("word")).every((row) => row.startsWith("  │ word"))).toBe(true);
+  }
+});
+
+test("a character that draws nothing is refused anywhere but inside an emoji, and an emoji shows as written", () => {
+  const read = (text: string) => { try { return packFile("skills/drafting/notes.md", new TextEncoder().encode(text)).text; } catch (error) { return (error as Error).message; } };
+  // An emoji is written with a joiner and an emoji selector: those are kept where they belong to one, and shown.
+  for (const emoji of ["👩‍💻", "👨‍👩‍👧", "❤️", "🏳️‍🌈", "#️⃣", "🧑🏽‍💻", "👁️‍🗨️", "🏃‍♀️"]) {
+    expect(read(`Done ${emoji} today.\n`)).toBe(`Done ${emoji} today.\n`);
+    expect(shownText(`Done ${emoji} today.`)).toBe(`Done ${emoji} today.`);
+  }
+  // On their own, one after another, or next to a letter, they carry text nobody sees; so do the grapheme joiner,
+  // Khmer and Mongolian marks that draw nothing, Hangul fillers and the blank Braille cell.
+  for (const [text, code] of [["a\u200Db", "U+200D"], ["a\uFE0Fb", "U+FE0F"], ["😀\uFE0F\uFE0F", "U+FE0F"], ["😀\u200D\u200D😀", "U+200D"], ["x\u200D😀", "U+200D"],
+    ["😀\u200Dx", "U+200D"], ["a\u034Fb", "U+034F"], ["a\u17B4b", "U+17B4"], ["a\u180Bb", "U+180B"], ["a\u2800b", "U+2800"], ["a\u3164b", "U+3164"], ["a\uFE0Eb", "U+FE0E"]] as const) {
+    expect(read(`${text}\n`)).toBe(`skills/drafting/notes.md has a character you can't see (${code}). Casper doesn't add text you can't read in full.`);
   }
 });
 

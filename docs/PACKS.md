@@ -57,8 +57,8 @@ commit: never copied or shown.
 **What the files may be.** Plain UTF-8 text files only: no links, no other kinds of files. Names use
 letters, digits, `.`, `-`, `_` and spaces, and don't start with a dot. At most 200 files, 256 KB each,
 2 MB in all, 8 folders deep. A file with a character you can't see (a control or escape character, a
-right-to-left override, a zero-width space) refuses the pack, because the AI would read text you
-couldn't.
+right-to-left override, a zero-width space, a joiner or emoji selector that isn't part of an emoji)
+refuses the pack, because the AI would read text you couldn't.
 
 ## Commands
 

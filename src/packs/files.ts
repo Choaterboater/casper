@@ -37,19 +37,26 @@ export interface PackContents {
 }
 
 /** Characters a person can't see but the AI reads: controls, format characters (bidi, zero-width, the tag block),
- * variation selectors and blank fillers. */
-const HIDDEN = /[\p{Cc}\p{Cf}\u{FE00}-\u{FE0E}\u{E0100}-\u{E01EF}ᅟᅠㅤﾠ]/gu;
-/** Kept in a pack's text: tab, newline, carriage return, and the joiner inside an emoji. */
-const ALLOWED = new Set(["\t", "\n", "\r", "‍"]);
+ * every character Unicode says draws nothing (variation selectors, the grapheme joiner, Mongolian and Khmer marks,
+ * blank fillers) and the blank Braille cell. */
+const HIDDEN = /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u{2800}]/gu;
+/** Kept in a pack's text: tab, newline and carriage return. */
+const ALLOWED = new Set(["\t", "\n", "\r"]);
+/** The two invisible characters an emoji is written with, only where they are part of one: the emoji selector right
+ * after a pictograph (or in a keycap like #️⃣), and the joiner between two pictographs (👩‍💻). Anywhere else, or one
+ * after another, they would carry text nobody sees. */
+const EMOJI_PART = /(?<=\p{Extended_Pictographic}[\u{1F3FB}-\u{1F3FF}]?)\u{FE0F}|(?<=[0-9#*])\u{FE0F}(?=\u{20E3})|(?<=\p{Extended_Pictographic}\u{FE0F}?[\u{1F3FB}-\u{1F3FF}]?)\u{200D}(?=\p{Extended_Pictographic})/gu;
+const HIDDEN_OR_EMOJI_PART = new RegExp(`(${EMOJI_PART.source})|${HIDDEN.source}`, "gu");
 
 function hiddenCharacter(text: string): string | undefined {
-  for (const [character] of text.matchAll(HIDDEN)) if (!ALLOWED.has(character)) return character;
+  for (const [character] of text.replace(EMOJI_PART, "").matchAll(HIDDEN)) if (!ALLOWED.has(character)) return character;
   return undefined;
 }
 
-/** Text from a pack as it may be shown: terminal escapes, controls, bidi and invisible characters taken out. */
+/** Text from a pack as it may be shown: terminal escapes, controls, bidi and invisible characters taken out; an
+ * emoji keeps its own joiner and selector, so it shows as written. */
 export function shownText(text: string): string {
-  return stripVTControlCharacters(text).replace(HIDDEN, (character) => character === "\n" || character === "\t" ? character : "");
+  return stripVTControlCharacters(text).replace(HIDDEN_OR_EMOJI_PART, (character, emoji?: string) => emoji || character === "\n" || character === "\t" ? character : "");
 }
 
 /** One line of pack text as it may be shown. */
