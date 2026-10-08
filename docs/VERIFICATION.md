@@ -31,6 +31,27 @@ Where no sandbox runs (Windows, bubblewrap missing, `--no-sandbox`) they run wit
 permissions. For a repository whose commands you do not trust, start Casper with `--no-verify`.
 A flag wins over every configuration file.
 
+**When the sandbox, not your code, fails a check.** Real test suites sometimes need what the sandbox
+refuses: unix sockets, a loopback address like `127.0.0.2`, `/dev/fd`, or a browser or terminal
+multiplexer started by a test. Such a check prints `EPERM` or `Operation not permitted`. Casper reads that as
+"could not check", not a bug: the receipt says `✗ test — blocked by the sandbox (...)`, it says plainly
+`This check failed because Casper's sandbox blocked something, not because of a bug in your code. Run it
+yourself with !<command> or allow checks outside the sandbox`, and it starts no repair and edits no test.
+In a session Casper then asks `Run this project's checks outside the sandbox?` with `1 No · 2 Yes, this once ·
+3 Yes, for this session · 4 Yes, always for this project`; Enter is No. "This once" runs only the blocked
+checks again outside the sandbox. "Always" is kept privately in `~/.casper` (never in the repo), is listed
+by `/allowed` and taken back with `/allowed forget`. A result that ran outside shows `outside the sandbox`.
+You can decide ahead of time in your own `~/.casper/config.yaml`: `sandbox: { checks: outside }` always
+runs the checks outside, `inside` never does and never asks; the default is `ask`. A repository's
+`.casper/project.yaml` cannot set it. `/permissions` shows the setting and a remembered "always";
+`/permissions all` ("stop asking until I quit") never answers this question for you. Outside the sandbox the checks run the AI's edits with your
+permissions, so say yes only for a project you trust.
+
+**Only prose changed.** An edit that touches only Markdown or text files (`.md`, `.mdx`, `.txt`, `.rst`,
+`.adoc`) runs no check that has no declared `scope`, and the receipt says
+`Checks skipped — only documentation changed (...)`; `/verify` runs them anyway. A check with a declared
+scope that covers those files (a docs test) still runs. YAML and JSON are not skipped: a check may read them.
+
 From v0.2.16, checks run without AI provider keys (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`,
 `OPENAI_API_KEY` and the other names Pi reads) and without Casper's own secret variables;
 everything else in your environment, network product tokens such as `MIST_API_TOKEN` included, is

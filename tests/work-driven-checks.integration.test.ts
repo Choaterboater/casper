@@ -793,10 +793,19 @@ test("auto mode skips checks when the model changed no files", async () => {
 
 test("auto mode runs only the checks whose declared inputs cover a changed file", async () => {
   const root = await fixture();
-  const { app } = createApp(root, async () => { await writeFile(path.join(root, "README.md"), "notes\n"); }, "auto");
+  const { app } = createApp(root, async () => { await writeFile(path.join(root, "settings.cfg"), "notes\n"); }, "auto");
   const report = await app.runOnce("Document the value", root);
   expect(report?.results.map((result) => result.name)).toEqual(["build"]);
   expect(await Bun.file(path.join(root, "test-runs")).exists()).toBe(false);
+});
+
+test("auto mode runs no unscoped check when only documentation changed, and says so", async () => {
+  const root = await fixture();
+  const { app } = createApp(root, async () => { await writeFile(path.join(root, "README.md"), "notes\n"); }, "auto");
+  const report = await app.runOnce("Document the value", root);
+  expect(report?.results ?? []).toEqual([]);
+  expect(await Bun.file(path.join(root, "build-runs")).exists()).toBe(false);
+  expect(app.getLastTaskResult()?.autoSkipped).toBe("docs-only");
 });
 
 test("auto mode reuses a fresh pass the model recorded instead of rerunning it", async () => {

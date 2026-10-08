@@ -133,7 +133,7 @@ test("in the terminal, a timed-out check asks what to do instead of starting a p
       getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" as const }),
       getState: () => ({ cwd: project, isStreaming: false }),
       setTools: () => {}, subscribe: () => () => {}, abort: async () => {},
-      prompt: async () => { prompts++; await writeFile(path.join(project, "notes.txt"), `edit ${prompts}\n`); },
+      prompt: async () => { prompts++; await writeFile(path.join(project, "notes.dat"), `edit ${prompts}\n`); },
     }),
     dispose: async () => {},
   };
@@ -197,7 +197,7 @@ test("5 Allow more time from now on saves the longer limit for this project, wit
       getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" as const }),
       getState: () => ({ cwd: project, isStreaming: false }),
       setTools: () => {}, subscribe: () => () => {}, abort: async () => {},
-      prompt: async () => { prompts++; await writeFile(path.join(project, "notes.txt"), `edit ${prompts}\n`); },
+      prompt: async () => { prompts++; await writeFile(path.join(project, "notes.dat"), `edit ${prompts}\n`); },
     }),
     dispose: async () => {},
   };

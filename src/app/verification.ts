@@ -23,6 +23,8 @@ import { measuredCheckTime, recordCheckTimings } from "../verify/timings";
 import { checkEvent } from "./json-events";
 import { sandboxReceipt } from "./sandbox";
 import { exactPick } from "./approvals";
+import { CHECKS_OUTSIDE_CHOICES, checksOutsideQuestion, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
+import { SANDBOX_CHECK_BLOCKED } from "../verify/command";
 import { phase, clearSteps } from "./footer";
 import { prepareCapabilities, pageRun, smokeRun } from "./task-tools";
 import { bigModelReceipt, switchToBigModel, restoreModel, askBigModelRetry, bigModelOf } from "./big-model";
@@ -107,6 +109,10 @@ export async function runVerification(app: CasperApp, checks: readonly CheckName
         ? (failures, signal) => askLabFailure({ pick: (question, options, answerSignal) => exactPick(app, question, options, answerSignal) }, failures, signal) : undefined,
       // A check that was already failing before the change is not the change's doing: say so, and ask before paying to fix it.
       beforeRepair: repair && task && task === app.checkTask && app.taskBaseline ? (failures, signal) => repairPreexisting(app, failures, signal) : undefined,
+      // A check the sandbox blocked is never repaired; a person may let the checks run outside it.
+      onBlocked: app.interactive && app.terminal.canAsk && app.sandbox?.mayAskChecksOutside
+        ? (blocked, signal) => askChecksOutside(app, blocked, signal) : undefined,
+      outsideOnce: app.sandbox ? (work) => app.sandbox!.withChecksOutsideOnce(work) : undefined,
       // Only a person can say whether a check that did not finish is worth a paid repair.
       onUnfinished: app.interactive && app.terminal.rich ? (unfinished, signal) => askUnfinished(app, unfinished, context.verification.timeoutMs, signal) : undefined,
       // The task's smoke checks join its own verification (repairs and review reruns), never a standalone /verify.
@@ -142,6 +148,7 @@ export function writeCheckResult(app: CasperApp, result: VerificationResult): vo
   if (app.verbose) app.output.write(`${formatVerificationResult(result)}\n`);
   else if (app.modelCheckCalls === 0) app.output.write(`${liveCheckLine(result)}\n`);
   if (result.status !== "fail") return;
+  if (result.ended === "blocked") app.output.write(`${SANDBOX_CHECK_BLOCKED}\n`);
   for (const [stream, text] of [["stderr", result.stderr], ["stdout", result.stdout]] as const) {
     if (!text.trim()) continue;
     const lines = text.replace(/\n$/, "").split("\n");
@@ -285,4 +292,22 @@ export async function askUnfinished(app: CasperApp, unfinished: VerificationResu
     app.output.write(`[verify] Not saved (${terminalText(error instanceof Error ? error.message : String(error))}); this run gets ${formatDuration(longer)}.\n`);
   }
   return "more-time";
+}
+
+/** "test failed because the sandbox blocked something. Run this project's checks outside it? 1 No · 2 Yes, this once ·
+ * 3 Yes, for this session · 4 Yes, always for this project". Only your answer turns it on; Enter (1) keeps the sandbox. */
+export async function askChecksOutside(app: CasperApp, blocked: VerificationResult[], signal: AbortSignal): Promise<"once" | "kept" | undefined> {
+  const sandbox = app.sandbox;
+  if (!sandbox) return undefined;
+  app.events.ensureLineBreak();
+  const answer = await exactPick(app, checksOutsideQuestion(blocked.map((result) => terminalText(result.name))), CHECKS_OUTSIDE_CHOICES.map((choice) => ({ ...choice })), signal);
+  if (answer === YES_ONCE) return "once";
+  if (answer === YES_SESSION) { sandbox.allowChecksOutsideForSession(); return "kept"; }
+  if (answer === YES_ALWAYS) {
+    sandbox.allowChecksOutsideForSession();
+    try { await sandbox.rememberChecksOutside(true); }
+    catch (error) { app.output.write(`[sandbox] Not saved (${terminalText(error instanceof Error ? error.message : String(error))}); this session runs the checks outside the sandbox.\n`); }
+    return "kept";
+  }
+  return undefined;
 }

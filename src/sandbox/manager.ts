@@ -123,6 +123,8 @@ export class ShellSandbox {
   private readonly wroteOutside = new Set<string>();
   private readonly allowedOutside = new Set<string>();
   private closed = false;
+  private checksOutsideSession = false;
+  private checksOutsideNow = 0;
   private startError?: string;
   /** Main git folders watched for a `commondir` a command writes, with whether one was there first (yours). */
   private readonly submoduleGuards = new Map<string, { hadPointer: boolean; watcher?: FSWatcher }>();
@@ -585,6 +587,29 @@ export class ShellSandbox {
     const stored = await this.options.store?.forgetWrite(real) ?? false;
     return was || stored;
   }
+
+  /** Your project's own checks run outside the sandbox: you said so in ~/.casper/config.yaml (`sandbox.checks:
+   * outside`), or answered a numbered question (this session, always for this project, or "this once" while Casper
+   * runs them again). A project file can't: its `sandbox` keys are never read except denyRead and denyWrite. */
+  async checksOutside(): Promise<boolean> {
+    if (!this.on) return false;
+    const mode = this.user.checks ?? "ask";
+    if (mode === "inside") return false;
+    if (mode === "outside" || this.checksOutsideSession || this.checksOutsideNow > 0) return true;
+    return await this.options.store?.checksOutside().catch(() => false) ?? false;
+  }
+  /** Casper may ask whether to run the checks outside the sandbox (not when `sandbox.checks: inside`, or already outside). */
+  get mayAskChecksOutside(): boolean { return this.on && (this.user.checks ?? "ask") === "ask"; }
+  /** "Yes, for this session". */
+  allowChecksOutsideForSession(): void { this.checksOutsideSession = true; }
+  /** "Yes, this once": `work` (Casper running the blocked checks again) runs them outside, then it is back. */
+  async withChecksOutsideOnce<T>(work: () => Promise<T>): Promise<T> {
+    this.checksOutsideNow++;
+    try { return await work(); } finally { this.checksOutsideNow--; }
+  }
+  /** "Yes, always for this project" / forget it: kept privately in ~/.casper, written only from your own answer. */
+  async rememberChecksOutside(on: boolean): Promise<void> { await this.options.store?.setChecksOutside(on); }
+
 
   async close(): Promise<void> {
     if (this.closed) return;

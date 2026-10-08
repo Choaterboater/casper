@@ -491,7 +491,7 @@ function projectOverrides(document: Mapping): ProjectModelOverrides {
   };
 }
 
-const SANDBOX_USER_KEYS = ["enabled", "allowedDomains", "allowWrite", "allowUnixSockets"];
+const SANDBOX_USER_KEYS = ["enabled", "allowedDomains", "allowWrite", "allowUnixSockets", "checks"];
 const SANDBOX_PROJECT_KEYS = ["denyRead", "denyWrite"];
 
 function pathList(value: unknown, label: string): string[] | undefined {
@@ -531,6 +531,10 @@ function sandboxUserLayer(document: Mapping, label: string, into: SandboxUserSet
       if (list) into[key] = [...new Set([...(into[key] ?? []), ...list])];
     };
     add("allowedDomains"); add("allowWrite"); add("allowUnixSockets");
+    if (value.checks !== undefined && value.checks !== null) {
+      if (value.checks !== "ask" && value.checks !== "outside" && value.checks !== "inside") throw new Error(`${label}: sandbox.checks must be ask, outside or inside`);
+      into.checks = value.checks;
+    }
   } else if (value !== undefined && value !== null) throw new Error(`${label}: sandbox must be on, off or a mapping`);
   const shell = document.shell;
   if (shell === undefined || shell === null) return;

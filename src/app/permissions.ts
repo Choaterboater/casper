@@ -26,6 +26,9 @@ export interface PermissionsView {
   reachHosts: readonly string[];
   labDevices: number;
   labAsks: boolean | undefined;
+  /** `sandbox.checks` (your config) and whether you said "always for this project" to running its checks outside the sandbox. */
+  checks: "ask" | "outside" | "inside";
+  checksRemembered: boolean;
   writesForGood: readonly string[];
   writesSession: readonly string[];
   mcpWritesOn: readonly string[];
@@ -59,6 +62,9 @@ export function permissionsScreen(view: PermissionsView): string {
     `Writes outside the project: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project). The project, temp and package caches never ask.`,
     `  Allowed for good: ${list(view.writesForGood.map(view.show))}. This session only: ${list(view.writesSession.map(view.show))}.`,
     "  To stop being asked: answer 4 at the box, /permissions write <folder> ahead of time, sandbox: allowWrite in config, or --allow-write <folder> for one run. /permissions forget <folder> takes one back.",
+    "",
+    `Your project's checks (tests, typecheck, lint) run ${view.sandboxOn ? "in the sandbox" : "without a sandbox here"}. Outside the sandbox: ${view.checks === "outside" ? "always (sandbox: checks: outside in ~/.casper/config.yaml)" : view.checks === "inside" ? "never, and never asked (sandbox: checks: inside in ~/.casper/config.yaml)" : view.checksRemembered ? "yes, remembered for this project" : "only if you say so when a check is blocked"}.`,
+    "  A check the sandbox blocks asks 'Run this project's checks outside the sandbox?' (not answered by /permissions all). To undo \"always\": /allowed forget <n>.",
     "",
     `Network devices (MCP): every server starts with writes off and each change asks. Writes on now: ${list(view.mcpWritesOn)}. Yes to everything on a product: ${list(view.mcpAllowAll)}.`,
     "  To allow changes: answer 2, 3 or 4 in the change box, or /mcp writes <server> and /mcp allow <server> ahead of time. ctrl+o turns writes off everywhere.",

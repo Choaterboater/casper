@@ -443,6 +443,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
   const changed = Boolean(task.changedPaths?.length || (!task.changedPaths && task.possibleMutations));
   if (!report && !task.observedChecks?.length && task.execution === "completed") {
     if (task.autoSkipped === "no-checks") lines.push(options.checksHintShown ? "• Not verified — no checks set up" : NO_CHECKS_LINE);
+    else if (task.autoSkipped === "docs-only") lines.push(`• Checks skipped — only documentation changed${task.changedPaths?.length ? ` (${pathList(task.changedPaths, safe, false)})` : ""}; ${slash("/verify")} runs them anyway.`);
     else if (task.autoSkipped === "not-covered") lines.push("• Not verified — no configured check covers the changed files.");
     else if (changed && task.verificationMode === "off") {
       lines.push(`• Not verified — checks are off for this run. ${options.surface === "one-shot" ? "Run casper --verify to have Casper check." : "Run /verify to check these changes."}`);
