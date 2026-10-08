@@ -10,10 +10,28 @@ because GitHub's `latest/download` link skips preview releases. The first publis
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
 
-## v0.2.27: `/mcp` you can click through, pasted pictures the AI can find, and the network server 0.1.2
+## v0.2.27: skill packs, colour themes, `/mcp` you can click through, and pasted pictures and files
 
-`/mcp` is now one line per server with an arrow-key picker, a picture you paste is saved where the AI can
-open it, and the network server it installs returns far less text per answer.
+You can add a pack of skills someone else wrote, from a folder or a GitHub commit, after a box that shows
+every file, and pick a colour theme. `/mcp` is now one line per server with an arrow-key picker, a picture
+you paste is saved where the AI can open it, a file you copied can be pasted, and the network server it
+installs returns far less text per answer.
+
+**Skill packs.** A pack is one folder of skills with a `pack.yaml` that lists them.
+`/pack add <folder>` or `/pack add https://github.com/<owner>/<repo>@<commit>` (one full commit; a branch
+or tag is not taken) shows one box per pack in Casper's own words, counted from the files:
+`1 No · 2 Yes, add it · 3 Show me what's inside`, and 3 prints every file in full. Enter is No. A commit
+must be on the repository's own branches or tags, so a fork's commit served at its address is refused.
+A pack holds plain text files only and nothing in it runs; a file changed later stops the pack until you
+look again. Packs are yours only: just you can type `/pack`, they live in `~/.casper/packs`, a project
+file can't add one or set `packs:`, and `packs: off` (or `/settings`) turns them all off. A pack costs no
+tokens until a request fits one of its skills. See [PACKS.md](PACKS.md).
+
+**Colour themes.** `theme: light` (for a light background) or `theme: high-contrast` in your own config,
+or **Theme** in `/settings`, changes Casper's colours and nothing else; `default` looks as before. A
+project file can't set it, so a repository can't make a warning hard to read. A pack can bring one
+theme, colours only: the add box shows it in full, and it is used only if you pick it in `/settings`.
+`NO_COLOR`, pipes and `TERM=dumb` still show no colour.
 
 **`/mcp` in one screen.** Before, each server took four to six lines and `/mcp connect` printed the whole list
 again. Now `/mcp` prints one line per server (name, state, tools, writes, sandbox, where it was found). On a
@@ -30,6 +48,12 @@ saved in a private temp folder (only you can read it) and a line under your requ
 that needs the file, has something to point at. The folder is deleted when the session closes; a crash can
 leave a `casper-pasted-*` folder in your temp directory. Requests without a pasted picture are unchanged.
 
+**Pasting a copied file.** With no picture on the clipboard, the same key now takes files you copied in
+Finder, Explorer or a Linux file manager: each goes in as its path, as if dropped, and a picture file
+among them goes with the request with the same checks and limits. On Windows a file on another
+computer's share still asks first. A name with a control or text-direction character is left out, and
+Casper says so.
+
 **An org is "the org".** `login: can change <name> org` showed the organisation's name in `/mcp` and in the
 change box. A single org now shows as "the org". Site and site group names still show.
 
@@ -45,8 +69,19 @@ ask `gh` whether it has the command first; if not, they continue with the SHA-25
 say "This gh is too old to check where it was built (gh 2.49 or newer can)." A `gh` that has the command and
 says the file does not match still stops the install.
 
+**`/security-review update` with the sandbox on.** The advisory download always failed with the shell
+sandbox on, which has no network and can't write `~/.casper`. It now runs outside the sandbox, like
+Casper's own installs, but only with the osv-scanner Casper installed and checked, Casper's own arguments,
+no passwords or tokens, and osv-scanner's call analysis off, so nothing of the repo runs. Your own
+osv-scanner on PATH stays in the sandbox, where it can't download. The scans still run sandboxed.
+
+**For contributors.** A known flaky test (listed in `tests/flaky-list.test.ts`) gets one more try on the
+OS it flakes on, and only when the first try ran out of time; the log shows a `(retry)` line. A wrong
+result still fails at once. `CONTRIBUTING.md` says how to add one.
+
 **Not done yet.** `/login` has no "a model on this computer" choice; the site's sample `/mcp` output still
-shows the old layout; copying a file in Finder and pressing Ctrl+V does not attach it (drag the file in).
+shows the old layout; a pack brings only skills and one theme (no MCP servers, logins or slash commands),
+and from GitHub only a public repository.
 
 ## v0.2.26: local models, updating on Windows, and opening where you launched
 
