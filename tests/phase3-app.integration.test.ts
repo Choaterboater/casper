@@ -70,6 +70,8 @@ function createApp(root: string, options: { autoVerify?: boolean; respond?: (pro
   const homeDir = path.join(root, "home");
   const app = new CasperApp({
     autoVerify: options.autoVerify,
+    // The fixture's home, not the real ~/.casper of whoever runs the tests (pack themes, settings).
+    sessionHomeDir: homeDir,
     runtimeFactory: () => runtime,
     loadProjectContext: (project) => loadProjectContext(project, { homeDir }),
     loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir }),
