@@ -190,13 +190,22 @@ export const HOST_CHOICES = [
   { label: YES_ALWAYS, description: "kept in ~/.casper, never in the repo; /sandbox forget <host> undoes it" },
 ] as const satisfies readonly Choice[];
 
+/** /permissions all: the person's own box. Keep asking is first, so Enter changes nothing. */
+export const PERMISSIONS_ALL_QUESTION = "Stop asking until you quit?";
+export const PERMISSIONS_ALL_CHOICES = [
+  { label: "Keep asking", description: "nothing changes" },
+  { label: "Stop asking until I quit", description: "shell commands, hosts, writes outside the project and other machines are answered Yes for this session; protected places, secrets, device writes and the spend pause stay as they are" },
+] as const satisfies readonly Choice[];
+
 /** "The AI wants to write to ~/Library/Application Support/SomeApp. Allow it?" (a write outside the project, by the
  * AI's shell or its edit and write tools). Enter writes nothing; nothing is kept past the session. */
-export function writeChoices(_folder: string): Choice[] {
+export function writeChoices(_folder: string, always = true): Choice[] {
   return [
     { label: NO, description: "nothing is written" },
     { label: YES_ONCE, description: "this write only (for a shell command, the next command); Casper keeps no undo copy there" },
     { label: YES_SESSION, description: "until Casper exits; Casper keeps no undo copy there" },
+    // Only where a whole folder is offered (not one file), and never for a protected place: those are not asked about at all.
+    ...(always ? [{ label: YES_ALWAYS, description: "this folder and below, for this project; kept in ~/.casper, never in the repo; /permissions forget <folder> undoes it" }] : []),
   ];
 }
 

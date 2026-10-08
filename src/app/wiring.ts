@@ -45,6 +45,8 @@ export function sandboxHost(app: CasperApp): SandboxHost {
     },
     write: (text) => { if (!app.closing) app.output.write(text); },
     planning: () => app.planning,
+    // Only while a person can answer: a one-shot or --json run never stops asking this way (it refuses, or takes --no-sandbox).
+    stopAsking: () => app.stopAsking && app.interactive && app.terminal.canAsk && !app.closing,
     labHosts: () => app.projectContext?.lab?.hosts ?? [],
     // ssh asks for a password: Casper's own numbered question, then its own hidden box (never "The AI asks"). Both in
     // the one turn of the approval queue, so nothing slips in between.

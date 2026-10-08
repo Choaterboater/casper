@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, rmSync, watch, type FSWatcher } from "node:fs";
+import { existsSync, lstatSync, readFileSync, rmSync, statSync, watch, type FSWatcher } from "node:fs";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -72,7 +72,7 @@ export interface ShellSandboxOptions {
   /** One numbered question about writes to folders (or, for the AI's tools, one file) outside the project (true
    * allows them for this session); undefined when nobody can answer now. Never remembered past the session. */
   /** true: for this session; "once": this one write or the next command. */
-  askWrite?: (targets: string[], from: WriteAsker) => Promise<boolean | "once"> | undefined;
+  askWrite?: (targets: string[], from: WriteAsker, options: { file: boolean }) => Promise<boolean | "once" | "always"> | undefined;
   /** Plain lines for the user ([sandbox] ...). */
   note?: (line: string) => void;
   /** The temp folders commands may write; the system's by default. */
@@ -110,6 +110,8 @@ export class ShellSandbox {
   private remembered: string[] = [];
   /** Folders outside the project you allowed writes to, this session only (the shell's and the AI's tools'). */
   private readonly sessionWrites: string[] = [];
+  /** The folders among them you said the write box Yes, always for this project to, kept in the store (never in the repo). */
+  private rememberedWrites: string[] = [];
   /** Single files outside the project you allowed the AI's edit and write tools, this session (not the shell's). */
   private readonly sessionFiles: string[] = [];
   /** Folders you allowed "Yes, this once" for a shell command: the next command only. */
@@ -218,6 +220,7 @@ export class ShellSandbox {
       this.tempDir = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-sandbox-")));
       if (parent) { this.remembered = parent.remembered; return; }
       this.remembered = await this.options.store?.hosts().catch(() => []) ?? [];
+      await this.loadWrites();
       const seccompPath = await this.options.seccompPath?.().catch(() => undefined);
       // On Linux the runtime scans the project with ripgrep: the one on PATH, Pi's own copy, or the one Casper fetched.
       const ripgrep = this.platform === "linux" ? ripgrepPath(undefined, this.options.agentDir, this.home) : undefined;
@@ -430,11 +433,14 @@ export class ShellSandbox {
     const pending = this.pendingWrites.get(key);
     if (pending) return pending;
     const decision = (async (): Promise<WriteDecision> => {
-      const answer = this.options.askWrite?.(left, from);
+      const answer = this.options.askWrite?.(left, from, { file: Boolean(options.file) });
       if (!answer) return "cant-ask";
       const given = await answer.catch(() => false);
       if (!given) return "no";
       if (given === "once") { this.onceTargets.push(...left); return "once"; }
+      // the write box Yes, always for this project: only folders (never the single file of the AI's tools), and only ones a question may
+      // offer. Checked before the folder joins this session's list, which the check reads.
+      if (given === "always" && !options.file) for (const target of left) await this.rememberWrite(target).catch(() => undefined);
       const list = options.file ? this.sessionFiles : this.sessionWrites;
       for (const target of left) if (!list.includes(target)) list.push(target);
       return "allowed";
@@ -529,7 +535,56 @@ export class ShellSandbox {
     return was || stored;
   }
 
-  async loadRemembered(): Promise<void> { this.remembered = await this.options.store?.hosts().catch(() => []) ?? this.remembered; }
+  async loadRemembered(): Promise<void> {
+    this.remembered = await this.options.store?.hosts().catch(() => []) ?? this.remembered;
+    await this.loadWrites();
+  }
+
+  /** The folder a write to `folder` offers, which is the folder itself only when nothing protected is in it, is it or holds it. */
+  private offerableFolder(folder: string): string | undefined {
+    const real = realpathLongest(path.resolve(folder));
+    return writeFolderToOffer(path.join(real, "x"), this.policy(), { root: this.options.root(), home: this.home }) === real ? real : undefined;
+  }
+
+  /** The remembered write folders, checked again every time they load: one that now holds or sits inside a protected
+   * place (a link was changed, a folder was moved) is left out, not widened into it. */
+  private async loadWrites(): Promise<void> {
+    const saved = await this.options.store?.writeFolders().catch(() => []) ?? [];
+    for (const entry of this.rememberedWrites) { const at = this.sessionWrites.indexOf(entry); if (at >= 0) this.sessionWrites.splice(at, 1); }
+    this.rememberedWrites = [];
+    for (const folder of saved) {
+      const real = this.offerableFolder(folder);
+      if (!real || real !== folder) continue;
+      this.rememberedWrites.push(real);
+      if (!this.sessionWrites.includes(real)) this.sessionWrites.push(real);
+    }
+  }
+
+  /** Folders outside the project you allowed for good, for /permissions. */
+  rememberedWriteFolders(): string[] { return [...this.rememberedWrites]; }
+
+  /** the write box Yes, always for this project, or /permissions write <folder>: kept in Casper's own folder for this project. A folder that is
+   * the project, your home, a system folder, git's files, or holds or sits inside a protected place is refused with the reason. */
+  async rememberWrite(folder: string): Promise<{ folder: string } | { refused: string }> {
+    const resolved = path.resolve(folder);
+    if (!existsSync(resolved) || !statSync(resolved).isDirectory()) return { refused: "that is not a folder that exists" };
+    const real = this.offerableFolder(resolved);
+    if (!real) return { refused: "that place is protected on purpose (the project is already allowed; private places like ~/.ssh and ~/.casper, git's own files, shell start-up files, your home folder itself and system folders are never allowed)" };
+    await this.options.store?.addWrite(real);
+    if (!this.rememberedWrites.includes(real)) this.rememberedWrites.push(real);
+    if (!this.sessionWrites.includes(real)) this.sessionWrites.push(real);
+    return { folder: real };
+  }
+
+  /** /permissions forget <folder>: back to asking, for this session and for good. */
+  async forgetWrite(folder: string): Promise<boolean> {
+    const real = realpathLongest(path.resolve(folder));
+    const was = this.rememberedWrites.includes(real) || this.sessionWrites.includes(real);
+    this.rememberedWrites = this.rememberedWrites.filter((entry) => entry !== real);
+    for (let at = this.sessionWrites.indexOf(real); at >= 0; at = this.sessionWrites.indexOf(real)) this.sessionWrites.splice(at, 1);
+    const stored = await this.options.store?.forgetWrite(real) ?? false;
+    return was || stored;
+  }
 
   async close(): Promise<void> {
     if (this.closed) return;

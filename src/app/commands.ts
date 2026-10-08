@@ -14,7 +14,7 @@ import { formatTerminalJSON } from "../tui/json";
 import { formatCacheHitRate, formatCostLong, formatCostShort, formatTokenSplit } from "../tui/usage";
 import { effortChoices } from "../tui/effort";
 import { pickEffort } from "../tui/effort-picker";
-import { commandLabel, formatEffort, formatRuntimeStatus, redactPreview, terminalText, toolTarget } from "../tui/format";
+import { commandLabel, displayPath, formatEffort, formatRuntimeStatus, redactPreview, terminalText, toolTarget } from "../tui/format";
 import type { InteractiveTerminal } from "../tui/terminal";
 import type { CapabilityBroker } from "../capabilities/broker";
 import type { MCPManager, MCPStatus } from "../mcp/manager";
@@ -62,12 +62,13 @@ import { runSecurityReview, type SecurityAIReview, type SecurityReviewHost } fro
 import { runCrewCommand } from "../crew/command";
 import { crewShell } from "../crew/shell";
 import { allowedCommand } from "./allowed";
+import { allowFolder, forgetFolder, parsePermissions, permissionsScreen } from "./permissions";
 import { sandboxReport, sandboxStatusLine } from "./sandbox";
 import type { SessionYes } from "./session-yes";
 import { webStatusLine } from "../web/tools";
 import { readerStatusLine } from "./reader";
 import type { ShellSandbox } from "../sandbox/manager";
-import { allowKindsChoices, DOCS_COPY_CHOICES, SKILL_TRUST_CHOICES, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES } from "./safe-choices";
+import { allowKindsChoices, PERMISSIONS_ALL_CHOICES, PERMISSIONS_ALL_QUESTION, DOCS_COPY_CHOICES, SKILL_TRUST_CHOICES, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES } from "./safe-choices";
 import { KIND_TEXT, RISKY_KINDS } from "../capabilities/kinds";
 import { forgetSshSecrets } from "../ssh/login";
 
@@ -88,6 +89,8 @@ export interface CommandHost {
   savedModel(): Promise<string | undefined>;
   readonly terminal: InteractiveTerminal;
   readonly interactive: boolean;
+  /** /permissions all: the shell's questions are answered "Yes, for this session" until you quit or type /permissions ask. */
+  stopAsking: boolean;
   readonly closing: boolean;
   readonly subagents: SubagentManager;
   /** The parts builders landed in the last task (src/crew/parts.ts), for /crew. */
@@ -109,7 +112,7 @@ export interface CommandHost {
   /** Ends every allowed change kind and session answer (ctrl+o, /mcp writes off). True when any were in force. */
   endAllowances?(): boolean;
   /** The broker's per-server allowances, for /mcp allow. Only the user's typed command reaches it. */
-  readonly allowances?: Pick<CapabilityBroker, "kindAllowed" | "sessionKinds" | "allowKind" | "allowAllOn" | "startAllowAll" | "endAllowancesFor">;
+  readonly allowances?: Pick<CapabilityBroker, "kindAllowed" | "sessionKinds" | "allowKind" | "allowAllOn" | "allowAllServers" | "startAllowAll" | "endAllowancesFor">;
   /** Re-reads MCP configuration from disk for /mcp reload; omitted when MCP is unavailable. */
   readonly reloadMCPConfiguration?: () => Promise<MCPConfiguration>;
   readonly lsp?: LSPManager;
@@ -274,8 +277,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       return;
     }
     if (prompt === "/doctor") { await (await import("../doctor/session")).runDoctorInSession(host); return; }
-    if (prompt === "/permissions") {
-      host.output.write(`${permissionsText(host.sandbox)}\n`);
+    if (prompt === "/permissions" || prompt.startsWith("/permissions ")) {
+      await handlePermissions(host, prompt);
       return;
     }
     if (prompt === "/lab" || prompt.startsWith("/lab ")) {
@@ -1453,7 +1456,54 @@ async function undoCopiesLine(stateDirectory: string, home: string): Promise<str
   return `copies of recent tasks take ${size} in ${terminalText(tildePath(store.gitDir, home))} (/undo, /diff)`;
 }
 
-/** /permissions: what Casper enforces, from the state it is in now. */
+/** /permissions and its four switches. Only the person's typed command and numbered answer reach them; the AI has no tool for them. */
+async function handlePermissions(host: CommandHost, prompt: string): Promise<void> {
+  const command = parsePermissions(prompt);
+  const sandbox = host.sandbox;
+  const root = host.activeWorkspaceRoot();
+  const home = host.homeDir();
+  if (command.kind === "ask") {
+    host.stopAsking = false;
+    host.updateFooter();
+    host.output.write("[permissions] Asking is on again.\n");
+    return;
+  }
+  if (command.kind === "all") {
+    // A run that can't ask has no person to answer: --no-sandbox is the flag for one run.
+    if (!host.interactive) throw new Error("/permissions all needs a terminal where you can answer. For one run, use --no-sandbox.");
+    if (host.stopAsking) { host.output.write("[permissions] Asking is already off. /permissions ask turns it back on.\n"); return; }
+    const answer = await host.approveChoice("", PERMISSIONS_ALL_QUESTION, PERMISSIONS_ALL_CHOICES, host.commandAbort?.signal);
+    if (answer !== PERMISSIONS_ALL_CHOICES[1].label) { host.output.write("[permissions] Still asking.\n"); return; }
+    host.stopAsking = true;
+    host.updateFooter();
+    host.output.write("[permissions] Not asking until you quit: shell commands, hosts, writes outside the project and other machines are answered Yes for this session. Protected places, secrets, device writes and the spend pause stay as they are. /permissions ask turns asking back on.\n");
+    return;
+  }
+  if (command.kind === "write" || command.kind === "forget") {
+    if (!sandbox) throw new Error("The shell sandbox starts with the project.");
+    host.output.write(command.kind === "write" ? await allowFolder(sandbox, command.folder, root, home) : await forgetFolder(sandbox, command.folder, root, home));
+    return;
+  }
+  await sandbox?.loadRemembered();
+  const entries = await sandbox?.store?.allowed() ?? [];
+  const basics = permissionsText(sandbox).split("\n");
+  const context = host.projectContext;
+  const reach = await sandbox?.store?.reachHosts() ?? [];
+  const forGood = sandbox?.rememberedWriteFolders() ?? [];
+  host.output.write(`${permissionsScreen({
+    shell: basics[0]!, scripts: basics.at(-1)!,
+    asking: !host.stopAsking, sandboxOn: Boolean(sandbox?.on),
+    commandsSession: entries.filter((entry) => entry.session).length, commandsSaved: entries.filter((entry) => !entry.session).length,
+    listedHosts: sandbox?.on ? sandbox.allowedHosts().length : 0, rememberedHosts: sandbox?.rememberedHosts() ?? [], reachHosts: reach,
+    labDevices: context?.lab?.hosts?.length ?? 0, labAsks: sandbox?.store ? !(await sandbox.store.labReach()) : undefined,
+    writesForGood: forGood, writesSession: (sandbox?.allowedWriteFolders() ?? []).filter((folder) => !forGood.includes(folder)),
+    mcpWritesOn: host.mcp?.writesOn() ?? [], mcpAllowAll: host.allowances?.allowAllServers() ?? [],
+    web: context?.web?.enabled !== false, github: context?.github !== false, sshLogin: context?.sshLogin !== false, downloads: context?.toolDownloads !== false,
+    show: (folder) => displayPath(folder, { root, home }),
+  })}\n`);
+}
+
+/** The lines /permissions shows about the shell, from the state it is in now. */
 export function permissionsText(sandbox: ShellSandbox | undefined): string {
   const shell = sandbox?.on
     ? "Shell commands and checks run in a sandbox: they can write only in this project, temp and package caches (other folders ask), can't read your private folders, and reach only listed hosts (others ask). They don't see your AI provider keys. MCP servers, language servers, the debugger and the browser are not in the sandbox."

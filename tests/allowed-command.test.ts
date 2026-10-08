@@ -209,7 +209,7 @@ test("a file in the project cannot add or change what is allowed", async () => {
   const text = await run(fresh)("/allowed");
   expect(text).toContain("git log");
   expect(text).not.toContain("curl");
-  expect(text).not.toContain("rm");
+  expect(text).not.toMatch(/\brm\b/);
   // The list is read from Casper's own folder only: forgetting never touches a project file.
   await run(fresh)("/allowed forget all");
   expect(JSON.parse(await readFile(path.join(project, ".pi/sandbox.json"), "utf8")).prefixes).toEqual(["curl", "rm"]);

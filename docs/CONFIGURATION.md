@@ -167,6 +167,14 @@ Casper (kept out of its public rankings for now); nothing about your code. It is
 `/settings` (it writes `telemetry: false`) or `CASPER_TELEMETRY=0`; either one off is off. A project
 file can't change `telemetry:`. See [OpenRouter app attribution](#provider-credentials).
 
+### Asking less: /permissions
+
+`/permissions` prints one screen: what Casper may do here, where each permission came from (this session, remembered for this project, your config) and, for each kind,
+how to be asked less. `/permissions all` (a numbered box, `1 Keep asking` first) stops the shell's own questions until you quit and shows `ASKING OFF` in the footer;
+`/permissions ask` turns asking back on. `/permissions write <folder>` allows a folder outside the project for this project ahead of time, `/permissions forget <folder>`
+takes it back, and the write box's `4 Yes, always for this project` does the same. Protected places (`~/.ssh`, `~/.casper`, shell start-up files, git's files, your
+home folder itself, system folders) are never offered and never allowed. See [SECURITY.md](SECURITY.md#asking-less).
+
 ### Private ssh passwords
 
 When an `ssh` or `scp` you allowed (the "Reach this machine?" question) asks for a **password** or a key's

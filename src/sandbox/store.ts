@@ -11,7 +11,7 @@ import { matchesPrefix } from "./read-only";
  * and, when no sandbox can run, exact shell commands you said not to ask about again. Private (0600), written only from your
  * own answer to a numbered question. The sandbox keeps the AI's shell from reading or writing this folder.
  */
-interface StoreFile { version: 1; hosts: string[]; commands: string[]; prefixes?: string[]; reach?: string[]; labReach?: false }
+interface StoreFile { version: 1; hosts: string[]; commands: string[]; prefixes?: string[]; reach?: string[]; labReach?: false; writes?: string[] }
 
 /** One thing you said yes to: a command and anything after it (prefix) or exactly that command. */
 export interface AllowedEntry { kind: "prefix" | "command"; value: string; session: boolean }
@@ -40,6 +40,7 @@ export class SandboxStore {
         ...(Array.isArray(value.prefixes) ? { prefixes: value.prefixes.filter((prefix): prefix is string => typeof prefix === "string").slice(0, MAX_ENTRIES) } : {}),
         ...(Array.isArray(value.reach) ? { reach: value.reach.filter((host): host is string => typeof host === "string").slice(0, MAX_ENTRIES) } : {}),
         ...(value.labReach === false ? { labReach: false as const } : {}),
+        ...(Array.isArray(value.writes) ? { writes: value.writes.filter((folder): folder is string => typeof folder === "string").slice(0, MAX_ENTRIES) } : {}),
       };
     } catch { /* none yet, or unreadable: nothing is remembered */ }
     return this.cached = data;
@@ -59,6 +60,18 @@ export class SandboxStore {
   async reachHosts(): Promise<string[]> { return [...(await this.load()).reach ?? []]; }
   addReach(host: string): Promise<void> {
     return this.update((data) => { const name = host.toLowerCase(); data.reach = [...new Set([...data.reach ?? [], name])]; });
+  }
+  /** Folders outside the project you said the write box Yes, always for this project to (real paths): the AI's edit and write tools and its shell may write them and below. */
+  async writeFolders(): Promise<string[]> { return [...(await this.load()).writes ?? []]; }
+  addWrite(folder: string): Promise<void> {
+    return this.update((data) => { data.writes = [...new Set([...data.writes ?? [], folder])]; });
+  }
+  forgetWrite(folder: string): Promise<boolean> {
+    let found = false;
+    return this.update((data) => {
+      found = Boolean(data.writes?.includes(folder));
+      if (data.writes) { data.writes = data.writes.filter((entry) => entry !== folder); if (!data.writes.length) delete data.writes; }
+    }).then(() => found);
   }
   /** Whether ssh to a device on your lab list runs without asking (on unless /lab ssh off). */
   async labReach(): Promise<boolean> { return (await this.load()).labReach !== false; }

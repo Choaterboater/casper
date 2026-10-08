@@ -35,7 +35,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "tasks", description: "What runs in the background (dev servers, helpers, checks); stop one" },
   { name: "debug", description: "Inspect local targets; approve launch and debug code" },
   { name: "doctor", description: "Check Casper's own setup and fix what it can (no model, asks first)" },
-  { name: "permissions", description: "Understand native-tool risks and exact approval boundaries" },
+  { name: "permissions", description: "What Casper may do here, and how to be asked less" },
   { name: "sandbox", description: "What the shell sandbox holds here; forget a remembered host" },
   { name: "allowed", description: "The shell commands you said yes to for this project; forget one" },
   { name: "lab", description: "Your lab devices; /lab import <file> marks more; /lab ssh off makes ssh to them ask" },

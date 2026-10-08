@@ -419,6 +419,17 @@ Press 1-3 or Up/Down + Enter · type to answer · Esc skip
         </details>
 
         <details>
+          <summary>How do I stop it asking so much?</summary>
+          <p>Type <code>/permissions</code>: one screen of what Casper may do here, and the exact way to be asked less for each kind. The short version:
+          answer <code>3</code> or <code>4</code> in a box to remember it for the session or the project; for a folder outside the project
+          answer <code>4 Yes, always for this project</code> (or <code>/permissions write &lt;folder&gt;</code>);
+          <code>/permissions all</code> stops the shell's questions until you quit (the footer says <code>ASKING OFF</code>, and
+          <code>/permissions ask</code> turns it back). There is no one switch for everything, on purpose. These stay protected whatever you pick:
+          <code>~/.ssh</code>, <code>~/.casper</code>, cloud logins and shell start-up files, secrets, writes to network devices (the product login must allow
+          them), and the AI can't answer a box for you. <code>--no-sandbox</code> for one run, or <code>sandbox: off</code> in your own config, takes the shell sandbox away too.</p>
+        </details>
+
+        <details>
           <summary>Can the AI look at my pull requests and CI?</summary>
           <p>Yes, on GitHub, when the folder's <code>origin</code> is on github.com and the GitHub tool
           <code>gh</code> is signed in (<code>gh auth login</code>, in your own terminal). Ask "check my PRs" or
