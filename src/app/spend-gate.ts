@@ -3,6 +3,7 @@
 
 import type { CasperApp } from "../app";
 import { spendChoices } from "./safe-choices";
+import { oneAtATime } from "./approvals";
 import { formatCost, formatLimit, formatTokens, SPEND_STOP_REASON } from "../task/spend";
 
 /** Whether the task's cost is money you pay: not for a free model, and not on a subscription (ChatGPT, Claude),
@@ -46,7 +47,9 @@ export function spendGate(app: CasperApp, signal?: AbortSignal): Promise<string 
     const used = `This task has used ${formatCost(spent.cost)}.`;
     if (app.interactive && app.terminal.canAsk && !app.closing) {
       const next = guard.nextAfter(spent.cost)!;
-      const answer = await app.terminal.pick(used, spendChoices(formatLimit(next)), signal ?? app.commandAbort?.signal);
+      // In the approval queue: a box already open is answered first, then this question is asked, never skipped.
+      const stop = signal ?? app.commandAbort?.signal;
+      const answer = await oneAtATime(app, async () => app.closing ? undefined : app.terminal.pick(used, spendChoices(formatLimit(next)), stop));
       if (answer === "Keep going") { guard.keepGoing(spent.cost); return undefined; }
     } else {
       app.events.ensureLineBreak();
