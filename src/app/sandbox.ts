@@ -149,7 +149,9 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       // You said yes to this ssh or scp: a plain one runs outside the sandbox, with your own keys (the sandbox hides
       // ~/.ssh), like lab checks. Anything more stays in the sandbox and may only reach the hosts you named. Only the
       // ssh or scp the PATH finds outside every place a sandboxed command may write counts as plain.
-      if (targets && runsAlone(command, cwd) && trustedProgram(splitShell(command).segments[0]!.words[0]!, sandbox.searchPath, (place) => sandboxWrites(place, cwd))) {
+      const plain = targets !== undefined && runsAlone(command, sandbox.root, cwd)
+        && trustedProgram(splitShell(command).segments[0]!.words[0]!, sandbox.searchPath, (place) => sandboxWrites(place, cwd), sandbox.ownBin) !== undefined;
+      if (plain) {
         sayOnce(`[sandbox] ${targets.map(targetLabel).join(", ")}: plain ssh and scp you allow run outside the sandbox, with your own keys.`);
         return { command };
       }
@@ -158,7 +160,8 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       catch (error) {
         // The sandbox failed to start on this command (it said so): from now on the AI's shell asks, this one too.
         if (!sandbox.failure) throw error;
-        const refused = targets ? undefined : await shell.approve!(command);
+        // A plain ssh or scp was already asked; anything else (a ./ssh, a bin/scp) is asked as any command is.
+        const refused = plain ? undefined : await shell.approve!(command);
         if (refused) throw new Error(refused);
         return { command };
       }

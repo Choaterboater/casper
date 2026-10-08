@@ -371,6 +371,25 @@ test("only the system's own ssh and scp run outside the sandbox for an allowed m
   expect(terminal.asked).toEqual([]);
 });
 
+test("when the sandbox cannot start, a program named by its path that is not the system's ssh is asked about, not run", async () => {
+  const failing = () => ({ ...fakeEngine(), initialize: async () => { throw new Error("bwrap: setting up uid map: Permission denied"); } });
+  for (const [answer, expected] of [["No", SHELL_DECLINED], ["Yes, this once", undefined]] as const) {
+    const { home, project, context, seams } = await labFixture();
+    const terminal = host([answer]);
+    terminal.value.labHosts = () => ["build-server"];
+    await writeFile(path.join(project, "ssh"), "#!/bin/sh\n", { mode: 0o755 });
+    const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { ...seams, engine: failing() } });
+    const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+    const command = "./ssh build-server uptime";
+    expect(await shell.approve!(command)).toBeUndefined();
+    const wrapping = shell.wrap(command, project);
+    if (expected) await expect(wrapping).rejects.toThrow(expected);
+    else expect(await wrapping).toEqual({ command });
+    expect(terminal.asked).toEqual([{ question: `Run this command?  ${command}`, options: ["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"] }]);
+    await sandbox.close();
+  }
+});
+
 test("a lab-listed alias does not let ssh -o HostName= reach another machine without a question", async () => {
   const { home, project, context } = await labFixture();
   const terminal = host([undefined, undefined]);

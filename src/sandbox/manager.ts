@@ -179,9 +179,11 @@ export class ShellSandbox {
   get searchPath(): string {
     if (this.options.searchPath !== undefined) return this.options.searchPath;
     const current = process.env.PATH ?? "";
-    const own = this.options.agentDir ? path.join(this.options.agentDir, "bin") : undefined;
+    const own = this.ownBin;
     return own && !current.split(path.delimiter).includes(own) ? [own, current].filter(Boolean).join(path.delimiter) : current;
   }
+  /** Casper's own bin folder (its tools, not the system's), searched first by the AI's shell. */
+  get ownBin(): string | undefined { return this.options.agentDir ? path.join(this.options.agentDir, "bin") : undefined; }
   /** The AI's edits and writes outside the project ask first, unless you turned the sandbox off
    * (--no-sandbox, sandbox: off): then they go through as before. */
   get asksOutsideWrites(): boolean { return this.state.kind !== "off"; }

@@ -91,6 +91,9 @@ test("a bare ssh or scp runs alone only from a PATH folder the sandbox doesn't l
     expect(trustedProgram("ssh", on(empty), sandboxWrites)).toBeUndefined();
     // A name with a folder in it is never looked up on the PATH.
     expect(trustedProgram("./ssh", on(system), sandboxWrites)).toBeUndefined();
+    // Casper's own bin folder, searched first by the AI's shell, is not the system's.
+    expect(trustedProgram("ssh", on(system), sandboxWrites, system)).toBeUndefined();
+    expect(trustedProgram("ssh", on(empty, system), sandboxWrites, empty)).toBe(path.join(system, "ssh"));
   } finally { await removeTempDir(base); }
 });
 
@@ -182,4 +185,12 @@ test("inside double quotes a backslash stays unless it escapes a special charact
   expect(words('cat "C:\\Windows\\win.ini"')).toEqual(["cat", "C:\\Windows\\win.ini"]);
   expect(words('echo "a\\"b" "c\\\\d" "e\\$f"')).toEqual(["echo", 'a"b', "c\\d", "e$f"]);
   expect(words("cat ..\\x 'a\\b'")).toEqual(["cat", "..x", "a\\b"]);
+});
+
+test("scp's local files must be inside the project root, even when the command runs in a folder below or outside it", () => {
+  const root = path.join(home, "project");
+  expect(runsAlone("scp notes.txt build-server:/srv/", root, path.join(root, "sub"))).toBe(true);
+  expect(runsAlone("scp ../notes.txt build-server:/srv/", root, path.join(root, "sub"))).toBe(true);
+  expect(runsAlone("scp ../notes.txt build-server:/srv/", root, root)).toBe(false);
+  expect(runsAlone("scp notes.txt build-server:/srv/", root, home)).toBe(false);
 });

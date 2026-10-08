@@ -445,7 +445,7 @@ const LOCAL_EFFECT_FLAG = new Set(["-D", "-L", "-R", "-W", "-w", "-f", "-N", "-M
  * a program here, forwards a port or the agent, or goes to the background, and (scp) local files only inside the
  * project. Anything else stays in the sandbox.
  */
-export function runsAlone(command: string, root: string): boolean {
+export function runsAlone(command: string, root: string, cwd = root): boolean {
   const line = splitShell(command);
   if (!line.simple) return false;
   const words = line.segments[0]!.words;
@@ -464,7 +464,7 @@ export function runsAlone(command: string, root: string): boolean {
       if (remoteFileHost(arg)) continue;
       // ~, $VAR and globs expand in the shell to places this check can't see.
       if (/^~|[$*?[{]/.test(arg)) return false;
-      const local = realpathLongest(path.resolve(root, arg));
+      const local = realpathLongest(path.resolve(cwd, arg));
       if (!within(realpathLongest(root), local)) return false;
     }
   }
@@ -475,15 +475,17 @@ export function runsAlone(command: string, root: string): boolean {
  * The program a bare `name` runs as, when nothing the sandbox lets commands write can change which one that is:
  * every folder on `searchPath` up to the one that has it is absolute (an empty or relative entry is searched from
  * the current folder) and not `writable`, and so is the file itself, through links. undefined otherwise, or when no
- * folder has it.
+ * folder has it. A program found in `ownBin` (Casper's own bin folder, searched first) is not the system's, so
+ * undefined too.
  */
-export function trustedProgram(name: string, searchPath: string, writable: (place: string) => boolean): string | undefined {
+export function trustedProgram(name: string, searchPath: string, writable: (place: string) => boolean, ownBin?: string): string | undefined {
   // A name with a folder in it is not looked up on the PATH at all.
   if (!name || /[\\/]/.test(name)) return undefined;
   for (const dir of searchPath.split(path.delimiter)) {
     if (!dir || !path.isAbsolute(dir) || writable(dir)) return undefined;
     const file = path.join(dir, name);
     try { if (!statSync(file).isFile()) continue; accessSync(file, constants.X_OK); } catch { continue; }
+    if (ownBin && within(realpathLongest(ownBin), realpathLongest(file))) return undefined;
     return writable(file) ? undefined : file;
   }
   return undefined;
