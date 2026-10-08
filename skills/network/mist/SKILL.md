@@ -10,7 +10,7 @@ casper-skill:
     strong: ["mist api", "juniper mist", "mistapi", "api.mist.com", "mist org", "mist site", "mist webhook", "mist websocket"]
     weak: ["mist"]
   frameworks: [mist]
-  version: 2
+  version: 3
 ---
 # Juniper Mist cloud API
 
@@ -39,6 +39,8 @@ These calls ask for data. Run them first to learn what the token sees.
 - `GET /api/v1/sites/<site_id>/devices?type=all` (default type is `ap` only)
 - `GET /api/v1/sites/<site_id>/stats/devices?type=all`: live status
 - `GET /api/v1/sites/<site_id>/setting/derived`: site settings after templates
+- 5 GHz/RF: `GET /api/v1/orgs/<org_id>/rftemplates` and
+  `GET /api/v1/sites/<site_id>/stats/devices/<device_id>`.
 
 ```python
 import os, sys, mistapi
@@ -81,6 +83,8 @@ WRITE: `DELETE /api/v1/self` deletes your own account: never run it.
   `/gatewaytemplates`, `/sitetemplates`) change every site they are assigned to. Say how many
   sites that is before any change (GET the sites and count them).
 
+WRITE: `POST /api/v1/sites/<site_id>/clients/<client_mac>/disconnect` kicks a client to re-join.
+
 ## Paging and rate limits
 - List calls take `limit` and `page` (page starts at 1). The answer has headers `X-Page-Total`,
   `X-Page-Limit` and `X-Page-Page`: keep going until you have them all.
@@ -99,6 +103,9 @@ WRITE: `DELETE /api/v1/self` deletes your own account: never run it.
   header as the docs describe. Websockets: `wss://<ws_host>/api-ws/v1/stream`, where
   `<ws_host>` is your API host with `api.` changed to `api-ws.`; send
   `{"subscribe": "/sites/<site_id>/stats/devices"}`.
+- RF: `channels: null` = auto (RRM may pick DFS); 5 GHz `bandwidth` is 20/40/80, no auto;
+  `full_automatic_rrm` is in an AP's `radio_config`, not the template.
+- Stats replies run a KB+ per device and may ignore `fields`; page with `limit`/`page`.
 - Never `verify=False`.
 
 ## Testing with saved sample data
