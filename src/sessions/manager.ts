@@ -221,6 +221,10 @@ export class SessionWorkspaceManager {
     const sourceWorkspace = this.store.primaryWorkspace;
     let plan: WorktreePlan | undefined;
     if (this.policy.isolateWhen.experimentalBranch && this.worktrees) {
+      // A git worktree you made yourself has its own store; its experiments would start from the main folder.
+      if (sourceWorkspace !== this.worktrees.primaryWorkspace) {
+        throw new Error(`/branch starts experiments from the project's main folder (${this.worktrees.primaryWorkspace}); this folder is a git worktree you made. Start Casper there to branch.`);
+      }
       plan = await this.worktrees.plan(name, sourceWorkspace);
     }
     const approved = await options.confirm(

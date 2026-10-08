@@ -311,8 +311,10 @@ describe("Phase 7 sessions and worktrees", () => {
     const elsewhere = await mkdtemp(path.join(os.tmpdir(), "casper-phase7-elsewhere-"));
     cleanup.push(() => removeTempDir(elsewhere));
     await expect((await SessionWorkspaceManager.open(atFeature)).resumeActive(new BranchRuntimeSession(sessions, elsewhere, freshFile))).rejects.toThrow("does not match");
-    // Isolated experiments still start from the main checkout only.
-    await expect(inFeature.branch("exp", { getRuntime: async () => firstRuntime, confirm: async () => true })).rejects.toThrow("primary worktree");
+    // Isolated experiments still start from the main checkout only, and /branch says so in plain words.
+    const mainFolder = await realpath(repo);
+    await expect(inFeature.branch("exp", { getRuntime: async () => firstRuntime, confirm: async () => true })).rejects.toThrow(
+      `/branch starts experiments from the project's main folder (${mainFolder}); this folder is a git worktree you made. Start Casper there to branch.`);
   });
 
   test("review regression: a missing or detached experiment worktree can be left for main without deleting anything", async () => {

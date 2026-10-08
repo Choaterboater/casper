@@ -56,7 +56,7 @@ inside an experiment's worktree folder, it resumes that branch's saved
 conversation. A Git worktree you made yourself (`git worktree add`) is a folder
 of its own: it starts on its own `main`, and its saved conversation is kept
 apart from the main folder's. Isolated experiments still start from the main
-folder.
+folder: `/branch` there says so and names the folder to start Casper in.
 
 A one-shot run (`casper "<prompt>"`, `casper --json ...`) starts a new conversation
 unless you give it `--continue` or `--resume`, even in a folder where a session left one
