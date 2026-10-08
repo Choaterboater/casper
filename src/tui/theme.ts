@@ -86,10 +86,10 @@ export function themeNames(): string[] { return [...themes.keys()]; }
 
 export function findTheme(name: string): Theme | undefined { return themes.get(name); }
 
-/** The one line Casper says (at start, and in casper doctor) when `theme:` names no theme it has. */
-export function themeNote(name: string | undefined): string | undefined {
-  if (name === undefined || themes.has(name)) return undefined;
-  const names = themeNames();
+/** The one line Casper says (at start, and in casper doctor) when `theme:` names no theme it has. `names` is the list
+ * to look in: the one on screen now, unless casper doctor gives the one Casper would have at its next start. */
+export function themeNote(name: string | undefined, names: readonly string[] = themeNames()): string | undefined {
+  if (name === undefined || names.includes(name)) return undefined;
   return `theme ${shownThemeName(name)} is not one Casper has; using default. Themes: ${names.join(", ")}`;
 }
 

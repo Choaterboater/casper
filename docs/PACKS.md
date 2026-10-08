@@ -148,7 +148,8 @@ colors:
   and every file of the pack is still what you saw. With `packs: off`, a changed pack, or after
   `/pack remove`, a `theme:` that names it uses `default`, and one line says so:
   `[config] theme ocean is not one Casper has; using default.` A pack you remove while its theme is in
-  use keeps those colours until you start Casper again.
+  use keeps those colours until you start Casper again, a settings change in between included;
+  `/settings` shows it as `ocean (its pack is no longer used; default from the next start)`.
 
 ## From GitHub
 

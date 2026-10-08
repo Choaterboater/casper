@@ -6,7 +6,7 @@ import type { CasperApp } from "../app";
 import type { ProjectContext } from "../project/context";
 import { projectFileDigest } from "../project/context";
 import { terminalText } from "../tui/format";
-import { themeNote, useTheme } from "../tui/theme";
+import { activeThemeName, findTheme, themeNote, useTheme } from "../tui/theme";
 
 export const PROJECT_FILE_CHANGED = "[project] .casper/project.yaml changed in a task; restart Casper to use it\n";
 const NONE = "none";
@@ -41,6 +41,9 @@ export async function reloadProject(app: CasperApp, options: { own?: boolean } =
  * matches what /settings shows after a hand edit too. A new name Casper has no theme for is named once, as at start. */
 export function followTheme(app: CasperApp, before: string | undefined): void {
   const theme = app.projectContext?.theme;
+  // The theme on screen whose pack you removed (or that stopped being used) this session: the settings still name it,
+  // so it stays until Casper starts again, as /pack remove said.
+  if (theme !== undefined && theme === before && theme === activeThemeName() && !findTheme(theme)) return;
   useTheme(theme);
   const note = theme === before ? undefined : themeNote(theme);
   if (!note) return;

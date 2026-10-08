@@ -6,6 +6,7 @@ import { PassThrough } from "node:stream";
 import { CasperApp } from "../src/app";
 import { browserDefaults } from "../src/browser/discovery";
 import type { MCPServerDefinition } from "../src/mcp/config";
+import { followTheme } from "../src/app/project-file";
 import { settingRows } from "../src/app/settings";
 import { checkConfig } from "../src/doctor/checks";
 import { formatDoctorLines } from "../src/doctor/run";
@@ -175,9 +176,17 @@ test("a pack's theme is on the list at start only while packs are on: theme: in 
   expect(row.choices.map((choice) => [choice.label, choice.description])).toEqual([
     ["Light", "for a light terminal background"], ["High-contrast", "bright colours, no faint text"], ["Ocean", "from pack writing-basics"],
   ]);
-  const doctor = await checkConfig({ homeDir: home, projectRoot: project, env: {}, platform: process.platform, currentVersion: "0.0.0",
-    install: { kind: "binary", executable: path.join(home, "casper") }, agentDir: path.join(home, ".casper", "agent") });
-  expect(formatDoctorLines(doctor.lines)).not.toContain("ocean");
+  // casper doctor runs in its own process, with no theme on the list but the built-in ones; and inside a session it
+  // leaves the session's list as it is.
+  const doctor = async () => formatDoctorLines((await checkConfig({ homeDir: home, projectRoot: project, env: {}, platform: process.platform,
+    currentVersion: "0.0.0", install: { kind: "binary", executable: path.join(home, "casper") }, agentDir: path.join(home, ".casper", "agent") })).lines);
+  await registerPackThemes(os.tmpdir(), false);
+  expect(await doctor()).not.toContain("ocean");
+  expect(themeNames()).toEqual(["default", "light", "high-contrast"]);
+  await writeFile(config, "packs: off\ntheme: ocean\n");
+  expect(await doctor()).toContain("theme ocean is not one Casper has; using default. Themes: default, light, high-contrast");
+  await writeFile(config, "theme: ocean\n");
+  await registerPackThemes(home, true);
 
   // A project file can't set theme: at all, a pack's theme included.
   await mkdir(path.join(project, ".casper"), { recursive: true });
@@ -200,6 +209,15 @@ test("a pack's theme is on the list at start only while packs are on: theme: in 
     approve: async () => undefined, takenNames: () => ({ skills: [], servers: [] }) }, "remove writing-basics");
   expect(printed).toEqual(["Removed pack writing-basics. Its theme ocean stays on screen until you start Casper again; then the colours go back to default."]);
   expect([activeThemeName(), themeNames()]).toEqual(["ocean", ["default", "light", "high-contrast"]]);
+  // Settings read again in the session (a /settings change, /verify add, /undo) keep it, and /settings says why.
+  const written: string[] = [];
+  const session = { projectContext: { ...on.context, theme: "ocean" }, events: { ensureLineBreak() {} }, output: { write: (text: string) => written.push(text) } };
+  followTheme(session as unknown as Parameters<typeof followTheme>[0], "ocean");
+  expect([activeThemeName(), written]).toEqual(["ocean", []]);
+  expect(settingRows({ ...on.context, theme: "ocean" }).find((setting) => setting.label === "Theme")!.value).toBe("ocean (its pack is no longer used; default from the next start)");
+  // Picking another one in /settings uses it.
+  followTheme({ ...session, projectContext: { ...on.context, theme: "light" } } as unknown as Parameters<typeof followTheme>[0], "ocean");
+  expect(activeThemeName()).toBe("light");
   const removed = await start();
   expect(activeThemeName()).toBe("default");
   expect(removed.output.split("\n").filter((line) => line.includes("ocean"))).toEqual([NOTE]);
