@@ -20,6 +20,7 @@ import { SECURITY_TOOLS } from "../security/tools";
 import { SECURITY_TOOL_ORDER, type SecurityToolId } from "../security/types";
 import { packThemes } from "../packs/themes";
 import { BUILT_IN_THEMES, themeNote } from "../tui/theme";
+import { lastUpdateFailure, updateFailureLines } from "../update/handoff-log";
 import { compareVersions, defaultRunner, lookUpNewest, type Fetcher, type Install, type ProcessRunner } from "../update/command";
 import { jsonErrorPosition } from "./json-position";
 
@@ -77,6 +78,12 @@ function shown(ctx: DoctorContext, file: string): string {
 
 /** The running Casper against the newest published release (previews count). One GitHub lookup, no tokens. */
 export async function checkVersion(ctx: DoctorContext): Promise<DoctorLine[]> {
+  const failed = await lastUpdateFailure(path.join(ctx.homeDir, ".casper"), ctx.currentVersion, ctx.now?.()).catch(() => undefined);
+  const [what, how] = failed ? updateFailureLines(failed, shown(ctx, failed.file)) : [];
+  return [...(failed ? [fail(what!.replace(/\.$/, ""), how!.replace(/^What it did is in /, "Log: "))] : []), ...(await checkNewest(ctx))];
+}
+
+async function checkNewest(ctx: DoctorContext): Promise<DoctorLine[]> {
   if (ctx.env.CASPER_OFFLINE === "1") return [note(`Casper ${ctx.currentVersion}; newest release not checked (CASPER_OFFLINE=1)`)];
   const newest = await lookUpNewest(ctx.fetch ?? fetch, ctx.env, AbortSignal.timeout(15_000));
   if (typeof newest === "string") return [note(`Casper ${ctx.currentVersion}; the newest release is not known: ${newest.replace(/ Nothing was changed\.$/, "")}`)];

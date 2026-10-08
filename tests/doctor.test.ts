@@ -265,3 +265,14 @@ test("/doctor in a session runs the same checks with no model, and names a serve
   expect(text).toContain("TypeScript: no language server set up (optional)");
   expect(starts).toBe(0);
 });
+
+test("version: a Windows update that did not finish is a failure line with the log and the one-liner, before the newest-release line", async () => {
+  const dir = await home();
+  await mkdir(path.join(dir, ".casper"), { recursive: true });
+  await writeFile(path.join(dir, ".casper", "update.log"), "target: 0.2.23\nresult: failed: Casper did not exit in time, so nothing was changed\n");
+  const lines = await checkVersion(context(dir, { fetch: releases("v0.2.23", "v0.2.22") }));
+  expect(lines[0]).toMatchObject({ status: "fail" });
+  expect(lines[0]!.text).toContain("The last update to Casper 0.2.23 did not finish: Casper did not exit in time");
+  expect(lines[0]!.next).toContain("install.ps1 | iex");
+  expect(lines[1]).toMatchObject({ status: "note", fix: "update" });
+});

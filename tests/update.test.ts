@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { HANDOFF_SCRIPT, compareVersions, defaultRunner, gitEnv, newestRelease, runUpdate, type Fetcher, type ProcessRunner } from "../src/update/command";
 import { runningFromBinary } from "../src/update/mode";
+import { UPDATE_LOG, lastUpdateFailure, startUpdateLog, updateFailureLines } from "../src/update/handoff-log";
 import { CHECK_EVERY_MS, refreshUpdateCheck, updateChecksOff, updateNotice } from "../src/update/notice";
 import { testReleaseKey, type TestKey } from "./support/release-signing";
 import { removeTempDir } from "./support/temp-dir";
@@ -356,7 +357,7 @@ test("windows: the verified installer is handed to a detached process that waits
   // Nothing is downloaded again and the running program is untouched.
   expect(github.asked.filter((url) => url.endsWith("install.ps1"))).toHaveLength(1);
   expect(await readdir(dir)).toEqual(["casper.exe"]);
-  expect(lines.at(-1)).toBe("Casper will finish updating when this window closes: it is replacing its own program. Run casper --version afterwards.");
+  expect(lines.at(-1)).toBe("Casper cannot replace itself while it runs. A hidden helper does it once this Casper has exited, and it downloads the new program first. Close Casper if it is still open, wait about 30 seconds, then run casper --version.");
   // The temp folder stays for the handoff, which removes it itself.
   const cleanup = arg("-Cleanup")!;
   expect(await readdir(cleanup)).toContain("install.ps1");
@@ -681,4 +682,77 @@ test("notice: CASPER_NO_UPDATE_CHECK or CI turns it off", () => {
   expect(updateChecksOff({ CASPER_NO_UPDATE_CHECK: "0" })).toBe(false);
   expect(updateChecksOff({ CI: "true" })).toBe(true);
   expect(updateChecksOff({ CI: "false" })).toBe(false);
+});
+
+// --- The Windows handoff writes update.log, and a failed update is said plainly ---
+
+test("windows: the handoff gets a log file in the state folder, started as pending, and a failed start leaves no log", async () => {
+  const { executable } = await binaryInstall("casper.exe");
+  const stateDir = await tempDir("casper-state-");
+  const github = fakeGitHub([{ tag_name: "v0.2.22" }], releaseFiles("0.2.22"));
+  const handoff = fakeHandoff();
+  const result = await runUpdate({ releaseKey: NO_KEY, check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: () => {}, fetch: github.fetch, run: recordingRunner().run, startDetached: handoff.start, pid: 4242, platform: "win32", stateDir });
+  expect(result.exitCode).toBe(0);
+  const argv = handoff.calls[0]!.argv;
+  expect(argv[argv.indexOf("-LogFile") + 1]).toBe(path.join(stateDir, UPDATE_LOG));
+  const log = await readFile(path.join(stateDir, UPDATE_LOG), "utf8");
+  expect(log).toContain("target: 0.2.22");
+  expect(log.trimEnd().split("\n").at(-1)).toBe("result: pending");
+  await removeTempDir(argv[argv.indexOf("-Cleanup") + 1]!);
+  // A helper that could not start leaves nothing behind that would later look like a failed update.
+  const failed = await tempDir("casper-state-");
+  const none = await runUpdate({ releaseKey: NO_KEY, check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: () => {}, fetch: github.fetch, run: recordingRunner().run, startDetached: fakeHandoff(false).start, platform: "win32", stateDir: failed });
+  expect(none.exitCode).toBe(1);
+  expect(await readdir(failed)).toEqual([]);
+});
+
+test("windows: every way out of the handoff script writes a result line first, and the steps are logged", () => {
+  const lines = HANDOFF_SCRIPT.split("\n");
+  lines.forEach((line, index) => {
+    if (/^\s*exit\b/.test(line)) expect(lines[index - 1]).toContain("result: failed");
+  });
+  for (const step of ["helper started", "exited", "installer SHA-256 expected", "running the installer", "the installer finished", "installed program version", "result: ok", "error: "]) {
+    expect(HANDOFF_SCRIPT).toContain(step);
+  }
+  // A thrown error is written down before the temp folder goes, not swallowed.
+  expect(HANDOFF_SCRIPT).toMatch(/catch \{\s*Write-Step \('error: '/);
+  expect(HANDOFF_SCRIPT).not.toMatch(/Invoke-Expression|iex\b|DownloadString|Invoke-WebRequest|irm\b/i);
+});
+
+test("update log: failed and never-finished updates are found; ok, still running and already-installed ones are not", async () => {
+  const stateDir = await tempDir("casper-state-");
+  const file = path.join(stateDir, UPDATE_LOG);
+  const write = (...lines: string[]) => writeFile(file, `\uFEFF${lines.join("\r\n")}\r\n`);
+  expect(await lastUpdateFailure(stateDir, "0.2.26")).toBeUndefined();
+  await write("target: 0.2.27", "2026-10-08T12:00:00 helper started", "2026-10-08T12:00:09 result: failed: Casper did not exit in time, so nothing was changed");
+  expect(await lastUpdateFailure(stateDir, "0.2.26")).toMatchObject({ version: "0.2.27", reason: "Casper did not exit in time, so nothing was changed" });
+  expect(await lastUpdateFailure(stateDir, "0.2.27")).toBeUndefined();
+  await write("target: 0.2.27", "result: pending", "2026-10-08T12:00:09 result: ok");
+  expect(await lastUpdateFailure(stateDir, "0.2.26")).toBeUndefined();
+  const fresh = (await import("node:fs")).statSync(file).mtimeMs;
+  await write("target: 0.2.27", "result: pending");
+  expect(await lastUpdateFailure(stateDir, "0.2.26", fresh + 60_000)).toBeUndefined();
+  expect(await lastUpdateFailure(stateDir, "0.2.26", fresh + 60 * 60_000)).toMatchObject({ version: "0.2.27", reason: "the helper that installs it never finished" });
+  await startUpdateLog(stateDir, "0.2.26", "0.2.27");
+  expect(await readFile(file, "utf8")).toContain("result: pending");
+});
+
+test("update log: casper update, the session start line and casper doctor all say the last update failed, and name the log and the one-liner", async () => {
+  const stateDir = await tempDir("casper-state-");
+  await writeFile(path.join(stateDir, UPDATE_LOG), "target: 0.2.22\nresult: failed: the installer ran, but the program in the install folder says version '0.2.21' and not 0.2.22\n");
+  const failure = (await lastUpdateFailure(stateDir, "0.2.21"))!;
+  const said = updateFailureLines(failure).join("\n");
+  expect(said).toContain("The last update to Casper 0.2.22 did not finish");
+  expect(said).toContain(path.join(stateDir, UPDATE_LOG));
+  expect(said).toContain(`irm ${DOWNLOAD}/v0.2.22/install.ps1 | iex`);
+  // casper update
+  const { executable } = await binaryInstall("casper.exe");
+  const lines: string[] = [];
+  await runUpdate({ releaseKey: NO_KEY, check: true, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: (line) => lines.push(line), fetch: fakeGitHub([{ tag_name: "v0.2.22" }], releaseFiles("0.2.22")).fetch, platform: "win32", stateDir });
+  expect(lines.join("\n")).toContain("did not finish");
+  // the line at the start of a session
+  const line = await updateNotice({ install: { kind: "binary", executable }, currentVersion: "0.2.21", stateDir, env: {}, fetch: fakeGitHub([]).fetch });
+  expect(line).toContain("did not finish");
+  // once this Casper is the new version, nothing is said
+  expect(await updateNotice({ install: { kind: "binary", executable }, currentVersion: "0.2.22", stateDir, env: {}, fetch: fakeGitHub([]).fetch })).toBeUndefined();
 });

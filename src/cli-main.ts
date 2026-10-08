@@ -143,7 +143,7 @@ async function runUpdateSubcommand(cmd: UpdateCommand): Promise<void> {
   let pending: Promise<unknown> = Promise.resolve();
   const removeShutdownHandlers = installShutdownHandlers({ close: async () => { controller.abort(); await pending.catch(() => undefined); } });
   try {
-    const update = runUpdate({ check: cmd.check, install: currentInstall(), currentVersion: CASPER_VERSION, signal: controller.signal,
+    const update = runUpdate({ check: cmd.check, install: currentInstall(), currentVersion: CASPER_VERSION, signal: controller.signal, stateDir: path.join(os.homedir(), ".casper"),
       write: (line) => { process.stdout.write(`${terminalText(line)}\n`); } });
     pending = update;
     const { exitCode } = await update;

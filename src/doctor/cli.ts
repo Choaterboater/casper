@@ -1,3 +1,4 @@
+import path from "node:path";
 import readline from "node:readline";
 import { discoverMCPConfiguration } from "../mcp/config";
 import { runNetworkSetup, isCaspersEntry, type SetupHost } from "../mcp/network/setup";
@@ -32,7 +33,7 @@ export async function runDoctorCommand(options: { cwd: string; signal: AbortSign
   const io: DoctorIO = {
     write,
     ...(canAsk ? { choose } : {}),
-    update: () => runUpdate({ check: false, install: ctx.install, currentVersion: ctx.currentVersion, signal: options.signal,
+    update: () => runUpdate({ check: false, install: ctx.install, currentVersion: ctx.currentVersion, signal: options.signal, stateDir: path.join(ctx.homeDir, ".casper"),
       write: (line) => write(`${terminalText(line)}\n`) }),
     installTools: (ids) => installTools(ids, { homeDir: ctx.homeDir, write }),
     networkSetup: async () => {

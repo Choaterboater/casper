@@ -6,6 +6,7 @@ import path from "node:path";
 import { safeGitArgs } from "../platform/git";
 import { RELEASE_KEY } from "./release-key";
 import { checkInstaller } from "./verify-installer";
+import { lastUpdateFailure, removeUpdateLog, startUpdateLog, updateFailureLines, updateLogPath } from "./handoff-log";
 
 /**
  * `casper update`: no model, no tokens and no saved state.
@@ -54,6 +55,9 @@ export interface UpdateOptions {
   startDetached?: DetachedStarter;
   /** The id of this process, which the Windows handoff waits on; tests pass one. */
   pid?: number;
+  /** The folder that holds Casper's state (~/.casper). The Windows handoff writes update.log there, and an update that
+   * did not finish last time is said before a new one starts. Unset, neither happens (tests). */
+  stateDir?: string;
   /** The bun that runs the checkout; `bun install` uses it. */
   bun?: string;
   /** The release key SHA256SUMS must be signed with (tests pass a throwaway one); empty checks no signature. */
@@ -109,24 +113,57 @@ export const HANDOFF_SCRIPT = `param(
   [Parameter(Mandatory = $true)][string]$InstallDir,
   [Parameter(Mandatory = $true)][ValidatePattern('^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?$')][string]$Version,
   [Parameter(Mandatory = $true)][string]$Cleanup,
+  [string]$LogFile = '',
   [int]$WaitSeconds = ${HANDOFF_WAIT_SECONDS}
 )
 $ErrorActionPreference = 'Stop'
+# One line per step in update.log, which nobody else can see: this process has no window. A log that cannot be written is not an error.
+function Write-Step([string]$Text) {
+  if (-not $LogFile) { return }
+  try { Add-Content -LiteralPath $LogFile -Value ((Get-Date).ToString('s') + ' ' + $Text) -Encoding UTF8 } catch { }
+}
 try {
+  Write-Step "helper started; waiting for Casper (process $WaitPid) to exit"
   # Wait for Casper to exit. A process that is already gone is fine; any other answer means do nothing.
   $casper = $null
   try { $casper = Get-Process -Id $WaitPid -ErrorAction Stop }
   catch [Microsoft.PowerShell.Commands.ProcessCommandException] { $casper = $null }
   if ($casper) {
-    if (-not $casper.WaitForExit($WaitSeconds * 1000)) { exit 1 }
+    if (-not $casper.WaitForExit($WaitSeconds * 1000)) {
+      Write-Step "Casper (process $WaitPid) was still running after $WaitSeconds seconds"
+      Write-Step 'result: failed: Casper did not exit in time, so nothing was changed'
+      exit 1
+    }
     $casper.Dispose()
+    Write-Step "Casper (process $WaitPid) exited"
+  } else {
+    Write-Step "Casper (process $WaitPid) had already exited"
   }
   Start-Sleep -Seconds 1
-  if ((Get-FileHash -LiteralPath $Installer -Algorithm SHA256).Hash -ne $InstallerSha256) { exit 1 }
+  $Actual = (Get-FileHash -LiteralPath $Installer -Algorithm SHA256).Hash
+  Write-Step "installer SHA-256 expected $InstallerSha256, actual $Actual"
+  if ($Actual -ne $InstallerSha256) {
+    Write-Step 'result: failed: the installer file is not the one Casper checked, so it was not run'
+    exit 1
+  }
   $env:CASPER_INSTALL_DIR = $InstallDir
   $env:CASPER_VERSION = $Version
   Remove-Item -LiteralPath (Join-Path $InstallDir 'casper.old.exe') -Force -ErrorAction SilentlyContinue
+  Write-Step 'running the installer'
   & $Installer
+  Write-Step 'the installer finished'
+  # The installer's own words go to this hidden window. What counts is the program it left behind.
+  $Seen = ''
+  try {
+    $Said = ((& (Join-Path $InstallDir 'casper.exe') --version) | Out-String)
+    if ($Said -match 'casper (\\S+)') { $Seen = $Matches[1] }
+  } catch { $Seen = '' }
+  Write-Step "installed program version: $Seen"
+  if ($Seen -eq $Version) { Write-Step 'result: ok' }
+  else { Write-Step "result: failed: the installer ran, but the program in the install folder says version '$Seen' and not $Version" }
+} catch {
+  Write-Step ('error: ' + $_.Exception.Message)
+  Write-Step ('result: failed: ' + $_.Exception.Message)
 } finally {
   Remove-Item -LiteralPath $Cleanup -Recurse -Force -ErrorAction SilentlyContinue
 }
@@ -219,6 +256,10 @@ async function updateBinary(options: UpdateOptions, executable: string): Promise
   if (typeof newest === "string") { write(newest); return { exitCode: 1 }; }
   const version = newest.version;
   if (compareVersions(version, currentVersion) <= 0) { write(`Casper ${currentVersion} is the newest release.`); return { exitCode: 0 }; }
+  if (options.stateDir) {
+    const failed = await lastUpdateFailure(options.stateDir, currentVersion);
+    if (failed) for (const line of updateFailureLines(failed)) write(line);
+  }
   if (options.check) { write(`Casper ${version} is out; you have ${currentVersion}. Run casper update to install it.`); return { exitCode: 0 }; }
 
   const windows = (options.platform ?? process.platform) === "win32";
@@ -282,17 +323,20 @@ async function updateBinary(options: UpdateOptions, executable: string): Promise
     // Windows will not replace casper.exe while it runs, so a separate process does it once this one has exited.
     const handoff = path.join(temp, "handoff.ps1");
     await writeFile(handoff, HANDOFF_SCRIPT, { mode: 0o600 });
+    // The log is started here, before the helper, so a helper that never runs leaves a `pending` log to find.
+    const log = options.stateDir ? await startUpdateLog(options.stateDir, currentVersion, version) : undefined;
     const started = await (options.startDetached ?? defaultDetachedStarter)([
       "powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", handoff,
       "-WaitPid", String(options.pid ?? process.pid), "-Installer", file, "-InstallerSha256", createHash("sha256").update(installer).digest("hex"),
-      "-InstallDir", folder, "-Version", version, "-Cleanup", temp,
+      "-InstallDir", folder, "-Version", version, "-Cleanup", temp, ...(log ? ["-LogFile", log] : []),
     ], { env }).catch(() => false);
     if (!started) {
+      if (options.stateDir) await removeUpdateLog(options.stateDir);
       write(`Windows would not let Casper move its own program aside. Close Casper, then run this in PowerShell: irm ${DOWNLOAD}/v${version}/install.ps1 | iex`);
       return { exitCode: 1 };
     }
     handedOff = true;
-    write("Casper will finish updating when this window closes: it is replacing its own program. Run casper --version afterwards.");
+    write(`Casper cannot replace itself while it runs. A hidden helper does it once this Casper has exited, and it downloads the new program first. Close Casper if it is still open, wait about 30 seconds, then run casper --version.${log ? ` If it still shows ${currentVersion}, ${updateLogPath(options.stateDir!)} says what happened.` : ""}`);
     return { exitCode: 0 };
   } finally { if (!handedOff) await rm(temp, { recursive: true, force: true }); }
 }

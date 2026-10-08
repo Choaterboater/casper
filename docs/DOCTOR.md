@@ -41,7 +41,7 @@ Casper doctor · no model, no tokens
 
 | Check | What it looks at |
 | --- | --- |
-| Casper | This version against the newest published preview (one GitHub lookup; `CASPER_OFFLINE=1` skips it). A `casper` on PATH that is a broken link or an older copy than this one |
+| Casper | This version against the newest published preview (one GitHub lookup; `CASPER_OFFLINE=1` skips it). A `casper` on PATH that is a broken link or an older copy than this one. A Windows update that did not finish (from `~/.casper/update.log`), with the log and the install one-liner |
 | Config files | `~/.casper/config.yaml`, `mcp.json`, `lsp.json`, your profile's files, the sign-in and model files in `~/.casper/agent`, and the project's `.casper/project.yaml`, `.casper/mcp.json`, `.casper/lsp.json`, `mcp.json` and `.mcp.json`. A file that does not load is named with its line and column. Then Casper's own settings check, and unknown keys |
 | Sign-in | Each provider you signed in to, provider keys in the environment, and providers in `~/.casper/agent/models.json` that have their own key or address (a local server or a company gateway). A sign-in that renews itself is fine; one that has run out and can't renew says `/login <provider>`. Nothing is sent: no request, no tokens. Keys are never shown |
 | MCP servers | Each server's program is installed (a missing `uvx`, `npx`, `bunx`, `docker`, `node` or `python` gets its install page), each `${VAR}` it needs is set, and its start folder exists. The doctor never starts a server: starting one is your yes (`/mcp connect`). In a session, a server that failed to start says why |
