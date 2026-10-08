@@ -203,6 +203,28 @@ test("every \"it writes `name: value`\" in CONFIGURATION.md is the line /setting
   }
 });
 
+test("CONFIGURATION.md's \"off works the same for every switch except …\" holds for every /settings row that turns something off", async () => {
+  const doc = (await readFile(path.join(import.meta.dir, "..", "docs", "CONFIGURATION.md"), "utf8")).replace(/\s+/g, " ");
+  const sentence = /`off` works the same for every switch except (.+?)\. /.exec(doc)?.[1];
+  expect(sentence).toBeDefined();
+  const except = [...sentence!.matchAll(/`([A-Za-z0-9.]+)`/g)].map(([, key]) => key!).filter((key) => !["true", "false", "off"].includes(key));
+  const { home, project, config } = await folders();
+  const switches = new Set<string>();
+  for (const row of await rowsFor(home, project)) {
+    for (const choice of row.choices) {
+      const keys = typeof choice.keys === "function" ? await choice.keys(home) : choice.keys;
+      if (keys && choice.value === false) switches.add(keys.join("."));
+    }
+  }
+  expect([...switches]).toEqual(expect.arrayContaining(except));
+  for (const key of switches) {
+    const parts = key.split(".");
+    await writeFile(config, parts.map((part, index) => `${"  ".repeat(index)}${part}:${index === parts.length - 1 ? " off" : ""}`).join("\n") + "\n");
+    const loaded = await loadProjectContext(await inspectProject(project), { homeDir: home }).then(() => "loads", () => "refused");
+    expect({ key, off: loaded }).toEqual({ key, off: except.includes(key) ? "refused" : "loads" });
+  }
+});
+
 test("suggestions: false from /settings applies in the session without a restart", async () => {
   const { home, project, config } = await folders();
   const controller = new SuggestionController(() => {}, () => home);

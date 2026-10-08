@@ -50,9 +50,10 @@ The first lines show every setting and where it stands at a glance; the numbered
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
 A change applies from now on (built-in skills, packs and the prompt cache from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` A switch turned off is written as
-`false` (`packs: false`); `off` in a config you write yourself works the same. Where Casper can't
-ask (a one-shot run), `/settings` lists them. `/details <level>` saves the work shown the same way,
-like `/effort`.
+`false` (`packs: false`). In a config you write yourself, `off` works the same for every switch
+except `suggestions`, `skills.bundled` and `verification.e2e`, which take only `true` or `false`,
+and `spend.noteAt`, which takes a dollar amount or `false`. Where Casper can't ask (a one-shot
+run), `/settings` lists them. `/details <level>` saves the work shown the same way, like `/effort`.
 
 ### Web lookups
 
