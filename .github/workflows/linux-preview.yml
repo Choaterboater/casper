@@ -86,8 +86,9 @@ jobs:
       - name: Full regression suite (files in parallel)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         # Normal step: 4.8 min p90 (max 5.0). tools/stall-guard.sh stops a run whose log has been silent for
-        # 180 s, after writing stall-dump.txt (every process, each test worker's kernel stack, the test files
-        # that printed and those that did not) next to the log, which the evidence upload below keeps.
+        # 180 s, after writing stall-dump.txt (every process, each test worker's children and kernel stack, a
+        # native stack for a worker on the CPU when the host has gdb or eu-stack, the test files that printed
+        # and those that did not) next to the log, which the evidence upload below keeps.
         timeout-minutes: 12
         run: bash tools/stall-guard.sh "$RUNNER_TEMP/linux-preview/full-suite.log" 180 "$RUNNER_TEMP/linux-preview/stall-dump.txt" -- bun run test
       - name: Eval bench tests
