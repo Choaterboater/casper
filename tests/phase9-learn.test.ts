@@ -502,6 +502,19 @@ test("a learning run that fails says why, on one short line", async () => {
   expect(failure!.length).toBeLessThan(400);
 });
 
+test("a long failure reason cut short never ends in half an emoji", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-learn-"));
+  cleanup.push(() => removeTempDir(root));
+  const home = path.join(root, "home"); const project = path.join(root, "source repo");
+  await mkdir(home); await mkdir(project);
+  // 298 letters, then emoji: the 299th character is an emoji, which is two UTF-16 units.
+  const library = new CandidateLibrary({ homeDir: home, runtimeFactory: () => { throw new Error("a".repeat(298) + "😀".repeat(5)); } });
+  cleanup.push(() => library.close());
+  const failure = await library.generate(project).then(() => undefined, (error: Error) => error.message);
+  expect(failure).toEndWith(`: ${"a".repeat(298)}😀…`);
+  expect(failure).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+});
+
 test("inspection retains observed provenance after source edits or removal, never claiming refreshed evidence", async () => {
   const f = await fixture(() => answer(JSON.stringify({ candidates: [candidate] })));
   const draft = JSON.parse((await f.run(["learn", f.project])).stdout).draft;

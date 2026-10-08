@@ -25,10 +25,12 @@ export function settingsLockBusy(error: unknown, platform: NodeJS.Platform = pro
   if (failure?.code === "ELOCKED") return true;
   return typeof failure?.path === "string" && path.basename(failure.path) === "settings.json.lock" && lockBusy(error, platform);
 }
-/** Waits between reads of a busy settings.json, about 1.3 s in all. preferences() is synchronous (it backs sync
- * getters), so the wait blocks: Atomics.wait sleeps the thread instead of spinning, which leaves the CPU to the
- * Casper holding the lock. It only runs while the file is busy, and a lock is held for one small read or write. */
-const SETTINGS_BUSY_WAITS_MS = [25, 50, 100, 200, 400, 500];
+/** Waits between reads of a busy settings.json: 650 ms in all. A held lock also costs each of the 5 reads Pi's own
+ * busy-loop retries (9 x 20 ms), so a lock that never frees gives up after about 1.6 s. preferences() is synchronous
+ * (it backs sync getters), so the wait blocks: Atomics.wait sleeps the thread instead of spinning, which leaves the
+ * CPU to the Casper holding the lock. It only runs while the file is busy, and a lock is held for one small read or
+ * write. */
+const SETTINGS_BUSY_WAITS_MS = [50, 100, 200, 300];
 const PAUSE = new Int32Array(new SharedArrayBuffer(4));
 
 /** Shared Pi configuration may supply non-model preferences, never routing policy. */

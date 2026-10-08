@@ -63,7 +63,10 @@ export interface LearningPromotion {
  * provider's own error text: it may echo the untrusted source the run read. */
 function because(reason: string | undefined): string {
   const line = reason?.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]+/gu, " ").replace(/\s+/g, " ").trim();
-  return line ? `: ${line.length > 300 ? `${line.slice(0, 299)}…` : line}` : "";
+  if (!line) return "";
+  // Cut by character, not UTF-16 unit, so an emoji at the cut is never left half there.
+  const characters = Array.from(line);
+  return `: ${characters.length > 300 ? `${characters.slice(0, 299).join("")}…` : line}`;
 }
 export interface LearningOptions {
   runtimeFactory: () => AgentRuntime | Promise<AgentRuntime>;
