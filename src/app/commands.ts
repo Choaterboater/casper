@@ -376,7 +376,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         await session.resumeConversation(id);
       }
       host.lastTaskRequest = undefined;
-      await (await host.ensureSessionWorkspace()).rememberConversation(session);
+      // Like --continue and --resume, a one-shot /clear or /resume does not change what later sessions open.
+      if (host.interactive) await (await host.ensureSessionWorkspace()).rememberConversation(session);
       host.output.write(prompt === "/clear"
         ? "[session] New conversation. Your files are not changed; /resume brings the last one back.\n"
         : `[session] Back in ${title ? `"${terminalText(title)}"` : "that conversation"}. Your files are not changed; /resume lists the others.\n`);

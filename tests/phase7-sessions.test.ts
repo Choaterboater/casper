@@ -237,6 +237,41 @@ describe("Phase 7 sessions and worktrees", () => {
     await expect((await SessionWorkspaceManager.open(options)).resumeActive(mismatched)).rejects.toThrow("does not match");
   });
 
+  test("a one-shot run starts its own conversation and leaves the one /clear or /resume kept for the next session", async () => {
+    const { home, repo } = await repository();
+    const sessions = path.join(home, "fake-sessions"); await mkdir(sessions);
+    const keptFile = path.join(sessions, "kept.jsonl"); await writeFile(keptFile, "earlier conversation");
+    const options = { projectRoot: repo, gitBranch: "main", homeDir: home, policy: SAFE_DEFAULT_POLICY.workspace };
+    // What an interactive /clear or /resume leaves behind: main holds that conversation.
+    await (await SessionWorkspaceManager.open(options)).rememberConversation(new BranchRuntimeSession(sessions, repo, keptFile));
+    const freshFile = path.join(sessions, "fresh.jsonl"); await writeFile(freshFile, "");
+    const session = new BranchRuntimeSession(sessions, repo, freshFile);
+    const prompted: string[] = [];
+    session.prompt = async () => { prompted.push(session.getSessionInfo().sessionFile); };
+    const clearedFile = path.join(sessions, "cleared.jsonl");
+    Object.assign(session, { clearConversation: async () => {
+      await writeFile(clearedFile, "");
+      await session.switchSession({ cwd: repo, sessionFile: clearedFile });
+    } });
+    const app = new CasperApp({
+      sessionHomeDir: home,
+      runtimeFactory: () => new BranchRuntime(session),
+      loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+      loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+      loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+      loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+      output: { write: () => {} },
+    });
+    cleanup.push(() => app.close());
+    await app.runOnce("explain tracked.txt", repo);
+    expect(prompted).toEqual([freshFile]);
+    // A one-shot /clear starts a new conversation for this run only.
+    await app.runOnce("/clear");
+    expect(session.getSessionInfo().sessionFile).toBe(clearedFile);
+    const store = await SessionBranchStore.open({ projectKey: (await GitWorktreeManager.open(repo, home))!.projectKey, primaryWorkspace: await realpath(repo), homeDir: home });
+    expect(store.get("main")?.sessionFile).toBe(keptFile);
+  });
+
   test("review regression: a missing or detached experiment worktree can be left for main without deleting anything", async () => {
     for (const breakage of ["missing", "detached"] as const) {
       const { home, repo } = await repository();

@@ -73,8 +73,12 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         // The project's sandbox.denyRead (GreenCLI lists its data and log folders there): the file tools refuse them too.
         privatePaths: projectPrivatePaths(app),
       });
-      const resumeNotice = await (await ensureSessionWorkspace(app)).resumeActive(app.session);
-      if (resumeNotice) app.output.write(`[sessions] ${resumeNotice}\n`);
+      // An interactive start reopens the conversation its named session holds (/clear, /resume and /branch keep it).
+      // A one-shot run starts its own: only --continue and --resume pick a saved conversation for it.
+      if (app.interactive) {
+        const resumeNotice = await (await ensureSessionWorkspace(app)).resumeActive(app.session);
+        if (resumeNotice) app.output.write(`[sessions] ${resumeNotice}\n`);
+      }
       await applyRunConversation(app, app.session);
       await applyRunSelection(app, app.session);
       app.unsubscribe = app.session.subscribe(event => {

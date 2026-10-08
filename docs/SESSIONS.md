@@ -55,10 +55,15 @@ When you start Casper in the main folder, it starts on `main`. When you start it
 inside an experiment's worktree folder, it resumes that branch's saved
 conversation.
 
+A one-shot run (`casper "<prompt>"`, `casper --json ...`) starts a new conversation
+unless you give it `--continue` or `--resume`, even in a folder where a session left one
+open. Its `/clear` or `/resume` does not change what the next session opens.
+
 From the command line, `casper --continue` continues the folder's most recent
 conversation, and `casper --resume <id-prefix>` continues the saved one whose ID
-starts with that text (see [SCRIPTING.md](SCRIPTING.md)). They change the
-conversation of the named session you are on, the same way `/resume` does.
+starts with that text (see [SCRIPTING.md](SCRIPTING.md)). When they open an
+interactive session, they change the conversation of the named session you are on,
+the same way `/resume` does.
 
 ### Coming back to main from an experiment
 
