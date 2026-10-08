@@ -400,12 +400,14 @@ export function privatePathCommand(command: string, context: PathContext): strin
     if (next === text) break;
     text = next;
   }
-  const homes = ["~", "\\$HOME", "\\$\\{HOME\\}", "\"\\$HOME\"", "%USERPROFILE%", "\\$env:USERPROFILE", home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")];
+  const homes = ["~", "\\$HOME", "\\$\\{HOME\\}", "\"\\$HOME\"", "%USERPROFILE%", "\\$env:USERPROFILE", "\\$\\{env:USERPROFILE\\}", pathPattern(home)];
+  // Windows and macOS names ignore case, and so do PowerShell's and cmd's variables.
+  const flags = process.platform === "win32" || process.platform === "darwin" ? "i" : "";
   for (const place of privatePlaces(context)) {
     const entry = place.shown.startsWith("~/") ? place.shown.slice(2) : undefined;
     const names = entry ? homes.map((prefix) => `${prefix}[\\\\/]+${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\//g, "[\\\\/]+")}`) : [];
-    for (const absolute of place.paths) names.push(absolute.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-    const pattern = new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:${names.join("|")})(?=$|[\\\\/\\s'";&|)<>*?])`);
+    for (const absolute of place.paths) names.push(pathPattern(absolute));
+    const pattern = new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:${names.join("|")})(?=$|[\\\\/\\s'";&|)<>*?])`, flags);
     if (pattern.test(text)) return `Not run: this command reads ${place.shown}, which is private (${place.why}). Casper keeps it from the AI. Ask the user instead.`;
   }
   // `cd ~/.ssh`, `cd $HOME` then a relative name: a command that goes home and names a private place by itself.
@@ -413,9 +415,20 @@ export function privatePathCommand(command: string, context: PathContext): strin
     const bare = PRIVATE_PATHS.find((entry) => new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:\\./)?${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[\\\\/\\s'";&|)])`).test(text));
     if (bare) return `Not run: this command reads ~/${bare}, which is private (keys and logins). Casper keeps it from the AI. Ask the user instead.`;
   }
-  const shown = privateWord(text, context, home);
+  // PowerShell and cmd separate folders with \, which the shell reading below takes as an escape: read those once more with /.
+  const shown = privateWord(text, context, home) ?? (process.platform === "win32" && text.includes("\\") ? privateWord(text.replaceAll("\\", "/"), context, home) : undefined);
   if (shown) return `Not run: this command reads ${shown}, which is private (${whyPrivate(shown, context)}). Casper keeps it from the AI. Ask the user instead.`;
   return undefined;
+}
+
+/** An absolute path as a regex. On Windows either slash separates folders, and the drive may be named the Git Bash,
+ * Cygwin or WSL way (/c/Users, /cygdrive/c/Users, /mnt/c/Users). */
+function pathPattern(absolute: string): string {
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (process.platform !== "win32") return escape(absolute);
+  const parts = absolute.split(/[\\/]+/);
+  const drive = /^([A-Za-z]):$/.exec(parts[0]!);
+  return [drive ? `(?:${drive[1]}:|/(?:mnt/|cygdrive/)?${drive[1]})` : escape(parts[0]!), ...parts.slice(1).map(escape)].join("[\\\\/]+");
 }
 
 /** Programs that read every file under a folder they are given (grep -r ~ reads ~/.ssh/config). */
@@ -450,8 +463,11 @@ function pathParts(absolute: string): string[] {
 function privateWord(command: string, context: PathContext, home: string): string | undefined {
   const places = privatePlaces(context);
   const userName = path.basename(home);
+  const windows = process.platform === "win32";
+  // On Windows a word may also be a Git Bash drive path (/c/Users) or a PowerShell or cmd home variable, in any case.
+  const homeVariable = windows ? /^(?:\$\{HOME\}|\$HOME|\$\{env:USERPROFILE\}|\$env:USERPROFILE|%USERPROFILE%)(?=\/|$)/i : /^(?:\$\{HOME\}|\$HOME)(?=\/|$)/;
   const expand = (word: string): string | undefined => {
-    let value = word.replace(/^(?:\$\{HOME\}|\$HOME)(?=\/|$)/, home);
+    let value = (windows ? windowsShellPath(word) : word).replace(homeVariable, home);
     const tilde = /^~([^/]*)(?=\/|$)/.exec(value);
     if (tilde) value = (tilde[1] === "" || tilde[1] === userName ? home : path.join(path.dirname(home), tilde[1]!)) + value.slice(tilde[0].length);
     return value.includes("$") ? undefined : value;

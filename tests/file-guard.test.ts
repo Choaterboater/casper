@@ -200,6 +200,26 @@ test("a shell command that reaches ~/.ssh by .., cd, ~user, quotes, a glob or a 
   }
 });
 
+test.skipIf(process.platform !== "win32")("Windows: a shell command naming a private place in Git Bash's drive form, in any case or by a PowerShell or cmd home variable, is refused", () => {
+  // C:\Users\me as Git Bash names it: /c/Users/me.
+  const bash = (absolute: string) => `/${absolute[0]!.toLowerCase()}${absolute.slice(2).replaceAll("\\", "/")}`;
+  const home2 = bash(home);
+  for (const command of [`cat ${home2}/.ssh/id_test`, `cat '${home2}/.ssh/id_test'`, `base64 -w0 ${home2}/.ssh/id_test`, `cp -r ${home2}/.aws ./aws-copy`,
+    `cat /cygdrive${home2}/.casper/mcp-consent.key`, `cat /mnt${home2}/.aws/credentials`, `cat ${home2.toUpperCase()}/.casper/network-logins.json`,
+    `grep -r token ${home2}`, `cd ${home2} && cat .ssh/id_test`, `cd '${home2}'; cat .pgpass`, `cat ${home2}/.ss*/config`,
+    // Windows names and PowerShell and cmd variables ignore case.
+    "Get-Content $env:userprofile\\.ssh\\config", "Get-Content $Env:UserProfile\\.ssh\\config", "type %userprofile%\\.ssh\\config",
+    "Get-Content ${env:USERPROFILE}\\.ssh\\config", "Get-Content $env:USERPROFILE\\.CASPER\\network-logins.json", "Get-Content ~\\.SSH\\id_test",
+    `Get-Content ${home.toUpperCase()}\\.ssh\\id_test`, `Get-Content ${home.toLowerCase()}\\.ssh\\id_test`, "cat ~\\.ss*\\config", "Get-Content $HOME\\.s?h\\config"]) {
+    expect([command, privatePathCommand(command, context)]).toEqual([command, expect.stringMatching(/^Not run: this command reads ~\/\.(ssh|aws|casper\/mcp-consent\.key|casper\/network-logins\.json|pgpass), which is private/)]);
+  }
+  // The same spellings of ordinary files still pass.
+  for (const command of [`cat ${home2}/Documents/notes.md`, `ls ${home2}`, `cat ${home2}/.ssh.bak.md`, `grep -r TODO ${bash(project)}`, `cd ${home2} && cat notes.md`,
+    "Get-Content $env:USERPROFILE\\Documents\\notes.md", "Get-ChildItem ~\\", "type src\\a.ts"]) {
+    expect([command, privatePathCommand(command, context)]).toEqual([command, undefined]);
+  }
+});
+
 test("a project's sandbox.denyRead is private to the file tools too, not only to shell commands", () => {
   const logs = path.join(root, "outside");
   const denied = { ...context, denyRead: [logs] };
