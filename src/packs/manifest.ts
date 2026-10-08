@@ -14,6 +14,8 @@ export const MANIFEST_FILE = "pack.yaml";
 /** How many folders deep a file in a pack may be. */
 export const MAX_PACK_FOLDERS = 8;
 export const MAX_PACK_SKILLS = 64;
+/** The longest whole path inside a pack, in characters. */
+export const MAX_PACK_PATH = 400;
 
 export interface PackManifest {
   name: string;
@@ -40,9 +42,15 @@ export const PACK_NAME_RULE = "Each part of a path starts with a letter, a digit
 /** A relative path inside a pack, with forward slashes: every part plain, none "." or "..", no trailing dot or space,
  * and at most a file inside MAX_PACK_FOLDERS folders (a deeper one is refused as too deep before its name is read). */
 export function isPackPath(relative: string): boolean {
-  if (!relative || relative.length > 400 || relative.startsWith("/") || relative.includes("\\")) return false;
+  if (!relative || relative.length > MAX_PACK_PATH || relative.startsWith("/") || relative.includes("\\")) return false;
   const parts = relative.split("/");
   return parts.length <= MAX_PACK_FOLDERS + 1 && parts.every((part) => PART.test(part) && !/[. ]$/.test(part) && !WINDOWS_RESERVED.test(part));
+}
+
+/** Why isPackPath refuses `relative`, naming it as `shown`: a whole path too long, or a part outside PACK_NAME_RULE. */
+export function packPathRefusal(relative: string, shown: string): string {
+  if (relative.length > MAX_PACK_PATH) return `${shown} is more than ${MAX_PACK_PATH} characters long. A whole path in a pack is at most ${MAX_PACK_PATH}.`;
+  return `${shown} has a name Casper doesn't take in a pack. ${PACK_NAME_RULE}`;
 }
 
 export function parseManifest(text: string): PackManifest {

@@ -651,4 +651,10 @@ test("a file or folder in a pack may start with _ (a skill's _examples.md); a na
   const dash = await writePack(path.join(root, "dash"), { extra: { "skills/drafting/-draft.md": "x\n" } });
   expect(await refusal(readPackFolder(dash))).toBe("\"skills/drafting/-draft.md\" has a name Casper doesn't take in a pack. Each part of a path starts with a letter, a digit or _, "
     + "then has only letters, digits, . - _ and spaces, up to 100 characters in all; it doesn't end with a dot or a space, and isn't a name Windows keeps for itself (con, nul, aux, com1 and so on).");
+  // Every part keeps the rule but the whole path is over 400 characters: the refusal says that, not the rule it keeps.
+  const long = `skills/drafting/${["a", "b", "c"].map((letter) => letter.repeat(99)).join("/")}/${"d".repeat(85)}.md`;
+  expect(long.length).toBe(404);
+  expect(long.split("/").every((part) => isPackPath(part))).toBe(true);
+  const deep = await writePack(path.join(root, "long"), { extra: { [long]: "x\n" } });
+  expect(await refusal(readPackFolder(deep))).toBe(`${JSON.stringify(long)} is more than 400 characters long. A whole path in a pack is at most 400.`);
 });
