@@ -4,7 +4,8 @@
 and the `/` commands. **When you'd use it:** when you are learning Casper, or
 want to know what a symbol, key or command does. `/help` shows a short list in
 Casper, `/help <word>` only the lines that mention a word (`/help mcp`), and
-`/help all` the full one. A mistyped command gets "Did you mean …?".
+`/help all` the full one. A mistyped command gets "Did you mean …?", and a command that
+takes nothing after its name says so (`Usage: /settings, with nothing after it.`).
 
 ## Quick reference
 
@@ -15,7 +16,7 @@ Casper, `/help <word>` only the lines that mention a word (`/help mcp`), and
 | Enter | Send the request (during work: the AI reads it at its next step, or it is queued for after the task) |
 | Shift+Enter or Ctrl+J | New line in the prompt (Shift+Enter only where the terminal supports it) |
 | Up / Down | Earlier prompts from this session |
-| `/` | Command list with fuzzy search; Tab completes |
+| `/` | Command list with fuzzy search; Tab completes. After a command and a space, its subcommands (`/mcp ` lists `detail`, `connect`, …) |
 | `@` then Tab | Complete a file path (inserts the path only; it does not attach the file) |
 | Shift+Tab | Cycle reasoning effort (`auto`, then the model's levels) and remember it |
 | Esc | Stop the current work |
@@ -79,7 +80,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/crew <job>` | A builder AI does the job in its own copy of the project (uses a model), then 1 Keep the copy · 2 Apply to my folder · 3 Throw it away; bare `/crew` lists copies still here ([CREWS.md](CREWS.md)) |
 | `/exit`, `/quit` | Exit |
 
-An unknown `/` command is rejected on your machine. It is never sent to a model.
+An unknown `/` command is rejected on your machine, at once, also during work. It is never sent to a model.
 
 ### Words you can use
 
@@ -392,7 +393,9 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 ### Input and commands
 
 - Type `/` for a fuzzy list. Tab completes; Enter on a partial choice inserts it,
-  and a second Enter submits. An exact command submits literally.
+  and a second Enter submits. An exact command submits literally. A row shows what may
+  follow the name (`[n|list]`), `/quit` is listed beside `/exit`, and a space after a
+  command lists its subcommands for Tab.
 - `@`/Tab offers file-path completion. This inserts a reference; it does **not**
   attach/read the file or grant additional permissions. Unsafe control-bearing
   completion labels are omitted.
@@ -460,8 +463,8 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   it first) and `/model` (the picker, `/model <provider/id>` or `/model --session <provider/id>`:
   the model's next step uses it, `[model] <provider/id> from the model's next step; saved`; the step
   already running keeps its model; an approval that arrives closes the picker first, and so does
-  the end of the model's work). `/model role` and `/model big` wait for the task. Typing `/` keeps the command menu; the commands that must wait are dimmed and say
-  `waits for this task`. Any other command keeps its draft and says why for a moment
+  the end of the model's work). `/model role` and `/model big` wait for the task. Typing `/` keeps the command menu; the commands and subcommands that must wait are dimmed and say
+  `waits for this task` (one table, `src/tui/commands.ts`, decides both the menu and what runs). Any other command keeps its draft and says why for a moment
   (`/undo waits until this task ends · draft kept`).
 - A line you start with `?` (`? what does ECONNRESET mean`), idle or during work, is a side
   question: one separate call to your fast model (or your model when no fast one is set up) with no

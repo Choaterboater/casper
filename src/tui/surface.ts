@@ -5,7 +5,7 @@ import {
 import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
 import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } from "../app/images";
 import { readClipboardFiles } from "./clipboard-files";
-import { COMMANDS, fitDescriptions, RUNS_DURING_WORK } from "./commands";
+import { COMMANDS, findCommand, fitDescriptions, menuRunsDuringWork } from "./commands";
 import { BUSY_GLYPH, hasLineControls, hasTerminalControls, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
@@ -62,6 +62,12 @@ export const clipboardDefaults: {
  * them while background work runs, so activity is visible even between transcript updates. */
 const SPINNER_FRAMES = GLYPHS.spinner;
 const SPINNER_INTERVAL_MS = 120;
+
+/** The text before the cursor when the prompt is a one-line slash command, for the command menu. */
+function slashLine(lines: readonly string[], cursorLine: number, cursorCol: number): string | undefined {
+  const before = lines.length === 1 ? (lines[cursorLine] ?? "").slice(0, cursorCol) : "";
+  return before.startsWith("/") ? before : undefined;
+}
 
 /** 95000 ms → "1m35s"; hours fold to "1h02m". Same shape the events layer uses for panels. */
 function formatElapsed(ms: number): string {
@@ -305,7 +311,7 @@ export class TerminalSurface {
         return undefined;
       }
       if (matchesKey(data, "enter") && this.editor.isShowingAutocomplete()) {
-        if (COMMANDS.some(command => this.editor.getText().trim().split(/\s+/)[0] === `/${command.name}`)) {
+        if (/^\/\S/.test(this.editor.getText().trim()) && findCommand(this.editor.getText().trim().split(/\s+/)[0]!)) {
           this.editor.handleInput("\x1b"); // Submit exact commands literally, not a stale completion.
         } else {
           // Consuming skips pi-tui's own post-input render, so paint the completion now.
@@ -536,7 +542,7 @@ private updateSpinner(): void {
           if (!result) return null;
           const items = result.items.filter(item =>
             [item.value, item.label, item.description ?? ""].every(value => !hasTerminalControls(value) && !/[\r\n\t]/.test(value)));
-          return { ...result, items: result.prefix.startsWith("/") ? this.fitMenu(items) : items };
+          return { ...result, items: slashLine(args[0], args[1], args[2]) ? this.fitMenu(items) : items };
         },
         applyCompletion: (lines, row, col, item, prefix) => {
           if (prefix.startsWith("/") && lines.length === 1 && !/\s/.test(lines[0]!)) {
@@ -578,8 +584,13 @@ private updateSpinner(): void {
     // During a task the menu stays; the commands that wait for the task are dimmed and say so.
     this.editor.setAutocompleteProvider({ ...provider, getSuggestions: async (...args) => {
       const result = await provider.getSuggestions(...args);
-      if (!result?.prefix.startsWith("/")) return result;
-      return { ...result, items: this.fitMenu(result.items.map(item => RUNS_DURING_WORK.has(item.value) ? item
+      const line = slashLine(args[0], args[1], args[2]);
+      if (!result || !line) return result;
+      // The command names, or one command's subcommands (`/mcp ` lists them): the same table decides both.
+      const command = /\s/.test(line) ? findCommand(line.split(/\s+/)[0]!) : undefined;
+      const runs = (value: string) => !command ? menuRunsDuringWork(value)
+        : !command.subcommands?.some(sub => sub.name === value.trim()) || menuRunsDuringWork(command.name, value.trim());
+      return { ...result, items: this.fitMenu(result.items.map(item => runs(item.value) ? item
         : { ...item, label: this.muted(item.label || item.value), description: `waits for this task${item.description ? ` · ${item.description}` : ""}` })) };
     } });
   }
