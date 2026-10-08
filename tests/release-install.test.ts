@@ -239,14 +239,16 @@ test("every place that names the release agrees on one version", async () => {
 });
 
 /** A stand-in gh: signed in, and `attestation verify` exits with `verify`. With `old`, it is a gh
- * from before 2.49, which has no `attestation` command at all (its help fails too). */
-async function fakeGh(root: string, verify: number, old = false): Promise<string> {
+ * from before 2.47, which has no `attestation` command at all (its help fails too). With `version`,
+ * `gh --version` names it; without, gh's version can't be read. */
+async function fakeGh(root: string, verify: number, old = false, version?: string): Promise<string> {
   const bin = path.join(root, "gh-bin");
   await mkdir(bin, { recursive: true });
   const attestation = old
     ? `echo 'unknown command "attestation" for "gh"' >&2; exit 1`
     : `case "$*" in *--help*) exit 0 ;; esac; echo "$@" >> "${bin}/calls"; exit ${verify}`;
-  await writeFile(path.join(bin, "gh"), `#!/bin/sh\ncase "$1" in auth) exit 0 ;; attestation) ${attestation} ;; esac\nexit 2\n`);
+  const versionLine = version ? `printf 'gh version ${version} (2024-01-01)\\nhttps://github.com/cli/cli/releases/tag/v${version}\\n'; exit 0` : "exit 2";
+  await writeFile(path.join(bin, "gh"), `#!/bin/sh\ncase "$1" in auth) exit 0 ;; --version) ${versionLine} ;; attestation) ${attestation} ;; esac\nexit 2\n`);
   await chmod(path.join(bin, "gh"), 0o755);
   return bin;
 }
@@ -268,9 +270,30 @@ posixOnly("a signed-in gh too old to have `attestation` installs on the SHA-256 
   const installDir = path.join(root, "bin");
   const result = await install(release, installDir, [], await fakeGh(root, 1, true));
   expect(result.exitCode).toBe(0);
-  expect(result.stdout).toContain("Checked SHA-256. This gh is too old to check where it was built (gh 2.49 or newer can).");
+  expect(result.stdout).toContain("Checked SHA-256. This gh is too old to check where it was built (gh 2.56 or newer can).");
   expect(result.stderr).not.toContain("doesn't match");
   expect((await stat(path.join(installDir, "casper"))).isFile()).toBe(true);
+});
+
+posixOnly("a signed-in gh that has `attestation` but is older than 2.56 installs on the SHA-256; from 2.56 a failed check is refused", async () => {
+  const root = await tempDir("casper-install-attest-range-");
+  const release = await fakeRelease(root, artifactName(hostTarget()));
+  for (const version of ["2.47.0", "2.55.0"]) {
+    const installDir = path.join(root, `bin-${version}`);
+    const result = await install(release, installDir, [], await fakeGh(root, 1, false, version));
+    expect({ version, exitCode: result.exitCode, stderr: result.stderr }).toEqual({ version, exitCode: 0, stderr: expect.not.stringContaining("doesn't match") });
+    expect(result.stdout).toContain("Checked SHA-256. This gh is too old to check where it was built (gh 2.56 or newer can).");
+    expect((await stat(path.join(installDir, "casper"))).isFile()).toBe(true);
+  }
+  // Neither was asked to check the download.
+  await expect(stat(path.join(root, "gh-bin", "calls"))).rejects.toThrow();
+  for (const version of ["2.56.0", "3.0.0"]) {
+    const installDir = path.join(root, `bin-${version}`);
+    const result = await install(release, installDir, [], await fakeGh(root, 1, false, version));
+    expect({ version, exitCode: result.exitCode }).toEqual({ version, exitCode: 1 });
+    expect(result.stderr).toContain("This download doesn't match a Casper build from GitHub. Nothing installed.");
+    await expect(stat(path.join(installDir, "casper"))).rejects.toThrow();
+  }
 });
 
 posixOnly("with gh, a matching build is installed and says where it was built; without gh the SHA-256 line says what was checked", async () => {
