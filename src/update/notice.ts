@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { safeGitArgs } from "../platform/git";
+import { lastUpdateFailure, updateFailureLines } from "./handoff-log";
 import { compareVersions, defaultRunner, gitEnv, lookUpNewest, type Fetcher, type Install, type ProcessRunner } from "./command";
 
 /**
@@ -62,6 +63,8 @@ export async function updateNotice(options: NoticeOptions): Promise<string | und
   const saved = await readSaved(options.stateDir);
   const { install } = options;
   if (install.kind === "binary") {
+    const failed = await lastUpdateFailure(options.stateDir, options.currentVersion, options.now?.());
+    if (failed) return updateFailureLines(failed).join("\n");
     if (saved?.kind !== "binary" || compareVersions(saved.version, options.currentVersion) <= 0) return undefined;
     return `Casper ${saved.version} is out (you have ${options.currentVersion}). Run casper update to install it.`;
   }

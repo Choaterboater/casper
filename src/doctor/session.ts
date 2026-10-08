@@ -1,3 +1,4 @@
+import path from "node:path";
 import { runNetworkSetup } from "../mcp/network/setup";
 import { installTools } from "../security/install";
 import { terminalText } from "../tui/format";
@@ -15,7 +16,7 @@ export async function runDoctorInSession(host: Pick<CommandHost, "output" | "hom
     write,
     ...(host.interactive ? { choose: (preview: string, choices: readonly string[]) => host.chooseAnswer(preview, "", choices, signal) } : {}),
     update: async () => {
-      const result = await runUpdate({ check: false, install: ctx.install, currentVersion: ctx.currentVersion, ...(signal ? { signal } : {}),
+      const result = await runUpdate({ check: false, install: ctx.install, currentVersion: ctx.currentVersion, stateDir: path.join(ctx.homeDir, ".casper"), ...(signal ? { signal } : {}),
         write: (line) => write(`${terminalText(line)}\n`) });
       if (result.exitCode === 0) write("Restart Casper to use the new version.\n");
       return result;

@@ -62,10 +62,16 @@ The command above always installs **v0.2.27**. Running it again reinstalls v0.2.
 To get a newer preview, run `casper update`. Windows will not replace a running `casper.exe`,
 so Casper checks that release's own installer (checksum and build provenance, as on other systems),
 saves it to a private temporary folder and starts a separate hidden PowerShell that waits for
-Casper to exit, then runs that same file. Casper prints one line and exits; once its window has
-closed, run `casper --version` to see the new version. The waiting step gives up after five minutes
-without installing. If that separate step cannot be started, Casper shows the `irm ... | iex` line
-to run yourself. This hand-off has not been run on a real Windows machine yet.
+Casper to exit, then runs that same file. Casper prints one line and exits; the helper then
+downloads the new program, which takes a little while, so wait about 30 seconds before running `casper --version`.
+The waiting step gives up after five minutes without installing. If that separate step cannot be started, Casper shows
+the `irm ... | iex` line to run yourself.
+
+The helper has no window, so it writes what it does to `~/.casper/update.log` (one file, overwritten by each update;
+versions, process ids, the installer's SHA-256 and error text, nothing else): one line per step, and a last line
+`result: ok` or `result: failed: <why>`. When the last update did not finish, `casper update`, `casper doctor` and the
+line at the start of a session say so, name the log and show the `irm ... | iex` line. This hand-off has been run on
+a real Windows machine once, where `casper --version` still said the old version right after the update.
 
 ## Windows with WSL (Linux inside Windows)
 

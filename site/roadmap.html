@@ -538,9 +538,11 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing is built and waiting beyond v0.2.27 right now. When a change lands on the main branch before the
-          next preview, it is listed here until the preview ships.</p>
+          <p>These are on the main branch but not in v0.2.27. They ship with the next preview.</p>
         </aside>
+        <ul>
+          <li><strong>A Windows update that says what happened.</strong> The hidden helper behind <code>casper update</code> writes <code>~/.casper/update.log</code>; when an update did not finish, <code>casper update</code>, <code>casper doctor</code> and the start of a session say so and show the install one-liner. The wording no longer says the update finishes "when this window closes".</li>
+        </ul>
       </section>
 
       <section id="coming" aria-labelledby="coming-h">
