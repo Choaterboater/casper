@@ -50,7 +50,7 @@ leave a `casper-pasted-*` folder in your temp directory. Requests without a past
 
 **Pasting a copied file.** With no picture on the clipboard, the same key now takes files you copied in
 Finder, Explorer or a Linux file manager: each goes in as its path, as if dropped, and a picture file
-among them goes with the request with the same checks and limits. On Windows a file on another
+among them goes with the request with the same checks and limits. On Windows a picture on another
 computer's share still asks first. A name with a control or text-direction character is left out, and
 Casper says so.
 
