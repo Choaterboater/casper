@@ -17,7 +17,8 @@ test("a file:// address from a file manager decodes to its local path", () => {
 test("a file:// address that is not a plain local path is refused: raw controls, another computer, another scheme", () => {
   for (const bad of [
     // Raw spaces and controls are not allowed in an address at all.
-    "file:///tmp/a b.png", "file:///tmp/a\tb.png", "file:///tmp/a\nb.png", "file:///tmp/a\x1b[2Jb.png", "file:///tmp/a\u0085b.png",
+    "file:///tmp/a b.png", "file:///tmp/a\tb.png", "file:///tmp/a\nb.png", "file:///tmp/a\x1b[2Jb.png", "file:///tmp/a\u0085b.png", "file:///tmp/a\x7fb.png",
+    "file:///tmp/\u202Egnp.exe", "file:///tmp/\u2066a.png",
     // Another computer, or a host that hides one.
     "file://nas/shots/pic.png", "file://evil.example/tmp/a.png", "file://user@host/tmp/a.png", "file://localhost.evil.example/tmp/a.png",
     // Other schemes and shapes.

@@ -5,6 +5,7 @@
  * Nothing is read from the files here; the prompt's picture paths do that when the request is sent.
  */
 import { spawn } from "node:child_process";
+import { hasLineControls } from "./format";
 
 /** A clipboard tool that is slower than this, or prints more than this, is dropped: the paste goes on without it. */
 export const CLIPBOARD_FILES_TIMEOUT_MS = 2_500;
@@ -52,11 +53,11 @@ export function clipboardFilesCommands(platform: NodeJS.Platform = process.platf
 }
 
 /** The local path a file:// address names, as decoded; undefined for another scheme, another computer, a query or
- * fragment, a raw space or control, or a bad %-escape. An escaped control or bidi character stays in the name: the
+ * fragment, a raw space, control or bidi character, or a bad %-escape. An escaped control or bidi character stays in the name: the
  * paste leaves that file out and says so. */
 export function fileUriPath(uri: string): string | undefined {
-  // Spaces and controls must be %-escaped in an address; raw ones mean it is not one.
-  if (/[\s\x00-\x1f\x7f-\x9f]/.test(uri)) return undefined;
+  // Spaces, controls and bidi characters must be %-escaped in an address; raw ones mean it is not one.
+  if (/\s/.test(uri) || hasLineControls(uri)) return undefined;
   const match = /^file:\/\/([^/?#]*)(\/[^?#]*)$/i.exec(uri);
   if (!match) return undefined;
   if (match[1] !== "" && match[1]!.toLowerCase() !== "localhost") return undefined;
