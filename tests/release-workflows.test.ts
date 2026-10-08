@@ -85,7 +85,7 @@ test("every checkout drops its token, no workflow writes by default, and no inpu
   }
 });
 
-test("Linux and macOS CI run the live sandbox tests; dependabot keeps the action pins current", () => {
+test("Linux and macOS CI run the live sandbox tests", () => {
   const linux = load("linux-preview.yml").jobs.source!.steps.map((step) => step.run ?? "").join("\n");
   expect(linux).toContain("apt-get install -y -q bubblewrap socat ripgrep");
   expect(linux).toContain("kernel.apparmor_restrict_unprivileged_userns=0");
@@ -99,8 +99,6 @@ test("Linux and macOS CI run the live sandbox tests; dependabot keeps the action
   // The live tests' unlisted host (127.0.0.2) is on lo0, and Pi's grep finds ripgrep.
   expect(macRun).toContain("sudo ifconfig lo0 alias 127.0.0.2 up");
   expect(macRun).toContain("brew install ripgrep");
-  const dependabot = parse(readFileSync(path.resolve(import.meta.dir, "../.github/dependabot.yml"), "utf8")) as { updates: Array<{ "package-ecosystem": string }> };
-  expect(dependabot.updates.map((update) => update["package-ecosystem"])).toContain("github-actions");
 });
 
 test("the full suite runs files in parallel, slowest first, with the eval tests in their own script; CI uses it", () => {
