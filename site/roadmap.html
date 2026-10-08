@@ -120,6 +120,9 @@
             <li><strong>Pull requests and CI.</strong> Ask which pull requests are open and why a check failed; Casper reads the failing step and the last log lines, and re-runs failed checks after you say yes. The AI never sees your GitHub login.</li>
             <li><strong>Nothing extra to install.</strong> Linux and WSL start quietly without the sandbox programs, and Casper fetches a checked ripgrep itself.</li>
             <li><strong>Installs.</strong> A <code>gh</code> older than 2.56 (too old to check where Casper was built) no longer blocks an install.</li>
+            <li><strong>Private ssh passwords.</strong> When an <code>ssh</code> or <code>scp</code> you allowed asks for a
+            password or a key's passphrase, Casper shows its own hidden box and the password goes to ssh only, never to the AI;
+            <code>ssh_login: off</code> turns it off.</li>
             <li><strong><code>/security-review update</code></strong> works with the shell sandbox on.</li>
           </ul>
         </article>
@@ -539,12 +542,6 @@
           <li><strong>An empty folder starts quietly.</strong> No type picker at startup. In an empty folder, a first request that fits a template (a NOC
           dashboard, an MCP server) builds it with one plain line; any other request goes to the AI. Say "from scratch" to skip a template, or turn <strong>Starter templates</strong>
           off in <code>/settings</code> (<code>templates: off</code>).</li>
-          <li><strong>Private ssh passwords.</strong> When an <code>ssh</code> or <code>scp</code> you allowed asks for a
-          password or a key's passphrase, Casper shows its own hidden box (<code>1 No · 2 Yes, this once · 3 Yes, for this session</code>)
-          and the password goes to ssh only: never to the AI, the command or the saved conversation, and hidden wherever the AI
-          reads, whatever its length. Nothing to turn on and nothing saved to disk; <strong>Private ssh passwords</strong> in
-          <code>/settings</code> (<code>ssh_login: off</code>) turns it off. A carriage return in tool output is now a line
-          break instead of the text <code>\u{d}</code>.</li>
         </ul>
       </section>
 
