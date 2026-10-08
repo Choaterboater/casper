@@ -1,3 +1,4 @@
+import { truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { realpath, rm } from "node:fs/promises";
 import path from "node:path";
 import { within } from "../platform/project-paths";
@@ -32,6 +33,9 @@ export interface PackHost {
   /** Someone can answer the box now (never a one-shot run). */
   canAsk: boolean;
   print(line: string): void;
+  /** Rows laid out for the screen's width, again whenever it changes: "Show me what's inside", where every row of a
+   * file, wrapped ones too, needs its bar. Without it, `print` gets the text with one bar per line. */
+  printRows?(rows: (width: number) => string[]): void;
   /** One box only you answer: the chosen label, or undefined (Esc, nobody answered). */
   approve(preview: string, question: string, choices: readonly string[]): Promise<string | undefined>;
   /** Every skill Casper indexed (with its pack, for a pack's own) and every MCP server name. */
@@ -71,7 +75,18 @@ function size(bytes: number): string {
   return bytes < 1024 ? `${bytes} bytes` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
-export interface PackBox { preview: string; question: string; inside: string }
+export interface PackBox {
+  preview: string;
+  question: string;
+  /** Every file in full, one bar per line: for output nothing wraps. */
+  inside: string;
+  /** The same, as rows of at most `width` columns: a line too long for the screen is wrapped here, so each of its
+   * rows has the bar, never wrapped later into rows without one. */
+  insideRows(width: number): string[];
+}
+
+/** In front of every row of a file in "Show me what's inside". */
+const BAR = "  │ ";
 
 /** The add box, computed by Casper from the files: never read from the manifest's own words, except the author's line,
  * quoted and named as theirs. `before` is the record of the same pack added earlier from the same source. */
@@ -92,15 +107,25 @@ export function packBox(contents: PackContents, shownSource: string, before?: Pa
       ...(changes.removed.length ? [`Gone: ${changes.removed.join(", ")}`] : []),
     ] : []),
   ];
-  // Every line of a file sits behind a bar, so no line in it can pass for Casper's own header between files.
-  const inside = files.map((file) => [
-    `--- ${file.path} (${size(file.bytes)}${changed.has(file.path) && before ? ", changed" : ""}) ---`,
-    ...shownText(file.text).replace(/\n+$/, "").split("\n").map((line) => `  │ ${line}`.trimEnd()),
-  ].join("\n")).join("\n\n");
+  // Every row of a file sits behind a bar, so nothing in it can pass for Casper's own header between files.
+  const shown = files.map((file) => ({
+    header: `--- ${file.path} (${size(file.bytes)}${changed.has(file.path) && before ? ", changed" : ""}) ---`,
+    lines: shownText(file.text).replace(/\n+$/, "").split("\n"),
+  }));
+  const end = `--- end of pack ${manifest.name} ---`;
+  const inside = shown.map(({ header, lines: text }) => [header, ...text.map((line) => `${BAR}${line}`.trimEnd())].join("\n")).join("\n\n");
   return {
     preview: `${lines.join("\n")}\n`,
     question: `Add pack ${manifest.name}${before ? " again" : ""} from ${shownSource}?\nIt brings ${count(skills.length, "skill")}${contents.theme ? " and a theme" : ""}. Nothing else runs.`,
-    inside: `${inside}\n--- end of pack ${manifest.name} ---\n`,
+    inside: `${inside}\n${end}\n`,
+    insideRows: (width) => {
+      const wrap = (text: string, columns: number) => text ? wrapTextWithAnsi(text, Math.max(1, columns)) : [""];
+      const rows = shown.flatMap(({ header, lines: text }, index) => [
+        ...(index ? [""] : []), ...wrap(header, width),
+        ...text.flatMap((line) => wrap(line, width - BAR.length).map((row) => `${BAR}${row}`.trimEnd())),
+      ]);
+      return [...rows, ...wrap(end, width)].map((row) => truncateToWidth(row, Math.max(1, width), ""));
+    },
   };
 }
 
@@ -182,7 +207,8 @@ async function addPack(host: PackHost, text: string): Promise<void> {
     const box = packBox(staged.contents, source.shown, before?.record);
     let answer = await host.approve(box.preview, box.question, PACK_ADD_CHOICES);
     if (answer === PACK_ADD_CHOICES[2]) {
-      host.print(box.inside);
+      if (host.printRows) host.printRows((width) => box.insideRows(width));
+      else host.print(box.inside);
       answer = await host.approve("", box.question, PACK_ADD_CHOICES.slice(0, 2));
     }
     if (answer !== PACK_ADD_CHOICES[1]) { host.print(`Pack ${name} was not added.`); return; }

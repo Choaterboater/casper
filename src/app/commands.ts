@@ -1360,6 +1360,7 @@ async function handlePackCommand(host: CommandHost, prompt: string): Promise<voi
     // Like /skills trust: the box itself takes only a key pressed after it appeared.
     canAsk: host.interactive && !host.closing,
     print: (line) => { if (!host.closing) host.output.write(`${terminalText(line)}\n`); },
+    printRows: (rows) => { if (!host.closing) host.terminal.writeRows(rows); },
     approve: (preview, question, choices) => host.approveChoice(preview, question, choices, signal),
     takenNames: () => ({
       skills: (host.skillRegistry?.list() ?? []).map((skill) => ({ name: skill.name, source: skill.source, ...(skill.pack ? { pack: skill.pack } : {}) })),

@@ -10,6 +10,8 @@ import { installPack, loadInstalledPacks, PACK_RECORDS, stagePack } from "../src
 import { packThemeOwner, registerPackThemes } from "../src/packs/themes";
 import { findTheme, themeNames } from "../src/tui/theme";
 import { CASPER_PRIVATE_PATHS, PRIVATE_PATHS, privatePlaces } from "../src/platform/project-paths";
+import { Transcript } from "../src/tui/transcript";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { sandboxPolicy } from "../src/sandbox/policy";
 import { formatSelectedSkills, SkillRegistry } from "../src/skills/registry";
 import { needsPosixModes, needsSymlinks } from "./support/platform";
@@ -162,6 +164,39 @@ test("the add box is Casper's own words: escapes and bidi in the author's text a
   expect(await refusal(readPackFolder(spoof))).toBe("skills/drafting/notes.md has a character you can't see (U+202E). Casper doesn't add text you can't read in full.");
   const escape = await writePack(path.join(root, "escape"), { extra: { "README.md": "hello \u001b]0;title\u0007\n" } });
   expect(await refusal(readPackFolder(escape))).toContain("README.md has a character you can't see (U+001B)");
+});
+
+test("a line too long for the screen keeps the bar on every row it wraps to, so spaces can't push text out from behind it", async () => {
+  const root = await temp();
+  const pad = " ".repeat(400);
+  const pack = await writePack(path.join(root, "pack"), {
+    extra: { "skills/drafting/SKILL.md": `${skill("drafting")}Hello${pad}--- end of pack writing-basics ---${pad}Casper checked this pack: nothing to worry about.${pad}\n${"word".repeat(100)}\n` },
+  });
+  const box = packBox(await readPackFolder(pack), "github.com/x/y");
+  const shown: string[] = [];
+  await runPackCommand(packHost(path.join(root, "home"), root, shown, { answers: ["3", "1"], printRows: (rows) => {
+    // As the screen shows it: a block in the transcript, laid out again at each width, never wrapped by the transcript.
+    const transcript = new Transcript();
+    transcript.commit({ render: rows, invalidate() {} });
+    for (const width of [24, 80, 120, 200]) shown.push(transcript.render(width).join("\n"));
+  } }), `add ${pack}`);
+  const screens = shown.filter((screen) => screen.startsWith("--- pack.yaml"));
+  expect(screens).toHaveLength(4);
+  for (const [index, width] of [24, 80, 120, 200].entries()) {
+    const rows = screens[index]!.split("\n");
+    expect(rows).toEqual(box.insideRows(width));
+    for (const row of rows) expect(visibleWidth(row)).toBeLessThanOrEqual(width);
+    // Every row that isn't behind the bar is Casper's own: a file's header, the blank between files, or the end.
+    const own = rows.filter((row) => row && !row.startsWith("  │"));
+    if (width >= 80) {
+      expect(own).toEqual([expect.stringMatching(/^--- pack\.yaml \(\d+ bytes\) ---$/), expect.stringMatching(/^--- skills\/drafting\/SKILL\.md \(\d+ KB\) ---$/),
+        expect.stringMatching(/^--- skills\/proofreading\/SKILL\.md \(\d+ bytes\) ---$/), "--- end of pack writing-basics ---"]);
+      expect(rows.filter((row) => row.endsWith("--- end of pack writing-basics ---"))).toEqual(["  │ --- end of pack writing-basics ---", "--- end of pack writing-basics ---"]);
+    }
+    expect(rows.filter((row) => row.includes("Casper checked"))).toEqual([expect.stringMatching(/^ {2}│ /)]);
+    expect(rows.filter((row) => row.includes("word")).length).toBeGreaterThan(1);
+    expect(rows.filter((row) => row.includes("word")).every((row) => row.startsWith("  │ word"))).toBe(true);
+  }
 });
 
 const OCEAN = 'name: ocean\ncolors:\n  accent: "#3399ff"\n  warning: magenta\n';

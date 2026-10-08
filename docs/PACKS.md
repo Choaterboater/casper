@@ -91,7 +91,8 @@ It brings 2 skills and a theme. Nothing else runs.
 ```
 
 Enter is No. `3` prints every file in full, each under its name with every line behind a `│`, so
-nothing in a file can pass for the line that starts the next one. Then it asks again with
+nothing in a file can pass for the line that starts the next one. A line too long for the screen is
+wrapped by Casper, with the `│` on each of its rows, whatever the width. Then it asks again with
 `1 No · 2 Yes, add it`. Escape characters, controls and right-to-left characters in what is shown
 are taken out, so the author's words can't clear the screen or reorder the line. A run that can't ask
 you (one-shot, `--json`) adds nothing: `Adding a pack asks you first, and this run can't ask. Nothing

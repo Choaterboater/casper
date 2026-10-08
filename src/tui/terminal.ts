@@ -1,4 +1,4 @@
-import type { Component } from "@earendil-works/pi-tui";
+import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import readline from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO } from "../runtime/types";
@@ -194,6 +194,14 @@ export class InteractiveTerminal {
   /** Constant, already-styled lines laid out per width, such as the startup wordmark. Never for model or tool output. */
   writeTrusted(block: Component): void {
     if (this.surface) this.surface.writeBlock(block); else this.output.write(block.render(this.output.columns ?? 80).join("\n") + "\n");
+  }
+
+  /** Untrusted text its caller lays out for each width (a pack's files, a bar in front of every row): each row is
+   * sanitized as untrusted text and stays one row, so the layout is never wrapped again into rows it didn't make. */
+  writeRows(rows: (width: number) => string[]): void {
+    const laid = (width: number) => rows(width).map(row => truncateToWidth(terminalText(row).replace(/\n/g, " "), Math.max(1, width), ""));
+    if (this.surface) this.surface.writeBlock({ render: laid, invalidate() {} });
+    else this.output.write(laid(this.output.columns ?? 80).join("\n") + "\n");
   }
 
   /** Code-like output (a replayed tool result, a diff) boxed under a title on the rich surface; a

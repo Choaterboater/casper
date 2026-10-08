@@ -126,8 +126,11 @@ test("/pack add in a session: 2 adds it, and its skill is used from the next req
   const { root, home, project } = await fixture();
   const pack = await writePack(path.join(root, "pack"), ["drafting"]);
   const runtime = new ScriptedRuntime();
-  const output = await session(home, project, runtime, [`/pack add ${pack}`, "Help me with drafting letters for the office"], ["2"]);
+  const output = await session(home, project, runtime, [`/pack add ${pack}`, "Help me with drafting letters for the office"], ["3", "2"]);
   expect(output).toContain(`Add pack writing-basics from ${pack}?\nIt brings 1 skill. Nothing else runs.\n  1 No\n  2 Yes, add it\n  3 Show me what's inside\n`);
+  // 3 shows every file, each row behind the bar, laid out for the terminal.
+  expect(output).toMatch(/--- skills\/drafting\/SKILL\.md \(\d+ bytes\) ---\n {2}│ ---\n {2}│ name: drafting\n/);
+  expect(output).toContain("\n--- end of pack writing-basics ---\n");
   expect(output).toContain("Added pack writing-basics 1.2.0: drafting.");
   expect(runtime.prompts.at(-1)).toContain("DRAFTING_BODY: write short plain sentences.");
   expect(runtime.prompts.at(-1)).toContain("Source: pack writing-basics; trust: reviewed-external");
