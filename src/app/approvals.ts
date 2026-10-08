@@ -161,13 +161,14 @@ export function editGateReason(app: CasperApp, toolName: string): string | undef
 export function askToolFor(app: CasperApp): RuntimeTool {
   return askTool({
     available: () => app.interactive && app.terminal.rich && !app.closing,
-    ask: (question, options, multi, signal) => {
+    // One at a time with every other box, so a second question waits instead of being answered No.
+    ask: (question, options, multi, signal) => oneAtATime(app, async () => {
       const signals = [signal, app.commandAbort?.signal].filter((value): value is AbortSignal => Boolean(value));
       // Commit any open tool line first, so the recorded question starts on its own line.
       app.output.write("");
       // "ai": the question is labelled "The AI asks:", so it never looks like Casper's own approval.
       return app.terminal.ask(question, options, multi, signals.length ? AbortSignal.any(signals) : undefined, "ai");
-    },
+    }),
     record: answer => {
       app.asksThisTask++;
       if (!app.closing) app.output.write(`[ask] ${answer}\n`);

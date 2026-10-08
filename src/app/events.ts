@@ -287,6 +287,8 @@ export class RuntimeEventView {
       let minutes = 0;
       entry.minutes = setInterval(() => {
         minutes++;
+        // Never print into the middle of a numbered question; the next minute's line says it.
+        if (this.terminal.questionOpen) return;
         this.terminal.endAssistant();
         this.ensureLineBreak();
         this.output.write(`[checks] ${terminalText(title)} still running · ${minutes}m\n`);

@@ -10,7 +10,7 @@ import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime } from "../src/runtime/types";
 import { ripgrepPath } from "../src/sandbox/linux";
 import { SkillRegistry } from "../src/skills/registry";
-import { addToPath, ensureRipgrep, resetRipgrep, RIPGREP_GETTING, type RipgrepResult } from "../src/security/ripgrep";
+import { addToPath, ensureRipgrep, fetchWithTimeout, keepEngineFromFetchingRipgrep, resetRipgrep, RIPGREP_GETTING, type RipgrepResult } from "../src/security/ripgrep";
 import { pinnedRipgrepPath, RIPGREP, RIPGREP_VERSION } from "../src/security/ripgrep-pin";
 import type { PinnedSpec } from "../src/security/tools";
 import { removeTempDir } from "./support/temp-dir";
@@ -267,4 +267,25 @@ test("without a usable ripgrep the engine is kept from downloading one (PI_OFFLI
     process.env.PATH = saved.path;
     if (saved.offline === undefined) delete process.env.PI_OFFLINE; else process.env.PI_OFFLINE = saved.offline;
   }
+});
+
+test("keeping the engine offline says so once, and not when it was already offline", () => {
+  const env: NodeJS.ProcessEnv = {};
+  expect(keepEngineFromFetchingRipgrep(env, { source: "none", why: "failed" })).toContain("/model");
+  expect(env.PI_OFFLINE).toBe("1");
+  expect(keepEngineFromFetchingRipgrep(env, { source: "none", why: "failed" })).toBeUndefined();
+  expect(keepEngineFromFetchingRipgrep({}, { source: "path", path: "/usr/bin/rg" })).toBeUndefined();
+});
+
+test("the ripgrep download times out on silence, but a slow body that is still arriving finishes", async () => {
+  const slowBody = (async () => new Response(new ReadableStream({ async start(controller) {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    controller.enqueue(new Uint8Array([1, 2, 3])); controller.close();
+  } }))) as unknown as typeof fetch;
+  // Headers answer at once; the body takes longer than the headers limit and is still accepted.
+  expect([...await fetchWithTimeout("https://example.invalid/rg", slowBody, { headers: 50, body: 5000 })]).toEqual([1, 2, 3]);
+  const silent = ((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+    init.signal!.addEventListener("abort", () => reject(init.signal!.reason));
+  })) as unknown as typeof fetch;
+  await expect(fetchWithTimeout("https://example.invalid/rg", silent, { headers: 30, body: 5000 })).rejects.toThrow("did not answer");
 });

@@ -69,7 +69,10 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
     write: (text) => { if (!app.closing) app.output.write(text); } }).catch(() => undefined);
   if (ripgrep && (ripgrep.source === "pinned" || ripgrep.source === "installed")) addToPath(process.env, path.dirname(ripgrep.path));
   // No usable ripgrep: the engine's grep tool must not fetch its own unchecked copy (see keepEngineFromFetchingRipgrep).
-  if (app.ripgrep) keepEngineFromFetchingRipgrep(process.env, ripgrep);
+  if (app.ripgrep) {
+    const note = keepEngineFromFetchingRipgrep(process.env, ripgrep);
+    if (note && !app.closing) app.output.write(note);
+  }
   const host = sandboxHost(app);
   const sandbox = app.sandbox = createSessionSandbox(host, context, { root: () => app.activeWorkspaceRoot(), home: app.sessionHomeDir ?? os.homedir(),
     noSandbox: app.noSandbox, ...(app.allow ? { allow: app.allow } : {}), ...(app.sandboxSeams ? { seams: app.sandboxSeams } : {}) });

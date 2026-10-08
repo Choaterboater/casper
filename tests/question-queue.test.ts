@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import type { CasperApp } from "../src/app";
-import { recordedApproval } from "../src/app/approvals";
+import { askToolFor, recordedApproval } from "../src/app/approvals";
 import { createSessionSandbox, runtimeShell } from "../src/app/sandbox";
 import { NO, YES_ONCE } from "../src/app/safe-choices";
 import { spendGate } from "../src/app/spend-gate";
@@ -132,4 +132,29 @@ test("the spend pause that comes while a box is open is asked after it, not take
   terminal.answer("Keep going");
   expect(await pause).toBeUndefined();
   expect(terminal.asked).toEqual(["Allow this change?", "This task has used $6.00."]);
+});
+
+test("two of the AI's ask questions at once are asked one after the other, not the second answered No", async () => {
+  const asked: string[] = [];
+  let open: ((answer: string[] | undefined) => void) | undefined;
+  const terminal = {
+    canAsk: true, rich: true, write() {}, endAssistant() {},
+    ask: (question: string) => {
+      if (open) return Promise.resolve(undefined);
+      asked.push(question);
+      return new Promise<string[] | undefined>((resolve) => { open = (answer) => { open = undefined; resolve(answer); }; });
+    },
+  };
+  const tool = askToolFor(appWith(terminal));
+  const options = [{ label: "A" }, { label: "B" }];
+  const first = tool.execute({ question: "first?", options }, new AbortController().signal);
+  const second = tool.execute({ question: "second?", options }, new AbortController().signal);
+  expect(await waitUntil(() => open !== undefined)).toBe(true);
+  expect(asked).toEqual(["first?"]);
+  open!(["A"]);
+  expect(await waitUntil(() => asked.length === 2)).toBe(true);
+  open!(["B"]);
+  const results = await Promise.all([first, second]);
+  expect(results.map(r => JSON.parse(r.text).answers)).toEqual([["A"], ["B"]]);
+  expect(asked).toEqual(["first?", "second?"]);
 });

@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { detectMigrations, formatMigrationsLine, migrationParts, migrationsAffected, runMigrationsCheck } from "../src/verify/migrations";
+import { detectMigrations, formatMigrationsLine, migrationParts, migrationsAffected, reachesOutside, runMigrationsCheck } from "../src/verify/migrations";
 import { removeTempDir } from "./support/temp-dir";
 
 const cleanups: Array<() => unknown> = [];
@@ -115,4 +115,21 @@ test("the check runs only when migrations or the schema changed", async () => {
   expect(migrationsAffected(plan, ["src/app.ts", "README.md"])).toBe(false);
   expect(migrationsAffected(plan, ["migrations/002.sql"])).toBe(true);
   expect(await detectMigrations(await project({ "src/app.ts": "" }))).toBeUndefined();
+});
+
+test("a quote next to a comment marker cannot hide ATTACH, VACUUM INTO or load_extension", () => {
+  const sneaky = [
+    "SELECT '/*'; ATTACH DATABASE 'x.db' AS o; --*/",
+    "SELECT 'a--'; ATTACH 'x.db' AS o",
+    "SELECT 1 /* ' */; ATTACH 'x.db' AS o; SELECT '",
+    "VACUUM INTO 'out.db'",
+    "SELECT \"load_extension\"('x')",
+    "ATTACH/**/DATABASE 'x.db' AS o",
+    "SELECT 'unterminated",
+    "SELECT 1 /* never closed",
+  ];
+  for (const sql of sneaky) expect({ sql, refused: reachesOutside(sql) }).toEqual({ sql, refused: true });
+  for (const sql of ["-- ATTACH\nSELECT 1", "SELECT 'ATTACH ''x'' -- no'", "/* VACUUM INTO */ CREATE TABLE t (a TEXT DEFAULT '/*')", "CREATE TABLE t (a); -- it's fine"]) {
+    expect({ sql, refused: reachesOutside(sql) }).toEqual({ sql, refused: false });
+  }
 });

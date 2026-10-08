@@ -183,7 +183,35 @@ export function migrationParts(source: string): string[] {
 
 /** Statements that reach outside the throwaway database: attaching or writing another file, or loading code. */
 const OUTSIDE = /\b(ATTACH\b|VACUUM\s+INTO\b|load_extension\s*\()/i;
-const withoutComments = (sql: string) => sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ").replace(/'(?:[^']|'')*'/g, "''");
+/** What SQLite will execute, with string literals and comments blanked in ONE left-to-right pass, so a quote inside a
+ * comment (or a comment marker inside a string) cannot hide a keyword. Quoted names keep their text (a quoted
+ * function name still runs), which only makes the check stricter. Undefined when the text ends inside a string, a
+ * quoted name or a block comment: the caller refuses it. */
+export function executableSql(sql: string): string | undefined {
+  let out = "";
+  for (let i = 0; i < sql.length;) {
+    const c = sql[i]!;
+    if (c === "-" && sql[i + 1] === "-") { const end = sql.indexOf("\n", i); if (end < 0) break; out += " "; i = end; continue; }
+    if (c === "/" && sql[i + 1] === "*") { const end = sql.indexOf("*/", i + 2); if (end < 0) return undefined; out += " "; i = end + 2; continue; }
+    if (c === "'" || c === '"' || c === "`" || c === "[") {
+      const close = c === "[" ? "]" : c;
+      let j = i + 1, text = "";
+      for (;;) {
+        if (j >= sql.length) return undefined;
+        if (sql[j] === close) { if (close !== "]" && sql[j + 1] === close) { text += close; j += 2; continue; } break; }
+        text += sql[j++];
+      }
+      out += c === "'" ? "''" : ` ${text} `; i = j + 1; continue;
+    }
+    out += c; i++;
+  }
+  return out;
+}
+/** True when a migration part may reach outside the throwaway database, or cannot be read with certainty. */
+export function reachesOutside(part: string): boolean {
+  const code = executableSql(part);
+  return code === undefined || OUTSIDE.test(code);
+}
 
 const APPLY = `
 const { Database } = require("bun:sqlite");
@@ -258,7 +286,7 @@ export async function runMigrationsCheck(root: string, plan: MigrationPlan, sign
     const source = await small(path.join(root, file), MAX_FILE_BYTES);
     if (source === undefined) return done({ status: "skip", reason: `${file} could not be read (or is over 2 MB)` });
     const parts = migrationParts(source);
-    if (parts.some(part => OUTSIDE.test(withoutComments(part)))) {
+    if (parts.some(reachesOutside)) {
       return done({ status: "skip", reason: `${fileLabel(file)} uses ATTACH, VACUUM INTO or load_extension, which can reach files outside the throwaway database` });
     }
     files.push({ name: fileLabel(file), parts });

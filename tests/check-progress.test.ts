@@ -107,6 +107,19 @@ test("a plain terminal prints one line a minute for a long check; --json prints 
   expect(ticks.filter(t => t.every === PLAIN_CHECK_EVERY_MS && t.live)).toEqual([]);
 });
 
+test("the plain-terminal minute line waits while a numbered question is open", () => {
+  const s = view({ rich: false });
+  s.events.watchCheck("test");
+  const minute = ticks.find(t => t.every === PLAIN_CHECK_EVERY_MS)!;
+  const terminal = (s.events as unknown as { terminal: { questionOpen: boolean } }).terminal;
+  terminal.questionOpen = true;
+  minute.fn();
+  expect(s.written).toEqual([]);
+  terminal.questionOpen = false;
+  minute.fn();
+  expect(s.written.join("")).toContain("[checks] test still running");
+});
+
 const begin: RuntimeEvent = { type: "assistant_response_start", provider: "openrouter", model: "kimi-k2" };
 
 test("silence of 10 seconds says what Casper waits for; text clears it and the timer stops", () => {

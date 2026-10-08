@@ -718,7 +718,11 @@ checks, and with `/verify migrations` or the AI's `casper_check`.
 - Prisma runs `prisma migrate deploy` from the project's `node_modules` only when the schema reads its
   address from a variable; Casper points that variable at the throwaway file. Like every check, it runs
   in the shell sandbox where one runs, with no network.
-- Statements that could reach other files (`ATTACH`, `VACUUM INTO`, `load_extension`) are refused.
+- Statements that could reach other files (`ATTACH`, `VACUUM INTO`, `load_extension`) are refused. Plain `.sql`
+  files are read in one pass that understands quoted text, quoted names and comments together, so a quote
+  next to a comment marker cannot hide one; a file that ends inside an open quote or comment is refused too.
+  Plain `.sql` files are applied by a short-lived child of Casper's own runtime (not in the shell sandbox),
+  which is why this guard exists; only Prisma's own `prisma migrate deploy` runs in the sandbox.
 
 A failure names the file and SQLite's error: `✗ migrations failed (002_devices.sql failed — no such table: sites)`.
 A project that names its own `verify.checks.migrations` keeps it instead.
