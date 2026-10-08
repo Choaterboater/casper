@@ -450,12 +450,14 @@ export const OSV_UPDATE_QUESTION: NumberedQuestion = {
 
 /**
  * Downloads osv-scanner's advisory data for the package types this repo uses. The only networked step
- * besides installing; the host asks first. Returns a plain line for the report.
+ * besides installing; the host asks first. Returns a plain line for the report. Like an install step it writes
+ * ~/.casper and needs the network, so it runs outside the session's shell sandbox: the osv-scanner Casper installed
+ * (or your own on PATH) with only Casper's own arguments, and --no-resolve, so it reads lock files and runs no repo code.
  */
 export async function updateOsvDb(root: string, toolPath: string, options: InstallOptions & { signal?: AbortSignal }): Promise<{ ok: boolean; message: string }> {
   const dir = osvDbDir(options.homeDir);
   await mkdir(dir, { recursive: true, mode: 0o700 });
-  const result = await (options.run ?? runTool)({
+  const result = await (options.run ?? runInstallStep)({
     file: toolPath, args: ["scan", "source", "--offline-vulnerabilities", "--download-offline-databases", "--no-resolve", "--format", "json", "--recursive", "."],
     cwd: root, env: { ...installEnv(options.env ?? process.env), OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY: dir }, timeoutMs: 600_000, signal: options.signal,
   });
