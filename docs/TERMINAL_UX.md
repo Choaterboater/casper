@@ -39,24 +39,28 @@ over the network, and `/references add` downloads files after asking you.
 | `/status` | Project, model, sign-in and connections |
 | `/doctor` | Check Casper's own setup and fix what it can, each fix after a question (see [DOCTOR.md](DOCTOR.md)) |
 | `/model`, `/model big <model>` | Pick a model (remembered; `--session` for this conversation only); your big model for when repairs run out |
-| `/effort [level\|auto]` | Reasoning effort, or `auto` per request; Shift+Tab cycles it (see [Model and effort](#model-and-effort)) |
-| `/login [provider]` | Sign in to a provider (see [Provider login](#provider-login)) |
-| `/context`, `/usage` | Context estimate; session tokens and estimated cost |
+| `/effort [level\|auto]`, `/thinking` | Reasoning effort, or `auto` per request; Shift+Tab cycles it (see [Model and effort](#model-and-effort)) |
+| `/login [provider]`, `/logout [provider]` | Sign in to a provider (see [Provider login](#provider-login)); remove a sign-in Casper saved (`/logout` alone lists them; environment variables stay) |
+| `/context`, `/usage`, `/cost` | Context estimate; session tokens and estimated cost (`/cost` is `/usage`) |
 | `/compact [instructions]` | Summarize the conversation (**makes a model request**) |
-| `/clear` | Start a fresh conversation; files and saved conversations stay |
+| `/clear`, `/new` | Start a fresh conversation; files and saved conversations stay |
 | `/resume [id]` | Pick a saved conversation from a numbered list, or go back to one (the start of its ID is enough) |
 | `/diff [n\|list]` | The last task's changes (also outside git), task n's, or a list to pick from; before any task, git's view |
 | `/undo [n]`, `/redo [n]` | Put the last task's (or task n's) files back, or back again (no model; [UNDO.md](UNDO.md)) |
-| `/new [name]` | Start a new project in ~/Projects (no model; [NEW.md](NEW.md)) |
 | `/plan <request>` | Plan first: the model writes a plan and cases to test, you edit it, then build |
 | `/suggestions [on\|off]` | List the suggested next steps, or turn them on or off |
 | `/details [quiet\|normal\|detailed]` | How much work shows, remembered like `/effort` (`--session` for this session only); Ctrl+T shows the last step in full |
-| `/settings` | Shows every switch and where it stands at a glance, then changes one by number: web lookups, the AI's browser and diagram tools, the new-version notice, suggestions, side questions with ?, built-in skills, spend notes and pause, the prompt cache, page checks, showing the AI the pages, the work shown, the untrusted-text reader, helpers that build, Playwright tests and sending Casper's name to OpenRouter ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
+| `/settings`, `/config` | Shows every switch and where it stands at a glance, then changes one by number: web lookups, the AI's browser and diagram tools, the new-version notice, suggestions, side questions with ?, built-in skills, spend notes and pause, the prompt cache, page checks, showing the AI the pages, the work shown, the untrusted-text reader, helpers that build, Playwright tests and sending Casper's name to OpenRouter ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
+| `/theme` | The Theme row of `/settings` on its own: pick the screen's colours |
+| `/hotkeys` | The keys Casper uses, one a line |
+| `/copy [n]` | Copy the last answer, or its code block n, to the clipboard |
+| `/export [file]` | Save this conversation to a file in the project (Markdown; a `.jsonl` name saves every message); never over a file that is there |
+| `/rename <title>` | Name this conversation (the window title and `/resume`) |
 | `/output [n\|all]` | Full command and output of a recent tool call from the last task |
 | `/receipt [n\|list]` | The last task's receipt in detail, a saved one, or the last 10 |
 | `/verify [checks]`, `/verify repair`, `/verify add <name>` | Run the project's checks; repair failures; save a check Casper found ([VERIFICATION.md](VERIFICATION.md)) |
 | `/security-review` | Run the pinned security tools here, then offer an AI review (asks first; [SECURITY_CHECKS.md](SECURITY_CHECKS.md)) |
-| `/project [name]` | Project context and checks; open a project folder inside this one |
+| `/project [name]`, `/project new [name]` | Project context and checks; open a project folder inside this one; start a new project in ~/Projects (no model; [NEW.md](NEW.md)) |
 | `/permissions` | What Casper may do here and how to be asked less. `/permissions all` stops the shell's questions until you quit (`1 Keep asking · 2 Stop asking until I quit`), `ask` turns them back on, `write <folder>` allows a folder outside the project, `forget <folder>` takes it back |
 | `/sandbox`, `/sandbox forget <host>` | What the shell sandbox holds; forget a host you allowed |
 | `/allowed`, `/allowed forget <n, command or all>` | The shell commands you said yes to for this project (saved, and for this session); take one back |
@@ -71,7 +75,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/tasks [stop <n>\|all]` | What runs in the background; stop one |
 | `/pane [on\|off]` | The steps split beside Casper inside tmux or iTerm2 (only on a window 120+ columns wide); saved for every session. See [TMUX.md](TMUX.md) |
 | `/debug` | The local debugger ([DEBUGGER.md](DEBUGGER.md)) |
-| `/tree`, `/branch <name>`, `/switch <name>` | Named conversations, each with its own workspace ([SESSIONS.md](SESSIONS.md)) |
+| `/branch`, `/branch <name>`, `/switch <name>` | Named conversations, each with its own workspace: list them, make one, switch ([SESSIONS.md](SESSIONS.md)) |
 | `/memory` | Project facts you saved, and task outcomes ([MEMORY.md](MEMORY.md)) |
 | `/references` | Search local reference sources; download a vendor spec repo ([REFERENCES.md](REFERENCES.md)) |
 | `/secrets` | What Casper hides from the AI ([SECRETS.md](SECRETS.md)) |
@@ -373,6 +377,10 @@ default model (OpenRouter: `deepseek/deepseek-v4.1-flash`). `/model` picks anoth
 replaces a model you chose. Type keys or codes only in the private login prompt, never in chat.
 Your provider's plans and charges still apply.
 
+`/logout` lists the sign-ins `/login` saved (provider and kind, never the key), and
+`/logout <provider>` removes one from that file, like Pi's and Claude Code's `/logout`. A key in an
+environment variable is not touched; unset it yourself.
+
 The list reuses Pi's selection list: a digit picks its row at once, Up/Down moves the
 visible highlight in place, Enter confirms that item, and Esc exits without contacting
 the provider. Navigation accepts Pi's decoded arrow/Enter sequences, including
@@ -458,7 +466,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   Ctrl+L forces a redraw.
 - Enter during work runs a command that only shows something at once: `/help`, `/status`,
   `/usage`, `/context`, `/permissions`, `/diff`, `/receipt`, `/output`, `/tasks` (and
-  `/tasks stop <n>`), `/details`, `/mcp`, `/lsp`, `/skills`, `/sandbox`, `/secrets`, `/tree`,
+  `/tasks stop <n>`), `/details`, `/mcp`, `/lsp`, `/skills`, `/sandbox`, `/secrets`, `/branch`, `/hotkeys`,
   `/project`, `/effort` (a bare `/effort` opens its picker; an approval that arrives closes
   it first) and `/model` (the picker, `/model <provider/id>` or `/model --session <provider/id>`:
   the model's next step uses it, `[model] <provider/id> from the model's next step; saved`; the step
@@ -502,7 +510,7 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 | `/clear` | Fresh saved conversation; files stay as they are (`/undo` puts a task's files back); the earlier conversation stays resumable |
 | `/resume` | Pick a saved conversation from a numbered list (title · when · messages; 1 stays here); then the last few turns show |
 | `/resume <id>` | Go back to that conversation; the first few characters of its ID are enough |
-| `/tree`, `/switch <name>` | Existing named-workspace navigation and its approval policy |
+| `/branch`, `/switch <name>` | Existing named-workspace navigation and its approval policy |
 | `/output [n]` | Full command and output of the last task's n-th most recent tool call (1 = latest; 20 retained per task); out-of-range n is a usage error |
 
 `/diff` shows the last task's changes in this folder, also outside git (`/diff 12` a

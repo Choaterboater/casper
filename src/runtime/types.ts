@@ -297,6 +297,8 @@ export interface RuntimeSession {
   getSessionInfo?(): RuntimeSessionInfo;
   /** Name the active conversation (shown by /resume and in the window title). */
   setSessionName?(name: string): void;
+  /** Write every message of the conversation to `file` as JSON lines (/export). */
+  exportJsonl?(file: string): void;
   forkSession?(options: RuntimeForkOptions): Promise<RuntimeSessionInfo>;
   switchSession?(options: RuntimeSwitchOptions): Promise<RuntimeSessionInfo>;
   /** Persist context in the active conversation without triggering a model turn. */
@@ -352,6 +354,10 @@ export interface RuntimeSession {
 export interface AgentRuntime {
   /** Local chooser/consent precedes any writable auth storage or provider operation. */
   authenticate?(options: RuntimeAuthenticationOptions): Promise<RuntimeAuthenticationResult>;
+  /** The sign-ins /login saved (provider and kind; never the secret). */
+  savedSignIns?(signal?: AbortSignal): Promise<Array<{ provider: string; type: "api_key" | "oauth" }>>;
+  /** Remove one saved sign-in (/logout). False when none was saved for that provider. */
+  signOut?(provider: string, signal?: AbortSignal): Promise<boolean>;
   start(options: RuntimeStartOptions): Promise<RuntimeSession>;
   /** Explicit capability, not an optional hint to start(). Must enforce read/grep/find/ls only,
    * disable ambient executable extensions and persistence, honor cancellation and run limits.

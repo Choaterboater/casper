@@ -25,6 +25,12 @@ export const LOGIN_HELP = `Sign-in needs an interactive terminal. Run casper and
 Never paste keys or tokens into chat.
 `;
 
+/** The keys, in /help all and /hotkeys. */
+export const KEYS_HELP = "Esc stops work. Ctrl-C cancels work; idle, it clears a draft; twice on empty exits. Shift+Tab cycles effort. Ctrl+T shows the last step in full (an edit's diff, a command's output). Ctrl+O turns MCP writes off. Ctrl+L redraws the screen. Ctrl+V (Alt+V on Windows) pastes a picture from the clipboard as [image 1], or the path of a file you copied in Finder, Explorer or a file manager (a picture file goes with the request); a dropped picture file works too. Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history. Tab completes commands and file paths (@). Enter during work sends your line to the AI (it reads it at its next step) or queues it for after the task; Esc gives queued lines back. A queued line never answers an approval.";
+
+/** /hotkeys: the keys, one sentence a line. */
+export const HOTKEYS_TEXT = `Keys:\n${KEYS_HELP.split(/(?<=\.) (?=[A-Z])/).map((sentence) => `  ${sentence}`).join("\n")}\n`;
+
 export const FULL_HELP_TEXT = `Casper — your coding companion
 
 Usage:
@@ -80,21 +86,24 @@ Local commands:
   /plan <request>                   Plan first: blocks changes Casper can see while the model plans; you edit, then build
   /suggestions                      List suggested next steps: on, off or faded (hidden after 3 ignores, 14 days)
   /suggestions on|off [name]        Turn every suggestion, or one, on or off (suggestions: false in config.yaml too)
-  /effort [level|auto] [--session]  Supported levels or auto (Casper picks per request); Shift+Tab cycles
+  /effort [level|auto] [--session]  Supported levels or auto (Casper picks per request); Shift+Tab cycles; /thinking is the same
   /context                          Estimated context and capability counts
-  /usage                            Session tokens, cache share and optional catalog cost estimate
+  /usage, /cost                     Session tokens, cache share and optional catalog cost estimate
   /compact [instructions]           Summarize context using the model (not a local-only command)
-  /clear                            New conversation; no file rollback
+  /clear, /new                      New conversation; no file rollback
   /resume [id]                      Pick a saved conversation (or give the start of its ID)
   /diff [n|list]                    Task n's changes (default: the last task in this folder), also outside git; list picks one. Before any task in this folder: git status plus tracked diff against HEAD
   /undo [n]                         Put back the files of the last task (or task n); files changed since are left alone
   /redo [n]                         Put an undone task's files back as the task left them
-  /new [name]                       Start a new project in ~/Projects (no model); before the model starts, Casper opens it
-  /new <template> <name>            The same without questions; /new --list shows the templates
   /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
   /output all                       Every tool call of the last task on its own line (the screen folds them into a summary)
   /details [quiet|normal|detailed] [--session]  Failures only, steps folded (default), or every step with small diffs; remembered like /effort, --session for this session only. Ctrl+T shows the last step in full
-  /settings                         Every switch at a glance, then one by number, written to ~/.casper/config.yaml for you: web lookups, browser tool, starter templates, diagram tool, new-version notice, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, page checks, show the AI the pages, work shown, theme, untrusted-text reader, helpers that build, Playwright tests, send Casper's name to OpenRouter, private ssh passwords
+  /settings, /config                Every switch at a glance, then one by number, written to ~/.casper/config.yaml for you: web lookups, browser tool, starter templates, diagram tool, new-version notice, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, page checks, show the AI the pages, work shown, theme, untrusted-text reader, helpers that build, Playwright tests, send Casper's name to OpenRouter, private ssh passwords
+  /theme                            Pick the screen's colours (the Theme row of /settings), saved for you
+  /hotkeys                          The keys Casper uses
+  /copy [n]                         Copy the last answer, or its code block n, to the clipboard
+  /export [file]                    Save this conversation to a file in the project: Markdown, or every message as .jsonl
+  /rename <title>                   Name this conversation (the window title and /resume)
   /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
   /permissions                      What Casper may do here and how to be asked less
@@ -108,8 +117,11 @@ Local commands:
   /lab import <file>                Add devices to your lab list from a file (GreenCLI's lab export, or one host per line); asks first
   /lab ssh on|off                   Whether ssh and scp to your lab devices ask first (kept for this project)
   /login [openai-codex|github-copilot|anthropic|openrouter]  Sign in to Codex, Copilot, Anthropic or OpenRouter (Casper's credential store)
+  /logout [provider]                Remove a sign-in Casper saved; /logout alone lists them. Environment variables are unchanged
   /project                          Show project context
   /project <name>                   Open a project folder inside this one, or offer to make it (before the model starts)
+  /project new [name]               Start a new project in ~/Projects (no model); before the model starts, Casper opens it
+  /project new <template> <name>    The same without questions; /project new --list shows the templates
   /memory                           List project facts you saved
   /memory remember <fact>           Save a project fact (no model)
   /memory forget <id>               Remove a fact
@@ -120,7 +132,7 @@ Local commands:
   /references add [name] [release]  Download a vendor spec repo to search locally (asks first)
   /secrets                          Show what Casper hides from the AI
   /secrets files on|off             Scrub config files and command output (MCP results always)
-  /tree                             Show named conversations and their workspaces
+  /branch                           Show named conversations and their workspaces
   /branch <name>                    Copy this conversation into a named one with its own workspace (asks first)
   /switch <branch>                  Switch to a named conversation and its workspace (asks first)
   /switch main apply                Check, review and apply that workspace's changes, then clean up
@@ -200,7 +212,7 @@ Without a restored selection or Casper default, choose with /model; there is no 
 Switching provider sends the rest of the conversation to that provider.
 The picker refreshes provider catalogs over the network when CASPER_OFFLINE=1 is not set; selection does not generate a model response.
 Provider-defined credential checks may run configured key-resolution commands.
-Keys: Esc stops work. Ctrl-C cancels work; idle, it clears a draft; twice on empty exits. Ctrl+T shows the last step in full (an edit's diff, a command's output). Ctrl+O turns MCP writes off. Ctrl+L redraws the screen. Ctrl+V (Alt+V on Windows) pastes a picture from the clipboard as [image 1], or the path of a file you copied in Finder, Explorer or a file manager (a picture file goes with the request); a dropped picture file works too. Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history. Tab completes commands and file paths (@). Enter during work sends your line to the AI (it reads it at its next step) or queues it for after the task; Esc gives queued lines back. A queued line never answers an approval.
+Keys: ${KEYS_HELP}
 Checks: typecheck lint test build (all configured by default; verification.checks selects).
 verification.mode: auto (Casper runs the checks after edits, repairs failures within repair.maxAttempts), offer (the model may use casper_check; the receipt suggests /verify) or off. Unset: auto, except that interactive sessions use offer once the checks are measured at 60 s or more.
 --verify selects auto and --no-verify selects off for one run. Auto skips checks when no files changed, and checks whose declared scope misses every changed file. The receipt says why.
@@ -309,15 +321,16 @@ export function unknownCommandMessage(command: string): string {
 export function commandProblem(line: string): string | undefined {
   const parsed = parseCommandLine(line);
   if (!parsed) return unknownCommandMessage(line.trim().split(/\s+/)[0]!);
+  // /new was the new-project command; it now starts a new conversation, like Claude Code and Pi.
+  if (parsed.typed === "new" && parsed.args) return `/new now starts a new conversation, like /clear. For a new project type /project new ${parsed.args}`;
   if (parsed.args && !takesArguments(parsed.command)) return `Usage: /${parsed.typed}, with nothing after it.`;
   return undefined;
 }
 
 /** Words people type as a command for something that lives in another command, and where it is. */
 const TOPIC_COMMANDS: Record<string, string> = {
-  theme: "Themes are in /settings (Theme).", themes: "Themes are in /settings (Theme).",
-  colour: "Themes are in /settings (Theme).", colours: "Themes are in /settings (Theme).",
-  color: "Themes are in /settings (Theme).", colors: "Themes are in /settings (Theme).",
+  themes: "Themes are in /theme.", colour: "Themes are in /theme.", colours: "Themes are in /theme.",
+  color: "Themes are in /theme.", colors: "Themes are in /theme.",
 };
 
 /**

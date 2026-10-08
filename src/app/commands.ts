@@ -9,7 +9,8 @@ import { formatSubagentReport, SubagentManager, type SubagentRole } from "../age
 import { formatReferenceResult, type ReferenceLibrary } from "../references/library";
 import { ProjectMemory } from "../memory/store";
 import { modelPreference } from "../tui/model-preference";
-import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP, helpFor, unknownCommandMessage, wrapHelp } from "../tui/help";
+import { HELP_TEXT, FULL_HELP_TEXT, HOTKEYS_TEXT, LOGIN_HELP, helpFor, unknownCommandMessage, wrapHelp } from "../tui/help";
+import { conversationCommand, runLogout } from "./peer-commands";
 import { formatTerminalJSON } from "../tui/json";
 import { formatCacheHitRate, formatCostLong, formatCostShort, formatTokenSplit } from "../tui/usage";
 import { effortChoices } from "../tui/effort";
@@ -146,6 +147,8 @@ export interface CommandHost {
   lastTaskRequest?: string;
   ensureRuntime(): Promise<RuntimeSession>;
   acquireRuntime(): Promise<AgentRuntime>;
+  /** /copy's clipboard; tests pass a fake. */
+  copyText?(text: string): Promise<void>;
   ensureSessionWorkspace(): Promise<SessionWorkspaceManager>;
   stopDebugger(): Promise<void>;
   /** The host for /mcp setup network: the numbered approval box, the MCP manager, and the install seams. */
@@ -276,6 +279,9 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       host.updateFooter();
       return;
     }
+    if (prompt === "/hotkeys") { host.output.write(HOTKEYS_TEXT); return; }
+    if (/^\/(?:copy|export|rename)(?:\s|$)/.test(prompt)) { await conversationCommand(host, prompt); return; }
+    if (/^\/logout(?:\s|$)/.test(prompt)) { await runLogout(host, prompt.slice(7).trim()); return; }
     if (prompt === "/doctor") { await (await import("../doctor/session")).runDoctorInSession(host); return; }
     if (prompt === "/permissions" || prompt.startsWith("/permissions ")) {
       await handlePermissions(host, prompt);
@@ -337,7 +343,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       let title: string | undefined;
       if (prompt !== "/clear") {
         if (!session.listConversations) {
-          if (!id) throw new Error("This runtime does not support conversation listing. Use /tree and /switch for named workspaces.");
+          if (!id) throw new Error("This runtime does not support conversation listing. Use /branch and /switch for named workspaces.");
         } else {
           let current: string | undefined;
           try { current = session.getSessionInfo?.().sessionId; } catch { current = undefined; }
@@ -361,7 +367,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
             id = shown[index]!.item.id; title = shown[index]!.title;
           } else {
             host.output.write(saved.map(item => { const label = conversationLabel(item); return `${item.id}  ${label.title} · ${label.detail}`; }).join("\n") + "\n");
-            host.output.write("Use /resume <id> (its first few characters are enough); /tree and /switch manage named workspaces.\n");
+            host.output.write("Use /resume <id> (its first few characters are enough); /branch and /switch manage named workspaces.\n");
             return;
           }
         }
@@ -515,8 +521,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       await host.openProjectCommand(prompt.replace(/^\/project\s+/, "").trim());
       return;
     }
-    if (/^\/tree(?:\s|$)/.test(prompt)) {
-      if (prompt !== "/tree") throw new Error("Usage: /tree");
+    // Bare /branch lists them, like /tree did (still typed by some).
+    if (prompt === "/tree" || prompt === "/branch") {
       host.output.write((await host.ensureSessionWorkspace()).renderTree());
       return;
     }

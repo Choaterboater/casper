@@ -21,14 +21,14 @@ then either apply the result or throw it away after you look at the diff.
 Interactive commands:
 
 ```text
-/tree                   show main and every named branch
+/branch                 show main and every named branch
 /branch <name>          start a named branch from main
 /switch <branch>        move to that branch (conversation and folder)
 /switch main apply      check, review and apply the experiment to main
 /switch main discard    review, then drop the experiment
 ```
 
-- `/tree` is local. It does not start the model.
+- Bare `/branch` is local. It does not start the model. (`/tree`, its old name, still works.)
 - A branch name is 1–64 letters, digits, dots, underscores or hyphens. `main` is
   reserved.
 - You can only create a branch while you are on `main`.
@@ -87,7 +87,7 @@ change after you approve, the experiment stays open.
 If the experiment's worktree was deleted, or its branch changed (for example a
 detached HEAD), Casper cannot capture a reviewed diff, so `apply` and `discard`
 refuse. Plain `/switch main` is then allowed. It only
-switches the conversation and deletes nothing. `/tree` marks the experiment
+switches the conversation and deletes nothing. `/branch` marks the experiment
 `cleanup pending` so you can check its worktree and `casper/<name>` branch by
 hand.
 
@@ -100,7 +100,7 @@ are moved (renamed in one step) to:
 ~/.casper/worktrees/recovery/<project-key>/<worktree-name>-<random-id>/
 ```
 
-Casper prints this path and shows it in `/tree`. It is a normal folder, not a
+Casper prints this path and shows it in `/branch`. It is a normal folder, not a
 Git worktree you can resume; its `.git` pointer no longer works. It also keeps
 files written after the last snapshot, including ignored files. Casper never
 deletes recovery folders. Remove them yourself when you no longer need them.

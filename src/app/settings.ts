@@ -222,23 +222,29 @@ export function atAGlance(rows: readonly Pick<Setting, "label" | "value">[], wid
  * /settings: Casper's off switches as one numbered list, so nobody edits a config file. 1 is Done; a pick asks
  * with 1 Keep first, writes the answer into ~/.casper/config.yaml and lists the settings again.
  */
-export async function runSettings(host: SettingsHost, signal?: AbortSignal): Promise<void> {
+export async function runSettings(host: SettingsHost, signal?: AbortSignal, only?: string): Promise<void> {
   for (;;) {
     const context = await host.context();
     if (!context) return;
-    const rows = [...settingRows(context), ...mcpSandboxRows(host.mcp?.())];
+    const rows = [...settingRows(context), ...mcpSandboxRows(host.mcp?.())].filter((row) => !only || row.label === only);
+    if (!host.canAsk && only) {
+      host.output.write(`${rows.map((row) => `${row.label}: ${row.value}`).join("\n")}\nRun /${only.toLowerCase()} in a Casper session to change it by number.\n`);
+      return;
+    }
     if (!host.canAsk) {
       const width = Math.max(...rows.map((row) => row.label.length)) + 2;
       host.output.write(`Settings (${USER_CONFIG}):\n${rows.map((row) => `  ${row.label.padEnd(width)}${row.value}`).join("\n")}\nRun /settings in a Casper session to change one by number.\n`);
       return;
     }
-    const picked = await host.ask(`Settings (saved in ${USER_CONFIG} for you):\n${atAGlance(rows)}\nPick one to change:`,
+    // `only` (/theme): straight to that row's question, once.
+    const picked = only ?? await host.ask(`Settings (saved in ${USER_CONFIG} for you):\n${atAGlance(rows)}\nPick one to change:`,
       [{ label: "Done", description: "nothing changes" }, ...rows.map((row) => ({ label: row.label, description: row.value }))], signal);
     const row = rows.find((candidate) => candidate.label === picked);
     if (!row || signal?.aborted) return;
     const answer = await host.ask(row.question, [{ label: row.keep },
       ...row.choices.map((choice) => ({ label: choice.label, ...(choice.description ? { description: choice.description } : {}) }))], signal);
     const choice = row.choices.find((candidate) => candidate.label === answer);
+    if (only && !choice) return;
     if (!choice || signal?.aborted) continue;
     const home = host.homeDir();
     try {
@@ -250,5 +256,6 @@ export async function runSettings(host: SettingsHost, signal?: AbortSignal): Pro
     }
     await host.reload();
     host.output.write(`[settings] ${row.label}: ${choice.shown}. Saved in ${row.savedIn ?? USER_CONFIG}.\n`);
+    if (only) return;
   }
 }

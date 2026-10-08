@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
 import { COMMANDS } from "../src/tui/commands";
-import { FULL_HELP_TEXT, HELP_TEXT, helpFor, unknownCommandMessage, wrapHelp } from "../src/tui/help";
+import { commandProblem, FULL_HELP_TEXT, HELP_TEXT, helpFor, unknownCommandMessage, wrapHelp } from "../src/tui/help";
 import { removeTempDir } from "./support/temp-dir";
 
 const roots: string[] = [];
@@ -88,9 +88,11 @@ test("writes off is said in one sentence everywhere: /mcp, /help all and MCP.md"
   expect(commands).toContain("`${WRITES_OFF_MEANING} ");
 });
 
-test("an unknown /theme (or /colour) says where themes are", () => {
-  for (const word of ["/theme", "/themes", "/colour", "/colors"]) {
-    expect(unknownCommandMessage(word)).toBe(`Unknown command "${word}". Themes are in /settings (Theme). Type /help for local commands.`);
+test("/theme is a command; an unknown /colour says where themes are", () => {
+  expect(commandProblem("/theme")).toBeUndefined();
+  expect(unknownCommandMessage("/themes")).toContain("Did you mean /theme?");
+  for (const word of ["/colour", "/colors"]) {
+    expect(unknownCommandMessage(word)).toBe(`Unknown command "${word}". Themes are in /theme. Type /help for local commands.`);
   }
   // A near miss of a real command still gets the did-you-mean.
   expect(unknownCommandMessage("/sttaus")).not.toContain("Themes are");

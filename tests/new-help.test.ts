@@ -47,7 +47,7 @@ test("casper new --help and casper update --help print help, not an error", asyn
   }
 });
 
-test("/new with a lone kind word where Casper can't ask builds that kind under its usual name", async () => {
+test("/project new with a lone kind word where Casper can't ask builds that kind under its usual name", async () => {
   const { CasperApp } = await import("../src/app");
   const { mkdtemp, rm } = await import("node:fs/promises");
   const os = await import("node:os");
@@ -57,13 +57,13 @@ test("/new with a lone kind word where Casper can't ask builds that kind under i
   const app = new CasperApp({ output: { write: (text) => { output += text; } }, runtimeFactory() { throw new Error("No model expected"); },
     createProject: async (options) => { built.push({ template: options.template, name: options.name }); return { status: "not_created", exitCode: 1, dir: path.join(root, options.name), displayDir: options.name, steps: [] } as never; } });
   try {
-    await app.runOnce("/new python-cli", root);
+    await app.runOnce("/project new python-cli", root);
     expect(output).not.toContain("needs a template and a name");
     expect(built).toEqual([{ template: "python-cli", name: "my-tool" }]);
   } finally { await app.close(); await removeTempDir(root); }
 });
 
-test("/new --help in a session prints the help and asks nothing", async () => {
+test("/project new --help in a session prints the help and asks nothing", async () => {
   const { CasperApp } = await import("../src/app");
   const { mkdtemp, rm } = await import("node:fs/promises");
   const os = await import("node:os");
@@ -73,8 +73,8 @@ test("/new --help in a session prints the help and asks nothing", async () => {
   const app = new CasperApp({ output: { write: (text) => { output += text; } }, runtimeFactory() { throw new Error("No model expected"); },
     createProject: async (options) => { built.push(options.name); return { status: "not_created", exitCode: 1, dir: root, displayDir: options.name, steps: [] } as never; } });
   try {
-    await app.runOnce("/new --help", root);
-    expect(output).toContain("Usage: /new [name]");
+    await app.runOnce("/project new --help", root);
+    expect(output).toContain("Usage: /project new [name]");
     expect(output).toContain("web-app");
     expect(output).not.toContain("needs a template");
     expect(built).toEqual([]);

@@ -19,7 +19,7 @@ export interface CommandSpec {
   readonly description: string;
   /** Other names for the same command; each is listed in the menu too. */
   readonly aliases?: readonly string[];
-  /** Runs, but is not in the menu or the did-you-mean (Casper types it for you). */
+  /** Runs, but is not in the menu or the did-you-mean (Casper types it for you, or it is an old name). */
   readonly hidden?: true;
   /** What may follow the name. With no hint and no subcommands the command takes nothing after its name. */
   readonly argumentHint?: string;
@@ -43,21 +43,20 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
       { name: "role", args: "<fast|build|reason|review> <selector|clear>", description: "Save or clear a role mapping" },
       { name: "big", args: "<selector|clear>", description: "Set or clear your big model (the reason role)" },
     ] },
-  { name: "effort", description: "Reasoning effort, including auto; Shift+Tab cycles and remembers it", argumentHint: "[level|auto] [--session]",
+  { name: "effort", description: "Reasoning effort, including auto; Shift+Tab cycles and remembers it", aliases: ["thinking"], argumentHint: "[level|auto] [--session]",
     duringWork: /^(?:[^\s-]\S*(?:\s+--session)?)?$/ },
   { name: "status", description: "Inspect project, model, auth and integrations", duringWork: NONE },
   { name: "help", description: "Find a command; /help all shows the full reference", argumentHint: "[word|all]", duringWork: ANY,
     subcommands: [{ name: "all", description: "The full reference", duringWork: ANY }] },
   { name: "context", description: "Inspect context estimates and capability counts", duringWork: NONE },
-  { name: "usage", description: "Inspect session tokens and available cost estimates", duringWork: NONE },
+  { name: "usage", description: "Inspect session tokens and available cost estimates", aliases: ["cost"], duringWork: NONE },
   { name: "compact", description: "Summarize context (sends a model request)", argumentHint: "[instructions]" },
-  { name: "clear", description: "Start a fresh conversation; keep files and saved conversations" },
+  { name: "clear", description: "Start a fresh conversation; keep files and saved conversations", aliases: ["new"] },
   { name: "resume", description: "Go back to a saved conversation (a numbered list)", argumentHint: "[id]" },
   { name: "diff", description: "The last task's changes: /diff 12, /diff list", argumentHint: "[n|list]", duringWork: /^(?:\d+)?$/,
     subcommands: [{ name: "list", description: "Pick a task's changes from a list", duringWork: NONE }] },
   { name: "undo", description: "Put the last task's files back (no model)", argumentHint: "[n]" },
   { name: "redo", description: "Put an undone task's files back again", argumentHint: "[n]" },
-  { name: "new", description: "Start a new project in ~/Projects (no model)", argumentHint: "[name]" },
   { name: "plan", description: "Plan first: the model writes a plan and cases to test, then you build", argumentHint: "<request>" },
   { name: "suggestions", description: "Suggested next steps: list, or turn on or off", subcommands: [
     { name: "on", args: "[name]", description: "Turn every suggestion, or one, on" },
@@ -73,7 +72,12 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
       { name: "normal", args: "[--session]", description: "Steps folded (the default)", duringWork: SESSION },
       { name: "detailed", args: "[--session]", description: "Every step with small diffs", duringWork: SESSION },
     ] },
-  { name: "settings", description: "Turn web lookups, spend notes, built-in skills and more on or off by number" },
+  { name: "settings", description: "Turn web lookups, spend notes, built-in skills and more on or off by number", aliases: ["config"] },
+  { name: "theme", description: "Pick the screen's colours (the Theme row of /settings)" },
+  { name: "hotkeys", description: "The keys Casper uses (Esc, Ctrl+T, Shift+Tab ...)", duringWork: NONE },
+  { name: "copy", description: "Copy the last answer, or its code block n, to the clipboard", argumentHint: "[n]" },
+  { name: "export", description: "Save this conversation to a file (.md, or .jsonl for every message)", argumentHint: "[file]" },
+  { name: "rename", description: "Name this conversation (the window title and /resume)", argumentHint: "<title>" },
   { name: "output", description: "Full command and output of a recent tool call (/output [n|all])", argumentHint: "[n|all]", duringWork: /^(?:\d+)?$/,
     subcommands: [{ name: "all", description: "Every tool call of the last task on its own line", duringWork: NONE }] },
   { name: "verify", description: "Run repository verification checks", argumentHint: "[checks ...]", subcommands: [
@@ -87,7 +91,8 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   ] },
   { name: "receipt", description: "A saved receipt: /receipt 12, /receipt list", argumentHint: "[n|list]", duringWork: /^(?:\d+)?$/,
     subcommands: [{ name: "list", description: "The last 10 saved receipts", duringWork: NONE }] },
-  { name: "project", description: "Inspect project stack, configuration and checks", argumentHint: "[name]", duringWork: NONE },
+  { name: "project", description: "Inspect project stack, configuration and checks; /project new starts one", argumentHint: "[name]", duringWork: NONE,
+    subcommands: [{ name: "new", args: "[template] [name]", description: "Start a new project in ~/Projects (no model)" }] },
   { name: "skills", description: "Inspect skill metadata, trust and warnings", duringWork: NONE, subcommands: [
     { name: "diagnostics", description: "Why a skill was skipped or warned about" },
     { name: "inspect", args: "<id>", description: "A skill and its fingerprint (sha256)" },
@@ -160,8 +165,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     { name: "import", args: "<file>", description: "Add devices to your lab list from a file (asks first)" },
     { name: "ssh", args: "on|off", description: "Whether ssh and scp to lab devices ask first" },
   ] },
-  { name: "tree", description: "Inspect named conversations and workspaces", duringWork: NONE },
-  { name: "branch", description: "Create a named workspace conversation (requires approval)", argumentHint: "<name>" },
+  { name: "branch", description: "Named conversations and workspaces; /branch <name> makes one (asks first)", argumentHint: "[name]", duringWork: NONE },
   { name: "switch", description: "Switch named workspace conversation (requires approval)", argumentHint: "<branch> [apply|discard]" },
   { name: "memory", description: "Manage explicit project facts and inspect task outcomes", subcommands: [
     { name: "remember", args: "<fact>", description: "Save a project fact (no model)" },
@@ -185,6 +189,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     { name: "apply", args: "<n>", description: "Apply a crew copy to your folder" },
     { name: "drop", args: "<n>", description: "Throw a crew copy away" },
   ] },
+  { name: "logout", description: "Remove a sign-in Casper saved (/logout lists them)", argumentHint: "[provider]" },
   { name: "login", description: "Set up provider credentials in a private login flow", subcommands: [
     { name: "openai-codex", description: "Sign in to Codex" },
     { name: "github-copilot", description: "Sign in to Copilot" },
@@ -194,6 +199,8 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   { name: "exit", description: "Leave Casper", aliases: ["quit"], afterCleanupError: NONE },
   // A receipt's numbered suggestion: Casper types it when you pick one (src/app/suggestions.ts).
   { name: "suggestion", description: "Run a suggested next step", argumentHint: "<id>", hidden: true },
+  // The old name of bare /branch: still works, no longer in the menu or the help.
+  { name: "tree", description: "Named conversations and workspaces (now /branch)", hidden: true, duringWork: NONE },
 ];
 
 /** The command a typed name runs (its own name or an alias), with or without the leading "/". */
@@ -205,6 +212,13 @@ export function findCommand(name: string): CommandSpec | undefined {
 /** Whether anything may follow the command's name. */
 export function takesArguments(command: CommandSpec): boolean {
   return command.argumentHint !== undefined || Boolean(command.subcommands?.length);
+}
+
+/** The line with an alias spelled as the command's own name (`/cost` is `/usage`), for the handlers that match names. */
+export function canonicalLine(line: string): string {
+  const parsed = parseCommandLine(line);
+  if (!parsed || parsed.typed === parsed.command.name) return line;
+  return line.trim().replace(`/${parsed.typed}`, `/${parsed.command.name}`);
 }
 
 /** A typed line read against the table: the command, the words after its name, and the subcommand they start with. */

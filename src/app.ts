@@ -111,6 +111,8 @@ export interface CasperAppOptions {
   scrubber?: Scrubber;
   /** Runs git for /references add, by argv only (tests pass a stub). */
   runGit?: (argv: string[], signal?: AbortSignal) => Promise<{ code: number | null }>;
+  /** /copy's clipboard (tests pass a fake). */
+  copyText?: (text: string) => Promise<void>;
   output?: OutputWriter;
   input?: Readable;
   /** This run's verification mode (`--verify` = auto, `--no-verify` = off), over configuration.
@@ -138,7 +140,7 @@ export interface CasperAppOptions {
   updateCheck?: { install: Install; currentVersion: string };
   /** `casper new` on a terminal: ask what is missing, build the project in ~/Projects and open Casper there. */
   newProject?: { template?: string; name?: string };
-  /** Builds a new project (casper new, the new-project questions and /new); tests pass a fake. */
+  /** Builds a new project (casper new, the new-project questions and /project new); tests pass a fake. */
   createProject?: (options: NewProjectOptions) => Promise<NewProjectResult>;
   /** Opens pages for the page check: Chrome when installed, else HTTP only. Tests pass a fake. */
   pageOpener?: (options: { projectRoot: string; stateDirectory: string }) => Promise<PageOpener>;
@@ -204,6 +206,7 @@ export class CasperApp {
   /** /secrets files on|off: scrub native reads of config files and config-looking command output. */
   scrubFiles = true;
   readonly runGit?: CasperAppOptions["runGit"];
+  readonly copyText?: CasperAppOptions["copyText"];
   /** Owned-subsystem teardown bookkeeping: idempotent per subsystem, drained at close. */
   readonly lifecycle = new LifecycleRegistry();
   runtimeTools: RuntimeTool[] = [];
@@ -500,6 +503,7 @@ export class CasperApp {
     this.sessionHomeDir = options.sessionHomeDir;
     this.scrubber = options.scrubber ?? new Scrubber();
     this.runGit = options.runGit;
+    this.copyText = options.copyText;
     this.newProjectRequest = options.newProject;
     this.createProjectFn = options.createProject;
     this.noSandbox = options.noSandbox ?? false;
