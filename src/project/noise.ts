@@ -16,7 +16,8 @@ export interface NoiseOptions {
   homeDir?: string;
 }
 
-const SCRATCH_NAME = /^(casper-bench|scratchpad$)/i;
+/** Folders that hold throwaway work: an agent's scratchpad, and benchmark or test-run output (bench-runs, benchmark-runs, runs). */
+const SCRATCH_NAME = /^(scratchpad$|bench(?:mark)?[-_]?runs?\b)/i;
 
 function defaultTmpDirs(): string[] {
   const tmp = os.tmpdir();

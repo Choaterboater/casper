@@ -41,7 +41,7 @@ async function homeWithJunk() {
     ? [path.join(home, "AppData", "Local", "tool", "checkout")]
     : [path.join(home, ".cache", "tool", "checkout"), path.join(home, "Library", "Caches", "tool", "checkout")];
   const junk = [
-    await project(path.join(home, "casper-bench-runs-v3", "a-casper-1", "app"), now - DAY),
+    await project(path.join(home, "benchmark-runs", "run-1", "app"), now - DAY),
     await project(path.join(tmp, "claude", "scratchpad", "smoke"), now - DAY),
     await project(path.join(tmp, "somerun"), now - DAY),
     ...(await Promise.all(cacheJunk.map(dir => project(dir, now - DAY)))),
@@ -80,7 +80,7 @@ test("a project in a normal place stays, on every platform's rules", () => {
   expect(isNoiseFolder("/tmp/run1", linux)).toBe(true);
   expect(isNoiseFolder("/home/alex/.cache/x", linux)).toBe(true);
   const win = { platform: "win32" as const, tmpDirs: ["C:\\Users\\alex\\AppData\\Local\\Temp"], homeDir: "C:\\Users\\alex" };
-  expect(isNoiseFolder("C:\\Users\\alex\\casper-bench-runs-v3\\a-casper-1\\app", win)).toBe(true);
+  expect(isNoiseFolder("C:\\Users\\alex\\benchmark-runs\\run-1\\app", win)).toBe(true);
   expect(isNoiseFolder("C:\\Users\\alex\\AppData\\Local\\Temp\\claude\\scratchpad\\smoke", win)).toBe(true);
   expect(isNoiseFolder("c:\\users\\ALEX\\appdata\\roaming\\x", win)).toBe(true);
   expect(isNoiseFolder("C:\\Users\\alex\\Projects\\myapp", win)).toBe(false);
