@@ -24,6 +24,8 @@ import { askToolFor } from "./approvals";
 import { phase } from "./footer";
 import { appReaderTool } from "./reader";
 import { casperSessionTool } from "./session-tool";
+import { githubTool } from "../github/tool";
+import { ownSecretValues } from "./network-host";
 import { projectPrivatePaths } from "./wiring";
 import { appAgentDir, observeEdit } from "./runtime-start";
 import { autoBuilders, builderAvailability } from "../crew/auto";
@@ -45,6 +47,11 @@ export async function prepareCapabilities(app: CasperApp, task: string): Promise
     services: { declared: Object.keys(app.projectContext?.services ?? {}).length > 0, live: app.services?.live({ detected: false }) ?? false },
     serviceTool: () => serviceTool(() => serviceManager(app), app.commandAbort?.signal, () => app.smokeTask,
       app.shell?.approve ? (command, signal, options) => app.shell!.approve!(command, signal, options) : undefined),
+    githubOff: app.projectContext?.github === false,
+    githubTool: () => githubTool({
+      root: () => app.activeWorkspaceRoot(), interactive: () => app.interactive && !app.closing, reruns: app.githubReruns,
+      approve: (key, preview, question, signal) => app.sessionYes.approve(key, preview, question, signal), secrets: () => ownSecretValues(app),
+    }),
     offered: app.offeredTools,
   });
   if (app.closing) return;

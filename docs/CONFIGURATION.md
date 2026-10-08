@@ -15,7 +15,7 @@ writes your answer into `~/.casper/config.yaml` for you, keeping your comments a
 Settings (saved in ~/.casper/config.yaml for you):
   Web lookups: on (DuckDuckGo) · Browser tool: on · Starter templates: on
   Diagram tool: on · New-version notice: on · Suggestions: on
-  Side questions with ?: on · Built-in skills: on · Packs: on
+  Side questions with ?: on · Built-in skills: on · GitHub tool: on · Packs: on
   Spend notes: at $1 a task · Spend pause: off · Prompt cache: auto
   Page checks: on · Show the AI the pages: ask once a session
   Work shown: normal · Theme: default · Untrusted-text reader: on
@@ -31,18 +31,19 @@ Pick one to change:
   7 Suggestions                       on
   8 Side questions with ?             on
   9 Built-in skills                   on
- 10 Packs                             on
- 11 Spend notes                       at $1 a task
- 12 Spend pause                       off
- 13 Prompt cache                      auto
- 14 Page checks                       on
- 15 Show the AI the pages             ask once a session
- 16 Work shown                        normal
- 17 Theme                             default
- 18 Untrusted-text reader             on
- 19 Helpers that build                on
- 20 Playwright tests                  on
- 21 Send Casper's name to OpenRouter  on
+ 10 GitHub tool                       on
+ 11 Packs                             on
+ 12 Spend notes                       at $1 a task
+ 13 Spend pause                       off
+ 14 Prompt cache                      auto
+ 15 Page checks                       on
+ 16 Show the AI the pages             ask once a session
+ 17 Work shown                        normal
+ 18 Theme                             default
+ 19 Untrusted-text reader             on
+ 20 Helpers that build                on
+ 21 Playwright tests                  on
+ 22 Send Casper's name to OpenRouter  on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
@@ -114,6 +115,14 @@ the next start. A project file (or a profile it picks) can't turn packs on or of
 # ~/.casper/config.yaml or a profile's config.yaml
 packs: off # default on
 ```
+
+### GitHub tool
+
+The AI checks this repo's pull requests and CI through GitHub's `gh` tool when a request names them
+(see [GITHUB.md](GITHUB.md)). It is on, and asks once per repo first. Turn it off with `/settings` (it
+writes `github: off`): the AI is never offered the `github` tool. A project file (or a profile it
+picks) can't turn it on or off: `github:` in `.casper/project.yaml` stops configuration loading with
+an error.
 
 ### Diagram tool
 

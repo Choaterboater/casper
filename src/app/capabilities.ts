@@ -4,6 +4,7 @@ import type { CapabilityBroker } from "../capabilities/broker";
 import type { LSPManager, ConfirmRename } from "../lsp/manager";
 import { lspTools } from "../lsp/tools";
 import type { ReferenceLibrary } from "../references/library";
+import { githubRequested } from "../github/tool";
 import { serviceRequested } from "../services/tool";
 import type { RuntimeTool } from "../runtime/types";
 import type { VisualizationRouter } from "../visualize/router";
@@ -41,6 +42,10 @@ export interface TaskCapabilitySource {
   browserOff?: boolean;
   /** visualize: off in your own config: the visualize tool is never offered (/visualize still works). */
   diagramOff?: boolean;
+  /** github: off in your own config: the github tool is never offered. */
+  githubOff?: boolean;
+  /** Builds the github tool; called only when the request names pull requests or CI (or it was offered before). */
+  githubTool?: () => RuntimeTool;
   /** Whether the project declares services and whether one is starting or ready. */
   services: { declared: boolean; live: boolean };
   /** Builds the service tool (its manager is created on first use); called only when it is included. */
@@ -69,6 +74,7 @@ export async function assembleTaskTools(task: string, source: TaskCapabilitySour
   const kept = (name: string) => source.offered?.has(name) ?? false;
   const browser = !source.browserOff && (source.browserInstalled || browserRequested(task, source.browserReady) || kept("browser"));
   const service = serviceRequested(task, source.services) || kept("service");
+  const github = !source.githubOff && source.githubTool !== undefined && (githubRequested(task) || kept("github"));
   const diagram = !source.diagramOff && (diagramRequested(task) || kept("visualize"));
   return [
     ...await source.broker.prepare(task),
@@ -82,6 +88,7 @@ export async function assembleTaskTools(task: string, source: TaskCapabilitySour
     ...(source.reader ? [source.reader] : []),
     ...(browser ? [browserTool(source.browser, source.browserSignal)] : []),
     ...(service ? [source.serviceTool()] : []),
+    ...(github ? [source.githubTool!()] : []),
     ...(diagram ? visualizationTools({ router: source.visualization, projectRoot: source.projectRoot, privatePaths: source.privatePaths ?? [] }) : []),
   ];
 }
