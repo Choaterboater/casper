@@ -22,7 +22,7 @@ import { isToolCallAsText, TOOL_CALL_AS_TEXT_LINE } from "../task/text-tool-call
 import { diffSnapshots, type TreeChanges } from "../task/changes";
 import type { CheckName, VerificationReport } from "../verify/evidence";
 import { VerifierRegistry } from "../verify/registry";
-import { PLAN_CHOICES, PLAN_QUESTION } from "./safe-choices";
+import { PLAN_CHOICES, PLAN_CHOICES_EDIT, PLAN_QUESTION } from "./safe-choices";
 import { DEFAULT_SPEND_LIMITS, SpendGuard, requestSpendLimit } from "../task/spend";
 import { VerificationTask } from "../verify/task";
 import { ChangeBaseline, changesCode, isTestPath, proofRepairPrompt, type ChangeProof } from "../verify/proof";
@@ -488,29 +488,39 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
     return "stop";
   }
   let plan: ParsedPlan = { steps: parsed.steps, tests: parsed.tests.length ? parsed.tests : normalizeCases([...(cases ?? [])]) };
-  const { heading, hint } = planEditorHeading(plan);
-  app.events.ensureLineBreak();
   let edited = false;
-  if (app.interactive && app.terminal.rich) {
+  if (!app.interactive || !app.terminal.canAsk) {
+    // Nothing can ask here: show the whole plan, then stop.
+    app.events.ensureLineBreak();
+    app.output.write(`${planEditorHeading(plan).heading}\n${planEditorLines(plan).map((line) => `  ${terminalText(line)}`).join("\n")}\n`);
+    app.output.write("[plan] This run can't ask you to build, so Casper stopped after the plan. Nothing was built.\n");
+    return "stop";
+  }
+  // The plan is already on screen (the model's answer). One summary line and the choice follow, not the plan again;
+  // on a rich terminal "Edit the plan" opens its lines and then asks again. Stop is first, so Enter never starts a
+  // build that uses tokens.
+  const canEdit = app.terminal.rich;
+  let answer: string | undefined;
+  for (;;) {
+    const { heading, hint } = planEditorHeading(plan);
+    app.events.ensureLineBreak();
+    app.output.write(`${heading}\n`);
+    answer = await app.terminal.pick(PLAN_QUESTION, (canEdit ? PLAN_CHOICES_EDIT : PLAN_CHOICES).map((choice) => ({ ...choice })), signal);
+    if (app.closing || signal?.aborted) return "stop";
+    if (answer !== "Edit the plan") break;
     const lines = await app.terminal.editLines(heading, hint, planEditorLines(plan), signal);
     if (app.closing || signal?.aborted) return "stop";
     const kept = lines ? parsePlanLines(lines) : undefined;
     if (!kept?.steps.length) { app.output.write("[plan] Stopped without building.\n"); return "stop"; }
-    edited = planEditorLines(kept).join("\n") !== planEditorLines(plan).join("\n");
+    if (planEditorLines(kept).join("\n") !== planEditorLines(plan).join("\n")) edited = true;
     plan = kept;
-  } else {
-    app.output.write(`${heading}\n${planEditorLines(plan).map((line) => `  ${terminalText(line)}`).join("\n")}\n`);
-    if (!app.interactive || !app.terminal.canAsk) {
-      app.output.write("[plan] This run can't ask you to build, so Casper stopped after the plan. Nothing was built.\n");
-      return "stop";
-    }
   }
-  // Both terminals ask after the plan, Stop first, so Enter (also the editor's Enter) never starts a build that
-  // uses tokens.
-  const answer = await app.terminal.pick(PLAN_QUESTION, PLAN_CHOICES.map((choice) => ({ ...choice })), signal);
   if (answer !== "Build" || app.closing || signal?.aborted) { app.output.write("[plan] Stopped without building.\n"); return "stop"; }
-  app.output.write(`Casper plan (${plan.steps.length} ${plan.steps.length === 1 ? "step" : "steps"}, ${plan.tests.length} ${plan.tests.length === 1 ? "case" : "cases"}${edited ? ", edited by you" : ""}):\n`
-    + `${plan.steps.map((step, index) => `  ${index + 1}. ${terminalText(step)}\n`).join("")}${plan.tests.map((item) => `  - ${terminalText(item)}\n`).join("")}`);
+  const counts = `${plan.steps.length} ${plan.steps.length === 1 ? "step" : "steps"}, ${plan.tests.length} ${plan.tests.length === 1 ? "case" : "cases"}`;
+  // Only a plan you changed is listed again: the one on screen is no longer the one being built.
+  app.output.write(edited
+    ? `Casper plan (${counts}, edited by you):\n${plan.steps.map((step, index) => `  ${index + 1}. ${terminalText(step)}\n`).join("")}${plan.tests.map((item) => `  - ${terminalText(item)}\n`).join("")}`
+    : `Building the plan (${counts}).\n`);
   return { plan, ...(changed?.length ? { changed } : {}) };
 }
 

@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { buildersLine, PLAIN_START_AFTER_MS, refusalForScreen, RuntimeEventView, stepSummary } from "../src/app/events";
 import { reachCantAsk, reachDeclined, SHELL_CANT_ASK } from "../src/app/sandbox";
+import { planToolGate } from "../src/flows/plan";
 import { commandLabel, displayPath, formatToolActivity, toolTarget } from "../src/tui/format";
 import { InteractiveTerminal } from "../src/tui/terminal";
 import { SPEND_STOP_REASON } from "../src/task/spend";
@@ -190,6 +191,18 @@ test("a command Casper refused shows as not run with the reason said to you, nev
   expect(refusalForScreen(SHELL_CANT_ASK)).toBe(SHELL_CANT_ASK.replace("Not run: s", "S"));
   // A command's own failure is still a failure.
   expect(refusalForScreen("bash: foo: command not found")).toBeUndefined();
+});
+
+test("a call blocked while planning shows as not run with the reason, never as failed", () => {
+  for (const rich of [true, false]) {
+    const t = fakeTerminal(rich);
+    const input = { command: "git log --oneline -5 > log.txt" };
+    t.handle(start("1", "bash", input), end("1", "bash", input, true, planToolGate("bash", input)), { type: "message_end" });
+    const screen = t.screen.join("\n");
+    expect(t.screen).toContain("• bash · git log … — not run");
+    expect(screen).toContain("Planning only: Casper blocks file changes until you choose Build.");
+    expect(screen).not.toMatch(/failed|✗/);
+  }
 });
 
 // Ported from v0.2.20 onto the Working box: ~ for home, web targets, /output all, and the plain start line.
