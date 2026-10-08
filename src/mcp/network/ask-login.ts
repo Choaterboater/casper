@@ -106,7 +106,10 @@ function scopeNames(product: AccessProduct): string | undefined {
   const scopes = product.canChange ?? [];
   if (!scopes.length) return undefined;
   const names = scopes.map((scope) => scope.name);
-  if (names.length <= 3) return names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  // An org's name can identify a customer or company and these lines land in screenshots and logs: one org reads "the org",
+  // and a few scopes that include an org are counted instead of named (as the access line does).
+  if (scopes.length === 1 && scopes[0]!.kind === "org") return "the org";
+  if (names.length <= 3 && !scopes.some((scope) => scope.kind === "org")) return names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
   const counts = new Map<string, number>();
   for (const scope of scopes) counts.set(scope.kind, (counts.get(scope.kind) ?? 0) + 1);
   const words = [...counts].map(([kind, count]) => `${count} ${kind === "sitegroup" ? "site group" : kind}${count === 1 ? "" : "s"}`);

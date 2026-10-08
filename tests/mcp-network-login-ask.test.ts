@@ -521,3 +521,23 @@ test("Central lists its internal cluster by name", async () => {
   const run = await brokerRun({ interactive: true, tool: "central_list_sites", answers: ["2", "15"], secrets: ["cid-EXAMPLE-1", "sec-EXAMPLE-2"] });
   expect((await readLogins(run.home)).central?.CENTRAL_BASE_URL).toBe("https://internal.api.central.arubanetworks.com");
 });
+
+test("an org's name never shows in the login list, the saved line or the text the AI gets: it reads the org", async () => {
+  const org = { kind: "org", id: "o1", name: "Example Customer Inc" };
+  const run = await brokerRun({ interactive: true, answers: ["2", "1"], secrets: ["tok_EXAMPLE_0123456789"],
+    reach: { mist: { access: "read-write", can_change: [org] } } });
+  expect(run.output).toContain("Mist login: can change the org (checked)");
+  expect(run.toolResultText).toBe("Mist login added (can change the org). Call the tool again.");
+  const host: LoginHost = {
+    homeDir: run.home, interactive: true, canAsk: () => true, privateInput: async () => undefined,
+    chooseAnswer: async () => "2", write: () => {}, restart: async () => {},
+    access: (server) => run.manager.policy(server).access,
+  };
+  expect((await loginLines(host, "network"))[0]).toBe("Mist: can change the org (checked)");
+  expect(run.output + run.toolResultText).not.toContain("Example Customer");
+  // A few scopes that include the org are counted, not named; sites still keep their names.
+  const mixed = await brokerRun({ interactive: true, answers: ["2", "1"], secrets: ["tok_EXAMPLE_0123456789"],
+    reach: { mist: { access: "read-write", can_change: [site("Branch-12"), org] } } });
+  expect(mixed.output).toContain("Mist login: can change 1 site and 1 org (checked)");
+  expect(mixed.toolResultText).not.toContain("Example Customer");
+});

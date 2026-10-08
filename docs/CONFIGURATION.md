@@ -167,7 +167,10 @@ Casper's file search and (on Linux) the shell sandbox need `rg`. With none on yo
 fetches the official ripgrep once (about 5 MB, a pinned version checked against its sha256) into
 `~/.casper/tools/` and says so in one line; if it can't, Casper carries on without. It is on. Turn it off
 with `tools:` then `downloads: off` in `~/.casper/config.yaml` (or a profile you chose); `CASPER_OFFLINE=1` also
-skips it. A project file can't change `tools:`. See [SECURITY.md](SECURITY.md).
+skips it. When Casper ends up without its own ripgrep (downloads off, offline, or the download failed its
+check), it also keeps the engine's grep tool from downloading one: Casper sets `PI_OFFLINE=1` for itself,
+so nothing unchecked is fetched. This also stops the engine's other automatic downloads in that session
+(for example its model-list refresh). A project file can't change `tools:`. See [SECURITY.md](SECURITY.md).
 
 ## Config files
 

@@ -29,7 +29,7 @@ import { updateFooter } from "./footer";
 import { checksPlan } from "./verification";
 import { mcpServerSandbox } from "../mcp/sandbox";
 import { trustProjectFile } from "./project-file";
-import { addToPath } from "../security/ripgrep";
+import { addToPath, keepEngineFromFetchingRipgrep } from "../security/ripgrep";
 
 /** What the sandbox asks through: Casper's own numbered question, only while someone can answer it. */
 export function sandboxHost(app: CasperApp): SandboxHost {
@@ -64,6 +64,8 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   const ripgrep = await app.ripgrep?.({ homeDir: app.sessionHomeDir ?? os.homedir(), agentDir: casperAgentDir(), downloads: context.toolDownloads !== false,
     write: (text) => { if (!app.closing) app.output.write(text); } }).catch(() => undefined);
   if (ripgrep && (ripgrep.source === "pinned" || ripgrep.source === "installed")) addToPath(process.env, path.dirname(ripgrep.path));
+  // No usable ripgrep: the engine's grep tool must not fetch its own unchecked copy (see keepEngineFromFetchingRipgrep).
+  if (app.ripgrep) keepEngineFromFetchingRipgrep(process.env, ripgrep);
   const host = sandboxHost(app);
   const sandbox = app.sandbox = createSessionSandbox(host, context, { root: () => app.activeWorkspaceRoot(), home: app.sessionHomeDir ?? os.homedir(),
     noSandbox: app.noSandbox, ...(app.allow ? { allow: app.allow } : {}), ...(app.sandboxSeams ? { seams: app.sandboxSeams } : {}) });
