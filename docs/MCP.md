@@ -173,7 +173,7 @@ puts it back; a running server restarts once its calls finish. Other servers run
 always did: Casper doesn't know what an unknown server needs, so it never guesses and breaks it.
 A server that runs through a package runner (`uvx casper-network-mcp`) or sets its own proxy
 runs as it is too. With no sandbox here (Windows, `--no-sandbox`, `sandbox: off`), or when the
-sandbox can't start, the server starts as before and `/mcp` says why.
+sandbox can't start, the server starts as before and `/mcp detail` says why.
 
 ### A server on another machine (ssh)
 
@@ -377,11 +377,12 @@ own. A `trusted` flag in a project file or a skill can't connect one. Only your
   `1 No · 2 Yes, this once`.
 - Permission lasts for this run of Casper unless you remember the server (see
   [Remembered servers](#remembered-servers)). It is separate from skill trust.
-- `/mcp` lists name, transport (stdio or http), state, tool count, where it came
-  from, preset, writes on/off, login access, source file, time limits and plain
-  error messages. It never shows command arguments, URLs, header values or env
-  values. When a server fails, `/mcp` shows what it said (see
-  [Lifecycle and results](#lifecycle-and-results)).
+- `/mcp` lists one line per server: name, state (a failed one with a short reason),
+  tool count, writes on/off, sandboxed or not, login access and where it came from.
+  `/mcp detail [name]` adds the transport (stdio or http), preset, source file, time
+  limits and the whole plain error message. Neither shows command arguments, URLs,
+  header values or env values. When a server fails, `/mcp detail` shows what it said
+  (see [Lifecycle and results](#lifecycle-and-results)).
 
 **Mistakes in the files.** A broken entry gives a message and takes nothing else
 down. A broken entry that would replace an earlier one removes that name; Casper
@@ -420,8 +421,9 @@ Remember; the order changed so Enter is always the safe choice.)
   random bytes in `~/.casper/mcp-consent.key`. Both files are private (0600). No
   definition value is stored.
 - **Next time** the server connects on its own when a task needs it, always with
-  writes off. `/mcp` shows `Remembered: connects on its own, with writes off.`
-- **Any change asks again.** `/mcp` then shows
+  writes off. `/mcp detail` shows `Remembered: connects on its own, with writes off.`
+- **Any change asks again.** `/mcp` then lists it as
+  `not connected (changed since you approved it)`, and `/mcp detail` shows
   `Changed since you approved it. Run /mcp connect <name>.` Time limits and which
   file the entry lives in are not part of the hash. A secret written straight into
   the definition is part of it, so changing that secret asks again; `${VAR}`
@@ -464,7 +466,7 @@ How pins work:
 - A pin is an env value that beats your own, or an argument added once. For
   `docker run` and `podman run` the env pins go in as `-e NAME=VALUE` just before
   the image.
-- `/mcp` shows `preset: hpe-networking-mcp (read-only pins sent, not confirmed: ...)`
+- `/mcp detail` shows `preset: hpe-networking-mcp (read-only pins sent, not confirmed: ...)`
   until the server itself reports its write switches off through `access_check`.
   Then it reads `read-only pinned`.
 - When Casper can't place a pin, it says so. For an HTTP server:
@@ -508,7 +510,7 @@ may do.
   arguments. It runs under the call limit, never longer than the start limit.
 - **Read-only login.** Only the product's own answer can make a login read-only,
   and only when every product says so. Then:
-  - `/mcp` shows `login: read-only (checked)`;
+  - `/mcp` shows `login: read-only`, and `/mcp detail` shows `login: read-only (checked)`;
   - every tool that is not `read` or `diagnostic` is hidden and refused with
     `Not executed (<server> login is read-only.)`;
   - writes can't be turned on:
@@ -521,7 +523,8 @@ may do.
 - **Where the login can change things (v2).** A `casper/access-check v2` answer may add, per
   product, `"can_change"` and `"read_only"` lists of `{"kind": "org" | "site" | "sitegroup",
   "id", "name"}`. Casper shows them; the server enforces them. `/mcp` then shows
-  `login: can change Lab site (checked)` (or `2 sites and 1 org`; an org shows as `the org`, never by name), and the change box adds
+  `login: can change Lab site` (or `2 sites and 1 org`; an org shows as `the org`, never by name;
+  `/mcp detail` adds `(checked)`), and the change box adds
   `Your login can change: Lab site` under its first line. A name that isn't plain text, an
   unknown kind, or more than 64 entries drops the whole list, and a product that can make
   changes without saying where hides the line: Casper never shows a shorter reach than
@@ -946,7 +949,7 @@ the background.
 - **Time limits.** A server gets 20 s to start (handshake and tool list) and 90 s
   per call. Change them per server in whole seconds: `"connectTimeout": 60` (1-120)
   and `"callTimeout": 400` (1-1800). Any other value makes the entry invalid.
-  `/mcp` shows them as `limits: start 20 s · call 90 s`. Changing only a limit and
+  `/mcp detail` shows them as `limits: start 20 s · call 90 s`. Changing only a limit and
   running `/mcp reload` keeps the connection and your approval.
 - **Progress restarts the call clock.** Each progress message from the server
   starts the 90 s again, so a long job that reports progress keeps going. No call
@@ -964,7 +967,8 @@ the background.
   - A failed call is **never repeated automatically**: a lost answer does not prove
     the action did not happen.
 - **What the server said.** Casper keeps the last 40 lines (8 KiB) a stdio server
-  wrote to stderr. When a server fails, `/mcp` shows a plain reason, such as
+  wrote to stderr. When a server fails, `/mcp` lists it as `failed` with a plain reason cut
+  to 60 characters, and `/mcp detail` shows the whole reason, such as
   `No answer in 20 s while starting.`, `The server stopped while starting (exit code 1).`,
   `Missing environment variable NAME`, `Command not found: uvx. It comes with uv: <install page>`
   (uv, Node.js, Bun, Docker and Python launchers name their install page) or

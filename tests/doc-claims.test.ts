@@ -95,6 +95,26 @@ test("no doc, help text or command still says the shell or checks are unsandboxe
   expect(found).toEqual([]);
 });
 
+/** Lines only `/mcp detail` prints since `/mcp` became one line per server (the list cuts a failure reason
+ * short and drops "(checked)" from login access). */
+const MCP_DETAIL_ONLY = [
+  "transport", "source file", "time limits", "limits: start", "preset:", "Remembered:", "Changed since you approved it",
+  "(checked)", "Last lines from the server", "what it said", "says why",
+];
+
+test("MCP.md and SECURITY.md give the lines only /mcp detail prints to /mcp detail, not to the one-line /mcp", () => {
+  const found: string[] = [];
+  for (const file of ["MCP.md", "SECURITY.md"]) {
+    // A full stop inside a quoted line (`... approved it. Run ...`) doesn't end the sentence around it.
+    const text = readFileSync(path.join(ROOT, "docs", file), "utf8").replace(/`[^`\n]*`/g, (code) => code.replace(/[.!?]/g, "․"));
+    for (const sentence of text.split(/(?<=[.!?])\s+|\n\n|\n\s*- |\n(?=\|)/)) {
+      if (!sentence.includes("`/mcp`") || sentence.includes("`/mcp detail")) continue;
+      for (const line of MCP_DETAIL_ONLY) if (sentence.includes(line)) found.push(`docs/${file}: ${line}: ${sentence.trim().slice(0, 160)}`);
+    }
+  }
+  expect(found).toEqual([]);
+});
+
 test("TERMINAL_UX.md describes the queue and steer instead of saying there is no queued prompt execution", () => {
   const terminal = readFileSync(path.join(ROOT, "docs", "TERMINAL_UX.md"), "utf8");
   const compatibility = terminal.slice(terminal.indexOf("## Compatibility"), terminal.indexOf("## Design references"));
