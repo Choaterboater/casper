@@ -95,6 +95,8 @@ export interface LoadedConfiguration {
   templates?: boolean;
   /** `packs: off`: the packs you added are not used and /pack add adds none (user or profile only). Unset: on. */
   packs?: boolean;
+  /** `github: off`: the AI is never offered the github tool (user or profile only). Unset: on. */
+  github?: boolean;
   /** `visualize: off` (or visualize.enabled: false): the AI's diagram tool is never offered (user or profile only).
    * Unset: on. /visualize, typed by you, still works. */
   diagrams?: boolean;
@@ -265,7 +267,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "telemetry", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -854,15 +856,19 @@ export async function loadConfiguration(
   if (projectDocument.telemetry !== undefined) throw new Error("telemetry is a user setting (~/.casper/config.yaml); a project cannot turn OpenRouter's app-name headers on or off");
   // Packs are added by you alone (/pack add): a repository can't turn them on, off, or name any.
   if (projectDocument.packs !== undefined) throw new Error("packs is a user setting (~/.casper/config.yaml); a project cannot add packs or turn them on or off");
+  // And whether the AI may read GitHub for you.
+  if (projectDocument.github !== undefined) throw new Error("github is a user setting (~/.casper/config.yaml); a project cannot turn the AI's GitHub tool on or off");
   let browser: boolean | undefined;
   let diagrams: boolean | undefined;
   let templates: boolean | undefined;
   let packs: boolean | undefined;
+  let github: boolean | undefined;
   let telemetry: boolean | undefined;
   for (const [document, label] of [[globalDocument, labels.global], [userProfileDocument, labels.userProfile]] as const) {
     browser = onOffLayer(document.browser, label, "browser") ?? browser;
     templates = onOffLayer(document.templates, label, "templates") ?? templates;
     packs = onOffLayer(document.packs, label, "packs", "; /pack add adds a pack") ?? packs;
+    github = onOffLayer(document.github, label, "github") ?? github;
     telemetry = onOffLayer(document.telemetry, label, "telemetry") ?? telemetry;
     diagrams = diagramLayer(document, label, sandboxWarnings, false) ?? diagrams;
   }
@@ -898,6 +904,7 @@ export async function loadConfiguration(
     ...(browser !== undefined ? { browser } : {}),
     ...(templates !== undefined ? { templates } : {}),
     ...(packs !== undefined ? { packs } : {}),
+    ...(github !== undefined ? { github } : {}),
     ...(diagrams !== undefined ? { diagrams } : {}),
     ...(telemetry !== undefined ? { telemetry } : {}),
     ...(pageChecks !== undefined ? { pageChecks } : {}),

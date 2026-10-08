@@ -344,6 +344,8 @@ export class CasperApp {
   /** Setup is offered at most once a session, and an update asked about at most once. */
   networkSetupOffered = false;
   networkUpdateAsked = false;
+  /** When each pull request's failed checks were last re-run through the github tool: one re-run per 10 minutes. */
+  readonly githubReruns = new Map<string, number>();
   /** Network products the person said Not now to this session: the AI's next try doesn't ask again (/mcp login does). */
   readonly loginNotNow = new Set<NetworkProduct>();
   /** `casper new` on a terminal: the exit code when no project was opened (1 when nothing was created). */

@@ -46,6 +46,8 @@ export interface ProjectContext {
   templates?: boolean;
   /** `packs: off` in the user's config: the packs you added are not used and /pack add adds none. Unset: on. */
   packs?: boolean;
+  /** `github: off` in the user's config: the AI is never offered the github tool. Unset: on. */
+  github?: boolean;
   /** `visualize: off` in the user's config: the AI's diagram tool is never offered. Unset: on. */
   diagrams?: boolean;
   /** Managed services declared in .casper/project.yaml (see docs/SERVICES.md). */
@@ -147,6 +149,7 @@ export async function loadProjectContext(
     ...(configuration.browser !== undefined ? { browser: configuration.browser } : {}),
     ...(configuration.templates !== undefined ? { templates: configuration.templates } : {}),
     ...(configuration.packs !== undefined ? { packs: configuration.packs } : {}),
+    ...(configuration.github !== undefined ? { github: configuration.github } : {}),
     ...(configuration.diagrams !== undefined ? { diagrams: configuration.diagrams } : {}),
     services: configuration.services,
     smoke: configuration.smoke,
