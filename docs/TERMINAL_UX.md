@@ -193,7 +193,7 @@ you said No to, or one a script run can't ask about) is not a failure: it reads
 `• bash · cat ~/.ssh/config — not run`, with the reason said to you on the next line, and is not
 counted as failed. The box also starts with `Waiting for <provider/model> · 0s` and ticks elapsed time
 even when the provider sends no intermediate progress events; progress updates change it to reasoning
-or tool preparation. It never displays hidden reasoning or generated arguments, and it is gone when
+or tool preparation. When nothing has arrived for 10 s it reads `Waiting for <provider/model> · 14s`, and during a provider retry `Retrying <provider> · attempt 2 of 3`. A check Casper runs itself (typecheck, lint, test and the rest) adds `test · 3m05s` after 10 s with the last line it printed dimly under it (not at `/details quiet`); a plain terminal prints `[checks] test still running · 3m` once a minute for a long check, and `--json` prints nothing extra. It never displays hidden reasoning or generated arguments, and it is gone when
 the receipt or the prompt returns. The plain terminal and scripts print one end line per tool call;
 having no box, they also print `… bash · bun test` when a call other than a look or an edit is still running after two seconds,
 so a long test run does not look hung.

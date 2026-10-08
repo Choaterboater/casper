@@ -583,6 +583,7 @@ export async function acceptChange(app: CasperApp, input: { session: RuntimeSess
   app.output.write("… Casper checking the change against tests written from the request alone\n");
   phase(app, "acceptance", "start");
   try {
+    app.events.labelChecks("tests written from the request alone");
     const { usage, ...result } = await independentAcceptance({ complete, request: input.request, root: input.root, changes: diffSnapshots(input.before, now),
       files: now, testCommand: input.command, timeoutMs: app.projectContext!.verification.timeoutMs, signal: app.commandAbort?.signal });
     app.observations.recordModelCall(usage);
@@ -592,7 +593,7 @@ export async function acceptChange(app: CasperApp, input: { session: RuntimeSess
     // The call may have reached the provider: its usage is unknown.
     app.observations.recordUntrackedModelUse();
     return { status: "error", reason: `the acceptance check failed: ${error instanceof Error ? error.message : String(error)}`, mode };
-  } finally { phase(app, "acceptance", "end"); }
+  } finally { app.events.labelChecks(); phase(app, "acceptance", "end"); }
 }
 
 /** After the checks pass on a fix or feature: with verification.review: true, one requirements-review
@@ -664,8 +665,11 @@ export async function proveChange(app: CasperApp, input: {
     }
     app.events.ensureLineBreak();
     app.output.write("… Casper checking that the tests fail without the change\n");
-    return input.baseline.prove({ root: input.root, changes, check: "test", command: input.command,
-      timeoutMs: context.verification.timeoutMs, signal: app.commandAbort?.signal, onCleanupFailure: app.blockOnCleanupFailure });
+    app.events.labelChecks("tests fail without the change");
+    try {
+      return await input.baseline.prove({ root: input.root, changes, check: "test", command: input.command,
+        timeoutMs: context.verification.timeoutMs, signal: app.commandAbort?.signal, onCleanupFailure: app.blockOnCleanupFailure });
+    } finally { app.events.labelChecks(); }
   };
   let verification = input.verification;
   let proof = await compare();
