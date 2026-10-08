@@ -76,8 +76,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       "Attach this picture?", app.commandAbort?.signal) });
   app.pastedImages = undefined;
   for (const note of attached.notes) app.output.write(`[image] ${terminalText(note)}\n`);
-  // Whether the request names a target is read from what you typed: a saved picture's `[image 1] is the file …` line
-  // names a file Casper made, not what to change.
+  // Whether the request names a target, and how much it asks, is read from what you typed: a saved picture's
+  // `[image 1] is the file …` line names a file Casper made, not what to change.
   const typed = prompt;
   prompt = attached.text;
   // A flow the user picked, or /plan, is already this task's one choice before work: no other panel.
@@ -176,7 +176,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   const complete = checklistOn ? session.complete?.bind(session) : undefined;
   // Plan first: suggested for a build request with several asks, as one numbered choice folded into the
   // checklist panel, so there is still one panel before work. /plan chooses it directly.
-  const planOffer = !app.beforeWorkAsked && app.terminal.canAsk ? suggestBeforeWork(prompt, classification, { interactive: app.interactive }) : undefined;
+  const planOffer = !app.beforeWorkAsked && app.terminal.canAsk ? suggestBeforeWork(typed, classification, { interactive: app.interactive }) : undefined;
   const planState = planOffer ? await app.suggestions.state(context) : undefined;
   let planFirst = options.planFirst === true;
   let checklist: string[] | undefined;

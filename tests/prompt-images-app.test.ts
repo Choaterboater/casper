@@ -261,6 +261,32 @@ test(`${PASTE_IMAGE_KEY}: a vague request with a pasted picture is still under-s
   }
 });
 
+test(`${PASTE_IMAGE_KEY}: a vague two-part request with a pasted picture is still offered plan first`, async () => {
+  const f = await fixture({ vision: true });
+  const previous = { ...clipboardDefaults };
+  clipboardDefaults.image = async () => new Uint8Array(PNG);
+  clipboardDefaults.files = async () => null;
+  const app = f.make(true);
+  const interactive = app.runInteractive(f.project);
+  try {
+    await f.screen.until((output) => output.includes("idle"));
+    f.input.write("build a login page like ");
+    f.input.write(PASTE_IMAGE_KEY === "ctrl+v" ? "\x16" : "\x1bv");
+    await f.screen.until((output) => output.includes("build a login page like [image 1]"));
+    f.input.write("then add a signup page too");
+    await f.screen.until((output) => output.includes("build a login page like [image 1] then add a signup page too"));
+    f.input.write("\r");
+    // The saved file's line is not counted: the request still asks for 2 things and names no file.
+    await f.screen.until(waiting("Suggested: plan first — this asks for 2 things and names no file"));
+    f.input.write("2");
+    await f.screen.until(idleAfter("Looked."));
+    expect(f.prompts[0]!.text).toMatch(/\n\[image 1\] is the file .+pasted-image-1-[0-9a-f]{8}\.png$/);
+  } finally {
+    Object.assign(clipboardDefaults, previous);
+    f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
+  }
+});
+
 test(`${PASTE_IMAGE_KEY} with only text on the clipboard pastes it without terminal control codes`, async () => {
   const f = await fixture({ vision: true });
   const previous = { ...clipboardDefaults };
