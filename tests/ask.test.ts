@@ -305,7 +305,7 @@ test("an asked question is recorded once: the answered box stays, with no [ask] 
     const asked = frame.indexOf("The AI asks:");
     // The model's own question carries "The AI asks:", so it never looks like a Casper approval. The answered box
     // is the one record: no "[ask] SQLite" line and no ask step (running or finished) is left on the main screen.
-    expect(frame.slice(asked, asked + 4)).toEqual(["The AI asks:", "Which database?", "✓ SQLite  file-based", "• Postgres"]);
+    expect(frame.slice(asked, asked + 4)).toEqual(["The AI asks:", "Which database?", "✓ SQLite  file-based", "  Postgres"]);
     expect(frame).not.toContain("[ask] SQLite");
     expect(frame.some(line => /^[•✓] ask(?: |$)/.test(line))).toBe(false);
   } finally {
@@ -407,6 +407,6 @@ test("an answered question's record shows the choice: a ✓ on the option, → a
     await session.screen.until(output => Bun.stripANSI(output).includes("(skipped)"));
     const text = Bun.stripANSI(session.screen.output);
     expect(text).toContain("→ Cy");
-    expect(text).toContain("• Red");
+    expect(text).toMatch(/^ {2}Red$/m);
   } finally { session.close(); }
 });

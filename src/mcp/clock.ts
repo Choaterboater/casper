@@ -8,6 +8,8 @@
  * cap and let this clock own cancellation through `signal`.
  */
 
+import { formatDuration } from "../tui/format";
+
 export type ClockReason = "idle" | "hard";
 
 /** Abort reason carried by `CallClock.signal`. The SDK rethrows it as McpError(RequestTimeout, String(reason)). */
@@ -118,10 +120,4 @@ export class CallClock {
     this.clearTimers();
     this.controller.abort(new CallClockTimeout(reason, reason === "idle" ? this.idleMs : this.hardMs));
   }
-}
-
-/** Plain duration for people: 500 -> "0.5 s", 90_000 -> "90 s", 600_000 -> "10 min". */
-export function formatDuration(ms: number): string {
-  if (ms >= 120_000 && ms % 60_000 === 0) return `${ms / 60_000} min`;
-  return `${Number((ms / 1000).toFixed(ms < 1000 ? 2 : 1))} s`;
 }

@@ -137,7 +137,7 @@ class Session:
         """Wait until Casper reads the next command. Enter before that only keeps the line as a draft, and a local
         command's output (or a stale "│ idle") shows before Casper is back at the prompt. While Casper works the footer
         has its spinner and elapsed time ("⠋ building · 3s │ …"), while it asks "? waiting for you"; both are gone only
-        when it is back. The WRITES badge may lead the footer, and the first frame ("Casper · / for commands") has no │."""
+        when it is back. The WRITES badge may lead the footer, and the first frame ("Casper · / for commands") has no │ (later idle frames may lead with "type / for commands │")."""
         def ready(text):
             footer = text.rstrip().splitlines()[-1]
             return "│" in footer and not re.search(r"\d+s │|waiting for you", footer)
@@ -192,10 +192,10 @@ def exercise(bun, repo, root, no_color):
         s.until("First bold and code")
         assert "[model] scripted/terminal-fixture" in s.screen.text()
         s.send("/sta")
-        s.until("… /sta")
+        s.until("• /sta")
         s.release("stream-step")
         s.until("• read · src/example.ts")
-        assert "… /sta" in s.screen.text(), s.screen.text()
+        assert "• /sta" in s.screen.text(), s.screen.text()
         s.send("tus\n")  # A command that only shows something runs during work, with no model request.
         s.until("mcp       1 configured")
         assert "First bold and code text." in s.screen.text(), s.screen.text()  # The / menu covered it only while open.

@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 import { formatTaskSpend } from "../src/task/spend";
-import { compactCount, formatCacheHitRate, formatCostLong, formatCostShort, formatTokenSplit } from "../src/tui/usage";
+import { formatCacheHitRate, formatCostLong, formatCostShort, formatTokenSplit } from "../src/tui/usage";
 
 // One real session: the old status bar showed "5031442 tok │ $1.251 est", ~97% of it cache reads.
 const real = { input: 183, output: 43_741, cacheRead: 4_856_497, cacheWrite: 131_021, total: 5_031_442 };
 
 test("token split shows out, new, and cached instead of one total", () => {
-  expect(formatTokenSplit(real)).toBe("44k out · 131k new · 4.9M cached");
+  expect(formatTokenSplit(real)).toBe("43.7k out · 131k new · 4.9M cached");
 });
 
 test("token split leaves out zero parts except out", () => {
@@ -21,13 +21,6 @@ test("cache line gives the share of input read from cache, rounded down, or a da
   expect(formatCacheHitRate({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 })).toBe("—");
 });
 
-test("compact counts round k and give M one decimal", () => {
-  expect(compactCount(999)).toBe("999");
-  expect(compactCount(1_499)).toBe("1k");
-  expect(compactCount(999_499)).toBe("999k");
-  expect(compactCount(999_500)).toBe("1.0M");
-  expect(compactCount(12_345_678)).toBe("12.3M");
-});
 
 test("subscription sign-ins name the plan and label the catalog price as pay-per-token", () => {
   const usage = { estimatedCost: 1.2511 };
@@ -36,16 +29,16 @@ test("subscription sign-ins name the plan and label the catalog price as pay-per
   expect(formatCostShort(usage, { provider: "xai", billing: "subscription" })).toBe("subscription (≈$1.25 pay-per-token)");
   expect(formatCostShort({}, { provider: "github-copilot", billing: "subscription" })).toBe("Copilot subscription");
   expect(formatCostLong(usage, { provider: "github-copilot", billing: "subscription" }))
-    .toBe("Copilot subscription; pay-per-token these tokens would be ≈ $1.2511 (SDK/catalog estimate)");
+    .toBe("Copilot subscription; pay-per-token these tokens would be ≈ $1.25 (SDK/catalog estimate)");
 });
 
 test("pay-per-token providers keep the dollar estimate", () => {
   const usage = { estimatedCost: 1.2511 };
-  expect(formatCostShort(usage, { provider: "openrouter", billing: "per-token" })).toBe("$1.251 est");
-  expect(formatCostShort(usage)).toBe("$1.251 est");
+  expect(formatCostShort(usage, { provider: "openrouter", billing: "per-token" })).toBe("$1.25 est");
+  expect(formatCostShort(usage)).toBe("$1.25 est");
   expect(formatCostShort({}, { provider: "openrouter", billing: "per-token" })).toBeUndefined();
-  expect(formatCostLong(usage, { provider: "anthropic", billing: "per-token" })).toBe("$1.2511 SDK/catalog estimate");
-  expect(formatCostLong(usage, { provider: "openrouter", billing: "per-token" })).toBe("$1.2511 as charged by OpenRouter");
+  expect(formatCostLong(usage, { provider: "anthropic", billing: "per-token" })).toBe("$1.25 SDK/catalog estimate");
+  expect(formatCostLong(usage, { provider: "openrouter", billing: "per-token" })).toBe("$1.25 as charged by OpenRouter");
   expect(formatCostLong({})).toBe("unavailable");
 });
 

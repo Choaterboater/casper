@@ -90,9 +90,9 @@ a file changed only by a shell command that git ignores is not named:
 When undo can't be offered at all, the receipt says why on one line:
 
 ```
-• Undo not available: git is not installed
-• Undo not available: this folder has more than 20,000 files
-• Undo not available: Casper could not save a copy (<reason>)
+– Undo not available: git is not installed
+– Undo not available: this folder has more than 20,000 files
+– Undo not available: Casper could not save a copy (<reason>)
 ```
 
 Casper checks each file again just before putting it back, so a file you saved while Casper asked is left as

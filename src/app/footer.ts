@@ -7,9 +7,9 @@ import { PANE_MIN_COLUMNS } from "../tui/terminal";
 import { readPaneSetting, savePaneSetting, type PaneSetting } from "../tui/pane-setting";
 import { sessionTitle, windowTitle } from "../tui/session-title";
 import { DISPLAY_LEVELS, nextDisplay, type DisplayLevel } from "../tui/display";
-import { formatEffort, noModelFooter, terminalText } from "../tui/format";
+import { formatCost, formatEffort, formatTokens, noModelFooter, terminalText } from "../tui/format";
 import type { RuntimeSession } from "../runtime/types";
-import { formatCost, formatFooterSpend, formatTokens } from "../task/spend";
+import { formatFooterSpend } from "../task/spend";
 import { phaseEvent, type PhaseEvent } from "./json-events";
 import { editUserConfig } from "../config/user-write";
 
@@ -53,7 +53,7 @@ export function buildersText(app: Pick<CasperApp, "subagents">): string {
   if (!counted.length) return "";
   const tokens = counted.reduce((sum, run) => sum + (run.spent?.tokens ?? 0), 0);
   const cost = counted.reduce((sum, run) => sum + (run.spent?.estimatedCost ?? 0), 0);
-  const spent = cost > 0 ? ` · ${formatCost(cost)}` : tokens ? ` · ${formatTokens(tokens)}` : "";
+  const spent = cost > 0 ? ` · ${formatCost(cost)}` : tokens ? ` · ${formatTokens(tokens)} tok` : "";
   const who = [...(reviewers.length ? [`${reviewers.length} reviewer${reviewers.length === 1 ? "" : "s"}`] : []),
     ...(builders.length ? [`${builders.length} builder${builders.length === 1 ? "" : "s"}`] : [])].join(" · ");
   return ` │ ${who}${spent}`;

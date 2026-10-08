@@ -9,7 +9,7 @@
  * the yes is about goes in the question. tests/yes-words.test.ts keeps it that way.
  */
 import { KIND_TEXT, RISKY_KINDS, type ChangeKind } from "../capabilities/kinds";
-import { formatDuration } from "../verify/evidence";
+import { formatDuration } from "../tui/format";
 import type { UnfinishedChoice } from "../verify/repair-loop";
 
 export interface Choice { label: string; description?: string }

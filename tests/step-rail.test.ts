@@ -50,10 +50,10 @@ test("the footer timer counts a question's wait, like the Working box's step tim
     session.input.write("1");
     await answered;
     const from = session.screen.output.length;
-    session.terminal.setSteps("checklist ✓ · building ✓");
-    await session.screen.until(output => Bun.stripANSI(output.slice(from)).includes("building ✓ · "));
+    session.terminal.setSteps("checklist ✓ · building ✓ · checks");
+    await session.screen.until(output => Bun.stripANSI(output.slice(from)).includes("checks · "));
     // Over two seconds passed, all of it waiting: the timer counts them, so it agrees with the box's step times.
-    expect(Bun.stripANSI(session.screen.output.slice(from))).toMatch(/building ✓ · [2-9]s/);
+    expect(Bun.stripANSI(session.screen.output.slice(from))).toMatch(/checks · [2-9]s/);
     session.terminal.setSteps(undefined);
   } finally { session.close(); }
 }, 15_000);
@@ -156,5 +156,45 @@ test("the elapsed time sits right after the spinner, before and after the first 
     session.terminal.setSteps("building");
     expect(Bun.stripANSI(session.terminal.footerLine(100)!)).toMatch(/^\S building · \d+s │ project │ fixture\/demo$/);
     session.terminal.setSteps(undefined);
+  } finally { session.close(); }
+});
+
+test("narrow or wide, the footer never shows a finished stage as what is happening: between stages only the time", async () => {
+  process.env.TERM = "xterm-256color";
+  const session = interactiveTerminal();
+  try {
+    session.terminal.setStatus("project/master │ fixture/demo · off │ ctx 1%~"); session.terminal.start();
+    const command = session.terminal.readCommand();
+    session.input.write("go\r");
+    await command;
+    const footer = (width: number) => Bun.stripANSI(session.terminal.footerLine(width)!);
+    // The last stage ended and the next has not started (live: 'proof ✓ · 1s' at 34 columns).
+    session.terminal.setSteps("checklist ✓ · building ✓ · proof ✓");
+    for (const width of [30, 34, 100]) {
+      expect(footer(width)).not.toContain("✓");
+      expect(footer(width)).toMatch(/^\S \d+s │ project/);
+    }
+    // A stage runs: narrow shows that one, wide the whole rail.
+    session.terminal.setSteps("checklist ✓ · building ✓ · proof ✓ · checks");
+    expect(footer(34)).toMatch(/^\S checks · \d+s │/);
+    expect(footer(100)).toMatch(/^\S checklist ✓ · building ✓ · proof ✓ · checks · \d+s │ project/);
+    session.terminal.setSteps(undefined);
+  } finally { session.close(); }
+});
+
+test("idle: the state is never cut off, and the hint shows when the whole line fits", async () => {
+  process.env.TERM = "xterm-256color";
+  const session = interactiveTerminal();
+  try {
+    // The live footer at 100 columns that lost its state: '… │ task 1.3k tok · session 3....'.
+    const long = "project/no git │ openrouter/moonshotai/kimi-k2-0905 · auto → high │ ctx 1%~ │ task 1.3k tok · session 3.9k tok · $0.004 │ idle";
+    session.terminal.setStatus(long); session.terminal.start();
+    const footer = (width: number) => Bun.stripANSI(session.terminal.footerLine(width)!);
+    expect(footer(100)).toEndWith("… │ idle");
+    expect(footer(100).length).toBeLessThanOrEqual(100);
+    expect(footer(40)).toEndWith("… │ idle");
+    expect(footer(160)).toBe(`type / for commands │ ${long}`);
+    session.terminal.setStatus("project/no git │ fixture/fixture · off │ ctx 1%~ │ idle");
+    expect(footer(100)).toBe("type / for commands │ project/no git │ fixture/fixture · off │ ctx 1%~ │ idle");
   } finally { session.close(); }
 });

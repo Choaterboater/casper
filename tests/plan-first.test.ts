@@ -264,11 +264,11 @@ test("a file that changes while planning anyway is named, and the receipt keeps 
   try {
     f.input.write(`/plan ${REQUEST}\r`);
     await f.screen.until(waiting("Build this plan?"));
-    expect(f.screen.output).toContain("• Changed while planning: notes.txt");
+    expect(f.screen.output).toContain("– Changed while planning: notes.txt");
     f.input.write("2");
     await f.screen.until(idleAfter("Built."));
     expect(f.app.getLastTaskResult()?.changedWhilePlanning).toEqual(["notes.txt"]);
-    expect(f.screen.output.slice(f.screen.output.lastIndexOf("Built."))).toContain("• Changed while planning: notes.txt");
+    expect(f.screen.output.slice(f.screen.output.lastIndexOf("Built."))).toContain("– Changed while planning: notes.txt");
   } finally { await f.close(); }
 }, 60_000);
 

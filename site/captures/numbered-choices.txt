@@ -18,9 +18,9 @@ Press 1-3 or Up/Down + Enter · type to answer · Esc skip
 
 # (Esc pressed: skip)
 
-• Stop  keep the changes; the receipt says it did not finish
-• Retry  run it again with the same limit
-• Fix it anyway  ask the model to fix why it could not start (uses tokens)
+  Stop  keep the changes; the receipt says it did not finish
+  Retry  run it again with the same limit
+  Fix it anyway  ask the model to fix why it could not start (uses tokens)
   (skipped)
 ✗ Not checked — lint could not start, so the change was not tested
 ✗ lint could not start (exit 127) — check verify.lint in .casper/project.yaml

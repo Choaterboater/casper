@@ -47,11 +47,11 @@ for (const check of ["pass", "fail"] as const) test(`a model that fails after ed
   try {
     await app.runOnce("Fix the bug in add", project);
     expect(output).toContain("[error] Provider returned an empty response");
-    expect(output).toContain("… Casper checking the edits the model made before it failed: test");
+    expect(output).toContain("• Casper checking the edits the model made before it failed: test");
     expect(output).toContain(check === "pass"
       ? "✗ Failed — the model run failed; changes already made are kept; the checks pass on those changes"
       : "✗ Failed — the model run failed; changes already made are kept; on those changes test failed");
-    expect(output).toContain(`• Next: casper --model <provider/id> "…" to try another model`);
+    expect(output).toContain(`– Next: casper --model <provider/id> "…" to try another model`);
     // One automatic retry of the provider failure, then the edits are checked.
     expect(output).toContain("[model] The model failed; trying once more.");
     expect(prompts).toBe(2);
@@ -64,7 +64,7 @@ for (const check of ["pass", "fail"] as const) test(`a model that fails after ed
 
 test("a failed run that changed nothing says so and points to another model", () => {
   expect(formatReceipt({ execution: "failed", changedPaths: [] }, { surface: "interactive" }))
-    .toBe("✗ Failed — the model run failed before changing any files\n• No files changed\n• Next: /model to try another model, then ask again");
+    .toBe("✗ Failed — the model run failed before changing any files\n– No files changed\n– Next: /model to try another model, then ask again");
 });
 
 test("a provider failure that clears on the automatic retry finishes the task normally", async () => {
@@ -195,7 +195,7 @@ test("a check that was already failing before the change is named as such; in th
     await screen.until((output) => output.includes("idle"));
     input.write("fix the add function\r");
     await screen.until((output) => Bun.stripANSI(output).includes("test was already failing before this change. Fix it anyway?"));
-    expect(Bun.stripANSI(screen.output)).toContain("• test was already failing before this change (Casper ran it on the files from before)");
+    expect(Bun.stripANSI(screen.output)).toContain("– test was already failing before this change (Casper ran it on the files from before)");
     input.write("\r"); // Enter picks 1 Leave it: no repair.
     await screen.until((output) => { const text = Bun.stripANSI(output); const at = text.lastIndexOf("✗ Failed — test failed"); return at >= 0 && text.lastIndexOf("idle") > at; });
     expect(prompts).toBe(1);

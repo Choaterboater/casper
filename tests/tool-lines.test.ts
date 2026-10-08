@@ -91,7 +91,7 @@ test("rich terminal: the Working box keeps the last 3 steps, then folds them int
   expect(t.screen).toEqual([]);
   t.handle({ type: "assistant_text_delta", delta: "Fixed it." });
   // The failed edit was tried again at once: counted, not printed. The failed command prints with its cause.
-  expect(t.screen).toEqual(["✗ bash · python3 -m pytest … — failed", "  1 failed", "• 3 edits · 1 command · 1 read · 2 failed", "  changed a.py, b.py"]);
+  expect(t.screen).toEqual(["✗ bash · python3 -m pytest … — failed", "  1 failed", "– 3 edits · 1 command · 1 read · 2 failed", "  changed a.py, b.py"]);
   expect(t.box).toBeUndefined();
 });
 
@@ -162,9 +162,9 @@ test("rich: a finished step keeps its time in the Working box, and its folded li
       t.handle(start("1", "bash", { command: "bun test" }));
       now += 16_500;
       t.handle(end("1", "bash", { command: "bun test" }));
-      if (rich) expect(t.box).toEqual(["✓ bash · bun test · 16.5s"]);
+      if (rich) expect(t.box).toEqual(["✓ bash · bun test · 16s"]);
       t.handle({ type: "message_end" });
-      expect(t.screen.at(-1)).toBe(rich ? "✓ bash · bun test" : "✓ bash · bun test · 16.5s");
+      expect(t.screen.at(-1)).toBe(rich ? "✓ bash · bun test" : "✓ bash · bun test · 16s");
     }
   } finally { clock.mockRestore(); }
 });
@@ -179,7 +179,7 @@ test("rich: the AI's answered question leaves no ask step (its box is the record
 
 test("the summary line counts steps and leaves the time to the footer and the Working box", () => {
   expect(stepSummary([{ kind: "edit" }, { kind: "edit" }])).toBe("✓ 2 edits");
-  expect(stepSummary([{ kind: "command", failed: true }, { kind: "other" }])).toBe("• 1 command · 1 other step · 1 failed");
+  expect(stepSummary([{ kind: "command", failed: true }, { kind: "other" }])).toBe("– 1 command · 1 other step · 1 failed");
 });
 
 test("a tool call stopped at the spend limit shows as not run, never as a failed step or with the model's instruction", () => {
@@ -188,7 +188,7 @@ test("a tool call stopped at the spend limit shows as not run, never as a failed
     const input = { command: "ssh root@10.0.0.5 'systemctl restart sampleapp'" };
     t.handle(start("1", "read", { path: "/work/app/a.py" }), end("1", "read", { path: "/work/app/a.py" }));
     t.handle(start("2", "bash", input), end("2", "bash", input, true, SPEND_STOP_REASON), { type: "message_end" });
-    expect(t.screen).toContain("• bash · ssh root@10.0.0.5 … — not run (spend limit)");
+    expect(t.screen).toContain("○ bash · ssh root@10.0.0.5 … — not run (spend limit)");
     expect(t.screen.join("\n")).not.toContain("Do not call more tools");
     expect(t.screen.join("\n")).not.toMatch(/failed|✗/);
     if (rich) expect(t.screen).toContain("✓ read · a.py");
@@ -204,7 +204,7 @@ test("a command Casper refused shows as not run with the reason said to you, nev
     t.handle(start("1", "bash", cat), end("1", "bash", cat, true, privateRead));
     t.handle(start("2", "bash", ssh), end("2", "bash", ssh, true, reachDeclined(target)), { type: "message_end" });
     const screen = t.screen.join("\n");
-    expect(t.screen).toContain("• bash · cat ~/.ssh/config — not run");
+    expect(t.screen).toContain("○ bash · cat ~/.ssh/config — not run");
     expect(t.screen).toContain("  This command reads ~/.ssh, which is private (keys and logins). Casper keeps it from the AI.");
     expect(t.screen).toContain("  You said no to reaching 198.51.100.20 (build-server).");
     expect(screen).not.toMatch(/failed|✗|Ask the user|ask the user|Don't try/);
@@ -222,7 +222,7 @@ test("a call blocked while planning shows as not run with the reason, never as f
     const input = { command: "git log --oneline -5 > log.txt" };
     t.handle(start("1", "bash", input), end("1", "bash", input, true, planToolGate("bash", input)), { type: "message_end" });
     const screen = t.screen.join("\n");
-    expect(t.screen).toContain("• bash · git log … — not run");
+    expect(t.screen).toContain("○ bash · git log … — not run");
     expect(screen).toContain("Planning only: Casper blocks file changes until you choose Build.");
     expect(screen).not.toMatch(/failed|✗/);
   }
@@ -276,10 +276,10 @@ test("plain terminal: a command still running after a moment says it started, so
     t.handle(start("b", "bash", { command: "bun test" }));
     expect(t.screen).toEqual(["✓ read · a.ts"]);
     now = PLAIN_START_AFTER_MS; timers.shift()!();
-    expect(t.screen).toEqual(["✓ read · a.ts", "… bash · bun test"]);
+    expect(t.screen).toEqual(["✓ read · a.ts", "• bash · bun test"]);
     now = 4200;
     t.handle(end("b", "bash", { command: "bun test" }), { type: "message_end" });
-    expect(t.screen).toEqual(["✓ read · a.ts", "… bash · bun test", "✓ bash · bun test · 4.2s"]);
+    expect(t.screen).toEqual(["✓ read · a.ts", "• bash · bun test", "✓ bash · bun test · 4.2s"]);
   } finally { clock.mockRestore(); later.mockRestore(); }
 });
 
@@ -304,7 +304,7 @@ test("plain terminal: no start line while Casper asks about the call, or once it
     // A call with no question still says it started.
     t.handle(start("b", "bash", { command: "bun test" }));
     timers.shift()!();
-    expect(t.screen.at(-1)).toBe("… bash · bun test");
+    expect(t.screen.at(-1)).toBe("• bash · bun test");
   } finally { later.mockRestore(); }
 });
 
@@ -313,7 +313,7 @@ test("a skipped casper_check shows as skipped on both terminals; its payload nev
   for (const rich of [true, false]) {
     const t = fakeTerminal(rich);
     t.handle(start("c", "casper_check", { check: "junos" }), end("c", "casper_check", { check: "junos" }, false, payload), { type: "message_end" });
-    expect(t.screen).toEqual(["• casper_check · junos — skipped"]);
+    expect(t.screen).toEqual(["○ casper_check · junos — skipped"]);
   }
   const failed = fakeTerminal(false);
   failed.handle(start("f", "casper_check", { check: "test" }), end("f", "casper_check", { check: "test" }, true, JSON.stringify({ name: "test", status: "fail" })));

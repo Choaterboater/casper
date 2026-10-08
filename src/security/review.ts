@@ -3,7 +3,7 @@ import { lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { parentsStayInside } from "../platform/files";
 import { readVariants, resolveToolPath } from "../platform/project-paths";
-import { redactPreview, terminalText } from "../tui/format";
+import { formatCost, formatTokens, redactPreview, terminalText } from "../tui/format";
 import { detectProject, MCP_IMPORT, readHead } from "./detect";
 import { formatFindingText } from "./format";
 import { changesSinceHead, git, gitState } from "./git";
@@ -185,9 +185,9 @@ export async function reviewScope(rootFolder: string, toolFindings: readonly Sec
 /** "about 9k tokens, at least ≈ $0.03": the files once, so a lower bound; the price only when the catalog knows it. */
 export function reviewCostWords(scope: Pick<ReviewScope, "bytes" | "diff">, inputCostPerMillion?: number): string {
   const tokens = Math.ceil((scope.bytes + Buffer.byteLength(scope.diff)) / 4) + 2000;
-  const count = tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : String(tokens);
+  const count = formatTokens(tokens);
   const price = inputCostPerMillion ? tokens * inputCostPerMillion / 1e6 : undefined;
-  return `at least about ${count} tokens${price !== undefined ? `, ≈ $${price < 0.01 ? price.toFixed(4) : price.toFixed(2)}` : ""}`;
+  return `at least about ${count} tokens${price !== undefined ? `, ≈ ${formatCost(price)}` : ""}`;
 }
 
 /** Where a path really is: through links (the native call, so a case-folding disk gives the stored name), or as typed. */

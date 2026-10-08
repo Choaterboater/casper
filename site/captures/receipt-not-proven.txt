@@ -4,14 +4,14 @@
 [model] scripted/site-capture · off · credentials configured
 ✓ edit · src/sum.js
 sum now turns its inputs into numbers first.
-… Casper checking: test
+• Casper checking: test
 ✓ test
-… Casper checking that the tests fail without the change
+• Casper checking that the tests fail without the change
 ↻ repair 1/1: add a test that fails without the change
 (scripted model) No more changes.
 ✓ test
-… Casper checking that the tests fail without the change
-▌ • Not verified — the tests pass without the change too
+• Casper checking that the tests fail without the change
+▌ – Not verified — the tests pass without the change too
 ▌ ✓ test passed · changed src/sum.js
 ▌ ↻ Casper tried 1 repair
 ▌ ⚠ Not proven: test passes without this change too, and no test was added or changed

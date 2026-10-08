@@ -80,7 +80,7 @@ posixOnly("a shell write outside the project asks once, No first; allowed for th
   // The receipt says allowed, not written: the sandbox can't tell whether the rerun wrote there.
   const receipt = outsideWritesReceipt(s.sandbox);
   expect(receipt).toEqual({ outsideAllowed: [FOLDER] });
-  expect(formatReceipt({ execution: "completed", ...receipt })).toContain(`• Allowed writes outside the project: ${FOLDER} (no undo copy)`);
+  expect(formatReceipt({ execution: "completed", ...receipt })).toContain(`– Allowed writes outside the project: ${FOLDER} (no undo copy)`);
   expect(formatReceipt({ execution: "completed", ...receipt })).not.toContain("Wrote outside the project");
   // Nothing is kept for the next session.
   const next = await session([]);
@@ -177,7 +177,7 @@ test("the AI's write tool outside the project asks the same question on Windows,
   const receipt = outsideWritesReceipt(s.sandbox);
   expect(receipt).toEqual({ outsideWrites: [FOLDER] });
   expect(outsideWritesReceipt(s.sandbox)).toEqual({});
-  expect(formatReceipt({ execution: "completed", ...receipt })).toContain(`• Wrote outside the project: ${FOLDER} (you allowed it; no undo copy)`);
+  expect(formatReceipt({ execution: "completed", ...receipt })).toContain(`– Wrote outside the project: ${FOLDER} (you allowed it; no undo copy)`);
   expect(formatTaskResult({ execution: "completed", ...receipt })).toContain(`wrote ${FOLDER} (you allowed it; no undo copy)`);
   await s.sandbox.close();
   // You turned the sandbox off: outside edits and writes go through as before, no question.

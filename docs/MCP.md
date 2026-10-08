@@ -951,15 +951,15 @@ the background.
 - **Time limits.** A server gets 20 s to start (handshake and tool list) and 90 s
   per call. Change them per server in whole seconds: `"connectTimeout": 60` (1-120)
   and `"callTimeout": 400` (1-1800). Any other value makes the entry invalid.
-  `/mcp detail` shows them as `limits: start 20 s · call 90 s`. Changing only a limit and
+  `/mcp detail` shows them as `limits: start 20s · call 90s`. Changing only a limit and
   running `/mcp reload` keeps the connection and your approval.
 - **Progress restarts the call clock.** Each progress message from the server
   starts the 90 s again, so a long job that reports progress keeps going. No call
   runs longer than 10 minutes (or its `callTimeout`, if that is longer), progress or
   not. The clock pauses while you answer a question about the call.
 - **When a call fails**, the AI reads plain text and is told not to retry on its
-  own: `No answer from <server> in 90 s. It may have run. …` (plus the last
-  progress message, if any), `<server> was still working after 10 min and was
+  own: `No answer from <server> in 90s. It may have run. …` (plus the last
+  progress message, if any), `<server> was still working after 10m and was
   stopped. …`, or `<server> returned an error: <message>. It may or may not have
   run.` Server text in these lines is shortened and has secrets hidden.
   - A timeout, a cancel or a lost connection closes that server's connection. This
@@ -971,7 +971,7 @@ the background.
 - **What the server said.** Casper keeps the last 40 lines (8 KiB) a stdio server
   wrote to stderr. When a server fails, `/mcp` lists it as `failed` with a plain reason cut
   to 60 characters, and `/mcp detail` shows the whole reason, such as
-  `No answer in 20 s while starting.`, `The server stopped while starting (exit code 1).`,
+  `No answer in 20s while starting.`, `The server stopped while starting (exit code 1).`,
   `Missing environment variable NAME`, `Command not found: uvx. It comes with uv: <install page>`
   (uv, Node.js, Bun, Docker and Python launchers name their install page) or
   `The server said HTTP 401: <body>`, then `Last lines from the server:` with up to

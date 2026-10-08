@@ -83,7 +83,7 @@ These commands have their own arguments and take none of the options above:
 | 0 | Done. Changes, if any, were verified — or, without `--require-verification`, simply not disproven. A run that changed nothing exits 0. |
 | 1 | Failed: a check failed, checks were blocked, the model run failed, or Casper hit an error (for example missing credentials). |
 | 2 | Incomplete: checks could not finish, `--max-turns` stopped the model, Casper stopped commands to another machine (`remoteNotRun`), the model wrote its tool call as plain text instead of using it (nothing was done; the receipt's first line says "Did not act"), or checking was asked for (`--verify` or `verification.mode: auto`) and found changes but no configured check, or `casper /verify` found no check to run. |
-| 3 | Not verified (only with `--require-verification`): files changed but Casper did not prove them — checks off, none configured or covering the files, bash-only test runs, a pass that went stale, a change the tests do not prove, or (from v0.2.17) checks that passed without a proof (`• Checks passed — not proven`). `checksPassed` in the JSON receipt still says the checks passed. |
+| 3 | Not verified (only with `--require-verification`): files changed but Casper did not prove them — checks off, none configured or covering the files, bash-only test runs, a pass that went stale, a change the tests do not prove, or (from v0.2.17) checks that passed without a proof (`– Checks passed — not proven`). `checksPassed` in the JSON receipt still says the checks passed. |
 | 64 | Usage error: an unknown option, a bad value, conflicting flags, an unknown model or conversation. Nothing ran. |
 | 130 | Cancelled (Ctrl-C / SIGINT). |
 | 143 | Terminated (SIGTERM). |
@@ -150,9 +150,9 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
   even when the local checks passed. `secretInCommand` is `true` when a secret appeared in
   a command the AI sent; change that secret after the task.
 - `verdict` is line 1 of `text`: `✓ Verified — …` only when the tests fail without the change;
-  otherwise `• Checks passed — not proven: …`, `✓ Checks passed — no files changed`,
-  `✗ Failed — …`, `✗ Not checked — …` (only unfinished checks), `• Incomplete — …`,
-  `• Not verified — …` or `✗ Stopped — …`.
+  otherwise `– Checks passed — not proven: …`, `✓ Checks passed — no files changed`,
+  `✗ Failed — …`, `✗ Not checked — …` (only unfinished checks), `– Incomplete — …`,
+  `– Not verified — …` or `✗ Stopped — …`.
 - `text` is the plain receipt a person would read.
 
 **Usage.** `usage` is the request's model use, repair prompts included, or `null` when no model

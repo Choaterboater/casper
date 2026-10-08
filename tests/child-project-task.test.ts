@@ -73,7 +73,7 @@ test.skipIf(!python)("work that lands in a project inside the folder runs that p
   const app = new CasperApp({ ...options(home, runtime), output: { write: (text: string) => { output += text; } } });
   try {
     await app.runOnce("build a mist tool that counts sites, with tests", docs);
-    expect(output).toContain("… Casper checking: test (checks from sample-tools)");
+    expect(output).toContain("• Casper checking: test (checks from sample-tools)");
     expect(output).toMatch(/✓ test passed \(checks from sample-tools · python3? -m unittest discover -s tests|✓ test passed \(checks from sample-tools · .*-m unittest discover -s tests/);
     expect(output).not.toContain("Not verified");
     // One-shot can't ask: it says the command to use.

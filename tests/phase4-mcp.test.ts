@@ -405,7 +405,7 @@ test("timeouts, caller cancellation, and close during handshake settle without l
   expect((await rejection(work)).message).toContain("cancelled");
   expect(mcp.catalog()).toEqual([]);
   await broker.prepare("slow read"); // Cancellation invalidates the affected connection; no call is replayed.
-  expect((await rejection(broker.invoke("mcp:generic:slow_read", {}))).message).toContain("No answer from generic in 0.5 s. It may have run.");
+  expect((await rejection(broker.invoke("mcp:generic:slow_read", {}))).message).toContain("No answer from generic in 0.5s. It may have run.");
   const stalled = manager([definition("stall", "stall")]);
   const connecting = stalled.connect("stall");
   await Bun.sleep(30);

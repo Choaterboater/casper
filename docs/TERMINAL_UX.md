@@ -139,10 +139,13 @@ art and drops the color. The wordmark is constant text written past the untruste
 line classifier (`InteractiveTerminal.writeTrusted`), which is never used for
 model or tool output.
 
-Transcript lines are inline, not boxed: `✓`/`✗`/`•` tool lines, `[model]`,
+Transcript lines are inline, not boxed: `✓`/`✗`/`•`/`○` tool lines, `[model]`,
 `[approval]`, `[task]` and similar bracketed notices, and the `❯ …` echo of each
 prompt. Green marks success, red an error, amber a notice or decision, cyan the
-accent (banner, prompt echo, Markdown structure), dim the muted status lines.
+accent (banner, prompt echo, Markdown structure), dim the muted status lines. Each mark at the start
+of a line means one thing: `•` running now (a step, Casper's own checks, the prompt while Casper works),
+`✓` done, `✗` failed, `○` did not run (refused, stopped at the spend limit, a skipped check), `–` a note
+(not verified, not checked, a retry). An answered box keeps `✓` on what was chosen and no mark on the rest.
 Those are the `default` theme's colours; `theme: light` or `high-contrast` (or **Theme** in
 `/settings`) swaps the colours of each role (`src/tui/theme.ts`) and nothing else
 ([CONFIGURATION.md](CONFIGURATION.md#theme)).
@@ -185,17 +188,17 @@ On a rich terminal the main screen keeps the model's words, questions and receip
 in a transient `Working` box that shows the last 3 steps, each updated in place (`• read · src/x.ts`
 while it runs, `✓ read · src/x.ts` once done), even with calls running side by side. A step still running after 10 s adds its elapsed time (`• bash · python -m pytest · 4m12s`), and a running command shows its latest output line dimly under it (not at `/details quiet`; plain terminals and `--json` get nothing extra). When the model
 moves on (its next words, or the end of its turn), the finished steps fold into one line:
-`✓ 14 edits · 6 commands` (`•` instead of `✓` when a step failed; how long work takes is in the footer and the box), with the changed files on one line under
+`✓ 14 edits · 6 commands` (`–` instead of `✓` when a step failed; how long work takes is in the footer and the box), with the changed files on one line under
 it (`  changed app.py, tests/test_app.py`, five at most, then `+N more`); a single step prints its own line. A failed command
 prints its line and cause above the summary; a failed edit the model tried again at once is counted,
 not printed. `/output all` lists every call of the last task on its own line. A command Casper refused before it ran (a private place such as `~/.ssh`, another machine
 you said No to, or one a script run can't ask about) is not a failure: it reads
-`• bash · cat ~/.ssh/config — not run`, with the reason said to you on the next line, and is not
-counted as failed. The box also starts with `Waiting for <provider/model> · 0s` and ticks elapsed time
-even when the provider sends no intermediate progress events; progress updates change it to reasoning
-or tool preparation. When nothing has arrived for 10 s it reads `Waiting for <provider/model> · 14s`. A provider retry is one amber line in the transcript, `… Can't reach <provider> · trying again in 4s (1 of 3) · Esc stops`, not repeated in the box. A check Casper runs itself (typecheck, lint, test and the rest) adds `test · 3m05s` after 10 s with the last line it printed dimly under it (not at `/details quiet`); a plain terminal prints `[checks] test still running · 3m` once a minute for a long check, and `--json` prints nothing extra. It never displays hidden reasoning or generated arguments, and it is gone when
+`○ bash · cat ~/.ssh/config — not run`, with the reason said to you on the next line, and is not
+counted as failed. The box also starts with `Waiting for <provider/model> · 0s` as soon as a request is
+sent, and ticks elapsed time even when the provider sends nothing back yet or no intermediate progress events; progress updates change it to reasoning
+or tool preparation. When nothing has arrived for 10 s it reads `Waiting for <provider/model> · 14s`. A provider retry is one amber line in the transcript, `– Can't reach <provider> · trying again in 4s (1 of 3) · Esc stops`, not repeated in the box. A check Casper runs itself (typecheck, lint, test and the rest) adds `test · 3m05s` after 10 s with the last line it printed dimly under it (not at `/details quiet`); a plain terminal prints `[checks] test still running · 3m` once a minute for a long check, and `--json` prints nothing extra. It never displays hidden reasoning or generated arguments, and it is gone when
 the receipt or the prompt returns. The plain terminal and scripts print one end line per tool call;
-having no box, they also print `… bash · bun test` when a call other than a look or an edit is still running after two seconds,
+having no box, they also print `• bash · bun test` when a call other than a look or an edit is still running after two seconds,
 so a long test run does not look hung.
 
 Help and results group related facts instead of one long paragraph. Assistant
@@ -203,24 +206,27 @@ instructions favor the answer or action first, numbered human steps when needed,
 and one concrete next action when work remains. Unknown checks, estimates and
 remaining uncertainty stay explicit. This is guidance to the model; a provider's replies may not follow it.
 
-The prompt box keeps a fixed two-column gutter: `❯` while idle, `…` while a
+The prompt box keeps a fixed two-column gutter: `❯` while idle, `•` while a
 command is working, `?` while an exact approval is pending. The box never shifts
 horizontally between states, so a draft keeps its wrapping. The footer shows a
 state mark once: the braille spinner while working, `? waiting for you` while a question,
-checklist or approval needs you (with the spinner stopped), and `idle` at its end when Casper waits for a request. Then project/branch, provider/model, effort,
+checklist or approval needs you (with the spinner stopped), and `idle` at its end when Casper waits for a request
+(led by `type / for commands` when the whole line fits; a narrow window cuts the details before `idle`, never
+`idle` itself). Then project/branch, provider/model, effort,
 estimated context occupancy, the current task's tokens and its cost from the model's price
 (`task 48.2k tok · $0.31`; from the second task on, the session's total too, so a new task never
-looks like a reset: `task 40.0k tok · session 1.1M tok · $0.04` while working, `session 1.1M tok · $0.04` idle; a free model shows tokens only; a subscription sign-in shows
+looks like a reset: `task 40k tok · session 1.1M tok · $0.04` while working, `session 1.1M tok · $0.04` idle; a free model shows tokens only; a subscription sign-in shows
 `sub ≈$0.31`, what the tokens would cost pay-per-token; /usage has the session totals split into
-out, new and cached, `44k out · 131k new · 4.9M cached`). While a task runs, its stages
+out, new and cached, `43.7k out · 131k new · 4.9M cached`, the same token format). While a stage runs, the task's stages
 lead the footer, each marked ✓ once done, then the elapsed time (right after the spinner, `⠋ 0s │ …`, before the first stage);
 the time counts the whole task, a question's wait included, like the box's step times:
-`⠋ checklist ✓ · building ✓ · checks · 1m05s │ project…`; in a narrow window only the current stage
-and the time (`⠋ checks · 1m05s │ …`). When the AI reads, lists or searches a folder outside the project (temp aside), one line under its
+`⠋ checklist ✓ · building ✓ · checks · 1m05s │ project…`; in a narrow window only the stage running now
+and the time (`⠋ checks · 1m05s │ …`), never a finished one; between stages only the time. When the AI reads, lists or searches a folder outside the project (temp aside), one line under its
 steps says where, once per folder: `[read] outside this project: ~/Projects`. Tool lines print paths relative to the project and fit one row:
 narrow, the words go and a path is shortened from the front (`✓ edit · …st_calc.py · +9 -1 · 2.5s`). Each check Casper runs prints one line
 as it finishes (`✓ typecheck · 5.9s`, `✗ test · exit 1 · 2.3s`, `✗ test · timed out after 10m`; a check
-under a second shows no time), so a
+under a second shows no time; every time on screen reads the same way: `0.4s` and `5.9s` under ten seconds, then
+`14s`, `1m05s`, `10m`, `1h02m`), so a
 pass is never silent; `--verbose` prints the full evidence line instead. When a request that ran for 10 seconds or
 more finishes, or asks you something (a question, an approval, the checklist), Casper rings the
 terminal bell; your terminal decides whether that is a sound, a flash or a dock bounce. Scripts,
@@ -257,7 +263,7 @@ is built as asked, with no question. Plan first (or `/plan <request>`) runs a
 plan turn: the model may only read (read, grep, find, ls and look-only shell commands such as `ls`,
 `cat` or `git log`); every other tool, MCP and Casper's own tools included, is refused with "Planning
 only" and shown as `— not run`, not as a failed step (the receipt does not count it). This is Casper's gate, not a
-sandbox, and a file that changed anyway is named on the receipt (`• Changed while planning: …`). The plan is shown
+sandbox, and a file that changed anyway is named on the receipt (`– Changed while planning: …`). The plan is shown
 once, as the model wrote it, then one line (`Casper plan: 9 steps, 9 cases to test.`) and "Build this plan?":
 1 Stop · 2 Build, and on a rich terminal 3 Edit the plan, so Enter builds nothing. 3 opens the plan and its cases
 in the editor: edit the lines, then Enter asks again; Esc stops without building. A plan you changed is listed
@@ -310,6 +316,10 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
 - While a prompt runs or tool activity is on screen, the footer spinner and the Working
   panel title animate (braille spinner) so background work is visibly moving, and the
   footer shows the elapsed time after it (`⠋ 1m35s │ …`); idle has no spinner or timer.
+- The old Windows console (conhost: no `WT_SESSION`, `TERM_PROGRAM` or `ConEmuANSI`) has no braille,
+  rounded corners or most symbols in its fonts, so every mark is drawn in ASCII there, one column each:
+  `|/-\` spinner, square corners, `>` for `❯` and `→`, `+` for `✓`, `x` for `✗`, `*` for `•`, `o` for `○`,
+  `-` for `–`, `|` for `▌`, `└` for `↳`, `~` for `…`. Windows Terminal and other terminals keep the symbols.
 - `/model provider/id`: exact selection, remembered globally. During a task it applies from the
   model's next step, like `/effort` (see Input and commands).
 - `/model --session [provider/id]`: explicitly temporary selection/picker.

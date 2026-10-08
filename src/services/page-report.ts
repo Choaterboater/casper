@@ -66,7 +66,7 @@ export function formatPageLine(result: PageResult): string {
 
 function pageLine(result: PageResult): string {
   const shown = result.overlay ?? result.serverError;
-  if (result.status === "incomplete") return `• ${result.path} not checked: ${result.reason ?? "it did not finish"}`;
+  if (result.status === "incomplete") return `– ${result.path} not checked: ${result.reason ?? "it did not finish"}`;
   if (shown !== undefined) return `✗ ${result.path} shows an error: ${shown}`;
   if (result.httpStatus !== null && result.httpStatus >= 400) return `✗ ${result.path} returned ${result.httpStatus}`;
   if (result.consoleErrors.length) return `✗ ${result.path} · ${plural(result.consoleErrors.length, "console error")}: ${result.consoleErrors[0]}`;
@@ -111,12 +111,12 @@ export function pageFailureSummary(report: PageReport): string | undefined {
   return `${failed.path} has ${plural(failed.failedRequests.length, "failed request")}`;
 }
 
-export function formatPagesNotChecked(reason: string): string { return `• Pages not checked: ${reason}`; }
+export function formatPagesNotChecked(reason: string): string { return `– Pages not checked: ${reason}`; }
 export function formatServerLine(label: string, origin: string): string { return `Dev server: ${label} · ${origin} (stops when you leave Casper)`; }
-export function formatOpeningLine(paths: readonly string[]): string { return `… Casper opening changed pages: ${paths.join(", ")}`; }
+export function formatOpeningLine(paths: readonly string[]): string { return `• Casper opening changed pages: ${paths.join(", ")}`; }
 export function formatSkippedPage(page: SkippedPage): string {
   const hint = /needs a value/.test(page.why) ? " (a fixed path can be set in .casper/project.yaml pages:)" : "";
-  return `• ${page.path} not opened: ${page.why}${hint}`;
+  return `– ${page.path} not opened: ${page.why}${hint}`;
 }
 
 /** Where a page's pictures are: "  desktop <path> · phone <path>", under its line. */
@@ -128,11 +128,11 @@ function screenshotLine(page: PageResult): string[] {
 
 /** Every line of a report: one per page and where its pictures are, the skipped pages, and why the check did not run. */
 export function formatPageReport(report: PageReport): string[] {
-  const lines = report.pages.flatMap((page) => [formatPageLine(page), ...screenshotLine(page), ...(page.a11y?.length ? [`  • ${page.path}: ${page.a11y.join(" · ")}`] : [])]);
+  const lines = report.pages.flatMap((page) => [formatPageLine(page), ...screenshotLine(page), ...(page.a11y?.length ? [`  – ${page.path}: ${page.a11y.join(" · ")}`] : [])]);
   if (report.reason && !report.pages.length) {
     const tail = report.logTail?.split("\n").slice(-5).map(line => `    ${line}`).join("\n");
     lines.push(formatPagesNotChecked(report.reason) + (tail ? `. Last lines:\n${tail}` : ""));
-  } else if (report.reason) lines.push(`• ${report.reason}`);
+  } else if (report.reason) lines.push(`– ${report.reason}`);
   lines.push(...report.skipped.map(formatSkippedPage));
   return lines;
 }

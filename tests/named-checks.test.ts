@@ -195,7 +195,7 @@ describe("what a named check means for the run", () => {
     expect(repairClass(result({ status: "fail", kind: "lab" }))).toBe("ask");
     expect(repairClass(result({ status: "fail", repair: "never" }))).toBe("never");
     expect(formatVerificationResult(result({ name: "aoscx-diff", kind: "report", summary: "12 lines to change · 12 to undo" })))
-      .toBe("• aoscx-diff  12 lines to change · 12 to undo (a diff, not a pass/fail check)");
+      .toBe("– aoscx-diff  12 lines to change · 12 to undo (a diff, not a pass/fail check)");
   });
 
   test("the receipt and the live line say what a named check did in plain words", () => {
@@ -205,8 +205,8 @@ describe("what a named check means for the run", () => {
       result({ name: "aoscx-diff", kind: "report", summary: "3 lines to change · 3 to undo" }),
     ] } };
     const text = formatReceipt(task);
-    expect(text).toContain("• Not verified — junoser not run: junoser is not installed (gem install junoser)");
-    expect(text).toContain("• aoscx-diff  3 lines to change · 3 to undo (a diff, not a pass/fail check)");
+    expect(text).toContain("– Not verified — junoser not run: junoser is not installed (gem install junoser)");
+    expect(text).toContain("– aoscx-diff  3 lines to change · 3 to undo (a diff, not a pass/fail check)");
     expect(liveCheckLine(task.verification.results[1]!)).toBe("– junoser · not run: junoser is not installed (gem install junoser)");
     expect(formatReceipt({ ...task, verification: { ...task.verification, results: [result({ name: "aruba-check", label: "dry run not guaranteed", command: "ansible-playbook --check" })] } }))
       .toContain("✓ aruba-check passed (dry run not guaranteed · ansible-playbook --check)");

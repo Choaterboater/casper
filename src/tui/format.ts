@@ -6,7 +6,13 @@ import { roleCode, type ThemeRole } from "./theme";
 
 /** Prompt gutter glyphs. Idle accepts input; busy keeps the same width so the box never shifts. */
 export const PROMPT_GLYPH = "❯";
-export const BUSY_GLYPH = "…";
+/** Each mark at the start of a line means one thing. `•`: running now (a step, Casper's own checks, the prompt
+ * while Casper works). ✓ done, ✗ failed. */
+export const BUSY_GLYPH = "•";
+/** Did not run: a step Casper stopped or refused before it ran, a skipped check. */
+export const NOT_RUN_GLYPH = "○";
+/** A note: something to know that is neither done nor failed (not verified, not checked, a retry). */
+export const NOTE_GLYPH = "–";
 
 /** Controls, escapes and bidi overrides. Newlines and tabs are kept; a clean delta skips the sanitizer. */
 const UNSAFE_TERMINAL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u;
@@ -146,13 +152,38 @@ export function commandLabel(command: string, max = 80): string {
   return more ? `${label} …` : label;
 }
 
-/** Elapsed time worth showing: none under a second, "4.2s" under a minute, "3m05s" after. */
-export function formatDuration(ms: number | undefined): string {
-  if (ms === undefined || !Number.isFinite(ms) || ms < 1000) return "";
-  const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds.toFixed(1)}s`;
-  const whole = Math.round(seconds);
-  return `${Math.floor(whole / 60)}m${String(whole % 60).padStart(2, "0")}s`;
+/** The one way Casper says how long: "0.4s" and "4.2s" under 10 s, then whole seconds ("14s"), "1m05s" or "2m",
+ * and "1h02m" or "3h". A clock that ticks once a second shows whole seconds (formatElapsed). */
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) ms = 0;
+  if (ms < 9_950) return `${Number((ms / 1000).toFixed(1))}s`;
+  // 9.96 s reads "10s", never "9s" after "9.9s".
+  const seconds = Math.max(10, Math.floor(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return seconds % 60 ? `${minutes}m${String(seconds % 60).padStart(2, "0")}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return minutes % 60 ? `${hours}h${String(minutes % 60).padStart(2, "0")}m` : `${hours}h`;
+}
+
+/** A running clock in whole seconds, so it never flickers tenths: "3s", "14s", "1m05s". */
+export function formatElapsed(ms: number): string {
+  return formatDuration(Number.isFinite(ms) ? Math.floor(Math.max(0, ms) / 1000) * 1000 : 0);
+}
+
+/** Tokens: "950", "48.2k", "312k", "8.1M". The footer adds "tok"; /status and /usage say which tokens. */
+export function formatTokens(tokens: number): string {
+  if (tokens < 1000) return `${tokens}`;
+  if (tokens < 99_950) return `${Number((tokens / 1000).toFixed(1))}k`;
+  if (tokens < 999_500) return `${Math.round(tokens / 1000)}k`;
+  return `${(tokens / 1_000_000).toFixed(1)}M`;
+}
+
+/** Dollars: "$0.004", "$0.31", "$5.02", "$123". */
+export function formatCost(dollars: number): string {
+  if (dollars > 0 && dollars < 0.01) return `$${dollars.toFixed(3)}`;
+  if (dollars >= 100) return `$${Math.round(dollars)}`;
+  return `$${dollars.toFixed(2)}`;
 }
 
 /** A running step shows its elapsed time only once it has run this long. */
@@ -161,8 +192,7 @@ export const RUNNING_ELAPSED_AFTER_MS = 10_000;
 /** " · 4m12s" for a step still running after 10 s; "" before that. */
 export function runningElapsed(ms: number): string {
   if (!Number.isFinite(ms) || ms < RUNNING_ELAPSED_AFTER_MS) return "";
-  const seconds = Math.floor(ms / 1000);
-  return seconds < 60 ? ` · ${seconds}s` : ` · ${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
+  return ` · ${formatElapsed(ms)}`;
 }
 
 /** The last non-empty line of a command's output so far: control characters stripped, secrets redacted,
@@ -219,16 +249,16 @@ export function formatToolActivity(event: ToolEvent, elapsedMs?: number, fit: To
     const chars = [...text], space = Math.max(4, room(rest));
     return ` · ${chars.length <= space ? text : isPath ? `…${chars.slice(chars.length - space + 1).join("")}` : `${chars.slice(0, space - 1).join("")}…`}`;
   };
-  // Narrow: the ✓/•/✗ already says the state, so the words go before the target is cut short.
+  // Narrow: the ✓/•/✗/○ already says the state, so the words go before the target is cut short.
   const line = (full: string, compact: string) => !text || [...text].length <= room(full) || room(compact) < 4 ? `${shorten(full)}${full}` : `${shorten(compact)}${compact}`;
-  if (event.type === "tool_start") return `• ${name}${line("", "")}`;
-  const duration = formatDuration(elapsedMs);
-  const elapsed = duration ? ` · ${duration}` : "";
+  if (event.type === "tool_start") return `${BUSY_GLYPH} ${name}${line("", "")}`;
+  // Under a second is not worth showing.
+  const elapsed = elapsedMs !== undefined && elapsedMs >= 1000 ? ` · ${formatDuration(elapsedMs)}` : "";
   // Native tool success is not a verifier pass or authoritative shell exit code. The ✓ says it finished.
   const detail = event.isError && event.output?.text
     ? `\n  ${redactPreview(event.output.text).replace(/\s+/g, " ").slice(0, 240)}${event.output.truncated ? " [truncated]" : ""}` : "";
   // A casper_check skip never ran: neither ✓ nor ✗.
-  if (!event.isError && event.toolName === "casper_check" && /[{,]"status":"skip"/.test(event.output?.text ?? "")) return `• ${name}${line(` — skipped${elapsed}`, elapsed)}`;
+  if (!event.isError && event.toolName === "casper_check" && /[{,]"status":"skip"/.test(event.output?.text ?? "")) return `${NOT_RUN_GLYPH} ${name}${line(` — skipped${elapsed}`, elapsed)}`;
   const size = event.lines ? ` · +${event.lines.added} -${event.lines.removed}` : "";
   return `${event.isError ? "✗" : "✓"} ${name}${line(`${size}${event.isError ? " — failed" : ""}${elapsed}`, `${size}${elapsed}`)}${detail}`;
 }

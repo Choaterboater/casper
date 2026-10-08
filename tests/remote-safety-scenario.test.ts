@@ -154,7 +154,7 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
   ]);
 
   // ~/.ssh/config was refused, and it shows as not run, not as a failure.
-  expect(screen).toContain("• bash · cat ~/.ssh/config — not run\n  This command reads ~/.ssh, which is private (keys and logins). Casper keeps it from the AI.");
+  expect(screen).toContain("○ bash · cat ~/.ssh/config — not run\n  This command reads ~/.ssh, which is private (keys and logins). Casper keeps it from the AI.");
   expect(screen).not.toContain("✗ bash");
   expectNothingLeaked(screen, run.sentToModel());
   // The new token's output did reach the model, with its secret hidden.
@@ -163,14 +163,14 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
   // The model's claim is followed by a receipt that says what really happened.
   const receipt = screen.slice(screen.lastIndexOf(CLAIM));
   // The receipt wraps at the terminal's width.
-  expect(receipt.replace(/\s+/g, " ")).toContain("• Changed on 198.51.100.20 (build-server) (from the commands Casper saw): made an API key (create api-token ci);"
+  expect(receipt.replace(/\s+/g, " ")).toContain("– Changed on 198.51.100.20 (build-server) (from the commands Casper saw): made an API key (create api-token ci);"
     + " installed a service (/etc/systemd/system/sampleapp.service); turned a service on or off at boot (systemctl enable --now sampleapp);"
     + " installed or removed packages (apt-get install -y nginx)");
   // One machine, one line, whether the AI used the alias or the address.
   expect(receipt.split("Changed on").length - 1).toBe(1);
-  expect(receipt).toContain("• A secret appeared in a command; change it after this task.");
+  expect(receipt).toContain("– A secret appeared in a command; change it after this task.");
   // The sub-folder's own tests ran for the receipt.
-  expect(receipt).toContain("… Casper checking: test (checks from tools)");
+  expect(receipt).toContain("• Casper checking: test (checks from tools)");
   expect(receipt).toMatch(/✓ test passed \(checks from tools · python3 -m unittest discover -s tests(, \d+\.\ds)?\)/);
   expect(receipt).not.toContain("Not verified");
   // The short receipt folds the passing check and the changed files into one line under the verdict.
@@ -189,18 +189,18 @@ posix("one-shot with no sandbox: nothing waits, no ssh runs, ~/.ssh stays privat
   const screen = result.stdout + result.stderr;
   expect(await run.sshRan()).toEqual([]);
   expect(screen).toContain("[shell] Not run: the AI's command reaches 198.51.100.20 (build-server), and this run can't ask you. Nothing was sent.");
-  expect(screen).toContain("• bash · cat ~/.ssh/config — not run");
-  expect(screen).toContain("• bash · cat ../.ssh/config — not run");
+  expect(screen).toContain("○ bash · cat ~/.ssh/config — not run");
+  expect(screen).toContain("○ bash · cat ../.ssh/config — not run");
   expectNothingLeaked(screen, run.sentToModel());
   // The model said the work was done; the receipt says what did not happen.
   expect(screen).toContain(CLAIM);
-  expect(screen).toContain(`• Not run on 198.51.100.20 (build-server): ${SSH_STEPS} commands Casper stopped before they reached it`);
+  expect(screen).toContain(`– Not run on 198.51.100.20 (build-server): ${SSH_STEPS} commands Casper stopped before they reached it`);
   expect(screen).not.toContain("Changed on 198.51.100.20");
   // The local tests passed, but the host work did not happen: Incomplete (exit 2), never a clean pass.
-  expect(screen).toContain("• Incomplete — commands to 198.51.100.20 (build-server) did not run");
+  expect(screen).toContain("– Incomplete — commands to 198.51.100.20 (build-server) did not run");
   expect(screen).not.toMatch(/✓ Verified|Checks passed/);
   expect(result.exit).toBe(2);
-  expect(screen).toContain("• A secret appeared in a command; change it after this task.");
+  expect(screen).toContain("– A secret appeared in a command; change it after this task.");
   expect(screen).toMatch(/✓ test passed \(checks from tools · python3 -m unittest discover -s tests(, \d+\.\ds)?\)/);
   expect(screen).toContain("[folder] The work is in ~/Documents/tools. To work there: cd ~/Documents/tools && casper");
   expect(screen).not.toContain("[memory]");

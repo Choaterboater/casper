@@ -9,7 +9,8 @@ import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeStartOptions, RuntimeStatus } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { formatReceipt, taskExitCode } from "../src/task/result";
-import { formatCost, formatFooterSpend, formatTaskSpend, formatTokens, requestSpendLimit, SpendGuard } from "../src/task/spend";
+import { formatFooterSpend, formatTaskSpend, requestSpendLimit, SpendGuard } from "../src/task/spend";
+import { formatCost, formatTokens } from "../src/tui/format";
 import { fakeWriter } from "./support/tty";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -22,7 +23,7 @@ test("the footer shows the task's tokens and cost; a free model shows tokens onl
   expect(formatTaskSpend({ tokens: 8_100_000, cost: 0 }, false)).toBe("task 8.1M tok");
   expect(formatTaskSpend({ tokens: 950, cost: 0 }, undefined)).toBe("task 950 tok");
   expect(formatTaskSpend({ tokens: 950, cost: 0.004 }, undefined)).toBe("task 950 tok · $0.004");
-  expect([formatCost(5.0231), formatCost(123.4), formatTokens(312_400)]).toEqual(["$5.02", "$123", "312k tok"]);
+  expect([formatCost(5.0231), formatCost(123.4), formatTokens(312_400)]).toEqual(["$5.02", "$123", "312k"]);
 });
 
 test("a limit said in the request becomes the task's pause; other dollar amounts don't", () => {
@@ -76,7 +77,7 @@ test("spend limits work with no setup; the user's config changes or turns them o
 
 test("a stopped-at-the-limit receipt says so, is incomplete (exit 2) and never says the checks passed", () => {
   const task = { execution: "completed" as const, changedPaths: ["a.ts"], spendLimit: { spent: 5.02, limit: 5 } };
-  expect(formatReceipt(task, { surface: "one-shot" })).toStartWith("• Incomplete — stopped at $5.02, the $5 limit for one task (spend.pauseAt); changes so far are kept; casper --continue to go on");
+  expect(formatReceipt(task, { surface: "one-shot" })).toStartWith("– Incomplete — stopped at $5.02, the $5 limit for one task (spend.pauseAt); changes so far are kept; casper --continue to go on");
   expect(taskExitCode(undefined, task)).toBe(2);
 });
 
@@ -143,10 +144,10 @@ test("at about $5 the task pauses on a numbered question, Stop here first; Enter
     await screen.until(output => output.includes("This task has used $5.02."));
     const shown = Bun.stripANSI(screen.output);
     // The quiet note came first, at about $1, and the footer shows the task's tokens and cost.
-    expect(shown).toContain("… This task has used $1.20 so far (1.2k tok).");
+    expect(shown).toContain("– This task has used $1.20 so far (1.2k tok).");
     // The note comes after the model's words it followed, not above them.
     expect(shown.indexOf("Looking around.")).toBeGreaterThanOrEqual(0);
-    expect(shown.lastIndexOf("Looking around.")).toBeLessThan(shown.lastIndexOf("… This task has used $1.20"));
+    expect(shown.lastIndexOf("Looking around.")).toBeLessThan(shown.lastIndexOf("– This task has used $1.20"));
     expect(shown).toContain("task 2.4k tok · $5.02");
     expect(shown).toMatch(/→ 1 Stop here[^\n]*the work so far is kept/);
     expect(shown).toMatch(/2 Keep going[^\n]*asks again at \$10/);
@@ -155,7 +156,7 @@ test("at about $5 the task pauses on a numbered question, Stop here first; Enter
     expect(f.state.toolRan).toBe(0);
     expect(f.state.reasons[0]).toMatch(/spend limit/);
     expect(app.getLastTaskResult()?.spendLimit).toEqual({ spent: 5.02, limit: 5 });
-    expect(Bun.stripANSI(screen.output).replace(/\s+/g, " ")).toContain("• Incomplete — stopped at $5.02, the $5 limit for one task (spend.pauseAt)");
+    expect(Bun.stripANSI(screen.output).replace(/\s+/g, " ")).toContain("– Incomplete — stopped at $5.02, the $5 limit for one task (spend.pauseAt)");
     // Idle again after the receipt, so the next request is not kept as a draft.
     await screen.until(output => output.lastIndexOf("│ idle") > output.lastIndexOf("stopped at $5.02"));
 
@@ -185,7 +186,7 @@ test("one-shot and --json never wait at the limit: they stop there and the recei
     await app.runOnce("tidy the notes", f.project);
     expect(f.state.toolRan).toBe(0);
     expect(output).toContain("[spend] This task has used $5.02. Casper stops here, at the $5 limit for one task; the work so far is kept.");
-    expect(output).toContain("• Incomplete — stopped at $5.02, the $5 limit for one task (spend.pauseAt); changes so far are kept; casper --continue to go on");
+    expect(output).toContain("– Incomplete — stopped at $5.02, the $5 limit for one task (spend.pauseAt); changes so far are kept; casper --continue to go on");
     expect(app.getLastTaskResult()?.spendLimit).toEqual({ spent: 5.02, limit: 5 });
   } finally {
     await app.close();
@@ -235,12 +236,12 @@ test("the footer keeps the session total, so a new task never looks like a reset
   // First task: only the task.
   expect(formatFooterSpend({ tokens: 48_213, cost: 0.314 }, { tokens: 48_213, cost: 0.314 }, true, true)).toBe("task 48.2k tok · $0.31");
   // A later task while it works: this task's tokens, then the session's tokens and cost.
-  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 1_100_000, cost: 0.04 }, true, true)).toBe("task 40.0k tok · session 1.1M tok · $0.04");
+  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 1_100_000, cost: 0.04 }, true, true)).toBe("task 40k tok · session 1.1M tok · $0.04");
   // Idle: the session only.
   expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 1_100_000, cost: 0.04 }, false, true)).toBe("session 1.1M tok · $0.04");
   // A free model: tokens only; a subscription: what they would cost.
-  expect(formatFooterSpend({ tokens: 40_000, cost: 0 }, { tokens: 90_000, cost: 0 }, false, false)).toBe("session 90.0k tok");
-  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 90_000, cost: 0.31 }, false, true, "subscription")).toBe("session 90.0k tok · sub ≈$0.31");
+  expect(formatFooterSpend({ tokens: 40_000, cost: 0 }, { tokens: 90_000, cost: 0 }, false, false)).toBe("session 90k tok");
+  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 90_000, cost: 0.31 }, false, true, "subscription")).toBe("session 90k tok · sub ≈$0.31");
   // Nothing spent yet: nothing to show.
   expect(formatFooterSpend({ tokens: 0, cost: 0 }, { tokens: 0, cost: 0 }, false, true)).toBe("");
 });

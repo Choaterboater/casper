@@ -218,10 +218,11 @@ export class InteractiveTerminal {
     if (this.surface) this.surface.write(styled); else this.output.write(styled);
   }
 
-  /** One transcript line colored by how it starts: ✗ error, ✓ success, • warning (and a provider retry; the theme's colours); a detailed diff line added or removed. */
+  /** One transcript line colored by how it starts: ✗ error, ✓ success, a note (–) or a step that did not run (○)
+   * warning, a running step (•) muted (the theme's colours); a detailed diff line added or removed. */
   private styleLine(line: string): string {
     const role: ThemeRole | undefined = /^(?:\[error\]|✗)/.test(line) ? "error" : /^✓/.test(line) ? "success"
-      : /^(?:•|\[skills\]|\[cancel|\[approval\]|\[ask\]|\[effort\]|… Can't reach )/.test(line) ? "warning" : /^CASPER/.test(line) ? "accent" : /^(?: \/help · |…)/.test(line) ? "muted"
+      : /^(?:– |○ |\[skills\]|\[cancel|\[approval\]|\[ask\]|\[effort\])/.test(line) ? "warning" : /^CASPER/.test(line) ? "accent" : /^(?: \/help · |…|• )/.test(line) ? "muted"
       : /^ {4}\+ /.test(line) ? "diffAdded" : /^ {4}- /.test(line) ? "diffRemoved" : undefined;
     // The text header is bold as well as the accent colour.
     return role ? tint(line, role, this.color, role === "accent" ? "1" : undefined) : line;

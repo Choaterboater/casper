@@ -3,7 +3,7 @@
  * helpers, checks) and one numbered question to stop one. Choice 1 keeps everything running; Enter picks it.
  */
 import { hideCommandSecrets } from "../secrets/files";
-import { redactPreview } from "../tui/format";
+import { formatDuration, redactPreview } from "../tui/format";
 
 /** A name on screen: a helper's goal is the model's own words, so the full secret rules run first. */
 function shown(text: string, max: number): string {
@@ -30,8 +30,7 @@ export function sinceText(startedAt: number | undefined, now = Date.now()): stri
   if (startedAt === undefined) return "";
   const minutes = Math.floor(Math.max(0, now - startedAt) / 60_000);
   if (!minutes) return " · just started";
-  const hours = Math.floor(minutes / 60);
-  return ` · for ${hours ? `${hours}h${String(minutes % 60).padStart(2, "0")}m` : `${minutes}m`}`;
+  return ` · for ${formatDuration(minutes * 60_000)}`;
 }
 
 /** "Running in the background:\n  1 dev server api · running · for 4m\n" or the plain "Nothing is running". */

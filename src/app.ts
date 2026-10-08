@@ -12,6 +12,7 @@ import { ServiceManager } from "./services/manager";
 import { SmokeChecks } from "./services/smoke";
 import { pageOpener, type DevServerNotice, type PageOpener } from "./services/page-checks";
 import { InteractiveTerminal, type TerminalHost } from "./tui/terminal";
+import { glyphOutput } from "./tui/glyphs";
 import type { PaneSetting } from "./tui/pane-setting";
 import type { DisplayLevel } from "./tui/display";
 import { formatRuntimeStatus, terminalText } from "./tui/format";
@@ -447,7 +448,8 @@ export class CasperApp {
     // A real terminal (not an embedder's or a test's output) that is tmux or iTerm2: Casper fits itself to it.
     const detected = options.output === undefined ? detectHostTerminal() : undefined;
     const host = options.terminalHost ?? (detected && (detected.tmux || detected.iterm) ? { host: detected } : undefined);
-    this.terminal = new InteractiveTerminal(this.input, options.output ?? process.stdout,
+    // The old Windows console draws every mark in ASCII (src/tui/glyphs.ts).
+    this.terminal = new InteractiveTerminal(this.input, options.output ?? glyphOutput(process.stdout),
       () => cancelCurrent(this), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); }, host);
     this.terminal.setEffortCycle(() => cycleEffort(this));
     this.terminal.setBusySubmit((line, plain) => submitDuringWork(this, line, plain));

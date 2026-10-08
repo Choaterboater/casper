@@ -14,7 +14,7 @@ import { formatTerminalJSON } from "../tui/json";
 import { formatCacheHitRate, formatCostLong, formatCostShort, formatTokenSplit } from "../tui/usage";
 import { effortChoices } from "../tui/effort";
 import { pickEffort } from "../tui/effort-picker";
-import { commandLabel, displayPath, formatEffort, formatRuntimeStatus, redactPreview, terminalText, toolTarget } from "../tui/format";
+import { commandLabel, displayPath, formatDuration, formatEffort, formatRuntimeStatus, redactPreview, terminalText, toolTarget } from "../tui/format";
 import type { InteractiveTerminal } from "../tui/terminal";
 import type { CapabilityBroker } from "../capabilities/broker";
 import type { MCPManager, MCPStatus } from "../mcp/manager";
@@ -28,7 +28,6 @@ import { networkSetupLine, runNetworkSetup, type SetupHost } from "../mcp/networ
 import { parseSshSetup, runSshSetup } from "../mcp/ssh/setup";
 import type { Scrubber } from "../secrets/netconan";
 import { defaultRunGit, runReferenceAdd } from "../references/catalog";
-import { formatDuration } from "../mcp/clock";
 import { sandboxLines, sandboxSummary } from "../mcp/sandbox";
 import type { LSPManager } from "../lsp/manager";
 import type { SkillRegistry } from "../skills/registry";

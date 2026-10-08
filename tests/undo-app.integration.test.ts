@@ -125,7 +125,7 @@ test("one-shot: the receipt says how to undo; casper /undo in a later run puts t
   try {
     await later.app.runOnce("/undo", place.project);
     expect(later.output()).toContain("✓ Undone — 1 file is back as it was before task 1: notes.py\n");
-    expect(later.output()).toContain("• The conversation is not changed: only files were put back.");
+    expect(later.output()).toContain("– The conversation is not changed: only files were put back.");
     expect(await readFile(path.join(place.project, "notes.py"), "utf8")).toBe("print('one')\n");
   } finally { await later.app.close(); }
 }, 30_000);
@@ -178,12 +178,12 @@ test("undo rewinds the conversation when nothing was said since; after a later r
   try {
     expect(await s.send("fix the greeting in notes.py")).toContain("Next: 1 Show diff · 2 Undo");
     const undone = await s.send("/undo");
-    expect(undone).toContain("✓ Undone — 1 file is back as it was before task 1: notes.py\n• Conversation rewound to before task 1.\nNext: 2 Redo\n");
+    expect(undone).toContain("✓ Undone — 1 file is back as it was before task 1: notes.py\n– Conversation rewound to before task 1.\nNext: 2 Redo\n");
     expect(s.rewinds).toEqual([[null, "turn-0"]]);
     await s.send("add b.py");
     await s.send("what does notes.py do?");
     const kept = await s.send("/undo 2");
-    expect(kept).toContain("• Conversation kept — you've talked since, so Casper told the model the files were put back.");
+    expect(kept).toContain("– Conversation kept — you've talked since, so Casper told the model the files were put back.");
     expect(s.rewinds).toHaveLength(1);
     expect(s.notes).toEqual(["The user undid task 2. These files are back as they were before it: b.py."]);
     expect(await readdir(place.project)).not.toContain("b.py");
@@ -232,7 +232,7 @@ test("a file you changed after the task: Enter at the question keeps everything;
     expect(await readdir(place.project)).toContain("a.py");
     await s.send("/undo", /Type 1 or 2: $/);
     const partial = await s.send("2");
-    expect(partial).toContain("✓ Undone — 1 file is back as it was before task 1: a.py\n• Left as you changed them: notes.py");
+    expect(partial).toContain("✓ Undone — 1 file is back as it was before task 1: a.py\n– Left as you changed them: notes.py");
     expect(await readFile(path.join(place.project, "notes.py"), "utf8")).toBe("print('mine')\n");
     expect(await readdir(place.project)).not.toContain("a.py");
   } finally { await s.close(); }
@@ -280,9 +280,9 @@ test("receipts are kept across restarts, with no check output and secrets hidden
   const later = makeApp(place, []);
   try {
     await later.app.runOnce("/receipt 1", place.project);
-    expect(later.output()).toMatch(/Task 1 · \d\d:\d\d · fix notes\.py with token <redacted>\n• Not checked — no tests yet/);
+    expect(later.output()).toMatch(/Task 1 · \d\d:\d\d · fix notes\.py with token <redacted>\n– Not checked — no tests yet/);
     await later.app.runOnce("/receipt list", place.project);
-    expect(later.output()).toMatch(/ {2}1 {2}\d\d:\d\d {2}• Not checked — no tests yet/);
+    expect(later.output()).toMatch(/ {2}1 {2}\d\d:\d\d {2}– Not checked — no tests yet/);
     await expect(later.app.runOnce("/receipt 9", place.project)).rejects.toThrow("No receipt 9. /receipt list shows recent ones.");
     const stateRoot = path.join(place.home, ".casper", "projects");
     const [projectState] = await readdir(stateRoot);
@@ -301,7 +301,7 @@ posixOnly("with git missing, the receipt says undo is not available and why", as
     await made.app.start(place.project);
     process.env.PATH = path.join(place.root, "no-git-here");
     await made.app.runOnce("fix the greeting", place.project);
-    expect(made.output()).toContain("• Undo not available: git is not installed\n");
+    expect(made.output()).toContain("– Undo not available: git is not installed\n");
     expect(made.output()).not.toContain("Undo: casper");
   } finally { process.env.PATH = saved; await made.app.close(); }
 }, 30_000);
@@ -316,7 +316,7 @@ test("a file git ignored before the task is never deleted by undo, even when the
     // The receipt names the task's own file; local.cfg was there before, so it is named as one undo can't reach.
     expect(first.output()).toContain("✓ changed .gitignore\n");
     expect(first.output()).not.toContain("local.cfg |");
-    expect(first.output()).toContain("• Undo can't put back: local.cfg (it was there before the task, but git ignored it then, so Casper has no copy)");
+    expect(first.output()).toContain("– Undo can't put back: local.cfg (it was there before the task, but git ignored it then, so Casper has no copy)");
   } finally { await first.app.close(); }
   const later = makeApp(place, []);
   try {
@@ -333,7 +333,7 @@ test("a file over 8 MB before the task is never deleted by undo when the task ma
   const first = makeApp(place, [async (project) => { await writeFile(path.join(project, "capture.pcap"), "trimmed\n"); await writeFile(path.join(project, "notes.py"), "print('two')\n"); }]);
   try {
     await first.app.runOnce("trim the capture", place.project);
-    expect(first.output()).toContain("• Undo can't put back: capture.pcap (over 8 MB)");
+    expect(first.output()).toContain("– Undo can't put back: capture.pcap (over 8 MB)");
   } finally { await first.app.close(); }
   const later = makeApp(place, []);
   try {
@@ -357,7 +357,7 @@ test("files the task's tools edited that git ignores are named on the receipt as
   }]);
   try {
     await first.app.runOnce("build it", place.project);
-    expect(first.output()).toContain("• Undo can't put back: .env (Casper keeps no copy of secret files), dist/app.js (git ignores it, so Casper keeps no copy)");
+    expect(first.output()).toContain("– Undo can't put back: .env (Casper keeps no copy of secret files), dist/app.js (git ignores it, so Casper keeps no copy)");
     // Named once per session: the next receipt for the same file leaves it out.
     const seen = first.output().length;
     await first.app.runOnce("build it again", place.project);
@@ -421,7 +421,7 @@ test("a file the task made over 8 MB is not counted as deleted: undo puts back t
   }]);
   try {
     await first.app.runOnce("grow the capture", place.project);
-    expect(first.output()).toContain("• Undo can't put back: capture.pcap (over 8 MB)");
+    expect(first.output()).toContain("– Undo can't put back: capture.pcap (over 8 MB)");
     expect(first.output()).not.toContain("capture.pcap |");
   } finally { await first.app.close(); }
   const later = makeApp(place, []);
@@ -461,8 +461,8 @@ test("an undo that put nothing back (you saved the file while Casper asked) can 
     await s.send("/undo", /Type 1 or 2: $/);
     await writeFile(path.join(place.project, "a.py"), "a = 2\n");
     const answered = await s.send("2");
-    expect(answered).toContain("• Nothing was put back for task 1.");
-    expect(answered).toContain("• Not put back: a.py (it changed just now; Casper left it as it is)");
+    expect(answered).toContain("– Nothing was put back for task 1.");
+    expect(answered).toContain("– Not put back: a.py (it changed just now; Casper left it as it is)");
     expect(answered).not.toContain("Next: 2 Redo");
     await writeFile(path.join(place.project, "a.py"), "a = 1\n");
     await writeFile(path.join(place.project, "notes.py"), "print('two')\n");
@@ -481,7 +481,7 @@ test("a redo that put nothing back leaves the task undone, so redo can be tried 
     await writeFile(path.join(place.project, "notes.py"), "print('mine')\n");
     await s.send("/redo 1", /Type 1 or 2: $/);
     await writeFile(path.join(place.project, "a.py"), "a = 9\n");
-    expect(await s.send("2")).toContain("• Nothing was put back for task 1.");
+    expect(await s.send("2")).toContain("– Nothing was put back for task 1.");
     await rm(path.join(place.project, "a.py"));
     await writeFile(path.join(place.project, "notes.py"), "print('one')\n");
     expect(await s.send("/redo 1")).toContain("✓ Redone — 2 files are back as task 1 left them: a.py, notes.py");
@@ -499,6 +499,6 @@ test("one-shot --json: the receipt after casper /undo names the files it put bac
     const event = receiptEvent(report, task, taskExitCode(report, task));
     expect(event.changed).toEqual(["notes.py"]);
     expect(event.outcome).toBe("not_verified");
-    expect(event.verdict).toBe("• Not verified — Casper ran no checks");
+    expect(event.verdict).toBe("– Not verified — Casper ran no checks");
   } finally { await later.app.close(); }
 }, 30_000);

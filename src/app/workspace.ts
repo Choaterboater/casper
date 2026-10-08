@@ -267,7 +267,7 @@ export async function runChildChecks(app: CasperApp, child: ChildProject, change
   if (!plan.run.length) return undefined;
   const label = `checks from ${child.relative}`;
   app.events.ensureLineBreak();
-  app.output.write(`… Casper checking: ${plan.run.join(", ")} (${terminalText(label)})\n`);
+  app.output.write(`• Casper checking: ${plan.run.join(", ")} (${terminalText(label)})\n`);
   const registry = VerifierRegistry.forProject(child.model, app.projectContext!.verification.timeoutMs, app.blockOnCleanupFailure, networkOptions(app));
   phase(app, "checks", "start");
   try {

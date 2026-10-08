@@ -77,9 +77,9 @@
 <span class="ok">✓</span> 2 edits
   changed src/sum.js, tests/sum.test.js
 Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
-<span class="dim">… Casper checking: test</span>
+<span class="dim">• Casper checking: test</span>
 <span class="ok">✓</span> test
-<span class="dim">… Casper checking that the tests fail without the change</span>
+<span class="dim">• Casper checking that the tests fail without the change</span>
 ▌ <span class="ok">✓ Verified · test passed · changed src/sum.js, tests/sum.test.js</span>
 Next: 1 Show diff · 2 Undo
 
@@ -102,7 +102,7 @@ independently certified.
             <h3>What you see</h3>
             <p>A green <code>✓ Verified</code> only when the checks pass <em>and</em> a test fails
             without the change. Anything less says so, in words:</p>
-            <p class="verdict warn">• Not verified — the tests pass without the change too</p>
+            <p class="verdict warn">– Not verified — the tests pass without the change too</p>
             <p class="verdict bad">✗ Failed — test failed</p>
             <p class="verdict bad">✗ Not checked — test timed out, so the change was not tested</p>
           </article>
@@ -134,14 +134,14 @@ independently certified.
 <span class="dim">[model]</span> scripted/site-capture · off · credentials configured
 <span class="ok">✓</span> edit · src/sum.js
 sum now turns its inputs into numbers first.
-<span class="dim">… Casper checking: test</span>
+<span class="dim">• Casper checking: test</span>
 <span class="ok">✓</span> test
-<span class="dim">… Casper checking that the tests fail without the change</span>
+<span class="dim">• Casper checking that the tests fail without the change</span>
 <span class="accent">↻</span> repair 1/1: add a test that fails without the change
 (scripted model) No more changes.
 <span class="ok">✓</span> test
-<span class="dim">… Casper checking that the tests fail without the change</span>
-▌ <span class="dim">•</span> Not verified — the tests pass without the change too
+<span class="dim">• Casper checking that the tests fail without the change</span>
+▌ <span class="dim">–</span> Not verified — the tests pass without the change too
 ▌ <span class="ok">✓</span> test passed · changed src/sum.js
 ▌ <span class="accent">↻</span> Casper tried 1 repair
 ▌ <span class="warn">⚠</span> Not proven: test passes without this change too, and no test was added or changed
@@ -174,7 +174,7 @@ Next: 1 Show diff · 2 Undo</pre>
 <span class="dim">[model]</span> scripted/site-capture · off · credentials configured
 <span class="ok">✓</span> edit · src/sum.js
 Changed sum.
-<span class="dim">… Casper checking: test</span>
+<span class="dim">• Casper checking: test</span>
 <span class="bad">✗</span> test · exit 1
 <span class="dim">╭─ test: stderr ───────────────────────────────────────────────────────────────────────────────────╮</span>
 │                                                                                                  │
@@ -195,7 +195,7 @@ Changed sum.
 <span class="dim">╭─ test: stdout ───────────────────────────────────────────────────────────────────────────────────╮</span>
 │ bun test v1.4.0 (1381054db)                                                                      │
 <span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
-<span class="dim">… Casper checking whether test failed before this change too</span>
+<span class="dim">• Casper checking whether test failed before this change too</span>
 <span class="accent">↻</span> repair 1/1
 (scripted model) No more changes.
 <span class="bad">✗</span> test · exit 1
@@ -389,9 +389,9 @@ Press 1-4 or Up/Down + Enter · Esc is No
 
 Make this change?
 <span class="ok">✓</span> No
-• Yes, this once
-• Yes, for this session
-• Yes to everything on fixture this session (no more asking, even reboots, deletes or an AI-set
+  Yes, this once
+  Yes, for this session
+  Yes to everything on fixture this session (no more asking, even reboots, deletes or an AI-set
   confirm)
 The change was not made.
 
@@ -674,9 +674,9 @@ Press 1-3 or Up/Down + Enter · type to answer · Esc skip
 
 <span class="dim"># (Esc pressed: skip)</span>
 
-<span class="dim">•</span> Stop  keep the changes; the receipt says it did not finish
-<span class="dim">•</span> Retry  run it again with the same limit
-<span class="dim">•</span> Fix it anyway  ask the model to fix why it could not start (uses tokens)
+  Stop  keep the changes; the receipt says it did not finish
+  Retry  run it again with the same limit
+  Fix it anyway  ask the model to fix why it could not start (uses tokens)
   (skipped)
 <span class="bad">✗</span> Not checked — lint could not start, so the change was not tested
 <span class="bad">✗</span> lint could not start (exit 127) — check verify.lint in .casper/project.yaml

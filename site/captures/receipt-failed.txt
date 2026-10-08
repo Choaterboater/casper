@@ -4,7 +4,7 @@
 [model] scripted/site-capture · off · credentials configured
 ✓ edit · src/sum.js
 Changed sum.
-… Casper checking: test
+• Casper checking: test
 ✗ test · exit 1
 ╭─ test: stderr ───────────────────────────────────────────────────────────────────────────────────╮
 │                                                                                                  │
@@ -25,7 +25,7 @@ Changed sum.
 ╭─ test: stdout ───────────────────────────────────────────────────────────────────────────────────╮
 │ bun test v1.4.0 (1381054db)                                                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-… Casper checking whether test failed before this change too
+• Casper checking whether test failed before this change too
 ↻ repair 1/1
 (scripted model) No more changes.
 ✗ test · exit 1

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { CallClock, CallClockTimeout, formatDuration, type ClockTimers } from "../src/mcp/clock";
+import { CallClock, CallClockTimeout, type ClockTimers } from "../src/mcp/clock";
 
 /** Manual timers: time only moves when the test says so. */
 function manualTimers() {
@@ -118,11 +118,4 @@ test("real timers: the signal aborts with the idle reason", async () => {
 test("limits must be positive", () => {
   expect(() => new CallClock(0, 100)).toThrow();
   expect(() => new CallClock(100, Number.NaN)).toThrow();
-});
-
-test("durations read plainly", () => {
-  expect(formatDuration(500)).toBe("0.5 s");
-  expect(formatDuration(20_000)).toBe("20 s");
-  expect(formatDuration(90_000)).toBe("90 s");
-  expect(formatDuration(600_000)).toBe("10 min");
 });

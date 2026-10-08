@@ -41,8 +41,8 @@ test("the hier_config diff is a report: its line counts, never a pass that count
   expect(result.kind).toBe("report");
   expect(result.report).toMatchObject({ changeLines: 12, undoLines: 12 });
   const shown = fromNetworkResult(result);
-  expect(liveCheckLine(shown)).toBe("• aoscx-diff · 12 lines to change · 12 to undo (a diff, not a pass/fail check)");
-  expect(formatVerificationResult(shown)).toBe("• aoscx-diff  12 lines to change · 12 to undo (a diff, not a pass/fail check)");
+  expect(liveCheckLine(shown)).toBe("– aoscx-diff · 12 lines to change · 12 to undo (a diff, not a pass/fail check)");
+  expect(formatVerificationResult(shown)).toBe("– aoscx-diff  12 lines to change · 12 to undo (a diff, not a pass/fail check)");
   expect(countedResults([shown])).toEqual([]);
   expect(repairClass(shown)).toBe("never");
   // A report alone is not a pass, and it does not change the status of real checks.

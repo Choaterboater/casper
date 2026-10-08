@@ -37,7 +37,7 @@ test("tool display gives targets/status, redacts common credentials and never in
 test("a casper_check skip shows neither ✓ nor ✗", () => {
   const skipped = formatToolActivity({ type: "tool_end", toolName: "casper_check", input: { check: "junos" },
     output: { text: JSON.stringify({ name: "junos", cwd: "/p", status: "skip", reason: "no device" }), truncated: false }, isError: false }, 300);
-  expect(skipped).toBe("• casper_check · junos — skipped");
+  expect(skipped).toBe("○ casper_check · junos — skipped");
   const passed = formatToolActivity({ type: "tool_end", toolName: "casper_check", input: { check: "test" },
     output: { text: JSON.stringify({ name: "test", cwd: "/p", status: "pass", stdout: '{"status":"skip"}' }), truncated: false }, isError: false });
   expect(passed).toBe("✓ casper_check · test");

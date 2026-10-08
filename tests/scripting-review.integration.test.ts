@@ -87,7 +87,7 @@ shellCheckTest("verification.checklist: a separate call lists the request's case
   const failed = await unlisted.run(["--json", "--verify", "Fix sum.js"]);
   const failedReceipt = JSON.parse(failed.stdout.trim().split("\n").at(-1)!);
   expect({ exit: failed.exit, outcome: failedReceipt.outcome, checklist: failedReceipt.checklist }).toEqual({ exit: 0, outcome: "verified", checklist: null });
-  expect(failed.stderr).toContain("• Checklist not made: the checklist answer had no list of cases\n");
+  expect(failed.stderr).toContain("– Checklist not made: the checklist answer had no list of cases\n");
   expect(lastUser(unlisted.payloads[1])).not.toContain("Casper's checklist");
 
   // Off by default: no extra call.
@@ -113,7 +113,7 @@ shellCheckTest("the review round fixes a gap the model finds; a gap it admits ke
   const receipt = JSON.parse(reviewed.stdout.trim().split("\n").at(-1)!);
   expect({ exit: reviewed.exit, outcome: receipt.outcome, review: receipt.review, proof: receipt.proof?.status })
     .toEqual({ exit: 0, outcome: "verified", review: { fixed: ["marker — test"], open: [], covered: 2, total: 2 }, proof: "proven" });
-  expect(receipt.text).toContain("• The model's review: all 2 requirements covered (1 gap fixed; its own claim, not checked by Casper)");
+  expect(receipt.text).toContain("– The model's review: all 2 requirements covered (1 gap fixed; its own claim, not checked by Casper)");
   expect(await readFile(path.join(fixed.project, "sum.js"), "utf8")).toBe("fixed marker\n");
 
   const admitted = await fixture((_request, payload) => lastUser(payload).includes(REVIEW)
@@ -139,7 +139,7 @@ shellCheckTest("the review stops at its own 12-turn budget; Casper still reruns 
   expect(stream.filter((event) => event.type === "check").length).toBe(2);
   expect({ exit: result.exit, outcome: receipt.outcome, turnLimit: receipt.turnLimit, proof: receipt.proof?.status, review: receipt.review })
     .toEqual({ exit: 0, outcome: "verified", turnLimit: null, proof: "proven", review: { missing: true, incomplete: true } });
-  expect(receipt.text).toContain("• The model's review stopped at its 12-turn budget (its own claim so far, not checked by Casper)");
+  expect(receipt.text).toContain("– The model's review stopped at its 12-turn budget (its own claim so far, not checked by Casper)");
   expect(receipt.text).not.toContain("--max-turns");
 }, 60_000);
 
@@ -152,7 +152,7 @@ shellCheckTest("a --max-turns below the review's budget still stops the task in 
   const receipt = events(result.stdout, "").at(-1);
   expect({ exit: result.exit, outcome: receipt.outcome, turnLimit: receipt.turnLimit, proof: receipt.proof, review: receipt.review })
     .toEqual({ exit: 2, outcome: "incomplete", turnLimit: 3, proof: null, review: null });
-  expect(receipt.text).toContain("• Incomplete — stopped after 3 turns (--max-turns)");
+  expect(receipt.text).toContain("– Incomplete — stopped after 3 turns (--max-turns)");
 }, 60_000);
 
 shellCheckTest("the proof repair round has the same 12-turn budget; the proof then decides", async () => {

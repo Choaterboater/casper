@@ -18,9 +18,9 @@ Press 1-4 or Up/Down + Enter · Esc is No
 # (pressed 2: the box stays as the record of the answer)
 
 Make this change?
-• No
+  No
 ✓ Yes, this once
-• Yes, for this session
-• Yes to everything on fixture this session (no more asking, even reboots, deletes or an AI-set
+  Yes, for this session
+  Yes to everything on fixture this session (no more asking, even reboots, deletes or an AI-set
   confirm)
 The server says the site is set.

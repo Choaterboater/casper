@@ -154,7 +154,7 @@ test("--max-turns stops a model that keeps working, runs no checks and exits 2",
   const result = await f.run(["--max-turns", "2", "--verify", "keep writing files"]);
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 2, stderr: "" });
   expect(f.payloads).toHaveLength(2);
-  expect(result.stdout).toContain("• Incomplete — stopped after 2 turns (--max-turns); changes so far are kept; casper --continue to go on");
+  expect(result.stdout).toContain("– Incomplete — stopped after 2 turns (--max-turns); changes so far are kept; casper --continue to go on");
   expect(result.stdout).toContain("✓ changed turn-0.txt, turn-1.txt");
   expect(result.stdout).not.toContain("Casper checking");
 }, 60_000);

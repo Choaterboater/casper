@@ -130,9 +130,9 @@ test("start failures read plainly", () => {
   expect(describeFailure(enoent, { phase: "start", command: "npx" })).toBe("Command not found: npx. It comes with Node.js: https://nodejs.org/");
   expect(describeFailure(enoent, { phase: "start", command: "/usr/local/bin/docker" })).toBe("Command not found: /usr/local/bin/docker. Install Docker: https://docs.docker.com/get-docker/");
   expect(describeFailure(enoent, { phase: "start", command: "casper-no-such-cmd" })).toBe("Command not found: casper-no-such-cmd");
-  expect(describeFailure(new Error("aborted"), { phase: "start", timedOut: true, connectMs: 20_000 })).toBe("No answer in 20 s while starting.");
+  expect(describeFailure(new Error("aborted"), { phase: "start", timedOut: true, connectMs: 20_000 })).toBe("No answer in 20s while starting.");
   expect(describeFailure(new McpError(ErrorCode.RequestTimeout, "Request timed out"), { phase: "start", connectMs: 20_000 }))
-    .toBe("No answer in 20 s while starting.");
+    .toBe("No answer in 20s while starting.");
   expect(describeFailure(new McpError(ErrorCode.ConnectionClosed, "Connection closed"), { phase: "start", exited: true, exitCode: null }))
     .toBe("The server stopped while starting.");
   expect(describeFailure(new McpError(ErrorCode.InvalidRequest, `bad key ${SECRET}`), { phase: "start", secrets: [SECRET] }))
@@ -159,13 +159,13 @@ test("HTTP failures show the status and the redacted body, never header values",
 test("call failures tell the model what happened and not to retry", () => {
   const idle = new CallClockTimeout("idle", 500);
   expect(describeFailure(new McpError(ErrorCode.RequestTimeout, String(idle)), { phase: "call", server: "generic", clockReason: "idle", idleMs: 500 }))
-    .toBe("No answer from generic in 0.5 s. It may have run. Do not retry on your own; tell the user.");
+    .toBe("No answer from generic in 0.5s. It may have run. Do not retry on your own; tell the user.");
   expect(describeFailure(idle, { phase: "call", server: "central", lastProgress: `polling job 3/12 ${SECRET} ${"p".repeat(300)}`, secrets: [SECRET] }))
-    .toMatch(/^No answer from central in 0\.5 s\. It may have run\. Do not retry on your own; tell the user\. Last progress: polling job 3\/12 ••• p+…\.$/);
+    .toMatch(/^No answer from central in 0\.5s\. It may have run\. Do not retry on your own; tell the user\. Last progress: polling job 3\/12 ••• p+…\.$/);
   const withProgress = describeFailure(idle, { phase: "call", server: "central", lastProgress: "x".repeat(500) });
   expect(withProgress.slice(withProgress.indexOf("Last progress: ") + 15).length).toBeLessThanOrEqual(121);
   expect(describeFailure(new McpError(ErrorCode.RequestTimeout, "x"), { phase: "call", server: "junos", clockReason: "hard", hardMs: 600_000 }))
-    .toBe("junos was still working after 10 min and was stopped. It may have run. Do not retry on your own; tell the user.");
+    .toBe("junos was still working after 10m and was stopped. It may have run. Do not retry on your own; tell the user.");
   expect(describeFailure(new McpError(-32602, "site 'lab' not found"), { phase: "call", server: "central" }))
     .toBe("central returned an error: site 'lab' not found. It may or may not have run.");
   const long = describeFailure(new McpError(-32603, "e".repeat(2000)), { phase: "call", server: "s" });
@@ -178,7 +178,7 @@ test("a real clock abort maps to the idle message", async () => {
   const clock = new CallClock(20, 5_000);
   await new Promise((resolve) => clock.signal.addEventListener("abort", resolve));
   const text = describeFailure(clock.signal.reason, { phase: "call", server: "generic" });
-  expect(text).toBe("No answer from generic in 0.02 s. It may have run. Do not retry on your own; tell the user.");
+  expect(text).toBe("No answer from generic in 0s. It may have run. Do not retry on your own; tell the user.");
   clock.dispose();
 });
 

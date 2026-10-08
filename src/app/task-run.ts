@@ -297,7 +297,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         scopes: context.model.verificationScopes, named: context.model.namedChecks, detected: autoDetectedChecks(context.model), changedPaths: edited, root: workspaceRoot }).run : [];
       if (failedChecks.length) {
         app.events.ensureLineBreak();
-        app.output.write(`… Casper checking the edits the model made before it failed: ${failedChecks.join(", ")}\n`);
+        app.output.write(`• Casper checking the edits the model made before it failed: ${failedChecks.join(", ")}\n`);
         verification = await runVerification(app, failedChecks, false, prompt, app.checkTask);
       }
     }
@@ -319,7 +319,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       if (autoChecks.run.length || app.checkTask.checks.length || smokeDue || pagesDue) {
         const pending = [...new Set([...autoChecks.run, ...app.checkTask.checks]), ...(smokeDue ? ["smoke"] : []), ...(pagesDue ? ["pages"] : [])];
         app.events.ensureLineBreak();
-        app.output.write(`… Casper checking: ${pending.join(", ")}\n`);
+        app.output.write(`• Casper checking: ${pending.join(", ")}\n`);
         verification = await runVerification(app, autoChecks.run, true, prompt, app.checkTask);
         // A model that sees pictures may look at the changed pages once (showPages); its fixes are checked again.
         let afterLook: Map<string, string> | undefined;
@@ -465,7 +465,7 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
   const flow = await loadFlow(app, "plan-first");
   if (!flow) { app.output.write("[plan] The plan-first flow could not be loaded; nothing was built.\n"); return "stop"; }
   app.events.ensureLineBreak();
-  app.output.write("… Casper planning first: the model reads and writes a plan; Casper blocks the file changes it can see until you choose Build\n");
+  app.output.write("• Casper planning first: the model reads and writes a plan; Casper blocks the file changes it can see until you choose Build\n");
   const before = await app.snapshotWorkspace(root, signal);
   app.lastAnswer = "";
   app.planning = true;
@@ -480,7 +480,7 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
   const after = before && !app.closing ? await app.snapshotWorkspace(root) : undefined;
   const diff = before && after ? diffSnapshots(before, after) : undefined;
   const changed = diff ? [...diff.added, ...diff.modified, ...diff.removed].sort() : undefined;
-  if (changed?.length) app.output.write(`• Changed while planning: ${changed.map((file) => terminalText(file)).join(", ")}\n`);
+  if (changed?.length) app.output.write(`– Changed while planning: ${changed.map((file) => terminalText(file)).join(", ")}\n`);
   if (app.taskRuntimeFailed) { app.output.write("[plan] The model failed while planning; nothing was built.\n"); return "stop"; }
   const parsed = extractPlan(app.lastAnswer);
   if (!parsed.steps.length) {
@@ -547,7 +547,7 @@ export async function makeChecklist(app: CasperApp, complete: NonNullable<Runtim
   if (app.closing || app.commandAbort?.signal.aborted) return undefined;
   if ("error" in result) {
     app.events.ensureLineBreak();
-    app.output.write(`• Checklist not made: ${lineText(result.error)}\n`);
+    app.output.write(`– Checklist not made: ${lineText(result.error)}\n`);
     app.steps.skip("checklist"); app.terminal.setSteps(app.steps.text());
     return undefined;
   }
@@ -561,7 +561,7 @@ export async function makeChecklist(app: CasperApp, complete: NonNullable<Runtim
   // Made quietly: the cases are not printed before work. The receipt names one only when it is not met, and
   // /receipt lists them all. A list cut short still says so.
   if (!options.cases) {
-    if (result.dropped) { app.events.ensureLineBreak(); app.output.write(`• Checklist kept ${result.cases.length} cases; ${result.dropped} more ${result.dropped === 1 ? "was" : "were"} left out\n`); }
+    if (result.dropped) { app.events.ensureLineBreak(); app.output.write(`– Checklist kept ${result.cases.length} cases; ${result.dropped} more ${result.dropped === 1 ? "was" : "were"} left out\n`); }
     return result.cases;
   }
   // "Edit the cases first" on the plan-first panel: the user corrects the list before the model sees it.
@@ -590,7 +590,7 @@ export async function acceptChange(app: CasperApp, input: { session: RuntimeSess
   const now = await app.snapshotWorkspace(input.root);
   if (!now) return { status: "error", reason: "Casper could not compare the workspace", mode };
   app.events.ensureLineBreak();
-  app.output.write("… Casper checking the change against tests written from the request alone\n");
+  app.output.write("• Casper checking the change against tests written from the request alone\n");
   phase(app, "acceptance", "start");
   try {
     app.events.labelChecks("tests written from the request alone");
@@ -674,7 +674,7 @@ export async function proveChange(app: CasperApp, input: {
         ? { status: "unavailable", check: "test", reason: input.baselineUnavailable ?? "Casper could not copy the workspace" } : undefined;
     }
     app.events.ensureLineBreak();
-    app.output.write("… Casper checking that the tests fail without the change\n");
+    app.output.write("• Casper checking that the tests fail without the change\n");
     app.events.labelChecks("tests fail without the change");
     try {
       return await input.baseline.prove({ root: input.root, changes, check: "test", command: input.command,

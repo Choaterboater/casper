@@ -89,7 +89,7 @@ test("/crew runs a builder in its own copy; your folder changes only when you pi
   expect(await readFile(path.join(repo, "mine.txt"), "utf8")).toBe("yours\n");
   const out = crew.text();
   expect(out).toContain("Your uncommitted changes are not in the copy.");
-  expect(out).toContain("Builder 1 finished · 1,200 tokens · about $0.04");
+  expect(out).toContain("Builder 1 finished · 1.2k tokens · about $0.04");
   expect(out).toContain("Changed a.txt.");
   expect(out).toContain("Not run (it needed your OK):");
   expect(out).toContain("reaches build-server");

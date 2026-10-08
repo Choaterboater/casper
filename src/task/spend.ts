@@ -5,6 +5,8 @@
  * Costs are the catalog's estimate from the model's price, never a bill.
  */
 
+import { formatCost, formatTokens } from "../tui/format";
+
 /** Dollars per task; undefined turns that limit off. */
 export interface SpendLimits { noteAt?: number; pauseAt?: number }
 
@@ -24,29 +26,15 @@ export function requestSpendLimit(request: string): number | undefined {
   return dollars > 0 ? dollars : undefined;
 }
 
-/** "$0.004", "$0.31", "$5.02", "$12". */
-export function formatCost(dollars: number): string {
-  if (dollars > 0 && dollars < 0.01) return `$${dollars.toFixed(3)}`;
-  if (dollars >= 100) return `$${Math.round(dollars)}`;
-  return `$${dollars.toFixed(2)}`;
-}
-
 /** A limit as the user wrote it: "$5", "$2.50". */
 export function formatLimit(dollars: number): string {
   return Number.isInteger(dollars) ? `$${dollars}` : `$${dollars.toFixed(2)}`;
 }
 
-/** "950 tok", "48.2k tok", "8.1M tok". */
-export function formatTokens(tokens: number): string {
-  if (tokens < 1000) return `${tokens} tok`;
-  if (tokens < 1_000_000) return `${(tokens / 1000).toFixed(tokens < 100_000 ? 1 : 0)}k tok`;
-  return `${(tokens / 1_000_000).toFixed(1)}M tok`;
-}
-
 /** The footer's task segment: tokens, and the cost unless the model is free. A subscription pays no per-token
  * price, so its figure is only what the tokens would cost: "sub ≈$0.31". */
 export function formatTaskSpend(spent: { tokens: number; cost: number }, priced: boolean | undefined, billing?: "subscription" | "per-token"): string {
-  const tokens = `task ${formatTokens(spent.tokens)}`;
+  const tokens = `task ${formatTokens(spent.tokens)} tok`;
   if (priced === false || (priced === undefined && spent.cost <= 0)) return tokens;
   return `${tokens} · ${billing === "subscription" ? "sub ≈" : ""}${formatCost(spent.cost)}`;
 }
@@ -58,7 +46,7 @@ export function formatFooterSpend(task: { tokens: number; cost: number }, sessio
   if (!session.tokens) return "";
   if (session.tokens === task.tokens) return formatTaskSpend(task, priced, billing);
   const total = formatTaskSpend(session, priced, billing).replace(/^task /, "session ");
-  return working && task.tokens ? `task ${formatTokens(task.tokens)} · ${total}` : total;
+  return working && task.tokens ? `task ${formatTokens(task.tokens)} tok · ${total}` : total;
 }
 
 /** Per task: says the note at noteAt and again at five times it, and asks at the pause limit, then again at each

@@ -6,7 +6,7 @@ import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO, RuntimePick
 import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } from "../app/images";
 import { readClipboardFiles } from "./clipboard-files";
 import { COMMANDS, fitDescriptions, RUNS_DURING_WORK } from "./commands";
-import { BUSY_GLYPH, hasLineControls, hasTerminalControls, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
+import { BUSY_GLYPH, formatElapsed, hasLineControls, hasTerminalControls, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
 import { choiceHint, choiceNumber, keyChoice, typedChoice } from "./choices";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
@@ -64,15 +64,11 @@ export const clipboardDefaults: {
 const SPINNER_FRAMES = GLYPHS.spinner;
 const SPINNER_INTERVAL_MS = 120;
 
-/** 95000 ms → "1m35s"; hours fold to "1h02m". Same shape the events layer uses for panels. */
-function formatElapsed(ms: number): string {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  if (hours) return `${hours}h${String(minutes % 60).padStart(2, "0")}m`;
-  if (minutes) return `${minutes}m${String(seconds % 60).padStart(2, "0")}s`;
-  return `${seconds}s`;
-}
+/** The footer status ends with this while Casper waits for a request (src/app/footer.ts). It is the state, so a
+ * narrow window cuts the details before it, never the state itself. */
+const IDLE_TAIL = " │ idle";
+/** Leads the idle footer when the whole line fits. */
+const IDLE_HINT = "type / for commands";
 
 type AskOption = { label: string; description?: string };
 
@@ -439,20 +435,33 @@ export class TerminalSurface {
   }
 
   private footerText(width: number): string {
+    // The status ends with "idle" when Casper waits for a request; any other state leads the line instead.
+    const idle = this.status.endsWith(IDLE_TAIL);
+    const details = idle ? this.status.slice(0, -IDLE_TAIL.length) : this.status;
     // Waiting on the user: no spinner or running timer, so it never looks busy while it needs Enter.
-    if (this.waiting && !this.note) return truncateToWidth(`${this.accent("?")} ${this.accent("waiting for you")}${this.muted(` │ ${this.status || "Casper"}`)}`, width);
-    // One state mark: the spinner while working (the status line ends with "idle" when Casper waits for a request).
+    if (this.waiting && !this.note) return truncateToWidth(`${this.accent("?")} ${this.accent("waiting for you")}${this.muted(` │ ${details || "Casper"}`)}`, width);
+    // One state mark: the spinner while working.
     const active = this.busy || this.activity !== undefined;
     const state = active ? `${this.accent(SPINNER_FRAMES[this.spinnerFrame])} ` : "";
-    // A transient note replaces the status line so it is never truncated away. The elapsed time always sits right
-    // after the spinner (after the stages once there are some), so a long-running request is measurable at a glance.
-    const elapsed = active && this.activeSince !== undefined && !this.note ? formatElapsed(Date.now() - this.activeSince) : "";
-    // The stages lead, so a narrow window truncates the project and model details, not the progress.
-    // Narrow: only the current stage and the time, so neither is cut off.
-    const steps = this.steps && visibleWidth(`${this.steps} · ${elapsed} │ `) + 2 > width ? this.steps.split(" · ").at(-1)! : this.steps;
-    const lead = active && !this.note ? [...(steps ? [steps] : []), ...(elapsed ? [this.muted(elapsed)] : [])].join(this.muted(" · ")) : "";
-    const text = this.note ? this.accent(this.note) : lead ? lead + this.muted(` │ ${this.status || "Casper"}`) : this.muted(this.status || "Casper · / for commands");
-    return truncateToWidth(`${state}${text}`, width);
+    // A transient note replaces the status line so it is never truncated away.
+    if (this.note) return truncateToWidth(`${state}${this.accent(this.note)}`, width);
+    if (active) {
+      // The elapsed time always sits right after the spinner (after the stage once there is one), so a long-running
+      // request is measurable at a glance, and the stages lead, so a narrow window truncates the details, not them.
+      const elapsed = this.activeSince !== undefined ? formatElapsed(Date.now() - this.activeSince) : "";
+      // The rail shows while a stage runs. Narrow: only the stage running now and the time, so neither is cut off
+      // and a finished stage (✓) never stands for what is happening.
+      const running = this.steps?.split(" · ").filter(step => !/ (?:✓|skipped)$/.test(step)) ?? [];
+      const steps = !running.length ? undefined : visibleWidth(`${this.steps} · ${elapsed} │ `) + 2 > width ? running.at(-1) : this.steps;
+      const lead = [...(steps ? [steps] : []), ...(elapsed ? [this.muted(elapsed)] : [])].join(this.muted(" · "));
+      return truncateToWidth(`${state}${lead}${this.muted(`${lead ? " │ " : ""}${details || "Casper"}`)}`, width);
+    }
+    if (!this.status) return truncateToWidth(this.muted("Casper · / for commands"), width);
+    if (!idle) return truncateToWidth(this.muted(this.status), width);
+    // Idle: the hint first when the whole line fits; otherwise the details are cut, never the state at the end.
+    if (visibleWidth(`${IDLE_HINT} │ ${this.status}`) <= width) return this.muted(`${IDLE_HINT} │ ${this.status}`);
+    const room = width - visibleWidth(IDLE_TAIL);
+    return this.muted(room > 3 ? `${truncateToWidth(details, room, "…")}${IDLE_TAIL}` : truncateToWidth(this.status, width));
   }
 
   /** While work runs (a prompt in flight or tool activity), the footer's state mark and the Working panel
@@ -681,7 +690,8 @@ private updateSpinner(): void {
       return [
         ...(from === "ai" ? [this.muted(AI_ASKS_LABEL)] : []),
         ...wrapTextWithAnsi(this.accent(safeQuestion), width),
-        ...shown.flatMap((option, index) => askOptionLines(picked(index) ? "✓ " : "• ", option, width,
+        // Only the chosen option has a mark (• means running), the rest keep its indent.
+        ...shown.flatMap((option, index) => askOptionLines(picked(index) ? "✓ " : "  ", option, width,
           { label: text => picked(index) ? this.selected(text) : text, description: this.muted })),
         ...typed.flatMap(answer => wrapTextWithAnsi(`${this.accent("→")} ${terminalText(answer).replace(/\s+/g, " ")}`, width)),
         ...(chosen === undefined ? [this.muted("  (skipped)")] : []),

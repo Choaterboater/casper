@@ -48,7 +48,7 @@ test("when the command checks use up the repair budget, the report and receipt s
   expect(f.smokeRuns).toEqual([]);
   expect(report).toMatchObject({ status: "fail", repairAttempts: 1, smokeSkipped: "command checks failed" });
   expect(report.smoke).toBeUndefined();
-  expect(formatReceipt({ execution: "completed", verification: report })).toContain("• Smoke not run: command checks failed");
+  expect(formatReceipt({ execution: "completed", verification: report })).toContain("– Smoke not run: command checks failed");
   // Without smoke checks there is nothing to skip.
   const plain = await verifyAndRepair({ ...f.options, smoke: undefined, maxAttempts: 0 });
   expect(plain.smokeSkipped).toBeUndefined();
