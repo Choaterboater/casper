@@ -137,6 +137,27 @@ test("/pack add in a session: 2 adds it, and its skill is used from the next req
   expect(runtime.prompts.at(-1)).toContain("Source: pack writing-basics; trust: reviewed-external");
 });
 
+test("a one-shot /pack that is refused is an error (exit 1), not a printed line and exit 0; /pack list still just prints", async () => {
+  const { root, home, project } = await fixture();
+  const pack = await writePack(path.join(root, "pack"), ["drafting"]);
+  let output = "";
+  const app = new CasperApp({
+    runtimeFactory: () => new ScriptedRuntime(), output: { write: (text) => { output += text; } }, sessionHomeDir: home, verificationMode: "off",
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+    loadSkillRegistry: (context) => SkillRegistry.discover(skillRegistryOptions(context, home)),
+    loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
+  });
+  cleanup.push(() => app.close());
+  await expect(app.runOnce(`/pack add ${pack}`, project)).rejects.toThrow("Adding a pack asks you first, and this run can't ask. Nothing was added.");
+  await expect(app.runOnce("/pack remove nosuch", project)).rejects.toThrow("No pack named nosuch. /pack list shows yours.");
+  await expect(app.runOnce("/pack frobnicate", project)).rejects.toThrow("Usage: /pack add");
+  await app.runOnce("/pack list", project);
+  expect(output).toContain("No packs yet.");
+  expect((await loadInstalledPacks(home)).packs).toEqual([]);
+});
+
 test("in a session, a pack with your skill's name or an MCP server's name is refused before any box", async () => {
   const { root, home, project } = await fixture();
   await mkdir(path.join(home, ".casper", "skills", "drafting"), { recursive: true });

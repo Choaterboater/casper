@@ -5,7 +5,7 @@ import path from "node:path";
 import { installEnv } from "../security/env";
 import { runFetchStep, type ToolRunner } from "../security/spawn";
 import { PACK_LIMITS, readPackFolder, shownLine, SKIPPED_ANYWHERE, type PackContents } from "./files";
-import { isPackPath, PackError } from "./manifest";
+import { isPackPath, PACK_NAME_RULE, PackError } from "./manifest";
 
 /**
  * A pack from GitHub, named by one commit: https://github.com/<owner>/<repo>@<the full 40-character commit id>.
@@ -205,7 +205,7 @@ export async function fetchGitPack(source: GitPackSource, options: GitFetchOptio
       if (entry.mode === "160000") throw new PackError(`${shown} is a submodule. Casper doesn't fetch submodules.`);
       if (entry.type !== "blob" || (entry.mode !== "100644" && entry.mode !== "100755")) throw new PackError(`${shown} is not a plain file.`);
       if (entry.path.split("/").length - 1 > PACK_LIMITS.depth) throw new PackError(`${shown} is more than ${PACK_LIMITS.depth} folders deep.`);
-      if (!isPackPath(entry.path)) throw new PackError(`${shown} has a name Casper doesn't take in a pack (letters, digits, . - _ and spaces; no hidden files).`);
+      if (!isPackPath(entry.path)) throw new PackError(`${shown} has a name Casper doesn't take in a pack. ${PACK_NAME_RULE}`);
       // Two names that differ only in case, of a file or a folder, would be one on Windows and macOS.
       const parts = entry.path.split("/");
       for (let depth = 1; depth <= parts.length; depth += 1) {
