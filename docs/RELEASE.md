@@ -10,12 +10,12 @@ because GitHub's `latest/download` link skips preview releases. The first publis
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
 
-## v0.2.27: skill packs, colour themes, `/mcp` you can click through, and pasted pictures and files
+## v0.2.27: skill packs, colour themes, checking pull requests, `/mcp` you can click through, and nothing extra to install
 
 You can add a pack of skills someone else wrote, from a folder or a GitHub commit, after a box that shows
 every file, and pick a colour theme. `/mcp` is now one line per server with an arrow-key picker, a picture
 you paste is saved where the AI can open it, a file you copied can be pasted, and the network server it
-installs returns far less text per answer.
+installs returns far less text per answer. Casper can also look at this repo's pull requests and CI on GitHub, and it starts quietly on Linux and in WSL with nothing extra to install.
 
 **Skill packs.** A pack is one folder of skills with a `pack.yaml` that lists them.
 `/pack add <folder>` or `/pack add https://github.com/<owner>/<repo>@<commit>` (one full commit; a branch
@@ -54,6 +54,35 @@ among them goes with the request with the same checks and limits. On Windows a p
 computer's share still asks first. A name with a control or text-direction character is left out, and
 Casper says so.
 
+**Pull requests and CI, without handing the AI your login.** Inside Casper's sandbox `gh` could not run
+at all, so Casper could not look at a pull request. A new `github` tool gives the AI four fixed actions:
+`prs` (open pull requests with their CI state), `pr N` (the checks, and which failed), `ci N` (the failing
+step and the last 40 lines of each failed job's log, with secrets removed) and `rerun N` (re-run the failed
+checks: asks first, once per pull request per 10 minutes). Casper's own code runs `gh` with arguments it
+builds from checked values; the AI only chooses an action and a number, never sees your token or `gh`'s
+config, and gets back text from GitHub marked as other people's words. Pull request and comment text is
+never returned. The first use in a repository asks in plain words (`1 No · 2 Yes this once · 3 Yes for this
+session`); a run that cannot ask refuses. It is offered only when a request mentions pull requests, CI or
+GitHub, so it costs no tokens otherwise, and `github: off` in your own config removes it. It needs `gh` signed
+in (`gh auth login` in your own terminal). Pushing, opening and merging pull requests are not part of it.
+See [GITHUB.md](GITHUB.md).
+
+**A quiet start on Linux and in WSL.** Without bubblewrap, socat and ripgrep Casper still works and asks
+before shell commands that change things. The start-up line now says that
+(`asks before commands that change things · /sandbox for the full sandbox`) instead of listing what is
+missing; `/sandbox` and `casper doctor` still show the exact install line for anyone who wants the full
+sandbox. [WINDOWS.md](WINDOWS.md) has a short "Windows with WSL" section: a separate install with its own
+`~/.casper` and sign-in.
+
+**ripgrep with nothing to install.** When no `rg` is on your computer, Casper downloads ripgrep 15.2.0 (one
+time, about 5 MB) from the official release into `~/.casper/tools`, after checking its fingerprint against
+a pinned value, for Linux, macOS and Windows on Intel and ARM. A ripgrep you installed is always used
+first. Offline, or if the check fails, Casper carries on without it and says why. `tools: downloads: off` in
+your own config (a project file cannot set it) turns the download off.
+
+**Two Caspers sharing a home folder.** A second Casper now waits for the settings lock instead of failing,
+and the macOS stall dump shows which worker is stuck.
+
 **An org is "the org".** `login: can change <name> org` showed the organisation's name in `/mcp` and in the
 change box. A single org now shows as "the org". Site and site group names still show.
 
@@ -77,7 +106,7 @@ osv-scanner on PATH stays in the sandbox, where it can't download. The scans sti
 
 **For contributors.** A known flaky test (listed in `tests/flaky-list.test.ts`) gets one more try on the
 OS it flakes on, and only when the first try ran out of time; the log shows a `(retry)` line. A wrong
-result still fails at once. `CONTRIBUTING.md` says how to add one.
+result still fails at once. [DEVELOPING.md](DEVELOPING.md) says how to add one.
 
 **Not done yet.** `/login` has no "a model on this computer" choice; the site's sample `/mcp` output still
 shows the old layout; a pack brings only skills and one theme (no MCP servers, logins or slash commands),
