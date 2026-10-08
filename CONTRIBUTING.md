@@ -21,6 +21,8 @@ In a checkout, `casper update` pulls (fast-forward only, never forced) and runs
 `bun install --frozen-lockfile` when `bun.lock` changed. A session in a checkout says how many
 changes it is behind, the same way.
 
+Rules for coding agents and anyone changing this repo (branches, what to run before a PR, what needs review) are in `CLAUDE.md`.
+
 `bun run check` runs `bun run typecheck`, `bun run lint` and `bun test`, and needs no paid model.
 `bun run lint` is [oxlint](https://oxc.rs) with only the rules that catch real bugs (`.oxlintrc.json`), no style rules. While you work,
 run only the test files you touched: `bun test tests/<name>.test.ts`. Browser and debugger tests skip when those tools are not
