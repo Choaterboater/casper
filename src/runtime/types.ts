@@ -55,6 +55,8 @@ export interface SshRun {
   done?(): Promise<void>;
   /** A plain line added to the output when the command fails (why ssh will not be asked for a password). */
   afterFail?: string;
+  /** A plain line added only when the command fails and ssh's own words say the login was refused. */
+  afterAuthFail?: string;
 }
 
 /** The AI's shell, as Casper holds it (see src/sandbox/manager.ts). */

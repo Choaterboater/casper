@@ -121,3 +121,17 @@ test("/lab says ssh to lab devices doesn't ask; /lab ssh off makes it ask again,
   expect(next).toContain("[lab] ssh and scp to lab devices don't ask first.");
   expect(next).toContain("Use /lab, /lab import <file> or /lab ssh on|off.");
 });
+
+test("/lab import with an address says import reads a file and where an address goes", async () => {
+  const dir = await home();
+  const project = path.join(dir, "project");
+  await mkdir(path.join(project, ".casper"), { recursive: true });
+  for (const given of ["192.0.2.10", "lab-sw1.example.net", "192.0.2.0/24"]) {
+    const out = await session(dir, project, [`/lab import ${given}`], []);
+    expect(out).toContain(`${given} looks like a device address, and /lab import reads a file with one device per line.`);
+    expect(out).toContain("or list it under lab: in ~/.casper/config.yaml.");
+    expect(out).not.toContain("Can't read");
+  }
+  // A name that is not an address keeps the plain file error.
+  expect(await session(dir, project, ["/lab import nothing.txt"], [])).toContain("Can't read nothing.txt");
+});

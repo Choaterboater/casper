@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, readFile, realpath, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createSessionSandbox, runtimeShell, SHELL_CANT_ASK, SHELL_DECLINED, writeCantAsk, type SandboxHost } from "../src/app/sandbox";
+import { createSessionSandbox, runtimeShell, SHELL_CANT_ASK, SHELL_DECLINED, SSH_NOT_PLAIN_LINE, writeCantAsk, type SandboxHost } from "../src/app/sandbox";
 import { HOST_CHOICES, REACH_CHOICES, SHELL_COMMAND_CHOICES } from "../src/app/safe-choices";
 import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
@@ -415,7 +415,7 @@ test("when the sandbox cannot start, a program named by its path that is not the
     expect(await shell.approve!(command)).toBeUndefined();
     const wrapping = shell.wrap(command, project);
     if (expected) await expect(wrapping).rejects.toThrow(expected);
-    else expect(await wrapping).toEqual({ command });
+    else expect(await wrapping).toEqual({ command, ssh: { afterAuthFail: SSH_NOT_PLAIN_LINE } });
     expect(terminal.asked).toEqual([{ question: `Run this command?  ${command}`, options: ["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"] }]);
     await sandbox.close();
   }

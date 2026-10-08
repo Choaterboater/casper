@@ -5,7 +5,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createSessionSandbox, runtimeShell, SSH_BATCH_MODE_LINE, SSH_NOT_STARTED_LINE, type SandboxHost } from "../src/app/sandbox";
+import { createSessionSandbox, runtimeShell, SSH_BATCH_MODE_LINE, SSH_NOT_PLAIN_LINE, SSH_NOT_STARTED_LINE, SSH_REFUSED_LINE, type SandboxHost } from "../src/app/sandbox";
 import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
 import { casperBashOperations } from "../src/runtime/pi";
@@ -764,3 +764,46 @@ test("a 'Yes, this once' password is forgotten when the next command starts; a s
   expect(typedSecretValues()).toEqual([]);
   await w.close();
 });
+
+test("ssh's own words about a refused login are told from an unreachable machine and a remote file's permissions", async () => {
+  const { looksLikeRefusedLogin } = await import("../src/ssh/auth-failed");
+  for (const text of ["admin@192.0.2.10: Permission denied (publickey,password).", "Permission denied (publickey,password,keyboard-interactive).",
+    "Permission denied, please try again.", "Authentication failed.", "No more authentication methods to try.", "Too many authentication failures"]) {
+    expect([text, looksLikeRefusedLogin(text)]).toEqual([text, true]);
+  }
+  for (const text of ["ssh: connect to host 192.0.2.10 port 22: Connection timed out", "cat: /etc/shadow: Permission denied", "scp: /opt/x: Permission denied", "ok"]) {
+    expect([text, looksLikeRefusedLogin(text)]).toEqual([text, false]);
+  }
+});
+
+test("a command that is not one plain ssh gets the note for a refused login; a plain one gets its own; ssh_login: off gets none (no shell needed)", async () => {
+  const w = await world({ answers: Array.from({ length: 6 }, () => "Yes, this once") });
+  const wrapped = async (command: string) => { expect(await w.shell.approve!(command)).toBeUndefined(); return w.shell.wrap(command, w.project); };
+  for (const command of ["ssh admin@192.0.2.10 uptime; echo done", "ssh admin@192.0.2.10 uptime 2>&1", "ssh admin@192.0.2.10 uptime | head -1", "sudo ssh admin@192.0.2.10 uptime"]) {
+    const result = await wrapped(command);
+    expect([command, result.ssh?.afterAuthFail]).toEqual([command, SSH_NOT_PLAIN_LINE]);
+    expect(result.ssh?.env).toBeUndefined();
+  }
+  expect(SSH_NOT_PLAIN_LINE).toContain("Casper can only ask for a password when ssh is the whole command.");
+  expect(SSH_NOT_PLAIN_LINE).toContain("no BatchMode, no `;`, no pipe, no 2>&1");
+  expect(SSH_NOT_PLAIN_LINE).toContain("Never ask for the password in chat, and never use plink, sshpass or another window.");
+  const plain = await wrapped("ssh admin@192.0.2.10 uptime");
+  expect(plain.ssh?.afterAuthFail).toBe(SSH_REFUSED_LINE);
+  await plain.ssh?.done?.();
+  // BatchMode already has its own note, and it tells the AI the same things.
+  expect(SSH_BATCH_MODE_LINE).toContain("no BatchMode, no `;`, no pipe, no 2>&1");
+  expect(SSH_BATCH_MODE_LINE).toContain("never use plink, sshpass or another window");
+  await w.close();
+  const off = await world({ on: false, answers: ["Yes, this once"] });
+  expect(await off.shell.approve!("ssh admin@192.0.2.10 uptime; echo done")).toBeUndefined();
+  expect((await off.shell.wrap("ssh admin@192.0.2.10 uptime; echo done", off.project)).ssh).toBeUndefined();
+  await off.close();
+});
+
+viaBash("the AI reads the note after a compound ssh whose login ssh refused", async () => {
+  const w = await world({ ssh: null, sandbox: "off", answers: ["Yes, this once"] });
+  // The fake ssh answers "Permission denied (publickey,password)." with no askpass: a refused login in a compound command.
+  const refused = await w.run("ssh admin@192.0.2.10 uptime; echo done");
+  expect(refused.raw).toContain(SSH_NOT_PLAIN_LINE);
+  await w.close();
+}, 30_000);

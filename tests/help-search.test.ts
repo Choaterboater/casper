@@ -87,3 +87,11 @@ test("writes off is said in one sentence everywhere: /mcp, /help all and MCP.md"
   const commands = await readFile(new URL("../src/app/commands.ts", import.meta.url), "utf8");
   expect(commands).toContain("`${WRITES_OFF_MEANING} ");
 });
+
+test("an unknown /theme (or /colour) says where themes are", () => {
+  for (const word of ["/theme", "/themes", "/colour", "/colors"]) {
+    expect(unknownCommandMessage(word)).toBe(`Unknown command "${word}". Themes are in /settings (Theme). Type /help for local commands.`);
+  }
+  // A near miss of a real command still gets the did-you-mean.
+  expect(unknownCommandMessage("/sttaus")).not.toContain("Themes are");
+});

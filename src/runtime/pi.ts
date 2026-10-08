@@ -2,6 +2,7 @@ import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { lstat, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { looksLikeRefusedLogin } from "../ssh/auth-failed";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
 import { matchConversation } from "../sessions/resume";
 import { PiModels } from "./pi-models";
@@ -925,7 +926,7 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
       const wrapped: Awaited<ReturnType<RuntimeShell["wrap"]>> = shell ? await shell.wrap(command, cwd) : { command };
       let tail = "";
       const onData = (data: Buffer) => {
-        if (wrapped.id) tail = (tail + data.toString("utf8")).slice(-16_384);
+        if (wrapped.id || wrapped.ssh?.afterAuthFail) tail = (tail + data.toString("utf8")).slice(-16_384);
         if (!logDir) { options.onData(data); return; }
         const previous = process.env.TMPDIR;
         process.env.TMPDIR = logDir;
@@ -941,6 +942,8 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
           if (line) onData(Buffer.from(`\n${line}\n`));
         }
         if (wrapped.ssh?.afterFail && result.exitCode !== 0) onData(Buffer.from(`\n${wrapped.ssh.afterFail}\n`));
+        // Not only on a failure: `ssh host cmd; echo done` ends 0 although the login was refused.
+        if (wrapped.ssh?.afterAuthFail && looksLikeRefusedLogin(tail)) onData(Buffer.from(`\n${wrapped.ssh.afterAuthFail}\n`));
         return result;
       } finally {
         if (wrapped.id) shell?.finished?.(wrapped.id);

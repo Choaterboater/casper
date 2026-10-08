@@ -51,6 +51,12 @@ test("commands that don't reach another machine name none", () => {
 test("only a plain ssh or scp with no local side effects runs outside the sandbox", () => {
   const root = path.join(home, "project");
   expect(runsAlone("ssh build-server uptime", root)).toBe(true);
+  // On Windows the program is ssh.exe: the same plain command, in any case, but never a path or another name.
+  expect(runsAlone("ssh.exe build-server uptime", root)).toBe(true);
+  expect(runsAlone("SSH.EXE build-server uptime", root)).toBe(true);
+  expect(runsAlone("scp.exe build-server:/x .", root)).toBe(true);
+  expect(runsAlone("./ssh.exe build-server uptime", root)).toBe(false);
+  expect(runsAlone("ssh.exe.bat build-server uptime", root)).toBe(false);
   expect(runsAlone("ssh -i ~/.ssh/lab root@10.0.0.5 'systemctl status sampleapp'", root)).toBe(true);
   expect(runsAlone(`scp ${path.join(root, "app.py")} build-server:/opt/sampleapp/`, root)).toBe(true);
   for (const command of [
