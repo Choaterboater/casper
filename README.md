@@ -111,6 +111,12 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
   with `--require-verification`). [Scripting](docs/SCRIPTING.md#exit-codes)
 - **References.** Search local copies of vendor specs and SDKs (Junos YANG, pycentral, mistapi)
   with no model call. [References](docs/REFERENCES.md)
+- **Pull requests and CI.** Ask which pull requests are open or why a check failed; Casper reads
+  the failing step through `gh`, and the AI never sees your GitHub login. [GitHub](docs/GITHUB.md)
+- **Skill packs and themes.** `/pack add` a folder or a GitHub commit of skills after a box that
+  shows every file; pick a colour theme in `/settings`. [Packs](docs/PACKS.md)
+- **New projects.** `casper new` starts a project with tests and a first commit, with no model
+  call. [New projects](docs/NEW.md)
 
 ## For network engineers
 
@@ -153,14 +159,14 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 | Checking work | [Verification](docs/VERIFICATION.md) · [Undo](docs/UNDO.md) · [Security checks](docs/SECURITY_CHECKS.md) |
 | Network | [MCP](docs/MCP.md) · [Network checks](docs/NETWORK-CHECKS.md) · [Skills](docs/SKILLS.md) · [Packs](docs/PACKS.md) · [References](docs/REFERENCES.md) |
 | Everyday use | [Terminal](docs/TERMINAL_UX.md) · [tmux](docs/TMUX.md) · [Sessions](docs/SESSIONS.md) · [Memory](docs/MEMORY.md) · [New projects](docs/NEW.md) |
-| Tools | [Services](docs/SERVICES.md) · [Browser](docs/BROWSER.md) · [LSP](docs/LSP.md) · [Debugger](docs/DEBUGGER.md) · [Diagrams](docs/VISUALIZATION.md) · [Helpers](docs/DELEGATION.md) · [Crews](docs/CREWS.md) · [Learn](docs/LEARNING.md) |
+| Tools | [GitHub](docs/GITHUB.md) · [Services](docs/SERVICES.md) · [Browser](docs/BROWSER.md) · [LSP](docs/LSP.md) · [Debugger](docs/DEBUGGER.md) · [Diagrams](docs/VISUALIZATION.md) · [Helpers](docs/DELEGATION.md) · [Crews](docs/CREWS.md) · [Learn](docs/LEARNING.md) |
 | Setup | [Doctor](docs/DOCTOR.md) · [Configuration](docs/CONFIGURATION.md) · [Scripting](docs/SCRIPTING.md) · [Secrets](docs/SECRETS.md) · [Security](docs/SECURITY.md) · [Reader](docs/READER.md) |
 | Platforms | [Support](docs/PLATFORM_SUPPORT.md) · [Testing a machine](docs/PLATFORM_VERIFICATION.md) · [Windows](docs/WINDOWS.md) · [Releases](docs/RELEASE.md) · [Evals](docs/EVALUATION.md) |
 | Contributing | [How Casper is built](docs/ARCHITECTURE.md) · [Working on Casper](docs/DEVELOPING.md) |
 
 ## What's new
 
-v0.2.27: skill packs you add from a folder or a GitHub commit after seeing every file, colour themes, `/mcp` as one line per server with an arrow-key picker, pasted pictures saved where the AI can open them, pasting a file you copied, the network server 0.1.2 (far smaller Central answers), checking pull requests and CI on GitHub from inside Casper, a quiet start on Linux and in WSL with ripgrep fetched for you, ssh passwords typed into Casper's own hidden box so the AI never sees them, and an older `gh` no longer stopping an install.
+v0.2.27: skill packs you add from a folder or a GitHub commit after seeing every file, colour themes, `/mcp` as one line per server with an arrow-key picker, pasted pictures saved where the AI can open them, pasting a file you copied, the network server 0.1.2 (far smaller Central answers), checking pull requests and CI on GitHub from inside Casper, a quiet start on Linux and in WSL with ripgrep fetched for you, private ssh passwords, live lines while a long check runs, and an older `gh` no longer stopping an install.
 [Release notes](docs/RELEASE.md#v0227-skill-packs-colour-themes-mcp-you-can-click-through-and-pasted-pictures-and-files) ·
 [Roadmap](https://choaterboater.github.io/casper/roadmap.html).
 
