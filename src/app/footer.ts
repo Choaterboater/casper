@@ -6,7 +6,8 @@ import path from "node:path";
 import { PANE_MIN_COLUMNS } from "../tui/terminal";
 import { readPaneSetting, savePaneSetting, type PaneSetting } from "../tui/pane-setting";
 import { sessionTitle, windowTitle } from "../tui/session-title";
-import { DISPLAY_LEVELS, nextDisplay, type DisplayLevel } from "../tui/display";
+import { DISPLAY_LEVELS, type DisplayLevel } from "../tui/display";
+import { sessionFlag } from "../tui/commands";
 import { formatEffort, noModelFooter, terminalText } from "../tui/format";
 import type { RuntimeSession } from "../runtime/types";
 import { formatCost, formatFooterSpend, formatTokens } from "../task/spend";
@@ -133,18 +134,23 @@ export async function paneCommand(app: CasperApp, argument: string): Promise<voi
     : "[pane] Off: steps show in the Working box; saved. /pane on turns the split back on.\n");
 }
 
-/** /details [quiet|normal|detailed] [--session]: no word goes to the next level. Remembered like /effort (display:
- * in ~/.casper/config.yaml, written for you); --session keeps it to this session. */
+/** /details [quiet|normal|detailed] [--session]: no word shows the level and changes nothing, like /pane. Remembered
+ * like /effort (display: in ~/.casper/config.yaml, written for you); --session, before or after the level, keeps it to
+ * this session. */
 export async function detailsCommand(app: CasperApp, argument: string): Promise<void> {
-  const session = /(?:^|\s)--session$/.test(argument);
-  const level = argument.replace(/(?:^|\s)--session$/, "").trim();
-  if (level && !DISPLAY_LEVELS.some(known => known === level)) throw new Error("Usage: /details [quiet|normal|detailed] [--session]");
-  app.displayChoice = (level as DisplayLevel) || nextDisplay(displayLevel(app));
+  const { rest: level, session } = sessionFlag(argument);
   const words: Record<DisplayLevel, string> = {
     quiet: "the model's words, failures and receipts",
     normal: "steps fold into one summary line, with the changed files under it",
     detailed: "every step, with a small diff under each edit",
   };
+  if (!level && !session) {
+    const now = displayLevel(app);
+    app.output.write(`[details] ${now}: ${words[now]}. /details ${DISPLAY_LEVELS.filter(other => other !== now).join(" or ")} changes it (saved; --session for this session only).\n`);
+    return;
+  }
+  if (!DISPLAY_LEVELS.some(known => known === level)) throw new Error("Usage: /details [quiet|normal|detailed] [--session]");
+  app.displayChoice = level as DisplayLevel;
   let saved = false;
   if (!session) {
     try { await editUserConfig(app.homeDir(), ["display"], app.displayChoice); saved = true; }

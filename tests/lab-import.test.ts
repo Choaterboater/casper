@@ -119,7 +119,7 @@ test("/lab says ssh to lab devices doesn't ask; /lab ssh off makes it ask again,
   const next = await session(dir, project, ["/lab", "/lab ssh on", "/lab ssh maybe"], []);
   expect(next).toContain("ssh and scp to them ask first (/lab ssh on stops that).");
   expect(next).toContain("[lab] ssh and scp to lab devices don't ask first.");
-  expect(next).toContain("Use /lab, /lab import <file> or /lab ssh on|off.");
+  expect(next).toContain("Usage: /lab | /lab import <file> | /lab ssh on|off");
 });
 
 test("/lab import with an address says import reads a file and where an address goes", async () => {

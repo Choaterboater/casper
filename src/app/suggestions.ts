@@ -126,7 +126,7 @@ export class SuggestionController {
         + (state.offByConfig ? "suggestions: false in your config.yaml turns them all off.\n" : "/suggestions off [name] and /suggestions on [name] turn them off or on.\n");
     }
     if ((action !== "on" && action !== "off") || rest.length || (name !== undefined && !this.ids().includes(name))) {
-      return `Usage: /suggestions [on|off] [${this.ids().join("|")}]\n`;
+      throw new Error(`Usage: /suggestions [on|off] [${this.ids().join("|")}]`);
     }
     if (action === "on" && state.offByConfig) return "[suggestions] suggestions: false in your config.yaml keeps them off; /settings turns them on.\n";
     await state.setOff(action === "off", name);

@@ -342,7 +342,7 @@ pick `2 Add it` (see [Secrets and docs servers](#secrets-and-docs-servers)).
 ```text
 /mcp                           # status only; no connection, no model
 /mcp setup network             # set up Casper's network server (asks first)
-/mcp setup ssh [host] [command]  # add a server that runs on another machine over ssh
+/mcp setup ssh [--name <name>] [host] [command]  # add a server that runs on another machine over ssh
 /mcp login [mist|central|clearpass] [forget]  # add, replace or forget a network login
 /mcp connect local-docs        # allow and connect this server for this run of Casper
 /mcp disconnect local-docs     # disconnect and take back that permission

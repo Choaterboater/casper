@@ -23,6 +23,19 @@ export function effortChoices(supported: readonly string[] | undefined): string[
   return ["auto", ...LADDER.filter(level => available.includes(level)), ...available.filter(level => level !== "auto" && !known.has(level))];
 }
 
+/** Why `/effort <level>` can't be set on this model: a word that is no level, or a level the model doesn't have. Each
+ * names the model's own choices. Undefined when it can be set, or when the model's levels are not known. */
+export function effortProblem(level: string, status: { provider?: string; model?: string; availableThinkingLevels?: readonly string[] } | undefined): string | undefined {
+  const supported = status?.availableThinkingLevels;
+  const choices = `Choose: ${effortChoices(supported).join(", ")}`;
+  if (level !== "auto" && !(LADDER as readonly string[]).includes(level) && !supported?.includes(level)) {
+    return supported ? `Unknown effort ${level}. ${choices}` : `Unknown effort ${level}. Choose: auto, ${LADDER.join(", ")}`;
+  }
+  if (!supported || level === "auto" || supported.includes(level)) return undefined;
+  const model = status?.model ? `${status.provider ? `${status.provider}/` : ""}${status.model}` : "This model";
+  return `${model} doesn't support effort ${level}. ${choices}`;
+}
+
 /**
  * Next effort in that ring. From a typical `high` with no xhigh/max, one step lands on `auto`.
  * Undefined when the model has nothing to cycle (no supported level beside the auto placeholder).

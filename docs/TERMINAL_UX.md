@@ -36,11 +36,11 @@ over the network, and `/references add` downloads files after asking you.
 | Command | What it does |
 | --- | --- |
 | `/help`, `/help <word>`, `/help all` | Short help, the lines that mention a word (`/help mcp`), or the full reference |
-| `/status` | Project, model, sign-in and connections |
-| `/doctor` | Check Casper's own setup and fix what it can, each fix after a question (see [DOCTOR.md](DOCTOR.md)) |
-| `/model`, `/model big <model>` | Pick a model (remembered; `--session` for this conversation only); your big model for when repairs run out |
-| `/effort [level\|auto]`, `/thinking` | Reasoning effort, or `auto` per request; Shift+Tab cycles it (see [Model and effort](#model-and-effort)) |
-| `/login [provider]`, `/logout [provider]` | Sign in to a provider (see [Provider login](#provider-login)); remove a sign-in Casper saved (`/logout` alone lists them; environment variables stay) |
+| `/status` | Project, model, sign-in and connections (`/project` alone shows the same) |
+| `/doctor` | Check Casper's own setup and fix what it can, each fix after a question (see [DOCTOR.md](DOCTOR.md)); during a task it only reports |
+| `/model`, `/model big <model>` | Pick a model (remembered; `--session`, before or after the model, for this conversation only; an id no model matches is an error); your big model for when repairs run out |
+| `/effort [level\|auto]`, `/thinking` | Reasoning effort (the model's own levels; one it lacks is refused), or `auto` per request; Shift+Tab cycles it (see [Model and effort](#model-and-effort)) |
+| `/login [provider]`, `/logout [provider]` | Sign in to a provider: `codex`, `copilot`, `anthropic` or `openrouter` (see [Provider login](#provider-login)); remove a sign-in Casper saved (`/logout` alone lists them; environment variables stay) |
 | `/context`, `/usage`, `/cost` | Context estimate; session tokens and estimated cost (`/cost` is `/usage`) |
 | `/compact [instructions]` | Summarize the conversation (**makes a model request**) |
 | `/clear`, `/new` | Start a fresh conversation; files and saved conversations stay |
@@ -49,7 +49,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/undo [n]`, `/redo [n]` | Put the last task's (or task n's) files back, or back again (no model; [UNDO.md](UNDO.md)) |
 | `/plan <request>` | Plan first: the model writes a plan and cases to test, you edit it, then build |
 | `/suggestions [on\|off]` | List the suggested next steps, or turn them on or off |
-| `/details [quiet\|normal\|detailed]` | How much work shows, remembered like `/effort` (`--session` for this session only); Ctrl+T shows the last step in full |
+| `/details [quiet\|normal\|detailed]` | How much work shows, remembered like `/effort` (`--session` for this session only); alone, the level now; Ctrl+T shows the last step in full |
 | `/settings`, `/config` | Shows every switch and where it stands at a glance, then changes one by number: web lookups, the AI's browser and diagram tools, the new-version notice, suggestions, side questions with ?, built-in skills, spend notes and pause, the prompt cache, page checks, showing the AI the pages, the work shown, the untrusted-text reader, helpers that build, Playwright tests and sending Casper's name to OpenRouter ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
 | `/theme` | The Theme row of `/settings` on its own: pick the screen's colours |
 | `/hotkeys` | The keys Casper uses, one a line |
@@ -60,7 +60,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/receipt [n\|list]` | The last task's receipt in detail, a saved one, or the last 10 |
 | `/verify [checks]`, `/verify repair`, `/verify add <name>` | Run the project's checks; repair failures; save a check Casper found ([VERIFICATION.md](VERIFICATION.md)) |
 | `/security-review` | Run the pinned security tools here, then offer an AI review (asks first; [SECURITY_CHECKS.md](SECURITY_CHECKS.md)) |
-| `/project [name]`, `/project new [name]` | Project context and checks; open a project folder inside this one; start a new project in ~/Projects (no model; [NEW.md](NEW.md)) |
+| `/project <name>`, `/project new [name]` | Open a project folder inside this one; start a new project in ~/Projects (no model; [NEW.md](NEW.md)); `/project` alone is `/status` |
 | `/permissions` | What Casper may do here and how to be asked less. `/permissions all` stops the shell's questions until you quit (`1 Keep asking · 2 Stop asking until I quit`), `ask` turns them back on, `write <folder>` allows a folder outside the project, `forget <folder>` takes it back |
 | `/sandbox`, `/sandbox forget <host>` | What the shell sandbox holds; forget a host you allowed |
 | `/allowed`, `/allowed forget <n, command or all>` | The shell commands you said yes to for this project (saved, and for this session); take one back |
@@ -82,9 +82,11 @@ over the network, and `/references add` downloads files after asking you.
 | `/visualize [repo [dir]]` | Diagrams ([VISUALIZATION.md](VISUALIZATION.md)) |
 | `/delegate <explorer\|reviewer> <goal>` | A read-only helper AI on one goal (uses a model; [DELEGATION.md](DELEGATION.md)) |
 | `/crew <job>` | A builder AI does the job in its own copy of the project (uses a model), then 1 Keep the copy · 2 Apply to my folder · 3 Throw it away; bare `/crew` lists copies still here ([CREWS.md](CREWS.md)) |
-| `/exit`, `/quit` | Exit |
+| `/exit`, `/quit` | Exit; during a task it stops the task first, as Ctrl+C twice does |
 
 An unknown `/` command is rejected on your machine, at once, also during work. It is never sent to a model.
+
+Taking something back is `forget` everywhere (`/memory`, `/mcp`, `/sandbox`, `/allowed`, `/permissions`); `remove` is the same word, and `/pack forget` is `/pack remove`. `list` is the command alone (`/memory list` is `/memory`). A usage error reads `[error] Usage: …` for every command.
 
 ### Words you can use
 
@@ -467,7 +469,8 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - Enter during work runs a command that only shows something at once: `/help`, `/status`,
   `/usage`, `/context`, `/permissions`, `/diff`, `/receipt`, `/output`, `/tasks` (and
   `/tasks stop <n>`), `/details`, `/mcp`, `/lsp`, `/skills`, `/sandbox`, `/secrets`, `/branch`, `/hotkeys`,
-  `/project`, `/effort` (a bare `/effort` opens its picker; an approval that arrives closes
+  `/project`, `/browser`, `/services`, `/debug`, `/lab`, `/memory`, `/references`, `/visualize` (each alone),
+  `/doctor` (it reports; its fixes ask after the task), `/exit` and `/quit` (they stop the task and leave), `/effort` (a bare `/effort` opens its picker; an approval that arrives closes
   it first) and `/model` (the picker, `/model <provider/id>` or `/model --session <provider/id>`:
   the model's next step uses it, `[model] <provider/id> from the model's next step; saved`; the step
   already running keeps its model; an approval that arrives closes the picker first, and so does

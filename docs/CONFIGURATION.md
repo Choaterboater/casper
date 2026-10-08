@@ -727,7 +727,8 @@ How much of the work shows on screen while Casper works. The model's thinking is
 - `detailed`: every step on its own line, with a small diff (up to 12 changed lines) under each edit.
 
 `/details quiet|normal|detailed` switches and remembers it (it writes `display:` for you, like
-`/effort`); `--session` keeps it to this session, and `/details` alone goes to the next level. Ctrl+T shows the last finished step in full at any level: an edit's whole diff, or what a
+`/effort`); `--session` (before or after the level) keeps it to this session, and `/details` alone shows the level
+now and changes nothing. Ctrl+T shows the last finished step in full at any level: an edit's whole diff, or what a
 command printed. The window title names the conversation from its first request
 (`Casper · subnet calculator`) and shows `◐` while Casper works.
 

@@ -3,7 +3,7 @@ import { shownCommand } from "./sandbox";
 
 /** /allowed: the shell commands you said yes to for this project (saved, and for this session), and taking them back. */
 
-const USAGE = "Use /allowed or /allowed forget <number, command or all>.";
+const USAGE = "Usage: /allowed | /allowed forget <number, command or all>";
 const words = (text: string) => text.trim().split(/\s+/).join(" ");
 const keyOf = (entry: AllowedEntry) => `${entry.kind}\u0000${entry.value}\u0000${entry.session}`;
 

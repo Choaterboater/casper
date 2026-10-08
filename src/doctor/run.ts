@@ -74,6 +74,8 @@ export interface DoctorIO {
   /** The network setup, which asks its own numbered question; true when it changed something. Undefined where it
    * can't run (then it is only named). */
   networkSetup?(): Promise<boolean>;
+  /** Where nobody can answer now: what to do for the fixes, in place of running casper doctor in a terminal. */
+  fixesLater?: string;
 }
 
 /**
@@ -104,7 +106,7 @@ export async function runDoctor(ctx: DoctorContext, io: DoctorIO): Promise<{ exi
     }
     if (fixes.has("network") && io.networkSetup && await io.networkSetup()) fixed = true;
   } else if (fixes.size) {
-    io.write("Run casper doctor in a terminal to have Casper make the fixes it can (it asks first).\n");
+    io.write(io.fixesLater ?? "Run casper doctor in a terminal to have Casper make the fixes it can (it asks first).\n");
   }
   if (fixed) {
     lines = await collectDoctorLines(ctx);

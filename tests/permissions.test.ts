@@ -242,7 +242,7 @@ test("the typed words parse, and anything else gets the usage line", () => {
   expect(parsePermissions("/permissions ask")).toEqual({ kind: "ask" });
   expect(parsePermissions("/permissions write ~/apps/SomeApp")).toEqual({ kind: "write", folder: "~/apps/SomeApp" });
   expect(parsePermissions('/permissions forget "my folder"')).toEqual({ kind: "forget", folder: "my folder" });
-  expect(() => parsePermissions("/permissions everything")).toThrow("Use /permissions, /permissions all");
+  expect(() => parsePermissions("/permissions everything")).toThrow("Usage: /permissions | /permissions all|ask");
 });
 
 test("/permissions write and forget say what happened in plain words, in a session", async () => {

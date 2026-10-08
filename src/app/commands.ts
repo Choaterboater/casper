@@ -13,7 +13,8 @@ import { HELP_TEXT, FULL_HELP_TEXT, HOTKEYS_TEXT, LOGIN_HELP, helpFor, unknownCo
 import { conversationCommand, runLogout } from "./peer-commands";
 import { formatTerminalJSON } from "../tui/json";
 import { formatCacheHitRate, formatCostLong, formatCostShort, formatTokenSplit } from "../tui/usage";
-import { effortChoices } from "../tui/effort";
+import { effortChoices, effortProblem } from "../tui/effort";
+import { sessionFlag } from "../tui/commands";
 import { pickEffort } from "../tui/effort-picker";
 import { commandLabel, displayPath, formatEffort, formatRuntimeStatus, redactPreview, terminalText, toolTarget } from "../tui/format";
 import type { InteractiveTerminal } from "../tui/terminal";
@@ -187,7 +188,19 @@ export interface CommandHost {
 /** The first, safe choice of the /resume picker. */
 export const STAY_HERE = "Stay in this conversation";
 
-export const VERIFY_USAGE = "Usage: /verify [repair] [typecheck|lint|test|build|<named check> ...] | /verify add <found check>";
+export const VERIFY_USAGE = "Usage: /verify [repair] [typecheck|lint|test|build|<named check> ...] | /verify <lab check> | /verify add <found check>";
+
+/** The names /help uses for the sign-in providers (`codex`, `copilot`), and the providers' own ids. */
+const LOGIN_PROVIDERS: Readonly<Record<string, RuntimeAuthProvider>> = {
+  codex: "openai-codex", copilot: "github-copilot", anthropic: "anthropic", openrouter: "openrouter",
+  "openai-codex": "openai-codex", "github-copilot": "github-copilot",
+};
+export const LOGIN_USAGE = "Usage: /login [codex|copilot|anthropic|openrouter]";
+
+/** The provider a typed /login or /logout word names, short or long; undefined for anything else. */
+export function loginProvider(word: string): RuntimeAuthProvider | undefined {
+  return Object.hasOwn(LOGIN_PROVIDERS, word.toLowerCase()) ? LOGIN_PROVIDERS[word.toLowerCase()] : undefined;
+}
 
 export async function runSlashCommand(host: CommandHost, prompt: string): Promise<VerificationReport | undefined> {
     if (host.closing) return;
@@ -199,10 +212,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     }
     if (/^\/login(?:\s|$)/.test(prompt)) {
       const argument = prompt.slice(6).trim();
-      const provider = (["openai-codex", "github-copilot", "anthropic", "openrouter"] as const).find(id => id === argument);
-      if (argument && !provider) {
-        host.output.write("Usage: /login [openai-codex|github-copilot|anthropic|openrouter]\n"); return;
-      }
+      const provider = loginProvider(argument);
+      if (argument && !provider) throw new Error(LOGIN_USAGE);
       await runLogin(host, provider);
       return;
     }
@@ -226,9 +237,10 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         return;
       }
       if (!session.selectModel) throw new Error("This runtime does not support model selection.");
-      const sessionOnly = /^--session(?:\s|$)/.test(argument);
+      // --session before or after the model: /model --session x and /model x --session are the same.
+      const { rest: query, session: sessionOnly } = sessionFlag(argument);
       // Nothing signed in: an empty picker helps no one, so /model opens sign-in (which then picks a model).
-      if (host.interactive && host.terminal.rich && !argument.replace(/^--session/, "").trim()) {
+      if (host.interactive && host.terminal.rich && !query) {
         const available = await session.selectModel({ signal: host.commandAbort?.signal }).catch(() => undefined);
         if (available?.models && !available.models.length) {
           host.output.write("[model] Not signed in yet. Pick a way to sign in; Esc cancels.\n");
@@ -236,7 +248,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
           return;
         }
       }
-      const result = await session.selectModel({ query: (sessionOnly ? argument.slice(9).trim() : argument) || undefined,
+      const result = await session.selectModel({ query: query || undefined,
         persist: !sessionOnly, signal: host.commandAbort?.signal,
         picker: host.interactive ? host.terminal.modelPickerHost() : undefined });
       // A cancelled picker changes nothing; the status block was already shown at startup.
@@ -255,10 +267,14 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     if (/^\/effort(?:\s|$)/.test(prompt)) {
       if (host.subagents.isBusy) throw new Error("Wait for active subagents before changing effort.");
       const session = await host.ensureRuntime();
-      const args = prompt.split(/\s+/).slice(1);
-      if (args.length > 2 || (args.length === 2 && args[1] !== "--session") || args[0]?.startsWith("-")) throw new Error("Usage: /effort <auto|level> [--session]");
-      let choice = args[0] ? { level: args[0], persist: args[1] !== "--session" } : undefined;
+      // --session before or after the level.
+      const { rest: level, session: sessionOnly } = sessionFlag(prompt.slice(7));
+      if (/\s/.test(level) || level.startsWith("-") || (sessionOnly && !level)) throw new Error("Usage: /effort <auto|level> [--session]");
+      let choice = level ? { level, persist: !sessionOnly } : undefined;
       const status = session.getStatus?.();
+      // A word that is no level, or a level this model lacks: said with the model's own choices, nothing changed.
+      const problem = level ? effortProblem(level, status) : undefined;
+      if (problem) throw new Error(problem);
       if (!choice) {
         // During a task an approval or question can arrive while the picker is open: the picker gives way to it.
         const yielded = new AbortController();
@@ -281,7 +297,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     }
     if (prompt === "/hotkeys") { host.output.write(HOTKEYS_TEXT); return; }
     if (/^\/(?:copy|export|rename)(?:\s|$)/.test(prompt)) { await conversationCommand(host, prompt); return; }
-    if (/^\/logout(?:\s|$)/.test(prompt)) { await runLogout(host, prompt.slice(7).trim()); return; }
+    if (/^\/logout(?:\s|$)/.test(prompt)) { const typed = prompt.slice(7).trim(); await runLogout(host, loginProvider(typed) ?? typed); return; }
     if (prompt === "/doctor") { await (await import("../doctor/session")).runDoctorInSession(host); return; }
     if (prompt === "/permissions" || prompt.startsWith("/permissions ")) {
       await handlePermissions(host, prompt);
@@ -306,7 +322,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         host.output.write(found ? `Forgot ${terminalText(forget[1]!)}: shell commands and ssh ask before reaching it again.\n` : `${terminalText(forget[1]!)} was not remembered for this project.\n`);
         return;
       }
-      if (prompt.trim() !== "/sandbox") throw new Error("Use /sandbox or /sandbox forget <host>.");
+      if (prompt.trim() !== "/sandbox") throw new Error("Usage: /sandbox | /sandbox forget <host>");
       await sandbox.loadRemembered();
       host.output.write(sandboxReport(sandbox, host.activeWorkspaceRoot(), await sandbox.store?.reachHosts() ?? []));
       return;
@@ -454,7 +470,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         command === undefined ? body : `$ ${command}\n${body}`, { tone: entry.status === "error" ? "error" : "muted" });
       return;
     }
-    if (prompt === "/status") {
+    // /project alone is /status: one summary, the one peers call /status. /project <name> opens a project.
+    if (prompt === "/status" || prompt === "/project") {
       const info = await host.inspectProjectFn(host.activeWorkspaceRoot());
       host.projectContext!.info.gitBranch = info.gitBranch; host.projectContext!.info.isGit = info.isGit;
       host.output.write(`${renderProjectSummary(host.projectContext!)}\n`);
@@ -499,6 +516,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         ...(host.commandAbort ? { signal: host.commandAbort.signal } : {}) }, prompt.slice(6));
       return;
     }
+    // The list only reads (it also runs during a task, whose own outcome write is the memoryWork to wait for).
+    if (prompt === "/memory") { await handleMemoryCommand(host, prompt); return; }
     if (/^\/memory(?:\s|$)/.test(prompt)) {
       host.memoryWork = handleMemoryCommand(host, prompt);
       try { await host.memoryWork; }
@@ -511,10 +530,6 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     }
     if (/^\/secrets(?:\s|$)/.test(prompt)) {
       await handleSecretsCommand(host, prompt);
-      return;
-    }
-    if (prompt === "/project") {
-      host.output.write(`${renderProjectSummary(host.projectContext!)}\n`);
       return;
     }
     if (/^\/project\s+\S/.test(prompt)) {
@@ -543,6 +558,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       await handleLSPCommand(host, prompt);
       return;
     }
+    if (prompt === "/visualize") { await handleVisualizeCommand(host, prompt); return; }
     if (/^\/visualize(?:\s|$)/.test(prompt)) {
       host.visualizationWork = handleVisualizeCommand(host, prompt);
       try { await host.visualizationWork; }
@@ -1074,8 +1090,9 @@ async function mcpPicker(host: CommandHost): Promise<void> {
       { label: ready ? "Reconnect" : "Connect", run: () => runMCPConnect(host, name) },
       ...(status.state !== "disconnected" ? [{ label: "Disconnect", run: () => runMCPDisconnect(host, name) }] : []),
       ...(status.consent !== "none" ? [{ label: "Forget", run: () => runMCPForget(host, name) }] : []),
-      ...(ready && status.writes === "off" ? [{ label: "Writes on", run: () => handleMCPWrites(host, name) }] : []),
-      ...(status.writes === "on" ? [{ label: "Writes off (all servers)", run: () => handleMCPWrites(host, "off") }] : []),
+      // By name, never the word "off": a server can be called off.
+      ...(ready && status.writes === "off" ? [{ label: "Writes on", run: () => mcpWritesOn(host, name) }] : []),
+      ...(status.writes === "on" ? [{ label: "Writes off (all servers)", run: () => mcpWritesOff(host) }] : []),
       ...(status.sandbox && status.sandbox.state !== "none"
         ? [{ label: status.sandbox.state === "on" ? "Sandbox off" : "Sandbox on", run: () => runMCPSandbox(host, name, status.sandbox!.state !== "on") }] : []),
     ];
@@ -1169,20 +1186,27 @@ async function offerRemember(host: CommandHost, name: string): Promise<void> {
  * this command, then "2" in the box (1 keeps writes off). The model's ask tool never reaches this box.
  */
 async function handleMCPWrites(host: CommandHost, name: string): Promise<void> {
+  // Typed, "off" is every server; a server named off has its writes turned on from the picker (/mcp, Writes on).
+  if (name === "off") await mcpWritesOff(host);
+  else await mcpWritesOn(host, name);
+}
+
+async function mcpWritesOff(host: CommandHost): Promise<void> {
   const mcp = host.mcp!;
-  if (name === "off") {
-    const ended = host.endAllowances?.() ?? false;
-    const on = mcp.writesOn();
-    if (!on.length) {
-      host.output.write(ended ? "[mcp] Allowed change kinds ended. Every change asks you again.\n" : "[mcp] Writes are already off for every server.\n");
-      if (ended) host.updateFooter();
-      return;
-    }
-    await Promise.all(on.map((server) => mcp.setWrites(server, false)));
-    for (const server of on) host.output.write(`[mcp] Writes off for ${server}. Every change asks you again.\n`);
-    host.updateFooter();
+  const ended = host.endAllowances?.() ?? false;
+  const on = mcp.writesOn();
+  if (!on.length) {
+    host.output.write(ended ? "[mcp] Allowed change kinds ended. Every change asks you again.\n" : "[mcp] Writes are already off for every server.\n");
+    if (ended) host.updateFooter();
     return;
   }
+  await Promise.all(on.map((server) => mcp.setWrites(server, false)));
+  for (const server of on) host.output.write(`[mcp] Writes off for ${server}. Every change asks you again.\n`);
+  host.updateFooter();
+}
+
+async function mcpWritesOn(host: CommandHost, name: string): Promise<void> {
+  const mcp = host.mcp!;
   if (!host.interactive) throw new Error("Writes can only be turned on in an interactive session.");
   const status = mcp.status().find((entry) => entry.name === name);
   if (!status) throw new Error("Unknown MCP server; use /mcp to list definitions");
@@ -1285,7 +1309,7 @@ async function handleLabCommand(host: CommandHost, prompt: string): Promise<void
     host.output.write(ssh[1] === "on" ? "[lab] ssh and scp to lab devices don't ask first.\n" : "[lab] ssh and scp to lab devices ask first again.\n");
     return;
   }
-  if (!match) throw new Error("Use /lab, /lab import <file> or /lab ssh on|off.");
+  if (!match) throw new Error("Usage: /lab | /lab import <file> | /lab ssh on|off");
   if (!host.interactive) throw new Error("/lab import asks you first; run it in an interactive session.");
   const given = match[1]!.replace(/^["']|["']$/g, "");
   const file = given === "~" || given.startsWith("~/") ? path.join(host.homeDir(), given.slice(2)) : path.resolve(host.activeWorkspaceRoot(), given);
@@ -1332,6 +1356,9 @@ function skillCountLine(host: CommandHost): string {
 async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<void> {
     const registry = host.skillRegistry!;
     const [, action, id, sha256, ...extra] = prompt.trim().split(/\s+/);
+    const known = !action || (action === "diagnostics" && !id) || (["inspect", "block"].includes(action) && id && !sha256)
+      || (action === "trust" && id && (sha256 ? !extra.length : host.interactive));
+    if (!known) throw new Error("Usage: /skills | /skills diagnostics | /skills inspect <id> | /skills trust <id> | /skills block <id>");
     try {
       if (!action) {
         const skills = registry.list();
@@ -1381,8 +1408,6 @@ async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<v
       } else if (action === "block" && id && !sha256) {
         await registry.block(id);
         host.output.write(`Blocked ${id} for future prompts.\n`);
-      } else {
-        host.output.write("Usage: /skills | /skills inspect <id> | /skills trust <id> | /skills block <id>\n");
       }
     } catch (error) {
       host.output.write(`[skills] ${error instanceof Error ? error.message : String(error)}\n`);

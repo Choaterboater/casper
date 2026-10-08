@@ -10,7 +10,7 @@ it in every request.
 ```text
 /memory                          list your saved facts
 /memory remember API calls belong in services/
-/memory forget <fact-id>         remove one fact
+/memory forget <fact-id>         remove one fact (/memory remove is the same)
 /memory outcomes                 show the latest 20 task results
 /memory accept <outcome-id> yes  record that you accepted a result (or no)
 ```
