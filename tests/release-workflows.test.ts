@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { parse } from "yaml";
 import { verifySshSignature } from "../src/update/signature";
+import { posixOnly } from "./support/platform";
 import { sshKeygenVerifies } from "./support/release-signing";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -189,4 +190,22 @@ test("a stuck preview run is cut off in minutes, not at the old 30 to 45 minute 
     // The dump sits next to the log, in the folder the always-run upload keeps.
     expect(steps.some((step) => step.uses?.startsWith("actions/upload-artifact@") && (step as { if?: string }).if === "always()")).toBe(true);
   }
+});
+
+posixOnly("the release's personal-path check lets GitHub's own macOS build account through and nothing else", async () => {
+  const workflow = readFileSync(path.join(DIR, "publish-release.yml"), "utf8");
+  const line = workflow.split("\n").map((entry) => entry.trim()).find((entry) => entry.startsWith("! grep -a") && entry.includes("/Users/"));
+  expect(line).toBeDefined();
+  const dir = await mkdtemp(path.join(os.tmpdir(), "casper-paths-"));
+  try {
+    const run = async (name: string, text: string) => {
+      await writeFile(path.join(dir, name), text);
+      return Bun.spawnSync(["bash", "-e", "-o", "pipefail", "-c", line!.replace(/casper-\*/, name)], { cwd: dir }).exitCode;
+    };
+    expect(await run("casper-darwin-test", "xx /Users/runner/work/x yy")).toBe(0);
+    expect(await run("casper-linux-test", "a clean binary")).toBe(0);
+    expect(await run("casper-user-test", "a /Users/alice/project b")).not.toBe(0);
+    expect(await run("casper-ci-test", "a /home/runner/work/casper b")).not.toBe(0);
+    expect(await run("casper-bare-test", "a /Users/ b")).not.toBe(0);
+  } finally { await removeTempDir(dir); }
 });

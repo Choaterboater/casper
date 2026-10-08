@@ -1,15 +1,18 @@
 import path from "node:path";
 import { stat } from "node:fs/promises";
+import { extractEmbeddedRipgrep, type EmbeddedOptions } from "./ripgrep-embedded";
 import { installBinary, onPath, pinnedCopy, readCapped, type InstallOptions } from "./install";
 import { RIPGREP } from "./ripgrep-pin";
 import type { PinnedSpec } from "./tools";
 
 /**
- * Casper fetches its own ripgrep instead of asking you to install it. The shell sandbox (Linux) and the AI's
+ * Casper brings its own ripgrep instead of asking you to install it. The shell sandbox (Linux) and the AI's
  * grep tool both need `rg`. Order: a ripgrep on PATH (or Pi's own copy in the agent folder) is used as it is;
- * else the pinned copy in ~/.casper/tools; else, unless downloads are off or Casper is offline, the pinned
- * release is downloaded once, checked against its sha256 before anything is written, and unpacked. A failure is
- * one plain line and nothing else changes. Nothing here uses sudo or a package manager.
+ * else a pinned copy Casper installed earlier in ~/.casper/tools; else the copy inside the release program,
+ * unpacked once after its sha256 matches the pin (nothing is downloaded); else, only for a source checkout or a
+ * program built without it, unless downloads are off or Casper is offline, the pinned release is downloaded
+ * once, checked against its sha256 before anything is written, and unpacked. A failure is one plain line and
+ * nothing else changes. Nothing here uses sudo or a package manager. `downloads: off` stops only the download.
  */
 
 export const RIPGREP_GETTING = "Getting ripgrep (one time, about 5 MB)";
@@ -23,12 +26,14 @@ export interface RipgrepOptions extends Omit<InstallOptions, "write" | "fetchByt
   agentDir?: string;
   /** Plain progress and failure lines. */
   write?: (text: string) => void;
+  /** Tests: where the embedded copy is, and the digests it must match (see ripgrep-embedded.ts). */
+  embedded?: Pick<EmbeddedOptions, "source" | "pins">;
   /** Downloads one URL (tests pass a stub). */
   fetchBytes?: (url: string) => Promise<Uint8Array>;
 }
 
 export type RipgrepResult =
-  | { source: "path" | "agent" | "pinned" | "installed"; path: string }
+  | { source: "path" | "agent" | "pinned" | "embedded" | "installed"; path: string }
   | { source: "none"; why: "off" | "offline" | "unsupported" | "failed"; message?: string };
 
 /** The server must answer within this; then the body gets a generous total, so a slow link still finishes. */
@@ -78,12 +83,16 @@ async function find(options: RipgrepOptions): Promise<RipgrepResult> {
     }
     const pinned = await pinnedCopy(spec, options);
     if (pinned) return { source: "pinned", path: pinned };
+    const unpacked = await extractEmbeddedRipgrep({ ...(options.homeDir ? { homeDir: options.homeDir } : {}), platform,
+      ...(options.arch ? { arch: options.arch } : {}), ...options.embedded }).catch(() => undefined);
+    // A copy that fails its check is never run: fall through to the download (or to none).
+    if (unpacked && "path" in unpacked) return { source: "embedded", path: unpacked.path };
     if (options.downloads === false) return { source: "none", why: "off" };
     if (offline(env)) return { source: "none", why: "offline" };
     const supported = spec.source.kind === "binary" && Object.keys(spec.source.assets).includes(`${platform}-${options.arch ?? process.arch}`);
     if (!supported) return { source: "none", why: "unsupported" };
     options.write?.(`${RIPGREP_GETTING}\n`);
-    const { write: _quiet, spec: _spec, ...rest } = options;
+    const { write: _quiet, spec: _spec, embedded: _embedded, ...rest } = options;
     const result = await installBinary(spec, { ...rest, fetchBytes: options.fetchBytes ?? fetchWithTimeout });
     const installed = result.ok ? await pinnedCopy(spec, options) : undefined;
     if (installed) return { source: "installed", path: installed };

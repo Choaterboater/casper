@@ -14,3 +14,14 @@ declare module "*/apply-seccomp" {
   const filename: string;
   export default filename;
 }
+
+/** The release build's ripgrep for its own platform (build/embedded/, src/security/ripgrep-embedded.ts). */
+declare module "*/embedded/rg" {
+  const filename: string;
+  export default filename;
+}
+
+declare module "*/embedded/rg.exe" {
+  const filename: string;
+  export default filename;
+}

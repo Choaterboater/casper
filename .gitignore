@@ -20,3 +20,6 @@ evals/results/
 docs/HANDOFF*.md
 docs/TODO*.md
 .playwright-mcp/
+
+# Release build only: the verified ripgrep downloads and the per-target file the program embeds.
+/build/

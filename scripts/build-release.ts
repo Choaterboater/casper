@@ -16,6 +16,7 @@ import { chmod, copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { CASPER_VERSION } from "../src/version";
 import { compileExecutable } from "./compile";
+import { clearEmbedded, embedRipgrep } from "./embed-ripgrep";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const outputDir = path.join(repoRoot, "dist/release");
@@ -85,14 +86,20 @@ async function main(): Promise<void> {
   await rm(outputDir, { recursive: true, force: true });
   await mkdir(outputDir, { recursive: true });
   const checksums: string[] = [];
-  for (const target of targets) {
-    const name = artifactName(target);
-    const outfile = path.join(outputDir, name);
-    await compileExecutable(path.join(repoRoot, "src/standalone.ts"), outfile, target as Bun.Build.CompileTarget);
-    const digest = new Bun.CryptoHasher("sha256").update(await Bun.file(outfile).arrayBuffer()).digest("hex");
-    checksums.push(`${digest}  ${name}`);
-    const size = (await Bun.file(outfile).size / (1024 * 1024)).toFixed(1);
-    process.stdout.write(`${name}  ${size} MB  sha256 ${digest.slice(0, 16)}…\n`);
+  try {
+    for (const target of targets) {
+      const name = artifactName(target);
+      const outfile = path.join(outputDir, name);
+      // The official ripgrep for this target goes where the program embeds it, after its sha256 is checked.
+      await embedRipgrep(target);
+      await compileExecutable(path.join(repoRoot, "src/standalone.ts"), outfile, target as Bun.Build.CompileTarget);
+      const digest = new Bun.CryptoHasher("sha256").update(await Bun.file(outfile).arrayBuffer()).digest("hex");
+      checksums.push(`${digest}  ${name}`);
+      const size = (await Bun.file(outfile).size / (1024 * 1024)).toFixed(1);
+      process.stdout.write(`${name}  ${size} MB  sha256 ${digest.slice(0, 16)}…\n`);
+    }
+  } finally {
+    await clearEmbedded();
   }
 
   for (const file of ["LICENSE", "THIRD_PARTY_NOTICES.txt"]) {
