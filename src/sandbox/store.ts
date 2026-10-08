@@ -11,10 +11,13 @@ import { matchesPrefix } from "./read-only";
  * and, when no sandbox can run, exact shell commands you said not to ask about again. Private (0600), written only from your
  * own answer to a numbered question. The sandbox keeps the AI's shell from reading or writing this folder.
  */
-interface StoreFile { version: 1; hosts: string[]; commands: string[]; prefixes?: string[]; reach?: string[]; labReach?: false; writes?: string[] }
+interface StoreFile { version: 1; hosts: string[]; commands: string[]; prefixes?: string[]; reach?: string[]; labReach?: false; writes?: string[]; checksOutside?: true }
 
 /** One thing you said yes to: a command and anything after it (prefix) or exactly that command. */
-export interface AllowedEntry { kind: "prefix" | "command"; value: string; session: boolean }
+export interface AllowedEntry { kind: "prefix" | "command" | "checks"; value: string; session: boolean }
+
+/** The /allowed line for "Yes, always for this project" to running its checks outside the sandbox. */
+export const CHECKS_OUTSIDE_ENTRY = "run this project's checks outside the sandbox";
 
 const MAX_ENTRIES = 500;
 
@@ -41,6 +44,7 @@ export class SandboxStore {
         ...(Array.isArray(value.reach) ? { reach: value.reach.filter((host): host is string => typeof host === "string").slice(0, MAX_ENTRIES) } : {}),
         ...(value.labReach === false ? { labReach: false as const } : {}),
         ...(Array.isArray(value.writes) ? { writes: value.writes.filter((folder): folder is string => typeof folder === "string").slice(0, MAX_ENTRIES) } : {}),
+        ...(value.checksOutside === true ? { checksOutside: true as const } : {}),
       };
     } catch { /* none yet, or unreadable: nothing is remembered */ }
     return this.cached = data;
@@ -79,6 +83,12 @@ export class SandboxStore {
     return this.update((data) => { if (on) delete data.labReach; else data.labReach = false; });
   }
 
+  /** "Yes, always for this project" to running its checks outside the sandbox. Only your own answer sets it. */
+  async checksOutside(): Promise<boolean> { return (await this.load()).checksOutside === true; }
+  setChecksOutside(on: boolean): Promise<void> {
+    return this.update((data) => { if (on) data.checksOutside = true; else delete data.checksOutside; });
+  }
+
   addHost(host: string): Promise<void> { return this.update((data) => { const name = hostName(host); if (!data.hosts.includes(name)) data.hosts.push(name); }); }
   forgetHost(host: string): Promise<boolean> {
     let found = false;
@@ -102,6 +112,7 @@ export class SandboxStore {
       ...(data.prefixes ?? []).map((value) => ({ kind: "prefix" as const, value, session: false })),
       ...data.commands.map((value) => ({ kind: "command" as const, value, session: false })),
     ];
+    if (data.checksOutside) entries.push({ kind: "checks", value: CHECKS_OUTSIDE_ENTRY, session: false });
     for (const value of this.sessionPrefixes) if (!data.prefixes?.includes(value)) entries.push({ kind: "prefix", value, session: true });
     for (const value of this.sessionCommands) if (!data.commands.includes(value)) entries.push({ kind: "command", value, session: true });
     return entries;
@@ -126,7 +137,8 @@ export class SandboxStore {
   async forgetAll(): Promise<number> {
     let count = 0;
     await this.update((data) => {
-      count = new Set([...data.commands, ...this.sessionCommands].map((v) => `c:${v}`).concat([...data.prefixes ?? [], ...this.sessionPrefixes].map((v) => `p:${v}`))).size;
+      if (data.checksOutside) { delete data.checksOutside; count++; }
+      count += new Set([...data.commands, ...this.sessionCommands].map((v) => `c:${v}`).concat([...data.prefixes ?? [], ...this.sessionPrefixes].map((v) => `p:${v}`))).size;
       data.commands = []; delete data.prefixes;
     });
     this.sessionCommands.clear(); this.sessionPrefixes.clear();

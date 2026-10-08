@@ -24,6 +24,10 @@ export interface SandboxUserSettings {
   allowUnixSockets?: string[];
   /** `shell.keepEnv`: AI provider keys you want your own tests to keep (for example OPENAI_API_KEY). */
   keepEnv?: string[];
+  /** `sandbox.checks`: where this project's own test, typecheck and lint commands run. `ask` (the default): in the
+   * sandbox, and when one fails because the sandbox blocked something Casper asks whether to run the checks outside
+   * it; `outside`: always outside; `inside`: always in the sandbox, never asks. Only your own files can set it. */
+  checks?: "ask" | "outside" | "inside";
 }
 
 /** A project's settings (.casper/project.yaml): only more denies. */

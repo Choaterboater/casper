@@ -87,11 +87,17 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
   if (options.argv && (!options.argv.length || !options.argv[0])) throw new Error("A check's argument list needs a program");
   const command = options.command ?? argvText(options.argv!);
   const direct: SpawnPlan = options.argv ? { file: options.argv[0]!, args: options.argv.slice(1), shell: false } : { file: command, args: [], shell: true };
+  // Every check runs in the session's shell sandbox when one holds commands (see src/sandbox/manager.ts), unless you
+  // said this project's checks run outside it (sandbox.checks in your config, or your answer to Casper's question).
+  const session = options.wrap || options.sandbox === false ? undefined : currentSandbox();
+  const outside = Boolean(session) && await session!.checksOutside();
+  const sandbox: ShellSandbox | undefined = outside ? undefined : session;
+  const where = outside ? { label: "outside the sandbox" } : {};
   const started = performance.now();
   const stdout = new OutputCapture();
   const stderr = new OutputCapture();
   const base = () => ({
-    name, command, cwd,
+    name, command, cwd, ...where,
     stdout: stdout.text(), stderr: stderr.text(),
     truncated: stdout.truncated || stderr.truncated,
     durationMs: Math.round(performance.now() - started),
@@ -100,8 +106,6 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
     return { ...base(), status: "fail", exitCode: null, signal: null, reason: "Verification cancelled" };
   }
   let plan: SpawnPlan;
-  // Every check runs in the session's shell sandbox when one holds commands (see src/sandbox/manager.ts).
-  const sandbox: ShellSandbox | undefined = options.wrap || options.sandbox === false ? undefined : currentSandbox();
   let held: string | undefined;
   try {
     if (options.wrap) plan = await options.wrap({ ...direct, args: [...direct.args] }, { cwd, name });
@@ -155,9 +159,12 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
       const result: VerificationResult = { ...base(), status: !reason && exitCode === 0 ? "pass" : "fail", exitCode, signal: exitSignal, reason, ...(ended ? { ended } : {}) };
       if (!held || result.status === "pass" || reason) { sandbox?.finished(held); resolve(result); return; }
       // A failure the sandbox caused says so, in the receipt and to the AI: "blocked by the sandbox (wanted to write /etc/hosts)".
-      void blockedBySandbox(sandbox!, held, `${result.stderr}\n${result.stdout}`).then((blocked) => {
+      const output = `${result.stderr}\n${result.stdout}`;
+      void blockedBySandbox(sandbox!, held, output).then((blocked) => {
         sandbox!.finished(held);
-        resolve(blocked ? { ...result, reason: blocked, ended: "blocked" } : result);
+        // The sandbox's monitor does not see every refusal (a unix socket, a spawn): the check's own output says EPERM.
+        const denied = blocked ?? sandboxDenialInOutput(output);
+        resolve(denied ? { ...result, reason: denied, ended: "blocked" } : result);
       });
     };
     let stopped = false;
@@ -195,3 +202,16 @@ export async function blockedBySandbox(sandbox: Pick<ShellSandbox, "blockedReaso
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
 }
+
+/** What a check prints when the sandbox, not the code, said no: EPERM / "Operation not permitted" (a unix socket, a
+ * loopback address, a spawned program, /dev/fd), or the sandbox's own wording. Only read for a run the sandbox held. */
+const DENIAL = /\bEPERM\b|operation not permitted|blocked by the sandbox|sandbox[-\w]*\W+deny|\bdeny\(\d+\)/i;
+export function sandboxDenialInOutput(output: string): string | undefined {
+  const found = DENIAL.exec(output)?.[0];
+  if (!found) return undefined;
+  const what = /^eperm$/i.test(found) ? "EPERM" : /not permitted/i.test(found) ? "Operation not permitted" : "a sandbox denial";
+  return `blocked by the sandbox (the check printed ${what}; not a bug in your code)`;
+}
+
+/** Said when a check failed because the sandbox blocked something. */
+export const SANDBOX_CHECK_BLOCKED = "This check failed because Casper's sandbox blocked something, not because of a bug in your code. Run it yourself with `!<command>` or allow checks outside the sandbox (/permissions or /sandbox).";

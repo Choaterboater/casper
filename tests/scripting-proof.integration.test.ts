@@ -60,8 +60,8 @@ shellCheckTest("a feature worded like a test task is still reviewed and proven; 
   const documented = await docs.run(["--json", "--verify", "Add notes about sum.js"]);
   const docsReceipt = JSON.parse(documented.stdout.trim().split("\n").at(-1)!);
   expect({ outcome: docsReceipt.outcome, proof: docsReceipt.proof, review: docsReceipt.review }).toEqual({ outcome: "not_verified", proof: null, review: null });
-  // The checks passed; the docs edit was not proven, so the outcome is not verified (and --require-verification exits 3).
-  expect({ checksPassed: docsReceipt.checksPassed, exit: documented.exit }).toEqual({ checksPassed: true, exit: 0 });
+  // Only a doc changed, so no unscoped check ran (the receipt says so); the docs edit was not proven, so the outcome is not verified.
+  expect({ checksPassed: docsReceipt.checksPassed, exit: documented.exit }).toEqual({ checksPassed: false, exit: 0 });
   expect(docs.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
 }, 180_000);
 

@@ -386,9 +386,15 @@ sandbox:
   allowedDomains: [api.mist.com, "*.central.arubanetworks.com"]  # reached without asking
   allowWrite: [~/shared-build-cache]                              # more folders commands may write
   allowUnixSockets: [/var/run/docker.sock]                        # macOS only; Linux can't filter by path
+  checks: ask                                                     # ask (default) | outside | inside
 shell:
   keepEnv: [OPENAI_API_KEY]   # an AI provider key your own tests need
 ```
+
+`sandbox.checks` says where your project's own test, typecheck and lint commands run. `ask` (the default) keeps them in the
+sandbox and, when one fails because the sandbox blocked something (`EPERM`), asks whether to run the checks outside it
+(`/allowed` lists and forgets a saved "always for this project"); `outside` always runs them outside; `inside` never does
+and never asks. A project file cannot set it.
 
 `sandbox: off` turns it off for every run (like `--no-sandbox` for one run); the receipt then
 says shell commands and checks were not sandboxed. A project's `.casper/project.yaml` can only

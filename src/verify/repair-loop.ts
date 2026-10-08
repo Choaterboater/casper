@@ -4,6 +4,7 @@ import { safeGitArgs } from "../platform/git";
 import type { SmokeReport } from "../services/smoke";
 import type { PageReport } from "../services/page-report";
 import { repairClass, verificationStatus, type CheckName, type VerificationReport, type VerificationResult } from "./evidence";
+import { SANDBOX_CHECK_BLOCKED } from "./command";
 import { checkResultForModel, evidenceForModel } from "./model-output";
 import type { VerifierRegistry } from "./registry";
 import { VerificationTask } from "./task";
@@ -86,6 +87,12 @@ export type VerificationOptions = ({ registry: VerifierRegistry; task?: never } 
    * on its own. The host may ask the user: run it again, give it more time, or repair it anyway.
    * Undefined (no way to ask, or skipped) repairs only the real failures. Asked at most three times. */
   onUnfinished?: (checks: VerificationResult[], signal: AbortSignal) => Promise<UnfinishedChoice | undefined>;
+  /** A check failed because the sandbox blocked something (EPERM, a refused socket): never a bug to repair. The host
+   * may ask whether to run the checks outside the sandbox: "once" runs the blocked checks again outside it (through
+   * `outsideOnce`), "kept" means the answer is saved (this session or this project) and they run again at once;
+   * anything else leaves them as "could not check". Asked at most twice. */
+  onBlocked?: (checks: VerificationResult[], signal: AbortSignal) => Promise<"once" | "kept" | undefined>;
+  outsideOnce?: <T>(work: () => Promise<T>) => Promise<T>;
   /** Called once, before the first repair of real failures: false leaves them as they are (for example
    * a check that was already failing before the change, when the user says to leave it). */
   beforeRepair?: (failures: VerificationResult[], signal: AbortSignal) => Promise<boolean>;
@@ -132,6 +139,7 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
   let budget = maxAttempts;
   let limitAsked = false;
   let labAsked = false;
+  let blockedAsks = 0;
   const repairModels: string[] = [];
   let smoke: SmokeReport | undefined;
   let pages: PageReport | undefined;
@@ -204,6 +212,18 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
         return report("fail", `${unfinished.map((result) => `${result.name} ${result.ended === "timeout" ? "timed out" : "could not start"}`).join(", ")}; it did not finish, so Casper did not repair it.`);
       }
     }
+    // A check the sandbox blocked is not the code failing: ask once whether to run it outside, never repair it.
+    const sandboxBlocked = failures.filter((result) => result.ended === "blocked" && result.kind !== "lab" && result.kind !== "report" && !result.repair);
+    if (sandboxBlocked.length && options.onBlocked && blockedAsks < 2) {
+      blockedAsks++;
+      const choice = await options.onBlocked(sandboxBlocked, signal);
+      if (signal.aborted) return report("blocked", "Verification cancelled.");
+      if (choice === "once" || choice === "kept") {
+        const names = sandboxBlocked.map((result) => result.name);
+        if (choice === "once" && options.outsideOnce) await options.outsideOnce(() => run(names)); else await run(names);
+        continue;
+      }
+    }
     if (!failures.length && !hostFailures) {
       const status = withHostChecks(verificationStatus(results), results, smoke, pages);
       return report(status, !checks().length && !smoke?.checks.length && !pages ? "No applicable verification commands configured or detected."
@@ -212,6 +232,9 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
     }
     // Failures that are not the model's to fix (a check said so itself): nothing to repair.
     if (!repairable.length && !hostFailures) {
+      if (failures.every((result) => result.ended === "blocked")) {
+        return report("fail", `${failures.map((result) => result.name).join(", ")} could not be checked, and Casper did not try to fix it. ${SANDBOX_CHECK_BLOCKED}`);
+      }
       return report("fail", `${failures.map((result) => result.name).join(", ")} did not pass, and it is not a failure Casper asks the model to fix.`);
     }
     // repair.maxAttempts: 0 turns repair off: nobody is asked for more tries then.

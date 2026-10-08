@@ -197,6 +197,16 @@ export const PERMISSIONS_ALL_CHOICES = [
   { label: "Stop asking until I quit", description: "shell commands, hosts, writes outside the project and other machines are answered Yes for this session; protected places, secrets, device writes and the spend pause stay as they are" },
 ] as const satisfies readonly Choice[];
 
+/** "test failed because the sandbox blocked something." Enter keeps the sandbox. */
+export const checksOutsideQuestion = (names: string[]) =>
+  `${names.join(", ")} failed because Casper's sandbox blocked something, not because of a bug in your code. Run this project's checks outside the sandbox?`;
+export const CHECKS_OUTSIDE_CHOICES = [
+  { label: NO, description: "the check stays could-not-check; run it yourself with !<command>" },
+  { label: YES_ONCE, description: "run the blocked checks again now, outside the sandbox" },
+  { label: YES_SESSION, description: "this project's checks run outside the sandbox until Casper exits" },
+  { label: YES_ALWAYS, description: "kept in ~/.casper, never in the repo; /allowed forget undoes it" },
+] as const satisfies readonly Choice[];
+
 /** "The AI wants to write to ~/Library/Application Support/SomeApp. Allow it?" (a write outside the project, by the
  * AI's shell or its edit and write tools). Enter writes nothing; nothing is kept past the session. */
 export function writeChoices(_folder: string, always = true): Choice[] {
