@@ -8,7 +8,7 @@ const files: Record<string, string> = {
   "backups/core-cx-01.cfg": [
     "hostname core-cx-01",
     "user admin group administrators password ciphertext AQBapFakeFakeFake0123==",
-    "radius-server host 10.1.1.10 key plaintext NotARealKey1 vrf mgmt",
+    "radius-server host 192.0.2.10 key plaintext NotARealKey1 vrf mgmt",
     "snmp-server community LabCommunity",
     "interface 1/1/1",
     "    description uplink to dist-01",

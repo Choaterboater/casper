@@ -1,4 +1,4 @@
-# Casper 0.2.15 · the start screen in a 100-column terminal
+# Casper 0.2.27 · the start screen in a 100-column terminal
 
  ▄▄███▄▄    ██████  █████  ███████ ██████  ███████ ██████
 ██ ███ ██  ██      ██   ██ ██      ██   ██ ██      ██   ██
@@ -6,9 +6,9 @@
 █████████  ██      ██   ██      ██ ██      ██      ██   ██
 █▀██▀██▀█   ██████ ██   ██ ███████ ██      ███████ ██   ██
 
- version   0.2.15 · your coding companion
- project   project · branch master · profile default
+ version   0.2.27 · your coding companion
+ project   project · branch main · profile default
  checks    test — run after each change
+ shell     sandboxed · writes: this project, temp, package caches · hosts: 11 listed (/sandbox)
  /help · /status · /login · /model
- model     none saved yet (/model picks one, or your first prompt offers sign-in)
- auth      checked when the model starts (/login adds a provider)
+ model     not signed in · type a request to sign in

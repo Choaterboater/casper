@@ -137,8 +137,7 @@ osv-scanner on PATH stays in the sandbox, where it can't download. The scans sti
 OS it flakes on, and only when the first try ran out of time; the log shows a `(retry)` line. A wrong
 result still fails at once. [DEVELOPING.md](DEVELOPING.md) says how to add one.
 
-**Not done yet.** `/login` has no "a model on this computer" choice; the site's sample `/mcp` output still
-shows the old layout; a pack brings only skills and one theme (no MCP servers, logins or slash commands),
+**Not done yet.** `/login` has no "a model on this computer" choice; a pack brings only skills and one theme (no MCP servers, logins or slash commands),
 and from GitHub only a public repository.
 
 ## v0.2.26: local models, updating on Windows, and opening where you launched

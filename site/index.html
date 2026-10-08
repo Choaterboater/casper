@@ -61,13 +61,14 @@
           <li>Every coding task ends with a short receipt. Line 1 is the verdict.</li>
           <li>It is careful around network gear: MCP servers start with writes off, and risky actions ask you first.</li>
           <li>Known device secrets become <code>&lt;secret hidden&gt;</code> before the AI sees them (best effort, known formats only).</li>
-          <li>Sign in with OpenAI Codex, GitHub Copilot, Anthropic (Claude) or OpenRouter. You are not tied to one model company.</li>
+          <li>Sign in with OpenRouter, Anthropic (Claude), OpenAI Codex or GitHub Copilot, or point it at a model on your own computer. You are not tied to one model company.</li>
+          <li>Every task can be undone: <code>/undo</code> puts the files back, also outside git.</li>
         </ul>
       </section>
 
       <section aria-labelledby="highlights">
         <h2 id="highlights">Highlights</h2>
-        <p>The short version. Each card opens that part of the tour.</p>
+        <p>The short version. Each card opens that part of the tour or the guide.</p>
         <div class="grid">
           <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/NEW.md">
             <span class="icon" aria-hidden="true">✚</span>
@@ -109,6 +110,26 @@
             <h3>Secrets hidden</h3>
             <p>Passwords, RADIUS and TACACS keys, PSKs and SNMP communities in known formats are swapped for <code>&lt;secret hidden&gt;</code>. Not every secret, so still look before you share.</p>
           </a>
+          <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/UNDO.md">
+            <span class="icon" aria-hidden="true">↶</span>
+            <h3>Undo</h3>
+            <p>Casper keeps a copy of your folder before each task. <code>/undo</code>, <code>/redo</code> and <code>/diff</code> work on any saved task, also outside git.</p>
+          </a>
+          <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/SECURITY.md">
+            <span class="icon" aria-hidden="true">▣</span>
+            <h3>A sandbox, and asks</h3>
+            <p>On macOS and Linux the AI's shell and your checks run in a sandbox. Before the AI's shell reaches another machine over <code>ssh</code>, Casper asks, and an ssh password goes to ssh only, never to the AI.</p>
+          </a>
+          <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/PACKS.md">
+            <span class="icon" aria-hidden="true">❖</span>
+            <h3>Skill packs and themes</h3>
+            <p><code>/pack add</code> a folder or a GitHub commit of skills after a box that shows every file. Pick a colour theme in <code>/settings</code>.</p>
+          </a>
+          <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/GITHUB.md">
+            <span class="icon" aria-hidden="true">⇡</span>
+            <h3>Pull requests and CI</h3>
+            <p>Ask which pull requests are open or why a check failed. Casper reads the failing step. The AI never sees your GitHub login.</p>
+          </a>
           <a class="card" href="tour.html#zero-tokens">
             <span class="icon" aria-hidden="true">0</span>
             <h3>Zero-token commands</h3>
@@ -139,24 +160,31 @@
 
       <section aria-labelledby="receipt">
         <h2 id="receipt">What "done" looks like</h2>
-        <p>A real Casper 0.2.15 run. The AI here is a scripted stand-in so the capture is repeatable, but its edit is real, and every line after it is the real Casper code: the check, the proof and the receipt.</p>
+        <p>A real Casper 0.2.27 run. The AI here is a scripted stand-in so the capture is repeatable, but its edit is real, and every line after it is the real Casper code: the check, the proof and the receipt.</p>
         <figure class="capture">
 <pre class="term" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">fix the sum bug in src/sum.js</span>
-<span class="dim">[model] scripted/site-capture · off · credentials configured</span>
-<span class="ok">✓</span> edit · src/sum.js
-<span class="ok">✓</span> edit · tests/sum.test.js
+<span class="dim">[model]</span> scripted/site-capture · off · credentials configured
+<span class="ok">✓</span> 2 edits
+  changed src/sum.js, tests/sum.test.js
 Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
 <span class="dim">… Casper checking: test</span>
-<span class="ok">✓</span> test · 0.0s
+<span class="ok">✓</span> test
 <span class="dim">… Casper checking that the tests fail without the change</span>
-<span class="ok">✓ Verified — the checks pass, and the tests fail without the change</span>
-<span class="ok">✓</span> Changed 2 files: src/sum.js, tests/sum.test.js
-<span class="ok">✓</span> test passed (bun test, 0.0s)
-<span class="ok">✓</span> Proven: test fails without this change (exit 1) and passes with it
- src/sum.js        | 2 +-
- tests/sum.test.js | 1 +
- 2 files changed, 2 insertions(+), 1 deletion(-)</pre>
-          <figcaption>Line 1 of the receipt is the verdict. Anything less than <code>Verified</code> says why.</figcaption>
+▌ <span class="ok">✓ Verified · test passed · changed src/sum.js, tests/sum.test.js</span>
+Next: 1 Show diff · 2 Undo
+
+<span class="dim"># (typed /receipt)</span>
+
+<span class="prompt">❯</span> <span class="you">/receipt</span>
+<span class="dim">[task]</span> Execution completed
+       changes      2 files changed: src/sum.js, tests/sum.test.js
+       verification Checks pass (command execution): 1 pass, 0 fail, 0 skip; 0 repair attempt(s).
+test: scope undeclared; current files unverified; reuse disabled. Requested behavior is not
+independently certified.
+       proof        ✓ Proven: test fails without this change (exit 1) and passes with it
+       sandbox      shell commands and checks held
+       undo         available (/undo 1)</pre>
+          <figcaption>Line 1 of the receipt is the verdict. Anything less than <code>Verified</code> says why. <code>/receipt</code> shows the evidence, and <code>Next: 1 Show diff · 2 Undo</code> puts the files back.</figcaption>
         </figure>
         <p class="small muted">A passing check shows a command passed, not that the code is fully right. Review important changes yourself.</p>
       </section>
@@ -171,12 +199,12 @@ Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
 
       <section aria-labelledby="safety">
         <h2 id="safety">Good to know</h2>
-        <p>On Linux and macOS the AI's shell and Casper's checks run in a <strong>sandbox</strong>: they write only the project, can't read <code>~/.ssh</code>, and reach only listed hosts. Windows has no sandbox yet; there the AI's shell asks before each command that changes something (reads like <code>ls</code> don't). Checks still run your project's own commands without asking. Use it in projects you trust, or start with <code>--no-verify</code>. Your code and chat may go to the model provider you picked. The <a href="faq.html">FAQ</a> has more.</p>
+        <p>On Linux and macOS the AI's shell and Casper's checks run in a <strong>sandbox</strong>: they write only the project, temp and package caches, can't read <code>~/.ssh</code>, and reach only listed hosts. Windows has no sandbox yet, and neither does Linux without bubblewrap; there the AI's shell asks before each command that changes something (reads like <code>ls</code> don't). Checks still run your project's own commands without asking. Use it in projects you trust, or start with <code>--no-verify</code>. Your code and chat may go to the model provider you picked. The <a href="faq.html">FAQ</a> has more.</p>
       </section>
 
       <section aria-labelledby="next">
         <h2 id="next">New in 0.2.27</h2>
-        <p>Add a pack of skills from a folder or a GitHub commit after a box that shows every file, and pick a colour theme (light or high contrast) in <code>/settings</code>. <code>/mcp</code> is now one line per server with an arrow-key picker to connect, disconnect, forget or change writes and the sandbox. A picture you paste is also saved where the AI can open it, and a file you copied pastes as its path. The network server it installs (0.1.2) returns far shorter Central answers and a firmware upgrade that works, Casper can now look at this repo's pull requests and CI on GitHub and re-run failed checks (it asks first, and the AI never sees your login), it starts quietly on Linux and in WSL, and it fetches ripgrep itself. An older <code>gh</code> no longer stops an install.</p>
+        <p>Add a pack of skills from a folder or a GitHub commit after a box that shows every file, and pick a colour theme (light or high contrast) in <code>/settings</code>. <code>/mcp</code> is now one line per server with an arrow-key picker to connect, disconnect, forget or change writes and the sandbox. A picture you paste is also saved where the AI can open it, and a file you copied pastes as its path. The network server it installs (0.1.2) returns far shorter Central answers and a firmware upgrade that works, Casper can now look at this repo's pull requests and CI on GitHub and re-run failed checks (it asks first, and the AI never sees your login), it starts quietly on Linux and in WSL, and it fetches ripgrep itself. An older <code>gh</code> no longer stops an install. When an <code>ssh</code> you allowed asks for a password, Casper shows its own hidden box and the password goes to ssh only. Long checks show a live line while they run.</p>
       </section>
     </div>
   </main>

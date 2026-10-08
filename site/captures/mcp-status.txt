@@ -1,27 +1,39 @@
-# Casper 0.2.15 · /mcp, connecting a local test server, and turning its writes on
-# (typed answers: 1, then 2)
+# Casper 0.2.27 · /mcp is one line per server with a picker; connecting a local test server, then turning its writes on
+# (typed answers: 1 and 2 in the picker, 1 for "Remember", then 2 for writes)
 
 ❯ /mcp
-fixture [stdio; disconnected] 0 tools · writes off
-  source: ~/.casper/mcp.json
-  limits: start 20 s · call 90 s
-Writes off: write and delete tools are hidden, and every other change still asks you. /mcp writes
-<name> turns writes on.
-❯ /mcp connect fixture
-fixture [stdio; ready] 340 tools · writes off · access not checked
-  source: ~/.casper/mcp.json
-  limits: start 20 s · call 90 s
-Writes off: write and delete tools are hidden, and every other change still asks you. /mcp writes
-<name> turns writes on.
+fixture  not connected
+network: not set up — /mcp setup network
+
+Pick a server
+→ 1 fixture  not connected
+  2 Done
+Press 1-2 or Up/Down + Enter · type to answer · Esc skip
+
+# (pressed 1, then 2 = Connect under "fixture": Details / Connect / Back)
+
+[mcp] fixture connected · 340 tools · writes off
 Next time it connects on its own, with writes off. Every change still asks you.
 Remember fixture?
 → 1 No
   2 Yes
 Press 1-2 or Up/Down + Enter · Esc is No
+
+# (pressed 1)
+
 [mcp] Not remembered. fixture is connected for this session only.
+
+❯ /mcp
+fixture  ready · 340 tools · writes off · not sandboxed
+Heads up: fixture runs outside the sandbox.
+network: not set up — /mcp setup network
+
 ❯ /mcp writes fixture
 fixture writes are off.
 → 1 Keep writes off
   2 Enable for this server
 Press 1-2 or Up/Down + Enter · Esc is No
+
+# (pressed 2)
+
 [mcp] Writes on for fixture. Each change still asks you. ctrl+o turns writes off.

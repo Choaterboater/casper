@@ -1,10 +1,10 @@
 // Capture helper for the website. A scripted stand-in for the model: no provider, no API key,
-// no network. Everything else (checks, proof, receipts, MCP, approvals) is real Casper 0.2.15.
+// no network. Everything else (checks, proof, receipts, MCP, approvals) is the real Casper code of this checkout.
 // Run from a project folder:  bun <casper>/site/captures/capture-app.ts
 // The scripted "model" acts on the first request it sees, then makes no more changes.
 import { readFile, writeFile } from "node:fs/promises";
 import { CasperApp } from "../../src/app";
-import { installShutdownHandlers } from "../../src/cli";
+import { installShutdownHandlers } from "../../src/cli-main";
 import { taskExitCode } from "../../src/task/result";
 import { formatJsonEvent, receiptEvent, type CasperEvent } from "../../src/app/json-events";
 import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeTool } from "../../src/runtime/types";

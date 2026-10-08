@@ -1,4 +1,4 @@
-# Casper 0.2.27 · a write tool on an MCP server asks first; 1 (or Esc) says no
+# Casper 0.2.27 · the same write, answered 2 (Yes, this once)
 
 ❯ set the lab site on the fixture server
 [model] scripted/site-capture · off · credentials configured
@@ -15,11 +15,7 @@ Make this change?
   confirm)
 Press 1-4 or Up/Down + Enter · Esc is No
 
-# (pressed 1)
+# (pressed 2)
 
-[approval] denied
-The change was not made.
-
-# (pressed ctrl+o)
-
-[mcp] Writes off for fixture. Every change asks you again.
+[approval] allowed
+The server says the site is set.

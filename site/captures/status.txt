@@ -1,4 +1,4 @@
-# Casper 0.2.15 · /status before any model is picked
+# Casper 0.2.27 · /status before any model is picked
 
 ❯ /status
  project   project
@@ -7,18 +7,21 @@
  build     (not detected)
  test      bun test
  profile   default
- branch    master
- model     none saved yet (/model picks one, or your first prompt offers sign-in)
- auth      checked when the model starts (/login adds a provider)
- skills    0 indexed; imports: none (/skills diagnostics)
+ branch    main
+ model     none yet · your first request picks one (/model to choose)
+ skills    7 indexed (7 bundled); imports: none (/skills diagnostics)
  mcp       1 configured (/mcp for connection status)
  lsp       0 configured (/lsp for connection status)
  browser   idle; disposable local browser (/browser)
+ web       on (DuckDuckGo) · /settings turns it off
+ reader    on · /settings turns it off
  services  0 declared, 0 running (/services)
  debugger  idle; explicit local DAP (/debug)
- context   — · — session tokens (/context, /usage)
- policy    native coding tools enabled; not sandboxed (/permissions)
+ context   — · — tokens (/context, /usage)
+ policy    native coding tools enabled (/permissions)
+ shell     sandboxed · writes: this project, temp, package caches · hosts: 11 listed (/sandbox)
  checks    test — run after each change
  visualize mermaid, mindmesh (/visualize)
  memory    explicit facts and local task summaries (/memory)
  references read-only local sources (/references)
+ undo      no copies yet (a copy is made before each task; /undo, /diff)

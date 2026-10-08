@@ -124,6 +124,10 @@
             password or a key's passphrase, Casper shows its own hidden box and the password goes to ssh only, never to the AI;
             <code>ssh_login: off</code> turns it off.</li>
             <li><strong><code>/security-review update</code></strong> works with the shell sandbox on.</li>
+            <li><strong>Live lines while it waits.</strong> A long check shows <code>test · 3m05s</code> with its last
+            output line; a quiet model shows <code>Waiting for &lt;model&gt; · 14s</code>.</li>
+            <li><strong>A tighter sandbox.</strong> After <code>/branch</code> and <code>/switch</code> the AI's shell
+            always uses the session's current sandbox, and a linked git worktree's pointer files stay read-only.</li>
           </ul>
         </article>
 
@@ -166,7 +170,7 @@
         </article>
 
         <article class="card" id="v0224" aria-labelledby="v0224-h">
-          <h3 id="v0224-h">v0.2.24 · Builders the AI starts, plain words, an off switch for every default</h3>
+          <h3 id="v0224-h">v0.2.24 · Builders the AI starts, plain words, an off switch for every default <span class="badge">released</span></h3>
           <p>The AI splits a big job across builders itself, you steer a task with plain words, every
           default can be turned off in <code>/settings</code>, and every request carries about 790 fewer
           fixed tokens.</p>
@@ -196,7 +200,7 @@
         </article>
 
         <article class="card" id="v0223" aria-labelledby="v0223-h">
-          <h3 id="v0223-h">v0.2.23 · Casper doctor, a sandboxed network server, a reader for untrusted text</h3>
+          <h3 id="v0223-h">v0.2.23 · Casper doctor, a sandboxed network server, a reader for untrusted text <span class="badge">released</span></h3>
           <p>Casper checks its own setup, its network server runs in the sandbox, the AI reads untrusted
           text at arm's length, the AI can see pictures and the pages it built, and
           <code>/mcp login</code> asks which product.</p>
@@ -248,7 +252,7 @@
         </article>
 
         <article class="card" id="v0222" aria-labelledby="v0222-h">
-          <h3 id="v0222-h">v0.2.22 · One box for every yes, a network server Casper sets up</h3>
+          <h3 id="v0222-h">v0.2.22 · One box for every yes, a network server Casper sets up <span class="badge">released</span></h3>
           <p>Every question that lets something happen is the same numbered box, Casper sets up its
           own network server, and device checks ask before they touch anything.</p>
           <ul>
@@ -296,7 +300,7 @@
         </article>
 
         <article class="card" id="v0221" aria-labelledby="v0221-h">
-          <h3 id="v0221-h">v0.2.21 · A clearer screen, pages at phone width</h3>
+          <h3 id="v0221-h">v0.2.21 · A clearer screen, pages at phone width <span class="badge">released</span></h3>
           <p>The first published build since v0.2.15. It ships everything from v0.2.16 to v0.2.20
           below, plus a screen you can turn up or down and stricter page checks.</p>
           <ul>
@@ -324,7 +328,7 @@
         </article>
 
         <article class="card" id="v0220" aria-labelledby="v0220-h">
-          <h3 id="v0220-h">v0.2.20 · Fewer layers</h3>
+          <h3 id="v0220-h">v0.2.20 · Fewer layers <span class="badge">released</span></h3>
           <p>Less in your way. Casper and the AI do the next step themselves, and things start on,
           with an off switch.</p>
           <ul>
@@ -356,7 +360,7 @@
         </article>
 
         <article class="card" id="v0219" aria-labelledby="v0219-h">
-          <h3 id="v0219-h">v0.2.19 · Asks before reaching other machines</h3>
+          <h3 id="v0219-h">v0.2.19 · Asks before reaching other machines <span class="badge">released</span></h3>
           <p>The AI's shell can reach a switch or a server. Now Casper asks first, hides more
           secrets, and the receipt says what happened over there.</p>
           <ul>
@@ -379,7 +383,7 @@
         </article>
 
         <article class="card" id="v0218" aria-labelledby="v0218-h">
-          <h3 id="v0218-h">v0.2.18 · Network skills</h3>
+          <h3 id="v0218-h">v0.2.18 · Network skills <span class="badge">released</span></h3>
           <p>Short how-to files for the network products you use, built in.</p>
           <ul>
             <li><strong>Six built-in skills:</strong> Juniper Mist, HPE Aruba Networking Central
@@ -393,7 +397,7 @@
         </article>
 
         <article class="card" id="v0217" aria-labelledby="v0217-h">
-          <h3 id="v0217-h">v0.2.17 · Undo, receipts and a sandbox</h3>
+          <h3 id="v0217-h">v0.2.17 · Undo, receipts and a sandbox <span class="badge">released</span></h3>
           <p>The "oops" release. Take changes back, keep proof of what happened, and fence in the
           shell.</p>
           <ul>
@@ -421,7 +425,7 @@
         </article>
 
         <article class="card" id="v0216" aria-labelledby="v0216-h">
-          <h3 id="v0216-h">v0.2.16 · Build new things</h3>
+          <h3 id="v0216-h">v0.2.16 · Build new things <span class="badge">released</span></h3>
           <p>Start new projects, see pages load after edits, and run network and security checks.
           Most of it makes no model call, so it costs zero tokens.</p>
           <ul>
@@ -449,7 +453,7 @@
         </article>
 
         <article class="card" id="v0215" aria-labelledby="v0215-h">
-          <h3 id="v0215-h">v0.2.15 · MCP for network servers, with writes off</h3>
+          <h3 id="v0215-h">v0.2.15 · MCP for network servers, with writes off <span class="badge">released</span></h3>
           <p>This one is for network people. MCP servers (tool servers the AI can call) such as
           hpe-networking-mcp, junos-mcp-server, Mist and NetBox now work with Casper. The AI can read.
           Changing things is up to you.</p>
@@ -475,7 +479,7 @@
         </article>
 
         <article class="card" id="v0214" aria-labelledby="v0214-h">
-          <h3 id="v0214-h">v0.2.14 · See it build, trust the result</h3>
+          <h3 id="v0214-h">v0.2.14 · See it build, trust the result <span class="badge">released</span></h3>
           <p>The receipt got a verdict line, and the screen got livelier.</p>
           <p class="verdict ok">✓ Verified — the checks pass, and the tests fail without the change</p>
           <ul>
@@ -496,7 +500,7 @@
         </article>
 
         <article class="card" id="v0213" aria-labelledby="v0213-h">
-          <h3 id="v0213-h">v0.2.13 · Casper runs the checks</h3>
+          <h3 id="v0213-h">v0.2.13 · Casper runs the checks <span class="badge">released</span></h3>
           <p>The first published build since v0.1.0. The big idea arrived here: don't take the AI's
           word for it.</p>
           <ul>
@@ -517,7 +521,7 @@
         </article>
 
         <article class="card" id="v010" aria-labelledby="v010-h">
-          <h3 id="v010-h">v0.1.0 · The first preview</h3>
+          <h3 id="v010-h">v0.1.0 · The first preview <span class="badge">released</span></h3>
           <p>Where it all started. The first published preview of Casper.</p>
           <ul>
             <li>Tested by hand on macOS. The test run passed 543 tests with 0 failures.</li>
@@ -534,22 +538,16 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>These are built and in the code, but not in any release yet. They ship with the next
-          preview.</p>
+          <p>Nothing is built and waiting beyond v0.2.27 right now. When a change lands on the main branch before the
+          next preview, it is listed here until the preview ships.</p>
         </aside>
-
-        <ul>
-          <li><strong>An empty folder starts quietly.</strong> No type picker at startup. In an empty folder, a first request that fits a template (a NOC
-          dashboard, an MCP server) builds it with one plain line; any other request goes to the AI. Say "from scratch" to skip a template, or turn <strong>Starter templates</strong>
-          off in <code>/settings</code> (<code>templates: off</code>).</li>
-        </ul>
       </section>
 
       <section id="coming" aria-labelledby="coming-h">
         <h2 id="coming-h">Planned, not started</h2>
         <aside class="callout soon">
           <strong class="callout-title">Not in any release yet</strong>
-          <p>Nothing else in this section is in v0.2.25: the first part of Crews shipped in v0.2.23, AI-started
+          <p>Nothing else in this section is in v0.2.27: the first part of Crews shipped in v0.2.23, AI-started
           builders in v0.2.24, reviewers and a fix round in v0.2.25, and the rest has not been started. Names, commands and details may change, or move to a later version, before
           they ship.</p>
         </aside>

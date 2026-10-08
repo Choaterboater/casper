@@ -191,7 +191,7 @@
               <tr>
                 <th scope="row">MCP servers</th>
                 <td class="no">Not built in ("No MCP" is part of Pi's design). Add it with an extension.</td>
-                <td class="yes">Built in. Every server starts with writes off. Each change asks in plain words: <code>1 No · 2 Yes, this once · 3 Yes, for this session</code>. <code>ctrl+o</code> turns writes off again.</td>
+                <td class="yes">Built in. Every server starts with writes off. Each change asks in plain words: <code>1 No · 2 Yes, this once · 3 Yes, for this session</code>, and a fourth wide answer for a whole product. <code>ctrl+o</code> turns writes off again.</td>
               </tr>
               <tr>
                 <th scope="row">"Read-only" label</th>
@@ -206,7 +206,7 @@
               <tr>
                 <th scope="row">Permission prompts</th>
                 <td class="no">None built in ("No permission popups"). Build your own or use a container.</td>
-                <td class="yes">Risky actions ask you, and the AI cannot approve for you. Reaching another machine over <code>ssh</code> and a write outside the project ask too.</td>
+                <td class="yes">Risky actions ask you, and the AI cannot approve for you. Reaching another machine over <code>ssh</code> and a write outside the project ask too. An ssh password goes into a hidden box of Casper's own, never to the AI.</td>
               </tr>
               <tr>
                 <th scope="row">Questions to you</th>
@@ -219,6 +219,11 @@
                 <td class="yes"><code>--json</code> events ending in a receipt object, plus exit codes: 1 failed, 2 incomplete, 3 not verified (with <code>--require-verification</code>).</td>
               </tr>
               <tr>
+                <th scope="row">Undo a task's file changes</th>
+                <td class="no">Not built in (git checkpointing is something you build with an extension).</td>
+                <td class="yes">Yes. Casper keeps a copy of the folder before each task: <code>/undo</code>, <code>/redo</code>, <code>/diff</code>, also outside git.</td>
+              </tr>
+              <tr>
                 <th scope="row">Things that cost zero tokens</th>
                 <td>Local commands</td>
                 <td class="yes">Checks, <code>/verify</code>, <code>/mcp</code>, <code>/diff</code>, <code>/receipt</code> and local reference search make no model call.</td>
@@ -226,7 +231,7 @@
               <tr>
                 <th scope="row">Sign-in choices</th>
                 <td class="yes">Many providers, by subscription or API key</td>
-                <td><code>/login</code> offers four: OpenAI Codex, GitHub Copilot, Anthropic, OpenRouter.</td>
+                <td><code>/login</code> offers four: OpenRouter, Anthropic, OpenAI Codex, GitHub Copilot. A model on your own computer works too.</td>
               </tr>
               <tr>
                 <th scope="row">Extensions and Pi packages</th>
@@ -241,7 +246,7 @@
               <tr>
                 <th scope="row">Sandbox</th>
                 <td class="no">No</td>
-                <td class="yes">Yes on Linux (through bubblewrap, a small sandbox tool) and macOS: the AI's shell, checks, services and dev servers write only the project, temp and package caches and can't read <code>~/.ssh</code>; the AI's shell and checks reach only listed hosts (others ask), while services and dev servers keep the machine's network on Linux and reach only listed hosts on macOS. Windows has no sandbox yet; there the AI's shell asks before each command that changes something (reads like <code>ls</code> don't).</td>
+                <td class="yes">Yes on Linux (through bubblewrap, a small sandbox tool) and macOS: the AI's shell, checks, services and dev servers write only the project, temp and package caches and can't read <code>~/.ssh</code>; the AI's shell and checks reach only listed hosts (others ask), while services and dev servers keep the machine's network on Linux and reach only listed hosts on macOS. Windows has no sandbox yet, and neither does Linux without bubblewrap; there the AI's shell asks before each command that changes something (reads like <code>ls</code> don't).</td>
               </tr>
             </tbody>
           </table>
@@ -298,7 +303,7 @@
 
       <section id="show" aria-labelledby="show-h">
         <h2 id="show-h">Two things you can see for yourself</h2>
-        <p class="prose">Real Casper 0.2.15 output. The AI here is a scripted stand-in (no model
+        <p class="prose">Real Casper 0.2.27 output. The AI here is a scripted stand-in (no model
         key needed). Everything Casper does after the AI's edit is the real code.</p>
 
         <h3>A script gets the verdict, not just text</h3>
@@ -340,12 +345,12 @@ receipt
       "command": "bun test",
       "status": "pass",
       "exit": 0,
-      "ms": 10,
+      "ms": 314,
       "fresh": true
     }
   ],
   "proof": "proven",
-  "verdict": "<span class="ok">✓</span> Verified — the checks pass, and the tests fail without the change"
+  "verdict": "✓ Verified — the checks pass, and the tests fail without the change"
 }</pre>
           <figcaption>One JSON object per line; the last one is the receipt. Plain Pi's
           <code>--mode json</code> also streams events, but has no receipt or verdict to read.</figcaption>
@@ -356,22 +361,28 @@ receipt
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">set the lab site on the fixture server</span>
 <span class="dim">[model]</span> scripted/site-capture · off · credentials configured
 I will ask the fixture server to change the site.
-<span class="warn">Change in fixture: set site</span>
+Change in fixture: set site
   site             lab
 This makes the change.
 MCP · fixture · set_site  [write]
-  1 No
-  2 Yes, this once
-  3 Yes, for this session
-  4 Yes to everything on fixture this session (no more asking, even reboots, deletes or an AI-set confirm)
-Type 1, 2, 3 or 4:
+Make this change?
+<span class="accent">→</span> 1 No
+  <span class="accent">2</span> Yes, this once
+  <span class="accent">3</span> Yes, for this session
+  <span class="accent">4</span> Yes to everything on fixture this session (no more asking, even reboots, deletes or an AI-set
+  confirm)
+Press 1-4 or Up/Down + Enter · Esc is No
 
-<span class="dim"># (typed: 1)</span>
+<span class="dim"># (pressed 1)</span>
 
-[approval] denied
-The change was not made.</pre>
-          <figcaption>A local test server, not a real device. <code>1</code>, Enter or anything other than
-          2 or 3 means no. <code>ctrl+o</code> turns writes off again.</figcaption>
+<span class="dim">[approval]</span> denied
+The change was not made.
+
+<span class="dim"># (pressed ctrl+o)</span>
+
+<span class="dim">[mcp]</span> Writes off for fixture. Every change asks you again.</pre>
+          <figcaption>A local test server, not a real device. <code>1</code>, Enter or Esc means no.
+          <code>ctrl+o</code> turns writes off again.</figcaption>
         </figure>
       </section>
 
@@ -389,11 +400,10 @@ The change was not made.</pre>
           too small to call a result, but they taught us two honest things:</p>
           <ul>
             <li><strong>"Verified" is not "everything you asked is done".</strong> It means the checks
-            passed and the tests prove the change. On one hard set of tasks, Casper said
-            <code>Verified</code> on 12 runs that were still wrong: each skipped a case that no
-            test covered. That is why the request checklist exists. In the same test set it cut
-            wrong runs from 7 of 48 to 2 of 48. Plain Pi had 3 of 48 there, so that is "about the
-            same", not "better".</li>
+            passed and the tests prove the change. On a hard set of tasks Casper still said
+            <code>Verified</code> on some runs that were wrong, because they skipped a case no test
+            covered. That is why the request checklist exists. It helped, but it did not turn
+            "Verified" into "correct".</li>
             <li><strong>Casper often takes longer than Pi.</strong> Checks, proof and the checklist
             all cost time, and sometimes tokens. That is the trade.</li>
           </ul>

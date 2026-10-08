@@ -1,4 +1,4 @@
-# Casper 0.2.15 · casper mcp check on a test MCP server whose tool labels are wrong on purpose
+# Casper 0.2.27 · casper mcp check on a test MCP server whose tool labels are wrong on purpose
 # (long lines wrapped at a space to fit 100 columns)
 
 $ casper mcp check . --quick
@@ -13,7 +13,7 @@ Repo checks
 redact, confirm, dry_run, annotation).
   skip  tests         --quick
 Server
-  ok    starts        in 0.1 s, 6 tools
+  ok    starts        in 0.2 s, 6 tools
   fail  label         delete_site is labeled read-only, but the name says it changes things.
   fail  label         port_bounce is labeled write, but the name says it can cut service. Mark it
 destructiveHint: true.

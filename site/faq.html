@@ -70,10 +70,10 @@
           <summary>Which AI models can I use?</summary>
           <p>Type <code>/login</code> and pick a provider:</p>
           <ul>
+            <li>OpenRouter (many model makers behind one sign-in)</li>
+            <li>Anthropic (Claude)</li>
             <li>OpenAI Codex</li>
             <li>GitHub Copilot</li>
-            <li>Anthropic (Claude)</li>
-            <li>OpenRouter (many model makers behind one sign-in)</li>
           </ul>
           <p>If you skip <code>/login</code>, Casper opens sign-in on your first request and picks that
           provider's default model (for OpenRouter, <code>deepseek/deepseek-v4.1-flash</code>).
@@ -111,13 +111,15 @@
               <thead><tr><th scope="col">System</th><th scope="col">What is tested</th></tr></thead>
               <tbody>
                 <tr><td>macOS (Apple silicon, Intel)</td><td>Tested by hand, plus the full test suite</td></tr>
-                <tr><td>Windows x64</td><td>Install and startup, in CI, under PowerShell 5.1 and 7. The interactive screen is not yet tested on a real desktop.</td></tr>
-                <tr><td>Linux (x64, arm64)</td><td>The release build runs <code>casper-linux-x64 --version</code> on Ubuntu. No full run on a real Linux machine yet.</td></tr>
+                <tr><td>Windows x64</td><td>Install and startup, in CI, under PowerShell 5.1 and 7, and the full test suite. The interactive screen is not yet tested on a real desktop.</td></tr>
+                <tr><td>Linux (x64, arm64)</td><td>The full test suite in CI on Ubuntu, and the release build runs <code>casper-linux-x64 --version</code>. No full run of the interactive screen on a real Linux machine yet.</td></tr>
                 <tr><td>Windows ARM64</td><td>From v0.2.23: built, started and installed in CI on a GitHub ARM64 runner. The full test suite and the interactive screen have not run on ARM64.</td></tr>
               </tbody>
             </table>
           </div>
-          <p>Details: <a href="https://github.com/Choaterboater/casper/blob/main/docs/PLATFORM_SUPPORT.md">PLATFORM_SUPPORT.md</a>.</p>
+          <p>Details: <a href="https://github.com/Choaterboater/casper/blob/main/docs/PLATFORM_SUPPORT.md">PLATFORM_SUPPORT.md</a>.
+          Inside Windows, WSL counts as Linux: it is a separate install with its own <code>~/.casper</code> and sign-in
+          (<a href="https://github.com/Choaterboater/casper/blob/main/docs/WINDOWS.md">WINDOWS.md</a>).</p>
         </details>
       </section>
 
@@ -158,18 +160,24 @@ Change in fixture: set site
   site             lab
 This makes the change.
 MCP · fixture · set_site  [write]
-  1 No
-  2 Yes, this once
-  3 Yes, for this session
-  4 Yes to everything on fixture this session (no more asking, even reboots, deletes or an AI-set confirm)
-Type 1, 2, 3 or 4:
+Make this change?
+<span class="accent">→</span> 1 No
+  <span class="accent">2</span> Yes, this once
+  <span class="accent">3</span> Yes, for this session
+  <span class="accent">4</span> Yes to everything on fixture this session (no more asking, even reboots, deletes or an AI-set
+  confirm)
+Press 1-4 or Up/Down + Enter · Esc is No
 
-<span class="dim"># (typed: 1)</span>
+<span class="dim"># (pressed 1)</span>
 
 <span class="dim">[approval]</span> denied
-The change was not made.</pre>
+The change was not made.
+
+<span class="dim"># (pressed ctrl+o)</span>
+
+<span class="dim">[mcp]</span> Writes off for fixture. Every change asks you again.</pre>
             <figcaption>A local test server (it never touches a device). The AI asks to change a site.
-            <code>1</code>, Enter or anything other than 2 or 3 means no.</figcaption>
+            <code>1</code>, Enter or Esc means no. <code>ctrl+o</code> then turns writes off again.</figcaption>
           </figure>
           <p>Be honest with yourself about the limits, though:</p>
           <ul>
@@ -241,20 +249,18 @@ The change was not made.</pre>
 <span class="ok">✓</span> edit · src/sum.js
 sum now turns its inputs into numbers first.
 <span class="dim">… Casper checking: test</span>
-<span class="ok">✓</span> test · 0.0s
+<span class="ok">✓</span> test
 <span class="dim">… Casper checking that the tests fail without the change</span>
 <span class="accent">↻</span> repair 1/1: add a test that fails without the change
 (scripted model) No more changes.
-<span class="ok">✓</span> test · 0.0s
+<span class="ok">✓</span> test
 <span class="dim">… Casper checking that the tests fail without the change</span>
-<span class="dim">•</span> Not verified — the tests pass without the change too
-<span class="ok">✓</span> Changed 1 file: src/sum.js
-<span class="accent">↻</span> Casper tried 1 repair
-<span class="ok">✓</span> test passed (bun test, 0.0s)
-<span class="warn">⚠</span> Not proven: test passes without this change too, and no test was added or changed
- src/sum.js | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)</pre>
-            <figcaption>Captured from Casper with a scripted stand-in for the AI. It adds no test, so the
+▌ <span class="dim">•</span> Not verified — the tests pass without the change too
+▌ <span class="ok">✓</span> test passed · changed src/sum.js
+▌ <span class="accent">↻</span> Casper tried 1 repair
+▌ <span class="warn">⚠</span> Not proven: test passes without this change too, and no test was added or changed
+Next: 1 Show diff · 2 Undo</pre>
+            <figcaption>Captured from Casper 0.2.27 with a scripted stand-in for the AI. It adds no test, so the
             verdict stays "Not verified".</figcaption>
           </figure>
           <p>Some changes need no proof: test-only, docs-only and refactor changes. The receipt says
@@ -279,7 +285,7 @@ sum now turns its inputs into numbers first.
             <li>connecting an MCP server the first time, or turning its writes on;</li>
             <li>setting up Casper's network server, and a product's login the first time the AI uses it;</li>
             <li>a device check, before anything is sent to a device;</li>
-            <li>a check that timed out or could not start: retry, fix it anyway (uses tokens), or
+            <li>a check that timed out or could not start: stop, retry, fix it anyway (uses tokens), or
             allow more time;</li>
             <li>a test that was <em>already</em> failing before the change, before paying to fix
             it;</li>
@@ -293,38 +299,41 @@ sum now turns its inputs into numbers first.
             <li>a picture in your request when the model can't see pictures: send without it, or switch for that request;</li>
             <li>a public link for <code>/preview</code> (your network needs no question);</li>
             <li>each fix <code>casper doctor</code> offers;</li>
+            <li>the first time the AI looks at this repo's pull requests and CI on GitHub, and before it re-runs failed checks;</li>
+            <li>an <code>ssh</code> password, in Casper's own hidden box (the AI never sees it);</li>
             <li>adding a pack, after it shows what the pack brings (<code>1 No · 2 Yes, add it · 3 Show me what's inside</code>);</li>
             <li>which product, when you type <code>/mcp login</code> on its own;</li>
             <li>building a request as a new project when you started in a folder that holds other things (an empty folder asks nothing).</li>
           </ul>
-          <p>Answers are numbered: press the number. <kbd>Esc</kbd> skips.</p>
+          <p>Answers are numbered: press the number. <kbd>Esc</kbd> skips. Choice 1 is always the one that does nothing risky.</p>
           <figure class="capture">
             <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">/verify</span>
-<span class="dim">–</span> typecheck · skipped, no command
+<span class="dim">[verify]</span> No typecheck command here, so Casper runs lint, test and build.
 <span class="bad">✗</span> lint · could not start (exit 127)
 <span class="dim">╭─ lint: stderr ───────────────────────────────────────────────────────────────────────────────────╮</span>
-│ /bin/sh: 1: node: not found                                                                      │
+│ /bin/bash: line 1: node: command not found                                                       │
 <span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
-<span class="ok">✓</span> test · 0.0s
-<span class="ok">✓</span> build · 0.0s
-<span class="dim">────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span class="ok">✓</span> test
+<span class="ok">✓</span> build
+────────────────────────────────────────────────────────────────────────────────────────────────────
 lint could not start. Casper did not try to fix it. What now?
-<span class="accent">→ 1 Retry</span>  run it again with the same limit
-  2 Fix it anyway  ask the model to fix why it could not start (uses tokens)
-<span class="dim">Press 1-2 or Up/Down + Enter · type to answer · Esc skip</span>
+<span class="accent">→</span> 1 Stop  keep the changes; the receipt says it did not finish
+  <span class="accent">2</span> Retry  run it again with the same limit
+  <span class="accent">3</span> Fix it anyway  ask the model to fix why it could not start (uses tokens)
+Press 1-3 or Up/Down + Enter · type to answer · Esc skip
 
 <span class="dim"># (Esc pressed: skip)</span>
 
-• Retry  run it again with the same limit
-• Fix it anyway  ask the model to fix why it could not start (uses tokens)
+<span class="dim">•</span> Stop  keep the changes; the receipt says it did not finish
+<span class="dim">•</span> Retry  run it again with the same limit
+<span class="dim">•</span> Fix it anyway  ask the model to fix why it could not start (uses tokens)
   (skipped)
 <span class="bad">✗</span> Not checked — lint could not start, so the change was not tested
-<span class="dim">•</span> Not verified — typecheck has no command. Add verify.typecheck to .casper/project.yaml.
 <span class="bad">✗</span> lint could not start (exit 127) — check verify.lint in .casper/project.yaml
-<span class="ok">✓</span> test passed (bun test, 0.0s)
-<span class="ok">✓</span> build passed (bun build src/sum.js --outdir dist, 0.0s)</pre>
+<span class="ok">✓</span> test passed (bun test)
+<span class="ok">✓</span> build passed (bun build src/sum.js --outdir dist)</pre>
             <figcaption><code>node</code> was left off the PATH on purpose. The lint check could not
-            start, so Casper asks instead of paying the AI to "fix" your code.</figcaption>
+            start, so Casper asks instead of paying the AI to "fix" your code. Esc stops.</figcaption>
           </figure>
         </details>
       </section>
@@ -410,6 +419,35 @@ lint could not start. Casper did not try to fix it. What now?
         </details>
 
         <details>
+          <summary>Can the AI look at my pull requests and CI?</summary>
+          <p>Yes, on GitHub, when the folder's <code>origin</code> is on github.com and the GitHub tool
+          <code>gh</code> is signed in (<code>gh auth login</code>, in your own terminal). Ask "check my PRs" or
+          "why did CI fail on 12?". Casper runs <code>gh</code> itself with a short fixed list of actions (open pull
+          requests, one pull request's checks, the failing step and last log lines, re-run failed checks). The AI
+          never sees your GitHub login, and what GitHub sends back is marked as other people's words. The first use
+          in a repo asks, and re-running failed checks asks first. It does not push, open or merge anything.
+          Turn it off with <b>GitHub tool</b> in <code>/settings</code>. See
+          <a href="https://github.com/Choaterboater/casper/blob/main/docs/GITHUB.md">GITHUB.md</a>.</p>
+        </details>
+
+        <details>
+          <summary>Can I add skills someone else wrote?</summary>
+          <p>Yes, as a <strong>pack</strong>: <code>/pack add &lt;folder&gt;</code> or
+          <code>/pack add https://github.com/&lt;owner&gt;/&lt;repo&gt;@&lt;commit&gt;</code>. Casper shows what is inside
+          (<code>1 No · 2 Yes, add it · 3 Show me what's inside</code>) and adds nothing until you say yes. A pack holds
+          plain text files only and nothing in it runs. Only you can add one, and a pack costs no tokens until a
+          request fits one of its skills. <b>Packs</b> in <code>/settings</code> turns them off. See
+          <a href="https://github.com/Choaterboater/casper/blob/main/docs/PACKS.md">PACKS.md</a>.</p>
+        </details>
+
+        <details>
+          <summary>Can I change the colours?</summary>
+          <p>Yes. <b>Theme</b> in <code>/settings</code> (or <code>theme:</code> in your own config) picks
+          <code>default</code>, <code>light</code> (for a light background) or <code>high-contrast</code>. It changes colours and
+          nothing else, and a project file can't set it. <code>NO_COLOR</code> still shows none.</p>
+        </details>
+
+        <details>
           <summary>How do I report a bug?</summary>
           <p>Open an <a href="https://github.com/Choaterboater/casper/issues">issue on GitHub</a>.
           Please include:</p>
@@ -479,6 +517,11 @@ lint could not start. Casper did not try to fix it. What now?
           there and said so in one <code>[new]</code> line. Nothing was asked. Say "from scratch" in the
           request to skip it, or turn <b>Starter templates</b> off in <code>/settings</code>
           (<code>templates: off</code>). A request that fits no template just goes to the AI.</dd>
+
+          <dt>Casper says it "asks before commands that change things"</dt>
+          <dd>On Linux without bubblewrap and socat (and in WSL), and on Windows, there is no shell sandbox, so the
+          AI's shell asks before each command that changes something. <code>/sandbox</code> or <code>casper doctor</code>
+          shows the exact line to install the full sandbox. Casper fetches its own ripgrep when none is installed.</dd>
 
           <dt>No colours or live footer</dt>
           <dd>Casper switches to plain text with <code>NO_COLOR</code>, <code>TERM=dumb</code> or

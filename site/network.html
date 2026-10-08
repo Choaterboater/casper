@@ -47,6 +47,7 @@
           <li><a href="#read-only">Read-only comes from the product</a></li>
           <li><a href="#asks">What asks first, and why the AI can't say yes</a></li>
           <li><a href="#writes">Writes are off until you say so</a></li>
+          <li><a href="#ssh">ssh from the AI's shell</a></li>
           <li><a href="#junos">Junos: show commands only</a></li>
           <li><a href="#secrets">Secrets in configs are hidden</a></li>
           <li><a href="#check">Check a server you built</a></li>
@@ -101,13 +102,13 @@
         <div class="prose">
           <p>Ask about ClearPass, Marvis or an SSID, or about Mist, Central, Aruba or Wi-Fi next to a network word, or type <code>/mcp setup network</code>. Casper asks once:</p>
         </div>
-        <div class="cmd"><span class="cmd-label">casper</span><pre><code>Casper can set up its network server (casper-network-mcp 0.1.1, about 60 MB from pypi.org, installed with uv into ~/.casper/tools).
+        <div class="cmd"><span class="cmd-label">casper</span><pre><code>Casper can set up its network server (casper-network-mcp 0.1.2, about 60 MB from pypi.org, installed with uv into ~/.casper/tools).
 It starts read-only. Logins are asked per product the first time you use it.
-  1 Not now
+→ 1 Not now
   2 Set it up
-Type 1 or 2:</code></pre></div>
+Press 1-2 or Up/Down + Enter · Esc is No</code></pre></div>
         <ul class="prose">
-          <li><code>2</code> installs <a href="https://github.com/Choaterboater/casper-network-mcp">casper-network-mcp</a> at the version Casper pins, every package checked by hash, and connects it with writes off (<code>--read-only</code>). You edit no file and set no variable. It needs <a href="https://docs.astral.sh/uv/">uv</a>.</li>
+          <li><code>2</code> installs <a href="https://github.com/Choaterboater/casper-network-mcp">casper-network-mcp</a> at the version Casper pins, every package checked by hash, and connects it with writes off (<code>--read-only</code>). You edit no file and set no variable. It needs <a href="https://docs.astral.sh/uv/">uv</a>; if uv is missing, the question says so, shows uv's official installer and <code>2</code> runs it first.</li>
           <li><code>1</code> is kept: Casper doesn't offer again. <code>/mcp</code> shows how to set it up later.</li>
           <li>The first time the AI uses Mist, Central or ClearPass, Casper asks you for that login: <code>1 Not now · 2 Add a login</code>. You type it hidden; the AI never sees it. Use a narrow login, not an admin one.</li>
           <li>Casper then checks what the login can do, for example <code>Mist login: can change Branch-12 (checked)</code>. Mist and ClearPass logins are checked; a Central login shows <code>saved (not checked)</code> for now. Every change asks you in the change box, which names the product: <code>Change in Mist: …</code>.</li>
@@ -226,32 +227,51 @@ Type 1 or 2:</code></pre></div>
 
         <h3>Connect it</h3>
         <ol class="steps">
-          <li>Start <code>casper</code> in any folder and type <code>/mcp</code>. Your server shows as <code>disconnected</code>. This makes no connection and no model call.</li>
-          <li>Type <code>/mcp connect &lt;name&gt;</code>. Casper asks if it should remember the server.</li>
+          <li>Start <code>casper</code> in any folder and type <code>/mcp</code>. You get one line per server, and yours shows as <code>not connected</code>. This makes no connection and no model call.</li>
+          <li>On a normal terminal an arrow-key picker sits under the list: pick the server, then <code>Connect</code>. Or type <code>/mcp connect &lt;name&gt;</code>. Casper asks if it should remember the server. <code>/mcp detail &lt;name&gt;</code> prints everything about one server.</li>
           <li><strong>Remember</strong> means next time it connects on its own when a task needs it, always with writes off. Casper stores only a keyed hash of the definition. If the definition changes, it asks again.</li>
         </ol>
 
         <figure class="capture">
-<pre class="term" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">/mcp</span>
-fixture [stdio; disconnected] 0 tools · writes off
-  source: ~/.casper/mcp.json
-  limits: start 20 s · call 90 s
-Writes off: the server runs with its read-only settings, and every change asks you first. Answer 2
-or 3 in the change box to allow it, or /mcp writes &lt;name&gt; to turn writes on now.
-<span class="prompt">❯</span> <span class="you">/mcp connect fixture</span>
-fixture [stdio; ready] 340 tools · writes off · access not checked
-  source: ~/.casper/mcp.json
-  limits: start 20 s · call 90 s
-Writes off: the server runs with its read-only settings, and every change asks you first. Answer 2
-or 3 in the change box to allow it, or /mcp writes &lt;name&gt; to turn writes on now.
+<pre class="term" data-title="casper — ~/project"><span class="dim"># (typed answers: 1 and 2 in the picker, 1 for "Remember", then 2 for writes)</span>
+
+<span class="prompt">❯</span> <span class="you">/mcp</span>
+fixture  not connected
+network: not set up — /mcp setup network
+
+Pick a server
+<span class="accent">→</span> 1 fixture  not connected
+  <span class="accent">2</span> Done
+Press 1-2 or Up/Down + Enter · type to answer · Esc skip
+
+<span class="dim"># (pressed 1, then 2 = Connect under "fixture": Details / Connect / Back)</span>
+
+<span class="dim">[mcp]</span> fixture connected · 340 tools · writes off
 Next time it connects on its own, with writes off. Every change still asks you.
 Remember fixture?
-  1 No
-  2 Yes
-Type 1 or 2:
-<span class="dim"># (typed: 1)</span>
-<span class="dim">[mcp] Not remembered. fixture is connected for this session only.</span></pre>
-          <figcaption>A real Casper 0.2.15 run against a local test server that never touches a device. Note <code>access not checked</code>: nobody has proven this login is read-only.</figcaption>
+<span class="accent">→</span> 1 No
+  <span class="accent">2</span> Yes
+Press 1-2 or Up/Down + Enter · Esc is No
+
+<span class="dim"># (pressed 1)</span>
+
+<span class="dim">[mcp]</span> Not remembered. fixture is connected for this session only.
+
+<span class="prompt">❯</span> <span class="you">/mcp</span>
+fixture  ready · 340 tools · writes off · not sandboxed
+Heads up: fixture runs outside the sandbox.
+network: not set up — /mcp setup network
+
+<span class="prompt">❯</span> <span class="you">/mcp writes fixture</span>
+fixture writes are off.
+<span class="accent">→</span> 1 Keep writes off
+  <span class="accent">2</span> Enable for this server
+Press 1-2 or Up/Down + Enter · Esc is No
+
+<span class="dim"># (pressed 2)</span>
+
+<span class="dim">[mcp]</span> Writes on for fixture. Each change still asks you. ctrl+o turns writes off.</pre>
+          <figcaption>A real Casper 0.2.27 run against a local test server that never touches a device. The picker runs the same code as the typed commands, so every box is the same. A server you added yourself runs outside the sandbox, and <code>/mcp</code> says so. Until the product says otherwise, a login shows <code>access not checked</code>: nobody has proven it is read-only.</figcaption>
         </figure>
 
         <p class="prose small muted">Some servers are never remembered: project servers, netmiko_mcp, and servers started through a package runner that can pull new code later (<code>npx</code>, <code>uvx</code>, <code>docker run</code> with <code>:latest</code> and friends) unless you pin a version.</p>
@@ -311,21 +331,24 @@ Type 1 or 2:
         <p class="prose">Here is a write tool asking. We typed <code>2</code> (Yes, this once):</p>
         <figure class="capture">
 <pre class="term" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">set the lab site on the fixture server</span>
+<span class="dim">[model]</span> scripted/site-capture · off · credentials configured
 I will ask the fixture server to change the site.
-<span class="warn">Change in fixture: set site</span>
+Change in fixture: set site
   site             lab
 This makes the change.
-<span class="dim">MCP · fixture · set_site  [write]</span>
-  1 No
-  2 Yes, this once
-  3 Yes, for this session
-  4 Yes to everything on fixture this session (no more asking, even reboots, deletes or an AI-set confirm)
-Type 1, 2, 3 or 4:
+MCP · fixture · set_site  [write]
+Make this change?
+<span class="accent">→</span> 1 No
+  <span class="accent">2</span> Yes, this once
+  <span class="accent">3</span> Yes, for this session
+  <span class="accent">4</span> Yes to everything on fixture this session (no more asking, even reboots, deletes or an AI-set
+  confirm)
+Press 1-4 or Up/Down + Enter · Esc is No
 
-<span class="dim"># (typed: 2)</span>
+<span class="dim"># (pressed 2)</span>
 
-<span class="dim">[approval] allowed</span>
-The site is now lab.</pre>
+<span class="dim">[approval]</span> allowed
+The server says the site is set.</pre>
           <figcaption>The model here is a scripted stand-in, so the result does not depend on an AI. A key typed before the box appeared never answers it.</figcaption>
         </figure>
         <p class="prose small muted">If the tool has a preview switch, <code>Preview first</code> is added after the yes answers: it runs a dry run and shows the box again with the result. Passwords and PSKs in the box show as <code>••• 13 chars</code> on your screen; the server still gets the real value you approve.</p>
@@ -340,11 +363,13 @@ The site is now lab.</pre>
         <figure class="capture">
 <pre class="term" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">/mcp writes fixture</span>
 fixture writes are off.
-  1 Keep writes off
-  2 Enable for this server
-Type 1 or 2:
-<span class="dim"># (typed: 2)</span>
-<span class="dim">[mcp] Writes on for fixture. Each change still asks you. ctrl+o turns writes off.</span></pre>
+<span class="accent">→</span> 1 Keep writes off
+  <span class="accent">2</span> Enable for this server
+Press 1-2 or Up/Down + Enter · Esc is No
+
+<span class="dim"># (pressed 2)</span>
+
+<span class="dim">[mcp]</span> Writes on for fixture. Each change still asks you. ctrl+o turns writes off.</pre>
           <figcaption>Writes on does not mean "no more questions". Each change still shows the box.</figcaption>
         </figure>
         <ul class="prose">
@@ -352,6 +377,20 @@ Type 1 or 2:
           <li><kbd>ctrl</kbd>+<kbd>o</kbd> (or <code>/mcp writes off</code>) turns writes off for <em>every</em> server at once, even while Casper is working, ends every "for this session" answer, and denies any open change box. Think of it as the big red button.</li>
           <li>The AI's ask tool can't answer the change box or the writes box. In a one-shot run, <code>/mcp writes</code> says <code>Writes can only be turned on in an interactive session.</code></li>
           <li>If your own settings still keep writes off (say <code>HPE_MCP_ACCESS_PROFILE=safe-read-only</code> in your config), Casper tells you instead of pretending.</li>
+        </ul>
+      </section>
+
+      <section id="ssh" aria-labelledby="ssh-title">
+        <h2 id="ssh-title">ssh from the AI's shell</h2>
+        <div class="prose">
+          <p>The AI's shell can also run <code>ssh</code> and <code>scp</code> itself. Casper asks first, naming the real address:</p>
+        </div>
+        <div class="cmd"><span class="cmd-label">casper</span><pre><code>Reach 198.51.100.20 (build-server)?  ssh build-server uptime
+  1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project</code></pre></div>
+        <ul class="prose">
+          <li>A device on your lab list (<code>/lab</code>) does not ask. <code>/lab ssh off</code> makes it ask again. A run that cannot ask refuses and says so.</li>
+          <li>When an <code>ssh</code> or <code>scp</code> you allowed asks for a <strong>password</strong> or a key's passphrase, Casper shows its own hidden box: <code>1 No · 2 Yes, this once · 3 Yes, for this session</code>. The password goes to ssh only. The AI never sees it, and it is hidden wherever the AI reads. Nothing is saved to disk.</li>
+          <li><code>ssh_login: off</code> in your own config (or <strong>Private ssh passwords</strong> in <code>/settings</code>) turns the box off. A project file cannot change it.</li>
         </ul>
       </section>
 
@@ -379,13 +418,13 @@ Type 1 or 2:
         <h2 id="secrets-title">Secrets in configs are hidden</h2>
         <div class="prose">
           <p>Device configs are full of secrets. Casper swaps each one it knows for <code>&lt;secret hidden&gt;</code> before the AI reads the text, and keeps the words around it so the AI still knows what kind of line it is. It is on by default.</p>
-          <p>It covers every MCP result (always), config files you or the AI read (<code>.cfg</code>, <code>.conf</code>, <code>.set</code>, and files under <code>configs</code>, <code>backups</code> or <code>oxidized</code> folders), and command output that looks like a config.</p>
+          <p>It covers every MCP result (always), config files you or the AI read (<code>.cfg</code>, <code>.conf</code>, <code>.set</code>, and files under <code>configs</code>, <code>backups</code> or <code>oxidized</code> folders), command output that looks like a config, and, always, <code>.env</code> and credential files.</p>
         </div>
         <figure class="capture">
 <pre class="term" data-title="casper — secrets demo"><span class="dim">── backups/core-cx-01.cfg on disk ──</span>
 hostname core-cx-01
 user admin group administrators password ciphertext AQBapFakeFakeFake0123==
-radius-server host 10.1.1.10 key plaintext NotARealKey1 vrf mgmt
+radius-server host 192.0.2.10 key plaintext NotARealKey1 vrf mgmt
 snmp-server community LabCommunity
 interface 1/1/1
     description uplink to dist-01
@@ -393,7 +432,7 @@ interface 1/1/1
 <span class="accent">── backups/core-cx-01.cfg as the AI reads it ──</span>
 hostname core-cx-01
 user admin group administrators password ciphertext <span class="ok">&lt;secret hidden&gt;</span>
-radius-server host 10.1.1.10 key plaintext <span class="ok">&lt;secret hidden&gt;</span> vrf mgmt
+radius-server host 192.0.2.10 key plaintext <span class="ok">&lt;secret hidden&gt;</span> vrf mgmt
 snmp-server community <span class="ok">&lt;secret hidden&gt;</span>
 interface 1/1/1
     description uplink to dist-01
@@ -413,8 +452,8 @@ set interfaces ge-0/0/0 description "to core-cx-01"
 2 secrets hidden before the AI saw this (passwords, SNMP communities).
 
 <span class="prompt">❯</span> <span class="you">/secrets</span>
-Secrets: hidden in MCP results (always). Files and command output: on. Extra check: netconan not
-found (built-in only).</pre>
+Secrets: hidden in MCP results, .env and credential files (always). Device configs in files and
+command output: on. Extra check: netconan not found (built-in only).</pre>
           <figcaption>Casper's own scrubber on two made-up backups (all values are fake). An AOS-CX box and a Junos box, as the AI would see them.</figcaption>
         </figure>
 

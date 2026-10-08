@@ -1,6 +1,6 @@
 # Terminal captures
 
-Plain-text copies of real Casper 0.2.15 runs, for the site's `<pre>` blocks.
+Plain-text copies of real Casper 0.2.27 runs, for the site's `<pre>` blocks.
 Nothing here used a model API key or the network.
 
 ## Rules used for every file
@@ -12,12 +12,11 @@ Nothing here used a model API key or the network.
 - Paths were shortened: the temporary home folder became `~`, the MCP test repo became
   `~/project/lab-mcp`.
 - Interactive captures were cut to the part that matters. The prompt box and footer under the
-  transcript were left out. In `receipt-verified.txt` a stale "Working" box that stayed under the
-  receipt after the task ended was also left out (see "Known oddity" below).
+  transcript were left out.
 - The model in the interactive and `--json` captures is a **scripted stand-in**
   (`capture-app.ts`), not a real model. Its lines are the ones marked `[model] scripted/site-capture`
   and the short replies such as `(scripted model) No more changes.` Its file edits are real
-  edits on disk. Everything Casper does after that is the real 0.2.15 code: checks, the
+  edits on disk. Everything Casper does after that is the real code of the checkout the scripts ran in: checks, the
   with/without-the-change proof, repairs, receipts, MCP connect, approvals, `ctrl+o`.
 - `$ casper ...` in `mcp-check.txt` and `json-receipt.txt` is what a user types. We ran the same
   code from source: `bun src/cli.ts ...` (for `mcp-check.txt`) and `bun site/captures/capture-app.ts --json ...`
@@ -57,24 +56,18 @@ tmux send-keys -t cap "<text>" Enter      # then: tmux capture-pane -p -t cap -S
 | `banner.txt` | Start screen (ghost + wordmark, version, checks line) | Common setup, fresh project; screen before any input. |
 | `help.txt` | `/help` at 100 columns | Common setup; typed `/help`. Same text as `bun src/cli.ts --help`, wrapped by Casper at 100 columns. |
 | `status.txt` | `/status` before a model is picked | Same session; typed `/status`. |
-| `receipt-verified.txt` | ✓ Verified: tests fail without the change, pass with it | Common setup, fresh project; typed `fix the sum bug in src/sum.js`. |
+| `receipt-verified.txt` | ✓ Verified: tests fail without the change, pass with it | Common setup, fresh project; typed `fix the sum bug in src/sum.js`, then `/receipt`. |
 | `receipt-not-proven.txt` | ⚠ Not proven: tests pass without the change too; one repair round asks for a test | Fresh project, then `sed -i 's/a - b/a + b/' src/sum.js && git commit -qam "sum adds"`; typed `let sum take numeric strings too`. |
 | `receipt-failed.txt` | ✗ Failed: a test fails, one repair try, still failing, with the check's output boxed | Fresh project, fix `sum` as above and append `test("two plus three", () => expect(sum(2, 3)).toBe(5));` to `tests/sum.test.js`, commit; typed `speed up sum in src/sum.js`. |
-| `checks-live.txt` | `/verify`: one line per check as it finishes, then the receipt | Project after the verified run, with `.casper/project.yaml` set to `commands: {lint: node --check src/sum.js, test: bun test, build: bun build src/sum.js --outdir dist}` (plus the same verification/repair lines), `dist` in `.gitignore`, committed; typed `/verify`. `node` must be on `PATH`. |
-| `numbered-choices.txt` | A check that could not start, and Casper's numbered "What now?" choice; Esc skips | Same project, but started with `PATH` **without** `/opt/node22/bin`, so `node` is missing; typed `/verify`, captured, pressed Esc, captured again. |
-| `mcp-status.txt` | `/mcp`, `/mcp connect fixture` with "Remember fixture?" (answered `1`, No), `/mcp writes fixture` (answered `2`) | Common setup (the `fixture` server comes from `~/.casper/mcp.json`); typed those commands and answers. Source path shortened to `~/.casper/mcp.json` and put back on one line (the long temp path had wrapped). |
-| `mcp-ask.txt` | A write tool on an MCP server asks first; `1` (No) denies; `ctrl+o` turns writes off | Same session; typed `set the lab site on the fixture server`, then `1` at "Make this change?", then pressed ctrl+o. The boxes were updated by hand to the numbered wording. |
+| `checks-live.txt` | `/verify`: one line per check as it finishes, then the receipt | Fresh project, with `.casper/project.yaml` set to `commands: {lint: node --check src/sum.js, test: bun test, build: bun build src/sum.js --outdir dist}` (plus the same verification/repair lines), `dist` in `.gitignore`, committed, then Casper restarted (the config is read at start); typed `/verify`. `node` must be on `PATH`. |
+| `numbered-choices.txt` | A check that could not start, and Casper's numbered "What now?" choice; Esc skips | Same project, but started with a `PATH` that has `bun` but **not** `node` (a folder holding only a link to `bun`); typed `/verify`, captured, pressed Esc, captured again. |
+| `mcp-status.txt` | `/mcp`, `/mcp connect fixture` with "Remember fixture?" (answered `1`, No), `/mcp writes fixture` (answered `2`) | Common setup (the `fixture` server comes from `~/.casper/mcp.json`); typed `/mcp`, pressed `1` (the server) and `2` (Connect) in the picker, answered `1` to "Remember fixture?", typed `/mcp` again, then `/mcp writes fixture` and `2`. Pieces of one session, joined with `# (` notes. |
+| `mcp-ask.txt` | A write tool on an MCP server asks first; `1` (No) denies; `ctrl+o` turns writes off | Same session; typed `set the lab site on the fixture server`, then `1` at "Make this change?", then pressed ctrl+o. |
+| `mcp-allow.txt` | The same write, answered `2` (Yes, this once) | Same session; typed `set the lab site on the fixture server`, then `2`. |
+| `mcp-setup-network.txt` | `/mcp setup network` asks once; `1` is Not now | Fresh project, `uv` on `PATH` (without it the question also shows uv's installer); typed the command, then `1`. Nothing is installed. |
 | `mcp-check.txt` | `casper mcp check --quick` on a test server whose tool labels are wrong on purpose | Folder `lab-mcp` with `server.ts` = copy of `tests/fixtures/mcp-check-server.ts`, a `node_modules` symlink to this repo's, `Makefile` (`test:` / `true`), `git init`, and `.mcp.json.example` = `{"mcpServers":{"lab":{"command":"bun","args":["server.ts"],"env":{"FIXTURE_MODE":"lying","FIXTURE_READ_ONLY":"1"}}}}`. Ran `env -i HOME=<tmp> PATH=... TERM=dumb CASPER_PROFILE=default bun $CASPER/src/cli.ts mcp check . --quick` in it (exit 1). Output piped through `fold -s -w 100`. |
 | `secrets-hidden.txt` | Two fake backups (AOS-CX `.cfg`, Junos `.set`) on disk and as the AI reads them, plus `/secrets` | `bun site/captures/secrets-demo.ts` from the repo root. The `/secrets` lines at the end were typed in the `mcp-status` session (netconan is not installed there). |
 | `json-receipt.txt` | `--json` event types and the final receipt object | Fresh project; `env -i HOME=... PATH=... TERM=dumb bun $CASPER/site/captures/capture-app.ts --json "fix the sum bug in src/sum.js" > ../run.jsonl` (exit 0; the file goes outside the project so it is not counted as a changed file), then the two `jq` commands shown in the file. |
 
-Times such as `0.0s`, `0.2s` and `ms: 22` will differ a little on another run. So will the
+Times such as `0.2s` and `ms: 314` will differ a little on another run. So will the
 bun version line inside the failed test's output box.
-
-## Known oddity (for the maintainers, not for the site)
-
-With the scripted runtime, after a task that ends with a first-try proof (no repair round), a
-"Working · Tool finished · edit" box and a spinning footer (`⠏ … idle · 11s`) stayed on screen
-after the receipt. It did not happen when a repair round ran. It may come from the scripted
-runtime (it sends fewer events than Pi does), or it may be a real 0.2.15 display bug. It is cut
-from `receipt-verified.txt`.
