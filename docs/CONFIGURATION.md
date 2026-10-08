@@ -13,12 +13,14 @@ writes your answer into `~/.casper/config.yaml` for you, keeping your comments a
 
 ```text
 Settings (saved in ~/.casper/config.yaml for you):
-  Web lookups: on (DuckDuckGo) · Browser tool: on · Starter templates: on · Diagram tool: on
-  New-version notice: on · Suggestions: on · Built-in skills: on · Packs: on
+  Web lookups: on (DuckDuckGo) · Browser tool: on · Starter templates: on
+  Diagram tool: on · New-version notice: on · Suggestions: on
+  Side questions with ?: on · Built-in skills: on · Packs: on
   Spend notes: at $1 a task · Spend pause: off · Prompt cache: auto
   Page checks: on · Show the AI the pages: ask once a session
   Work shown: normal · Theme: default · Untrusted-text reader: on
-  Playwright tests: on · Send Casper's name to OpenRouter: on
+  Helpers that build: on · Playwright tests: on
+  Send Casper's name to OpenRouter: on
 Pick one to change:
   1 Done                              nothing changes
   2 Web lookups                       on (DuckDuckGo)
