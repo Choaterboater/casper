@@ -115,7 +115,7 @@ export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; c
 
   const outcome = (fields: Record<string, unknown>): BuildOutcome => {
     const isError = result.status !== "completed" || "kept" in fields;
-    return { isError, usage: result.usage, report: {
+    return { isError, usage: result.usage, ...(result.known ? { known: result.known } : {}), report: {
       isError, status: result.status, ...(result.reason ? { reason: result.reason } : {}), ...fields,
       ...(notRun.length ? { notRun } : {}),
       cost: costText(result), toolErrors: result.toolErrors, truncated: result.truncated, report: result.response,

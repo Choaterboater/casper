@@ -84,10 +84,11 @@ export class TaskObservations {
     if (this.estimatedCost !== null) this.estimatedCost += event.usage.estimatedCost;
   }
 
-  /** One delegate call's child usage (zero when no child ran); null when the child's is unknown. */
-  recordDelegatedUsage(usage: { tokens: number; estimatedCost: number } | null): void {
+  /** One delegate call's child usage (zero when no child ran); null when the child's is unknown. `known` is what
+   * the child's reported responses add up to: it counts toward spent() even when the exact totals are unknown. */
+  recordDelegatedUsage(usage: { tokens: number; estimatedCost: number } | null, known?: { tokens: number; estimatedCost: number }): void {
     this.delegationReports++;
-    if (!usage) { this.recordUntrackedModelUse(); return; }
+    if (!usage) { if (known) this.addKnown(known); this.recordUntrackedModelUse(); return; }
     this.addKnown(usage);
     if (this.tokens !== null) this.tokens += usage.tokens;
     if (this.estimatedCost !== null) this.estimatedCost += usage.estimatedCost;

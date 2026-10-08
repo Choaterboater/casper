@@ -93,6 +93,14 @@ test("usage is unknown, never an undercount, when a response has none or a subag
   unknownChild.recordDelegatedUsage(null);
   expect(unknownChild.snapshot([]).usage).toEqual({ turns: 0, tokens: null, estimatedCost: null });
 
+  // What an unknown child's reported responses cost still counts toward the task's spend.
+  const partlyKnown = new TaskObservations();
+  partlyKnown.observeUsage(response({ tokens: 100, estimatedCost: 0.25 }));
+  partlyKnown.observeUsage({ type: "tool_start", toolName: "delegate" });
+  partlyKnown.recordDelegatedUsage(null, { tokens: 4000, estimatedCost: 2 });
+  expect(partlyKnown.snapshot([]).usage).toEqual({ turns: 1, tokens: null, estimatedCost: null });
+  expect(partlyKnown.spent()).toEqual({ tokens: 4100, cost: 2.25 });
+
   const classified = new TaskObservations();
   classified.recordUntrackedModelUse();
   classified.observeUsage(response({ tokens: 100, estimatedCost: 0.25 }));

@@ -83,7 +83,7 @@ export function delegateTool(app: CasperApp): RuntimeTool {
   app.delegateToolForTask ??= app.subagents.createTool(() => ({
     cwd: app.activeWorkspaceRoot(),
     projectContext: formatProjectContext(app.projectContext!),
-  }), (usage) => app.observations.recordDelegatedUsage(usage), autoBuilders({
+  }), (usage, known) => app.observations.recordDelegatedUsage(usage, known), autoBuilders({
     root: app.activeWorkspaceRoot(), homeDir: app.homeDir(),
     projectContext: formatProjectContext(app.projectContext!),
     // The task's spend pause sees a builder's spend while it works, and holds its tool calls too. The question
