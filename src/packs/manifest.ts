@@ -48,6 +48,9 @@ export function parseManifest(text: string): PackManifest {
   if (typeof name !== "string" || name.length > 64 || !SKILL_NAME.test(name)) {
     throw new PackError(`${MANIFEST_FILE}: name must be 1-64 lowercase letters, numbers or single hyphens.`);
   }
+  // The name is a folder in ~/.casper/packs: a name Windows keeps for a device is refused on every system, so a pack
+  // that adds on one adds on all.
+  if (WINDOWS_RESERVED.test(name)) throw new PackError(`${MANIFEST_FILE}: the name ${name} is one Windows keeps for itself (like con or nul). Pick another.`);
   if (typeof version !== "string" || !VERSION.test(version)) throw new PackError(`${MANIFEST_FILE}: version must look like 1.2.0.`);
   if (typeof description !== "string" || !description.trim() || description.length > 300) {
     throw new PackError(`${MANIFEST_FILE}: description must be 1-300 characters.`);

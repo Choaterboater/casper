@@ -21,7 +21,7 @@ export const PACK_LIMITS = { files: 200, fileBytes: 256 * 1024, totalBytes: 2 * 
 const TOP_EXTRAS = new Set(["README.md", "LICENSE", "LICENSE.md", "LICENSE.txt"]);
 /** Never read, copied or shown: a git checkout's own folder at the top, and the folder notes macOS and Windows leave. */
 const SKIPPED_TOP = new Set([".git"]);
-const SKIPPED_ANYWHERE = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
+export const SKIPPED_ANYWHERE: ReadonlySet<string> = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
 
 export interface PackFile { path: string; text: string; sha256: string; bytes: number }
 export interface PackSkill { folder: string; name: string; description: string }

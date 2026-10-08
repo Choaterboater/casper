@@ -37,7 +37,8 @@ skills:
 `pack.yaml` has these four fields and no others. A field Casper doesn't know refuses the pack (it is
 not skipped), so a pack made for a later Casper never installs here with part of it left out.
 
-- `name`: 1-64 lowercase letters, numbers or single hyphens, like a skill's name.
+- `name`: 1-64 lowercase letters, numbers or single hyphens, like a skill's name. A name Windows
+  keeps for itself (`con`, `nul`, `aux`, `prn`, `com1`, `lpt1` and so on) is refused on every system.
 - `version`: three numbers, like `1.2.0` (a suffix such as `-beta.1` is fine).
 - `description`: the author's own line, 1-300 characters. The add box shows it in quotes as theirs.
 - `skills`: 1-64 skill folders inside the pack. Each holds a `SKILL.md` in the usual skill format.
@@ -45,7 +46,8 @@ not skipped), so a pack made for a later Casper never installs here with part of
 **What may be in the folder.** `pack.yaml`; a `README.md` or `LICENSE` (`LICENSE.md`,
 `LICENSE.txt`) at the top; and anything inside a listed skill folder, which counts as part of that
 skill (its notes and examples). Any other file refuses the pack. A `.git` folder at the top and the
-`.DS_Store`, `Thumbs.db` and `desktop.ini` files systems leave are skipped: never copied or shown.
+`.DS_Store`, `Thumbs.db` and `desktop.ini` files systems leave are skipped, in a folder or a GitHub
+commit: never copied or shown.
 
 **What the files may be.** Plain UTF-8 text files only: no links, no other kinds of files. Names use
 letters, digits, `.`, `-`, `_` and spaces, and don't start with a dot. At most 200 files, 256 KB each,
@@ -82,7 +84,8 @@ It brings 2 skills. Nothing else runs.
   3 Show me what's inside
 ```
 
-Enter is No. `3` prints every file in full, each under its name, then asks again with
+Enter is No. `3` prints every file in full, each under its name with every line behind a `│`, so
+nothing in a file can pass for the line that starts the next one. Then it asks again with
 `1 No · 2 Yes, add it`. Escape characters, controls and right-to-left characters in what is shown
 are taken out, so the author's words can't clear the screen or reorder the line. A run that can't ask
 you (one-shot, `--json`) adds nothing: `Adding a pack asks you first, and this run can't ask. Nothing
@@ -121,9 +124,10 @@ that isn't used, and `/skills diagnostics` says so.
   submodules, into a temp folder. Nothing is checked out: each file is read straight from git's
   objects, so no filter, attribute or Git LFS step runs (a file stored with LFS refuses the pack, as
   do links and submodules). The files then go through the same checks as a folder.
-- **On macOS and Linux** the fetch runs in the shell sandbox and reaches only its listed hosts. **On
-  Windows** there is no sandbox (see [WINDOWS.md](WINDOWS.md)); the fetch runs with the same git
-  settings, which is the same as a `/references add` download.
+- **Where the shell sandbox runs** (macOS and Linux with the sandbox on), the fetch runs in it and
+  reaches only its listed hosts. **On Windows**, which has no sandbox (see [WINDOWS.md](WINDOWS.md)),
+  and with the sandbox off or not started, the fetch runs outside it with the same git settings, like
+  a `/references add` download.
 - Needs git: without it, `/pack add` says so and suggests adding a downloaded folder instead.
   Fetching stops after 2 minutes; Ctrl+C stops it sooner.
 
@@ -138,10 +142,13 @@ that isn't used, and `/skills diagnostics` says so.
   the box with the changes.
 - Its skills count toward the same limits as all skills: at most `skills.maxActive` (6) per request
   and 64 KiB of skill text per request.
-- The AI can't open the pack's folder or its record with its tools or its shell (they are private,
-  like `~/.casper/skills-trust.json`), and the shell can't write anywhere in `~/.casper`. A pack's
-  skill reaches the AI only as its `SKILL.md` text, in a request it fits; the skill's other files are
-  for you to read in the box.
+- The AI's tools can't open the pack's folder or its record (they are private, like
+  `~/.casper/skills-trust.json`). With the sandbox on, neither can its shell, and the shell can't
+  write anywhere in `~/.casper`. Without one (always on Windows) the shell can, but a changed pack
+  file stops the pack and a record needs the private key to count (see
+  [SECURITY.md](SECURITY.md#what-is-not-held-back)).
+- A pack's skill reaches the AI only as its `SKILL.md` text, in a request it fits; the skill's other
+  files are for you to read in the box.
 - `/skills block <id>` stops one of its skills. `/skills trust` doesn't apply: a pack is reviewed as a
   whole, in the add box.
 

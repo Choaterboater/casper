@@ -89,9 +89,10 @@ export function packBox(contents: PackContents, shownSource: string, before?: Pa
       ...(changes.removed.length ? [`Gone: ${changes.removed.join(", ")}`] : []),
     ] : []),
   ];
+  // Every line of a file sits behind a bar, so no line in it can pass for Casper's own header between files.
   const inside = files.map((file) => [
     `--- ${file.path} (${size(file.bytes)}${changed.has(file.path) && before ? ", changed" : ""}) ---`,
-    shownText(file.text).replace(/\n+$/, ""),
+    ...shownText(file.text).replace(/\n+$/, "").split("\n").map((line) => `  │ ${line}`.trimEnd()),
   ].join("\n")).join("\n\n");
   return {
     preview: `${lines.join("\n")}\n`,

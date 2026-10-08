@@ -133,9 +133,9 @@ async function readRecords(home: string, diagnostics: string[]): Promise<{ recor
 async function packProblem(record: PackRecord, folder: string): Promise<string | undefined> {
   let contents: PackContents;
   try { contents = await readPackFolder(folder); }
-  catch (error) {
+  catch {
     if (!(await lstat(folder).then(() => true, () => false))) return "its folder is gone";
-    return `its files changed since you added it (${error instanceof Error ? error.message : String(error)})`;
+    return "its files changed since you added it";
   }
   const now = fingerprints(contents.files);
   const same = Object.keys(now).length === Object.keys(record.files).length
@@ -236,7 +236,11 @@ export async function removePack(home: string, name: string): Promise<boolean> {
   if (listed) await saveRecords(home, (packs) => { delete packs[name]; });
   const folder = packFolder(home, name);
   const there = await lstat(folder).then(() => true, () => false);
-  if (there) await rm(folder, { recursive: true, force: true });
+  if (there) {
+    await rm(folder, { recursive: true, force: true }).catch(() => {
+      throw new PackError(`Pack ${name} is no longer used, but Casper couldn't delete its folder ~/.casper/packs/${name}. Delete it yourself.`);
+    });
+  }
   return listed || there;
 }
 

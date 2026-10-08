@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { installEnv } from "../security/env";
 import { runFetchStep, type ToolRunner } from "../security/spawn";
-import { PACK_LIMITS, readPackFolder, shownLine, type PackContents } from "./files";
+import { PACK_LIMITS, readPackFolder, shownLine, SKIPPED_ANYWHERE, type PackContents } from "./files";
 import { isPackPath, PackError } from "./manifest";
 
 /**
@@ -174,15 +174,24 @@ export async function fetchGitPack(source: GitPackSource, options: GitFetchOptio
     if (resolved.code !== 0 || resolved.stdout.toString("utf8").trim() !== source.commit) throw new PackError(`${source.repo} has no commit ${source.commit.slice(0, 12)}. Nothing was added.`);
     const listed = await git(["-C", repo, "ls-tree", "-r", "-l", "-z", "--full-tree", source.commit], 4 * 1024 * 1024);
     if (listed.code !== 0) throw new PackError(`git could not list the commit${gitSaid(listed.stderr)}. Nothing was added.`);
-    const entries = treeEntries(listed.stdout);
+    // The files macOS and Windows leave are skipped as in a folder: never written, read or shown.
+    const entries = treeEntries(listed.stdout).filter((entry) => !entry.path.split("/").some((part) => SKIPPED_ANYWHERE.has(part)));
     if (entries.length > PACK_LIMITS.files) throw new PackError(`The pack has more than ${PACK_LIMITS.files} files.`);
     let total = 0;
+    const seen = new Map<string, string>();
     for (const entry of entries) {
       const shown = JSON.stringify(shownLine(entry.path));
       if (entry.mode === "120000") throw new PackError(`${shown} is a link. A pack holds plain files only.`);
       if (entry.mode === "160000") throw new PackError(`${shown} is a submodule. Casper doesn't fetch submodules.`);
       if (entry.type !== "blob" || (entry.mode !== "100644" && entry.mode !== "100755")) throw new PackError(`${shown} is not a plain file.`);
       if (!isPackPath(entry.path)) throw new PackError(`${shown} has a name Casper doesn't take in a pack (letters, digits, . - _ and spaces; no hidden files).`);
+      // Two names that differ only in case, of a file or a folder, would be one on Windows and macOS.
+      const parts = entry.path.split("/");
+      for (let depth = 1; depth <= parts.length; depth += 1) {
+        const inside = parts.slice(0, depth).join("/");
+        if ((seen.get(inside.toLowerCase()) ?? inside) !== inside) throw new PackError(`${inside} is there twice, in different case.`);
+        seen.set(inside.toLowerCase(), inside);
+      }
       if (entry.size > PACK_LIMITS.fileBytes) throw new PackError(`${entry.path} is larger than ${PACK_LIMITS.fileBytes / 1024} KB.`);
       total += entry.size;
       if (total > PACK_LIMITS.totalBytes) throw new PackError(`The pack is larger than ${PACK_LIMITS.totalBytes / 1024 / 1024} MB.`);
@@ -195,7 +204,11 @@ export async function fetchGitPack(source: GitPackSource, options: GitFetchOptio
       }
       const target = path.join(tree, ...entry.path.split("/"));
       await mkdir(path.dirname(target), { recursive: true });
-      await writeFile(target, blob.stdout, { flag: "wx" });
+      try { await writeFile(target, blob.stdout, { flag: "wx" }); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new PackError(`${entry.path} is there twice.`);
+        throw error;
+      }
     }
     return await readPackFolder(tree);
   } finally {

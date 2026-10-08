@@ -141,6 +141,28 @@ test("a fetched commit goes through the folder checks; a link or a submodule in 
   });
   expect(await fetchGitPack(unlisted.source, { fetch: unlisted.fetch }).then(() => "fetched", (error: Error) => error.message))
     .toBe("install.sh is not listed in pack.yaml (it isn't inside a listed skill folder). Casper adds only what a pack lists.");
+
+  // Two names that differ only in case would be one file on Windows and macOS: refused in plain words, not git's.
+  const cased = await packRepo(path.join(root, "cased"), (repo) => {
+    const blob = spawnSync("git", ["hash-object", "-w", "--stdin"], { cwd: repo, input: "Notes.\n", encoding: "utf8" }).stdout.trim();
+    git(repo, "update-index", "--add", "--cacheinfo", `100644,${blob},skills/drafting/notes.md`);
+    git(repo, "update-index", "--add", "--cacheinfo", `100644,${blob},skills/drafting/NOTES.md`);
+  });
+  expect(await fetchGitPack(cased.source, { fetch: cased.fetch }).then(() => "fetched", (error: Error) => error.message))
+    .toBe("skills/drafting/notes.md is there twice, in different case.");
+  const folders = await packRepo(path.join(root, "folders"), (repo) => {
+    const blob = spawnSync("git", ["hash-object", "-w", "--stdin"], { cwd: repo, input: "Notes.\n", encoding: "utf8" }).stdout.trim();
+    git(repo, "update-index", "--add", "--cacheinfo", `100644,${blob},Skills/drafting/notes.md`);
+  });
+  expect(await fetchGitPack(folders.source, { fetch: folders.fetch }).then(() => "fetched", (error: Error) => error.message))
+    .toBe("skills is there twice, in different case.");
+
+  // The files macOS and Windows leave are skipped, as in a folder.
+  const leftovers = await packRepo(path.join(root, "leftovers"), (repo) => {
+    const blob = spawnSync("git", ["hash-object", "-w", "--stdin"], { cwd: repo, input: "x\n", encoding: "utf8" }).stdout.trim();
+    for (const file of [".DS_Store", "skills/drafting/Thumbs.db", "skills/desktop.ini"]) git(repo, "update-index", "--add", "--cacheinfo", `100644,${blob},${file}`);
+  });
+  expect((await fetchGitPack(leftovers.source, { fetch: leftovers.fetch })).files.map((file) => file.path)).toEqual(["pack.yaml", "skills/drafting/SKILL.md"]);
 });
 
 test("with no git, a GitHub pack says so in plain words", async () => {
