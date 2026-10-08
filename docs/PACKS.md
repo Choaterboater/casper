@@ -1,14 +1,14 @@
 # Packs
 
 **What this is:** a pack is one folder of skills someone else wrote, with a small `pack.yaml` that
-names them. You add it with `/pack add`; Casper shows you the whole pack first and adds nothing until
+names them, and at most one colour theme. You add it with `/pack add`; Casper shows you the whole pack first and adds nothing until
 you say yes. After that its skills work like your own (see [CONFIGURATION.md](CONFIGURATION.md#skills)):
 the AI gets a skill's text only for a request it fits.
 **When you'd use it:** a team or a vendor shares how they work (how to write their reports, how to
 use their API) and you want Casper to use it without copying files around by hand.
 
 A pack costs nothing until it is used: nothing is added to the system prompt or the tool list, so a
-pack of 20 skills adds 0 bytes to a request no skill fits.
+pack of 20 skills adds 0 bytes to a request no skill fits. Its theme never reaches the model at all.
 
 ## A pack folder
 
@@ -23,6 +23,8 @@ writing-basics/
       examples.md    part of the drafting skill
     proofreading/
       SKILL.md
+  themes/
+    ocean.yaml       optional: the pack's one theme
 ```
 
 ```yaml
@@ -32,9 +34,10 @@ description: Short, plain help with letters and notes.
 skills:
   - skills/drafting
   - skills/proofreading
+theme: themes/ocean.yaml   # optional
 ```
 
-`pack.yaml` has these four fields and no others. A field Casper doesn't know refuses the pack (it is
+`pack.yaml` has these five fields and no others. A field Casper doesn't know refuses the pack (it is
 not skipped), so a pack made for a later Casper never installs here with part of it left out.
 
 - `name`: 1-64 lowercase letters, numbers or single hyphens, like a skill's name. A name Windows
@@ -42,9 +45,11 @@ not skipped), so a pack made for a later Casper never installs here with part of
 - `version`: three numbers, like `1.2.0` (a suffix such as `-beta.1` is fine).
 - `description`: the author's own line, 1-300 characters. The add box shows it in quotes as theirs.
 - `skills`: 1-64 skill folders inside the pack. Each holds a `SKILL.md` in the usual skill format.
+- `theme` (optional): one theme file inside the pack, like `themes/ocean.yaml` ([below](#a-theme)).
+  The same path rules as a skill folder (no `..`, no absolute path), and outside the skill folders.
 
 **What may be in the folder.** `pack.yaml`; a `README.md` or `LICENSE` (`LICENSE.md`,
-`LICENSE.txt`) at the top; and anything inside a listed skill folder, which counts as part of that
+`LICENSE.txt`) at the top; the one theme file `pack.yaml` names; and anything inside a listed skill folder, which counts as part of that
 skill (its notes and examples). Any other file refuses the pack. A `.git` folder at the top and the
 `.DS_Store`, `Thumbs.db` and `desktop.ini` files systems leave are skipped, in a folder or a GitHub
 commit: never copied or shown.
@@ -76,9 +81,10 @@ author's:
 Pack writing-basics 1.2.0 from github.com/example/writing-basics
 The author says: "Short, plain help with letters and notes."
 Skills: drafting, proofreading
-Files: 5, 6 KB in all. Casper reads them as text; the AI gets a skill's text only when a request fits it.
+Theme: ocean (themes/ocean.yaml), colours only. It is used only if you pick it in /settings.
+Files: 6, 6 KB in all. Casper reads them as text; the AI gets a skill's text only when a request fits it.
 Add pack writing-basics from github.com/example/writing-basics?
-It brings 2 skills. Nothing else runs.
+It brings 2 skills and a theme. Nothing else runs.
   1 No
   2 Yes, add it
   3 Show me what's inside
@@ -104,8 +110,42 @@ by itself.
 
 **Names are first come.** A pack whose name, or the name of one of its skills, is already used by
 any skill (yours, a project's, another tool's, another pack's), by an MCP server, or by a skill built
-into Casper is refused. If a skill with the same name turns up later, the pack's skill is the one
+into Casper is refused. So is a pack whose theme has the name of a built-in theme (`default`,
+`light`, `high-contrast`) or of another pack's theme. If a skill with the same name turns up later, the pack's skill is the one
 that isn't used, and `/skills diagnostics` says so.
+
+## A theme
+
+A pack can bring one theme: colours for Casper's screen, and nothing else. The theme file is the
+same YAML (or JSON) file described in [CONFIGURATION.md](CONFIGURATION.md#theme): a `name` and
+`colors`, by role.
+
+```yaml
+name: ocean
+colors:
+  accent: "#3399ff"
+  warning: magenta
+```
+
+- **Checked when you add the pack.** Casper reads the file with the strict theme parser before the
+  box opens. A theme that isn't one refuses the whole pack, with the reason: `[pack] The theme
+  themes/ocean.yaml can't be used: unknown field "run"; a theme file has only name and colors.` An
+  escape or control character, any character but plain printable text, a backslash, another field
+  or role, a value that isn't a colour, YAML anchors or tags, and a file over 8 KiB are all refused.
+- **Shown like every file.** The box counts it (`It brings 2 skills and a theme.`), names it on its
+  own line, and `3` prints it in full with the rest. A changed theme file is a changed file: adding
+  the pack again shows the box with `Changed since you added it: themes/ocean.yaml`.
+- **Its name is its own.** It can't have a built-in theme's name or another pack's theme's name;
+  such a pack is refused, like a skill name that is taken. A pack added again keeps its own theme's
+  name.
+- **You pick it.** Adding the pack doesn't change your colours. The theme shows in `/settings` →
+  Theme (`from pack writing-basics`), or set `theme: ocean` in your own `~/.casper/config.yaml`. A
+  project's `.casper/project.yaml` can't set `theme:` at all, a pack's theme included.
+- **Only while the pack is used.** At start Casper puts the theme on the list only when packs are on
+  and every file of the pack is still what you saw. With `packs: off`, a changed pack, or after
+  `/pack remove`, a `theme:` that names it uses `default`, and one line says so:
+  `[config] theme ocean is not one Casper has; using default.` A pack you remove while its theme is in
+  use keeps those colours until you start Casper again.
 
 ## From GitHub
 
@@ -136,6 +176,7 @@ that isn't used, and `/skills diagnostics` says so.
 - The pack's files are in `~/.casper/packs/<name>/`. What you saw (source, version, skill folders and
   every file's sha256) is in `~/.casper/packs.json`, with a keyed hash made with
   `~/.casper/packs.key`, so a record written by anything other than `/pack add` doesn't count.
+- `/pack list` shows `2 skills and a theme` for a pack with a theme.
 - `/skills` lists its skills with the source `pack`. They are used while every file is still what
   you saw. If any file changes, the whole pack stops being used until you look again: `/pack list`
   says `not used: its files changed since you added it`, and `/pack add` from the same source shows
@@ -160,19 +201,21 @@ that isn't used, and `/skills diagnostics` says so.
 packs: off # default on
 ```
 
-The packs stay in `~/.casper/packs`, no skill of theirs is used, and `/pack add` adds none. A
+The packs stay in `~/.casper/packs`, no skill or theme of theirs is used, and `/pack add` adds none. A
 project file can't set `packs:` at all. See [CONFIGURATION.md](CONFIGURATION.md#packs).
 
 ## What a pack can never do
 
 - **Run anything.** No install step, script, hook or command; files are copied as text and never
   made executable.
-- **Bring anything but skills.** No slash commands, MCP servers, tools or settings.
+- **Bring anything but skills and one colour theme.** No slash commands, MCP servers, tools or
+  settings, and its theme is colours only: no code, no words, nothing that reaches the model.
 - **Arrive without you.** A repository, a project file, a profile a repository picks, or the AI can't
   add a pack or turn packs on.
 - **Change on its own.** No automatic updates; a changed file stops the pack until you look again.
-- **Stand in for another skill.** Your skills, a project's skills and Casper's built-in skills keep
-  their names.
+- **Stand in for another skill or theme.** Your skills, a project's skills, Casper's built-in skills
+  and its built-in themes keep their names, and so does another pack's theme.
+- **Pick your colours.** Its theme is used only when you pick it; a project file can't pick it.
 - **Reach outside its folder.** Links, `..` and absolute paths are refused.
 - **Cost tokens by being there.** Nothing is added to a request until a request fits one of its
-  skills.
+  skills, and its theme adds nothing to any request.

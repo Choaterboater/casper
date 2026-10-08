@@ -5,6 +5,8 @@ import { stripVTControlCharacters } from "node:util";
 import { openNoFollow } from "../platform/files";
 import { isOutside } from "../platform/inside";
 import { parseSkillMetadata, splitSkill } from "../skills/metadata";
+import type { Theme } from "../tui/theme";
+import { parseThemeFile } from "../tui/theme-file";
 import { isPackPath, MANIFEST_FILE, PackError, parseManifest, type PackManifest } from "./manifest";
 
 /**
@@ -12,8 +14,9 @@ import { isPackPath, MANIFEST_FILE, PackError, parseManifest, type PackManifest 
  * commit, from the staging copy before you are asked, and from ~/.casper/packs when Casper starts. Plain text files
  * only, no links, nothing outside the folder, within the limits, and nothing the manifest doesn't list.
  *
- * Listed means: pack.yaml itself, a README.md or LICENSE (LICENSE.md, LICENSE.txt) at the top, or any file inside
- * a skill folder pack.yaml names (a skill's own notes and examples are part of it). Any other file refuses the pack.
+ * Listed means: pack.yaml itself, a README.md or LICENSE (LICENSE.md, LICENSE.txt) at the top, the one theme file
+ * pack.yaml names, or any file inside a skill folder it names (a skill's own notes and examples are part of it). Any
+ * other file refuses the pack.
  */
 
 export const PACK_LIMITS = { files: 200, fileBytes: 256 * 1024, totalBytes: 2 * 1024 * 1024, depth: 8 } as const;
@@ -25,7 +28,13 @@ export const SKIPPED_ANYWHERE: ReadonlySet<string> = new Set([".DS_Store", "Thum
 
 export interface PackFile { path: string; text: string; sha256: string; bytes: number }
 export interface PackSkill { folder: string; name: string; description: string }
-export interface PackContents { manifest: PackManifest; files: PackFile[]; skills: PackSkill[] }
+export interface PackContents {
+  manifest: PackManifest;
+  files: PackFile[];
+  skills: PackSkill[];
+  /** The theme file pack.yaml names, read with the strict theme-file parser: colours only. */
+  theme?: Theme;
+}
 
 /** Characters a person can't see but the AI reads: controls, format characters (bidi, zero-width, the tag block),
  * variation selectors and blank fillers. */
@@ -110,16 +119,16 @@ export async function readPackFolder(root: string): Promise<PackContents> {
   return checkPack(files);
 }
 
-/** The manifest, and every file accounted for by it: refuses an unlisted file, a listed folder with no SKILL.md, and
- * two skills with one name. */
+/** The manifest, and every file accounted for by it: refuses an unlisted file, a listed folder with no SKILL.md, two
+ * skills with one name, and a theme file that isn't there or doesn't read as a theme. */
 export function checkPack(files: readonly PackFile[]): PackContents {
   const manifestFile = files.find((file) => file.path === MANIFEST_FILE);
   if (!manifestFile) throw new PackError(`There is no ${MANIFEST_FILE} at the top of the pack.`);
   const manifest = parseManifest(manifestFile.text);
   for (const file of files) {
-    if (file.path === MANIFEST_FILE || TOP_EXTRAS.has(file.path)) continue;
+    if (file.path === MANIFEST_FILE || TOP_EXTRAS.has(file.path) || file.path === manifest.theme) continue;
     if (!manifest.skills.some((folder) => file.path.startsWith(`${folder}/`))) {
-      throw new PackError(`${file.path} is not listed in ${MANIFEST_FILE} (it isn't inside a listed skill folder). Casper adds only what a pack lists.`);
+      throw new PackError(`${file.path} is not listed in ${MANIFEST_FILE} (it isn't inside a listed skill folder${manifest.theme ? " or the theme" : ""}). Casper adds only what a pack lists.`);
     }
   }
   const skills = manifest.skills.map((folder): PackSkill => {
@@ -137,7 +146,17 @@ export function checkPack(files: readonly PackFile[]): PackContents {
     if (names.has(name)) throw new PackError(`Two skills in the pack are named ${name}.`);
     names.add(name);
   }
-  return { manifest, files: [...files].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0), skills };
+  const theme = manifest.theme === undefined ? undefined : packTheme(files, manifest.theme);
+  return { manifest, files: [...files].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0), skills, ...(theme ? { theme } : {}) };
+}
+
+/** The theme file pack.yaml names, as the theme-file parser reads it: one plain reason when it isn't one. */
+function packTheme(files: readonly PackFile[], relative: string): Theme {
+  const file = files.find((candidate) => candidate.path === relative);
+  if (!file) throw new PackError(`The theme ${relative} is listed in ${MANIFEST_FILE} but isn't in the pack.`);
+  const read = parseThemeFile(file.text);
+  if ("error" in read) throw new PackError(`The theme ${relative} can't be used: ${read.error}.`);
+  return read.theme;
 }
 
 /** The file fingerprints a record keeps: path to sha256. */

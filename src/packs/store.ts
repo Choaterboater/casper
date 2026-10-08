@@ -3,12 +3,13 @@ import { lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { canonical, readSmall, writePrivate } from "../mcp/consent";
 import { SKILL_NAME } from "../skills/metadata";
+import type { Theme } from "../tui/theme";
 import { fingerprints, readPackFolder, type PackContents } from "./files";
 import { isPackPath, PackError } from "./manifest";
 
 /**
  * The packs you added: their files in ~/.casper/packs/<name>/, and what you were shown when you said yes in
- * ~/.casper/packs.json (source, version, skill folders and the sha256 of every file). Each record carries a keyed
+ * ~/.casper/packs.json (source, version, skill folders, theme file and the sha256 of every file). Each record carries a keyed
  * hash (HMAC-SHA256; the key is 32 random bytes in ~/.casper/packs.key, 0600), so a record Casper's own /pack add
  * didn't write never counts. A pack whose files no longer match its record is not used until you add it again.
  * All three are in ~/.casper, which the AI's shell can't write, and they are private to the AI's tools.
@@ -28,6 +29,8 @@ export interface PackRecord {
   /** What you typed it from: a GitHub link pinned to a commit, or a folder's full path. */
   source: string;
   skills: string[];
+  /** The theme file pack.yaml named, when it named one. */
+  theme?: string;
   /** Every file you were shown, by path inside the pack: its sha256. */
   files: Record<string, string>;
   addedAt: string;
@@ -42,6 +45,8 @@ export interface InstalledPack {
   folder: string;
   /** Why it is not used, when it isn't: its files changed since you added it, or are gone. */
   problem?: string;
+  /** Its theme, read from the files just checked against the record; only when the pack is used. */
+  theme?: Theme;
 }
 
 export interface PackListing {
@@ -56,8 +61,9 @@ export function packFolder(home: string, name: string): string {
 }
 
 function recordMac(record: PackRecord, key: Buffer): string {
-  const { name, version, source, skills, files } = record;
-  return createHmac("sha256", key).update(`casper/packs v${VERSION}\n${canonical({ name, version, source, skills, files })}`).digest("hex");
+  const { name, version, source, skills, theme, files } = record;
+  // A record with no theme hashes as it did before packs could carry one.
+  return createHmac("sha256", key).update(`casper/packs v${VERSION}\n${canonical({ name, version, source, skills, ...(theme === undefined ? {} : { theme }), files })}`).digest("hex");
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -67,11 +73,12 @@ function isObject(value: unknown): value is Record<string, unknown> {
 /** One stored record in the shape Casper writes, or undefined. */
 function storedRecord(name: string, value: unknown): StoredRecord | undefined {
   if (!SKILL_NAME.test(name) || name.length > 64 || !isObject(value)) return undefined;
-  const { version, source, skills, files, addedAt, mac } = value;
+  const { version, source, skills, theme, files, addedAt, mac } = value;
   if (typeof version !== "string" || typeof source !== "string" || typeof addedAt !== "string" || typeof mac !== "string" || !SHA256.test(mac)) return undefined;
   if (!Array.isArray(skills) || !skills.every((folder) => typeof folder === "string" && isPackPath(folder))) return undefined;
+  if (theme !== undefined && (typeof theme !== "string" || !isPackPath(theme))) return undefined;
   if (!isObject(files) || !Object.entries(files).every(([file, sha]) => isPackPath(file) && typeof sha === "string" && SHA256.test(sha))) return undefined;
-  return { name, version, source, skills: skills as string[], files: { ...files } as Record<string, string>, addedAt: addedAt.slice(0, 40), mac };
+  return { name, version, source, skills: skills as string[], ...(theme === undefined ? {} : { theme }), files: { ...files } as Record<string, string>, addedAt: addedAt.slice(0, 40), mac };
 }
 
 async function readKey(home: string, diagnostics: string[]): Promise<Buffer | undefined> {
@@ -129,19 +136,22 @@ async function readRecords(home: string, diagnostics: string[]): Promise<{ recor
   return { records, rejected };
 }
 
-/** Whether the files in a pack's folder are exactly the ones its record lists, unchanged. */
-async function packProblem(record: PackRecord, folder: string): Promise<string | undefined> {
+/** Whether the files in a pack's folder are exactly the ones its record lists, unchanged; when they are, its theme
+ * as read from those same files. */
+async function checkInstalled(record: PackRecord, folder: string): Promise<{ problem: string } | { theme?: Theme }> {
   let contents: PackContents;
   try { contents = await readPackFolder(folder); }
   catch {
-    if (!(await lstat(folder).then(() => true, () => false))) return "its folder is gone";
-    return "its files changed since you added it";
+    if (!(await lstat(folder).then(() => true, () => false))) return { problem: "its folder is gone" };
+    return { problem: "its files changed since you added it" };
   }
   const now = fingerprints(contents.files);
   const same = Object.keys(now).length === Object.keys(record.files).length
     && Object.entries(now).every(([file, sha]) => Object.hasOwn(record.files, file) && record.files[file] === sha)
-    && canonical(contents.manifest.skills) === canonical(record.skills) && contents.manifest.name === record.name;
-  return same ? undefined : "its files changed since you added it";
+    && canonical(contents.manifest.skills) === canonical(record.skills) && contents.manifest.name === record.name
+    && contents.manifest.theme === record.theme;
+  if (!same) return { problem: "its files changed since you added it" };
+  return contents.theme ? { theme: contents.theme } : {};
 }
 
 /** Every pack you added, each checked against what you were shown. Reads only ~/.casper. */
@@ -151,8 +161,7 @@ export async function loadInstalledPacks(home: string): Promise<PackListing> {
   const packs: InstalledPack[] = [];
   for (const record of records) {
     const folder = packFolder(home, record.name);
-    const problem = await packProblem(record, folder);
-    packs.push({ record, folder, ...(problem ? { problem } : {}) });
+    packs.push({ record, folder, ...(await checkInstalled(record, folder)) });
   }
   return { packs, rejected, diagnostics };
 }
@@ -221,7 +230,8 @@ export async function installPack(home: string, staged: { dir: string; contents:
       throw error;
     }
     await rm(old, { recursive: true, force: true });
-    const record: PackRecord = { name: manifest.name, version: manifest.version, source, skills: [...manifest.skills], files: shown, addedAt: now.toISOString() };
+    const record: PackRecord = { name: manifest.name, version: manifest.version, source, skills: [...manifest.skills],
+      ...(manifest.theme === undefined ? {} : { theme: manifest.theme }), files: shown, addedAt: now.toISOString() };
     await saveRecords(home, (packs) => { packs[manifest.name] = { ...record, mac: recordMac(record, key) }; });
   } finally {
     await rm(staged.dir, { recursive: true, force: true });

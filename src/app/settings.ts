@@ -7,6 +7,7 @@ import { PROMPT_CACHE_SETTINGS, type PromptCacheSetting } from "../runtime/cache
 import { PROVIDER_LABELS } from "../web/providers";
 import type { DisplayLevel } from "../tui/display";
 import { findTheme, shownThemeName, themeNames } from "../tui/theme";
+import { packThemeOwner } from "../packs/themes";
 import type { OutputWriter } from "./commands";
 import type { MCPManager } from "../mcp/manager";
 
@@ -105,7 +106,11 @@ function themeRow(name: string | undefined): Setting {
   return { label: "Theme", value, question: `Theme: ${value}. It changes the colours only, from now on; NO_COLOR still turns colour off.`,
     keep: found ? `Keep ${now}` : "Keep it as it is",
     choices: themeNames().filter((theme) => theme !== now)
-      .map((theme) => ({ label: capital(theme), ...(Object.hasOwn(THEME_WORDS, theme) ? { description: THEME_WORDS[theme]! } : {}), keys: ["theme"], value: theme, shown: theme })) };
+      .map((theme) => {
+        const pack = packThemeOwner(theme);
+        const description = Object.hasOwn(THEME_WORDS, theme) ? THEME_WORDS[theme]! : pack ? `from pack ${pack}` : undefined;
+        return { label: capital(theme), ...(description ? { description } : {}), keys: ["theme"], value: theme, shown: theme };
+      }) };
 }
 
 /** Each off switch Casper has, where it stands now, and the numbered answers for it (1 keeps it as it is). */

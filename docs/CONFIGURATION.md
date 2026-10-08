@@ -669,8 +669,13 @@ no theme for uses `default`, and one `[config]` line at start (and `casper docto
 
 ```yaml
 # ~/.casper/config.yaml or a profile's config.yaml
-theme: light   # default, light or high-contrast
+theme: light   # default, light, high-contrast, or a theme a pack you added brings
 ```
+
+A pack you added can bring one theme (see [PACKS.md](PACKS.md#a-theme)). It shows in `/settings`
+next to these, marked with its pack, and `theme:` can name it. It is there only while packs are on
+and the pack is still what you saw; otherwise `theme:` that names it uses `default`, with the line
+above. Its name can't be a built-in theme's or another pack's theme's.
 
 A theme file, which a pack can carry, is YAML (or JSON) with a `name` (lowercase letters, numbers
 and single hyphens, like a skill's) and `colors`, by role: `accent`, `muted`, `border`,

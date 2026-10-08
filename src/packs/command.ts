@@ -6,7 +6,9 @@ import { allBundledSkills } from "../skills/bundled";
 import { packChanges, readPackFolder, shownLine, shownText, type PackContents } from "./files";
 import { fetchGitPack, isGitSource, parseGitSource, type GitFetchOptions, type GitPackSource } from "./git";
 import { PackError } from "./manifest";
-import { clearStaleStaging, installPack, loadInstalledPacks, removePack, stagePack, type PackRecord } from "./store";
+import { clearStaleStaging, installPack, loadInstalledPacks, removePack, stagePack, type InstalledPack, type PackRecord } from "./store";
+import { packThemeOwner, registerPackThemes } from "./themes";
+import { activeThemeName, BUILT_IN_THEMES } from "../tui/theme";
 
 /**
  * /pack add, /pack list and /pack remove. Typed by you only: the AI has no tool that reaches them, and a run that
@@ -82,6 +84,7 @@ export function packBox(contents: PackContents, shownSource: string, before?: Pa
     `Pack ${manifest.name} ${before && before.version !== manifest.version ? `${shownLine(before.version)} → ` : ""}${manifest.version} from ${shownSource}`,
     `The author says: "${shownLine(manifest.description)}"`,
     `Skills: ${skills.map((skill) => skill.name).join(", ")}`,
+    ...(contents.theme && manifest.theme ? [`Theme: ${contents.theme.name} (${manifest.theme}), colours only. It is used only if you pick it in /settings.`] : []),
     `Files: ${files.length}, ${size(bytes)} in all. Casper reads them as text; the AI gets a skill's text only when a request fits it.`,
     ...(changes ? [
       ...(changes.changed.length ? [`Changed since you added it: ${changes.changed.join(", ")}`] : []),
@@ -96,7 +99,7 @@ export function packBox(contents: PackContents, shownSource: string, before?: Pa
   ].join("\n")).join("\n\n");
   return {
     preview: `${lines.join("\n")}\n`,
-    question: `Add pack ${manifest.name}${before ? " again" : ""} from ${shownSource}?\nIt brings ${count(skills.length, "skill")}. Nothing else runs.`,
+    question: `Add pack ${manifest.name}${before ? " again" : ""} from ${shownSource}?\nIt brings ${count(skills.length, "skill")}${contents.theme ? " and a theme" : ""}. Nothing else runs.`,
     inside: `${inside}\n--- end of pack ${manifest.name} ---\n`,
   };
 }
@@ -115,6 +118,16 @@ function nameClash(contents: PackContents, host: PackHost, otherPacks: readonly 
     if (owner) return `Pack ${manifest.name} can't be added: the name ${name} is already used by ${owner}. Nothing was added.`;
   }
   return undefined;
+}
+
+/** A theme name another theme has: a built-in one's, or the theme of another pack you added. */
+function themeClash(contents: PackContents, others: readonly InstalledPack[]): string | undefined {
+  const { manifest, theme } = contents;
+  if (!theme) return undefined;
+  const pack = others.find((other) => other.record.name !== manifest.name && other.theme?.name === theme.name)?.record.name;
+  const owner = BUILT_IN_THEMES.some((builtIn) => builtIn.name === theme.name) ? "a theme built into Casper" : pack ? `the theme of pack ${pack}` : undefined;
+  if (!owner) return undefined;
+  return `Pack ${manifest.name} can't be added: its theme is named ${theme.name}, and that name is already used by ${owner}. Nothing was added.`;
 }
 
 async function folderSource(text: string, host: PackHost): Promise<Source & { dir: string }> {
@@ -154,6 +167,8 @@ async function addPack(host: PackHost, text: string): Promise<void> {
   }
   const clash = nameClash(contents, host, [...installed.packs.map((pack) => pack.record.name), ...installed.rejected].filter((other) => other !== name));
   if (clash) throw new PackError(clash);
+  const themeTaken = themeClash(contents, installed.packs);
+  if (themeTaken) throw new PackError(themeTaken);
   if (before && !before.problem && before.record.source === source.stored) {
     const changes = packChanges(before.record.files, contents.files);
     if (!changes.added.length && !changes.changed.length && !changes.removed.length) {
@@ -177,8 +192,11 @@ async function addPack(host: PackHost, text: string): Promise<void> {
     if (!added) await rm(staged.dir, { recursive: true, force: true }).catch(() => undefined);
   }
   await host.reload?.();
+  const notes = await registerPackThemes(host.homeDir, host.packsOn);
   const skills = staged.contents.skills.map((skill) => skill.name).join(", ");
-  host.print(`Added pack ${name} ${staged.contents.manifest.version}: ${skills}. Casper uses ${staged.contents.skills.length === 1 ? "it" : "them"} when a request fits. /pack remove ${name} takes it out.`);
+  const theme = staged.contents.theme ? ` Its theme ${staged.contents.theme.name} is in /settings → Theme.` : "";
+  host.print(`Added pack ${name} ${staged.contents.manifest.version}: ${skills}. Casper uses ${staged.contents.skills.length === 1 ? "it" : "them"} when a request fits.${theme} /pack remove ${name} takes it out.`);
+  for (const note of notes) host.print(`[pack] ${note}`);
 }
 
 async function listPacks(host: PackHost): Promise<void> {
@@ -189,7 +207,7 @@ async function listPacks(host: PackHost): Promise<void> {
     const where = describeSource(record.source, host.homeDir, host.platform);
     lines.push(problem
       ? `  ${record.name} ${shownLine(record.version)} · not used: ${problem}. /pack add ${shownLine(record.source)} shows it again.`
-      : `  ${record.name} ${shownLine(record.version)} · ${count(record.skills.length, "skill")} · from ${where} · added ${record.addedAt.slice(0, 10)}`);
+      : `  ${record.name} ${shownLine(record.version)} · ${count(record.skills.length, "skill")}${record.theme ? " and a theme" : ""} · from ${where} · added ${record.addedAt.slice(0, 10)}`);
   }
   for (const name of rejected) lines.push(`  ${name} · not used: its record doesn't check out. /pack remove ${name} clears it.`);
   if (!packs.length && !rejected.length) lines.push("No packs yet. /pack add <folder or https://github.com/owner/repo@commit> adds one.");
@@ -197,9 +215,12 @@ async function listPacks(host: PackHost): Promise<void> {
 }
 
 async function removeNamed(host: PackHost, name: string): Promise<void> {
+  // Its theme on screen now stays until Casper starts again; then theme: no longer finds it and default is used.
+  const inUse = packThemeOwner(activeThemeName()) === name ? activeThemeName() : undefined;
   if (!(await removePack(host.homeDir, name))) { host.print(`No pack named ${shownLine(name)}. /pack list shows yours.`); return; }
   await host.reload?.();
-  host.print(`Removed pack ${name}.`);
+  await registerPackThemes(host.homeDir, host.packsOn);
+  host.print(`Removed pack ${name}.${inUse ? ` Its theme ${inUse} stays on screen until you start Casper again; then the colours go back to default.` : ""}`);
 }
 
 /** "/pack …" with what follows the command word. */

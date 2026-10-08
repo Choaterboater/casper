@@ -18,6 +18,7 @@ import { gitState } from "../security/git";
 import { findTool, installedVersion, onPath } from "../security/install";
 import { SECURITY_TOOLS } from "../security/tools";
 import { SECURITY_TOOL_ORDER, type SecurityToolId } from "../security/types";
+import { registerPackThemes } from "../packs/themes";
 import { themeNote } from "../tui/theme";
 import { compareVersions, defaultRunner, lookUpNewest, type Fetcher, type Install, type ProcessRunner } from "../update/command";
 import { jsonErrorPosition } from "./json-position";
@@ -190,6 +191,8 @@ export async function checkConfig(ctx: DoctorContext): Promise<{ lines: DoctorLi
     if (!lines.length) lines.push(fail(`Settings don't load: ${error instanceof Error ? error.message : String(error)}`, "fix that setting in the file it names"));
   }
   for (const warning of loaded?.warnings ?? []) lines.push(note(warning));
+  // A theme a pack you added brings counts, as it does when Casper starts.
+  if (loaded) for (const line of await registerPackThemes(ctx.homeDir, loaded.packs !== false)) lines.push(note(line));
   const theme = themeNote(loaded?.theme);
   if (theme) lines.push(note(theme));
   if (!lines.length) lines.push(ok("Config files load"));

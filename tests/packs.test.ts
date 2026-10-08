@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
@@ -7,6 +7,8 @@ import { packBox, PACK_ADD_CHOICES, PACK_CANT_ASK, runPackCommand, type PackHost
 import { readPackFolder, shownText } from "../src/packs/files";
 import { parseManifest } from "../src/packs/manifest";
 import { installPack, loadInstalledPacks, PACK_RECORDS, stagePack } from "../src/packs/store";
+import { packThemeOwner, registerPackThemes } from "../src/packs/themes";
+import { findTheme, themeNames } from "../src/tui/theme";
 import { CASPER_PRIVATE_PATHS, PRIVATE_PATHS, privatePlaces } from "../src/platform/project-paths";
 import { sandboxPolicy } from "../src/sandbox/policy";
 import { formatSelectedSkills, SkillRegistry } from "../src/skills/registry";
@@ -14,7 +16,11 @@ import { needsPosixModes, needsSymlinks } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
 const dirs: string[] = [];
-afterEach(async () => { for (const dir of dirs.splice(0)) await removeTempDir(dir); });
+afterEach(async () => {
+  // Packs off takes every pack's theme off the list again.
+  await registerPackThemes(os.tmpdir(), false);
+  for (const dir of dirs.splice(0)) await removeTempDir(dir);
+});
 
 async function temp(prefix = "casper-packs-"): Promise<string> {
   const dir = await realpath(await mkdtemp(path.join(os.tmpdir(), prefix)));
@@ -24,12 +30,17 @@ async function temp(prefix = "casper-packs-"): Promise<string> {
 
 const skill = (name: string, words = "drafting notes") => `---\nname: ${name}\ndescription: Help with ${words}.\ntags: [${words.split(" ")[0]}]\n---\nWhen asked about ${words}, write short plain sentences.\n`;
 
-/** A pack folder: pack.yaml and one SKILL.md per skill, plus any extra files. */
-async function writePack(dir: string, options: { name?: string; skills?: string[]; manifest?: string; extra?: Record<string, string> } = {}): Promise<string> {
+/** A pack folder: pack.yaml and one SKILL.md per skill, plus any extra files; `theme` is the text of
+ * themes/ocean.yaml, which pack.yaml then names. */
+async function writePack(dir: string, options: { name?: string; skills?: string[]; manifest?: string; extra?: Record<string, string>; theme?: string } = {}): Promise<string> {
   const skills = options.skills ?? ["drafting", "proofreading"];
   await mkdir(dir, { recursive: true });
   await writeFile(path.join(dir, "pack.yaml"), options.manifest
-    ?? `name: ${options.name ?? "writing-basics"}\nversion: 1.2.0\ndescription: Read-only help.\nskills:\n${skills.map((name) => `  - skills/${name}`).join("\n")}\n`);
+    ?? `name: ${options.name ?? "writing-basics"}\nversion: 1.2.0\ndescription: Read-only help.\nskills:\n${skills.map((name) => `  - skills/${name}`).join("\n")}\n${options.theme === undefined ? "" : "theme: themes/ocean.yaml\n"}`);
+  if (options.theme !== undefined) {
+    await mkdir(path.join(dir, "themes"), { recursive: true });
+    await writeFile(path.join(dir, "themes", "ocean.yaml"), options.theme);
+  }
   for (const name of skills) {
     await mkdir(path.join(dir, "skills", name), { recursive: true });
     await writeFile(path.join(dir, "skills", name, "SKILL.md"), skill(name, `${name} notes`));
@@ -48,7 +59,7 @@ async function addPack(home: string, folder: string): Promise<void> {
 
 const refusal = (work: Promise<unknown>) => work.then(() => "no refusal", (error: Error) => error.message);
 
-test("pack.yaml takes only name, version, description and skills; any other field is refused", () => {
+test("pack.yaml takes only name, version, description, skills and one theme file; any other field is refused", () => {
   expect(parseManifest("name: writing-basics\nversion: 1.2.0\ndescription: Read-only help.\nskills:\n  - skills/drafting\n")).toEqual({
     name: "writing-basics", version: "1.2.0", description: "Read-only help.", skills: ["skills/drafting"],
   });
@@ -66,6 +77,16 @@ test("pack.yaml takes only name, version, description and skills; any other fiel
   expect(() => parseManifest(base.replace("[skills/drafting]", "[../outside]"))).toThrow("not a plain folder");
   expect(() => parseManifest(base.replace("[skills/drafting]", "[/etc/skills]"))).toThrow("not a plain folder");
   expect(() => parseManifest(base.replace("[skills/drafting]", "[skills, skills/drafting]"))).toThrow("inside skills");
+
+  // One theme file, by a plain path inside the pack and outside its skill folders; never a list, a link out or code.
+  expect(parseManifest(`${base}theme: themes/ocean.yaml\n`).theme).toBe("themes/ocean.yaml");
+  expect(parseManifest(base).theme).toBeUndefined();
+  for (const theme of ["../ocean.yaml", "/etc/ocean.yaml", "themes/../../ocean.yaml", "C:/ocean.yaml", "themes\\ocean.yaml", ".hidden.yaml", "[a.yaml, b.yaml]", "{file: a.yaml}", "~", "''"]) {
+    expect(() => parseManifest(`${base}theme: ${theme}\n`)).toThrow("theme must be one plain file inside the pack, like themes/ocean.yaml.");
+  }
+  expect(() => parseManifest(`${base}theme: skills/drafting/ocean.yaml\n`)).toThrow("the theme skills/drafting/ocean.yaml is inside the skill folder skills/drafting");
+  for (const taken of ["pack.yaml", "README.md", "LICENSE"]) expect(() => parseManifest(`${base}theme: ${taken}\n`)).toThrow(`the theme can't be ${taken}`);
+  expect(() => parseManifest(`${base}theme: themes/ocean.yaml\nthemes: [themes/night.yaml]\n`)).toThrow("Casper doesn't take: \"themes\"");
 });
 
 test("a pack folder holding a linked folder, a .. path or a file the manifest doesn't list is refused", async () => {
@@ -141,6 +162,131 @@ test("the add box is Casper's own words: escapes and bidi in the author's text a
   expect(await refusal(readPackFolder(spoof))).toBe("skills/drafting/notes.md has a character you can't see (U+202E). Casper doesn't add text you can't read in full.");
   const escape = await writePack(path.join(root, "escape"), { extra: { "README.md": "hello \u001b]0;title\u0007\n" } });
   expect(await refusal(readPackFolder(escape))).toContain("README.md has a character you can't see (U+001B)");
+});
+
+const OCEAN = 'name: ocean\ncolors:\n  accent: "#3399ff"\n  warning: magenta\n';
+
+test("a pack's one theme is counted in the box from its file, shown in full, and a changed theme file asks again", async () => {
+  const root = await temp();
+  const home = path.join(root, "home");
+  const pack = await writePack(path.join(root, "pack"), { theme: OCEAN });
+  const shown: string[] = [];
+  await runPackCommand(packHost(home, root, shown, { answers: ["3", "2"] }), `add ${pack}`);
+  const screen = shown.join("\n");
+  expect(screen).toContain("Theme: ocean (themes/ocean.yaml), colours only. It is used only if you pick it in /settings.");
+  expect(screen).toContain(`Add pack writing-basics from ${pack}?\nIt brings 2 skills and a theme. Nothing else runs.\n  1 No\n  2 Yes, add it\n  3 Show me what's inside`);
+  // Its full text, under its name, behind the bar like every other file.
+  expect(screen).toContain('--- themes/ocean.yaml (59 bytes) ---\n  │ name: ocean\n  │ colors:\n  │   accent: "#3399ff"\n  │   warning: magenta\n');
+  expect(shown.at(-1)).toBe("Added pack writing-basics 1.2.0: drafting, proofreading. Casper uses them when a request fits. Its theme ocean is in /settings → Theme. /pack remove writing-basics takes it out.");
+  const [installed] = (await loadInstalledPacks(home)).packs;
+  expect([installed!.record.theme, installed!.theme?.name, installed!.theme?.colors.accent]).toEqual(["themes/ocean.yaml", "ocean", "#3399ff"]);
+  // On the theme list for /settings straight away, named as the pack's.
+  expect(themeNames()).toEqual(["default", "light", "high-contrast", "ocean"]);
+  expect(packThemeOwner("ocean")).toBe("writing-basics");
+  const listed: string[] = [];
+  await runPackCommand(packHost(home, root, listed), "list");
+  expect(listed[0]).toMatch(/^ {2}writing-basics 1\.2\.0 · 2 skills and a theme · from /);
+
+  // A changed theme file is a changed file: the box again, with what changed, and No keeps what you added.
+  await writeFile(path.join(pack, "themes", "ocean.yaml"), OCEAN.replace("magenta", "bright-yellow"));
+  const changed: string[] = [];
+  await runPackCommand(packHost(home, root, changed, { answers: ["1"] }), `add ${pack}`);
+  expect(changed[0]).toContain("Changed since you added it: themes/ocean.yaml");
+  expect(changed[0]).toContain("It brings 2 skills and a theme. Nothing else runs.");
+  expect((await loadInstalledPacks(home)).packs[0]!.theme?.colors.warning).toBe("magenta");
+
+  // Changed where it was added: the pack stops, and its theme goes off the list.
+  await writeFile(path.join(home, ".casper", "packs", "writing-basics", "themes", "ocean.yaml"), OCEAN.replace("magenta", "red"));
+  const [stopped] = (await loadInstalledPacks(home)).packs;
+  expect([stopped!.problem, stopped!.theme]).toEqual(["its files changed since you added it", undefined]);
+  expect(await registerPackThemes(home, true)).toEqual([]);
+  expect(themeNames()).not.toContain("ocean");
+
+  // A theme pack.yaml names but the pack doesn't have.
+  const missing = await writePack(path.join(root, "missing"), { manifest: "name: writing-basics\nversion: 1.2.0\ndescription: x\nskills: [skills/drafting, skills/proofreading]\ntheme: themes/ocean.yaml\n" });
+  expect(await refusal(readPackFolder(missing))).toBe("The theme themes/ocean.yaml is listed in pack.yaml but isn't in the pack.");
+  // A second theme file is not listed: only the one pack.yaml names comes in.
+  const second = await writePack(path.join(root, "second"), { theme: OCEAN, extra: { "themes/night.yaml": OCEAN.replace("ocean", "night") } });
+  expect(await refusal(readPackFolder(second))).toBe("themes/night.yaml is not listed in pack.yaml (it isn't inside a listed skill folder or the theme). Casper adds only what a pack lists.");
+});
+
+test("a pack whose theme isn't colours only is refused whole, with a plain reason: escapes, controls, other fields, a big file, a path out", async () => {
+  const root = await temp();
+  const home = path.join(root, "home");
+  const refusals: Array<[string, string]> = [
+    // A raw escape or control in a value or the name: no file with a character you can't see is added.
+    ['name: ocean\ncolors:\n  accent: "\u001b[2J"\n', "themes/ocean.yaml has a character you can't see (U+001B)."],
+    ["name: ocean\u0007\ncolors: {}\n", "themes/ocean.yaml has a character you can't see (U+0007)."],
+    ["name: ocean\ncolors:\n  accent: \u009b31m\n", "themes/ocean.yaml has a character you can't see (U+009B)."],
+    // Spelled out for YAML or JSON to decode, in a value or the name.
+    ['name: ocean\ncolors:\n  accent: "\\e[31m"\n', "The theme themes/ocean.yaml can't be used: a theme file can't hold a backslash."],
+    ['{"name": "ocean\\u001b]0;x", "colors": {}}', "The theme themes/ocean.yaml can't be used: a theme file can't hold a backslash."],
+    ["name: océan\ncolors: {}\n", "The theme themes/ocean.yaml can't be used: a theme file can't hold the character U+00E9."],
+    // Anything but a name and colours.
+    ["name: ocean\ncolors: {}\nrun: install.sh\n", "The theme themes/ocean.yaml can't be used: unknown field \"run\"; a theme file has only name and colors."],
+    ["name: ocean\ncolors:\n  background: red\n", "The theme themes/ocean.yaml can't be used: unknown role \"background\""],
+    ["name: ocean\ncolors:\n  accent: 38;2;1;2;3\n", "The theme themes/ocean.yaml can't be used: accent must be #rrggbb"],
+    ["name: Ocean Night\ncolors: {}\n", "The theme themes/ocean.yaml can't be used: name must be 1–64 lowercase letters"],
+    ["name: ocean\ncolors:\n  accent: &a red\n  muted: *a\n", "The theme themes/ocean.yaml can't be used: a theme file can't use YAML anchors, aliases or tags."],
+    [`# ${"x".repeat(9 * 1024)}\nname: ocean\ncolors: {}\n`, "The theme themes/ocean.yaml can't be used: a theme file must be at most 8 KiB."],
+  ];
+  const wrong: string[] = [];
+  for (const [index, [text, reason]] of refusals.entries()) {
+    const message = await refusal(readPackFolder(await writePack(path.join(root, `pack-${index}`), { theme: text })));
+    if (!message.startsWith(reason)) wrong.push(`${JSON.stringify(text.slice(0, 60))} gave ${JSON.stringify(message)}, wanted ${reason}`);
+    // The reason never carries what it refused back to the screen.
+    expect(message).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+  }
+  expect(wrong).toEqual([]);
+  // Through /pack add: the plain reason, no box, nothing added.
+  const printed: string[] = [];
+  await runPackCommand(packHost(home, root, printed, { answers: ["2"] }), `add ${path.join(root, "pack-6")}`);
+  expect(printed).toEqual(['[pack] The theme themes/ocean.yaml can\'t be used: unknown field "run"; a theme file has only name and colors.']);
+  expect((await loadInstalledPacks(home)).packs).toEqual([]);
+
+  // A theme path out of the pack, and a themes folder that is a link to somewhere else.
+  const outside = path.join(root, "outside");
+  await mkdir(outside);
+  await writeFile(path.join(outside, "ocean.yaml"), OCEAN);
+  const escaping = await writePack(path.join(root, "escaping"), { manifest: "name: writing-basics\nversion: 1.2.0\ndescription: x\nskills: [skills/drafting]\ntheme: ../outside/ocean.yaml\n", skills: ["drafting"] });
+  expect(await refusal(readPackFolder(escaping))).toBe("pack.yaml: theme must be one plain file inside the pack, like themes/ocean.yaml.");
+  const linked = await writePack(path.join(root, "linked"), { manifest: "name: writing-basics\nversion: 1.2.0\ndescription: x\nskills: [skills/drafting]\ntheme: themes/ocean.yaml\n", skills: ["drafting"] });
+  await symlink(outside, path.join(linked, "themes"), "junction");
+  expect(await refusal(readPackFolder(linked))).toBe("themes is a link. A pack holds plain files only.");
+});
+
+needsSymlinks("a pack whose theme file is a link is refused", async () => {
+  const root = await temp();
+  await writeFile(path.join(root, "ocean.yaml"), OCEAN);
+  const pack = await writePack(path.join(root, "pack"), { theme: OCEAN });
+  await rm(path.join(pack, "themes", "ocean.yaml"));
+  await symlink(path.join(root, "ocean.yaml"), path.join(pack, "themes", "ocean.yaml"));
+  expect(await refusal(readPackFolder(pack))).toBe("themes/ocean.yaml is a link. A pack holds plain files only.");
+});
+
+test("a pack's theme can't take the name of a built-in theme or another pack's theme", async () => {
+  const root = await temp();
+  const home = path.join(root, "home");
+  const tryAdd = async (folder: string, answers = ["2"]) => {
+    const printed: string[] = [];
+    await runPackCommand(packHost(home, root, printed, { answers }), `add ${folder}`);
+    return printed.join("\n");
+  };
+  for (const builtIn of ["default", "light", "high-contrast"]) {
+    const pack = await writePack(path.join(root, builtIn), { theme: OCEAN.replace("ocean", builtIn) });
+    expect(await tryAdd(pack)).toBe(`[pack] Pack writing-basics can't be added: its theme is named ${builtIn}, and that name is already used by a theme built into Casper. Nothing was added.`);
+  }
+  expect((await loadInstalledPacks(home)).packs).toEqual([]);
+  expect(themeNames()).toEqual(["default", "light", "high-contrast"]);
+
+  expect(await tryAdd(await writePack(path.join(root, "first"), { theme: OCEAN }))).toContain("Added pack writing-basics 1.2.0");
+  const other = await writePack(path.join(root, "other"), { name: "more-writing", skills: ["letters"], theme: OCEAN.replace("#3399ff", "#ff0000") });
+  expect(await tryAdd(other)).toBe("[pack] Pack more-writing can't be added: its theme is named ocean, and that name is already used by the theme of pack writing-basics. Nothing was added.");
+  expect(findTheme("ocean")?.colors.accent).toBe("#3399ff");
+  // The same pack added again keeps its own theme's name.
+  await writeFile(path.join(root, "first", "themes", "ocean.yaml"), OCEAN.replace("#3399ff", "#0066cc"));
+  expect(await tryAdd(path.join(root, "first"))).toContain("Added pack writing-basics 1.2.0");
+  expect(findTheme("ocean")?.colors.accent).toBe("#0066cc");
 });
 
 test("the record is keyed: a changed file, an edited record or a record Casper didn't write means the pack is not used", async () => {

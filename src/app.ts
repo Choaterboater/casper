@@ -16,6 +16,7 @@ import type { PaneSetting } from "./tui/pane-setting";
 import type { DisplayLevel } from "./tui/display";
 import { formatRuntimeStatus, terminalText } from "./tui/format";
 import { themeNote, useTheme } from "./tui/theme";
+import { registerPackThemes } from "./packs/themes";
 import { discoverReferenceConfiguration, type ReferenceConfiguration } from "./references/config";
 import { formatReferenceResult, ReferenceLibrary } from "./references/library";
 import { SubagentManager } from "./agents/manager";
@@ -494,6 +495,8 @@ export class CasperApp {
     const { project, context, mcp, visualization, lspConfiguration, referenceConfiguration } = await loadWorkspace(this, cwd);
     if (this.closing) throw new Error("Casper is closing");
     // Your colours from the first line on; a name Casper has no theme for uses default and is named with the [config] lines.
+    // The themes of the packs you added (packs on, files as you saw them) are on the list first, so theme: finds them.
+    const packThemeNotes = await registerPackThemes(this.homeDir(), context.packs !== false);
     useTheme(context.theme);
     const themeNoted = themeNote(context.theme);
     // The wordmark is for a person at a rich terminal; one-shot and piped output keep the text banner.
@@ -512,6 +515,7 @@ export class CasperApp {
     const shown = this.runModel && !this.session ? `${terminalText(this.runModel)} for this run (--model)` : this.savedModelDisplay;
     this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.(), shown, this.signedIn, this.interactive && this.terminal.rich)}\n`);
     for (const warning of [...this.startupWarnings, ...context.warnings ?? [], ...(themeNoted ? [themeNoted] : [])]) this.output.write(`[config] ${terminalText(warning)}\n`);
+    for (const note of packThemeNotes) this.output.write(`[pack] ${terminalText(note)}\n`);
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
     reportSkillWarnings(this);
     for (const diagnostic of mcp.diagnostics) this.output.write(`[mcp] ${terminalText(diagnostic)}\n`);

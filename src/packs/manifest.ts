@@ -2,9 +2,9 @@ import { parse } from "yaml";
 import { SKILL_NAME } from "../skills/metadata";
 
 /**
- * A pack's pack.yaml: its name, version, a line from its author, and the skill folders it brings. Nothing else is
- * read, and anything else is refused rather than skipped: a pack written for a later Casper must not install here
- * with part of it quietly left out. A new field goes in FIELDS and is read in parseManifest, nowhere else.
+ * A pack's pack.yaml: its name, version, a line from its author, the skill folders it brings and at most one theme
+ * file (colours only). Nothing else is read, and anything else is refused rather than skipped: a pack written for a
+ * later Casper must not install here with part of it quietly left out. A new field goes in FIELDS and is read in parseManifest, nowhere else.
  */
 
 /** Why a pack can't be added, in plain words for the person; nothing was installed. */
@@ -20,9 +20,11 @@ export interface PackManifest {
   description: string;
   /** Skill folders, relative to the pack (skills/drafting). Each holds a SKILL.md. */
   skills: string[];
+  /** One theme file, relative to the pack (themes/ocean.yaml): colours only, read with parseThemeFile. */
+  theme?: string;
 }
 
-const FIELDS = ["name", "version", "description", "skills"] as const;
+const FIELDS = ["name", "version", "description", "skills", "theme"] as const;
 const VERSION = /^\d{1,6}\.\d{1,6}\.\d{1,6}(?:-[0-9A-Za-z.-]{1,32})?$/;
 /** One part of a path inside a pack: letters, digits, dot, dash, underscore and space, starting with a letter or digit.
  * No "..", no hidden names, nothing a terminal or another system reads differently. */
@@ -40,11 +42,11 @@ export function parseManifest(text: string): PackManifest {
   let value: unknown;
   try { value = parse(text, { maxAliasCount: 0, uniqueKeys: true }); }
   catch { throw new PackError(`${MANIFEST_FILE} is not valid YAML.`); }
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new PackError(`${MANIFEST_FILE} must be a list of fields (name, version, description, skills).`);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new PackError(`${MANIFEST_FILE} must be a list of fields (name, version, description, skills, theme).`);
   const fields = value as Record<string, unknown>;
   const unknown = Object.keys(fields).filter((key) => !(FIELDS as readonly string[]).includes(key));
-  if (unknown.length) throw new PackError(`${MANIFEST_FILE} has ${unknown.length === 1 ? "a field" : "fields"} Casper doesn't take: ${unknown.slice(0, 5).map((key) => JSON.stringify(key)).join(", ")}. A pack has only name, version, description and skills.`);
-  const { name, version, description, skills } = fields;
+  if (unknown.length) throw new PackError(`${MANIFEST_FILE} has ${unknown.length === 1 ? "a field" : "fields"} Casper doesn't take: ${unknown.slice(0, 5).map((key) => JSON.stringify(key)).join(", ")}. A pack has only name, version, description, skills and theme.`);
+  const { name, version, description, skills, theme } = fields;
   if (typeof name !== "string" || name.length > 64 || !SKILL_NAME.test(name)) {
     throw new PackError(`${MANIFEST_FILE}: name must be 1-64 lowercase letters, numbers or single hyphens.`);
   }
@@ -68,5 +70,13 @@ export function parseManifest(text: string): PackManifest {
     if (inside) throw new PackError(`${MANIFEST_FILE}: ${folder} is inside ${inside}; list each skill folder once.`);
   }
   if (new Set(folders.map((folder) => folder.toLowerCase())).size !== folders.length) throw new PackError(`${MANIFEST_FILE}: a skill folder is listed twice.`);
-  return { name, version, description: description.trim(), skills: folders };
+  if (theme === undefined) return { name, version, description: description.trim(), skills: folders };
+  // One file, outside the skill folders: a skill's files are its own, and pack.yaml, README and LICENSE are not themes.
+  if (typeof theme !== "string" || !isPackPath(theme)) throw new PackError(`${MANIFEST_FILE}: theme must be one plain file inside the pack, like themes/ocean.yaml.`);
+  const owner = folders.find((folder) => theme.toLowerCase().startsWith(`${folder.toLowerCase()}/`));
+  if (owner) throw new PackError(`${MANIFEST_FILE}: the theme ${theme} is inside the skill folder ${owner}; put it in its own folder, like themes/.`);
+  if (theme.toLowerCase() === MANIFEST_FILE || /^(?:readme\.md|license(?:\.md|\.txt)?)$/i.test(theme)) {
+    throw new PackError(`${MANIFEST_FILE}: the theme can't be ${theme}; put it in its own file, like themes/ocean.yaml.`);
+  }
+  return { name, version, description: description.trim(), skills: folders, theme };
 }
