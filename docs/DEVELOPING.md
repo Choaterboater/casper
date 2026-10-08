@@ -1,6 +1,6 @@
-# Contributing
+# Working on Casper
 
-Thanks for helping with Casper.
+How to build, test and change Casper.
 
 ## Develop from source and run the checks
 
@@ -25,15 +25,15 @@ changes it is behind, the same way.
 `bun run lint` is [oxlint](https://oxc.rs) with only the rules that catch real bugs (`.oxlintrc.json`), no style rules. While you work,
 run only the test files you touched: `bun test tests/<name>.test.ts`. Browser and debugger tests skip when those tools are not
 installed. Build the program for this machine with `bun run build:release`, or all five
-release targets with `bun run build:release -- --all`. [Host testing](docs/PLATFORM_VERIFICATION.md).
+release targets with `bun run build:release -- --all`. [Host testing](PLATFORM_VERIFICATION.md).
 
-The optional [evaluation suite](docs/EVALUATION.md) runs real model tasks and may cost
+The optional [evaluation suite](EVALUATION.md) runs real model tasks and may cost
 provider usage: `bun tools/eval.ts --list` shows the tasks.
 
-New here? [How Casper is built](docs/ARCHITECTURE.md): the main pieces, how one request runs, and where to start a change.
+New here? [How Casper is built](ARCHITECTURE.md): the main pieces, how one request runs, and where to start a change.
 
-Project notes: [design decision](docs/adr/0001-casper-own-product.md),
-[eval results](docs/evals/), [pre-release review](docs/PRE_RELEASE_REVIEW.md).
+Project notes: [design decision](adr/0001-casper-own-product.md),
+[eval results](evals/), [pre-release review](PRE_RELEASE_REVIEW.md).
 
 ## How changes are made
 
@@ -47,7 +47,7 @@ Project notes: [design decision](docs/adr/0001-casper-own-product.md),
 Commits are authored by the maintainer; outside changes come as pull requests that the maintainer lands.
 Open an issue first for anything large, so we can agree on the shape before you build it.
 
-Security problems: see [docs/SECURITY.md](docs/SECURITY.md) instead of opening a public issue.
+Security problems: see [docs/SECURITY.md](SECURITY.md) instead of opening a public issue.
 
 ### If CI is red on your PR
 

@@ -1,7 +1,7 @@
 # How Casper is built
 
 One page for a new contributor: the main pieces, how one request runs, the promises Casper makes and
-where they are kept, and where to start a change. Read [CONTRIBUTING.md](../CONTRIBUTING.md) first for
+where they are kept, and where to start a change. Read [DEVELOPING.md](DEVELOPING.md) first for
 how to run the checks. Words such as *Verified* and *verification evidence* are defined in
 [CONTEXT.md](../CONTEXT.md); the design decision behind them is [ADR 0001](adr/0001-casper-own-product.md).
 

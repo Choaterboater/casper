@@ -152,7 +152,7 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 | Tools | [Services](docs/SERVICES.md) · [Browser](docs/BROWSER.md) · [LSP](docs/LSP.md) · [Debugger](docs/DEBUGGER.md) · [Diagrams](docs/VISUALIZATION.md) · [Helpers](docs/DELEGATION.md) · [Crews](docs/CREWS.md) · [Learn](docs/LEARNING.md) |
 | Setup | [Doctor](docs/DOCTOR.md) · [Configuration](docs/CONFIGURATION.md) · [Scripting](docs/SCRIPTING.md) · [Secrets](docs/SECRETS.md) · [Security](docs/SECURITY.md) · [Reader](docs/READER.md) |
 | Platforms | [Support](docs/PLATFORM_SUPPORT.md) · [Testing a machine](docs/PLATFORM_VERIFICATION.md) · [Windows](docs/WINDOWS.md) · [Releases](docs/RELEASE.md) · [Evals](docs/EVALUATION.md) |
-| Contributing | [How Casper is built](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md) |
+| Contributing | [How Casper is built](docs/ARCHITECTURE.md) · [Working on Casper](docs/DEVELOPING.md) |
 
 ## What's new
 
@@ -162,7 +162,7 @@ v0.2.27: skill packs you add from a folder or a GitHub commit after seeing every
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). To work from source (needs Bun, Git and Python 3):
+See [docs/DEVELOPING.md](docs/DEVELOPING.md). To work from source (needs Bun, Git and Python 3):
 
 ```sh
 git clone https://github.com/Choaterboater/casper.git
