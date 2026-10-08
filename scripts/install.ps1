@@ -147,9 +147,13 @@ try {
       $Attested = $false
       $CanAttest = $false
       if ($SignedIn) {
-        # A gh older than 2.49 has no `attestation` command; its help, asked with nothing from the download, tells that apart from a build that doesn't match.
-        & gh attestation verify --help *> $null
-        $CanAttest = $LASTEXITCODE -eq 0
+        # Only a gh of 2.56.0 or newer can check Casper's attestations (older ones lack the command or cannot read
+        # the trusted root), so gh's own version decides. An older or unreadable version skips this check.
+        $VersionText = (& gh --version 2>$null | Select-Object -First 1)
+        if ($LASTEXITCODE -eq 0 -and $VersionText -match '^gh version (\d{1,6})\.(\d{1,6})\.(\d{1,6})(\s|$)') {
+          $GhMajor = [int]$Matches[1]; $GhMinor = [int]$Matches[2]
+          $CanAttest = ($GhMajor -gt 2) -or ($GhMajor -eq 2 -and $GhMinor -ge 56)
+        }
       }
       if ($CanAttest) {
         & gh attestation verify $ArtifactPath --repo Choaterboater/casper *> $null
@@ -157,7 +161,7 @@ try {
       }
     } finally { $ErrorActionPreference = $SavedPreference }
     if ($SignedIn -and -not $CanAttest) {
-      Write-Host "Checked SHA-256. This gh is too old to check where it was built (gh 2.49 or newer can)."
+      Write-Host "Checked SHA-256. This gh is too old to check where it was built (gh 2.56 or newer can)."
     } elseif ($SignedIn) {
       if (-not $Attested) { throw "This download doesn't match a Casper build from GitHub. Nothing installed." }
       Write-Host "Verified: built by GitHub Actions from Choaterboater/casper."

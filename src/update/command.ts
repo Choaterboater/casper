@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { safeGitArgs } from "../platform/git";
+import { ghCanVerifyBuild } from "./gh-version";
 import { RELEASE_KEY } from "./release-key";
 import { checkInstaller } from "./verify-installer";
 
@@ -303,12 +304,14 @@ function listedDigest(sums: string, file: string): string | undefined {
 }
 
 /** False only when gh is installed and signed in and says the file is not a build from the Casper repository.
- * A gh older than 2.49 has no `attestation` command; its help, asked without the file, tells that apart from a mismatch. */
+ * A gh older than 2.56 cannot check Casper's attestations (it lacks the command or fails to read the trusted root), so
+ * its own version decides, and an older or unreadable one skips this check. */
 async function builtByGitHub(run: ProcessRunner, file: string, options: UpdateOptions): Promise<boolean> {
   const env = options.env ?? process.env;
   const signal = options.signal ? { signal: options.signal } : {};
   if ((await run(["gh", "auth", "status"], { env, timeoutMs: 30_000, ...signal })).code !== 0) return true;
-  if ((await run(["gh", "attestation", "verify", "--help"], { env, timeoutMs: 30_000, ...signal })).code !== 0) return true;
+  const version = await run(["gh", "--version"], { env, timeoutMs: 30_000, ...signal });
+  if (version.code !== 0 || !ghCanVerifyBuild(version.stdout)) return true;
   return (await run(["gh", "attestation", "verify", file, "--repo", RELEASE_REPO], { env, timeoutMs: 120_000, ...signal })).code === 0;
 }
 

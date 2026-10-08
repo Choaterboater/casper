@@ -198,12 +198,35 @@ if [ "$actual_sha" != "$EXPECTED_SHA" ]; then
 fi
 
 # Where it was built: the release's GitHub build provenance, checked with gh when it is installed and
-# signed in. A download that doesn't match is never installed. A gh older than 2.49 has no
-# `attestation` command; asking its help, with nothing from the download, tells that apart from a
-# build that doesn't match.
+# signed in. A download that doesn't match is never installed. Only a gh of 2.56.0 or newer can check
+# Casper's attestations (older ones lack the command or cannot read the trusted root), so gh's own
+# version decides; an older or unreadable version skips this check and the SHA-256 and signature checks stand.
+gh_can_attest() {
+  gh_out=$(gh --version 2>/dev/null) || return 1
+  IFS= read -r gh_line <<GHV
+$gh_out
+GHV
+  case "$gh_line" in "gh version "*) ;; *) return 1 ;; esac
+  gh_v=${gh_line#gh version }
+  gh_v=${gh_v%% *}
+  case "$gh_v" in *.*.*) ;; *) return 1 ;; esac
+  gh_major=${gh_v%%.*}
+  gh_rest=${gh_v#*.}
+  gh_minor=${gh_rest%%.*}
+  gh_patch=${gh_rest#*.}
+  for gh_n in "$gh_major" "$gh_minor" "$gh_patch"; do
+    case "$gh_n" in "" | *[!0-9]*) return 1 ;; esac
+    [ "${#gh_n}" -le 6 ] || return 1
+  done
+  while :; do case "$gh_major" in 0?*) gh_major=${gh_major#0} ;; *) break ;; esac; done
+  while :; do case "$gh_minor" in 0?*) gh_minor=${gh_minor#0} ;; *) break ;; esac; done
+  [ "$gh_major" -gt 2 ] && return 0
+  [ "$gh_major" -eq 2 ] || return 1
+  [ "$gh_minor" -ge 56 ]
+}
 if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-  if ! gh attestation verify --help >/dev/null 2>&1; then
-    echo "Checked SHA-256. This gh is too old to check where it was built (gh 2.49 or newer can)."
+  if ! gh_can_attest; then
+    echo "Checked SHA-256. This gh is too old to check where it was built (gh 2.56 or newer can)."
   elif gh attestation verify "$tmp/$artifact" --repo Choaterboater/casper >/dev/null 2>&1; then
     echo "Verified: built by GitHub Actions from Choaterboater/casper."
   else

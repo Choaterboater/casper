@@ -92,10 +92,11 @@ so one answer costs far fewer tokens; `trigger_device_upgrade` writes the firmwa
 its dry run now catches a body the endpoint would reject; an accepted firmware change says "queued, not
 applied yet". Installs on 0.1.1 are offered the update by `/mcp setup network`.
 
-**An older `gh` no longer stops an install.** A signed-in `gh` older than 2.49 has no `attestation` command,
-and `install.sh`, `install.ps1` and `casper update` read that as "this download isn't a Casper build". They now
-ask `gh` whether it has the command first; if not, they continue with the SHA-256 and signature checks and
-say "This gh is too old to check where it was built (gh 2.49 or newer can)." A `gh` that has the command and
+**An older `gh` no longer stops an install.** A signed-in `gh` older than 2.56 cannot check Casper's builds
+(2.45 and 2.46 have no `attestation` command; 2.47 to 2.55 have it but fail on a good build), and `install.sh`,
+`install.ps1` and `casper update` read that as "this download isn't a Casper build". They now read `gh`'s own
+version first; below 2.56.0, or when it cannot be read, they continue with the SHA-256 and signature checks and
+say "This gh is too old to check where it was built (gh 2.56 or newer can)." A `gh` of 2.56 or newer that
 says the file does not match still stops the install.
 
 **`/security-review update` with the sandbox on.** The advisory download always failed with the shell
@@ -1417,10 +1418,10 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
   binary's GitHub build provenance must match (`gh attestation verify --repo
   Choaterboater/casper`): `Verified: built by GitHub Actions from Choaterboater/casper.`,
   or `This download doesn't match a Casper build from GitHub. Nothing installed.` A `gh` older
-  than 2.49 has no `attestation` command; the installers and `casper update` then go on with the
-  SHA-256 (and signature) checks, and the installers say `This gh is too old to check where it was
-  built (gh 2.49 or newer can).` A `gh` that has the command but whose check fails is still a
-  refusal; Windows CI runs both cases for `install.ps1` with a stand-in `gh`
+  than 2.56 (or whose version cannot be read) cannot check Casper's builds; the installers and
+  `casper update` then go on with the SHA-256 (and signature) checks, and the installers say `This gh
+  is too old to check where it was built (gh 2.56 or newer can).` A `gh` of 2.56 or newer whose check
+  fails is still a refusal; Windows CI runs both cases for `install.ps1` with a stand-in `gh`
   (`scripts/test-install-signature-windows.ps1`). The shell installer's
   `CASPER_BASE_URL` accepts an `http(s)` URL, a `file://` URL or a local directory for
   offline/internal installs. PowerShell downloads through `Invoke-WebRequest`; use an

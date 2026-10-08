@@ -183,10 +183,10 @@ function signedRelease(version: string, key: TestKey, options: { signature?: str
   return fakeGitHub([{ tag_name: `v${version}` }], files);
 }
 
-async function signedUpdate(github: ReturnType<typeof fakeGitHub>, key: TestKey, result?: (argv: string[]) => number | null) {
+async function signedUpdate(github: ReturnType<typeof fakeGitHub>, key: TestKey, result?: (argv: string[]) => number | null, ghVersion: string | null = "gh version 2.56.0 (2024-08-13)\nhttps://github.com/cli/cli/releases/tag/v2.56.0\n") {
   const { executable } = await binaryInstall();
   const calls: string[][] = [];
-  const run: ProcessRunner = async (argv) => { calls.push(argv); return { code: result ? result(argv) : 0, stdout: "", stderr: "" }; };
+  const run: ProcessRunner = async (argv) => { calls.push(argv); return { code: result ? result(argv) : 0, stdout: argv[0] === "gh" && argv[1] === "--version" ? (ghVersion ?? "") : "", stderr: "" }; };
   const lines: string[] = [];
   const outcome = await runUpdate({ check: false, install: { kind: "binary", executable }, currentVersion: "0.2.21", write: (line) => lines.push(line),
     fetch: github.fetch, run, platform: "linux", arch: "x64", env: {}, releaseKey: key.publicKey });
@@ -197,8 +197,7 @@ test("binary: with a release key, a signed list that names the installer lets it
   const key = testReleaseKey();
   const result = await signedUpdate(signedRelease("0.2.22", key), key);
   expect(result.exitCode).toBe(0);
-  expect(result.calls.map((argv) => argv.slice(0, 3).join(" "))).toEqual(["gh auth status", "gh attestation verify", "gh attestation verify", expect.stringMatching(/^sh .*install\.sh --dir$/)]);
-  expect(result.calls[1]).toEqual(["gh", "attestation", "verify", "--help"]);
+  expect(result.calls.map((argv) => argv.slice(0, 3).join(" "))).toEqual(["gh auth status", "gh --version", "gh attestation verify", expect.stringMatching(/^sh .*install\.sh --dir$/)]);
   expect(result.calls[2]!.slice(-2)).toEqual(["--repo", "Choaterboater/casper"]);
 });
 
@@ -252,7 +251,7 @@ test("windows: the installer gets this program's file and digest from the list C
 
 test("binary: gh signed in and saying the installer isn't a Casper build stops the update; gh missing, signed out or too old does not", async () => {
   const key = testReleaseKey();
-  const refused = await signedUpdate(signedRelease("0.2.22", key), key, (argv) => argv[1] === "attestation" && !argv.includes("--help") ? 1 : 0);
+  const refused = await signedUpdate(signedRelease("0.2.22", key), key, (argv) => argv[1] === "attestation" ? 1 : 0);
   expect(refused.exitCode).toBe(1);
   expect(refused.lines.at(-1)).toBe("The downloaded installer doesn't match a Casper build from GitHub, so it was not run. Nothing was changed.");
   expect(refused.calls.some((argv) => argv[0] === "sh")).toBe(false);
@@ -261,10 +260,23 @@ test("binary: gh signed in and saying the installer isn't a Casper build stops t
     expect(result.exitCode).toBe(0);
     expect(result.calls.map((argv) => argv[0])).toEqual(["gh", "sh"]);
   }
-  // A gh from before 2.49 has no `attestation` command, so even its help fails: that is not a mismatch.
-  const old = await signedUpdate(signedRelease("0.2.22", key), key, (argv) => argv[1] === "attestation" ? 1 : 0);
-  expect(old.exitCode).toBe(0);
-  expect(old.calls.map((argv) => argv.slice(0, 4).join(" "))).toEqual(["gh auth status", "gh attestation verify --help", expect.stringMatching(/^sh /)]);
+  // A gh older than 2.56 cannot check Casper's attestations (2.45 has no command, 2.47 to 2.55 fail on a good build),
+  // and one whose version cannot be read is treated alike: the check is skipped, never asked, and is not a mismatch.
+  for (const version of ["gh version 2.45.0 (2024-03-01)", "gh version 2.47.0 (2024-04-01)", "gh version 2.55.0 (2024-08-01)", "gh version 1.99.0", "nonsense", "gh version 2.56", "gh version 2.56.0-rc1", ""]) {
+    const old = await signedUpdate(signedRelease("0.2.22", key), key, (argv) => argv[1] === "attestation" ? 1 : 0, version);
+    expect({ version, exitCode: old.exitCode }).toEqual({ version, exitCode: 0 });
+    expect(old.calls.map((argv) => argv.slice(0, 3).join(" "))).toEqual(["gh auth status", "gh --version", expect.stringMatching(/^sh /)]);
+  }
+  // A gh whose version command fails is skipped the same way.
+  const broken = await signedUpdate(signedRelease("0.2.22", key), key, (argv) => argv[1] === "--version" ? 1 : 0);
+  expect(broken.exitCode).toBe(0);
+  expect(broken.calls.some((argv) => argv[1] === "attestation")).toBe(false);
+  // 2.56.0 and later are asked, and a mismatch stops the update.
+  for (const version of ["gh version 2.56.0 (2024-08-13)", "gh version 2.100.3", "gh version 3.0.0 (2027-01-01)"]) {
+    const asked = await signedUpdate(signedRelease("0.2.22", key), key, (argv) => argv[1] === "attestation" ? 1 : 0, version);
+    expect({ version, exitCode: asked.exitCode }).toEqual({ version, exitCode: 1 });
+    expect(asked.calls.some((argv) => argv[0] === "sh")).toBe(false);
+  }
 });
 
 test("binary: an installer that points at another release is never run", async () => {

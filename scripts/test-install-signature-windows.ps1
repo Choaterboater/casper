@@ -143,15 +143,24 @@ try {
   Reset-Install
   Assert-Refused 'a failed check with an old one''s words' (Invoke-Install 'install-keyed.ps1' ($Local + @{ Path = "$Fakes\new;$env:Path" })) $Refused
 
-  # Where it was built is asked of a signed-in gh. One older than 2.49 has no `attestation`: it is named and the
-  # SHA-256 decides. One that has it (its help works) but whose check fails is a refusal, never taken for an old one.
+  # Where it was built is asked of a signed-in gh whose own version is 2.56.0 or newer. An older one (it has the
+  # command from 2.47, but cannot check Casper's attestations before 2.56) or one with an unreadable version is named
+  # and the SHA-256 decides. A new enough one whose check fails is a refusal, never taken for an old one.
   $FakeGh = Join-Path $Temp 'fake gh'
-  New-Item -ItemType Directory -Path (Join-Path $FakeGh 'old'), (Join-Path $FakeGh 'new') | Out-Null
-  [IO.File]::WriteAllText((Join-Path $FakeGh 'old\gh.cmd'), "@echo off`r`nif `"%~1`"==`"auth`" exit /b 0`r`necho unknown command `"%~1`" for `"gh`" 1>&2`r`nexit /b 1`r`n")
-  [IO.File]::WriteAllText((Join-Path $FakeGh 'new\gh.cmd'), "@echo off`r`nif `"%~1`"==`"auth`" exit /b 0`r`nif `"%~1 %~2 %~3`"==`"attestation verify --help`" exit /b 0`r`necho Error: verifying with issuer `"sigstore.dev`" 1>&2`r`nexit /b 1`r`n")
+  function New-FakeGh([string]$Name, [string]$VersionLine) {
+    New-Item -ItemType Directory -Path (Join-Path $FakeGh $Name) | Out-Null
+    $Body = "@echo off`r`nif `"%~1`"==`"auth`" exit /b 0`r`nif `"%~1`"==`"--version`" goto version`r`necho Error: verifying with issuer `"sigstore.dev`" 1>&2`r`nexit /b 1`r`n:version`r`necho $VersionLine`r`nexit /b 0`r`n"
+    [IO.File]::WriteAllText((Join-Path $FakeGh "$Name\gh.cmd"), $Body)
+  }
+  New-Item -ItemType Directory -Path $FakeGh | Out-Null
+  New-FakeGh 'old' 'gh version 2.55.0 2024-08-01'
+  New-FakeGh 'junk' 'something unexpected'
+  New-FakeGh 'new' 'gh version 2.56.0 2024-08-13'
   Set-Signature $Key $Sums
   Reset-Install
-  Assert-Installed 'a signed-in gh too old to have attestation' (Invoke-Install 'install-keyed.ps1' ($Local + @{ Path = "$FakeGh\old;$env:Path" })) 'Checked SHA-256. This gh is too old to check where it was built (gh 2.49 or newer can).'
+  Assert-Installed 'a signed-in gh older than 2.56' (Invoke-Install 'install-keyed.ps1' ($Local + @{ Path = "$FakeGh\old;$env:Path" })) 'Checked SHA-256. This gh is too old to check where it was built (gh 2.56 or newer can).'
+  Reset-Install
+  Assert-Installed 'a signed-in gh whose version cannot be read' (Invoke-Install 'install-keyed.ps1' ($Local + @{ Path = "$FakeGh\junk;$env:Path" })) 'Checked SHA-256. This gh is too old to check where it was built (gh 2.56 or newer can).'
   Reset-Install
   Assert-Refused 'a gh whose build check fails' (Invoke-Install 'install-keyed.ps1' ($Local + @{ Path = "$FakeGh\new;$env:Path" })) "This download doesn't match a Casper build from GitHub. Nothing installed."
 
