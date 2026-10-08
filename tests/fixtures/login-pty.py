@@ -28,7 +28,7 @@ def success(bun, repo, root, no_color):
         s.until("│ idle")
         draft = "d" * 95
         s.send("/login\n" + draft + "\x1b[D\x1b[D")
-        s.until("Type a number")
+        s.until("Up/Down + Enter · Esc cancels")
         for key, selected in (("\x1b[B", "2 OpenRouter"), ("\x1b[B", "3 Anthropic"), ("\x1b[A", "2 OpenRouter"), ("\x1b[A", "1 OpenRouter")):
             s.send(key); s.until("→ " + selected)
             screen = s.screen.text()
@@ -41,7 +41,7 @@ def success(bun, repo, root, no_color):
         # Picking the row is the consent: no confirm screen follows.
         s.send("5")
         s.until("https://auth.openai.com/codex/device")
-        assert "Type a number" not in s.screen.text(), s.screen.text()
+        assert "Up/Down + Enter · Esc cancels" not in s.screen.text(), s.screen.text()
         # Bracketed paste on the waiting screen is ignored, not echoed.
         s.send("\x1b[200~PASTED_SYNTHETIC_SECRET\x1b[201~")
         s.pump(0.1)
@@ -82,7 +82,7 @@ def cancel_and_eof(bun, repo, root, eof=False):
         s.until("/help · /status · /login")
         s.until("│ idle")
         s.send("/login\n")
-        s.until("Type a number")
+        s.until("Up/Down + Enter · Esc cancels")
         s.send("\x04" if eof else "\x1b")
         if eof:
             wait_exit(s)
@@ -100,7 +100,7 @@ def sigterm(bun, repo, root):
     try:
         s.until("/help · /status · /login")
         s.until("│ idle")
-        s.send("/login\n"); s.until("Type a number")
+        s.send("/login\n"); s.until("Up/Down + Enter · Esc cancels")
         s.process.terminate()
         s.wait_exit()
         # Python reports direct POSIX termination as -SIGTERM; Bun's own spawn

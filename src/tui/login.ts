@@ -1,5 +1,6 @@
 import { isKeyRelease, StdinBuffer, matchesKey, SelectList, Text } from "@earendil-works/pi-tui";
 import type { RuntimeLoginIO } from "../runtime/types";
+import { choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, typedChoice } from "./choices";
 import { terminalText, tint } from "./format";
 import { Panel, panelColor } from "./presentation";
 
@@ -101,13 +102,14 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
       choose: async (title, items) => {
         await fresh();
         if (signal.aborted) return undefined;
-        // Numbered rows: a digit picks its row at once, Enter picks the highlighted one (1 at first). Esc cancels.
-        const list = new SelectList(items.map((item, index) => ({ value: String(index), label: `${index + 1} ${terminalText(item.label)}` })), 9,
+        // Numbered rows in the one choice style: a digit picks its row at once (past nine rows the number is typed,
+        // then Enter), Enter picks the highlighted one (1 at first). Esc cancels.
+        const list = new SelectList(items.map((item, index) => ({ value: String(index), label: `${choiceNumber(index, items.length)}${terminalText(item.label)}` })), 9,
         { selectedPrefix: selected, selectedText: selected, description: muted, scrollInfo: muted, noMatch: text => panelColor(text, "warning", io.color) });
         const panel = new Panel(terminalText(title), io.color);
         panel.addChild(list);
         if (note) panel.addChild(new Text(muted(terminalText(note)), 0, 0));
-        panel.addChild(new Text(muted(items.length > 1 ? `Type a number (1-${Math.min(items.length, 9)}), or Up/Down and Enter · Esc cancels` : "Enter continues · Esc cancels"), 0, 1));
+        panel.addChild(new Text(muted(choiceHint(items.length, "Esc cancels")), 0, 1));
         mount(panel);
         try {
           const choice = await new Promise<number | undefined>(resolve => {
@@ -119,10 +121,19 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
             list.onSelect = item => finish(Number(item.value));
             list.onCancel = () => finish();
             selecting = true;
+            let typed = "";
             answer = key => {
               if (signal.aborted) { finish(); return; }
-              const digit = /^[1-9]$/.test(key) ? Number(key) - 1 : -1;
-              if (digit >= 0 && digit < items.length) { finish(digit); return; }
+              const digit = keyChoice(key, items.length);
+              if (digit >= 0) { finish(digit); return; }
+              if (items.length > KEY_PICK_MAX && /^\d$/.test(key)) { typed += key; return; }
+              if (typed && matchesKey(key, "enter")) {
+                const row = typedChoice(typed, items.length);
+                typed = "";
+                if (row >= 0) finish(row);
+                return;
+              }
+              typed = "";
               if (matchesKey(key, "up") || matchesKey(key, "down") || matchesKey(key, "enter")) {
                 list.handleInput(key);
                 if (selecting) io.requestRender();
@@ -141,7 +152,7 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
         const panel = new Panel(inputOptions?.title ?? "Enter private login input", io.color, "warning");
         panel.addChild(new Text(terminalText(label), 0, 1));
         panel.addChild(new Text("1. Paste or type here. Input stays hidden.\n2. Press Enter separately to submit.", 0, 0));
-        panel.addChild(new Text(`${inputOptions?.hint ?? "Never enter keys, codes or redirect URLs in chat."}\nEsc / Ctrl+C: cancel`, 0, 1));
+        panel.addChild(new Text(`${inputOptions?.hint ?? "Never enter keys, codes or redirect URLs in chat."}\nEsc cancels`, 0, 1));
         if (note) panel.addChild(new Text(muted(terminalText(note)), 0, 0));
         const status = new Text(muted("Private input: [empty]"), 0, 0);
         panel.addChild(status);
@@ -180,7 +191,7 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
         write(`${accent("1. Open this URL in your browser:")}\n${terminalText(url)}\n${accent("2. Enter this one-time code:")}\n${terminalText(code)}\n`);
         const panel = new Panel("Approve sign-in in your browser", io.color);
         panel.addChild(new Text("3. Complete the provider's authorization steps.\nWaiting for authorization.", 0, 1));
-        panel.addChild(new Text("No browser opens automatically.\nDo not paste credentials here.\nEsc / Ctrl+C: cancel", 0, 0));
+        panel.addChild(new Text("No browser opens automatically.\nDo not paste credentials here.\nEsc cancels", 0, 0));
         if (note) panel.addChild(new Text(muted(terminalText(note)), 0, 1));
         mount(panel);
       },
@@ -193,7 +204,7 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
         panel.addChild(new Text(launched
           ? "2. Your browser is opening the sign-in page. Complete the provider's authorization steps.\nWaiting for browser authorization."
           : "2. Automatic launch is unavailable; open the URL above in your browser.\nWaiting for browser authorization.", 0, 1));
-        panel.addChild(new Text("If the browser is on another machine, paste the final redirect URL in the private prompt.\nCodes and redirect URLs belong only in the private login prompt.\nEsc / Ctrl+C: cancel", 0, 0));
+        panel.addChild(new Text("If the browser is on another machine, paste the final redirect URL in the private prompt.\nCodes and redirect URLs belong only in the private login prompt.\nEsc cancels", 0, 0));
         if (note) panel.addChild(new Text(muted(terminalText(note)), 0, 1));
         mount(panel);
       },

@@ -149,7 +149,7 @@ conpty("ConPTY: a small task, undo and redo, and a shell command that asks first
 conpty("ConPTY: numbered sign-in with hidden key entry, /settings, /resume picker and /pane", async () => {
   const { s, home, conversations } = await startCasper();
   s.send("/login\n");
-  await s.until("Type a number (1-6), or Up/Down and Enter · Esc cancels");
+  await s.until("Press 1-6 or Up/Down + Enter · Esc cancels");
   expect(s.visible()).toContain("→ 1 ");
   await boxReady();
   s.press("escape");
@@ -159,7 +159,7 @@ conpty("ConPTY: numbered sign-in with hidden key entry, /settings, /resume picke
   // Arrows move the highlight; a pasted key stays hidden and is not saved on Esc.
   const secret = "synthetic-private-api-key-0123456789";
   s.send("/login\n");
-  await s.untilNew("Type a number (1-6)");
+  await s.untilNew("Press 1-6 or Up/Down + Enter · Esc cancels");
   await boxReady();
   s.press("down");
   s.press("down");
@@ -176,7 +176,17 @@ conpty("ConPTY: numbered sign-in with hidden key entry, /settings, /resume picke
 
   s.send("/settings\n");
   await s.until("Pick one to change:");
-  await s.until("→ 1 Done");
+  await s.waitFor("row 1 highlighted", () => /→ +1 Done/.test(s.visible()));
+  // Past nine rows every row keeps its number: the last one is typed, then Enter.
+  await s.waitFor("the last row numbered", () => /\b\d\d Private ssh passwords/.test(s.visible()));
+  expect(s.visible()).toMatch(/Type 1-\d\d \+ Enter or Up\/Down \+ Enter · type to answer · Esc skip/);
+  const last = /\b(\d\d) Private ssh passwords/.exec(s.visible())![1]!;
+  await boxReady();
+  s.send(`${last}\n`);
+  await s.until("When ssh you allowed asks for a password");
+  await boxReady();
+  s.press("escape");  // back to the list, unchanged
+  await s.untilNew("Pick one to change:");
   await boxReady();
   s.press("escape");
   await s.until("(skipped)");
@@ -227,7 +237,7 @@ conpty("ConPTY: Enter during a task steers it, Ctrl+C stops a task, and Ctrl+C t
   release();
 
   s.press("ctrl+c");
-  await s.until("Ctrl-C again to exit");
+  await s.until("Ctrl+C again to exit");
   expect(await exitWith(s, () => s.press("ctrl+c"))).toBe(0);
 }, 120_000);
 
@@ -266,7 +276,7 @@ conpty("ConPTY: Windows Terminal gets rounded corners and color, the old console
   ] as const) {
     const { s } = await startCasper({ terminal, env });
     s.send("/login\n");
-    await s.until("Type a number (1-6)");
+    await s.until("Press 1-6 or Up/Down + Enter · Esc cancels");
     expect(s.visible()).toContain(corner);
     await boxReady();
     s.press("escape");

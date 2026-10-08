@@ -136,9 +136,10 @@ export class ModelBrowser {
   }
 
   private hintLine(): string {
-    return this.muted(`  Tab: provider groups · ${this.options.sessionOnly
-      ? "Enter: session only · Esc/Ctrl+C: cancel · /effort after selecting"
-      : "Enter: remember globally · Ctrl+S: session only · Esc/Ctrl+C: cancel · /effort after selecting"}`);
+    // The same words as every other picker's hint: "<key> <what it does>", joined by " · ".
+    return this.muted(`  Tab provider groups · ${this.options.sessionOnly
+      ? "Enter this session only · Esc cancels · /effort after selecting"
+      : "Enter remember · Ctrl+S this session only · Esc cancels · /effort after selecting"}`);
   }
 
   private statusSuffix(): string {

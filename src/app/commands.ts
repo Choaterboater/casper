@@ -1180,13 +1180,13 @@ async function handleMCPWrites(host: CommandHost, name: string): Promise<void> {
   if (!host.interactive) throw new Error("Writes can only be turned on in an interactive session.");
   const status = mcp.status().find((entry) => entry.name === name);
   if (!status) throw new Error("Unknown MCP server; use /mcp to list definitions");
-  if (status.writes === "on") { host.output.write(`[mcp] Writes are already on for ${name}. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} turns them off.\n`); return; }
+  if (status.writes === "on") { host.output.write(`[mcp] Writes are already on for ${name}. ${host.terminal.rich ? "Ctrl+O" : "/mcp writes off"} turns them off.\n`); return; }
   if (status.access === "login: read-only (checked)") { host.output.write(`[mcp] ${READ_ONLY_LOGIN_ENABLE_TEXT}\n`); return; }
   const policy = mcp.policy(name);
   const answer = await host.approveChoice("", terminalText(writesTitle(name, policy.match)), MCP_WRITES_CHOICES, host.commandAbort?.signal);
   if (answer !== MCP_WRITES_CHOICES[1]) { host.output.write(`[mcp] Writes stay off for ${name}.\n`); return; }
   await mcp.setWrites(name, true);
-  host.output.write(`[mcp] Writes on for ${name}. Each change still asks you. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} turns writes off.\n`);
+  host.output.write(`[mcp] Writes on for ${name}. Each change still asks you. ${host.terminal.rich ? "Ctrl+O" : "/mcp writes off"} turns writes off.\n`);
   const note = ownSettingsNote(mcp.definition(name), policy.match);
   if (note) host.output.write(`[mcp] ${terminalText(note)}\n`);
   host.updateFooter();
@@ -1228,7 +1228,7 @@ async function handleMCPAllow(host: CommandHost, name: string, off: boolean): Pr
   if (picked < 1) { host.output.write(`[mcp] ${name} keeps the defaults.\n`); return; }
   if (picked === labels.length - 1) {
     allowances.startAllowAll(name);
-    host.output.write(`[mcp] Yes to everything on ${name} this session: no change there asks you. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} ends it.\n`);
+    host.output.write(`[mcp] Yes to everything on ${name} this session: no change there asks you. ${host.terminal.rich ? "Ctrl+O" : "/mcp writes off"} ends it.\n`);
     host.updateFooter();
     return;
   }

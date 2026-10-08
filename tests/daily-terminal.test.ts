@@ -416,7 +416,7 @@ test("Ctrl-C on an idle, empty editor arms exit; a second Ctrl-C exits and other
     const command = terminal.readCommand();
     await tick();
     input.write("\x03"); await tick();
-    expect(output).toContain("Ctrl-C again to exit");
+    expect(output).toContain("Ctrl+C again to exit");
     expect(eofs).toBe(0);
     input.write("x"); await tick(); // Any other key disarms; the draft is now "x".
     input.write("\x03"); await tick(); // Clears the draft, does not exit.

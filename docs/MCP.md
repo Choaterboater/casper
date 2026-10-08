@@ -124,7 +124,7 @@ file and set no variable.
    ([Turning writes on](#turning-writes-on)). The box names the product
    (`Change in Mist: ...`), and a disruptive, firmware, delete or admin change asks every
    time, unless you picked `Yes to everything` on that product (then nothing asks until
-   ctrl+o or the session ends). The real tool's kind comes from the server's `find_tool` and can only make a
+   Ctrl+O or the session ends). The real tool's kind comes from the server's `find_tool` and can only make a
    call stricter. A tool `find_tool` never named asks every time, with no
    "Yes, for this session".
    If the AI calls `access_check` first, it is told that a product with no login is
@@ -348,7 +348,7 @@ pick `2 Add it` (see [Secrets and docs servers](#secrets-and-docs-servers)).
 /mcp disconnect local-docs     # disconnect and take back that permission
 /mcp reload                    # re-read the files without restarting
 /mcp writes <name>             # turn writes on for one server (you pick 2 in the box)
-/mcp writes off                # writes off for every server (ctrl+o does the same)
+/mcp writes off                # writes off for every server (Ctrl+O does the same)
 /mcp forget <name>             # forget a remembered server
 /mcp junos-show <name> on|off  # let plain Junos show commands run without asking
 /mcp sandbox <name> on|off     # run Casper's network server in the sandbox (on by default) or not
@@ -565,10 +565,10 @@ Press 1-2 or Up/Down + Enter · Esc is No
 - The box title uses the product name from the preset, else the server name.
 - When your own settings still keep writes off, Casper says so:
   `Casper removed its read-only pins, but your own settings still keep writes off (HPE_MCP_ACCESS_PROFILE=safe-read-only in ~/.claude.json).`
-- While any server has writes on, the footer starts with `WRITES: <servers> · ctrl+o`
+- While any server has writes on, the footer starts with `WRITES: <servers> · Ctrl+O`
   (`ALLOW ALL: <servers>` first for servers under "Yes to everything").
   It is never cut off.
-- ctrl+o (or `/mcp writes off`) turns writes off for every server at once, even
+- Ctrl+O (or `/mcp writes off`) turns writes off for every server at once, even
   while Casper is working, ends every "for this session" answer, every change kind
   allowed for this session and every "Yes to everything", and denies an open
   box: `[mcp] Writes off for <server>. Every change asks you again.` (With writes
@@ -607,7 +607,7 @@ Type 1, 2 or 3:
 ```
 
 `2` allows that kind for this one change. `3` allows it on that server until the session
-ends, ctrl+o, `/mcp writes off` or a disconnect; the change box still asks about each call, with no "for this session"
+ends, Ctrl+O, `/mcp writes off` or a disconnect; the change box still asks about each call, with no "for this session"
 answer (risky and disruptive kinds ask every time). `1` runs nothing.
 One-shot runs refuse: `Not executed (Firmware changes are off by default on <server>,
 and this run cannot ask)`.
@@ -631,7 +631,7 @@ Type 1, 2, 3, 4, 5 or 6:
 - For 2 to 5, then `1 This session · 2 Remember`. Remembered kinds are kept in
   `~/.casper/mcp-consent.json` as a keyed hash of the server's definition, like a
   remembered server: change its command, arguments or environment and they are gone.
-  Project servers and unpinned runners are this session only. ctrl+o does not forget
+  Project servers and unpinned runners are this session only. Ctrl+O does not forget
   them; `/mcp allow <server> off` does.
 - 6 is "Yes to everything" for this session, as in the change box. It is never
   remembered.
@@ -810,7 +810,7 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
 - **The answers.** `1` (or Enter, Esc, Ctrl+C, or anything else) is **No**.
   - `Yes, this once` runs this change.
   - `Yes, for this session` runs it and lets later changes on the same server run without
-    a box until the session ends or writes go off (ctrl+o, `/mcp writes off`, a
+    a box until the session ends or writes go off (Ctrl+O, `/mcp writes off`, a
     disconnect). A **destructive** change (reboot, delete, bounce, upgrade…) never gets
     this answer and always asks, and so does any change where the AI set `confirm` or
     turned a preview off.
@@ -818,7 +818,7 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
     call on that server asks at all: not reboots, not deletes or other risky kinds, not
     a call where the AI set `confirm`. It asks once more (`1 No · 2 Yes to everything`),
     so a key pressed from habit never grants it. Only you can pick it; the AI can't. It is never
-    remembered, the footer shows `ALLOW ALL: <servers> · ctrl+o`, and ctrl+o,
+    remembered, the footer shows `ALLOW ALL: <servers> · Ctrl+O`, and Ctrl+O,
     `/mcp writes off`, a disconnect or the end of the session ends it. Each call it
     covers is logged as `[approval] allowed (allow all): <server> · <tool>`. A read-only
     login, a hidden tool or a preset's rule still refuses.
@@ -862,7 +862,7 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
     `Not executed (cancelled)`, never `you said no`.
 - **No shortcuts for the AI.** There is no write flag and no approval token the AI can
   set. "Yes, for this session" and "Yes to everything" are yours to give, per server,
-  and end with the session or ctrl+o; under "Yes, for this session" destructive changes
+  and end with the session or Ctrl+O; under "Yes, for this session" destructive changes
   still ask. A remembered server only connects on its
   own, with writes off. Calls that may ask run one at a time, and approvals and server
   questions are shown one at a time. The approval can't change the arguments, and a

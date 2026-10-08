@@ -17,7 +17,7 @@ Nothing here used a model API key or the network.
   (`capture-app.ts`), not a real model. Its lines are the ones marked `[model] scripted/site-capture`
   and the short replies such as `(scripted model) No more changes.` Its file edits are real
   edits on disk. Everything Casper does after that is the real code of the checkout the scripts ran in: checks, the
-  with/without-the-change proof, repairs, receipts, MCP connect, approvals, `ctrl+o`.
+  with/without-the-change proof, repairs, receipts, MCP connect, approvals, `Ctrl+O`.
 - `$ casper ...` in `mcp-check.txt` and `json-receipt.txt` is what a user types. We ran the same
   code from source: `bun src/cli.ts ...` (for `mcp-check.txt`) and `bun site/captures/capture-app.ts --json ...`
   (for `json-receipt.txt`, because it needs the scripted model).
@@ -62,7 +62,7 @@ tmux send-keys -t cap "<text>" Enter      # then: tmux capture-pane -p -t cap -S
 | `checks-live.txt` | `/verify`: one line per check as it finishes, then the receipt | Fresh project, with `.casper/project.yaml` set to `commands: {lint: node --check src/sum.js, test: bun test, build: bun build src/sum.js --outdir dist}` (plus the same verification/repair lines), `dist` in `.gitignore`, committed, then Casper restarted (the config is read at start); typed `/verify`. `node` must be on `PATH`. |
 | `numbered-choices.txt` | A check that could not start, and Casper's numbered "What now?" choice; Esc skips | Same project, but started with a `PATH` that has `bun` but **not** `node` (a folder holding only a link to `bun`); typed `/verify`, captured, pressed Esc, captured again. |
 | `mcp-status.txt` | `/mcp`, `/mcp connect fixture` with "Remember fixture?" (answered `1`, No), `/mcp writes fixture` (answered `2`) | Common setup (the `fixture` server comes from `~/.casper/mcp.json`); typed `/mcp`, pressed `1` (the server) and `2` (Connect) in the picker, answered `1` to "Remember fixture?", typed `/mcp` again, then `/mcp writes fixture` and `2`. Pieces of one session, joined with `# (` notes. |
-| `mcp-ask.txt` | A write tool on an MCP server asks first; `1` (No) denies; `ctrl+o` turns writes off | Same session; typed `set the lab site on the fixture server`, then `1` at "Make this change?", then pressed ctrl+o. |
+| `mcp-ask.txt` | A write tool on an MCP server asks first; `1` (No) denies; `Ctrl+O` turns writes off | Same session; typed `set the lab site on the fixture server`, then `1` at "Make this change?", then pressed Ctrl+O. |
 | `mcp-allow.txt` | The same write, answered `2` (Yes, this once) | Same session; typed `set the lab site on the fixture server`, then `2`. |
 | `mcp-setup-network.txt` | `/mcp setup network` asks once; `1` is Not now | Fresh project, `uv` on `PATH` (without it the question also shows uv's installer); typed the command, then `1`. Nothing is installed. |
 | `mcp-check.txt` | `casper mcp check --quick` on a test server whose tool labels are wrong on purpose | Folder `lab-mcp` with `server.ts` = copy of `tests/fixtures/mcp-check-server.ts`, a `node_modules` symlink to this repo's, `Makefile` (`test:` / `true`), `git init`, and `.mcp.json.example` = `{"mcpServers":{"lab":{"command":"bun","args":["server.ts"],"env":{"FIXTURE_MODE":"lying","FIXTURE_READ_ONLY":"1"}}}}`. Ran `env -i HOME=<tmp> PATH=... TERM=dumb CASPER_PROFILE=default bun $CASPER/src/cli.ts mcp check . --quick` in it (exit 1). Output piped through `fold -s -w 100`. |

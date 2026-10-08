@@ -29,7 +29,7 @@ def exercise(bun, repo, root, no_color=False):
         s.until("│ idle")  # Wait for the raw editor, not just the startup banner.
         draft = "x" * 95
         s.send("/model\n" + draft + "\x1b[D\x1b[D")
-        s.until("remember globally")
+        s.until("Enter remember · Ctrl+S this session only")
         s.send("second")
         s.until("second · fixture/second")
         s.send("\x13")  # Ctrl+S is the explicit session-only alternative.
@@ -104,7 +104,7 @@ def exercise_empty_eof(bun, repo, root):
         s.send("hello\n")
         # With no model, Casper opens sign-in itself instead of printing a fake failed receipt.
         s.until("No model yet. Sign in to a provider to start")
-        s.until("Type a number")
+        s.until("Up/Down + Enter · Esc cancels")
         s.send("\x1b")
         s.until("[login] Cancelled; no credential saved.")
         s.until("[model] No Casper model selected")
@@ -114,7 +114,7 @@ def exercise_empty_eof(bun, repo, root):
         # With nothing signed in, /model opens sign-in instead of an empty picker.
         s.send("/model\n")
         s.until("Not signed in yet")
-        s.until("Type a number")
+        s.until("Up/Down + Enter · Esc cancels")
         s.send("\x04")
         assert s.wait_exit() == 0, "EOF in picker did not exit: " + s.screen.text()[-4000:]
         assert not (s.root / "home/.casper/settings.json").exists()
