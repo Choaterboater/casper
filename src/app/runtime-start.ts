@@ -75,8 +75,12 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         privatePaths: projectPrivatePaths(app),
         currentPrivatePaths: () => projectPrivatePaths(app),
       });
-      const resumeNotice = await (await ensureSessionWorkspace(app)).resumeActive(app.session);
-      if (resumeNotice) app.output.write(`[sessions] ${resumeNotice}\n`);
+      // An interactive start reopens the conversation its named session holds (/clear, /resume and /branch keep it).
+      // A one-shot run starts its own: only --continue and --resume pick a saved conversation for it.
+      if (app.interactive) {
+        const resumeNotice = await (await ensureSessionWorkspace(app)).resumeActive(app.session);
+        if (resumeNotice) app.output.write(`[sessions] ${resumeNotice}\n`);
+      }
       await applyRunConversation(app, app.session);
       await applyRunSelection(app, app.session);
       app.unsubscribe = app.session.subscribe(event => {

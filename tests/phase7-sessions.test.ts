@@ -237,6 +237,86 @@ describe("Phase 7 sessions and worktrees", () => {
     await expect((await SessionWorkspaceManager.open(options)).resumeActive(mismatched)).rejects.toThrow("does not match");
   });
 
+  test("a one-shot run starts its own conversation and leaves the one /clear or /resume kept for the next session", async () => {
+    const { home, repo } = await repository();
+    const sessions = path.join(home, "fake-sessions"); await mkdir(sessions);
+    const keptFile = path.join(sessions, "kept.jsonl"); await writeFile(keptFile, "earlier conversation");
+    const options = { projectRoot: repo, gitBranch: "main", homeDir: home, policy: SAFE_DEFAULT_POLICY.workspace };
+    // What an interactive /clear or /resume leaves behind: main holds that conversation.
+    await (await SessionWorkspaceManager.open(options)).rememberConversation(new BranchRuntimeSession(sessions, repo, keptFile));
+    const freshFile = path.join(sessions, "fresh.jsonl"); await writeFile(freshFile, "");
+    const session = new BranchRuntimeSession(sessions, repo, freshFile);
+    const prompted: string[] = [];
+    session.prompt = async () => { prompted.push(session.getSessionInfo().sessionFile); };
+    const clearedFile = path.join(sessions, "cleared.jsonl");
+    Object.assign(session, { clearConversation: async () => {
+      await writeFile(clearedFile, "");
+      await session.switchSession({ cwd: repo, sessionFile: clearedFile });
+    }, resumeConversation: async () => { await session.switchSession({ cwd: repo, sessionFile: keptFile }); } });
+    let written = "";
+    const app = new CasperApp({
+      sessionHomeDir: home,
+      runtimeFactory: () => new BranchRuntime(session),
+      loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+      loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+      loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+      loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+      output: { write: (text: string) => { written += text; } },
+    });
+    cleanup.push(() => app.close());
+    await app.runOnce("explain tracked.txt", repo);
+    expect(prompted).toEqual([freshFile]);
+    // A one-shot /clear starts a new conversation for this run only, and says so.
+    await app.runOnce("/clear");
+    expect(session.getSessionInfo().sessionFile).toBe(clearedFile);
+    expect(written).toContain("[session] New conversation for this run only: a one-shot run doesn't change what Casper opens next. Run /clear in a session for that.\n");
+    expect(written).not.toContain("/resume brings the last one back");
+    // So does a one-shot /resume <id>, naming the way to continue that conversation.
+    await app.runOnce("/resume 0123456789abcdef");
+    expect(written).toContain(`[session] Opened that conversation for this run only: a one-shot run doesn't change what Casper opens next. Use casper --resume 01234567 "<prompt>" to continue it.\n`);
+    expect(written).not.toContain("/resume lists the others");
+    const store = await SessionBranchStore.open({ projectKey: (await GitWorktreeManager.open(repo, home))!.projectKey, primaryWorkspace: await realpath(repo), homeDir: home });
+    expect(store.get("main")?.sessionFile).toBe(keptFile);
+  });
+
+  test("a git worktree you made yourself keeps its own conversation apart from the main checkout's", async () => {
+    const { home, repo } = await repository();
+    const feature = path.join(path.dirname(repo), "feature");
+    await git(repo, "worktree", "add", "-b", "feature", feature);
+    const sessions = path.join(home, "fake-sessions"); await mkdir(sessions);
+    const mainFile = path.join(sessions, "main.jsonl"); await writeFile(mainFile, "main session");
+    const featureFile = path.join(sessions, "feature.jsonl"); await writeFile(featureFile, "feature session");
+    const policy = SAFE_DEFAULT_POLICY.workspace;
+    const atMain = { projectRoot: repo, gitBranch: "main", homeDir: home, policy };
+    const atFeature = { projectRoot: feature, gitBranch: "feature", homeDir: home, policy };
+    // /clear in the main checkout saves the main checkout's conversation.
+    await (await SessionWorkspaceManager.open(atMain)).rememberConversation(new BranchRuntimeSession(sessions, repo, mainFile));
+    // A task then starts in the worktree, and /clear there saves the worktree's own conversation.
+    const inFeature = await SessionWorkspaceManager.open(atFeature);
+    expect(inFeature.activeName).toBe("main");
+    const firstRuntime = new BranchRuntimeSession(sessions, feature, featureFile);
+    expect(await inFeature.resumeActive(firstRuntime)).toBeUndefined();
+    expect(firstRuntime.getSessionInfo().sessionFile).toBe(featureFile);
+    await inFeature.rememberConversation(firstRuntime);
+    // The next task in the worktree resumes the worktree's conversation, not the main checkout's.
+    const freshFile = path.join(sessions, "fresh.jsonl"); await writeFile(freshFile, "fresh");
+    const featureRuntime = new BranchRuntimeSession(sessions, feature, freshFile);
+    expect(await (await SessionWorkspaceManager.open(atFeature)).resumeActive(featureRuntime)).toBeUndefined();
+    expect(featureRuntime.getSessionInfo().sessionFile).toBe(featureFile);
+    // And the main checkout still resumes its own.
+    const mainFresh = new BranchRuntimeSession(sessions, repo, freshFile);
+    await (await SessionWorkspaceManager.open(atMain)).resumeActive(mainFresh);
+    expect(mainFresh.getSessionInfo().sessionFile).toBe(mainFile);
+    // A runtime in some other folder is still refused.
+    const elsewhere = await mkdtemp(path.join(os.tmpdir(), "casper-phase7-elsewhere-"));
+    cleanup.push(() => removeTempDir(elsewhere));
+    await expect((await SessionWorkspaceManager.open(atFeature)).resumeActive(new BranchRuntimeSession(sessions, elsewhere, freshFile))).rejects.toThrow("does not match");
+    // Isolated experiments still start from the main checkout only, and /branch says so in plain words.
+    const mainFolder = await realpath(repo);
+    await expect(inFeature.branch("exp", { getRuntime: async () => firstRuntime, confirm: async () => true })).rejects.toThrow(
+      `/branch starts experiments from the project's main folder (${mainFolder}); this folder is a git worktree you made. Start Casper there to branch.`);
+  });
+
   test("review regression: a missing or detached experiment worktree can be left for main without deleting anything", async () => {
     for (const breakage of ["missing", "detached"] as const) {
       const { home, repo } = await repository();

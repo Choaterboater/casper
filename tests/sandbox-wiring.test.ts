@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, realpath } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { receiptEvent } from "../src/app/json-events";
@@ -9,13 +9,15 @@ import { runArgv } from "../src/network/run";
 import { spawnTool } from "../src/new/scaffold";
 import { ManagedProcess } from "../src/platform/managed-process";
 import { casperBashOperations } from "../src/runtime/pi";
-import { ShellSandbox, useSandbox } from "../src/sandbox/manager";
+import { ShellSandbox, useSandbox, type SandboxWrapOptions } from "../src/sandbox/manager";
 import { runTool } from "../src/security/spawn";
 import { ServiceManager } from "../src/services/manager";
 import { serviceTool } from "../src/services/tool";
 import { formatReceipt, formatTaskResult, type TaskResult } from "../src/task/result";
 import { runCommandCheck } from "../src/verify/command";
 import { repairClass } from "../src/verify/evidence";
+import { detectMigrations, type MigrationPlan } from "../src/verify/migrations";
+import { VerifierRegistry } from "../src/verify/registry";
 import { fakeEngine, type FakeEngine } from "./support/sandbox-fakes";
 import { posixOnly } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
@@ -83,6 +85,68 @@ posixOnly("network checks and security tools run with no network; a lab run is n
   const lab = await runArgv("/bin/sh", ["-c", "echo held=${CASPER_FAKE_HELD:-no}"], { cwd: root, env: { PATH: "/usr/bin:/bin" }, timeoutMs: 10_000, sandbox: false });
   expect(lab.stdout).toContain("held=no");
   expect(engine.wrapped.map((entry) => entry.network)).toEqual(["none", "none"]);
+});
+
+/** A Prisma + SQLite project whose node_modules prisma is a stand-in that writes what it was given to seen.txt. */
+async function prismaProject(root: string): Promise<MigrationPlan> {
+  const files: Record<string, string> = {
+    "prisma/schema.prisma": 'datasource db {\n  provider = "sqlite"\n  url      = env("DATABASE_URL")\n}\n',
+    "prisma/migrations/20240101_init/migration.sql": "CREATE TABLE sites (id INTEGER PRIMARY KEY);",
+    ...(process.platform === "win32"
+      ? { "node_modules/.bin/prisma.cmd": "@echo off\r\necho ran> \"%~dp0..\\..\\seen.txt\"\r\n" }
+      : { "node_modules/.bin/prisma": "#!/bin/sh\necho \"held=${CASPER_FAKE_HELD:-no} $DATABASE_URL\" > \"$PWD/seen.txt\"\n" }),
+  };
+  for (const [name, text] of Object.entries(files)) { await mkdir(path.dirname(path.join(root, name)), { recursive: true }); await writeFile(path.join(root, name), text); }
+  if (process.platform !== "win32") await chmod(path.join(root, "node_modules/.bin/prisma"), 0o755);
+  return (await detectMigrations(root))!;
+}
+
+posixOnly("the migrations check runs the project's prisma in the sandbox, with no network", async () => {
+  const { root, engine } = await session();
+  const plan = await prismaProject(root);
+  const [result] = await VerifierRegistry.forProject({ project: { root }, commands: {}, migrations: plan } as never).run(["migrations"]);
+  expect(result!.status).toBe("pass");
+  expect(await readFile(path.join(root, "seen.txt"), "utf8")).toMatch(/^held=none file:.*casper-migrations-[^/]+\/check\.db\n$/);
+  expect(engine.wrapped.map((entry) => entry.network)).toEqual(["none"]);
+  expect(engine.wrapped[0]!.command).toContain("migrate");
+  expect(engine.ended).toEqual([engine.wrapped[0]!.id]);
+});
+
+test("with a sandbox holding commands, the migrations check starts the project's prisma only through it", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-sandbox-wiring-")));
+  roots.push(root);
+  const plan = await prismaProject(root);
+  const wraps: Array<{ command: string; options: SandboxWrapOptions }> = [];
+  const ended: string[] = [];
+  // The stand-in sandbox runs nothing of the project's: it only records what it was asked to hold.
+  useSandbox({ on: true, wrap: async (command: string, options: SandboxWrapOptions) => { wraps.push({ command, options }); return { command: "exit 0", id: "migrations-1", held: true }; },
+    finished: (id: string) => { ended.push(id); } } as unknown as ShellSandbox);
+  const [result] = await VerifierRegistry.forProject({ project: { root }, commands: {}, migrations: plan } as never).run(["migrations"]);
+  expect(result!.status).toBe("pass");
+  expect(existsSync(path.join(root, "seen.txt"))).toBe(false);
+  expect(wraps).toHaveLength(1);
+  expect(wraps[0]!.command).toContain("deploy");
+  expect(wraps[0]!.options).toEqual({ cwd: root, network: "none" });
+  expect(ended).toEqual(["migrations-1"]);
+});
+
+test("a migrations check the sandbox stopped says so in the receipt and is never sent for repair", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-sandbox-wiring-")));
+  roots.push(root);
+  const plan = await prismaProject(root);
+  const ended: string[] = [];
+  // The stand-in sandbox fails the command and reports what it refused, as the real one does when prisma reaches out.
+  useSandbox({ on: true, wrap: async () => ({ command: "exit 1", id: "migrations-2", held: true }),
+    blockedReason: (id: string) => id === "migrations-2" ? "blocked by the sandbox (wanted to reach binaries.prisma.sh)" : undefined,
+    finished: (id: string) => { ended.push(id); } } as unknown as ShellSandbox);
+  const [result] = await VerifierRegistry.forProject({ project: { root }, commands: {}, migrations: plan } as never).run(["migrations"]);
+  expect(result!.status).toBe("fail");
+  expect(result!.ended).toBe("blocked");
+  expect(result!.reason).toBe("blocked by the sandbox (wanted to reach binaries.prisma.sh)");
+  expect(repairClass(result!)).toBe("never");
+  expect(ended).toEqual(["migrations-2"]);
+  const task: TaskResult = { execution: "completed", changedPaths: ["prisma/schema.prisma"], verification: { status: "fail", results: [result!], repairAttempts: 0 } as never };
+  expect(formatReceipt(task)).toContain("✗ migrations — blocked by the sandbox (wanted to reach binaries.prisma.sh)");
 });
 
 posixOnly("a missing program inside the sandbox is 'could not start', not a failure", async () => {

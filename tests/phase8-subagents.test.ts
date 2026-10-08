@@ -7,7 +7,8 @@ import { CasperApp, type CasperAppOptions } from "../src/app";
 import { formatSubagentReport, SubagentManager, SUBAGENT_LIMITS } from "../src/agents/manager";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
-import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeReadOnlyStartOptions, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
+import { TaskObservations } from "../src/task/observations";
+import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeReadOnlyStartOptions, RuntimeSession, RuntimeStartOptions, RuntimeTool, RuntimeUsage } from "../src/runtime/types";
 import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -27,6 +28,8 @@ class ChildRuntime implements AgentRuntime {
   aborts = 0;
   onAbort = () => {};
   beforeStart = async () => {};
+  /** What the child session's getUsage returns (its effort classifier's calls); unset, it has none. */
+  usage?: RuntimeUsage;
   constructor(private readonly respond: (emit: (event: RuntimeEvent) => void) => Promise<void> = async (emit) => {
     emit({ type: "assistant_text_delta", delta: "Evidence: index.ts:1" });
   }) {}
@@ -40,6 +43,7 @@ class ChildRuntime implements AgentRuntime {
       abort: async () => { this.aborts++; this.onAbort(); },
       subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
       getState: () => ({ cwd: options.cwd, isStreaming: false }),
+      ...(this.usage ? { getUsage: () => this.usage! } : {}),
     };
   }
   async dispose() { this.disposals++; }
@@ -131,6 +135,40 @@ describe("Phase 8 bounded subagents", () => {
     // A call rejected before any child ran made no model calls.
     expect((await tool.execute({ role: "writer", goal: "inspect" })).isError).toBe(true);
     expect(seen).toEqual([{ tokens: 7, estimatedCost: 0.125 }, { tokens: 0, estimatedCost: 0 }]);
+  });
+
+  test("a helper whose exact usage is unknown still adds what its reported responses cost to the task's spend", async () => {
+    const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+    const respond = (emit: (event: RuntimeEvent) => void) => {
+      for (let n = 0; n < 4; n++) {
+        emit({ type: "assistant_response_start" });
+        emit({ type: "assistant_response_end", stopReason: "toolUse", usage: { tokens: 1000, estimatedCost: 0.5 } });
+      }
+      emit({ type: "assistant_response_start" }); emit({ type: "assistant_text_delta", delta: "Evidence: index.ts:1" });
+    };
+    // The effort classifier ran: the child's total is unknown, but its four reported responses cost $2.
+    const classified = new ChildRuntime(async (emit) => {
+      respond(emit); emit({ type: "assistant_response_end", stopReason: "stop", usage: { tokens: 10, estimatedCost: 0 } });
+    });
+    classified.usage = { tokens: zero, messages: 0, effortClassification: { requests: 1, tokens: zero, estimatedCost: 0.001 } };
+    // A last response that reported nothing.
+    const unreported = new ChildRuntime(async (emit) => { respond(emit); emit({ type: "assistant_response_end", stopReason: "stop" }); });
+    // Stopped by its deadline while a response was still streaming.
+    const cut = new ChildRuntime(async (emit) => { respond(emit); await new Promise<void>(() => {}); });
+    for (const child of [classified, unreported, cut]) {
+      const observations = new TaskObservations();
+      observations.observeUsage({ type: "tool_start", toolName: "delegate" });
+      const agents = manager(() => child, child === cut ? 200 : undefined);
+      const tool = agents.createTool(() => task, (usage, known) => observations.recordDelegatedUsage(usage, known));
+      await tool.execute({ role: "explorer", goal: "inspect" });
+      expect(observations.spent().cost).toBe(2);
+      expect(observations.spent().tokens).toBeGreaterThanOrEqual(4000);
+      // A helper still cleaning up after its result came back is not counted a second time.
+      expect(agents.runs()).toHaveLength(child === cut ? 1 : 0);
+      expect(agents.runs().reduce((sum, run) => sum + (run.spent?.estimatedCost ?? 0), 0)).toBe(0);
+      // The exact totals stay unknown rather than an undercount.
+      expect(observations.snapshot([]).usage).toEqual({ turns: 0, tokens: null, estimatedCost: null });
+    }
   });
 
   test("a parent task that delegated reports its own and its child's usage in the receipt", async () => {

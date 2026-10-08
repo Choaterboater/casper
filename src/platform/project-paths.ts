@@ -48,12 +48,21 @@ export interface PathContext {
 
 const UNICODE_SPACES = /[  -   　]/g;
 
-/** Git Bash, MSYS, Cygwin and WSL drive paths (/c/Users, /mnt/c/Users, /cygdrive/c/Users) as Windows names them
- * (C:\Users). Pi's tools do this on Windows before opening a path, so the checks must too. */
+/** Git Bash, MSYS, Cygwin and WSL drive paths (/c/Users, /mnt/c/Users, /cygdrive/c/Users, /proc/cygdrive/c/Users) as
+ * Windows names them (C:\Users). Pi's tools do this on Windows before opening a path, so the checks must too. */
 export function windowsShellPath(input: string): string {
   if (!input.startsWith("/") || input.startsWith("//") || input.includes("\\")) return input;
-  const match = /^\/(?:mnt\/|cygdrive\/)?([a-z])(?:\/(.*))?$/i.exec(input);
+  const match = /^\/(?:mnt\/|(?:proc\/)?cygdrive\/)?([a-z])(?:\/(.*))?$/i.exec(input);
   return match ? `${match[1]!.toUpperCase()}:\\${match[2]?.replaceAll("/", "\\") ?? ""}` : input;
+}
+
+/** A Windows path that names a drive another way, as that drive's path: a drive's admin share (\\host\C$\Users,
+ * \\?\UNC\host\C$\Users) and a device path (\\?\C:\Users, \\.\C:\Users), with either slash. Only for the private-place
+ * checks: a share on another machine is not this drive, so a file is never opened by this name. */
+function windowsDrivePath(input: string): string {
+  if (process.platform !== "win32") return input;
+  const match = /^[\\/]{2}(?:[?.][\\/]+(?:UNC[\\/]+)?)?(?:[^\\/]+[\\/]+([a-z])\$|([a-z]):)(?=[\\/]|$)[\\/]*(.*)$/is.exec(input);
+  return match ? `${(match[1] ?? match[2])!.toUpperCase()}:\\${match[3]!.replaceAll("/", "\\")}` : input;
 }
 
 /** The absolute path a native tool will use for `input`: the same steps as Pi's resolveToCwd. */
@@ -100,7 +109,8 @@ export function within(parent: string, child: string): boolean {
 }
 
 function variants(absolute: string): string[] {
-  return [...new Set([absolute, realpathLongest(absolute)])];
+  const drive = windowsDrivePath(absolute);
+  return [...new Set([absolute, realpathLongest(absolute), ...(drive === absolute ? [] : [drive, realpathLongest(drive)])])];
 }
 
 /** Private places, each as typed (~/.ssh) and as its absolute paths. */
@@ -400,12 +410,16 @@ export function privatePathCommand(command: string, context: PathContext): strin
     if (next === text) break;
     text = next;
   }
-  const homes = ["~", "\\$HOME", "\\$\\{HOME\\}", "\"\\$HOME\"", "%USERPROFILE%", "\\$env:USERPROFILE", home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")];
+  const homes = ["~", "\\$HOME", "\\$\\{HOME\\}", "\"\\$HOME\"", "%USERPROFILE%", "\\$env:USERPROFILE", "\\$\\{env:USERPROFILE\\}", pathPattern(home)];
+  // Git Bash has the same home folder variable.
+  if (process.platform === "win32") homes.push("\\$USERPROFILE", "\\$\\{USERPROFILE\\}", "\"\\$USERPROFILE\"");
+  // Windows and macOS names ignore case, and so do PowerShell's and cmd's variables.
+  const flags = process.platform === "win32" || process.platform === "darwin" ? "i" : "";
   for (const place of privatePlaces(context)) {
     const entry = place.shown.startsWith("~/") ? place.shown.slice(2) : undefined;
     const names = entry ? homes.map((prefix) => `${prefix}[\\\\/]+${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\//g, "[\\\\/]+")}`) : [];
-    for (const absolute of place.paths) names.push(absolute.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-    const pattern = new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:${names.join("|")})(?=$|[\\\\/\\s'";&|)<>*?])`);
+    for (const absolute of place.paths) names.push(pathPattern(absolute));
+    const pattern = new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:${names.join("|")})(?=$|[\\\\/\\s'";&|)<>*?])`, flags);
     if (pattern.test(text)) return `Not run: this command reads ${place.shown}, which is private (${place.why}). Casper keeps it from the AI. Ask the user instead.`;
   }
   // `cd ~/.ssh`, `cd $HOME` then a relative name: a command that goes home and names a private place by itself.
@@ -413,9 +427,23 @@ export function privatePathCommand(command: string, context: PathContext): strin
     const bare = PRIVATE_PATHS.find((entry) => new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:\\./)?${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[\\\\/\\s'";&|)])`).test(text));
     if (bare) return `Not run: this command reads ~/${bare}, which is private (keys and logins). Casper keeps it from the AI. Ask the user instead.`;
   }
-  const shown = privateWord(text, context, home);
+  // PowerShell and cmd separate folders with \, which the shell reading below takes as an escape: read those once more with /.
+  const shown = privateWord(text, context, home) ?? (process.platform === "win32" && text.includes("\\") ? privateWord(text.replaceAll("\\", "/"), context, home) : undefined);
   if (shown) return `Not run: this command reads ${shown}, which is private (${whyPrivate(shown, context)}). Casper keeps it from the AI. Ask the user instead.`;
   return undefined;
+}
+
+/** An absolute path as a regex. On Windows either slash separates folders, and the drive may be named the Git Bash,
+ * Cygwin or WSL way (/c/Users, /cygdrive/c/Users, /proc/cygdrive/c/Users, /mnt/c/Users), by its admin share
+ * (\\host\C$\Users) or as a device path (\\?\C:\Users). */
+function pathPattern(absolute: string): string {
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (process.platform !== "win32") return escape(absolute);
+  const parts = absolute.split(/[\\/]+/);
+  const drive = /^([A-Za-z]):$/.exec(parts[0]!);
+  const share = `[\\\\/]{2}(?:[?.][\\\\/]+UNC[\\\\/]+)?[^\\\\/\\s'"]+[\\\\/]+${drive?.[1]}\\$`;
+  return [drive ? `(?:(?:[\\\\/]{2}[?.][\\\\/]+)?${drive[1]}:|/(?:mnt/|(?:proc/)?cygdrive/)?${drive[1]}|${share})` : escape(parts[0]!),
+    ...parts.slice(1).map(escape)].join("[\\\\/]+");
 }
 
 /** Programs that read every file under a folder they are given (grep -r ~ reads ~/.ssh/config). */
@@ -450,21 +478,33 @@ function pathParts(absolute: string): string[] {
 function privateWord(command: string, context: PathContext, home: string): string | undefined {
   const places = privatePlaces(context);
   const userName = path.basename(home);
+  const windows = process.platform === "win32";
+  // On Windows a word may also be a Git Bash drive path (/c/Users), a drive's admin share or device path, or a Git Bash,
+  // PowerShell or cmd home variable, in any case.
+  const homeVariable = windows ? /^(?:\$\{HOME\}|\$HOME|\$\{USERPROFILE\}|\$USERPROFILE|\$\{env:USERPROFILE\}|\$env:USERPROFILE|%USERPROFILE%)(?=\/|$)/i
+    : /^(?:\$\{HOME\}|\$HOME)(?=\/|$)/;
   const expand = (word: string): string | undefined => {
-    let value = word.replace(/^(?:\$\{HOME\}|\$HOME)(?=\/|$)/, home);
+    let value = (windows ? windowsDrivePath(windowsShellPath(word)) : word).replace(homeVariable, home);
     const tilde = /^~([^/]*)(?=\/|$)/.exec(value);
     if (tilde) value = (tilde[1] === "" || tilde[1] === userName ? home : path.join(path.dirname(home), tilde[1]!)) + value.slice(tilde[0].length);
     return value.includes("$") ? undefined : value;
   };
   let cwd = context.root;
+  // Git Bash also reads a name from / or /proc/cygdrive as a drive path (from /, c/Users is C:\Users), so on Windows a
+  // cd to a / path is kept the way Git Bash names it too, and the names after it are read from there.
+  let shellCwd: string | undefined;
+  const fromShell = (word: string) => shellCwd !== undefined && !/^(?:[\\/~$%]|[a-z]:)/i.test(word) ? path.posix.join(shellCwd, word) : word;
   let segments: ReturnType<typeof commandSegments>;
   try { segments = commandSegments(command); } catch { return undefined; }
   for (const { words } of segments) {
     if (!words.length) continue;
     if (words[0] === "cd" || words[0] === "pushd") {
       const target = words.slice(1).find((word) => !word.startsWith("-"));
-      const expanded = target === undefined ? home : expand(target);
-      if (expanded !== undefined && !/[*?[]/.test(expanded)) cwd = path.resolve(cwd, expanded);
+      const typed = target === undefined ? undefined : fromShell(target);
+      const expanded = typed === undefined ? home : expand(typed);
+      const moved = expanded !== undefined && !/[*?[]/.test(expanded);
+      if (moved) cwd = path.resolve(cwd, expanded);
+      if (windows) shellCwd = moved && typed !== undefined && /^\/(?!\/)/.test(typed) ? path.posix.normalize(typed) : undefined;
     }
     // `ssh -G host` prints what ~/.ssh/config says for it.
     if (path.basename(words[0]!) === "ssh" && words.some((word) => /^-[46AaCfGgKkMNnqsTtVvXxYy]*G[46AaCfGgKkMNnqsTtVvXxYy]*$/.test(word))) return "~/.ssh";
@@ -474,8 +514,8 @@ function privateWord(command: string, context: PathContext, home: string): strin
       let word = raw.startsWith("-") ? raw.includes("=") ? raw.slice(raw.indexOf("=") + 1) : "" : raw.replace(/^[A-Za-z_][A-Za-z0-9_]*=/, "");
       // git show HEAD:secrets/x, :secrets/x, :0:secrets/x print that file from git's own copy.
       if (git && word.includes(":") && !word.includes("://")) { const rest = word.replace(/^:\d:/, ""); word = rest.slice(rest.indexOf(":") + 1); }
-      if (!word || !/^[.~/$]|\//.test(word)) continue;
-      const expanded = expand(word);
+      if (!word || !(shellCwd !== undefined || /^[.~/$]|\//.test(word))) continue;
+      const expanded = expand(fromShell(word));
       if (expanded === undefined) continue;
       const absolute = path.resolve(cwd, expanded);
       if (!/[*?[]/.test(absolute)) {
@@ -485,7 +525,7 @@ function privateWord(command: string, context: PathContext, home: string): strin
         continue;
       }
       // A glob: part by part, does it reach a private place (or, for a tree reader, a folder that holds one)?
-      const parts = pathParts(absolute);
+      const parts = pathParts(windowsDrivePath(absolute));
       for (const place of places) {
         for (const entry of place.paths) {
           const want = pathParts(entry);

@@ -132,6 +132,7 @@ test("Windows: /c/..., /mnt/c/... and /cygdrive/c/... are checked as the drive p
   expect(windowsShellPath("/c/Users/me/.ssh/id_rsa")).toBe("C:\\Users\\me\\.ssh\\id_rsa");
   expect(windowsShellPath("/mnt/c/Users/me/.bashrc")).toBe("C:\\Users\\me\\.bashrc");
   expect(windowsShellPath("/cygdrive/D/x")).toBe("D:\\x");
+  expect(windowsShellPath("/proc/cygdrive/c/Users/me/.ssh/id_rsa")).toBe("C:\\Users\\me\\.ssh\\id_rsa");
   expect(windowsShellPath("/c")).toBe("C:\\");
   for (const kept of ["//server/share", "/c\\x", "src/a.ts", "/usr/bin", "C:\\x"]) expect(windowsShellPath(kept)).toBe(kept);
 });
@@ -199,6 +200,50 @@ test("a shell command that reaches ~/.ssh by .., cd, ~user, quotes, a glob or a 
     "cd sample-tools && python3 -m unittest discover -s tests", "ssh -v build-server uptime", "cat ~/.ssh.bak.md", "cat ~/*/config"]) {
     expect([command, privatePathCommand(command, documents)]).toEqual([command, undefined]);
   }
+});
+
+test.skipIf(process.platform !== "win32")("Windows: a shell command naming a private place in Git Bash's drive form, in any case or by a PowerShell or cmd home variable, is refused", () => {
+  // C:\Users\me as Git Bash names it: /c/Users/me.
+  const bash = (absolute: string) => `/${absolute[0]!.toLowerCase()}${absolute.slice(2).replaceAll("\\", "/")}`;
+  const home2 = bash(home);
+  for (const command of [`cat ${home2}/.ssh/id_test`, `cat '${home2}/.ssh/id_test'`, `base64 -w0 ${home2}/.ssh/id_test`, `cp -r ${home2}/.aws ./aws-copy`,
+    `cat /cygdrive${home2}/.casper/mcp-consent.key`, `cat /mnt${home2}/.aws/credentials`, `cat ${home2.toUpperCase()}/.casper/network-logins.json`,
+    `grep -r token ${home2}`, `cd ${home2} && cat .ssh/id_test`, `cd '${home2}'; cat .pgpass`, `cat ${home2}/.ss*/config`,
+    // Windows names and PowerShell and cmd variables ignore case.
+    "Get-Content $env:userprofile\\.ssh\\config", "Get-Content $Env:UserProfile\\.ssh\\config", "type %userprofile%\\.ssh\\config",
+    "Get-Content ${env:USERPROFILE}\\.ssh\\config", "Get-Content $env:USERPROFILE\\.CASPER\\network-logins.json", "Get-Content ~\\.SSH\\id_test",
+    `Get-Content ${home.toUpperCase()}\\.ssh\\id_test`, `Get-Content ${home.toLowerCase()}\\.ssh\\id_test`, "cat ~\\.ss*\\config", "Get-Content $HOME\\.s?h\\config"]) {
+    expect([command, privatePathCommand(command, context)]).toEqual([command, expect.stringMatching(/^Not run: this command reads ~\/\.(ssh|aws|casper\/mcp-consent\.key|casper\/network-logins\.json|pgpass), which is private/)]);
+  }
+  // The same spellings of ordinary files still pass.
+  for (const command of [`cat ${home2}/Documents/notes.md`, `ls ${home2}`, `cat ${home2}/.ssh.bak.md`, `grep -r TODO ${bash(project)}`, `cd ${home2} && cat notes.md`,
+    "Get-Content $env:USERPROFILE\\Documents\\notes.md", "Get-ChildItem ~\\", "type src\\a.ts"]) {
+    expect([command, privatePathCommand(command, context)]).toEqual([command, undefined]);
+  }
+});
+
+test.skipIf(process.platform !== "win32")("Windows: a private place named through /proc/cygdrive, a cd to / or /proc/cygdrive, the drive's admin share or device path, or Git Bash's $USERPROFILE is refused", () => {
+  // C:\Users\me as Git Bash names it from / (c/Users/me), as its admin share (//127.0.0.1/c$/Users/me) and as a device path.
+  const rest = home.slice(2).replaceAll("\\", "/");
+  const drive = home[0]!.toLowerCase();
+  const share = `//127.0.0.1/${drive}$${rest}`;
+  for (const command of [`cat /proc/cygdrive/${drive}${rest}/.ssh/id_test`, `cd /proc/cygdrive && cat ${drive}${rest}/.ssh/id_test`, `cd / && cat ${drive}${rest}/.aws/credentials`,
+    `cd /proc && cat cygdrive/${drive}${rest}/.pgpass`, `cd / && grep -r token ${drive}`,
+    `cat "$USERPROFILE/.ssh/id_test"`, "cat $USERPROFILE/.ssh/id_test", "cat ${USERPROFILE}/.ssh/id_test", "cat \"$USERPROFILE\"/.ssh/id_test", "cd $USERPROFILE && cat .pgpass",
+    `cat ${share}/.ssh/id_test`, `cat '//localhost/${drive.toUpperCase()}$${rest}/.ssh/id_test'`, `Get-Content ${share.replaceAll("/", "\\")}\\.ssh\\id_test`,
+    `Get-Content \\\\?\\UNC\\localhost\\${drive}$${rest.replaceAll("/", "\\")}\\.aws\\credentials`, `Get-Content \\\\?\\${home}\\.ssh\\id_test`, `cd ${share} && cat .pgpass`, `cat ${share}/.ss*/config`]) {
+    expect([command, privatePathCommand(command, context)]).toEqual([command, expect.stringMatching(/^Not run: this command reads ~\/\.(ssh|aws|pgpass), which is private/)]);
+  }
+  // The file tools open an admin share or device path too, so they refuse those names as well.
+  for (const given of [`${share}/.ssh/id_test`, `\\\\localhost\\${drive}$${rest.replaceAll("/", "\\")}\\.ssh\\id_test`, `\\\\?\\${home}\\.ssh\\id_test`]) {
+    expect([given, fileToolGate("read", { path: given }, context)]).toEqual([given, "Not read: ~/.ssh is private (keys and logins). Casper keeps it from the AI."]);
+  }
+  // Ordinary files named the same ways still pass, and so does a share that is not a drive's.
+  for (const command of [`cat /proc/cygdrive/${drive}${rest}/notes.md`, "cd / && ls", `cd /proc/cygdrive && ls ${drive}`, "cd / && grep -r token usr", "cat $USERPROFILE/notes.md",
+    `cat ${share}/notes.md`, "cat //server/share/notes.md", "cd /tmp && cat notes.md"]) {
+    expect([command, privatePathCommand(command, context)]).toEqual([command, undefined]);
+  }
+  expect(fileToolGate("read", { path: `${share}/notes.md` }, context)).toBeUndefined();
 });
 
 test("a project's sandbox.denyRead is private to the file tools too, not only to shell commands", () => {

@@ -363,10 +363,11 @@ test("builders start from the folder as it is: your unsaved and new files are in
   expect(await git(repo, "worktree", "list")).not.toContain("casper/crew-");
 }, 30_000);
 
-/** A builder that spends `cost` on its first response, then asks to run a tool. */
+/** A builder that spends `cost` on its first response, then asks to run a tool. `classified`: its session also ran
+ * the automatic-effort classifier, so its exact total is unknown. */
 class SpendingBuilder implements AgentRuntime {
   static waits: Array<string | undefined> = [];
-  constructor(private readonly cost: number) {}
+  constructor(private readonly cost: number, private readonly classified = false) {}
   async start(): Promise<RuntimeSession> { throw new Error("not the main session"); }
   async startBuilder(options: RuntimeBuilderStartOptions): Promise<RuntimeSession> {
     const listeners = new Set<RuntimeEventListener>();
@@ -383,10 +384,29 @@ class SpendingBuilder implements AgentRuntime {
       },
       abort: async () => {}, subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
       getState: () => ({ cwd: options.cwd, isStreaming: false }),
+      ...(this.classified ? { getUsage: () => {
+        const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+        return { tokens: zero, messages: 0, effortClassification: { requests: 1, tokens: zero } };
+      } } : {}),
     };
   }
   async dispose() {}
 }
+
+test("a builder that ended with its exact cost unknown still counts toward the task's pause", async () => {
+  const { home, repo } = await repository();
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await writeFile(path.join(home, ".casper", "config.yaml"), "spend:\n  pauseAt: 5\n");
+  SpendingBuilder.waits = [];
+  const builders = [new SpendingBuilder(4, true), new SpendingBuilder(2)];
+  const main = new Main(async (delegate) => { await build(delegate, "write b.txt"); await build(delegate, "write b.txt"); });
+  const { casper, output } = await app(repo, home, main, () => builders.shift()!);
+  await casper.runOnce("Change b.txt twice", repo);
+  // The first builder's $4 stays in the task's spend after it ends, so the second one's $2 crosses $5.
+  expect(SpendingBuilder.waits).toEqual([undefined, SPEND_STOP_REASON]);
+  expect(output()).toContain("[spend] This task has used $6.00");
+  expect(casper.getLastTaskResult()?.spendLimit).toBeDefined();
+}, 30_000);
 
 test("a running builder's spend counts toward the task's pause: crossing it stops the builder and keeps its copy", async () => {
   const { home, repo } = await repository();

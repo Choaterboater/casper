@@ -102,6 +102,9 @@ export interface SubagentResult {
    * still streaming, the child ran the effort classifier, or cleanup had not drained (a late call
    * may still be billed). For the parent's totals only; never shown to the parent model. */
   usage: SubagentUsage | null;
+  /** What the child's reported responses add up to, kept when `usage` is null: the task's shown spend and its pause
+   * count it. Never shown to the parent model. */
+  known?: SubagentUsage;
   /** Model responses the child made (for a receipt's usage). Never shown to the parent model. */
   turns?: number;
   /** The reason is the provider's own error text, which may echo what the child read, not Casper's. Never shown to the parent model. */
@@ -137,6 +140,8 @@ export interface BuildOutcome {
   report: Record<string, unknown>;
   isError: boolean;
   usage: SubagentUsage | null;
+  /** What the builder's reported responses add up to, kept when `usage` is null. */
+  known?: SubagentUsage;
 }
 
 /** The delegate tool's builder mode: a helper that edits in its own copy, its change applied when it ends. */
@@ -309,6 +314,8 @@ interface ActiveRun {
   cancel(reason?: string): void;
   drained: Promise<unknown>;
   info: HelperRun;
+  /** What the run's result already gave the task's spend while cleanup was still pending. */
+  handedOver?: SubagentUsage;
 }
 
 /** Owns child lifetimes across tools, direct commands, workspace changes, and app shutdown. */
@@ -336,7 +343,11 @@ export class SubagentManager {
   get isBusy(): boolean { return this.active.size > 0; }
 
   /** The helpers running now, oldest first (/tasks). */
-  runs(): HelperRun[] { return [...this.active].map((run) => ({ ...run.info, ...(run.info.spent ? { spent: { ...run.info.spent } } : {}) })); }
+  runs(): HelperRun[] {
+    // A run whose result came back before its cleanup drained counts only what it spent after that here.
+    return [...this.active].map((run) => ({ ...run.info, ...(run.info.spent ? { spent: {
+      tokens: run.info.spent.tokens - (run.handedOver?.tokens ?? 0), estimatedCost: run.info.spent.estimatedCost - (run.handedOver?.estimatedCost ?? 0) } } : {}) }));
+  }
 
   /** Stop every running builder (the task's spend pause said stop); each keeps its copy. */
   stopBuilders(reason: string): void {
@@ -353,7 +364,7 @@ export class SubagentManager {
 
   /** Each prepared parent task gets one tool with its own non-resettable dispatch budget. With `builders`, the
    * role builder starts a helper that edits in its own copy of the project (its own slots and budget). */
-  createTool(getContext: () => { cwd: string; projectContext: string }, onUsage?: (usage: SubagentUsage | null) => void,
+  createTool(getContext: () => { cwd: string; projectContext: string }, onUsage?: (usage: SubagentUsage | null, known?: SubagentUsage) => void,
     builders?: DelegateBuilders): RuntimeTool {
     let dispatched = 0;
     const tally = { built: 0, fixes: 0 };
@@ -394,11 +405,11 @@ export class SubagentManager {
           // spent, so a third parallel delegate turned away as busy can be sent again later.
           try { result = await this.run({ ...getContext(), role, goal, context, signal, reportTurn: true }); }
           catch (error) { dispatched--; throw error; }
-          onUsage?.(result.usage);
+          onUsage?.(result.usage, result.known);
           const isError = result.status !== "completed";
           // The caller already has the goal. Put outcome first so even a byte-
           // bounded preview retains it instead of spending its budget echoing input.
-          const { goal: _goal, status, reason, usage: _usage, turns: _turns, providerReason: _provider, ...report } = result;
+          const { goal: _goal, status, reason, usage: _usage, known: _known, turns: _turns, providerReason: _provider, ...report } = result;
           return { text: JSON.stringify(boundCapabilityResult({ isError, status, reason, ...report })), ...(isError ? { isError: true } : {}) };
         } catch (error) {
           // run() throws only before it creates a child runtime: no model call was made.
@@ -412,7 +423,7 @@ export class SubagentManager {
   /** A reviewer on a part a builder landed: it is handed the part's goal, files and diff, then the lead's own context.
    * It has its own budget (src/crew/parts.ts: one review per part, one more after a fix), not the shared delegations. */
   private async reviewPart(builders: DelegateBuilders | undefined, n: number, goal: string, context: string | undefined, signal: AbortSignal | undefined,
-    getContext: () => { cwd: string; projectContext: string }, onUsage?: (usage: SubagentUsage | null) => void) {
+    getContext: () => { cwd: string; projectContext: string }, onUsage?: (usage: SubagentUsage | null, known?: SubagentUsage) => void) {
     if (!builders?.parts) throw new Error("No parts here: no builder has landed one this task. Give the reviewer the files in its goal instead.");
     const part = builders.parts.reviewContext(n);
     if ("refusal" in part) throw new Error(part.refusal);
@@ -427,12 +438,12 @@ export class SubagentManager {
       result = await this.run({ ...getContext(), role: "reviewer", goal, signal, reportTurn: true,
         context: context ? `${given}\n\nThe lead's own context:\n${context}` : given, contextBytes: SUBAGENT_LIMITS.partContextBytes });
     } catch (error) { builders.parts.release(n, part.version); throw error; }
-    onUsage?.(result.usage);
+    onUsage?.(result.usage, result.known);
     // Reviewed only when the reviewer ended `completed`: a timeout, a failure or a cutoff leaves the part not reviewed.
     if (result.status === "completed") builders.parts.markReviewed(n, result.response, part.version);
     else builders.parts.reviewFailed(n, result.status, part.version);
     const isError = result.status !== "completed";
-    const { goal: _goal, status, reason, usage: _usage, turns: _turns, providerReason: _provider, ...report } = result;
+    const { goal: _goal, status, reason, usage: _usage, known: _known, turns: _turns, providerReason: _provider, ...report } = result;
     return { text: JSON.stringify(boundCapabilityResult({ isError, status, reason, part: n, ...report })), ...(isError ? { isError: true } : {}) };
   }
 
@@ -440,7 +451,7 @@ export class SubagentManager {
   private autoBuilds = 0;
 
   private async dispatchBuilder(builders: DelegateBuilders | undefined, args: Record<string, unknown>, signal: AbortSignal | undefined,
-    tally: { built: number; fixes: number }, onUsage?: (usage: SubagentUsage | null) => void) {
+    tally: { built: number; fixes: number }, onUsage?: (usage: SubagentUsage | null, known?: SubagentUsage) => void) {
     if (!builders) throw new Error("role must be explorer or reviewer");
     if (builders.off) throw new Error(`No builders here: ${builders.off}. Do the work yourself, or use an explorer or reviewer.`);
     const refused = builders.refuse?.();
@@ -482,7 +493,7 @@ export class SubagentManager {
     }
     catch (error) { count(-1); if (of !== undefined) builders.parts!.releaseFix(of); throw error; }
     finally { this.autoBuilds--; }
-    onUsage?.(outcome.usage);
+    onUsage?.(outcome.usage, outcome.known);
     // The last builder to end says which landed parts no reviewer has finished: a nudge, never a gate. While another
     // builder still works it would be early, so it stays quiet.
     const left = this.autoBuilds === 0 ? builders.parts?.unreviewed() ?? [] : [];
@@ -719,8 +730,11 @@ export class SubagentManager {
       await Promise.race([work, cancelled]);
       if (controller.signal.aborted) await settleWithin(work, this.cleanupGraceMs);
       const pending = this.active.has(active);
+      // The responses that did report are known even when the total is not (the same as the main conversation's).
+      const known = { tokens: info.spent?.tokens ?? 0, estimatedCost: info.spent?.estimatedCost ?? 0 };
+      if (pending) active.handedOver = known;
       return { ...result, ...(pending ? { cleanupPending: true } : {}), toolsUsed: [...result.toolsUsed], toolErrors: [...result.toolErrors],
-        usage: pending || streaming || !result.usage ? null : { ...result.usage }, turns,
+        usage: pending || streaming || !result.usage ? null : { ...result.usage }, known, turns,
         ...(result.reason !== undefined && result.reason === providerReason ? { providerReason: true } : {}) };
     } finally {
       clearTimeout(timer);

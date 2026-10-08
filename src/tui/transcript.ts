@@ -1,4 +1,10 @@
-import { type Component, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { type Component, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+
+/** A row wider than the screen stops the whole terminal UI, so a block's rows are held to the width as a last guard. */
+function fit(lines: string[], width: number): string[] {
+  if (!lines.some(line => visibleWidth(line) > width)) return lines;
+  return lines.map(line => visibleWidth(line) > width ? truncateToWidth(line, width, "") : line);
+}
 
 /** Scrollback-style transcript: finished entries are rendered once per width and cached; only the open tail re-wraps.
  * Entries are plain lines (wrapped here) or blocks that render themselves from source at the current width. */
@@ -34,12 +40,12 @@ export class Transcript implements Component {
     if (width !== this.renderedWidth) { this.rendered = []; this.renderedCount = 0; this.renderedWidth = width; }
     for (; this.renderedCount < this.entries.length; this.renderedCount++) {
       const entry = this.entries[this.renderedCount]!;
-      this.rendered.push(...(typeof entry !== "string" ? entry.render(width) : entry ? wrapTextWithAnsi(entry, width) : [""]));
+      this.rendered.push(...(typeof entry !== "string" ? fit(entry.render(width), width) : entry ? wrapTextWithAnsi(entry, width) : [""]));
     }
     if (!this.tail && !this.preview) return this.rendered;
     const lines = [...this.rendered];
     if (this.tail) lines.push(...wrapTextWithAnsi(this.tail, width));
-    if (this.preview) lines.push(...this.preview.render(width));
+    if (this.preview) lines.push(...fit(this.preview.render(width), width));
     return lines;
   }
 }

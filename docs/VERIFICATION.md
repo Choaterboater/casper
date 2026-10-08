@@ -716,7 +716,8 @@ checks, and with `/verify migrations` or the AI's `casper_check`.
   or an unknown database is never run after changes; `/verify migrations` says why:
   `• Not verified — migrations not run: these are Postgres migrations (supabase/migrations), and Casper only has a throwaway SQLite`.
 - Prisma runs `prisma migrate deploy` from the project's `node_modules` only when the schema reads its
-  address from a variable; Casper points that variable at the throwaway file.
+  address from a variable; Casper points that variable at the throwaway file. Like every check, it runs
+  in the shell sandbox where one runs, with no network.
 - Statements that could reach other files (`ATTACH`, `VACUUM INTO`, `load_extension`) are refused.
 
 A failure names the file and SQLite's error: `✗ migrations failed (002_devices.sql failed — no such table: sites)`.

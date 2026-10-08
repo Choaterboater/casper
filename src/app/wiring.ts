@@ -23,7 +23,7 @@ import { useSandbox, currentSandbox } from "../sandbox/manager";
 import { SandboxStore } from "../sandbox/store";
 import { loginMissingAnswer } from "../mcp/network/ask-login";
 import { loginFile } from "../mcp/network/logins";
-import { confirmCapability, confirmKind, answerServerQuestion } from "./approvals";
+import { confirmCapability, confirmKind, answerServerQuestion, oneAtATime } from "./approvals";
 import { networkLoginHost, ownSecretValues } from "./network-host";
 import { updateFooter } from "./footer";
 import { checksPlan } from "./verification";
@@ -31,11 +31,15 @@ import { mcpServerSandbox } from "../mcp/sandbox";
 import { trustProjectFile } from "./project-file";
 import { addToPath, keepEngineFromFetchingRipgrep } from "../security/ripgrep";
 
-/** What the sandbox asks through: Casper's own numbered question, only while someone can answer it. */
+/** What the sandbox asks through: Casper's own numbered question, only while someone can answer it. Its questions
+ * wait their turn in the approval queue, so two at once are both asked and a question nobody saw is never a No. */
 export function sandboxHost(app: CasperApp): SandboxHost {
   return {
     canAsk: () => app.interactive && app.terminal.canAsk && !app.closing,
-    pick: (question, options, signal) => app.terminal.pick(question, options, signal ?? app.commandAbort?.signal),
+    pick: (question, options, signal) => {
+      const stop = signal ?? app.commandAbort?.signal;
+      return oneAtATime(app, async () => app.closing ? undefined : app.terminal.pick(question, options, stop));
+    },
     write: (text) => { if (!app.closing) app.output.write(text); },
     planning: () => app.planning,
     labHosts: () => app.projectContext?.lab?.hosts ?? [],

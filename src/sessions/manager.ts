@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { access, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { CasperPolicy } from "../config/load";
@@ -142,9 +143,14 @@ export class SessionWorkspaceManager {
     const projectKey = worktrees?.projectKey ?? sessionProjectKey(projectRoot);
     const primaryWorkspace = worktrees?.primaryWorkspace ?? projectRoot;
     const store = await SessionBranchStore.open({ projectKey, primaryWorkspace, homeDir: options.homeDir });
-    const current = projectRoot === primaryWorkspace ? "main" : store.list().find((branch) => branch.status === "open" && path.resolve(branch.workspacePath) === projectRoot)?.name
-      ?? "main";
-    return new SessionWorkspaceManager(store, worktrees, options.policy, options.gitBranch, current);
+    if (projectRoot === primaryWorkspace) return new SessionWorkspaceManager(store, worktrees, options.policy, options.gitBranch, "main");
+    const current = store.list().find((branch) => branch.status === "open" && path.resolve(branch.workspacePath) === projectRoot)?.name;
+    if (current) return new SessionWorkspaceManager(store, worktrees, options.policy, options.gitBranch, current);
+    // A git worktree you made yourself (not one of Casper's experiments) is a project folder of its own: its
+    // conversations are kept apart from the main checkout's, so neither one's saved conversation blocks the other.
+    const ownKey = createHash("sha256").update(`${projectKey}\0${projectRoot}`).digest("hex").slice(0, 20);
+    const own = await SessionBranchStore.open({ projectKey: ownKey, primaryWorkspace: projectRoot, homeDir: options.homeDir });
+    return new SessionWorkspaceManager(own, worktrees, options.policy, options.gitBranch, "main");
   }
 
   get activeName(): string {
@@ -215,6 +221,10 @@ export class SessionWorkspaceManager {
     const sourceWorkspace = this.store.primaryWorkspace;
     let plan: WorktreePlan | undefined;
     if (this.policy.isolateWhen.experimentalBranch && this.worktrees) {
+      // A git worktree you made yourself has its own store; its experiments would start from the main folder.
+      if (sourceWorkspace !== this.worktrees.primaryWorkspace) {
+        throw new Error(`/branch starts experiments from the project's main folder (${this.worktrees.primaryWorkspace}); this folder is a git worktree you made. Start Casper there to branch.`);
+      }
       plan = await this.worktrees.plan(name, sourceWorkspace);
     }
     const approved = await options.confirm(
