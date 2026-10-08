@@ -59,6 +59,12 @@ export interface LearningPromotion {
   artifact?: { path: string; stagingPath: string; sha256: string };
   sha256: string;
 }
+/** Why a run did not finish, from the subagent, on one line and short, so the error says the cause. Never a
+ * provider's own error text: it may echo the untrusted source the run read. */
+function because(reason: string | undefined): string {
+  const line = reason?.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]+/gu, " ").replace(/\s+/g, " ").trim();
+  return line ? `: ${line.length > 300 ? `${line.slice(0, 299)}…` : line}` : "";
+}
 export interface LearningOptions {
   runtimeFactory: () => AgentRuntime | Promise<AgentRuntime>;
   homeDir?: string;
@@ -188,7 +194,7 @@ export class CandidateLibrary {
         combined.throwIfAborted();
         if (result.status === "failed" && result.reason === READ_ONLY_STATE_CONFLICT) throw new Error(READ_ONLY_STATE_CONFLICT);
         if (result.status !== "completed" || result.truncated || result.cleanupPending || result.toolErrors.length) {
-          throw new Error(`Learning run incomplete (${result.status}${result.truncated ? ", truncated" : ""}${result.toolErrors.length ? ", tool errors" : ""}${result.cleanupPending ? ", cleanup pending" : ""}); no draft saved`);
+          throw new Error(`Learning run incomplete (${result.status}${result.truncated ? ", truncated" : ""}${result.toolErrors.length ? ", tool errors" : ""}${result.cleanupPending ? ", cleanup pending" : ""}); no draft saved${result.providerReason ? "" : because(result.reason)}`);
         }
         let proposals: Proposal[];
         try { proposals = array(object(JSON.parse(result.response), ["candidates"]).candidates, 0, 4).map((value) => proposal(value)); }
