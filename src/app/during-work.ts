@@ -10,6 +10,7 @@ import { opened } from "./new-project";
 import { updateFooter } from "./footer";
 import { backgroundTasks } from "./task-tools";
 import { handleSlashCommand } from "./command-loop";
+import { runMCPListDuringWork } from "./commands";
 import { ensureRuntime } from "./runtime-start";
 import { askSideQuestion, sideQuestionsOn, sideQuestionText } from "./side-question";
 
@@ -58,6 +59,8 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
       void app.taskUndo.diff("list", undefined, true).catch(failed);
       return true;
     }
+    // The same for /mcp: its picker would hold the question slot and its actions would run mid-task.
+    if (line === "/mcp") { void runMCPListDuringWork(app).catch(failed); return true; }
     void handleSlashCommand(app, line).catch(failed);
     return true;
   }

@@ -195,3 +195,49 @@ test("/diff list during a task prints the list with no picker, so nothing sits i
     gate.resolve();
   } finally { gate.resolve(); await app.close(); }
 }, 30_000);
+
+test("/mcp during a task prints the list with its command hints and no picker, so a box the task opens is shown; idle it opens the picker", async () => {
+  const gate = Promise.withResolvers<void>();
+  let turns = 0, started = false;
+  const app = await richApp(project => ({
+    async start() {
+      return {
+        setTools: () => {},
+        getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }),
+        getState: () => ({ cwd: project, isStreaming: false }),
+        subscribe: () => () => {},
+        abort: async () => {},
+        prompt: async () => { if (++turns === 1) { started = true; await gate.promise; } },
+      };
+    },
+    async dispose() {},
+  }), { loadMCPConfiguration: async () => ({ diagnostics: [], servers: [{ name: "demo-server", source: "fixture", cwd: process.cwd(), disabled: false,
+    transport: { type: "stdio", command: "never-run-fixture", args: [], env: {} } }] }) });
+  try {
+    await app.until(text => text.includes("idle"));
+    app.input.write("keep working\r");
+    await app.until(() => started, 15_000);
+    const from = app.screen().length;
+    app.input.write("/mcp\r");
+    await app.until(text => text.slice(from).includes("/mcp connect demo-server"), 15_000);
+    expect(app.screen().slice(from)).not.toContain("Pick a server");
+    // Nothing holds the question slot: an approval the task asks is shown and can be answered.
+    const answer = app.app.terminal.approve("Reach example.com?\n", "Allow it?", [{ label: "No" }, { label: "Yes, this once" }]);
+    await app.until(text => text.slice(from).includes("Allow it?"), 15_000);
+    await Bun.sleep(400);
+    app.input.write("2");
+    expect(await answer).toBe("Yes, this once");
+    // The typed forms that change things still wait for the task.
+    app.input.write("/mcp disconnect demo-server\r");
+    await app.until(text => text.slice(from).includes("waits until this task ends"), 15_000);
+    const doneFrom = app.screen().length;
+    gate.resolve();
+    await app.until(text => text.slice(doneFrom).includes("idle"), 15_000);
+    // The refused line stayed as a draft; clear it, then ask for the list again.
+    app.input.write("\x15");
+    await Bun.sleep(100);
+    const idleFrom = app.screen().length;
+    app.input.write("/mcp\r");
+    await app.until(text => text.slice(idleFrom).includes("Pick a server"), 15_000);
+  } finally { gate.resolve(); await app.close(); }
+}, 30_000);

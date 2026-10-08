@@ -914,11 +914,21 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
     if (action === "connect") { await runMCPConnect(host, name!); return; }
     if (action === "disconnect") { await runMCPDisconnect(host, name!); return; }
     // /mcp: one line per server. On a normal terminal the arrow-key picker sits right under it, so nothing needs typing.
-    const picker = host.interactive && host.terminal.rich && host.terminal.canAsk;
-    host.output.write(mcpListText(mcp.status(), !picker));
-    await writeNetworkSetupLine(host);
-    if (picker) await mcpPicker(host);
+    await writeMCPList(host, host.interactive && host.terminal.rich && host.terminal.canAsk);
   }
+
+/** /mcp typed while a task works: the list with its command hints and never the picker, so nothing holds the
+ * terminal's question slot against an approval the task asks. Changes stay typed commands that wait for the task. */
+export async function runMCPListDuringWork(host: CommandHost): Promise<void> {
+  if (!host.mcp) throw new Error("MCP is not available in this session");
+  await writeMCPList(host, false);
+}
+
+async function writeMCPList(host: CommandHost, picker: boolean): Promise<void> {
+  host.output.write(mcpListText(host.mcp!.status(), !picker));
+  await writeNetworkSetupLine(host);
+  if (picker) await mcpPicker(host);
+}
 
 async function writeNetworkSetupLine(host: CommandHost): Promise<void> {
   const network = host.networkSetupHost();
