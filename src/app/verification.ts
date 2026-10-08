@@ -114,7 +114,7 @@ export async function runVerification(app: CasperApp, checks: readonly CheckName
         ? (blocked, signal) => askChecksOutside(app, blocked, signal) : undefined,
       outsideOnce: app.sandbox ? (work) => app.sandbox!.withChecksOutsideOnce(work) : undefined,
       // Only a person can say whether a check that did not finish is worth a paid repair.
-      onUnfinished: app.interactive && app.terminal.rich ? (unfinished, signal) => askUnfinished(app, unfinished, context.verification.timeoutMs, signal) : undefined,
+      onUnfinished: app.interactive && app.terminal.canAsk ? (unfinished, signal) => askUnfinished(app, unfinished, context.verification.timeoutMs, signal) : undefined,
       // The task's smoke checks join its own verification (repairs and review reruns), never a standalone /verify.
       smoke: task && task === app.checkTask && app.smokeTask?.size ? smokeRun(app, app.smokeTask) : undefined,
       // So do its page checks: planned again from every change since the task started, after each repair too.
@@ -277,9 +277,10 @@ export async function askUnfinished(app: CasperApp, unfinished: VerificationResu
   const longer = longerLimit(had);
   const options = unfinishedChoices(had, longer);
   app.events.ensureLineBreak();
-  const answer = await app.terminal.ask(`${what}. Casper did not try to fix it. What now?`,
-    options.map(({ label, description }) => ({ label, description })), false, signal);
-  const choice = options.find((option) => option.label === answer?.[0])?.choice;
+  // pick: the ask box on the rich terminal, numbered lines on a plain one.
+  const answer = await app.terminal.pick(`${what}. Casper did not try to fix it. What now?`,
+    options.map(({ label, description }) => ({ label, description })), signal);
+  const choice = options.find((option) => option.label === answer)?.choice;
   if (choice !== "more-time-saved") return choice;
   // Saved for the user, no file to edit: every check in this project gets the longer limit from now on.
   try {

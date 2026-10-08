@@ -7,6 +7,7 @@ import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } fr
 import { readClipboardFiles } from "./clipboard-files";
 import { COMMANDS, findCommand, fitDescriptions, menuRunsDuringWork } from "./commands";
 import { BUSY_GLYPH, hasLineControls, hasTerminalControls, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
+import { choiceHint, choiceNumber, keyChoice, typedChoice } from "./choices";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
 import { renderPanel } from "./presentation";
@@ -38,7 +39,7 @@ class StableMainScreen extends TuiMainScreen {
   }
 }
 
-const EXIT_NOTE = "Ctrl-C again to exit · Ctrl-D exits too";
+const EXIT_NOTE = "Ctrl+C again to exit · Ctrl+D exits too";
 
 /** The key that pastes a picture: Ctrl+V, or Alt+V on Windows, where Ctrl+V is the terminal's own text paste (as in Pi). */
 export const PASTE_IMAGE_KEY = process.platform === "win32" ? "alt+v" : "ctrl+v";
@@ -174,7 +175,7 @@ export class TerminalSurface {
   private onCycleEffort?: () => void;
   private onBusySubmit?: (line: string) => true | string;
   private onExpandLast?: () => void;
-  /** "WRITES: <servers> · ctrl+o" while any MCP server has writes on; drawn first, never cut off. */
+  /** "WRITES: <servers> · Ctrl+O" while any MCP server has writes on; drawn first, never cut off. */
   private badge?: string;
   /** ctrl+o: turn writes off everywhere. True when something was on. */
   private onWritesRevert?: () => boolean;
@@ -341,15 +342,9 @@ export class TerminalSurface {
         }
         if (matchesKey(data, "enter")) { this.chooseAsk(); return { consume: true }; }
         // A choice's number picks it (or toggles it) while nothing is typed; a digit past the last
-        // choice, or after typed text, is ordinary text.
-        const number = /^[1-9]$/.test(data) ? Number(data) : 0;
-        if (number && number <= Math.min(count, 9)) {
-          const index = number - 1;
-          if (!this.askMulti) { this.askActiveIndex = index; this.chooseAsk(); return { consume: true }; }
-          this.askActiveIndex = index;
-          if (this.askSelections.has(index)) this.askSelections.delete(index); else this.askSelections.add(index);
-          this.render(); return { consume: true };
-        }
+        // choice, after typed text, or in a list past nine rows (typed, then Enter) is ordinary text.
+        const index = keyChoice(data, count);
+        if (index >= 0) { this.pickAsk(index); return { consume: true }; }
         if (this.askMulti && matchesKey(data, "space")) {
           const index = this.askActiveIndex;
           if (this.askSelections.has(index)) this.askSelections.delete(index); else this.askSelections.add(index);
@@ -443,7 +438,7 @@ export class TerminalSurface {
   private footer(width: number): string {
     if (!this.badge) return this.footerText(width);
     // The badge leads and is never cut off; a window too narrow for it gets the short form.
-    const text = visibleWidth(this.badge) + 1 < width ? this.badge : "WRITES · ctrl+o";
+    const text = visibleWidth(this.badge) + 1 < width ? this.badge : "WRITES · Ctrl+O";
     const rest = width - visibleWidth(text) - 1;
     const badge = tint(text, "warning", this.io.color, "1");
     return rest > 2 ? `${badge} ${this.footerText(rest)}` : truncateToWidth(badge, width);
@@ -765,19 +760,17 @@ private updateSpinner(): void {
    * When that is taller than `height` rows, only the highlighted option keeps its description, so the
    * question itself stays on screen instead of scrolling away. */
   private renderAsk(width: number, height: number): string[] {
-    const count = Math.min(this.askOptions?.length ?? 0, 9);
-    const keys = count > 1 ? `1-${count}` : "1";
-    const hint = this.askMulti
-      ? `Press ${keys} or Space to toggle · Up/Down move · Enter answer · type to answer · Esc skip`
-      : this.askFrom === "approval" ? `Press ${keys} or Up/Down + Enter · Esc is No`
-      : `Press ${keys} or Up/Down + Enter · type to answer · Esc skip`;
+    const count = this.askOptions?.length ?? 0;
+    // A multi-select's numbers toggle rather than pick, so its keys say so.
+    const hint = this.askMulti ? `Press 1-${count} or Space to toggle · Up/Down move · Enter answer · type to answer · Esc skip`
+      : this.askFrom === "approval" ? choiceHint(count, "Esc is No")
+      : choiceHint(count, "type to answer", "Esc skip");
     const lines = (compact: boolean) => [
       ...(this.askFrom === "ai" ? [this.muted(AI_ASKS_LABEL)] : []),
       ...wrapTextWithAnsi(this.accent(this.askQuestion ?? ""), width),
       ...(this.askOptions ?? []).flatMap((option, index) => {
         const selected = index === this.askActiveIndex;
-        const number = index < 9 ? `${index + 1} ` : "  ";
-        const marker = number + (this.askMulti ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "");
+        const marker = choiceNumber(index, count) + (this.askMulti ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "");
         return askOptionLines(selected ? this.selected("→ ") : "  ",
           { label: marker + option.label, description: compact && !selected ? undefined : option.description }, width,
           selected ? { label: this.selected, description: this.selected } : { label: text => text, description: this.muted });
@@ -795,9 +788,20 @@ private updateSpinner(): void {
     this.pendingAsk?.([...this.askSelections].sort((a, b) => a - b).map(index => this.askLabels[index]!));
   }
 
-  /** A nonempty editor submission is always free text; listed choices are picked by number or arrow keys. */
+  /** A digit, or a number typed and sent past nine rows: picks that choice, or toggles it in a multi-select. */
+  private pickAsk(index: number): void {
+    this.askActiveIndex = index;
+    if (!this.askMulti) { this.chooseAsk(); return; }
+    if (this.askSelections.has(index)) this.askSelections.delete(index); else this.askSelections.add(index);
+    this.render();
+  }
+
+  /** A nonempty editor submission is free text, except a row's number in a list past nine rows; listed choices are
+   * otherwise picked by number or arrow keys. */
   private answerAsk(value: string): void {
     const text = value.trim();
+    const index = typedChoice(text, this.askOptions?.length ?? 0);
+    if (index >= 0) { this.pickAsk(index); return; }
     if (text) this.pendingAsk?.([text]);
   }
 

@@ -309,7 +309,9 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
   Up/Down switch login groups like github-copilot/openrouter), search-backed model rows
   with context, price and capability columns, and a selected-model summary footer.
   **Enter remembers globally** in Casper's settings; **Ctrl+S selects for this session
-  only**. Escape/Ctrl+C cancel.
+  only**. Esc cancels. `/effort` with no level is the same numbered list as every other
+  choice: press a level's number (or Up/Down and Enter) to remember it; Ctrl+S picks it for
+  this session only.
 - A fresh interactive session clears the viewport at startup: the new session renders from
   the top of the screen and the previous run's transcript stays in scrollback.
 - While a prompt runs or tool activity is on screen, the footer spinner and the Working
@@ -368,7 +370,7 @@ Typed API keys are verified with the provider before they are stored; a rejected
 key is never saved, and a key that cannot be verified (network or provider error)
 can be retried, saved explicitly, or cancelled. Keys and callback codes/URLs use a
 separate hidden prompt (live character count, contents never rendered), never chat/history.
-Escape/Ctrl-C cancel; EOF and shutdown drain the login lifecycle. A failed sign-in says the reason
+Esc or Ctrl+C cancels; EOF and shutdown drain the login lifecycle. A failed sign-in says the reason
 Casper has in plain words (timed out, couldn't reach the provider, the provider refused it) and
 never the provider's own text. A model whose provider has no sign-in names that provider, its
 `/login` and its key variable (for example `OPENROUTER_API_KEY`); a one-shot run or a plain
@@ -441,7 +443,14 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   (or toggle it in a multi-select), or use Up/Down and Enter; Space also toggles.
   Typing still accepts a custom answer, and Esc skips. A number picks a choice only
   while nothing is typed, so a custom answer cannot start with a choice's number
-  (type a letter first); a digit past the last choice is ordinary text.
+  (type a letter first); a digit past the last choice is ordinary text. A list longer
+  than nine (`/settings`) numbers every row: type the number and press Enter
+  (`Type 1-23 + Enter or Up/Down + Enter`).
+- Every numbered list draws the same way and ends with the same hint, `Press 1-4 or
+  Up/Down + Enter`, followed by what else it takes: `type to answer · Esc skip` for a
+  question, `Esc is No` for an approval, `Esc cancels` for `/login`, and `Ctrl+S this
+  session only · Esc cancels` for `/effort`. Keys are spelled one way everywhere: `Ctrl+O`,
+  `Ctrl+T`, `Ctrl+C`.
 - A question from the AI's `ask` tool starts with a muted `The AI asks:` line. Casper's own
   questions and approvals never do, so the AI can't pass off a question as a Casper approval.
 - An answered box stays in the transcript with `✓` on your choice (`→` before a typed answer,
@@ -453,8 +462,9 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   a No. Keys pressed in the first moment after a box opens (about 0.3 s) are ignored, so a key
   typed mid-sentence never answers a box that just appeared.
 - Casper's own numbered questions and approvals also work on the plain terminal: it prints the
-  choices as numbered lines and reads `Type 1, 2 or 3:`; a number or a choice's words pick
-  it. Enter picks choice 1, and at every Casper question choice 1 is the one that does nothing
+  choices as numbered lines and reads `Type 1, 2 or 3:` (`Type 1-23:` past nine); a number or
+  a choice's words pick it. `/settings`, `/preview` and the question after a check times out
+  ask there too, as numbered lines. Enter picks choice 1, and at every Casper question choice 1 is the one that does nothing
   risky (Stop, Not now, Use this folder, Leave it, No, Keep writes off, Keep the
   default): building, installing, downloading, spending tokens, running a check again, saving a
   choice, approving or reaching a lab always takes a deliberate 2 or 3, so a stray Enter is harmless.
@@ -468,7 +478,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   question is open it only shows `effort unchanged · answer first`.
   It is not available on a plain terminal.
 - Escape stops active work. Ctrl+C cancels work; when idle it clears a draft. On an
-  empty editor the first Ctrl+C only shows `Ctrl-C again to exit`; a second within two
+  empty editor the first Ctrl+C only shows `Ctrl+C again to exit`; a second within two
   seconds exits, any other key disarms it. Ctrl+D exits an empty editor at once.
   Ctrl+L forces a redraw.
 - Enter during work runs a command that only shows something at once: `/help`, `/status`,

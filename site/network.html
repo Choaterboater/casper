@@ -270,7 +270,7 @@ Press 1-2 or Up/Down + Enter · Esc is No
 
 <span class="dim"># (pressed 2)</span>
 
-<span class="dim">[mcp]</span> Writes on for fixture. Each change still asks you. ctrl+o turns writes off.</pre>
+<span class="dim">[mcp]</span> Writes on for fixture. Each change still asks you. Ctrl+O turns writes off.</pre>
           <figcaption>A real Casper 0.2.27 run against a local test server that never touches a device. The picker runs the same code as the typed commands, so every box is the same. A server you added yourself runs outside the sandbox, and <code>/mcp</code> says so. Until the product says otherwise, a login shows <code>access not checked</code>: nobody has proven it is read-only.</figcaption>
         </figure>
 
@@ -321,7 +321,7 @@ Press 1-2 or Up/Down + Enter · Esc is No
 
         <h3>The AI can't approve for you</h3>
         <ul class="prose">
-          <li><strong>No shortcut exists for the AI.</strong> There is no write flag and no approval token the AI can set. "Yes, for this session" and "Yes to everything" are yours to give, per server, and end with the session or <kbd>ctrl+o</kbd>; under "Yes, for this session" destructive changes still ask.</li>
+          <li><strong>No shortcut exists for the AI.</strong> There is no write flag and no approval token the AI can set. "Yes, for this session" and "Yes to everything" are yours to give, per server, and end with the session or <kbd>Ctrl+O</kbd>; under "Yes, for this session" destructive changes still ask.</li>
           <li><strong>Sneaky arguments ask too.</strong> If the AI sets <code>confirm</code>, <code>confirmed</code>, <code>confirmation</code> or <code>force</code> to true (in any spelling, or as <code>"yes"</code> or <code>1</code>), Casper asks even for a read tool. Same if it turns a preview switch like <code>dry_run</code> off. The box then warns: <code>⚠ The AI set confirm=true. That skips the server's own check. Only your answer here lets it run.</code></li>
           <li><strong>Server questions reach only you.</strong> When a server asks "Confirm PORT BOUNCE on SG1 ports [1/1/1]?", the AI never sees the question and has no tool to answer it.</li>
           <li><strong>No terminal, no approval.</strong> One-shot runs can't ask, so a call that needs approval fails with <code>Not executed (needs your approval, and this run cannot ask)</code>.</li>
@@ -374,11 +374,11 @@ Press 1-2 or Up/Down + Enter · Esc is No
 
 <span class="dim"># (pressed 2)</span>
 
-<span class="dim">[mcp]</span> Writes on for fixture. Each change still asks you. ctrl+o turns writes off.</pre>
+<span class="dim">[mcp]</span> Writes on for fixture. Each change still asks you. Ctrl+O turns writes off.</pre>
           <figcaption>Writes on does not mean "no more questions". Each change still shows the box.</figcaption>
         </figure>
         <ul class="prose">
-          <li>While any server has writes on, the footer starts with <code>WRITES: &lt;servers&gt; · ctrl+o</code>. It is never cut off.</li>
+          <li>While any server has writes on, the footer starts with <code>WRITES: &lt;servers&gt; · Ctrl+O</code>. It is never cut off.</li>
           <li><kbd>ctrl</kbd>+<kbd>o</kbd> (or <code>/mcp writes off</code>) turns writes off for <em>every</em> server at once, even while Casper is working, ends every "for this session" answer, and denies any open change box. Think of it as the big red button.</li>
           <li>The AI's ask tool can't answer the change box or the writes box. In a one-shot run, <code>/mcp writes</code> says <code>Writes can only be turned on in an interactive session.</code></li>
           <li>If your own settings still keep writes off (say <code>HPE_MCP_ACCESS_PROFILE=safe-read-only</code> in your config), Casper tells you instead of pretending.</li>

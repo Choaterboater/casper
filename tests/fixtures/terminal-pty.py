@@ -178,7 +178,7 @@ def connect_with_writes(s):
     time.sleep(0.5)
     s.send("2")  # 2 Enable for this server
     s.until("Writes on for fixture. Each change still asks you.")
-    s.until("WRITES: fixture · ctrl+o")
+    s.until("WRITES: fixture · Ctrl+O")
     s.until_ready()
 
 def exercise(bun, repo, root, no_color):

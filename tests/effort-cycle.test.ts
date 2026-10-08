@@ -149,7 +149,7 @@ test("Ctrl+C cancels the effort picker instead of arming exit behind it", async 
     input.write("\x03");
     await until((text) => Bun.stripANSI(text).slice(beforePicker).includes("idle"));
     // The picker dismissed without the exit-arming note and without ending the session.
-    expect(Bun.stripANSI(output).slice(beforePicker)).not.toContain("Ctrl-C again to exit");
+    expect(Bun.stripANSI(output).slice(beforePicker)).not.toContain("Ctrl+C again to exit");
     // Liveness race: no deterministic signal exists for "still interactive", so a short real
     // wait guards that the session did not end (same pattern as the Shift+Tab test below).
     expect(await Promise.race([interactive.then(() => "ended"), Bun.sleep(500).then(() => "alive")])).toBe("alive");

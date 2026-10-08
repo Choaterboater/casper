@@ -178,6 +178,62 @@ test("in the terminal, a timed-out check asks what to do instead of starting a p
   }
 }, 30_000);
 
+test("on a plain terminal (TERM=dumb) a timed-out check asks the same question as numbered lines", async () => {
+  const { PassThrough } = await import("node:stream");
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  const { CasperApp } = await import("../src/app");
+  const { loadProjectContext } = await import("../src/project/context");
+  const { SkillRegistry } = await import("../src/skills/registry");
+  const { fakeWriter } = await import("./support/tty");
+  const { checkCommand } = await import("./support/check-command");
+  const ambient = process.env.TERM;
+  process.env.TERM = "dumb";
+  const root = await dir();
+  const home = path.join(root, "home"); const project = path.join(root, "project");
+  await mkdir(home, { recursive: true }); await mkdir(path.join(project, ".casper"), { recursive: true });
+  await writeFile(path.join(project, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(checkCommand("sleep:5000"))}\nverification:\n  mode: auto\n  timeoutMs: 300\n`);
+  let prompts = 0;
+  const runtime = {
+    start: async () => ({
+      getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" as const }),
+      getState: () => ({ cwd: project, isStreaming: false }),
+      setTools: () => {}, subscribe: () => () => {}, abort: async () => {},
+      prompt: async () => { prompts++; await writeFile(path.join(project, "notes.dat"), `edit ${prompts}\n`); },
+    }),
+    dispose: async () => {},
+  };
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  const screen = fakeWriter();
+  const app = new CasperApp({
+    input, output: screen.writer, runtimeFactory: () => runtime as never, sessionHomeDir: home,
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+    loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+    loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
+  });
+  const interactive = app.runInteractive(project);
+  try {
+    await screen.until((output) => output.includes("> "));
+    input.write("hello there\r");
+    await screen.until((output) => output.includes("Casper did not try to fix it. What now?") && output.endsWith("Type 1, 2, 3, 4 or 5: "));
+    const visible = Bun.stripANSI(screen.output);
+    expect(visible).toContain("test timed out after 0.3s");
+    expect(visible).toContain("  1 Stop");
+    expect(visible).toContain("  4 Allow more time");
+    input.write("1\r"); // 1 Stop: nothing runs again and no repair starts.
+    await screen.until((output) => output.includes("✗ Not checked — test timed out, so the change was not tested"));
+    expect(prompts).toBe(1);
+    expect(app.getLastTaskResult()?.verification?.repairAttempts).toBe(0);
+  } finally {
+    input.end();
+    await interactive;
+    await app.close();
+    input.destroy();
+    if (ambient === undefined) delete process.env.TERM; else process.env.TERM = ambient;
+  }
+}, 30_000);
+
 test("5 Allow more time from now on saves the longer limit for this project, with no file to edit", async () => {
   const { PassThrough } = await import("node:stream");
   const { mkdir, writeFile } = await import("node:fs/promises");

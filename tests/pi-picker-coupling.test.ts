@@ -63,7 +63,7 @@ test("the browser lists provider-prefixed rows with metadata and Casper's footer
     expect(text).toContain("other/second");
     expect(text).toContain("free");
     expect(text).toContain("first · fixture/first · 131k ctx · 4k out · $3/15 per M · reasoning · vision");
-    expect(text).toContain("Enter: remember globally · Ctrl+S: session only · Esc/Ctrl+C: cancel · /effort after selecting");
+    expect(text).toContain("Enter remember · Ctrl+S this session only · Esc cancels · /effort after selecting");
   } finally { picker.dispose(); }
 });
 

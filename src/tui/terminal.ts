@@ -9,13 +9,9 @@ import { TerminalSurface, type AskOrigin } from "./surface";
 import type { NextRow } from "./next-row";
 import { bellSequence, hostCommand, prepareTmuxPane, titleSequence, TITLE_RESTORE, TITLE_SAVE, type HostCommand, type HostTerminal } from "./host-terminal";
 import { SidePane, type ActivityPane } from "./side-pane";
+import { numberPrompt } from "./choices";
 
-/** The plain terminal's prompt under numbered choices, the same for every question and box: "Type 1, 2 or 3: ".
- * Enter alone picks 1, which is always the safe choice. */
-export function numberPrompt(count: number): string {
-  const digits = Array.from({ length: count }, (_, index) => String(index + 1));
-  return `Type ${digits.length === 2 ? "1 or 2" : `${digits.slice(0, -1).join(", ")} or ${digits.at(-1)}`}: `;
-}
+export { numberPrompt } from "./choices";
 
 /** The terminal Casper was started in (tmux, iTerm2), when it is a real one. Tests leave it out. */
 export interface TerminalHost {
@@ -112,7 +108,7 @@ export class InteractiveTerminal {
   /** Text pasted into the line just sent, so Casper reads its words only from what the person typed. Empty on the
    * plain terminal, where every line is typed. */
   takeSubmittedPastes(): string[] { return this.surface?.takeSubmittedPastes() ?? []; }
-  /** The MCP writes badge ("WRITES: <servers> · ctrl+o"); kept here too, so the plain terminal can report it. */
+  /** The MCP writes badge ("WRITES: <servers> · Ctrl+O"); kept here too, so the plain terminal can report it. */
   setBadge(text?: string): void { this.badgeText = text; this.surface?.setBadge(text); }
   get badge(): string | undefined { return this.badgeText; }
   /** ctrl+o on the rich terminal: turn writes off everywhere. The handler returns true when any were on. */

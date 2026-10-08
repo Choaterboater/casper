@@ -49,6 +49,8 @@ Pick one to change:
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
+Every row has its number: past 9, type it and press Enter (`Type 1-23 + Enter or Up/Down + Enter`).
+A plain terminal (`TERM=dumb`) asks the same list as numbered lines.
 A change applies from now on (built-in skills, packs and the prompt cache from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` A switch turned off is written as
 `false` (`packs: false`). In a config you write yourself, `off` works the same for every switch

@@ -89,7 +89,7 @@ export async function confirmCapability(app: CasperApp, ...[call, signal]: Param
     // "Yes to everything" asks once more, so a key pressed from habit (3 or 4 in another box) never grants it.
     if (result === "allow-all") {
       const product = app.mcp?.productLabel(call.plan.server) ?? call.plan.server;
-      const sure = await approveBox(app, `No box will ask about any change on ${terminalText(product)} until ctrl+o or the session ends.\n`,
+      const sure = await approveBox(app, `No box will ask about any change on ${terminalText(product)} until Ctrl+O or the session ends.\n`,
         `Yes to everything on ${terminalText(product)}?`, ["No", "Yes to everything"], signal);
       if (sure === undefined && approvalStopped(app, signal)) throw new NotExecutedError("cancelled");
       if (sure !== "Yes to everything") result = "no";
