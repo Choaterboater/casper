@@ -246,6 +246,15 @@ export function sandboxStatusLine(sandbox: ShellSandbox): string {
   return describeSandbox(sandbox.state, sandbox.on ? sandbox.allowedHosts().length : undefined);
 }
 
+/** The start-up banner's shell line. When the only reason for no sandbox is Linux programs that are not installed, it says
+ * what is true (Casper works and asks first) and where the full sandbox is; `casper doctor` and /sandbox keep the install line. */
+export function sandboxBannerLine(sandbox: ShellSandbox): string {
+  if (!sandbox.failure && sandbox.state.kind === "missing" && /\b(?:is|are) missing: sudo apt install /.test(sandbox.state.reason ?? "")) {
+    return "asks before commands that change things · /sandbox for the full sandbox";
+  }
+  return sandboxStatusLine(sandbox);
+}
+
 const ALLOWED_POINTER = "Shell commands you said yes to (for this session or always for this project): /allowed lists them and takes them back.";
 
 /** /sandbox: what the sandbox holds, on this machine, now. `reach`: machines ssh may reach without asking. */

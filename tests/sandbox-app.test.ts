@@ -93,6 +93,39 @@ test("with no sandbox here, the banner says so and gives the fix", async () => {
   } finally { await f.app.close(); }
 });
 
+test("missing Linux programs: the banner is calm and has no install command, /sandbox keeps it", async () => {
+  const reason = "bubblewrap, socat and ripgrep are missing: sudo apt install bubblewrap socat ripgrep";
+  const f = await fixture({ sandboxSeams: { engine: fakeEngine(), problem: () => reason, platform: "linux" } });
+  try {
+    await f.app.runOnce("Write the notes", f.project);
+    const banner = f.text().split("\n").find((line) => line.startsWith(" shell     "))!;
+    expect(banner).toBe(" shell     asks before commands that change things · /sandbox for the full sandbox");
+    const header = f.text().split("\n> ")[0]!;
+    expect(header).not.toContain("apt install");
+    expect(header).not.toContain("missing");
+    await f.app.runOnce("/sandbox", f.project);
+    expect(f.text()).toContain(`Shell: not sandboxed (${reason}) · Casper asks before AI shell commands that change things`);
+  } finally { await f.app.close(); }
+});
+
+test("other no-sandbox states keep their banner text", async () => {
+  const win = await fixture({ sandboxSeams: { engine: fakeEngine(), problem: () => undefined, platform: "win32" } });
+  try {
+    await win.app.runOnce("Write the notes", win.project);
+    expect(win.text()).toContain(" shell     not sandboxed (Windows has no sandbox yet) · Casper asks before AI shell commands that change things\n");
+  } finally { await win.app.close(); }
+  const mac = await fixture({ sandboxSeams: { engine: fakeEngine(), problem: () => "sandbox-exec is missing", platform: "darwin" } });
+  try {
+    await mac.app.runOnce("Write the notes", mac.project);
+    expect(mac.text()).toContain(" shell     not sandboxed (sandbox-exec is missing) · Casper asks before AI shell commands that change things\n");
+  } finally { await mac.app.close(); }
+  const blocked = await fixture({ sandboxSeams: { engine: fakeEngine(), problem: () => "bubblewrap can't start here (denied); see docs/SECURITY.md", platform: "linux" } });
+  try {
+    await blocked.app.runOnce("Write the notes", blocked.project);
+    expect(blocked.text()).toContain(" shell     not sandboxed (bubblewrap can't start here (denied); see docs/SECURITY.md) · Casper asks before AI shell commands that change things\n");
+  } finally { await blocked.app.close(); }
+});
+
 test("a repo's .pi/sandbox.json is ignored, and Casper says so", async () => {
   const f = await fixture({ sandboxSeams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
   await mkdir(path.join(f.project, ".pi"));

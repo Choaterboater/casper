@@ -67,6 +67,21 @@ closed, run `casper --version` to see the new version. The waiting step gives up
 without installing. If that separate step cannot be started, Casper shows the `irm ... | iex` line
 to run yourself. This hand-off has not been run on a real Windows machine yet.
 
+## Windows with WSL (Linux inside Windows)
+
+WSL is Linux running inside Windows. If you open a WSL terminal (Ubuntu, for example), you
+can use the Linux Casper there instead of the Windows preview. In that terminal:
+
+```sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.27/install.sh | sh
+```
+
+- The Linux Casper is a separate install from the Windows one. It has its own `~/.casper`
+  (inside WSL) and its own sign-in, so run `/login` once there.
+- It works with nothing else to install. It asks before shell commands that change
+  things.
+- `/sandbox` shows how to add the full sandbox if you want it.
+
 ## 2. Automated checks (CI)
 
 `.github/workflows/windows-preview.yml` runs on `windows-latest` with Bun **1.4.0** and

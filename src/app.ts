@@ -69,7 +69,7 @@ import { detectHostTerminal } from "./tui/host-terminal";
 import { RuntimeEventMapper, type CasperEvent } from "./app/json-events";
 import { StepRail } from "./app/steps";
 import type { Install } from "./update/command";
-import { sandboxReceipt, sandboxStartupNotes, sandboxStatusLine, type RunAllowances } from "./app/sandbox";
+import { sandboxReceipt, sandboxBannerLine, sandboxStartupNotes, sandboxStatusLine, type RunAllowances } from "./app/sandbox";
 import type { ShellSandbox, ShellSandboxOptions } from "./sandbox/manager";
 import type { LoginHost } from "./mcp/network/ask-login";
 import type { NetworkProduct } from "./mcp/network/logins";
@@ -506,7 +506,7 @@ export class CasperApp {
     const wordmark = this.interactive && this.terminal.rich;
     if (wordmark) this.terminal.writeTrusted(wordmarkHeader(this.terminal.color));
     // The shell line is always there in a session; a one-shot run shows it only when nothing holds its commands.
-    const shell = this.sandbox && (this.interactive || !this.sandbox.on) ? sandboxStatusLine(this.sandbox) : undefined;
+    const shell = this.sandbox && (this.interactive || !this.sandbox.on) ? sandboxBannerLine(this.sandbox) : undefined;
     this.output.write(renderBanner(context, { wordmark, interactive: this.interactive, ...(shell ? { shell } : {}),
       ...(this.interactive ? await bannerChecks(this, context) : {}) }));
     for (const note of sandboxStartupNotes(context.info.root)) this.output.write(`${note}\n`);
