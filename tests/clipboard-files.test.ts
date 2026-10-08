@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { hasLineControls } from "../src/tui/format";
 import {
   CLIPBOARD_FILES_BYTES, clipboardFilesCommands, clipboardFilesFromOutput, fileUriPath, readClipboardFiles, runClipboardTool,
   type ClipboardFilesCommand,
@@ -13,13 +14,10 @@ test("a file:// address from a file manager decodes to its local path", () => {
   expect(fileUriPath("file:///home/me/folder/")).toBe("/home/me/folder/");
 });
 
-test("a file:// address that is not a plain local path is refused: controls, bidi, another computer, another scheme", () => {
+test("a file:// address that is not a plain local path is refused: raw controls, another computer, another scheme", () => {
   for (const bad of [
-    // Escaped controls: a line break, an escape sequence, NUL, DEL, C1, and bidi overrides.
-    "file:///tmp/a%0Ab.png", "file:///tmp/a%0D%0Ab.png", "file:///tmp/%1B%5B31mred.png", "file:///tmp/a%00.png",
-    "file:///tmp/a%7F.png", "file:///tmp/a%C2%9B.png", "file:///tmp/%E2%80%AEgnp.exe", "file:///tmp/%E2%81%A6a.png",
     // Raw spaces and controls are not allowed in an address at all.
-    "file:///tmp/a b.png", "file:///tmp/a\tb.png", "file:///tmp/a\x1b[2Jb.png", "file:///tmp/a\u0085b.png",
+    "file:///tmp/a b.png", "file:///tmp/a\tb.png", "file:///tmp/a\nb.png", "file:///tmp/a\x1b[2Jb.png", "file:///tmp/a\u0085b.png",
     // Another computer, or a host that hides one.
     "file://nas/shots/pic.png", "file://evil.example/tmp/a.png", "file://user@host/tmp/a.png", "file://localhost.evil.example/tmp/a.png",
     // Other schemes and shapes.
@@ -30,11 +28,24 @@ test("a file:// address that is not a plain local path is refused: controls, bid
   ]) expect(fileUriPath(bad)).toBeUndefined();
 });
 
+test("a file:// name with an escaped control or bidi character comes through as it is, for the paste to leave out and say so", () => {
+  // A line break, an escape sequence, NUL, DEL, C1, and bidi overrides: never turned into a name that looks fine.
+  for (const [uri, name] of [
+    ["file:///tmp/a%0Ab.png", "/tmp/a\nb.png"], ["file:///tmp/a%0D%0Ab.png", "/tmp/a\r\nb.png"], ["file:///tmp/%1B%5B31mred.png", "/tmp/\x1b[31mred.png"],
+    ["file:///tmp/a%00.png", "/tmp/a\x00.png"], ["file:///tmp/a%7F.png", "/tmp/a\x7f.png"], ["file:///tmp/a%C2%9B.png", "/tmp/a\x9b.png"],
+    ["file:///tmp/%E2%80%AEgnp.exe", "/tmp/‮gnp.exe"], ["file:///tmp/%E2%81%A6a.png", "/tmp/⁦a.png"],
+  ] as const) {
+    expect(fileUriPath(uri)).toBe(name);
+    expect(hasLineControls(name)).toBe(true);
+  }
+});
+
 test("a uri-list keeps the local files and drops comments and anything else; a path list keeps absolute Windows paths", () => {
-  const list = "# copied\r\nfile:///home/me/a.png\r\nhttps://example.com/b.png\r\nfile://nas/c.png\r\nfile:///home/me/notes%20v2.txt\r\n";
-  expect(clipboardFilesFromOutput(list, "uris")).toEqual(["/home/me/a.png", "/home/me/notes v2.txt"]);
+  const list = "# copied\r\nfile:///home/me/a.png\r\nhttps://example.com/b.png\r\nfile://nas/c.png\r\nfile:///home/me/notes%20v2.txt\r\nfile:///home/me/%E2%80%AEgnp.exe\r\n";
+  // A name with a bidi character is kept so the paste can say it left it out.
+  expect(clipboardFilesFromOutput(list, "uris")).toEqual(["/home/me/a.png", "/home/me/notes v2.txt", "/home/me/\u202egnp.exe"]);
   const paths = "C:\\Users\\me\\a.png\r\n\\\\nas\\shots\\b.png\r\nrelative\\c.png\r\n/d.png\r\nC:\\Users\\me\\\u202egnp.exe\r\n";
-  expect(clipboardFilesFromOutput(paths, "paths")).toEqual(["C:\\Users\\me\\a.png", "\\\\nas\\shots\\b.png"]);
+  expect(clipboardFilesFromOutput(paths, "paths")).toEqual(["C:\\Users\\me\\a.png", "\\\\nas\\shots\\b.png", "C:\\Users\\me\\\u202egnp.exe"]);
 });
 
 test("each system's clipboard tool is a fixed program and fixed arguments, by full path where the system has one", () => {

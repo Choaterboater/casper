@@ -108,6 +108,12 @@ test("Windows network paths name their computer; local paths name none", () => {
   expect(shareHost("//nas/shots/pic.png")).toBe("nas");
   expect(shareHost("\\\\?\\UNC\\files.example\\s\\pic.png")).toBe("files.example");
   expect(shareHost("\\\\10.0.0.5\\c$\\pic.png")).toBe("10.0.0.5");
+  // A device path reaches a share through the redirector (Mup) too; one that names no computer still counts as remote.
+  expect(shareHost("\\\\?\\GLOBALROOT\\Device\\Mup\\nas\\s\\pic.png")).toBe("nas");
+  expect(shareHost("\\\\.\\globalroot\\device\\mup\\nas\\s\\pic.png")).toBe("nas");
+  expect(shareHost("//?/GLOBALROOT/Device/Mup/nas/s/pic.png")).toBe("nas");
+  expect(shareHost("\\\\?\\GLOBALROOT\\??\\UNC\\nas\\s\\pic.png")).toBe("GLOBALROOT");
+  expect(shareHost("\\\\.\\pipe\\x.png")).toBe("pipe");
   for (const local of ["C:\\Users\\me\\pic.png", "\\\\?\\C:\\pic.png", "\\\\.\\C:\\pic.png", "~\\pic.png", "/home/me/pic.png", "pic.png"]) expect(shareHost(local)).toBeUndefined();
 });
 
@@ -138,8 +144,8 @@ test("Windows: a picture on another computer's share asks once per computer, and
   expect(yes.images.length).toBe(2);
   expect(yes.text.split("\n")[0]).toBe("what is [image 1] and [image 2] and \\\\other\\c.png");
 
-  // Quoted (a dropped file) and long-form paths ask too; with nobody to ask (one-shot) nothing is opened.
-  for (const form of ['"\\\\nas\\my shots\\d.png"', "\\\\?\\UNC\\nas\\e.png"]) {
+  // Quoted (a dropped file), long-form and device paths ask too; with nobody to ask (one-shot) nothing is opened.
+  for (const form of ['"\\\\nas\\my shots\\d.png"', "\\\\?\\UNC\\nas\\e.png", "\\\\?\\GLOBALROOT\\Device\\Mup\\nas\\s\\f.png", "\\\\.\\GLOBALROOT\\Device\\Mup\\nas\\s\\g.png"]) {
     const quiet = await attachImages(`see ${form}`, { cwd: dir, home: dir, platform: "win32", resolve: () => shot });
     expect(quiet.images).toEqual([]);
     expect(quiet.notes[0]).toContain("is on another computer (nas)");

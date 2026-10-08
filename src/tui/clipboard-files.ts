@@ -5,7 +5,6 @@
  * Nothing is read from the files here; the prompt's picture paths do that when the request is sent.
  */
 import { spawn } from "node:child_process";
-import { hasLineControls } from "./format";
 
 /** A clipboard tool that is slower than this, or prints more than this, is dropped: the paste goes on without it. */
 export const CLIPBOARD_FILES_TIMEOUT_MS = 2_500;
@@ -52,8 +51,9 @@ export function clipboardFilesCommands(platform: NodeJS.Platform = process.platf
   return commands;
 }
 
-/** The local path a file:// address names; undefined for another scheme, another computer, a query or fragment,
- * a bad %-escape, or a path with a control or bidi character in it. */
+/** The local path a file:// address names, as decoded; undefined for another scheme, another computer, a query or
+ * fragment, a raw space or control, or a bad %-escape. An escaped control or bidi character stays in the name: the
+ * paste leaves that file out and says so. */
 export function fileUriPath(uri: string): string | undefined {
   // Spaces and controls must be %-escaped in an address; raw ones mean it is not one.
   if (/[\s\x00-\x1f\x7f-\x9f]/.test(uri)) return undefined;
@@ -62,16 +62,15 @@ export function fileUriPath(uri: string): string | undefined {
   if (match[1] !== "" && match[1]!.toLowerCase() !== "localhost") return undefined;
   // An escaped slash would put a / inside a name.
   if (/%2f/i.test(match[2]!)) return undefined;
-  let decoded: string;
-  try { decoded = decodeURIComponent(match[2]!); } catch { return undefined; }
-  return hasLineControls(decoded) ? undefined : decoded;
+  try { return decodeURIComponent(match[2]!); } catch { return undefined; }
 }
 
-/** The absolute paths in a tool's output; anything else in it is left out. */
+/** The absolute paths in a tool's output; anything else in it is left out. A name with a control or bidi character
+ * is kept, so the paste can leave it out and say so instead of dropping it without a word. */
 export function clipboardFilesFromOutput(output: string, format: ClipboardFilesCommand["output"]): string[] {
   const lines = output.split(/\r?\n/).filter(Boolean);
   // A drive path (C:\…) or a network one (\\host\share\…); the share question comes when the request is sent.
-  if (format === "paths") return lines.filter((line) => /^(?:[A-Za-z]:\\|\\\\)/.test(line) && !hasLineControls(line));
+  if (format === "paths") return lines.filter((line) => /^(?:[A-Za-z]:\\|\\\\)/.test(line));
   // text/uri-list: one address a line; a line starting with # is a comment.
   return lines.filter((line) => !line.startsWith("#")).map(fileUriPath).filter((file): file is string => file !== undefined);
 }

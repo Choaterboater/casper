@@ -88,10 +88,16 @@ export interface AttachOptions {
   confirmShare?: (file: string, host: string) => Promise<boolean>;
 }
 
-/** The computer a Windows network path (\\host\share, //host/share, \\?\UNC\host) names; undefined for a local path. */
+/** The computer a Windows network path (\\host\share, //host/share, \\?\UNC\host) names; undefined for a local path.
+ * Any other device path but a drive's (\\?\GLOBALROOT\Device\Mup\host\…) may reach another computer too, so it
+ * counts as one: named by the computer where the path says it, else by its first part. */
 export function shareHost(file: string): string | undefined {
-  const long = /^[\\/]{2}[?.][\\/]UNC[\\/]([^\\/]+)/i.exec(file);
-  if (long) return long[1];
+  const device = /^[\\/]{2}[?.][\\/]([^\\/]*)/.exec(file);
+  if (device) {
+    if (/^[A-Za-z]:$/.test(device[1]!)) return undefined;
+    const named = /^[\\/]{2}[?.][\\/]+(?:UNC|GLOBALROOT[\\/]+Device[\\/]+Mup)[\\/]+([^\\/]+)/i.exec(file);
+    return named?.[1] ?? (device[1] || "?");
+  }
   const plain = /^[\\/]{2}([^\\/?.][^\\/]*|\.[^\\/]+)/.exec(file);
   return plain?.[1];
 }
