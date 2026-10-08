@@ -46,6 +46,10 @@ export function migrationsResult(report: MigrationsReport, cwd: string): Verific
   if (report.status === "pass") {
     return { ...base, status: "pass", exitCode: 0, stderr: "", label: `${report.files} file${report.files === 1 ? "" : "s"} · throwaway SQLite` };
   }
+  // The sandbox stopped it: nothing for the model to fix, as for any check the sandbox refused.
+  if (report.status === "fail" && report.blocked) {
+    return { ...base, status: "fail", exitCode: null, stderr: report.blocked, reason: report.blocked, ended: "blocked", repair: "never" };
+  }
   if (report.status === "fail") {
     const failure = `${report.failed?.file ?? "a migration"} failed — ${report.failed?.error ?? "unknown error"}`;
     // No exit code: the reason is what the receipt shows ("✗ migrations failed (002_devices.sql failed — …)").

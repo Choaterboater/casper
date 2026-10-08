@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../platform/environment";
 import { sandboxedArgv, sandboxPath, type SandboxedSpawn } from "../sandbox/spawn";
+import { blockedBySandbox } from "./command";
 import type { VerificationScope } from "./scope";
 
 /**
@@ -34,6 +35,8 @@ export interface MigrationsReport {
   status: "pass" | "fail" | "skip";
   files: number;
   failed?: { file: string; error: string };
+  /** fail: the sandbox stopped prisma ("blocked by the sandbox (...)"), so it is not the migrations failing. */
+  blocked?: string;
   reason?: string;
   durationMs: number;
 }
@@ -205,7 +208,7 @@ async function applySqlite(files: Array<{ name: string; parts: string[] }>, dir:
   catch { return `the throwaway database could not be set up (${(err.trim().split("\n").at(-1) ?? "").slice(0, 300) || `exit ${child.exitCode}`})`; }
 }
 
-async function prismaDeploy(root: string, plan: MigrationPlan, dir: string, signal: AbortSignal): Promise<{ ok: true } | { ok: false; file?: string; error: string }> {
+async function prismaDeploy(root: string, plan: MigrationPlan, dir: string, signal: AbortSignal): Promise<{ ok: true } | { ok: false; file?: string; error: string; blocked?: string }> {
   const bin = path.join(root, "node_modules", ".bin", process.platform === "win32" ? "prisma.cmd" : "prisma");
   const env = isolatedEnvironment(dir, { PATH: `${path.join(root, "node_modules", ".bin")}${path.delimiter}${process.env.PATH ?? ""}`,
     // Only the database address is given, and it points at the throwaway copy.
@@ -221,11 +224,13 @@ async function prismaDeploy(root: string, plan: MigrationPlan, dir: string, sign
     const keep = (chunk: Buffer) => { output = (output + chunk.toString("utf8")).slice(-16_384); };
     child.stdout.on("data", keep); child.stderr.on("data", keep);
     child.on("error", error => resolve({ ok: false, error: error.message.slice(0, 300) }));
-    child.on("close", (code, killed) => {
+    child.on("close", async (code, killed) => {
       if (code === 0) return resolve({ ok: true });
       const migration = /Migration name:\s*(\S+)/.exec(output)?.[1];
       const error = /(?:Database error[^:\n]*:|Error:)\s*\n?\s*(.+)/.exec(output)?.[1]?.trim() ?? output.trim().split("\n").filter(Boolean).at(-1) ?? `exit ${code ?? killed}`;
-      resolve({ ok: false, ...(migration ? { file: migration } : {}), error: error.slice(0, 500) });
+      // A failure the sandbox caused says so, as every other check's does, and is never sent for repair.
+      const blocked = run.held ? await blockedBySandbox(run.held.sandbox, run.held.id, output) : undefined;
+      resolve({ ok: false, ...(migration ? { file: migration } : {}), error: error.slice(0, 500), ...(blocked ? { blocked } : {}) });
     });
   }); } finally { run.held?.sandbox.finished(run.held.id); }
 }
@@ -264,7 +269,8 @@ export async function runMigrationsCheck(root: string, plan: MigrationPlan, sign
     if (plan.kind === "prisma") {
       const result = await prismaDeploy(root, plan, dir, signal);
       signal.throwIfAborted();
-      return result.ok ? done({ status: "pass" }) : done({ status: "fail", failed: { file: result.file ?? "prisma migrate deploy", error: result.error } });
+      if (result.ok) return done({ status: "pass" });
+      return result.blocked ? done({ status: "fail", blocked: result.blocked }) : done({ status: "fail", failed: { file: result.file ?? "prisma migrate deploy", error: result.error } });
     }
     const result = await applySqlite(files, dir, signal);
     if (typeof result === "string") return done({ status: "skip", reason: result });
@@ -281,6 +287,6 @@ function fileLabel(file: string): string {
 /** The receipt line. */
 export function formatMigrationsLine(report: MigrationsReport): string {
   if (report.status === "pass") return `✓ migrations apply · ${report.files} file${report.files === 1 ? "" : "s"} · throwaway SQLite`;
-  if (report.status === "fail") return `✗ migrations: ${report.failed?.file} failed — ${report.failed?.error}`;
+  if (report.status === "fail") return report.blocked ? `✗ migrations — ${report.blocked}` : `✗ migrations: ${report.failed?.file} failed — ${report.failed?.error}`;
   return `• migrations not checked: ${report.reason}`;
 }

@@ -130,6 +130,25 @@ test("with a sandbox holding commands, the migrations check starts the project's
   expect(ended).toEqual(["migrations-1"]);
 });
 
+test("a migrations check the sandbox stopped says so in the receipt and is never sent for repair", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-sandbox-wiring-")));
+  roots.push(root);
+  const plan = await prismaProject(root);
+  const ended: string[] = [];
+  // The stand-in sandbox fails the command and reports what it refused, as the real one does when prisma reaches out.
+  useSandbox({ on: true, wrap: async () => ({ command: "exit 1", id: "migrations-2", held: true }),
+    blockedReason: (id: string) => id === "migrations-2" ? "blocked by the sandbox (wanted to reach binaries.prisma.sh)" : undefined,
+    finished: (id: string) => { ended.push(id); } } as unknown as ShellSandbox);
+  const [result] = await VerifierRegistry.forProject({ project: { root }, commands: {}, migrations: plan } as never).run(["migrations"]);
+  expect(result!.status).toBe("fail");
+  expect(result!.ended).toBe("blocked");
+  expect(result!.reason).toBe("blocked by the sandbox (wanted to reach binaries.prisma.sh)");
+  expect(repairClass(result!)).toBe("never");
+  expect(ended).toEqual(["migrations-2"]);
+  const task: TaskResult = { execution: "completed", changedPaths: ["prisma/schema.prisma"], verification: { status: "fail", results: [result!], repairAttempts: 0 } as never };
+  expect(formatReceipt(task)).toContain("✗ migrations — blocked by the sandbox (wanted to reach binaries.prisma.sh)");
+});
+
 posixOnly("a missing program inside the sandbox is 'could not start', not a failure", async () => {
   const { root } = await session();
   const offline = await runArgv("casper-no-such-tool", [], { cwd: root, env: { PATH: "/usr/bin:/bin" }, timeoutMs: 10_000 });
