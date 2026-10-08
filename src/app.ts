@@ -156,7 +156,7 @@ export interface CasperAppOptions {
   sandboxSeams?: Partial<ShellSandboxOptions>;
   /** Tests: the web lookups' transport, DNS, clock, provider or login keys. */
   webSeams?: Partial<WebLookupOptions>;
-  /** Finds ripgrep for this session, fetching Casper's pinned copy when there is none. Only the real start passes
+  /** Finds ripgrep for this session, using the copy inside the release program, or fetching Casper's pinned copy when there is none. Only the real start passes
    * one, so no test ever reaches the network. */
   ripgrep?: (options: RipgrepOptions) => Promise<RipgrepResult>;
   /** The terminal Casper runs in (tmux, iTerm2). Read from the environment when Casper writes to its own stdout. */

@@ -206,13 +206,15 @@ Turn it off with `ssh_login: off` in `~/.casper/config.yaml` (or a profile you c
 `/settings`; ssh then gets no box and a login that needs a password fails as it always did. A project file can't
 change `ssh_login:`. See [SECURITY.md](SECURITY.md) and [SECRETS.md](SECRETS.md).
 
-### Fetching ripgrep
+### ripgrep
 
-Casper's file search and (on Linux) the shell sandbox need `rg`. With none on your PATH, the first start
-fetches the official ripgrep once (about 5 MB, a pinned version checked against its sha256) into
-`~/.casper/tools/` and says so in one line; if it can't, Casper carries on without. It is on. Turn it off
-with `tools:` then `downloads: off` in `~/.casper/config.yaml` (or a profile you chose); `CASPER_OFFLINE=1` also
-skips it. When Casper ends up without its own ripgrep (downloads off, offline, or the download failed its
+Casper's file search and (on Linux) the shell sandbox need `rg`. A `rg` on your PATH is used as it is. The release
+program carries the official ripgrep inside itself: with none on your PATH, the first start unpacks it once to
+`~/.casper/bin/` after checking its sha256, with nothing downloaded and no line printed. Only a run from a source
+checkout, or a program built without it, fetches the official ripgrep once (about 5 MB, a pinned version checked
+against its sha256) into `~/.casper/tools/` and says so in one line; if it can't, Casper carries on without. Turn the
+download off with `tools:` then `downloads: off` in `~/.casper/config.yaml` (or a profile you chose); `CASPER_OFFLINE=1`
+also skips it. Both switches stop only the download, never the copy inside the release program. When Casper ends up without its own ripgrep (downloads off, offline, or the download failed its
 check), it also keeps the engine's grep tool from downloading one: Casper sets `PI_OFFLINE=1` for itself,
 so nothing unchecked is fetched. This also stops the engine's other automatic downloads in that session
 (for example its model-list refresh); Casper says so once at start. The engine has no switch for tool downloads alone. A project file can't change `tools:`. See [SECURITY.md](SECURITY.md).

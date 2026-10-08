@@ -89,11 +89,11 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   // The shell sandbox for this session: the AI's bash, checks, services, dev servers and Casper's tool runs.
   // A workspace switch replaces it: the old one stops first (the sandbox runtime is one per process).
   await app.lifecycle.close("sandbox").catch(() => {});
-  // ripgrep: the sandbox (Linux) and the AI's grep tool need it. One on your PATH is used; otherwise Casper's pinned
-  // copy is fetched once (tools.downloads: off stops that). The copy goes at the end of PATH for the grep tool.
+  // ripgrep: the sandbox (Linux) and the AI's grep tool need it. One on your PATH is used; otherwise the copy inside the
+  // release program is unpacked (no download), or Casper's pinned copy is fetched once (tools.downloads: off stops only that). The copy goes at the end of PATH for the grep tool.
   const ripgrep = await app.ripgrep?.({ homeDir: app.sessionHomeDir ?? os.homedir(), agentDir: casperAgentDir(), downloads: context.toolDownloads !== false,
     write: (text) => { if (!app.closing) app.output.write(text); } }).catch(() => undefined);
-  if (ripgrep && (ripgrep.source === "pinned" || ripgrep.source === "installed")) addToPath(process.env, path.dirname(ripgrep.path));
+  if (ripgrep && (ripgrep.source === "pinned" || ripgrep.source === "embedded" || ripgrep.source === "installed")) addToPath(process.env, path.dirname(ripgrep.path));
   // No usable ripgrep: the engine's grep tool must not fetch its own unchecked copy (see keepEngineFromFetchingRipgrep).
   if (app.ripgrep) {
     const note = keepEngineFromFetchingRipgrep(process.env, ripgrep);

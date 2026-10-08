@@ -22,8 +22,9 @@ a clean report means these tools found nothing, not that nothing is wrong.
 | ansible-lint | Ansible playbooks (it runs the repo's own Ansible plugins, with Casper's own ansible.cfg, never the repo's) | GPL-3.0, called, never copied | 26.9.0, hash-locked |
 | mcp-scanner | only with `--mcp-tools <file>`: the tool descriptions in a saved `tools/list` reply | Apache-2.0 | 4.8.4, hash-locked |
 
-ripgrep, which Casper fetches for itself rather than asking you to install it, is pinned the same way (sha256 in
-Casper's source, checked before anything is written); see [SECURITY.md](SECURITY.md).
+ripgrep, which the release program carries inside itself rather than asking you to install it, is pinned the same way
+(sha256 in Casper's source, checked before the copy is unpacked or run; a run from a source checkout downloads the same
+pinned release instead, checked before anything is written); see [SECURITY.md](SECURITY.md).
 
 A tool the project does not need reads "not needed". A tool that is missing, crashes
 or takes too long reads "not run" with the reason, and the other tools still run.

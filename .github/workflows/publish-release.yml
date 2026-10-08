@@ -57,8 +57,9 @@ jobs:
           done
           ./casper-linux-x64 --version | grep -F "casper ${RELEASE_TAG#v} ("
           ls install.sh install.ps1 VERSION LICENSE THIRD_PARTY_NOTICES.txt
-          # Personal build paths must not be embedded in the executables.
-          ! grep -a -l -E "/home/runner/work|/Users/" casper-*
+          # Personal build paths must not be embedded in the executables. The one thing allowed is GitHub's own macOS
+          # build account (/Users/runner), which the embedded ripgrep binaries carry; any other /Users/ path still fails.
+          ! grep -a -h -o -E "/home/runner/work|/Users/[A-Za-z0-9_.-]*" casper-* | grep -v -x "/Users/runner"
       - name: Release notes from docs/RELEASE.md
         run: |
           awk -v tag="$RELEASE_TAG" '

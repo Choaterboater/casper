@@ -96,7 +96,7 @@ and your project's check commands are started differently; see [MCP.md](MCP.md) 
 
 | OS | What holds shell commands and checks |
 | --- | --- |
-| Linux | bubblewrap with seccomp (Unix sockets blocked) and a proxy that lets only listed hosts through; needs `bubblewrap` and `socat` (`sudo apt install bubblewrap socat`); Casper fetches its own `ripgrep` (a pinned, checksum-checked download, off with `tools.downloads: off`). Casper tries bubblewrap once at startup; if it can't start (one missing, or Ubuntu 24.04's AppArmor user-namespace block: `Ubuntu blocks it (AppArmor restricts user namespaces …)`, fixed by `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`), the banner says why and the AI's shell asks before each command that changes something (reads like `ls` don't). |
+| Linux | bubblewrap with seccomp (Unix sockets blocked) and a proxy that lets only listed hosts through; needs `bubblewrap` and `socat` (`sudo apt install bubblewrap socat`); the release program carries its own `ripgrep` (checksum-checked, nothing downloaded; a source checkout downloads the same pinned release, off with `tools.downloads: off`). Casper tries bubblewrap once at startup; if it can't start (one missing, or Ubuntu 24.04's AppArmor user-namespace block: `Ubuntu blocks it (AppArmor restricts user namespaces …)`, fixed by `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`), the banner says why and the AI's shell asks before each command that changes something (reads like `ls` don't). |
 | macOS | `sandbox-exec` with the same host proxy. |
 | Windows | Nothing yet: the AI's shell asks before each command that changes something (reads like `ls` don't), and checks, services and dev servers run with your permissions. |
 

@@ -138,7 +138,7 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 - **Sandbox.** On macOS and Linux, the AI's shell and your checks write only the project, temp and
   package caches, can't read `~/.ssh` or cloud logins, and reach only listed hosts. Casper's network
   server runs in it too, reaching only your login hosts. On Windows, or
-  Linux without bubblewrap (`sudo apt install bubblewrap socat`; Casper fetches ripgrep itself), the AI's shell asks before
+  Linux without bubblewrap (`sudo apt install bubblewrap socat`; the release program carries ripgrep), the AI's shell asks before
   each command that changes something. [Sandbox](docs/SECURITY.md)
 - **Private ssh passwords.** When an `ssh` or `scp` you allowed asks for a password or a key's passphrase, Casper
   shows its own hidden box (1 No · 2 Yes, this once · 3 Yes, for this session) and the password goes to ssh only,
