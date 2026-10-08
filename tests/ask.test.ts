@@ -253,7 +253,7 @@ test("a question taller than the screen stays on screen: only the highlighted op
   } finally { session.close(); }
 });
 
-test("an asked question is recorded on its own lines, and the ask tool leaves one finished line", async () => {
+test("an asked question is recorded once: the answered box stays, with no [ask] line and no ask step under it", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-ask-record-"));
   const home = path.join(root, "home");
   const project = path.join(root, "project");
@@ -297,16 +297,17 @@ test("an asked question is recorded on its own lines, and the ask tool leaves on
     await screen.until(output => output.includes("Which database?"));
     input.write("\r");
     // Idle after the task, not the idle from before it: /exit typed while the task is finishing stays a draft.
-    await screen.until(output => { const text = Bun.stripANSI(output); const done = text.lastIndexOf("✓ ask"); return done >= 0 && text.lastIndexOf("idle") > done; });
+    await screen.until(output => { const text = Bun.stripANSI(output); const done = text.lastIndexOf("✓ SQLite"); return done >= 0 && text.lastIndexOf("idle") > done; });
     const repaints = screen.output.split(REPAINT).length;
     screen.writer.columns = 90; screen.writer.emit("resize");
-    await screen.until(() => screen.output.split(REPAINT).length > repaints && lastFrame(screen.output).some(line => line.startsWith("✓ ask")));
+    await screen.until(() => screen.output.split(REPAINT).length > repaints && lastFrame(screen.output).some(line => line.startsWith("✓ SQLite")));
     const frame = lastFrame(screen.output);
     const asked = frame.indexOf("The AI asks:");
-    // The model's own question carries "The AI asks:", so it never looks like a Casper approval. The ask
-    // tool itself is one finished line after it; no running line is left on the main screen.
-    expect(frame.slice(asked, asked + 6)).toEqual(["The AI asks:", "Which database?", "✓ SQLite  file-based", "• Postgres", "[ask] SQLite", "✓ ask"]);
-    expect(frame.some(line => line.startsWith("• ask"))).toBe(false);
+    // The model's own question carries "The AI asks:", so it never looks like a Casper approval. The answered box
+    // is the one record: no "[ask] SQLite" line and no ask step (running or finished) is left on the main screen.
+    expect(frame.slice(asked, asked + 4)).toEqual(["The AI asks:", "Which database?", "✓ SQLite  file-based", "• Postgres"]);
+    expect(frame).not.toContain("[ask] SQLite");
+    expect(frame.some(line => /^[•✓] ask(?: |$)/.test(line))).toBe(false);
   } finally {
     input.write("/exit\r");
     await interactive;

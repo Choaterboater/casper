@@ -242,21 +242,21 @@ test("a rows-only resize writes every visible row again in place, so the prompt 
   const screen = fakeWriter(60, 12);
   const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {});
   try {
-    terminal.setStatus("fixture"); terminal.start();
+    terminal.setStatus("fixture │ idle"); terminal.start();
     void terminal.readCommand();
     for (let line = 0; line < 20; line++) terminal.write(`line ${line}\n`);
-    // The footer is styled (`○` and the status are dimmed separately), so match on the plain text.
-    await screen.until(output => Bun.stripANSI(output).includes("○ fixture"));
+    // The footer is styled (the status is dimmed), so match on the plain text.
+    await screen.until(output => Bun.stripANSI(output).includes("fixture │ idle"));
     const painted = screen.output.length;
     // A terminal may drop the rows below the cursor when it shrinks (xterm.js does: the prompt's lower
     // border and the footer), so no row can be assumed intact.
     screen.writer.rows = 8; screen.writer.emit("resize");
-    await screen.until(output => Bun.stripANSI(output.slice(painted)).includes("○ fixture"));
+    await screen.until(output => Bun.stripANSI(output.slice(painted)).includes("fixture │ idle"));
     const repaint = screen.output.slice(painted);
     expect(repaint).not.toContain("\x1b[3J");
     const rule = "─".repeat(60);
     expect(plainLines(repaint).map(line => line.replace(/^\r/, "").trimEnd()))
-      .toEqual(["line 16", "line 17", "line 18", "line 19", rule, "❯", rule, "○ fixture"]);
+      .toEqual(["line 16", "line 17", "line 18", "line 19", rule, "❯", rule, "fixture │ idle"]);
   } finally { terminal.close(); input.destroy(); }
 });
 

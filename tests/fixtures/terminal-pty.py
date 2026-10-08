@@ -135,9 +135,13 @@ class Session:
 
     def until_ready(self, timeout=15):
         """Wait until Casper reads the next command. Enter before that only keeps the line as a draft, and a local
-        command's output (or a stale "│ idle") shows before Casper is back at the prompt. The footer's idle dot (○)
-        replaces the spinner only when it is; the WRITES badge may lead the footer."""
-        self.until_true(lambda text: "○" in text.rstrip().splitlines()[-1].split("│")[0], timeout)
+        command's output (or a stale "│ idle") shows before Casper is back at the prompt. While Casper works the footer
+        has its spinner and elapsed time ("⠋ building · 3s │ …"), while it asks "? waiting for you"; both are gone only
+        when it is back. The WRITES badge may lead the footer, and the first frame ("Casper · / for commands") has no │."""
+        def ready(text):
+            footer = text.rstrip().splitlines()[-1]
+            return "│" in footer and not re.search(r"\d+s │|waiting for you", footer)
+        self.until_true(ready, timeout)
 
     def wait_exit(self, timeout=30):
         """Wait for Casper to exit and return its exit code (None if it is still running at the deadline). On a busy
@@ -262,8 +266,8 @@ def exercise(bun, repo, root, no_color):
         s.send("2")  # One key answers the box.
         s.until("Approval result: allowed")
         # Typed before the task ends, the next request would only be kept as a draft. The WRITES badge pushes
-        # "idle" past 80 columns, so wait for the idle glyph that leads the footer.
-        s.until("○ project/no git")
+        # "idle" past 80 columns, so wait for the footer without its spinner.
+        s.until_ready()
         s.send("approval-cancel\n")
         s.pump()
         s.release("approval-cancel")

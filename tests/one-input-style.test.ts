@@ -53,6 +53,9 @@ test("typed words in an approval box are a No, and ctrl+o denies an open one", a
     await session.screen.until((output) => output.includes("Make this change?"));
     session.input.write("yes please\r");
     expect(await typed).toBe("No");
+    // The answered box is the only record, so it shows the No the words meant, not the words.
+    await session.screen.until((output) => Bun.stripANSI(output).includes("✓ No"));
+    expect(Bun.stripANSI(session.screen.output)).not.toContain("→ yes please");
     session.terminal.setWritesRevert(() => true);
     const open = session.terminal.approve("", "Make this other change?", ["No", "Yes, this once"]);
     await session.screen.until((output) => output.includes("Make this other change?"));

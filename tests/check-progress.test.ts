@@ -3,7 +3,9 @@ import { PLAIN_CHECK_EVERY_MS, RuntimeEventView } from "../src/app/events";
 import { runCommandCheck } from "../src/verify/command";
 import { PROGRESS_TAIL_CHARS, ProgressFeed, type CheckProgressRun } from "../src/verify/progress";
 import type { RuntimeEvent } from "../src/runtime/types";
-import type { InteractiveTerminal } from "../src/tui/terminal";
+import { InteractiveTerminal } from "../src/tui/terminal";
+import { tint } from "../src/tui/format";
+import { PassThrough } from "node:stream";
 import type { DisplayLevel } from "../src/tui/display";
 
 let clock = 1000;
@@ -147,11 +149,28 @@ test("a reasoning box that goes quiet turns into the waiting line, counted from 
   expect(s.last()).toEqual(["Waiting for openrouter/kimi-k2 · 15s"]);
 });
 
-test("a provider retry shows the attempt in the box and keeps its line", () => {
+test("a provider retry is said once, by its line; the box doesn't repeat it", () => {
   const s = view();
   s.handle(begin, { type: "retry", provider: "openrouter", attempt: 2, maxAttempts: 3, delayMs: 2000 } as RuntimeEvent);
-  expect(s.last()).toEqual(["Retrying openrouter · attempt 2 of 3"]);
+  expect(s.last()).toBeUndefined();
   expect(s.written.join("")).toContain("… Can't reach openrouter · trying again in 2s (2 of 3)");
+});
+
+test("the retry line is drawn in the warning colour, not dim like other … lines", () => {
+  const ambient = { term: process.env.TERM, noColor: process.env.NO_COLOR };
+  process.env.TERM = "xterm-256color"; delete process.env.NO_COLOR;
+  let screen = "";
+  try {
+    // Input that is not a TTY: the plain terminal, still coloured because the output is one.
+    const terminal = new InteractiveTerminal(new PassThrough(), { isTTY: true, columns: 80, write: (text: string) => { screen += text; return true; } } as never, () => {}, () => {});
+    terminal.write("… Can't reach openrouter · trying again in 2s (2 of 3)\n");
+    terminal.write("… bash · bun test\n");
+    expect(screen).toContain(tint("… Can't reach openrouter · trying again in 2s (2 of 3)", "warning", true));
+    expect(screen).toContain(tint("… bash · bun test", "muted", true));
+  } finally {
+    if (ambient.term === undefined) delete process.env.TERM; else process.env.TERM = ambient.term;
+    if (ambient.noColor !== undefined) process.env.NO_COLOR = ambient.noColor;
+  }
 });
 
 const script = "process.stdout.write('one\\ntwo\\n'); process.stderr.write('warn\\n'); process.stdout.write('x'.repeat(20000) + '\\n'); setTimeout(() => { process.stdout.write('last line\\n'); process.exit(3); }, 700)";

@@ -529,15 +529,15 @@ export class CasperApp {
     if (wordmark) this.terminal.writeTrusted(wordmarkHeader(this.terminal.color));
     // The shell line is always there in a session; a one-shot run shows it only when nothing holds its commands.
     const shell = this.sandbox && (this.interactive || !this.sandbox.on) ? sandboxBannerLine(this.sandbox) : undefined;
-    this.output.write(renderBanner(context, { wordmark, interactive: this.interactive, ...(shell ? { shell } : {}),
-      ...(this.interactive ? await bannerChecks(this, context) : {}) }));
-    for (const note of sandboxStartupNotes(context.info.root)) this.output.write(`${note}\n`);
     // A returning user's saved default is known before the runtime starts; say so, not "not initialized".
     if (!this.session) this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
     if (!this.session) await checkSignIn(this);
-    // --model names the model for this run: show it, not the saved default it overrides.
+    // --model names the model for this run: show it, not the saved default it overrides. It comes before the hint.
     const shown = this.runModel && !this.session ? `${terminalText(this.runModel)} for this run (--model)` : this.savedModelDisplay;
-    this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.(), shown, this.signedIn, this.interactive && this.terminal.rich)}\n`);
+    const model = formatRuntimeStatus(this.session?.getStatus?.(), shown, this.signedIn, this.interactive && this.terminal.rich);
+    this.output.write(renderBanner(context, { wordmark, interactive: this.interactive, ...(shell ? { shell } : {}), model,
+      ...(this.interactive ? await bannerChecks(this, context) : {}) }));
+    for (const note of sandboxStartupNotes(context.info.root)) this.output.write(`${note}\n`);
     for (const warning of [...this.startupWarnings, ...context.warnings ?? [], ...(themeNoted ? [themeNoted] : [])]) this.output.write(`[config] ${terminalText(warning)}\n`);
     for (const note of packThemeNotes) this.output.write(`[pack] ${terminalText(note)}\n`);
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);

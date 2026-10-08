@@ -833,8 +833,10 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
     lines typed ahead on the plain terminal are discarded (`[input] Discarded 1 line(s)
     entered before this question appeared.`), and a terminal that can't show the box
     (TERM=dumb, or output redirected while input is a terminal) is refused.
-  - The transcript records `[approval] allowed`, `allowed for this session`, `allowed
-    (this session)`, `allowed (allow all)`, `denied` or `preview first`.
+  - The answered box stays in the transcript with `✓` on your answer. The plain terminal (no
+    box) records `[approval] allowed`, `allowed for this session`, `allowed (allow all)`, `denied`
+    or `preview first`, and so does a box closed without an answer. A later change a session
+    answer covers prints `[approval] allowed (this session)`.
 - **Server questions reach only you.** Some servers ask before a risky action (MCP
   "elicitation"), for example `Confirm PORT BOUNCE on SG1 ports [1/1/1]?`.
   - It is shown as `<server> asks about the <tool> call you approved:`, numbered like

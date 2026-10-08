@@ -9,7 +9,7 @@ export interface AskChannel {
   available(): boolean;
   /** Undefined means the question was skipped, aborted or never rendered. */
   ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal): Promise<string[] | undefined>;
-  /** Receipt line appended to the session transcript, e.g. `Postgres | skipped`. */
+  /** Called once per question with its answer, e.g. `Postgres | skipped` (the answered box is the transcript record). */
   record(answer: string): void;
 }
 
