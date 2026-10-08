@@ -56,7 +56,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/verify [checks]`, `/verify repair`, `/verify add <name>` | Run the project's checks; repair failures; save a check Casper found ([VERIFICATION.md](VERIFICATION.md)) |
 | `/security-review` | Run the pinned security tools here, then offer an AI review (asks first; [SECURITY_CHECKS.md](SECURITY_CHECKS.md)) |
 | `/project [name]` | Project context and checks; open a project folder inside this one |
-| `/permissions` | What each tool may do here and when Casper asks you |
+| `/permissions` | What Casper may do here and how to be asked less. `/permissions all` stops the shell's questions until you quit (`1 Keep asking · 2 Stop asking until I quit`), `ask` turns them back on, `write <folder>` allows a folder outside the project, `forget <folder>` takes it back |
 | `/sandbox`, `/sandbox forget <host>` | What the shell sandbox holds; forget a host you allowed |
 | `/allowed`, `/allowed forget <n, command or all>` | The shell commands you said yes to for this project (saved, and for this session); take one back |
 | `/lab`, `/lab import <file>` | Your lab devices; add more from a file ([NETWORK-CHECKS.md](NETWORK-CHECKS.md)) |

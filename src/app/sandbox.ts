@@ -34,6 +34,8 @@ export interface SandboxHost {
   write(text: string): void;
   /** A plan turn: the project is read-only for the shell. */
   planning(): boolean;
+  /** /permissions all is on: the questions below are answered "Yes, for this session" without being shown. */
+  stopAsking?(): boolean;
   /** Your lab list (names or addresses): ssh to these doesn't ask, unless /lab ssh off. */
   labHosts?(): readonly string[];
   /** The private ssh login: Casper's own hidden box for a password or passphrase ssh asks for. Unset: a run that can't ask. */
@@ -44,6 +46,13 @@ export interface SandboxHost {
 export interface SshLoginSettings {
   on?: () => boolean;
   start?: typeof startAskpass;
+}
+
+/** One of the shell's own questions (a host, a write outside the project, another machine, a command): shown as a numbered
+ * box, or, after `/permissions all`, answered "Yes, for this session" at once. Only these four go through here: the ssh
+ * password box, MCP changes, GitHub, the spend pause and every question that is not about the shell are asked as always. */
+function sessionYesOr(host: SandboxHost, question: string, options: Array<{ label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined> {
+  return host.stopAsking?.() ? Promise.resolve(YES_SESSION) : host.pick(question, options, signal);
 }
 
 const NO_TERMINAL: SshLoginHost = { canTypePrivately: () => false, ask: async () => undefined, write: () => {} };
@@ -93,13 +102,13 @@ export function createSessionSandbox(host: SandboxHost, context: ProjectContext,
     ...(options.allow?.hosts?.length ? { allowHosts: options.allow.hosts } : {}),
     ...(options.allow?.writes?.length ? { allowWrites: options.allow.writes } : {}),
     ...(options.allow?.reach?.length ? { allowReach: options.allow.reach } : {}),
-    askHost: (name) => host.canAsk() ? host.pick(hostQuestion(name), [...HOST_CHOICES]).then((answer): HostAnswer =>
+    askHost: (name) => host.canAsk() ? sessionYesOr(host, hostQuestion(name), [...HOST_CHOICES]).then((answer): HostAnswer =>
       answer === YES_ONCE ? "once" : answer === YES_SESSION ? "session" : answer === YES_ALWAYS ? "project" : "no") : undefined,
-    askWrite: (targets, from) => {
+    askWrite: (targets, from, { file }) => {
       if (!host.canAsk()) return undefined;
       const shown = writePlaces(targets.map((target) => displayPath(target, options.root(), options.home)));
-      const choices = writeChoices(shown);
-      return host.pick(writeQuestion(from, shown), choices).then((answer) => answer === YES_SESSION ? true : answer === YES_ONCE ? "once" : false);
+      const choices = writeChoices(shown, !file);
+      return sessionYesOr(host, writeQuestion(from, shown), choices).then((answer) => answer === YES_ALWAYS ? "always" : answer === YES_SESSION ? true : answer === YES_ONCE ? "once" : false);
     },
     note: (line) => host.write(`${line}\n`),
     seccompPath: () => seccompHelper({ home: options.home }),
@@ -161,7 +170,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
         sayOnce(`[shell] Not run: the AI's command reaches ${targetLabel(target)}, and this run can't ask you. Nothing was sent.`);
         return { refused: reachCantAsk(target), asked };
       }
-      const answer = await host.pick(reachQuestion(target, command), [...REACH_CHOICES], signal);
+      const answer = await sessionYesOr(host, reachQuestion(target, command), [...REACH_CHOICES], signal);
       asked = true;
       // A machine the command names as $HOST could be any machine next time: that yes counts for this command only.
       if (answer === YES_SESSION) { if (!target.unclear) sessionReach.add(target.host); }
@@ -269,7 +278,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       if (await store.allowsCommand(command)) return undefined;
       if (!host.canAsk()) return SHELL_CANT_ASK;
       const prefix = commandPrefix(command);
-      const answer = await host.pick(shellQuestion(command), shellCommandChoices(prefix), signal);
+      const answer = await sessionYesOr(host, shellQuestion(command), shellCommandChoices(prefix), signal);
       if (answer === YES_ONCE) return undefined;
       if (answer === YES_SESSION) { if (prefix) sessionPrefixes.add(prefix); else sessionCommands.add(command); return undefined; }
       if (answer === YES_ALWAYS) { await (prefix ? store.addPrefix(prefix) : store.addCommand(command)); return undefined; }

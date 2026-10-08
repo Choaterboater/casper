@@ -349,3 +349,21 @@ Each row names the test that fails without it.
 - **A pack you added is its author's words.** Casper shows every file before you say yes and stops the
   pack if a file changes, but a skill is instructions the AI reads when a request fits it, so read a
   pack before you add it as you would any instructions you give the AI.
+
+## Asking less
+
+`/permissions` is one screen of what Casper may do in this project and the exact way to be asked less for each kind. The ways, all yours:
+
+- **Per question.** `3 Yes, for this session` and `4 Yes, always for this project` (hosts, commands, other machines); for a write outside the project,
+  `4 Yes, always for this project` (the folder and below, kept in `~/.casper` for this project, never in the repo; `/permissions forget <folder>` takes it back,
+  `/permissions write <folder>` allows one ahead of time). A folder is never offered, and a saved one is not used, when it is, holds or sits inside a protected place.
+  A link out of an allowed folder does not carry the allowance with it.
+- **Until you quit.** `/permissions all` asks `1 Keep asking · 2 Stop asking until I quit`. On 2, the shell's own questions (a command, a host, a write outside the
+  project, another machine) are answered `Yes, for this session` without showing them; the footer says `ASKING OFF · /permissions ask`. It lives in memory only, is
+  never saved or read from a project file, only your typed command and your answer set it, and `/permissions ask` or quitting ends it. A one-shot or `--json` run
+  refuses it (`--no-sandbox` is the flag for one run).
+- **For good.** `sandbox: allowedDomains`, `allowWrite` and `off` in `~/.casper/config.yaml`; `--allow-host`, `--allow-write`, `--allow-reach` and `--no-sandbox` for one run.
+
+What stays protected whatever you pick: `~/.ssh`, `~/.casper`, cloud logins, shell start-up files and git's own files (the AI's tools never read or write them, and no
+box offers them); secrets, hidden in what the AI reads; writes to network devices (the product login must allow them, and each change has its own box); the ssh
+password box; GitHub's re-run; the spend pause; and that the AI can't answer a box for you. With `/permissions all` the shell is still held by the sandbox where there is one: only the questions are answered.

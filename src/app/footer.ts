@@ -20,7 +20,10 @@ export function updateFooter(app: CasperApp): void {
   const all = app.broker?.allowAllServers() ?? [];
   const writes = (app.mcp?.writesOn() ?? []).filter((server) => !all.includes(server));
   const parts = [...(all.length ? [`ALLOW ALL: ${all.join(", ")}`] : []), ...(writes.length ? [`WRITES: ${writes.join(", ")}`] : [])];
-  app.terminal.setBadge(parts.length ? `${parts.join(" · ")} · ${app.terminal.rich ? "ctrl+o" : "/mcp writes off"}` : undefined);
+  // `/permissions all` is on: the shell stops asking until you quit. Always shown, first, and it says how to end it.
+  const asking = app.stopAsking ? ["ASKING OFF · /permissions ask"] : [];
+  const mcp = parts.length ? [`${parts.join(" · ")} · ${app.terminal.rich ? "ctrl+o" : "/mcp writes off"}`] : [];
+  app.terminal.setBadge([...asking, ...mcp].join(" · ") || undefined);
   try {
     const project = app.projectContext.info;
     const status = app.session?.getStatus?.();

@@ -15,11 +15,12 @@ function describe(entry: AllowedEntry): string {
 }
 
 function listText(entries: readonly AllowedEntry[]): string {
-  if (!entries.length) return "Nothing is allowed yet. When Casper asks before a shell command, 3 allows it for this session and 4 for this project; they show up here.\n";
+  if (!entries.length) return "Nothing is allowed yet. When Casper asks before a shell command, 3 allows it for this session and 4 for this project; they show up here. /permissions shows everything Casper may do here.\n";
   return [
     "Shell commands you said yes to, for this project:",
     ...entries.map((entry, index) => `  ${index + 1}. ${describe(entry)}`),
     "Forget one with /allowed forget 3 or /allowed forget git log; forget them all with /allowed forget all.",
+    "/permissions shows everything Casper may do here, and how to be asked less.",
   ].join("\n") + "\n";
 }
 

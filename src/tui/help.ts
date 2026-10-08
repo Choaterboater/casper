@@ -97,7 +97,7 @@ Local commands:
   /settings                         Every switch at a glance, then one by number, written to ~/.casper/config.yaml for you: web lookups, browser tool, starter templates, diagram tool, new-version notice, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, page checks, show the AI the pages, work shown, theme, untrusted-text reader, helpers that build, Playwright tests, send Casper's name to OpenRouter, private ssh passwords
   /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
-  /permissions                      What each tool may do and when Casper asks you
+  /permissions                      What Casper may do here and how to be asked less; /permissions all stops the asking until you quit, write <folder> allows a folder, forget <folder> takes it back
   /sandbox                          What the shell sandbox holds: write folders, private folders, hosts
   /sandbox forget <host>            Forget a host or machine you allowed for this project (Yes, always)
   /allowed                          The shell commands you said yes to for this project (saved, and for this session), numbered
