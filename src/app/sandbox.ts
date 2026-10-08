@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import type { ProjectContext } from "../project/context";
 import type { RuntimeShell } from "../runtime/types";
 import { casperAgentDir } from "../runtime/agent-store";
-import { displayPath } from "../platform/project-paths";
+import { displayPath, realpathLongest, within } from "../platform/project-paths";
 import { describeSandbox, ShellSandbox, type HostAnswer, type ShellSandboxOptions, type WriteAsker } from "../sandbox/manager";
 import { REGISTRY_HOSTS } from "../sandbox/policy";
 import { SandboxStore } from "../sandbox/store";
@@ -14,7 +14,7 @@ import type { TaskResult } from "../task/result";
 import { terminalText } from "../tui/format";
 import { blockedBySandbox } from "../verify/command";
 import { hideCommandSecrets } from "../secrets/files";
-import { remoteTargets, runsAlone, targetLabel, type RemoteTarget } from "../sandbox/remote";
+import { remoteTargets, runsAlone, splitShell, targetLabel, trustedProgram, type RemoteTarget } from "../sandbox/remote";
 import { HOST_CHOICES, REACH_CHOICES, shellCommandChoices, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
 import { commandPrefix, matchesPrefix, readOnlyCommand } from "../sandbox/read-only";
 
@@ -112,6 +112,9 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
     if (!lab.length || !await store.labReach()) return false;
     return lab.includes(target.typed.toLowerCase()) || lab.includes(target.host);
   };
+  /** A place a sandboxed command may write: the project, the folder it runs in, or one the sandbox allows. */
+  const sandboxWrites = (place: string, cwd: string) =>
+    [sandbox.root, cwd].some((folder) => within(realpathLongest(folder), realpathLongest(place))) || sandbox.writeAllowed(place);
   const sayOnce = (line: string) => { if (said.has(line)) return; said.add(line); host.write(`${line}\n`); };
   /** undefined: runs (and whether the question already showed the command); a string: refused, the AI reads why. */
   const reach = async (command: string, signal?: AbortSignal): Promise<{ refused?: string; asked: boolean }> => {
@@ -144,8 +147,11 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       cleared.delete(command);
       if (!sandbox.on) return { command };
       // You said yes to this ssh or scp: a plain one runs outside the sandbox, with your own keys (the sandbox hides
-      // ~/.ssh), like lab checks. Anything more stays in the sandbox and may only reach the hosts you named.
-      if (targets && runsAlone(command, cwd)) {
+      // ~/.ssh), like lab checks. Anything more stays in the sandbox and may only reach the hosts you named. Only the
+      // ssh or scp the PATH finds outside every place a sandboxed command may write counts as plain.
+      const plain = targets !== undefined && runsAlone(command, sandbox.root, cwd)
+        && trustedProgram(splitShell(command).segments[0]!.words[0]!, sandbox.searchPath, (place) => sandboxWrites(place, cwd), sandbox.ownBin) !== undefined;
+      if (plain) {
         sayOnce(`[sandbox] ${targets.map(targetLabel).join(", ")}: plain ssh and scp you allow run outside the sandbox, with your own keys.`);
         return { command };
       }
@@ -154,7 +160,8 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       catch (error) {
         // The sandbox failed to start on this command (it said so): from now on the AI's shell asks, this one too.
         if (!sandbox.failure) throw error;
-        const refused = targets ? undefined : await shell.approve!(command);
+        // A plain ssh or scp was already asked; anything else (a ./ssh, a bin/scp) is asked as any command is.
+        const refused = plain ? undefined : await shell.approve!(command);
         if (refused) throw new Error(refused);
         return { command };
       }

@@ -218,6 +218,30 @@ test("in a linked worktree, the shared git folder's worktree pointers are read-o
   for (const name of ["index", "HEAD", "logs"]) expect(policy.denyWrite.some((entry) => within(entry, path.join(own, name)) || within(path.join(own, name), entry))).toBe(false);
 });
 
+test("on macOS a project inside ~/.casper (a /branch session's folder) stays writable while the rest of ~/.casper stays denied", async () => {
+  const { home } = await fixture();
+  const casper = path.join(home, ".casper");
+  const project = path.join(casper, "worktrees", "key-one", "feature");
+  const other = path.join(casper, "worktrees", "key-one", "other-branch");
+  const otherProject = path.join(casper, "worktrees", "key-two", "main");
+  for (const dir of [project, other, otherProject, path.join(casper, "agent"), path.join(casper, "packs")]) await mkdir(dir, { recursive: true });
+  await writeFile(path.join(casper, "config.yaml"), "sandbox: on\n");
+  const policy = sandboxPolicy({ root: project, home, tempDirs: [], platform: "darwin" });
+  // macOS applies the last matching rule: no deny may cover the project, or the allow for it is lost.
+  expect(policy.allowWrite).toContain(project);
+  expect(policy.denyWrite.filter((entry) => within(entry, project))).toEqual([]);
+  // Everything else in ~/.casper stays denied, entry by entry.
+  for (const denied of [path.join(casper, "agent"), path.join(casper, "config.yaml"), path.join(casper, "packs"), other, otherProject]) {
+    expect([denied, policy.denyWrite.some((entry) => within(entry, denied))]).toEqual([denied, true]);
+  }
+  // A name that is not there yet is denied too.
+  expect(policy.denyWrite).toContain(path.join(casper, "projects"));
+  // Linux keeps the whole folder denied (bubblewrap mounts the project over it).
+  expect(sandboxPolicy({ root: project, home, tempDirs: [], platform: "linux" }).denyWrite).toContain(casper);
+  // A plan turn makes the project read-only: nothing to carve out, ~/.casper stays denied as a whole.
+  expect(sandboxPolicy({ root: project, home, tempDirs: [], platform: "darwin", readOnlyProject: true }).denyWrite).toContain(casper);
+});
+
 test("in the main checkout, the sibling worktrees' pointers in its own git folder are read-only", async () => {
   const { home, main, common } = await worktreeLayout();
   const policy = sandboxPolicy({ root: main, home, tempDirs: [], platform: "linux" });
@@ -226,6 +250,53 @@ test("in the main checkout, the sibling worktrees' pointers in its own git folde
   }
   expect(policy.denyWrite).not.toContain(path.join(common, "worktrees", "mine", "index"));
   expect(policy.denyWrite).not.toContain(path.join(common, "HEAD"));
+});
+
+test("a worktree checked out in the project or temp keeps its git files writable (so git worktree remove works); others stay held", async () => {
+  const { home, main, common } = await worktreeLayout();
+  const temp = path.join(path.dirname(main), "temp");
+  const inside = path.join(main, ".worktrees", "inside");
+  const scratch = path.join(temp, "scratch");
+  await mkdir(temp, { recursive: true });
+  for (const [dir, branch] of [[inside, "inside"], [scratch, "scratch"]] as const) {
+    const result = Bun.spawnSync(["git", "-C", main, "worktree", "add", "-q", dir, "-b", branch], { env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" } });
+    if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+  }
+  const policy = sandboxPolicy({ root: main, home, tempDirs: [temp], platform: "linux" });
+  for (const name of ["inside", "scratch"]) {
+    for (const file of ["commondir", "gitdir", "config.worktree"]) expect(policy.denyWrite).not.toContain(path.join(common, "worktrees", name, file));
+  }
+  for (const name of ["mine", "sibling"]) {
+    for (const file of ["commondir", "gitdir", "config.worktree"]) expect(policy.denyWrite).toContain(path.join(common, "worktrees", name, file));
+  }
+});
+
+test("worktree pointers stay held however many other folders sit beside them", async () => {
+  const { home, main, common } = await worktreeLayout();
+  const worktrees = path.join(common, "worktrees");
+  await Promise.all(Array.from({ length: 1000 }, (_, index) => mkdir(path.join(worktrees, `a${String(index).padStart(4, "0")}`))));
+  const policy = sandboxPolicy({ root: main, home, tempDirs: [], platform: "linux" });
+  for (const name of ["mine", "sibling"]) for (const file of ["commondir", "gitdir"]) expect(policy.denyWrite).toContain(path.join(worktrees, name, file));
+  // Folders git did not make for a worktree hold nothing it reads, so they add nothing.
+  expect(policy.denyWrite.some((entry) => path.basename(path.dirname(entry)).startsWith("a0"))).toBe(false);
+});
+
+test("a commondir a command writes into a submodule's git folder is removed and said", async () => {
+  const { ShellSandbox } = await import("../src/sandbox/manager");
+  const { passThroughEngine } = await import("../src/sandbox/runtime");
+  const { home, root } = await fixture();
+  const lib = path.join(root, ".git", "modules", "lib");
+  await mkdir(lib, { recursive: true });
+  await writeFile(path.join(lib, "HEAD"), "ref: refs/heads/main\n");
+  const notes: string[] = [];
+  const sandbox = new ShellSandbox({ root: () => root, home, tempDirs: [], platform: "linux", engine: passThroughEngine(), problem: () => undefined, note: (line) => notes.push(line) });
+  const run = await sandbox.wrap("true", { cwd: root });
+  const pointer = path.join(lib, "commondir");
+  await writeFile(pointer, "../elsewhere\n");
+  sandbox.finished(run.id);
+  expect(await stat(pointer).then(() => true, () => false)).toBe(false);
+  expect(notes).toEqual([`[sandbox] Removed ${pointer}: a command wrote it, and it would point git at another folder's settings and hooks.`]);
+  await sandbox.close();
 });
 
 test("a commondir written in the shared git folder of a linked worktree is removed and said", async () => {

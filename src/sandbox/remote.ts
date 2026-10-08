@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { accessSync, constants, readFileSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { realpathLongest, within } from "../platform/project-paths";
@@ -441,10 +441,11 @@ const LOCAL_EFFECT_FLAG = new Set(["-D", "-L", "-R", "-W", "-w", "-f", "-N", "-M
 
 /**
  * Whether an approved ssh or scp command can run outside the sandbox, with your own keys: one plain ssh or scp (no
- * pipe, redirect or $(...)), no option that runs a program here, forwards a port or the agent, or goes to the
- * background, and (scp) local files only inside the project. Anything else stays in the sandbox.
+ * pipe, redirect or $(...)), named bare so the shell finds it on the PATH (see trustedProgram), no option that runs
+ * a program here, forwards a port or the agent, or goes to the background, and (scp) local files only inside the
+ * project. Anything else stays in the sandbox.
  */
-export function runsAlone(command: string, root: string): boolean {
+export function runsAlone(command: string, root: string, cwd = root): boolean {
   const line = splitShell(command);
   if (!line.simple) return false;
   const words = line.segments[0]!.words;
@@ -452,7 +453,8 @@ export function runsAlone(command: string, root: string): boolean {
   // No sudo, env or VAR= in front: exactly what the question showed runs.
   if (start !== 0) return false;
   const parsed = segmentTargets(words);
-  if (!parsed.targets.length || parsed.targets.some((target) => target.unclear) || (parsed.tool !== "ssh" && parsed.tool !== "scp") || path.basename(words[0]!) !== parsed.tool) return false;
+  // `./ssh` or `bin/scp` is a program of that name, wherever it came from: only the bare name is ssh or scp.
+  if (!parsed.targets.length || parsed.targets.some((target) => target.unclear) || (parsed.tool !== "ssh" && parsed.tool !== "scp") || words[0] !== parsed.tool) return false;
   for (const [flag, value] of parsed.values) {
     if (flag.startsWith("--") || LOCAL_EFFECT_FLAG.has(flag)) return false;
     if (flag === "-o" && (LOCAL_EFFECT_OPTION.test(value) || writesKnownHosts(value))) return false;
@@ -462,9 +464,29 @@ export function runsAlone(command: string, root: string): boolean {
       if (remoteFileHost(arg)) continue;
       // ~, $VAR and globs expand in the shell to places this check can't see.
       if (/^~|[$*?[{]/.test(arg)) return false;
-      const local = realpathLongest(path.resolve(root, arg));
+      const local = realpathLongest(path.resolve(cwd, arg));
       if (!within(realpathLongest(root), local)) return false;
     }
   }
   return true;
+}
+
+/**
+ * The program a bare `name` runs as, when nothing the sandbox lets commands write can change which one that is:
+ * every folder on `searchPath` up to the one that has it is absolute (an empty or relative entry is searched from
+ * the current folder) and not `writable`, and so is the file itself, through links. undefined otherwise, or when no
+ * folder has it. A program found in `ownBin` (Casper's own bin folder, searched first) is not the system's, so
+ * undefined too.
+ */
+export function trustedProgram(name: string, searchPath: string, writable: (place: string) => boolean, ownBin?: string): string | undefined {
+  // A name with a folder in it is not looked up on the PATH at all.
+  if (!name || /[\\/]/.test(name)) return undefined;
+  for (const dir of searchPath.split(path.delimiter)) {
+    if (!dir || !path.isAbsolute(dir) || writable(dir)) return undefined;
+    const file = path.join(dir, name);
+    try { if (!statSync(file).isFile()) continue; accessSync(file, constants.X_OK); } catch { continue; }
+    if (ownBin && within(realpathLongest(ownBin), realpathLongest(file))) return undefined;
+    return writable(file) ? undefined : file;
+  }
+  return undefined;
 }

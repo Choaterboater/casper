@@ -231,12 +231,16 @@ test("the AI's first command after the sandbox fails to start asks too, and a on
   await sandbox.close();
 });
 
-/** A home whose ~/.ssh/config names a host by an alias. */
+/** A home whose ~/.ssh/config names a host by an alias, and a system folder with ssh and scp that the AI's shell
+ * finds on its PATH (the system temp folders, where the fixture lives, are not the sandbox's writable ones here). */
 async function labFixture() {
   const found = await fixture();
   await mkdir(path.join(found.home, ".ssh"));
   await writeFile(path.join(found.home, ".ssh/config"), "Host build-server\n  HostName 198.51.100.20\n  User root\n");
-  return found;
+  const bin = path.join(found.base, "system-bin");
+  await mkdir(bin);
+  for (const name of ["ssh", "scp"]) await writeFile(path.join(bin, name), "#!/bin/sh\n", { mode: 0o755 });
+  return { ...found, bin, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" as const, tempDirs: [], searchPath: bin } };
 }
 
 test("ssh to a lab host asks first, naming the real address and the alias; Enter runs nothing", async () => {
@@ -255,10 +259,10 @@ test("ssh to a lab host asks first, naming the real address and the alias; Enter
 });
 
 test("Yes, this once lets a plain ssh run outside the sandbox with your keys, once; the next command asks again", async () => {
-  const { home, project, context } = await labFixture();
+  const { home, project, context, seams } = await labFixture();
   const engine = fakeEngine();
   const terminal = host(["Yes, this once", "No"]);
-  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine, problem: () => undefined, platform: "linux" } });
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { ...seams, engine } });
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
   expect(await shell.approve!("ssh build-server uptime")).toBeUndefined();
   expect(await shell.wrap("ssh build-server uptime", project)).toEqual({ command: "ssh build-server uptime" });
@@ -270,10 +274,10 @@ test("Yes, this once lets a plain ssh run outside the sandbox with your keys, on
 });
 
 test("Yes, for this session remembers the host until Casper exits; a command with more in it stays in the sandbox, allowed to reach only that host", async () => {
-  const { home, project, context } = await labFixture();
+  const { home, project, context, seams } = await labFixture();
   const engine = fakeEngine();
   const terminal = host(["Yes, for this session"]);
-  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine, problem: () => undefined, platform: "linux" } });
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { ...seams, engine } });
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
   expect(await shell.approve!("ssh build-server uptime")).toBeUndefined();
   await shell.wrap("ssh build-server uptime", project);
@@ -293,7 +297,7 @@ test("Yes, for this session remembers the host until Casper exits; a command wit
 });
 
 test("Yes, always for this project keeps the machine in Casper's own folder: the next session doesn't ask; /sandbox forget undoes it", async () => {
-  const { home, project, context } = await labFixture();
+  const { home, project, context, seams } = await labFixture();
   const terminal = host(["Yes, always for this project"]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
   const store = new SandboxStore(context.stateDirectory);
@@ -303,7 +307,7 @@ test("Yes, always for this project keeps the machine in Casper's own folder: the
   expect(JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8")).reach).toEqual(["198.51.100.20"]);
   // A new session: no question, and a plain ssh still runs with your keys.
   const next = host([]);
-  const later = createSessionSandbox(next.value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
+  const later = createSessionSandbox(next.value, context, { root: () => project, home, seams });
   const nextShell = runtimeShell(next.value, later, new SandboxStore(context.stateDirectory));
   expect(await nextShell.approve!("ssh deploy@198.51.100.20 hostname")).toBeUndefined();
   expect(await nextShell.wrap("ssh deploy@198.51.100.20 hostname", project)).toEqual({ command: "ssh deploy@198.51.100.20 hostname" });
@@ -332,6 +336,58 @@ test("a machine on your lab list doesn't ask before ssh; /lab ssh off makes it a
   expect(await shell.approve!("ssh build-server uptime")).toContain("Not run: the user said no");
   expect(terminal.asked).toHaveLength(2);
   await sandbox.close();
+});
+
+test("only the system's own ssh and scp run outside the sandbox for an allowed machine; a program of that name from the project stays inside", async () => {
+  const { home, project, context, bin, seams } = await labFixture();
+  const terminal = host([]);
+  terminal.value.labHosts = () => ["build-server"];
+  const run = async (command: string, searchPath = bin) => {
+    const engine = fakeEngine();
+    const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { ...seams, engine, searchPath } });
+    const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+    try {
+      expect(await shell.approve!(command)).toBeUndefined();
+      const wrapped = await shell.wrap(command, project);
+      return { alone: wrapped.id === undefined, held: engine.wrapped.map((entry) => entry.command) };
+    } finally { await sandbox.close(); }
+  };
+  await mkdir(path.join(project, ".venv", "bin"), { recursive: true });
+  for (const name of ["ssh", "scp"]) {
+    await writeFile(path.join(project, name), "#!/bin/sh\n", { mode: 0o755 });
+    await writeFile(path.join(project, ".venv", "bin", name), "#!/bin/sh\n", { mode: 0o755 });
+  }
+  expect(await run("ssh build-server uptime")).toEqual({ alone: true, held: [] });
+  expect(await run("scp notes.txt build-server:/srv/")).toEqual({ alone: true, held: [] });
+  // Named by its path, it is the project's program: it runs in the sandbox, whatever machine it names.
+  for (const command of ["./ssh build-server uptime", `${path.join(project, "ssh")} build-server uptime`, "./scp notes.txt build-server:/srv/"]) {
+    expect([command, await run(command)]).toEqual([command, { alone: false, held: [command] }]);
+  }
+  // A bare ssh that the PATH finds first in a folder commands may write (the project's .venv/bin or
+  // the current folder) runs in the sandbox too; so does one the PATH does not find at all.
+  for (const searchPath of [[path.join(project, ".venv", "bin"), bin].join(path.delimiter), ["", bin].join(path.delimiter), path.join(home, "nowhere")]) {
+    expect([searchPath, await run("ssh build-server uptime", searchPath)]).toEqual([searchPath, { alone: false, held: ["ssh build-server uptime"] }]);
+  }
+  expect(terminal.asked).toEqual([]);
+});
+
+test("when the sandbox cannot start, a program named by its path that is not the system's ssh is asked about, not run", async () => {
+  const failing = () => ({ ...fakeEngine(), initialize: async () => { throw new Error("bwrap: setting up uid map: Permission denied"); } });
+  for (const [answer, expected] of [["No", SHELL_DECLINED], ["Yes, this once", undefined]] as const) {
+    const { home, project, context, seams } = await labFixture();
+    const terminal = host([answer]);
+    terminal.value.labHosts = () => ["build-server"];
+    await writeFile(path.join(project, "ssh"), "#!/bin/sh\n", { mode: 0o755 });
+    const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { ...seams, engine: failing() } });
+    const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+    const command = "./ssh build-server uptime";
+    expect(await shell.approve!(command)).toBeUndefined();
+    const wrapping = shell.wrap(command, project);
+    if (expected) await expect(wrapping).rejects.toThrow(expected);
+    else expect(await wrapping).toEqual({ command });
+    expect(terminal.asked).toEqual([{ question: `Run this command?  ${command}`, options: ["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"] }]);
+    await sandbox.close();
+  }
 });
 
 test("a lab-listed alias does not let ssh -o HostName= reach another machine without a question", async () => {
