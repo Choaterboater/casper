@@ -54,7 +54,8 @@ async function runSandboxed(options: ToolRunOptions, network: "none" | "ask"): P
 /** Casper's own install steps (unpack a pinned download, build a hash-locked Python environment) and the advisory
  * download by the osv-scanner Casper installed. They write into ~/.casper and need the network, which the session's
  * shell sandbox does not allow, and they run only Casper's own arguments on files whose hashes were checked, never a
- * repository's code (the advisory download reads the repo's lock files with --no-resolve): so they run as they are. */
+ * repository's code (the advisory download reads the repo's lock files with --no-resolve and no call analysis, which
+ * would run the go toolchain on the repo): so they run as they are. */
 export const runInstallStep: ToolRunner = (options) => runPlanned(options, { file: options.file, args: [...options.args], shell: false });
 
 const runPlanned = (options: ToolRunOptions, plan: SandboxedSpawn): Promise<ToolRunResult> => new Promise((resolve) => {

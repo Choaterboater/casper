@@ -41,7 +41,7 @@ test("with data downloaded 9 days ago the line shows the date and the age", asyn
   expect(formatSecurityReport(report)).toContain("osv-scanner   ok           advisory data downloaded 2026-09-20 (9 days old)");
 });
 
-test("the update step asks osv-scanner to download into Casper's folder, with no credentials", async () => {
+test("the update step asks osv-scanner to download into Casper's folder, with no credentials and no call analysis that would run the repo's go toolchain", async () => {
   const root = await fixtureRepo("casper-security-osv-");
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-security-osv-home-"));
   temps.push(root, home);
@@ -58,6 +58,9 @@ test("the update step asks osv-scanner to download into Casper's folder, with no
   });
   expect(result).toEqual({ ok: true, message: "Advisory data downloaded for PyPI." });
   expect(seen[0]!.args).toContain("--download-offline-databases");
+  // Outside the sandbox, nothing of the repo runs: osv-scanner's Go call analysis would run the go toolchain on it.
+  expect(seen[0]!.args).toContain("--no-resolve");
+  expect(seen[0]!.args).toContain("--no-call-analysis=all");
   expect(seen[0]!.env.OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY).toBe(path.join(home, ".casper", "security", "osv-db"));
   expect(seen[0]!.env.HTTPS_PROXY).toBe("http://corp:8080");
   expect(seen[0]!.env.MIST_APITOKEN).toBeUndefined();

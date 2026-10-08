@@ -456,14 +456,15 @@ export const OSV_PATH_SANDBOXED = "osv-scanner could not download the advisory d
  * Downloads osv-scanner's advisory data for the package types this repo uses. The only networked step
  * besides installing; the host asks first. Returns a plain line for the report. Like an install step it writes
  * ~/.casper and needs the network, so the osv-scanner Casper installed (hash-checked) runs outside the session's shell
- * sandbox, with only Casper's own arguments and --no-resolve, so it reads lock files and runs no repo code. Your own copy
- * on PATH was never checked, so it stays in the sandbox, which has no network.
+ * sandbox, with only Casper's own arguments: --no-resolve, and --no-call-analysis=all, because osv-scanner's Go call
+ * analysis (on unless turned off) runs the go toolchain on the repo's modules. So it reads lock files and runs no repo
+ * code. Your own copy on PATH was never checked, so it stays in the sandbox, which has no network.
  */
 export async function updateOsvDb(root: string, tool: { kind: "pinned" | "path"; path: string }, options: InstallOptions & { signal?: AbortSignal }): Promise<{ ok: boolean; message: string }> {
   const dir = osvDbDir(options.homeDir);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const result = await (options.run ?? (tool.kind === "pinned" ? runInstallStep : runTool))({
-    file: tool.path, args: ["scan", "source", "--offline-vulnerabilities", "--download-offline-databases", "--no-resolve", "--format", "json", "--recursive", "."],
+    file: tool.path, args: ["scan", "source", "--offline-vulnerabilities", "--download-offline-databases", "--no-resolve", "--no-call-analysis=all", "--format", "json", "--recursive", "."],
     cwd: root, env: { ...installEnv(options.env ?? process.env), OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY: dir }, timeoutMs: 600_000, signal: options.signal,
   });
   const state = await osvDbState(options.homeDir);
