@@ -17,8 +17,8 @@ Settings (saved in ~/.casper/config.yaml for you):
   New-version notice: on · Suggestions: on · Built-in skills: on
   Spend notes: at $1 a task · Spend pause: off · Prompt cache: auto
   Page checks: on · Show the AI the pages: ask once a session
-  Work shown: normal · Untrusted-text reader: on · Playwright tests: on
-  Send Casper's name to OpenRouter: on
+  Work shown: normal · Theme: default · Untrusted-text reader: on
+  Playwright tests: on · Send Casper's name to OpenRouter: on
 Pick one to change:
   1 Done                              nothing changes
   2 Web lookups                       on (DuckDuckGo)
@@ -35,10 +35,11 @@ Pick one to change:
  12 Page checks                       on
  13 Show the AI the pages             ask once a session
  14 Work shown                        normal
- 15 Untrusted-text reader             on
- 16 Helpers that build                on
- 17 Playwright tests                  on
- 18 Send Casper's name to OpenRouter  on
+ 15 Theme                             default
+ 16 Untrusted-text reader             on
+ 17 Helpers that build                on
+ 18 Playwright tests                  on
+ 19 Send Casper's name to OpenRouter  on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
@@ -187,7 +188,7 @@ loading.
 
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
-anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`,
+anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
 `showPages`, `suggestions`, `updates`, `sideQuestions`, `telemetry`, `pages: off`, `browser`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
@@ -634,6 +635,45 @@ command printed. The window title names the conversation from its first request
 ```yaml
 # ~/.casper/config.yaml or a profile's config.yaml
 display: detailed   # quiet, normal (default), or detailed
+```
+
+## Theme
+
+The screen's colours. A theme changes colours only: the words, glyphs, bold text and layout stay
+the same, and nothing goes to the model. `NO_COLOR`, a pipe and `TERM=dumb` still show no colour,
+whatever the theme.
+
+- `default`: Casper's own look, cyan for structure and faint text for what is secondary.
+- `light`: for a light terminal background; blue and magenta in place of cyan and yellow.
+- `high-contrast`: bright colours and no faint text.
+
+Pick **Theme** in `/settings`, or set it in your own config. A project's `.casper/project.yaml`
+can't set it, so a repository can't make a warning or an approval hard to read. A name Casper has
+no theme for uses `default`, and one `[config]` line at start (and `casper doctor`) says so.
+
+```yaml
+# ~/.casper/config.yaml or a profile's config.yaml
+theme: light   # default, light or high-contrast
+```
+
+A theme file, which a pack can carry, is YAML (or JSON) with a `name` (lowercase letters, numbers
+and single hyphens, like a skill's) and `colors`, by role: `accent`, `muted`, `border`,
+`selection`, `success`, `warning`, `error`, `diffAdded`, `diffRemoved` and `diffHunk`. A colour is
+`"#rrggbb"` (in quotes: YAML reads a bare `#` as a comment) or one of `default`, `dim`, `black`,
+`red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `gray`, `bright-red`,
+`bright-green`, `bright-yellow`, `bright-blue`, `bright-magenta`, `bright-cyan` and
+`bright-white`. A role left out takes the default theme's colour. Nothing else is read: another
+field, an escape or control character, YAML anchors, aliases and tags, and a file over 8 KiB are
+refused, so a theme can't build on another, pull in a file or run anything. A `#rrggbb` colour
+is drawn exactly where the terminal says it can (`COLORTERM=truecolor`, Windows Terminal), and as
+the nearest of 256 colours elsewhere.
+
+```yaml
+name: ocean
+colors:
+  accent: "#3399ff"
+  selection: bright-cyan
+  warning: magenta
 ```
 
 ## Showing the AI the pages

@@ -77,6 +77,9 @@ export interface LoadedConfiguration {
   cache?: PromptCacheSetting;
   /** `display: quiet|normal|detailed`: how much of the work shows on screen (user or profile only). Unset: normal. */
   display?: DisplayLevel;
+  /** `theme: <name>`: the screen's colours (user or profile only). Kept as written: a name Casper has no theme for
+   * uses default, and Casper says so at start and in casper doctor (themeNote). Unset: default. */
+  theme?: string;
   /** `showPages: ask|on|off`: whether a model that sees pictures is shown the page screenshots after a UI change
    * (user or profile only; it costs tokens). Unset: ask once a session. */
   showPages?: ShowPagesSetting;
@@ -260,7 +263,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "cache", "display", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "telemetry", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "telemetry", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -697,6 +700,9 @@ export async function loadConfiguration(
   // How much shows on your screen is yours, not a repository's.
   if (projectDocument.display !== undefined) throw new Error("display is a user setting (~/.casper/config.yaml); a project cannot change what shows on your screen");
   let display: DisplayLevel | undefined;
+  // So are its colours: a repository's theme could make a warning or an approval hard to read.
+  if (projectDocument.theme !== undefined) throw new Error("theme is a user setting (~/.casper/config.yaml); a project cannot change your screen's colours");
+  let theme: string | undefined;
   // Showing the AI page screenshots spends your tokens: a project file never turns it on.
   if (projectDocument.showPages !== undefined) throw new Error("showPages is a user setting (~/.casper/config.yaml); a project cannot decide what the AI is shown at your cost");
   let showPages: ShowPagesSetting | undefined;
@@ -736,6 +742,10 @@ export async function loadConfiguration(
     if (document.display !== undefined && document.display !== null) {
       if (!DISPLAY_LEVELS.some((level) => level === document.display)) throw new Error(`${label}: display must be ${alternatives(DISPLAY_LEVELS)}`);
       display = document.display as DisplayLevel;
+    }
+    if (document.theme !== undefined && document.theme !== null) {
+      if (typeof document.theme !== "string" || !document.theme.trim()) throw new Error(`${label}: theme must be a theme's name, such as default, light or high-contrast`);
+      theme = document.theme.trim();
     }
   }
   // Builders spend your tokens: on unless you turn them off; a project file may turn them off, never on for you.
@@ -863,6 +873,7 @@ export async function loadConfiguration(
     ...(sideQuestions !== undefined ? { sideQuestions } : {}),
     ...(cache ? { cache } : {}),
     ...(display ? { display } : {}),
+    ...(theme ? { theme } : {}),
     ...(showPages ? { showPages } : {}),
     ...(build ? {} : { delegate: { build: false } }),
     spend,

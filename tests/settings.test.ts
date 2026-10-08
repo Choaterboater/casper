@@ -49,7 +49,7 @@ test("the settings list shows each switch and where it stands", async () => {
   expect(settingRows(context).map((row) => `${row.label}: ${row.value}`)).toEqual([
     "Web lookups: off", "Browser tool: on", "Starter templates: on", "Diagram tool: on", "New-version notice: off", "Suggestions: on", "Side questions with ?: on", "Built-in skills: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task",
     "Prompt cache: auto", "Page checks: on", "Show the AI the pages: ask once a session",
-    "Work shown: normal", "Untrusted-text reader: on", "Helpers that build: on", "Playwright tests: on", "Send Casper's name to OpenRouter: on",
+    "Work shown: normal", "Theme: default", "Untrusted-text reader: on", "Helpers that build: on", "Playwright tests: on", "Send Casper's name to OpenRouter: on",
   ]);
   expect(settingRows(context).find((row) => row.label === "Playwright tests")!.question).toBe("Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are on.");
   const question = (label: string, rows = settingRows(context)) => rows.find((row) => row.label === label)!.question;

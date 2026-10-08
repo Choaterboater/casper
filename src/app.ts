@@ -15,6 +15,7 @@ import { InteractiveTerminal, type TerminalHost } from "./tui/terminal";
 import type { PaneSetting } from "./tui/pane-setting";
 import type { DisplayLevel } from "./tui/display";
 import { formatRuntimeStatus, terminalText } from "./tui/format";
+import { themeNote, useTheme } from "./tui/theme";
 import { discoverReferenceConfiguration, type ReferenceConfiguration } from "./references/config";
 import { formatReferenceResult, ReferenceLibrary } from "./references/library";
 import { SubagentManager } from "./agents/manager";
@@ -492,6 +493,9 @@ export class CasperApp {
     if (this.projectContext) return this.projectContext.info;
     const { project, context, mcp, visualization, lspConfiguration, referenceConfiguration } = await loadWorkspace(this, cwd);
     if (this.closing) throw new Error("Casper is closing");
+    // Your colours from the first line on; a name Casper has no theme for uses default and is named with the [config] lines.
+    useTheme(context.theme);
+    const themeNoted = themeNote(context.theme);
     // The wordmark is for a person at a rich terminal; one-shot and piped output keep the text banner.
     // The header picks art or text per width, so a later resize never wraps the art.
     const wordmark = this.interactive && this.terminal.rich;
@@ -507,7 +511,7 @@ export class CasperApp {
     // --model names the model for this run: show it, not the saved default it overrides.
     const shown = this.runModel && !this.session ? `${terminalText(this.runModel)} for this run (--model)` : this.savedModelDisplay;
     this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.(), shown, this.signedIn, this.interactive && this.terminal.rich)}\n`);
-    for (const warning of [...this.startupWarnings, ...context.warnings ?? []]) this.output.write(`[config] ${terminalText(warning)}\n`);
+    for (const warning of [...this.startupWarnings, ...context.warnings ?? [], ...(themeNoted ? [themeNoted] : [])]) this.output.write(`[config] ${terminalText(warning)}\n`);
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
     reportSkillWarnings(this);
     for (const diagnostic of mcp.diagnostics) this.output.write(`[mcp] ${terminalText(diagnostic)}\n`);

@@ -1,7 +1,7 @@
 import { type Component, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { ProjectContext } from "../project/context";
 import { CASPER_VERSION } from "../version";
-import { lineText, paint } from "./format";
+import { lineText, paint, tint } from "./format";
 
 /** A value from the project's files, on one line: a line break in it can't add a line of its own. */
 const one = (text: string): string => lineText(text).replace(/\s+/g, " ").trim();
@@ -37,9 +37,9 @@ const TEXT_HEADER = `CASPER ${CASPER_VERSION} · your coding companion`;
  * classifier. It is chosen per render width: a window narrowed below the art gets the one-line header
  * instead of the art wrapped into fragments. */
 export function wordmarkHeader(color: boolean): Component {
-  const art = ["", ...GHOST.map((row, index) => `${paint(row, "1", color)}  ${paint(WORDMARK[index]!, "36", color)}`), "",
+  const art = ["", ...GHOST.map((row, index) => `${paint(row, "1", color)}  ${tint(WORDMARK[index]!, "accent", color)}`), "",
     ` version   ${CASPER_VERSION} · your coding companion`];
-  return { render: width => width >= WORDMARK_COLUMNS ? art : wrapTextWithAnsi(paint(TEXT_HEADER, "1;36", color), width), invalidate() {} };
+  return { render: width => width >= WORDMARK_COLUMNS ? art : wrapTextWithAnsi(tint(TEXT_HEADER, "accent", color, "1"), width), invalidate() {} };
 }
 
 export function renderProjectSummary(context: ProjectContext): string {

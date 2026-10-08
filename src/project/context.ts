@@ -31,6 +31,8 @@ export interface ProjectContext {
   cache?: LoadedConfiguration["cache"];
   /** `display:` in the user's config (quiet, normal or detailed). Unset: normal. */
   display?: LoadedConfiguration["display"];
+  /** `theme:` in the user's config: the screen's colours, by name. Unset: default. */
+  theme?: string;
   /** `showPages:` in the user's config (ask, on or off). Unset: ask once a session. */
   showPages?: LoadedConfiguration["showPages"];
   /** `delegate.build: false`: the AI starts no builders. Unset: on. */
@@ -135,6 +137,7 @@ export async function loadProjectContext(
     ...(configuration.sideQuestions !== undefined ? { sideQuestions: configuration.sideQuestions } : {}),
     ...(configuration.cache ? { cache: configuration.cache } : {}),
     ...(configuration.display ? { display: configuration.display } : {}),
+    ...(configuration.theme ? { theme: configuration.theme } : {}),
     ...(configuration.showPages ? { showPages: configuration.showPages } : {}),
     ...(configuration.delegate ? { delegate: configuration.delegate } : {}),
     spend: configuration.spend,

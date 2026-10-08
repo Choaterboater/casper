@@ -1,16 +1,13 @@
 import { Container, sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { paint, terminalText } from "./format";
+import { terminalText, tint } from "./format";
 import { GLYPHS } from "./glyphs";
 
-export type PanelTone = "accent" | "assistant" | "success" | "warning" | "error" | "muted";
-
-const colors: Record<PanelTone, string> = {
-  accent: "36", assistant: "35", success: "32", warning: "33", error: "31", muted: "2",
-};
+/** A box's frame and title take its tone's colour from the theme in use. */
+export type PanelTone = "accent" | "success" | "warning" | "error" | "muted";
 
 /** Semantic colors always accompany readable titles or status labels. */
 export function panelColor(text: string, tone: PanelTone, color: boolean): string {
-  return paint(text, colors[tone], color);
+  return tint(text, tone, color);
 }
 
 /** Body lines contain trusted styling only; callers sanitize external text before styling. */
@@ -45,13 +42,13 @@ export function renderCodeBlock(title: string, code: readonly string[], width: n
   width = Number.isFinite(width) ? Math.max(1, Math.floor(width)) : 80;
   const label = terminalText(title).replace(/\s+/g, " ").trim() || "code";
   const head = truncateToWidth(`── ${label} `, width, "");
-  const rows = [panelColor(`${head}${"─".repeat(Math.max(0, width - visibleWidth(head)))}`, "muted", color)];
+  const rows = [tint(`${head}${"─".repeat(Math.max(0, width - visibleWidth(head)))}`, "border", color)];
   for (const line of code) {
     const total = visibleWidth(line);
     if (total <= width) { rows.push(line ? style(line) : ""); continue; }
     for (let column = 0; column < total; column += width) rows.push(style(sliceByColumn(line, column, width)));
   }
-  rows.push(panelColor("─".repeat(width), "muted", color));
+  rows.push(tint("─".repeat(width), "border", color));
   return rows;
 }
 

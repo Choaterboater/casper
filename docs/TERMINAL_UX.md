@@ -142,6 +142,9 @@ Transcript lines are inline, not boxed: `✓`/`✗`/`•` tool lines, `[model]`,
 `[approval]`, `[task]` and similar bracketed notices, and the `❯ …` echo of each
 prompt. Green marks success, red an error, amber a notice or decision, cyan the
 accent (banner, prompt echo, Markdown structure), dim the muted status lines.
+Those are the `default` theme's colours; `theme: light` or `high-contrast` (or **Theme** in
+`/settings`) swaps the colours of each role (`src/tui/theme.ts`) and nothing else
+([CONFIGURATION.md](CONFIGURATION.md#theme)).
 A fenced block in an assistant message copies clean: a title line with its language
 (`── ts ────`), then the code exactly as written with no side border and no indent, then a
 closing rule. A line wider than the window is cut at the edge only (no character added or

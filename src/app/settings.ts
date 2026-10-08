@@ -6,6 +6,7 @@ import { DEFAULT_SPEND_LIMITS, formatLimit } from "../task/spend";
 import { PROMPT_CACHE_SETTINGS, type PromptCacheSetting } from "../runtime/cache";
 import { PROVIDER_LABELS } from "../web/providers";
 import type { DisplayLevel } from "../tui/display";
+import { findTheme, themeNames } from "../tui/theme";
 import type { OutputWriter } from "./commands";
 import type { MCPManager } from "../mcp/manager";
 
@@ -90,6 +91,19 @@ function showPagesRow(now: ShowPagesSetting): Setting {
       .map((setting) => ({ label: SHOW_PAGES_WORDS[setting].choice, keys: ["showPages"], value: setting, shown: SHOW_PAGES_WORDS[setting].value })) };
 }
 
+const THEME_WORDS: Record<string, string> = {
+  default: "Casper's own colours", light: "for a light terminal background", "high-contrast": "bright colours, no faint text",
+};
+
+/** The screen's colours (theme:): the built-in themes and any a pack added. Colours only; nothing goes to the model. */
+function themeRow(name: string | undefined): Setting {
+  const now = name && findTheme(name) ? name : "default";
+  const capital = (text: string) => `${text[0]!.toUpperCase()}${text.slice(1)}`;
+  return { label: "Theme", value: now, question: `Theme: ${now}. It changes the colours only, from now on; NO_COLOR still turns colour off.`, keep: `Keep ${now}`,
+    choices: themeNames().filter((theme) => theme !== now)
+      .map((theme) => ({ label: capital(theme), ...(Object.hasOwn(THEME_WORDS, theme) ? { description: THEME_WORDS[theme]! } : {}), keys: ["theme"], value: theme, shown: theme })) };
+}
+
 /** Each off switch Casper has, where it stands now, and the numbered answers for it (1 keeps it as it is). */
 export function settingRows(context: ProjectContext): Setting[] {
   const web = context.web ?? DEFAULT_WEB;
@@ -142,6 +156,7 @@ export function settingRows(context: ProjectContext): Setting[] {
     { label: "Work shown", value: display, question: `Work shown: ${display} (${DISPLAY_WORDS[display]}).`, keep: `Keep ${display}`,
       choices: (["quiet", "normal", "detailed"] as const).filter((level) => level !== display)
         .map((level) => ({ label: `${level[0]!.toUpperCase()}${level.slice(1)}`, keys: ["display"], value: level, shown: level })) },
+    themeRow(context.theme),
     { label: "Untrusted-text reader", value: reader.enabled ? "on" : "off",
       question: `The untrusted-text reader (casper_read_untrusted) is ${reader.enabled ? "on" : "off"}. It reads logs, mail and forms with a separate model that has no tools, and costs tokens only when the AI uses it.`,
       keep: `Keep it ${reader.enabled ? "on" : "off"}`,
