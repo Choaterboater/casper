@@ -252,6 +252,15 @@ test("a pack's one theme is counted in the box from its file, shown in full, and
   expect(await registerPackThemes(home, true)).toEqual([]);
   expect(themeNames()).not.toContain("ocean");
 
+  // Saved with a byte-order mark and Windows line ends, as Windows editors do: the same theme, from the same bytes.
+  const marked = await writePack(path.join(root, "marked"), { theme: `\uFEFF${OCEAN.replaceAll("\n", "\r\n")}` });
+  const markedRead = await readPackFolder(marked);
+  expect([markedRead.theme?.name, markedRead.theme?.colors.accent]).toEqual(["ocean", "#3399ff"]);
+  expect(markedRead.files.find((file) => file.path === "themes/ocean.yaml")?.bytes).toBe(3 + OCEAN.length + 4);
+  // One anywhere but the start is still a character the theme can't hold.
+  const inside = await writePack(path.join(root, "inside"), { theme: OCEAN.replace("colors", "\uFEFFcolors") });
+  expect(await refusal(readPackFolder(inside))).toBe("themes/ocean.yaml has a character you can't see (U+FEFF). Casper doesn't add text you can't read in full.");
+
   // A theme pack.yaml names but the pack doesn't have.
   const missing = await writePack(path.join(root, "missing"), { manifest: "name: writing-basics\nversion: 1.2.0\ndescription: x\nskills: [skills/drafting, skills/proofreading]\ntheme: themes/ocean.yaml\n" });
   expect(await refusal(readPackFolder(missing))).toBe("The theme themes/ocean.yaml is listed in pack.yaml but isn't in the pack.");

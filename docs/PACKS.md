@@ -133,6 +133,8 @@ colors:
   themes/ocean.yaml can't be used: unknown field "run"; a theme file has only name and colors.` An
   escape or control character, any character but plain printable text, a backslash, another field
   or role, a value that isn't a colour, YAML anchors or tags, and a file over 8 KiB are all refused.
+  A byte-order mark at the very start, which some Windows editors write, is fine, as in every file
+  of a pack.
 - **Shown like every file.** The box counts it (`It brings 2 skills and a theme.`), names it on its
   own line, and `3` prints it in full with the rest. A changed theme file is a changed file: adding
   the pack again shows the box with `Changed since you added it: themes/ocean.yaml`.

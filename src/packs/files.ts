@@ -157,11 +157,13 @@ export function checkPack(files: readonly PackFile[]): PackContents {
   return { manifest, files: [...files].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0), skills, ...(theme ? { theme } : {}) };
 }
 
-/** The theme file pack.yaml names, as the theme-file parser reads it: one plain reason when it isn't one. */
+/** The theme file pack.yaml names, as the theme-file parser reads it: one plain reason when it isn't one. A leading
+ * byte-order mark (Windows editors write one) is left out, as it is for every other file of a pack; one anywhere
+ * else is still refused. */
 function packTheme(files: readonly PackFile[], relative: string): Theme {
   const file = files.find((candidate) => candidate.path === relative);
   if (!file) throw new PackError(`The theme ${relative} is listed in ${MANIFEST_FILE} but isn't in the pack.`);
-  const read = parseThemeFile(file.text);
+  const read = parseThemeFile(file.text.replace(/^\uFEFF/, ""));
   if ("error" in read) throw new PackError(`The theme ${relative} can't be used: ${read.error}.`);
   return read.theme;
 }
