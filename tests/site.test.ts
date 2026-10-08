@@ -185,3 +185,17 @@ test("the tour's /help example is the real short help", async () => {
   const unescape = (text: string) => text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
   expect(unescape(block ?? "")).toBe(HELP_TEXT.trimEnd());
 });
+
+test("the capture script's imports still exist in src", async () => {
+  // site/captures/capture-app.ts starts a whole app when run, so check the names it takes from src instead.
+  const script = readFileSync(join(site, "captures", "capture-app.ts"), "utf8");
+  const imports = [...script.matchAll(/import \{([^}]+)\} from "\.\.\/\.\.\/src\/([^"]+)";/g)];
+  expect(imports.length).toBeGreaterThan(0);
+  for (const match of imports) {
+    const mod = (await import(join(root, "src", match[2]!))) as Record<string, unknown>;
+    // Names written `type X` are types: only the compiler sees them.
+    for (const name of match[1]!.split(",").map((part) => part.trim()).filter((part) => part && !part.startsWith("type "))) {
+      expect(name in mod, `src/${match[2]} has no ${name}`).toBe(true);
+    }
+  }
+});
