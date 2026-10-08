@@ -348,6 +348,53 @@ test("a pack's theme can't take the name of a built-in theme or another pack's t
   expect(findTheme("ocean")?.colors.accent).toBe("#0066cc");
 });
 
+test("a pack is held to its limits: 200 files, 256 KB a file, 2 MB in all, 8 folders deep, each said in plain words", async () => {
+  const root = await temp();
+  // pack.yaml and two SKILL.md files, plus notes up to the count.
+  const notes = (count: number) => Object.fromEntries(Array.from({ length: count }, (_, index) => [`skills/drafting/notes/${index}.md`, "A note.\n"]));
+  expect((await readPackFolder(await writePack(path.join(root, "200"), { extra: notes(197) }))).files).toHaveLength(200);
+  expect(await refusal(readPackFolder(await writePack(path.join(root, "201"), { extra: notes(198) })))).toBe("The pack has more than 200 files.");
+
+  const kb = (size: number) => "x".repeat(size * 1024);
+  expect((await readPackFolder(await writePack(path.join(root, "256"), { extra: { "skills/drafting/big.md": kb(256) } }))).files).toHaveLength(4);
+  expect(await refusal(readPackFolder(await writePack(path.join(root, "257"), { extra: { "skills/drafting/big.md": `${kb(256)}x` } }))))
+    .toBe("skills/drafting/big.md is larger than 256 KB.");
+  const large = Object.fromEntries(Array.from({ length: 9 }, (_, index) => [`skills/drafting/part${index}.md`, kb(250)]));
+  expect(await refusal(readPackFolder(await writePack(path.join(root, "large"), { extra: large })))).toBe("The pack is larger than 2 MB.");
+
+  // skills/drafting is 2 folders; 6 more make 8, and a file there is fine. One more folder is too deep, said as such.
+  const deep = (folders: number) => ["skills", "drafting", ...Array.from({ length: folders - 2 }, (_, index) => `d${index}`)].join("/");
+  expect((await readPackFolder(await writePack(path.join(root, "eight"), { extra: { [`${deep(8)}/note.md`]: "Deep.\n" } }))).files.map((file) => file.path))
+    .toContain(`${deep(8)}/note.md`);
+  expect(await refusal(readPackFolder(await writePack(path.join(root, "nine"), { extra: { [`${deep(9)}/note.md`]: "Deeper.\n" } }))))
+    .toBe(`${deep(9)} is more than 8 folders deep.`);
+});
+
+test("a file of the staged copy that changes while the box is open means nothing is added, and the pack you had stays", async () => {
+  const root = await temp();
+  const home = path.join(root, "home");
+  const folder = await writePack(path.join(root, "pack"));
+  await addPack(home, folder);
+  const before = (await loadInstalledPacks(home)).packs[0]!.record;
+  await writeFile(path.join(folder, "pack.yaml"), (await readFile(path.join(folder, "pack.yaml"), "utf8")).replace("1.2.0", "1.3.0"));
+  const staged = await stagePack(home, await readPackFolder(folder));
+  // Changed after it was read back and shown, before 2 was pressed.
+  await writeFile(path.join(staged.dir, "skills", "drafting", "SKILL.md"), skill("drafting", "something else entirely"));
+  expect(await refusal(installPack(home, staged, folder))).toBe("The pack's files changed while you were looking. Nothing was added.");
+  const [kept] = (await loadInstalledPacks(home)).packs;
+  expect([kept!.record, kept!.problem]).toEqual([before, undefined]);
+  expect(await readFile(path.join(home, ".casper", "packs", "writing-basics", "pack.yaml"), "utf8")).toContain("version: 1.2.0");
+  expect(await stat(staged.dir).then(() => "still there", () => "removed")).toBe("removed");
+
+  // The same with nothing added before: no record and no folder.
+  const fresh = path.join(root, "fresh");
+  const first = await stagePack(fresh, await readPackFolder(folder));
+  await writeFile(path.join(first.dir, "README.md"), "Added while you were looking.\n");
+  expect(await refusal(installPack(fresh, first, folder))).toBe("The pack's files changed while you were looking. Nothing was added.");
+  expect((await loadInstalledPacks(fresh)).packs).toEqual([]);
+  expect(await stat(path.join(fresh, ".casper", "packs", "writing-basics")).then(() => "there", () => "not there")).toBe("not there");
+});
+
 test("the record is keyed: a changed file, an edited record or a record Casper didn't write means the pack is not used", async () => {
   const root = await temp();
   const home = path.join(root, "home");

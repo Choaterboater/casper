@@ -184,6 +184,24 @@ test("a commit that isn't on the repository's own branches or tags, like a fork'
   expect((await fetchGitPack(at(tagged), { fetch })).manifest.name).toBe("writing-basics");
 });
 
+test("a file stored with Git LFS, or more than 8 folders deep, refuses a fetched commit", async () => {
+  const root = await temp();
+  const blob = (repo: string, text: string) => spawnSync("git", ["hash-object", "-w", "--stdin"], { cwd: repo, input: text, encoding: "utf8" }).stdout.trim();
+  // What git holds for a file stored with LFS: a pointer, never read as the pack's text.
+  const lfs = await packRepo(path.join(root, "lfs"), (repo) => {
+    const pointer = blob(repo, `version https://git-lfs.github.com/spec/v1\noid sha256:${"ab".repeat(32)}\nsize 12\n`);
+    git(repo, "update-index", "--add", "--cacheinfo", `100644,${pointer},skills/drafting/notes.md`);
+  });
+  expect(await fetchGitPack(lfs.source, { fetch: lfs.fetch }).then(() => "fetched", (error: Error) => error.message))
+    .toBe("skills/drafting/notes.md is stored with Git LFS, which a pack can't use.");
+
+  const deep = await packRepo(path.join(root, "deep"), (repo) => {
+    git(repo, "update-index", "--add", "--cacheinfo", `100644,${blob(repo, "Deep.\n")},skills/drafting/a/b/c/d/e/f/g/note.md`);
+  });
+  expect(await fetchGitPack(deep.source, { fetch: deep.fetch }).then(() => "fetched", (error: Error) => error.message))
+    .toBe("\"skills/drafting/a/b/c/d/e/f/g/note.md\" is more than 8 folders deep.");
+});
+
 test("with no git, a GitHub pack says so in plain words", async () => {
   const source = parseGitSource(`https://github.com/x/y@${COMMIT}`);
   const message = await fetchGitPack(source, { local: async () => ({ code: null, stdout: Buffer.alloc(0), stderr: "", missing: true }) })

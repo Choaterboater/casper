@@ -11,6 +11,8 @@ import { SKILL_NAME } from "../skills/metadata";
 export class PackError extends Error {}
 
 export const MANIFEST_FILE = "pack.yaml";
+/** How many folders deep a file in a pack may be. */
+export const MAX_PACK_FOLDERS = 8;
 export const MAX_PACK_SKILLS = 64;
 
 export interface PackManifest {
@@ -31,11 +33,12 @@ const VERSION = /^\d{1,6}\.\d{1,6}\.\d{1,6}(?:-[0-9A-Za-z.-]{1,32})?$/;
 const PART = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,99}$/;
 const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|com\d|lpt\d)(?:\..*)?$/i;
 
-/** A relative path inside a pack, with forward slashes: every part plain, none "." or "..", no trailing dot or space. */
+/** A relative path inside a pack, with forward slashes: every part plain, none "." or "..", no trailing dot or space,
+ * and at most a file inside MAX_PACK_FOLDERS folders (a deeper one is refused as too deep before its name is read). */
 export function isPackPath(relative: string): boolean {
   if (!relative || relative.length > 400 || relative.startsWith("/") || relative.includes("\\")) return false;
   const parts = relative.split("/");
-  return parts.length <= 8 && parts.every((part) => PART.test(part) && !/[. ]$/.test(part) && !WINDOWS_RESERVED.test(part));
+  return parts.length <= MAX_PACK_FOLDERS + 1 && parts.every((part) => PART.test(part) && !/[. ]$/.test(part) && !WINDOWS_RESERVED.test(part));
 }
 
 export function parseManifest(text: string): PackManifest {

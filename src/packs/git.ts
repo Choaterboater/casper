@@ -204,6 +204,7 @@ export async function fetchGitPack(source: GitPackSource, options: GitFetchOptio
       if (entry.mode === "120000") throw new PackError(`${shown} is a link. A pack holds plain files only.`);
       if (entry.mode === "160000") throw new PackError(`${shown} is a submodule. Casper doesn't fetch submodules.`);
       if (entry.type !== "blob" || (entry.mode !== "100644" && entry.mode !== "100755")) throw new PackError(`${shown} is not a plain file.`);
+      if (entry.path.split("/").length - 1 > PACK_LIMITS.depth) throw new PackError(`${shown} is more than ${PACK_LIMITS.depth} folders deep.`);
       if (!isPackPath(entry.path)) throw new PackError(`${shown} has a name Casper doesn't take in a pack (letters, digits, . - _ and spaces; no hidden files).`);
       // Two names that differ only in case, of a file or a folder, would be one on Windows and macOS.
       const parts = entry.path.split("/");

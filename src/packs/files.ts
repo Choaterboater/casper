@@ -7,7 +7,7 @@ import { isOutside } from "../platform/inside";
 import { parseSkillMetadata, splitSkill } from "../skills/metadata";
 import type { Theme } from "../tui/theme";
 import { parseThemeFile } from "../tui/theme-file";
-import { isPackPath, MANIFEST_FILE, PackError, parseManifest, type PackManifest } from "./manifest";
+import { isPackPath, MANIFEST_FILE, MAX_PACK_FOLDERS, PackError, parseManifest, type PackManifest } from "./manifest";
 
 /**
  * What is in a pack folder, read the one way Casper reads every pack: from a folder you named, from a fetched
@@ -19,7 +19,7 @@ import { isPackPath, MANIFEST_FILE, PackError, parseManifest, type PackManifest 
  * other file refuses the pack.
  */
 
-export const PACK_LIMITS = { files: 200, fileBytes: 256 * 1024, totalBytes: 2 * 1024 * 1024, depth: 8 } as const;
+export const PACK_LIMITS = { files: 200, fileBytes: 256 * 1024, totalBytes: 2 * 1024 * 1024, depth: MAX_PACK_FOLDERS } as const;
 
 const TOP_EXTRAS = new Set(["README.md", "LICENSE", "LICENSE.md", "LICENSE.txt"]);
 /** Never read, copied or shown: a git checkout's own folder at the top, and the folder notes macOS and Windows leave. */
