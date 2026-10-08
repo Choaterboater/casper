@@ -77,6 +77,8 @@ export interface ShellSandboxOptions {
   note?: (line: string) => void;
   /** The temp folders commands may write; the system's by default. */
   tempDirs?: string[];
+  /** Tests: the folders the AI's shell looks for programs in (see searchPath). */
+  searchPath?: string;
   /** The compiled binary's own apply-seccomp helper (Linux). */
   seccompPath?: () => Promise<string | undefined>;
 }
@@ -171,6 +173,14 @@ export class ShellSandbox {
   get platform(): NodeJS.Platform { return this.options.platform ?? process.platform; }
   get home(): string { return this.options.home ?? os.homedir(); }
   get root(): string { return this.options.root(); }
+  /** The folders the AI's shell looks for programs in: your PATH, with Pi's own bin folder first when it is not
+   * there already (as Pi runs the shell). */
+  get searchPath(): string {
+    if (this.options.searchPath !== undefined) return this.options.searchPath;
+    const current = process.env.PATH ?? "";
+    const own = this.options.agentDir ? path.join(this.options.agentDir, "bin") : undefined;
+    return own && !current.split(path.delimiter).includes(own) ? [own, current].filter(Boolean).join(path.delimiter) : current;
+  }
   /** The AI's edits and writes outside the project ask first, unless you turned the sandbox off
    * (--no-sandbox, sandbox: off): then they go through as before. */
   get asksOutsideWrites(): boolean { return this.state.kind !== "off"; }

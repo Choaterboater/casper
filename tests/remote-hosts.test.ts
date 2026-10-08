@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { remoteTargets, runsAlone, splitShell, targetLabel } from "../src/sandbox/remote";
+import { remoteTargets, runsAlone, splitShell, targetLabel, trustedProgram } from "../src/sandbox/remote";
 import { remoteChanges } from "../src/task/remote-changes";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -59,6 +59,39 @@ test("only a plain ssh or scp with no local side effects runs outside the sandbo
     "ssh -o LocalCommand=evil -o PermitLocalCommand=yes build-server", "ssh -F ./cfg build-server", "ssh -A build-server", "ssh -G build-server",
     "sudo ssh build-server", "FOO=1 ssh build-server", "scp build-server:/etc/shadow ~/.bashrc", "scp -S ./evil build-server:/x .", "nc 10.0.0.1 22", "rsync -a x build-server:/y",
   ]) expect([command, runsAlone(command, root)]).toEqual([command, false]);
+});
+
+test("only ssh and scp named bare run alone; a program of that name given by its path stays in the sandbox", () => {
+  const root = path.join(home, "project");
+  for (const command of [
+    "./ssh build-server uptime", "/tmp/x/ssh build-server uptime", "bin/ssh build-server uptime", "'./ssh' build-server uptime",
+    "node_modules/.bin/scp build-server:/etc/motd ./motd", "~/bin/scp ./app.py build-server:/opt/", "../ssh build-server uptime",
+  ]) {
+    // Still a command that reaches the machine, so it still asks first.
+    expect([command, hosts(command).map((target) => target.typed)]).toEqual([command, ["build-server"]]);
+    expect([command, runsAlone(command, root)]).toEqual([command, false]);
+  }
+});
+
+test("a bare ssh or scp runs alone only from a PATH folder the sandbox doesn't let commands write", async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), "casper-remote-path-"));
+  try {
+    const system = path.join(base, "system"), writable = path.join(base, "writable"), empty = path.join(base, "empty");
+    for (const dir of [system, writable, empty]) await mkdir(dir);
+    for (const dir of [system, writable]) for (const name of ["ssh", "scp"]) await writeFile(path.join(dir, name), "#!/bin/sh\n", { mode: 0o755 });
+    const sandboxWrites = (place: string) => path.resolve(place).startsWith(writable);
+    const on = (...dirs: string[]) => dirs.join(path.delimiter);
+    expect(trustedProgram("ssh", on(empty, system), sandboxWrites)).toBe(path.join(system, "ssh"));
+    expect(trustedProgram("scp", on(system, writable), sandboxWrites)).toBe(path.join(system, "scp"));
+    // A folder the sandbox lets commands write, searched first (or not there yet), could take its place.
+    expect(trustedProgram("ssh", on(writable, system), sandboxWrites)).toBeUndefined();
+    expect(trustedProgram("ssh", on(path.join(writable, "not-yet"), system), sandboxWrites)).toBeUndefined();
+    // An empty or relative entry is searched from the current folder.
+    for (const searchPath of [on("", system), on(".", system), on("bin", system)]) expect([searchPath, trustedProgram("ssh", searchPath, sandboxWrites)]).toEqual([searchPath, undefined]);
+    expect(trustedProgram("ssh", on(empty), sandboxWrites)).toBeUndefined();
+    // A name with a folder in it is never looked up on the PATH.
+    expect(trustedProgram("./ssh", on(system), sandboxWrites)).toBeUndefined();
+  } finally { await removeTempDir(base); }
 });
 
 test("the shell line split keeps quoted operators inside one command", () => {
