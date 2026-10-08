@@ -9,6 +9,11 @@ test("lineText turns every control character and bidi control into a space, and 
   expect(lineText("plain words · ✓ ünïcode")).toBe("plain words · ✓ ünïcode");
   expect(hasLineControls("one line")).toBe(false);
   for (const char of ["\n", "\t", "\x00", "\x1b", "\x9f", "‪", "‮", "⁦", "⁩"]) expect(hasLineControls(`a${char}b`)).toBe(true);
+  // The direction marks ALM, LRM and RLM, and the line and paragraph separators.
+  for (const char of ["؜", "‎", "‏", " ", " "]) {
+    expect(hasLineControls(`a${char}b`)).toBe(true);
+    expect(lineText(`a${char}b`)).toBe("a b");
+  }
 });
 
 // Places that may keep their own set, on purpose: risky-lines.ts is a copy of GreenCLI's file (kept in sync by a

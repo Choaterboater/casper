@@ -38,7 +38,7 @@ import type { AgentRuntime, RuntimeAuthProvider, RuntimeSession, RuntimeImage, R
 import { SkillRegistry, skillRegistryOptions } from "./skills/registry";
 import type { TaskResult, TaskUsage } from "./task/result";
 import { TaskObservations } from "./task/observations";
-import { PastedImageFiles } from "./app/images";
+import { pastedFolderParent, PastedImageFiles } from "./app/images";
 import { LifecycleRegistry } from "./app/lifecycle";
 import { helperActivityLine, RuntimeEventView } from "./app/events";
 import { snapshotFailureReason, snapshotTree } from "./task/changes";
@@ -716,8 +716,9 @@ export class CasperApp {
 
   /** Pictures pasted into the line being handled; runModelTask takes them. */
   pastedImages?: Map<number, RuntimeImage>;
-  /** Those pictures as files in a private temp folder, so the model has a path; deleted when the session closes. */
-  readonly pastedImageFiles = new PastedImageFiles();
+  /** Those pictures as files in a private folder (temp; ~/.casper on Windows), so the model has a path; deleted when
+   * the session closes. */
+  readonly pastedImageFiles = new PastedImageFiles(() => pastedFolderParent(process.platform, this.homeDir()));
 
   /** Looked up once: the answer decides whether the browser tool is there from the first turn. */
   browserInstalled?: Promise<boolean>;

@@ -76,6 +76,9 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       "Attach this picture?", app.commandAbort?.signal) });
   app.pastedImages = undefined;
   for (const note of attached.notes) app.output.write(`[image] ${terminalText(note)}\n`);
+  // Whether the request names a target is read from what you typed: a saved picture's `[image 1] is the file …` line
+  // names a file Casper made, not what to change.
+  const typed = prompt;
   prompt = attached.text;
   // A flow the user picked, or /plan, is already this task's one choice before work: no other panel.
   app.beforeWorkAsked = Boolean(options.flow || options.planFirst);
@@ -105,7 +108,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   app.editGateActive = app.interactive && app.terminal.rich
     && context.policy.behavior.askQuestions === "beforeChanges"
     && (classification.intent === "implement" || classification.intent === "configure")
-    && underSpecifiedTarget(prompt);
+    && underSpecifiedTarget(typed);
   // Debug values and active debuggees do not silently become model-task context.
   await stopDebugger(app);
   // A finished task's immutable evidence belongs to its receipt, not the next prompt.
@@ -255,7 +258,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       await session.prompt([
         memoryContext,
         skillContext,
-        formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving,
+        formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving, typed,
           reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
         planBlock,
         // "in parallel", "by yourself": one line, only where builders are offered.

@@ -407,7 +407,8 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   Windows PowerShell, `wl-paste` or `xclip`), for at most a few seconds. With neither,
   its text is pasted like any paste, with terminal control codes taken out. A dropped file's
   path stays on a line under the request, so the AI can still copy it. A pasted picture is
-  saved to a private temp folder, deleted when Casper closes, and its path goes on the same kind of line. A bare name like
+  saved to a private temp folder (on Windows under `~/.casper/pasted`, since Windows keeps your profile to you
+  but not always the temp folder), deleted when Casper closes, and its path goes on the same kind of line. A bare name like
   `logo.png` stays a word. On Windows, a path on another computer's share (`\\nas\shots\pic.png`),
   typed, dropped or copied, asks first, `Attach this picture?` with `1 No · 2 Yes, this once`, once per computer: opening it
   sends your Windows login (a hash of it) there. A no leaves the path as words.

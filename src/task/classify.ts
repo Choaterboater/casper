@@ -92,11 +92,15 @@ export function formatTaskPrompt(
   request: string,
   classification: TaskClassification,
   model: ProjectModel,
-  options: { verificationMode?: VerificationMode; proveChange?: boolean; reviewFollows?: boolean; afterContext?: boolean } = {},
+  options: {
+    verificationMode?: VerificationMode; proveChange?: boolean; reviewFollows?: boolean; afterContext?: boolean;
+    /** The request as typed, before Casper added lines to it (a saved picture's path); the target check reads this. */
+    typed?: string;
+  } = {},
 ): string {
   const underSpecified = classification.mode === "modify"
     && (classification.intent === "implement" || classification.intent === "configure")
-    && underSpecifiedTarget(request);
+    && underSpecifiedTarget(options.typed ?? request);
   // A change Casper will review and prove gets the request as the user wrote it. The review asks for
   // every requirement and its test afterwards. In one pinned ablation (GLM 5.3 Flash, core-mcp-tool,
   // .scratch/phase-4/ablate) the request alone was as accurate with fewer turns, and the hint header's
