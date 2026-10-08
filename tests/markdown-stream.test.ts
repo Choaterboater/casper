@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { markdownTheme } from "../src/tui/format";
 import { stablePrefixEnd, StreamingMarkdown } from "../src/tui/markdown-stream";
+import { Transcript } from "../src/tui/transcript";
 
 const DOCS = [
   "Here is a plan:\n\n* first *item*\n* second **item** with `code`\n\n```ts\nconst x = 1;\n```\n\nDone.",
@@ -118,6 +119,38 @@ test("a fenced block's title line spans the width; a long code line is cut at th
       for (const row of rows.slice(0, -1)) expect(visibleWidth(row)).toBe(width - margin);
       for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
     }
+  }
+});
+
+test("a long code line with emoji or CJK characters is cut between characters, never wider than the screen", () => {
+  const sources = [
+    "console.log(`Deployment finished for ${service.name} in ${region} after ${attempts} attempts 🚀 see ${url}`);",
+    `a${"中文字".repeat(12)}`,
+    `${"✅ ok ".repeat(20)}END`,
+  ];
+  for (const source of sources) {
+    for (let width = 10; width <= 120; width++) {
+      const lines = once(`\`\`\`ts\n${source}\n\`\`\``, width, false);
+      for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+      // Every character is kept: the rows put together are the line as written.
+      expect(lines.slice(1, -1).join("")).toBe(source);
+    }
+  }
+});
+
+test("the transcript holds every block row to the screen width, also for a fence nested deeper than a narrow screen", () => {
+  const doc = "> > > ```sh\n> > > ls -la\n> > > ```\n\n- a\n  - b\n    - c\n      ```sh\n      ls -la\n      ```\n";
+  for (let width = 4; width <= 14; width++) {
+    const transcript = new Transcript();
+    const live = new StreamingMarkdown(false, markdownTheme(false));
+    live.setText(doc);
+    transcript.preview = live;
+    const committed = new StreamingMarkdown(false, markdownTheme(false));
+    committed.setText(doc);
+    transcript.commit(committed);
+    const lines = transcript.render(width);
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
   }
 });
 

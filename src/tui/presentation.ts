@@ -35,7 +35,8 @@ export function renderPanel(title: string, body: readonly string[], width: numbe
 /**
  * A code block that copies clean: a title line (`── ts ────`), the code exactly as written with no side border and
  * no indent, and a closing rule. A line wider than the screen is cut at the edge only, so every character stays and
- * nothing is added (a terminal must break it somewhere). `style` colors each piece of code.
+ * nothing is added (a terminal must break it somewhere); a wide character that does not fit starts the next row.
+ * `style` colors each piece of code.
  */
 export function renderCodeBlock(title: string, code: readonly string[], width: number, color: boolean,
   style: (text: string) => string = text => text): string[] {
@@ -46,7 +47,15 @@ export function renderCodeBlock(title: string, code: readonly string[], width: n
   for (const line of code) {
     const total = visibleWidth(line);
     if (total <= width) { rows.push(line ? style(line) : ""); continue; }
-    for (let column = 0; column < total; column += width) rows.push(style(sliceByColumn(line, column, width)));
+    for (let column = 0; column < total;) {
+      // Cut between characters: a 2-column character (CJK, emoji) that would cross the edge starts the next row.
+      // Only a character wider than the whole screen is cut short, so no row is ever wider than the screen.
+      let piece = sliceByColumn(line, column, width, true);
+      let used = visibleWidth(piece);
+      if (!used) { piece = sliceByColumn(line, column, 1); used = Math.max(1, visibleWidth(piece)); piece = truncateToWidth(piece, width, ""); }
+      rows.push(style(piece));
+      column += used;
+    }
   }
   rows.push(tint("─".repeat(width), "border", color));
   return rows;

@@ -167,6 +167,27 @@ test("streamed assistant Markdown renders lists and fences once, whole, and re-r
   } finally { terminal.close(); input.destroy(); }
 });
 
+test("a code block with emoji or CJK characters wider than the screen draws within it, and the session keeps going", async () => {
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  const screen = fakeWriter(40, 30);
+  const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {});
+  try {
+    terminal.setStatus("fixture"); terminal.start();
+    const first = terminal.readCommand();
+    input.write("hi\r");
+    expect(await first).toBe("hi");
+    const message = `Sure:\n\n\`\`\`\na${"中文字".repeat(12)}\n\`\`\`\n\nShipped 🚀\n`;
+    for (let index = 0; index < message.length; index += 7) terminal.assistant(message.slice(index, index + 7));
+    terminal.endAssistant();
+    terminal.write("after\n");
+    await screen.until(output => output.includes("after"));
+    const next = terminal.readCommand();
+    input.write("next\r");
+    expect(await next).toBe("next");
+    for (const line of plainLines(screen.output.split(REPAINT).at(-1)!)) expect(visibleWidth(line)).toBeLessThanOrEqual(40);
+  } finally { terminal.close(); input.destroy(); }
+});
+
 test("tool, code and Working panels span the whole terminal width and follow it through a resize", async () => {
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
   const screen = fakeWriter(100, 40);
