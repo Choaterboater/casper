@@ -90,12 +90,31 @@ export const GIT_OWN_FILES: readonly string[] = ["hooks", "config", "config.work
 /** What a crew copy may not write in the git folder it shares with your folder: your branches, tags and commits. */
 export const GIT_SHARED_FILES: readonly string[] = ["refs", "packed-refs", "HEAD", "objects", "logs"];
 
+/** What a linked worktree's folder (`<common>/worktrees/<name>`) holds that decides which git folder git uses there
+ * and which settings it reads. The shared folder holds one per worktree, the project's own and its siblings'. */
+const WORKTREE_POINTER_FILES: readonly string[] = ["commondir", "gitdir", "config.worktree"];
+
+/** The `config.worktree` of the shared folder and of each worktree in it, present or not: git reads one only when
+ * `extensions.worktreeConfig` is on (which `git sparse-checkout init` turns on). */
+export function worktreeConfigFiles(common: string | undefined): string[] {
+  if (!common) return [];
+  return [path.join(common, "config.worktree"), ...siblingWorktreeFiles(common).filter((file) => path.basename(file) === "config.worktree")];
+}
+
+function siblingWorktreeFiles(common: string | undefined): string[] {
+  if (!common) return [];
+  let names: string[] = [];
+  try { names = readdirSync(path.join(common, "worktrees")); } catch { return []; }
+  return names.flatMap((name) => WORKTREE_POINTER_FILES.map((file) => path.join(common, "worktrees", name, file)));
+}
+
 /** Files that tell git where its folder is: a worktree's `.git` file and its folder's `commondir`. Held read-only
  * only when they exist (a stand-in for a missing one would break git); a main `.git/commondir` that appears
  * is removed by the sandbox (see ShellSandbox.guardGit). */
 function gitPointers(folder: string): string[] {
   const dotGit = path.join(folder, ".git");
-  const pointers = [dotGit, ...gitDirs(folder).map((dir) => path.join(dir, "commondir"))];
+  const dirs = gitDirs(folder);
+  const pointers = [dotGit, ...dirs.map((dir) => path.join(dir, "commondir")), ...siblingWorktreeFiles(dirs.at(-1))];
   return pointers.filter((file) => { try { return statSync(file).isFile(); } catch { return false; } });
 }
 
@@ -217,6 +236,8 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
     ...hooks.flatMap(spellings),
     ...extra.flatMap((folder) => hooksPathTargets(folder, home)).flatMap(spellings),
     ...[root, ...extra].flatMap(gitPointers).flatMap(spellings),
+    // A missing one is denied too (a rule on a missing path holds on macOS; Linux has the sandbox remove a new one).
+    ...[root, ...extra].flatMap((folder) => worktreeConfigFiles(gitDirs(folder).at(-1))).flatMap(spellings),
     ...submodules.flatMap((found) => found.pointers).flatMap(spellings),
     ...inHome(PROTECTED_WRITE_PATHS),
     ...inHome(PRIVATE_PATHS),

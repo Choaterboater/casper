@@ -187,6 +187,109 @@ test("a worktree's .git file and its folder's commondir are read-only, and so ar
   for (const name of ["hooks", "config", "info"]) expect(withNew.denyWrite).toContain(path.join(fresh, ".git", name));
 });
 
+/** A real main checkout with two linked worktrees (made by git itself) in a temp folder. */
+async function worktreeLayout() {
+  const { base, home } = await fixture();
+  const git = (cwd: string, ...args: string[]) => {
+    const result = Bun.spawnSync(["git", "-C", cwd, "-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" } });
+    if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+  };
+  const main = path.join(base, "main");
+  await mkdir(main, { recursive: true });
+  git(main, "init", "-q");
+  git(main, "commit", "-q", "--allow-empty", "-m", "first");
+  const mine = path.join(base, "mine");
+  const sibling = path.join(base, "sibling");
+  git(main, "worktree", "add", "-q", mine, "-b", "mine");
+  git(main, "worktree", "add", "-q", sibling, "-b", "sibling");
+  return { home, main, mine, sibling, common: path.join(main, ".git") };
+}
+
+test("in a linked worktree, the shared git folder's worktree pointers are read-only, and the worktree's own state stays writable", async () => {
+  const { home, mine, common } = await worktreeLayout();
+  const policy = sandboxPolicy({ root: mine, home, tempDirs: [], platform: "linux" });
+  expect(policy.allowWrite).toContain(common);
+  for (const name of ["mine", "sibling"]) {
+    for (const file of ["commondir", "gitdir"]) expect(policy.denyWrite).toContain(path.join(common, "worktrees", name, file));
+  }
+  for (const name of ["hooks", "config", "info"]) expect(policy.denyWrite).toContain(path.join(common, name));
+  // The worktree's own index, HEAD and logs are not held, so git still works there.
+  const own = path.join(common, "worktrees", "mine");
+  for (const name of ["index", "HEAD", "logs"]) expect(policy.denyWrite.some((entry) => within(entry, path.join(own, name)) || within(path.join(own, name), entry))).toBe(false);
+});
+
+test("in the main checkout, the sibling worktrees' pointers in its own git folder are read-only", async () => {
+  const { home, main, common } = await worktreeLayout();
+  const policy = sandboxPolicy({ root: main, home, tempDirs: [], platform: "linux" });
+  for (const name of ["mine", "sibling"]) {
+    for (const file of ["commondir", "gitdir"]) expect(policy.denyWrite).toContain(path.join(common, "worktrees", name, file));
+  }
+  expect(policy.denyWrite).not.toContain(path.join(common, "worktrees", "mine", "index"));
+  expect(policy.denyWrite).not.toContain(path.join(common, "HEAD"));
+});
+
+test("a commondir written in the shared git folder of a linked worktree is removed and said", async () => {
+  const { ShellSandbox } = await import("../src/sandbox/manager");
+  const { passThroughEngine } = await import("../src/sandbox/runtime");
+  const { home, mine, common } = await worktreeLayout();
+  const notes: string[] = [];
+  const sandbox = new ShellSandbox({ root: () => mine, home, tempDirs: [], platform: "linux", engine: passThroughEngine(), problem: () => undefined, note: (line) => notes.push(line) });
+  const run = await sandbox.wrap("true", { cwd: mine });
+  const pointer = path.join(common, "commondir");
+  await writeFile(pointer, "../elsewhere\n");
+  sandbox.finished(run.id);
+  expect(await stat(pointer).then(() => true, () => false)).toBe(false);
+  expect(notes.length).toBe(1);
+  await sandbox.close();
+});
+
+test("the folder holding the worktrees is bound too, so it can't be renamed, and a worktree's config.worktree is denied even when missing", async () => {
+  const { bwrapArgs } = await import("../src/sandbox/linux");
+  const { home, mine, common } = await worktreeLayout();
+  const policy = sandboxPolicy({ root: mine, home, tempDirs: [], platform: "linux" });
+  for (const name of ["mine", "sibling"]) expect(policy.denyWrite).toContain(path.join(common, "worktrees", name, "config.worktree"));
+  const args = bwrapArgs({ policy, network: "host", cwd: mine }, "true");
+  const binds = args.flatMap((arg, index) => args[index - 1] === "--bind" ? [arg] : []);
+  expect(binds).toContain(path.join(common, "worktrees"));
+  expect(binds).toContain(path.join(common, "worktrees", "sibling"));
+});
+
+test("a config.worktree a command makes in a worktree's folder is removed and said, one that was there is kept", async () => {
+  const { ShellSandbox } = await import("../src/sandbox/manager");
+  const { passThroughEngine } = await import("../src/sandbox/runtime");
+  const { home, mine, common } = await worktreeLayout();
+  const kept = path.join(common, "worktrees", "mine", "config.worktree");
+  await writeFile(kept, "[core]\n");
+  const notes: string[] = [];
+  const sandbox = new ShellSandbox({ root: () => mine, home, tempDirs: [], platform: "linux", engine: passThroughEngine(), problem: () => undefined, note: (line) => notes.push(line) });
+  const run = await sandbox.wrap("true", { cwd: mine });
+  const added = path.join(common, "worktrees", "sibling", "config.worktree");
+  await writeFile(added, "[core]\n");
+  sandbox.finished(run.id);
+  expect(await stat(added).then(() => true, () => false)).toBe(false);
+  expect(await stat(kept).then(() => true, () => false)).toBe(true);
+  expect(notes.length).toBe(1);
+  await sandbox.close();
+});
+
+test("a config.worktree you make between commands is kept, one made during a command is removed", async () => {
+  const { ShellSandbox } = await import("../src/sandbox/manager");
+  const { passThroughEngine } = await import("../src/sandbox/runtime");
+  const { home, mine, common } = await worktreeLayout();
+  const sandbox = new ShellSandbox({ root: () => mine, home, tempDirs: [], platform: "linux", engine: passThroughEngine(), problem: () => undefined, note: () => {} });
+  const first = await sandbox.wrap("true", { cwd: mine });
+  sandbox.finished(first.id);
+  const yours = path.join(common, "worktrees", "mine", "config.worktree");
+  await writeFile(yours, "[core]\n");
+  const run = await sandbox.wrap("true", { cwd: mine });
+  const during = path.join(common, "worktrees", "sibling", "config.worktree");
+  await writeFile(during, "[core]\n");
+  sandbox.finished(run.id);
+  expect(await stat(yours).then(() => true, () => false)).toBe(true);
+  expect(await stat(during).then(() => true, () => false)).toBe(false);
+  await sandbox.close();
+});
+
 test("a submodule's own git folder and the .git file that points at it are read-only, nested ones too", async () => {
   const { home, root } = await fixture();
   const lib = path.join(root, ".git", "modules", "lib");

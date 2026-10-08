@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { linuxSandboxProblem, quote, ripgrepPath } from "./linux";
 import { gitDirs, realpathLongest, within } from "../platform/project-paths";
-import { hostListed, hostName, sandboxPolicy, systemTempDirs, writeFileToOffer, writeFolderToOffer, type SandboxPolicy, type SandboxProjectSettings, type SandboxUserSettings } from "./policy";
+import { hostListed, hostName, sandboxPolicy, systemTempDirs, worktreeConfigFiles, writeFileToOffer, writeFolderToOffer, type SandboxPolicy, type SandboxProjectSettings, type SandboxUserSettings } from "./policy";
 import { runtimeEngine, type SandboxEngine } from "./runtime";
 import type { SandboxStore } from "./store";
 
@@ -93,6 +93,8 @@ export function useSandbox(sandbox: ShellSandbox | undefined): void { current = 
 
 const IPV6_MISSING = process.platform === "linux" && !existsSync("/proc/net/if_inet6");
 
+const exists = (file: string) => { try { lstatSync(file); return true; } catch { return false; } };
+
 export class ShellSandbox {
   readonly state: SandboxState;
   private readonly engine: SandboxEngine;
@@ -119,7 +121,7 @@ export class ShellSandbox {
   private closed = false;
   private startError?: string;
   /** Main git folders watched for a `commondir` a command writes, with whether one was there first (yours). */
-  private readonly gitGuards = new Map<string, { hadPointer: boolean; watcher?: FSWatcher }>();
+  private readonly gitGuards = new Map<string, { hadPointer: boolean; watcher?: FSWatcher; dir: string; configs: Set<string> }>();
   /** A crew copy's sandbox: the session's, whose runtime it shares, and your folder's private paths. */
   private parent?: ShellSandbox;
   private parentDenyRead: string[] = [];
@@ -224,7 +226,7 @@ export class ShellSandbox {
       throw new Error(`the sandbox could not start (${this.startError})`);
     }
     const folders = [this.options.root(), ...(options.extraWrite ?? [])];
-    for (const folder of folders) this.guardGit(folder);
+    for (const folder of folders) this.guardGit(folder, true);
     this.todoExecs.set(id, todoExecs(folders));
     const policy = this.policy(options);
     // "Yes, this once" for a shell write: this command may write there, the one after asks again.
@@ -239,28 +241,43 @@ export class ShellSandbox {
   }
 
   /**
-   * A main `.git` folder never has a `commondir` (only a worktree's folder does): one that appears while the
+   * A main `.git` folder never has a `commondir` (only a worktree's folder does). For a linked worktree the folder watched is the main checkout's `.git`, which its commands can write too: one that appears while the
    * sandbox runs was written by a command, and it would point git (yours, and Casper's own git outside the
    * sandbox) at another folder's settings and hooks. It is removed as soon as it appears, and said. A missing
    * file can't be held read-only without breaking git, so it is watched instead.
    */
-  guardGit(folder: string): void {
+  guardGit(folder: string, commandStarting = false): void {
     const dotGit = path.join(folder, ".git");
-    const pointer = path.join(dotGit, "commondir");
-    const present = () => { try { lstatSync(pointer); return true; } catch { return false; } };
     let guard = this.gitGuards.get(dotGit);
     if (!guard) {
-      try { if (!lstatSync(dotGit).isDirectory()) return; } catch { return; }
-      guard = { hadPointer: present() };
+      // The folder holding the shared settings: the project's .git, or for a linked worktree (whose .git is a file)
+      // the main checkout's .git that its own folder points to.
+      const dir = gitDirs(folder).at(-1);
+      if (!dir) return;
+      const present = () => { try { lstatSync(path.join(dir, "commondir")); return true; } catch { return false; } };
+      guard = { hadPointer: present(), dir, configs: new Set(worktreeConfigFiles(dir).filter(exists)) };
       this.gitGuards.set(dotGit, guard);
       if (!guard.hadPointer) {
         try {
-          guard.watcher = watch(dotGit, (_event, name) => { if (!name || String(name) === "commondir") this.guardGit(folder); });
+          guard.watcher = watch(dir, (_event, name) => { if (!name || String(name) === "commondir") this.guardGit(folder); });
           guard.watcher.on("error", () => {});
           guard.watcher.unref();
         } catch { /* checked before each command instead */ }
       }
     }
+    // At the start of a command the list of config.worktree files that exist is taken again, so one you made
+    // yourself between commands is kept and only one created during the command counts as written by it.
+    if (commandStarting) guard.configs = new Set(worktreeConfigFiles(guard.dir).filter(exists));
+    // A `config.worktree` a command made (git reads it once worktreeConfig is on) is removed like a stray commondir.
+    if (!commandStarting && !this.closed) for (const file of worktreeConfigFiles(guard.dir)) {
+      if (guard.configs.has(file) || !exists(file)) continue;
+      try {
+        rmSync(file, { force: true });
+        this.options.note?.(`[sandbox] Removed ${file}: a command wrote it, and git would read its settings and hooks outside the sandbox.`);
+      } catch { /* gone meanwhile */ }
+    }
+    const pointer = path.join(guard.dir, "commondir");
+    const present = () => { try { lstatSync(pointer); return true; } catch { return false; } };
     if (guard.hadPointer || this.closed || !present()) return;
     try {
       rmSync(pointer, { force: true, recursive: true });
@@ -477,7 +494,7 @@ export class ShellSandbox {
     if (this.closed) return;
     for (const [dotGit, guard] of this.gitGuards) {
       guard.watcher?.close();
-      if (!guard.hadPointer) this.guardGit(path.dirname(dotGit));
+      this.guardGit(path.dirname(dotGit));
     }
     this.closed = true;
     if (this.parent) for (const [id, owner] of this.parent.crewRuns) if (owner === this) this.parent.crewRuns.delete(id);
