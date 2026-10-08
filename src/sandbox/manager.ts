@@ -149,7 +149,7 @@ export class ShellSandbox {
   }
 
   /** Whether and why the sandbox holds commands on this machine. */
-  static detect(options: Pick<ShellSandboxOptions, "platform" | "settings" | "noSandboxFlag" | "problem" | "agentDir">): SandboxState {
+  static detect(options: Pick<ShellSandboxOptions, "platform" | "settings" | "noSandboxFlag" | "problem" | "agentDir" | "home">): SandboxState {
     if (options.noSandboxFlag) return { kind: "off", reason: "--no-sandbox" };
     if (options.settings?.user?.off) return { kind: "off", reason: `sandbox: off in ${options.settings.user.offSource ?? "~/.casper/config.yaml"}` };
     const platform = options.platform ?? process.platform;
@@ -157,7 +157,7 @@ export class ShellSandbox {
     if (platform !== "linux" && platform !== "darwin") return { kind: "unsupported", reason: platform };
     const probe = options.problem ?? sandboxDefaults.problem;
     const problem = probe ? probe()
-      : platform === "linux" ? linuxSandboxProblem(undefined, options.agentDir ? { agentDir: options.agentDir } : {}) : existsSync("/usr/bin/sandbox-exec") ? undefined : "sandbox-exec is missing";
+      : platform === "linux" ? linuxSandboxProblem(undefined, { ...(options.agentDir ? { agentDir: options.agentDir } : {}), homeDir: options.home ?? os.homedir() }) : existsSync("/usr/bin/sandbox-exec") ? undefined : "sandbox-exec is missing";
     return problem ? { kind: "missing", reason: problem } : { kind: "on" };
   }
 
@@ -204,8 +204,8 @@ export class ShellSandbox {
       if (parent) { this.remembered = parent.remembered; return; }
       this.remembered = await this.options.store?.hosts().catch(() => []) ?? [];
       const seccompPath = await this.options.seccompPath?.().catch(() => undefined);
-      // On Linux the runtime scans the project with ripgrep: the one on PATH, or Pi's own copy.
-      const ripgrep = this.platform === "linux" ? ripgrepPath(undefined, this.options.agentDir) : undefined;
+      // On Linux the runtime scans the project with ripgrep: the one on PATH, Pi's own copy, or the one Casper fetched.
+      const ripgrep = this.platform === "linux" ? ripgrepPath(undefined, this.options.agentDir, this.home) : undefined;
       await this.engine.initialize(this.policy(), (host, port) => this.decideHost(host, port),
         { ...(this.user.allowUnixSockets ? { allowUnixSockets: this.user.allowUnixSockets } : {}), ...(seccompPath ? { seccompPath } : {}), ...(ripgrep ? { ripgrep } : {}) });
     })();

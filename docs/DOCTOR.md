@@ -47,7 +47,7 @@ Casper doctor · no model, no tokens
 | MCP servers | Each server's program is installed (a missing `uvx`, `npx`, `bunx`, `docker`, `node` or `python` gets its install page), each `${VAR}` it needs is set, and its start folder exists. The doctor never starts a server: starting one is your yes (`/mcp connect`). In a session, a server that failed to start says why |
 | Language servers | The project's languages (TypeScript, Python, Go, Rust, from their usual files) against the servers in `lsp.json`. No server for a language is `!` (optional); a server whose program is missing is `✗` |
 | Security tools | The pinned tools this project uses (as `/security-review` picks them): not installed yet, or your own copy of another version than Casper pins |
-| Sandbox | Whether the sandbox can hold commands on this machine: on Linux, bubblewrap, socat and ripgrep (with the `sudo apt install` line) and Ubuntu's AppArmor rule; on macOS, `sandbox-exec`. Windows has no sandbox yet (`!`) |
+| Sandbox | Whether the sandbox can hold commands on this machine: on Linux, bubblewrap and socat, and ripgrep when Casper could not fetch its own (with the `sudo apt install` line) and Ubuntu's AppArmor rule; on macOS, `sandbox-exec`. Windows has no sandbox yet (`!`) |
 | Disk | Free space where `~/.casper` lives: under 2 GB is `!`, under 512 MB is `✗` |
 | Network server | Casper's network server: installed version against the one this Casper pins, and which products have a saved login (Mist, Central, ClearPass). Your own network server is named. Not set up is `!`, and not shown once you said Not now to setup |
 

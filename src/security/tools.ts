@@ -47,6 +47,16 @@ export interface LockedSpec {
   hosts: string[];
 }
 
+/** What a pinned download needs to be found and installed under ~/.casper/tools: Casper's security tools and ripgrep. */
+export interface PinnedSpec {
+  id: string;
+  label: string;
+  /** The program name on PATH. */
+  command: string;
+  version: string;
+  source: ToolSource;
+}
+
 export interface SecurityToolSpec {
   id: SecurityToolId;
   /** The name shown in the report ("ruff S", not "ruff"). */
@@ -217,12 +227,12 @@ export function ranToEnd(id: SecurityToolId, exitCode: number | null): boolean {
 }
 
 /** The pinned copy's folder: ~/.casper/tools/<id>-<version>. */
-export function pinnedToolDir(homeDir: string, spec: SecurityToolSpec): string {
+export function pinnedToolDir(homeDir: string, spec: Pick<PinnedSpec, "id" | "version">): string {
   return path.join(homeDir, ".casper", "tools", `${spec.id}-${spec.version}`);
 }
 
 /** The program inside a pinned copy. */
-export function pinnedToolPath(homeDir: string, spec: SecurityToolSpec, platform: NodeJS.Platform = process.platform): string {
+export function pinnedToolPath(homeDir: string, spec: PinnedSpec, platform: NodeJS.Platform = process.platform): string {
   const dir = pinnedToolDir(homeDir, spec);
   const exe = platform === "win32" ? ".exe" : "";
   if (spec.source.kind === "binary") return path.join(dir, "bin", `${spec.command}${exe}`);

@@ -58,6 +58,8 @@ export interface ProjectContext {
   pages?: LoadedConfiguration["pages"];
   /** `pages: off` in the user's config: no page checks in any project. Unset: on. */
   pageChecks?: boolean;
+  /** `tools: { downloads: off }` in the user's config: Casper fetches no programs (ripgrep). Unset: on. */
+  toolDownloads?: boolean;
   /** `telemetry: off` in the user's config: no OpenRouter app-name headers. Unset: on. */
   telemetry?: boolean;
   rules: {
@@ -156,6 +158,7 @@ export async function loadProjectContext(
     ...(configuration.pages ? { pages: configuration.pages } : {}),
     ...(configuration.pageChecks !== undefined ? { pageChecks: configuration.pageChecks } : {}),
     ...(configuration.telemetry !== undefined ? { telemetry: configuration.telemetry } : {}),
+    ...(configuration.toolDownloads !== undefined ? { toolDownloads: configuration.toolDownloads } : {}),
     rules: {
       profile: configuration.profileRules,
       project: configuration.projectRules,

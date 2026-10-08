@@ -56,6 +56,7 @@ import type { BuilderSteer } from "./crew/auto";
 import type { PartRecord } from "./crew/parts";
 import { SuggestionController } from "./app/suggestions";
 import type { SecurityAIReview, SecurityReviewHost } from "./app/security-review";
+import type { RipgrepOptions, RipgrepResult } from "./security/ripgrep";
 import type { ChecksPlan, VerificationMode } from "./verify/mode";
 import { MermaidProvider } from "./visualize/mermaid";
 import { MindMeshProvider } from "./visualize/mindmesh";
@@ -153,6 +154,9 @@ export interface CasperAppOptions {
   sandboxSeams?: Partial<ShellSandboxOptions>;
   /** Tests: the web lookups' transport, DNS, clock, provider or login keys. */
   webSeams?: Partial<WebLookupOptions>;
+  /** Finds ripgrep for this session, fetching Casper's pinned copy when there is none. Only the real start passes
+   * one, so no test ever reaches the network. */
+  ripgrep?: (options: RipgrepOptions) => Promise<RipgrepResult>;
   /** The terminal Casper runs in (tmux, iTerm2). Read from the environment when Casper writes to its own stdout. */
   terminalHost?: TerminalHost;
 }
@@ -171,6 +175,7 @@ export class CasperApp {
   readonly sessionYes = new SessionYes((preview, question, options, signal) => recordedApproval(this, preview, question, options, signal));
   readonly runtimeFactory: () => AgentRuntime | Promise<AgentRuntime>;
   readonly subagents: SubagentManager;
+  readonly ripgrep?: (options: RipgrepOptions) => Promise<RipgrepResult>;
   readonly inspectProjectFn: (cwd: string) => Promise<ProjectInfo>;
   readonly loadProjectContextFn: (project: ProjectInfo) => Promise<ProjectContext>;
   readonly loadSkillRegistryFn: (context: ProjectContext) => Promise<SkillRegistry>;
@@ -489,6 +494,7 @@ export class CasperApp {
     this.allow = options.allow;
     this.sandboxSeams = options.sandboxSeams;
     this.webSeams = options.webSeams;
+    this.ripgrep = options.ripgrep;
   }
 
   async start(cwd = process.cwd()): Promise<ProjectInfo> {

@@ -29,6 +29,7 @@ import { updateFooter } from "./footer";
 import { checksPlan } from "./verification";
 import { mcpServerSandbox } from "../mcp/sandbox";
 import { trustProjectFile } from "./project-file";
+import { addToPath } from "../security/ripgrep";
 
 /** What the sandbox asks through: Casper's own numbered question, only while someone can answer it. */
 export function sandboxHost(app: CasperApp): SandboxHost {
@@ -58,6 +59,11 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   // The shell sandbox for this session: the AI's bash, checks, services, dev servers and Casper's tool runs.
   // A workspace switch replaces it: the old one stops first (the sandbox runtime is one per process).
   await app.lifecycle.close("sandbox").catch(() => {});
+  // ripgrep: the sandbox (Linux) and the AI's grep tool need it. One on your PATH is used; otherwise Casper's pinned
+  // copy is fetched once (tools.downloads: off stops that). The copy goes at the end of PATH for the grep tool.
+  const ripgrep = await app.ripgrep?.({ homeDir: app.sessionHomeDir ?? os.homedir(), agentDir: casperAgentDir(), downloads: context.toolDownloads !== false,
+    write: (text) => { if (!app.closing) app.output.write(text); } }).catch(() => undefined);
+  if (ripgrep && (ripgrep.source === "pinned" || ripgrep.source === "installed")) addToPath(process.env, path.dirname(ripgrep.path));
   const host = sandboxHost(app);
   const sandbox = app.sandbox = createSessionSandbox(host, context, { root: () => app.activeWorkspaceRoot(), home: app.sessionHomeDir ?? os.homedir(),
     noSandbox: app.noSandbox, ...(app.allow ? { allow: app.allow } : {}), ...(app.sandboxSeams ? { seams: app.sandboxSeams } : {}) });

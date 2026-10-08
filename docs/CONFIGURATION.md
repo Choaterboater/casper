@@ -161,6 +161,14 @@ Casper (kept out of its public rankings for now); nothing about your code. It is
 `/settings` (it writes `telemetry: off`) or `CASPER_TELEMETRY=0`; either one off is off. A project
 file can't change `telemetry:`. See [OpenRouter app attribution](#provider-credentials).
 
+### Fetching ripgrep
+
+Casper's file search and (on Linux) the shell sandbox need `rg`. With none on your PATH, the first start
+fetches the official ripgrep once (about 5 MB, a pinned version checked against its sha256) into
+`~/.casper/tools/` and says so in one line; if it can't, Casper carries on without. It is on. Turn it off
+with `tools:` then `downloads: off` in `~/.casper/config.yaml` (or a profile you chose); `CASPER_OFFLINE=1` also
+skips it. A project file can't change `tools:`. See [SECURITY.md](SECURITY.md).
+
 ## Config files
 
 Casper reads these files if they exist:
@@ -215,7 +223,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
-`showPages`, `suggestions`, `updates`, `sideQuestions`, `telemetry`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
+`showPages`, `suggestions`, `updates`, `sideQuestions`, `telemetry`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in

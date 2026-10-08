@@ -301,6 +301,7 @@ export async function runCli(): Promise<void> {
     writes: (options.allowWrites ?? []).map((folder) => folder === "~" ? home : folder.startsWith("~/") ? path.join(home, folder.slice(2)) : path.resolve(launchedFrom, folder)) };
   const app = new CasperApp({ verificationMode: verificationFlag(options), verbose: options.verbose, ...(options.noSandbox ? { noSandbox: true } : {}),
     ...(allow.hosts.length || allow.reach.length || allow.writes.length ? { allow } : {}),
+    ripgrep: (ripgrepOptions) => import("./security/ripgrep").then((module) => module.ensureRipgrep(ripgrepOptions)),
     model: options.model, effort: options.effort, maxTurns: options.maxTurns, startupWarnings,
     // A session says when a newer Casper is out; --json output is for scripts and never does.
     ...(options.json ? {} : { updateCheck: { install: currentInstall(), currentVersion: CASPER_VERSION } }),
