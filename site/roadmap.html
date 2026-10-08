@@ -57,7 +57,7 @@
         <ul>
           <li><a href="#released">Released</a>
             <ul>
-              <li><a href="#v0227">v0.2.27: a clickable /mcp, pasted pictures the AI can find, network server 0.1.2</a></li>
+              <li><a href="#v0227">v0.2.27: skill packs, colour themes, a clickable /mcp, pasted pictures and files</a></li>
               <li><a href="#v0226">v0.2.26: local models, updating on Windows, opening where you launched</a></li>
               <li><a href="#v0225">v0.2.25: a stricter plain-read check, reviewers for builders, a calmer start</a></li>
               <li><a href="#v0224">v0.2.24: builders the AI starts, plain words, an off switch for every default</a></li>
@@ -103,17 +103,22 @@
         <div class="stack">
 
         <article class="card" id="v0227" aria-labelledby="v0227-h">
-          <h3 id="v0227-h">v0.2.27 · A clickable /mcp, pasted pictures the AI can find, network server 0.1.2 <span class="badge ok">current preview</span></h3>
-          <p>One line per MCP server with an arrow-key picker, pasted pictures saved as files, and a leaner network
-          server.</p>
+          <h3 id="v0227-h">v0.2.27 · Skill packs, colour themes, a clickable /mcp, pasted pictures and files <span class="badge ok">current preview</span></h3>
+          <p>Packs of skills you add after seeing every file, colour themes, one line per MCP server with an
+          arrow-key picker, pasted pictures and copied files, and a leaner network server.</p>
           <ul>
+            <li><strong>Skill packs.</strong> <code>/pack add</code> a folder or a GitHub commit; one box shows
+            every file first, nothing in a pack runs, and its skills cost no tokens until a request fits one.</li>
+            <li><strong>Colour themes.</strong> <code>light</code> or <code>high-contrast</code> in
+            <code>/settings</code>; a pack can bring one, colours only.</li>
             <li><strong><code>/mcp</code> without the wall of text.</strong> One line per server; pick one to connect,
             disconnect, forget it or change writes and the sandbox; <code>/mcp detail</code> keeps the full view.</li>
             <li><strong>Pasted pictures.</strong> Saved in a private temp folder with the path under your request,
-            like a dragged file.</li>
+            like a dragged file. A file copied in Finder, Explorer or a file manager pastes as its path.</li>
             <li><strong>Network server 0.1.2.</strong> Short Central rows by default, a firmware upgrade that works,
             and "queued, not applied yet" when Central has accepted but not run a change.</li>
             <li><strong>Installs.</strong> A <code>gh</code> older than 2.49 no longer blocks an install.</li>
+            <li><strong><code>/security-review update</code></strong> works with the shell sandbox on.</li>
           </ul>
         </article>
 
@@ -576,18 +581,23 @@
         <h2 id="later-h">Later, not scheduled</h2>
         <aside class="callout">
           <strong class="callout-title">Ideas, not promises</strong>
-          <p>These are agreed directions with no version number yet. Nothing here is being built right
+          <p>These are agreed directions with no version number yet. The first part of Vendor packs (skill packs)
+          shipped in v0.2.27; nothing else here is being built right
           now, and any of it may change shape or be dropped.</p>
         </aside>
 
         <div class="stack">
         <article class="card" id="packs" aria-labelledby="packs-h">
-          <h3 id="packs-h">Vendor packs · one step to set up a vendor <span class="badge">idea, not scheduled</span></h3>
+          <h3 id="packs-h">Vendor packs · one step to set up a vendor <span class="badge soon">first part shipped in v0.2.27</span></h3>
           <p>Since v0.2.22 Casper sets up its own server for Mist, Central and ClearPass in one step.
           For any other vendor it still takes four separate steps: connect its MCP server, pick a
           read-only preset, add its reference docs, maybe add a skill. A pack does all four at
           once.</p>
           <ul>
+            <li><strong>Skill packs</strong> <span class="badge">in v0.2.27</span>.
+            <code>/pack add</code> a folder or <code>https://github.com/&lt;owner&gt;/&lt;repo&gt;@&lt;commit&gt;</code>:
+            one box shows every file before you say yes, and a pack brings skills and one colour theme, nothing
+            that runs. Servers, references and checks in a pack are not built yet. See <code>docs/PACKS.md</code>.</li>
             <li><strong>One command.</strong> <code>casper pack add aruba</code> connects
             hpe-networking-mcp with its <code>safe-read-only</code> preset, adds the Aruba CX and
             Central references, and adds a "troubleshoot a site" skill.</li>
