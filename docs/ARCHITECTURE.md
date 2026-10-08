@@ -53,7 +53,7 @@ From the prompt to the receipt, in `src/app/task-run.ts` (`runModelTask`) unless
    change: they must fail there and pass with it. The optional acceptance test runs after that.
 9. The receipt: `app.lastTaskResult` is built, `taskUndo.finish` saves the second copy and the receipt
    (`src/task/receipts.ts`), and `formatShortReceipt` (`src/task/result.ts`) prints it.
-10. `offerNextSteps` shows the numbered row under the receipt: 1 Undo, 2 Show diff, then suggestions.
+10. `offerNextSteps` shows the numbered row under the receipt: 1 Show diff, 2 Undo, then suggestions.
 
 ## Promises Casper makes and where they live
 

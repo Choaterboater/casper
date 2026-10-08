@@ -214,7 +214,7 @@ and one concrete next action when work remains. Unknown checks, estimates and
 remaining uncertainty stay explicit. This is guidance to the model; a provider's replies may not follow it.
 
 The prompt box keeps a fixed two-column gutter: `❯` while idle, `•` while a
-command is working, `?` while an exact approval is pending. The box never shifts
+command is working, `?` while a question, an approval or lines to edit wait for you. The box never shifts
 horizontally between states, so a draft keeps its wrapping. The footer shows a
 state mark once: the braille spinner while working, `? waiting for you` while a question,
 checklist or approval needs you (with the spinner stopped), and `idle` at its end when Casper waits for a request
@@ -279,7 +279,7 @@ stops after showing the plan. `/plan` on its own says what to type, with an exam
 
 ### Layout stability
 
-The `/` command popup and `/model` and `/effort` pickers are composited over the
+The `/` command popup, the `/model` browser and the `/effort` picker are composited over the
 bottom of the transcript instead of appended below it. Opening and closing them
 does not scroll the terminal; covered transcript rows return unchanged.
 Login panels instead follow the transcript, keeping standalone authorization URLs
@@ -311,9 +311,11 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
 
 ### Model and effort
 
-- `/model`: Casper's full-screen model browser — a provider sidebar (Tab focuses it;
-  Up/Down switch login groups like github-copilot/openrouter), search-backed model rows
-  with context, price and capability columns, and a selected-model summary footer.
+- `/model`: Casper's full-screen model browser. Typing searches the models; each row shows the
+  context size, price and `reasoning`/`vision` tags, with the current model first and your default
+  next, and the line under the list sums up the highlighted one. Tab moves to the providers on the
+  left (`All models`, then each provider): Up/Down there picks whose models show, and Enter or
+  typing goes back to the list. `/model <part of a name>` opens it already searched.
   **Enter remembers globally** in Casper's settings; **Ctrl+S selects for this session
   only**. Esc cancels. `/effort` with no level is the same numbered list as every other
   choice: press a level's number (or Up/Down and Enter) to remember it; Ctrl+S picks it for
@@ -329,7 +331,8 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
   `-` for `–`, `|` for `▌`, `└` for `↳`, `~` for `…`. Windows Terminal and other terminals keep the symbols.
 - `/model provider/id`: exact selection, remembered globally. During a task it applies from the
   model's next step, like `/effort` (see Input and commands).
-- `/model --session [provider/id]`: explicitly temporary selection/picker.
+- `/model --session [provider/id]`: for this conversation only; the browser opens with Enter
+  choosing for this session only.
 - `/effort`: automatic or supported fixed-effort picker in an interactive terminal, otherwise a list.
   `auto` is always a choice. On a rich terminal, **Shift+Tab** cycles that same list and remembers
   the level it stops at (saved once, when you stop pressing). `/effort <level>` remembers too;
@@ -511,8 +514,8 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   empty editor the first Ctrl+C only shows `Ctrl+C again to exit`; a second within two
   seconds exits, any other key disarms it. Ctrl+D exits an empty editor at once.
   Ctrl+L forces a redraw.
-- Enter during work runs a command that only shows something at once: `/help`, `/status`,
-  `/usage`, `/context`, `/permissions`, `/diff`, `/receipt`, `/output`, `/tasks` (and
+- Enter during work runs a command that only shows something at once: `/help` (and `/help <word>`, `/help all`), `/status`,
+  `/usage`, `/context`, `/permissions`, `/allowed`, `/pane` (and `/pane on|off`), `/diff`, `/receipt`, `/output`, `/tasks` (and
   `/tasks stop <n>`), `/details`, `/mcp`, `/lsp`, `/skills`, `/sandbox`, `/secrets`, `/branch`, `/hotkeys`,
   `/project`, `/browser`, `/services`, `/debug`, `/lab`, `/memory`, `/references`, `/visualize` (each alone),
   `/doctor` (it reports; its fixes ask after the task), `/exit` and `/quit` (they stop the task and leave), `/effort` (a bare `/effort` opens its picker; an approval that arrives closes
@@ -593,11 +596,14 @@ See [DEBUGGER.md](DEBUGGER.md). No adapter installation, remote attach or evalua
 bun tools/terminal-demo.ts
 ```
 
-This offline demo uses synthetic model/effort choices and activity. It makes
-no model calls, edits no source files and saves no preferences. Send a message for
-streaming Markdown/code/tables; try `/approve`, `/error`, `/status`, `/model` and
-`/effort`, then resize while editing a draft. It exercises the production terminal
-surface, not live-model usefulness or human visual sign-off.
+This offline demo uses two made-up models and synthetic activity. It makes no model
+calls, edits no source files and saves no preferences. Send any line: three tool lines
+print the way Casper prints them, half a second apart, then a short answer; Esc stops
+them. `/model` opens the real model browser over the made-up models and `/effort` the
+real effort picker; `/exit` quits, and any other `/` command only lists these three.
+Resize while editing a draft. Approvals, errors and `/status` are only in the real CLI.
+It exercises the production terminal surface, not live-model usefulness or human
+visual sign-off.
 
 ## Compatibility
 
