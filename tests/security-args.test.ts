@@ -66,6 +66,7 @@ test("every tool ran with its offline flags and with its own inline ignores turn
 
   const osv = (await tools.recorded("osv-scanner"))!;
   expect(osv.args).toContain("--offline");
+  expect(osv.args).toContain("--no-call-analysis=all");
   expect(osv.env.OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY).toBe(path.join(home, ".casper", "security", "osv-db"));
 
   const lint = (await tools.recorded("ansible-lint"))!;

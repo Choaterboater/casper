@@ -188,7 +188,8 @@ export function toolArgs(id: SecurityToolId, context: ToolArgsContext): string[]
     case "zizmor":
       return ["--offline", "--no-ignores", "--no-config", "--no-progress", "--no-exit-codes", "--format", "json", "."];
     case "osv-scanner":
-      return ["scan", "source", "--offline", "--format", "json", "--recursive", ...(context.osvConfig ? ["--config", context.osvConfig] : []), "."];
+      // No call analysis: for Go it runs the go toolchain on the repo's own modules (cgo and the C compiler included).
+      return ["scan", "source", "--offline", "--no-call-analysis=all", "--format", "json", "--recursive", ...(context.osvConfig ? ["--config", context.osvConfig] : []), "."];
     case "ansible-lint":
       return ["--offline", "-f", "codeclimate", "--nocolor",
         ...(context.ansibleConfig ? ["-c", context.ansibleConfig] : []), ...(context.ansibleIgnore ? ["-i", context.ansibleIgnore] : []),

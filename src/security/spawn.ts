@@ -35,19 +35,27 @@ const DEFAULT_STDOUT_BYTES = 64 * 1024 * 1024;
 
 /** Each tool runs in the session's shell sandbox when one holds commands, with no network at all: it can read the
  * project, write only temp and the project, and never read your private places. */
-export const runTool: ToolRunner = async (options) => {
+export const runTool: ToolRunner = (options) => runSandboxed(options, "none");
+
+/** A download you asked for that runs only Casper's own arguments (a pack's git fetch): held by the session's shell
+ * sandbox where one runs, so it reaches only the sandbox's listed hosts and writes only temp and the project. */
+export const runFetchStep: ToolRunner = (options) => runSandboxed(options, "ask");
+
+async function runSandboxed(options: ToolRunOptions, network: "none" | "ask"): Promise<ToolRunResult> {
   let plan: SandboxedSpawn;
-  try { plan = await sandboxedArgv(options.file, options.args, { cwd: options.cwd, network: "none" }); }
+  try { plan = await sandboxedArgv(options.file, options.args, { cwd: options.cwd, network }); }
   catch (caught) { return { exitCode: null, signal: null, stdout: "", stderr: "", ended: "no_start", error: caught instanceof Error ? caught.message : String(caught) }; }
   const result = await runPlanned(options, plan);
   plan.held?.sandbox.finished(plan.held.id);
   // Inside the sandbox a missing program is the shell's 127, not a spawn error.
   return plan.held && result.exitCode === 127 && !result.ended ? { ...result, ended: "no_start", error: `${options.file} could not start` } : result;
-};
+}
 
-/** Casper's own install steps (unpack a pinned download, build a hash-locked Python environment). They write into
- * ~/.casper and need the network, which the session's shell sandbox does not allow, and they run only Casper's own
- * arguments on files whose hashes were checked, never a repository's code: so they run as they are. */
+/** Casper's own install steps (unpack a pinned download, build a hash-locked Python environment) and the advisory
+ * download by the osv-scanner Casper installed. They write into ~/.casper and need the network, which the session's
+ * shell sandbox does not allow, and they run only Casper's own arguments on files whose hashes were checked, never a
+ * repository's code (the advisory download reads the repo's lock files with --no-resolve and no call analysis, which
+ * would run the go toolchain on the repo): so they run as they are. */
 export const runInstallStep: ToolRunner = (options) => runPlanned(options, { file: options.file, args: [...options.args], shell: false });
 
 const runPlanned = (options: ToolRunOptions, plan: SandboxedSpawn): Promise<ToolRunResult> => new Promise((resolve) => {

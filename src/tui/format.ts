@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { stripVTControlCharacters } from "node:util";
 import type { MarkdownTheme } from "@earendil-works/pi-tui";
 import type { RuntimeEvent, RuntimeStatus } from "../runtime/types";
+import { roleCode, type ThemeRole } from "./theme";
 
 /** Prompt gutter glyphs. Idle accepts input; busy keeps the same width so the box never shifts. */
 export const PROMPT_GLYPH = "❯";
@@ -70,14 +71,24 @@ export function paint(text: string, code: string, color: boolean): string {
   return color ? `\x1b[${code}m${text}\x1b[0m` : text;
 }
 
-/** Assistant Markdown theme: accent for structure, dim for borders. With color off every function is identity. */
+/** Text in a role's colour from the theme in use (src/tui/theme.ts), after `style` (bold is "1"). A role in the
+ * terminal's own text colour with no style adds nothing. The theme is read on each call, so a change shows at once. */
+export function tint(text: string, role: ThemeRole, color: boolean, style?: string): string {
+  const code = roleCode(role);
+  const codes = style && code ? `${style};${code}` : style || code;
+  return codes ? paint(text, codes, color) : text;
+}
+
+/** Assistant Markdown theme: accent for structure, muted and border for the rest. With color off every function is identity. */
 export function markdownTheme(color: boolean): MarkdownTheme {
   const style = (code: string) => (text: string) => paint(text, code, color);
-  const accent = style("36");
-  const dim = style("2");
+  const role = (name: ThemeRole, bold?: string) => (text: string) => tint(text, name, color, bold);
+  const accent = role("accent");
+  const muted = role("muted");
+  const border = role("border");
   return {
-    heading: style("1;36"), link: accent, linkUrl: dim, code: accent, codeBlock: accent, codeBlockBorder: dim, codeBlockIndent: "",
-    quote: dim, quoteBorder: dim, hr: dim, listBullet: accent,
+    heading: role("accent", "1"), link: accent, linkUrl: muted, code: accent, codeBlock: accent, codeBlockBorder: border, codeBlockIndent: "",
+    quote: muted, quoteBorder: border, hr: border, listBullet: accent,
     bold: style("1"), italic: style("3"), strikethrough: style("9"), underline: style("4"),
   };
 }

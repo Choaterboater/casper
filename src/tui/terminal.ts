@@ -1,9 +1,10 @@
-import type { Component } from "@earendil-works/pi-tui";
+import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import readline from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO } from "../runtime/types";
-import { paint, terminalText } from "./format";
+import { terminalText, tint } from "./format";
 import { renderPanel, type PanelTone } from "./presentation";
+import type { ThemeRole } from "./theme";
 import { TerminalSurface, type AskOrigin } from "./surface";
 import type { NextRow } from "./next-row";
 import { bellSequence, hostCommand, prepareTmuxPane, titleSequence, TITLE_RESTORE, TITLE_SAVE, type HostCommand, type HostTerminal } from "./host-terminal";
@@ -195,16 +196,24 @@ export class InteractiveTerminal {
     if (this.surface) this.surface.writeBlock(block); else this.output.write(block.render(this.output.columns ?? 80).join("\n") + "\n");
   }
 
+  /** Untrusted text its caller lays out for each width (a pack's files, a bar in front of every row): each row is
+   * sanitized as untrusted text and stays one row, so the layout is never wrapped again into rows it didn't make. */
+  writeRows(rows: (width: number) => string[]): void {
+    const laid = (width: number) => rows(width).map(row => truncateToWidth(terminalText(row).replace(/\n/g, " "), Math.max(1, width), ""));
+    if (this.surface) this.surface.writeBlock({ render: laid, invalidate() {} });
+    else this.output.write(laid(this.output.columns ?? 80).join("\n") + "\n");
+  }
+
   /** Code-like output (a replayed tool result, a diff) boxed under a title on the rich surface; a
    * titled plain block otherwise. Both title and body are sanitized as untrusted text. `diff`
-   * colors unified-diff lines (added green, removed red, hunk headers cyan). */
+   * colors unified-diff lines in the theme's diff colours (added, removed, hunk headers). */
   writePanel(title: string, body: string, options: { tone?: PanelTone; diff?: boolean } = {}): void {
     const heading = terminalText(title).replace(/\s+/g, " ").trim();
     const plain = terminalText(body).replace(/\n$/, "").split("\n");
     if (!this.surface) { this.write(`${heading}\n${plain.join("\n")}\n`); return; }
     const lines = options.diff ? plain.map(line =>
-      /^\+(?!\+\+ )/.test(line) ? paint(line, "32", this.color) : /^-(?!-- )/.test(line) ? paint(line, "31", this.color)
-        : line.startsWith("@@") ? paint(line, "36", this.color) : line) : plain;
+      /^\+(?!\+\+ )/.test(line) ? tint(line, "diffAdded", this.color) : /^-(?!-- )/.test(line) ? tint(line, "diffRemoved", this.color)
+        : line.startsWith("@@") ? tint(line, "diffHunk", this.color) : line) : plain;
     this.surface.writeBlock({ render: width => renderPanel(heading, lines, width, this.color, options.tone ?? "muted"), invalidate() {} });
   }
 
@@ -213,21 +222,22 @@ export class InteractiveTerminal {
     if (this.surface) this.surface.write(styled); else this.output.write(styled);
   }
 
-  /** One transcript line colored by how it starts: ✗ red, ✓ green, • yellow; a detailed diff line red or green. */
+  /** One transcript line colored by how it starts: ✗ error, ✓ success, • warning (the theme's colours); a detailed diff line added or removed. */
   private styleLine(line: string): string {
-    const code = /^(?:\[error\]|✗)/.test(line) ? "31" : /^✓/.test(line) ? "32"
-      : /^(?:•|\[skills\]|\[cancel|\[approval\]|\[ask\]|\[effort\])/.test(line) ? "33" : /^CASPER/.test(line) ? "1;36" : /^(?: \/help · |…)/.test(line) ? "2"
-      : /^ {4}\+ /.test(line) ? "32" : /^ {4}- /.test(line) ? "31" : undefined;
-    return code ? paint(line, code, this.color) : line;
+    const role: ThemeRole | undefined = /^(?:\[error\]|✗)/.test(line) ? "error" : /^✓/.test(line) ? "success"
+      : /^(?:•|\[skills\]|\[cancel|\[approval\]|\[ask\]|\[effort\])/.test(line) ? "warning" : /^CASPER/.test(line) ? "accent" : /^(?: \/help · |…)/.test(line) ? "muted"
+      : /^ {4}\+ /.test(line) ? "diffAdded" : /^ {4}- /.test(line) ? "diffRemoved" : undefined;
+    // The text header is bold as well as the accent colour.
+    return role ? tint(line, role, this.color, role === "accent" ? "1" : undefined) : line;
   }
 
-  /** A task's result (the receipt) on the rich terminal: a colored edge down its left side, green for a pass,
-   * red for a failure, yellow for anything in between. The plain terminal gets the lines as they are. */
+  /** A task's result (the receipt) on the rich terminal: a colored edge down its left side, success for a pass,
+   * error for a failure, warning for anything in between. The plain terminal gets the lines as they are. */
   writeResult(text: string): void {
     if (!this.surface) { this.write(text); return; }
     const lines = terminalText(text).split("\n");
-    const tone = /^✓/.test(lines[0] ?? "") ? "32" : /^(?:✗|\[error\])/.test(lines[0] ?? "") ? "31" : "33";
-    const edge = paint("▌", tone, this.color);
+    const tone = /^✓/.test(lines[0] ?? "") ? "success" : /^(?:✗|\[error\])/.test(lines[0] ?? "") ? "error" : "warning";
+    const edge = tint("▌", tone, this.color);
     this.surface.write(lines.map(line => line ? `${edge} ${this.styleLine(line)}` : line).join("\n"));
   }
 

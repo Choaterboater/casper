@@ -2,6 +2,8 @@ import { open } from "node:fs/promises";
 import { parse } from "yaml";
 
 export const MAX_SKILL_BYTES = 256 * 1024;
+/** A skill's name, and a pack's: lowercase letters, numbers and single hyphens (at most 64 characters). */
+export const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_HEADER_BYTES = 16 * 1024;
 
 export interface SkillMetadata {
@@ -66,7 +68,7 @@ export function parseSkillMetadata(header: string): SkillMetadata {
   }
   const fields = value as Record<string, unknown>;
   const { name, description, tags, stacks, intents, ...extra } = fields;
-  if (typeof name !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || name.length > 64) {
+  if (typeof name !== "string" || !SKILL_NAME.test(name) || name.length > 64) {
     throw new Error("name must be 1–64 lowercase letters, numbers, or single hyphens");
   }
   if (typeof description !== "string" || !description.trim() || description.length > 1024) {

@@ -4,10 +4,12 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
+import { pathToFileURL } from "node:url";
 import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEventListener, RuntimeImage, RuntimeSession } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
+import { readClipboardFiles } from "../src/tui/clipboard-files";
 import { clipboardDefaults, PASTE_IMAGE_KEY } from "../src/tui/surface";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -211,6 +213,7 @@ test(`${PASTE_IMAGE_KEY} pastes the clipboard's picture as [image 1] and it goes
   const f = await fixture({ vision: true });
   const previous = { ...clipboardDefaults };
   clipboardDefaults.image = async () => new Uint8Array(PNG);
+  clipboardDefaults.files = async () => null;
   const app = f.make(true);
   const interactive = app.runInteractive(f.project);
   try {
@@ -237,6 +240,7 @@ test(`${PASTE_IMAGE_KEY} with only text on the clipboard pastes it without termi
   const f = await fixture({ vision: true });
   const previous = { ...clipboardDefaults };
   clipboardDefaults.image = async () => null;
+  clipboardDefaults.files = async () => null;
   clipboardDefaults.text = async () => "fix the header\x1b]0;PWNED\x07\x1b[2J\x1b[31m red\x1b[201~ done";
   const app = f.make(true);
   const interactive = app.runInteractive(f.project);
@@ -261,6 +265,7 @@ test(`${PASTE_IMAGE_KEY} refuses a clipboard picture over 20 MB, like a picture 
   const big = new Uint8Array(21 * 1024 * 1024);
   big.set(PNG);
   clipboardDefaults.image = async () => big;
+  clipboardDefaults.files = async () => null;
   const app = f.make(true);
   const interactive = app.runInteractive(f.project);
   try {
@@ -270,6 +275,194 @@ test(`${PASTE_IMAGE_KEY} refuses a clipboard picture over 20 MB, like a picture 
     await f.screen.until((output) => output.includes("over 20 MB; not attached"));
     f.input.write("\r");
     await f.screen.until(idleAfter("Looked."));
+    expect(f.prompts[0]!.images).toBeUndefined();
+  } finally {
+    Object.assign(clipboardDefaults, previous);
+    f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
+  }
+});
+
+const PASTE = PASTE_IMAGE_KEY === "ctrl+v" ? "\x16" : "\x1bv";
+
+test(`${PASTE_IMAGE_KEY} with a picture file copied in a file manager attaches it like a dropped file`, async () => {
+  const f = await fixture({ vision: true });
+  const previous = { ...clipboardDefaults };
+  let textRead = false;
+  clipboardDefaults.image = async () => null;
+  clipboardDefaults.files = async () => [f.shot];
+  clipboardDefaults.text = async () => { textRead = true; return "shot.png"; };
+  const app = f.make(true);
+  const interactive = app.runInteractive(f.project);
+  try {
+    await f.screen.until((output) => output.includes("idle"));
+    f.input.write("fix this ");
+    f.input.write(PASTE);
+    await f.screen.until((output) => output.includes('shot.png"'));
+    f.input.write("\r");
+    await f.screen.until(idleAfter("Looked."));
+    expect(f.prompts[0]!.text).toContain("User request:\nfix this [image 1]\n");
+    expect(f.prompts[0]!.text).toContain(`\n[image 1] is the file ${f.shot}`);
+    expect(f.prompts[0]!.images).toEqual([{ data: PNG.toString("base64"), mimeType: "image/png" }]);
+    expect(f.screen.output).not.toContain("no picture on the clipboard");
+    expect(textRead).toBe(false);
+  } finally {
+    Object.assign(clipboardDefaults, previous);
+    f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
+  }
+});
+
+test(`${PASTE_IMAGE_KEY} with several files copied: the pictures go with the request, any other file stays as its path`, async () => {
+  const f = await fixture({ vision: true });
+  const second = path.join(path.dirname(f.shot), "second shot.png");
+  const notes = path.join(path.dirname(f.shot), "notes.txt");
+  await writeFile(second, PNG);
+  await writeFile(notes, "not a picture");
+  const previous = { ...clipboardDefaults };
+  clipboardDefaults.image = async () => null;
+  clipboardDefaults.files = async () => [f.shot, second, notes];
+  const app = f.make(true);
+  const interactive = app.runInteractive(f.project);
+  try {
+    await f.screen.until((output) => output.includes("idle"));
+    f.input.write(PASTE);
+    await f.screen.until((output) => output.includes('notes.txt"'));
+    f.input.write("\r");
+    await f.screen.until(idleAfter("Looked."));
+    expect(f.prompts[0]!.text).toContain(`User request:\n[image 1] [image 2] "${notes}"\n`);
+    expect(f.prompts[0]!.text).toContain(`\n[image 1] is the file ${f.shot}\n[image 2] is the file ${second}`);
+    expect(f.prompts[0]!.images).toHaveLength(2);
+  } finally {
+    Object.assign(clipboardDefaults, previous);
+    f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
+  }
+});
+
+test(`${PASTE_IMAGE_KEY} with a file that is not a picture pastes its path and sends no picture`, async () => {
+  const f = await fixture({ vision: true });
+  const notes = path.join(path.dirname(f.shot), "notes.txt");
+  await writeFile(notes, "not a picture");
+  const previous = { ...clipboardDefaults };
+  clipboardDefaults.image = async () => null;
+  clipboardDefaults.files = async () => [notes];
+  const app = f.make(true);
+  const interactive = app.runInteractive(f.project);
+  try {
+    await f.screen.until((output) => output.includes("idle"));
+    f.input.write("summarize ");
+    f.input.write(PASTE);
+    await f.screen.until((output) => output.includes('notes.txt"'));
+    f.input.write("\r");
+    await f.screen.until(idleAfter("Looked."));
+    expect(f.prompts[0]!.text).toEndWith(`User request:\nsummarize "${notes}"`);
+    expect(f.prompts[0]!.images).toBeUndefined();
+  } finally {
+    Object.assign(clipboardDefaults, previous);
+    f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
+  }
+});
+
+test(`${PASTE_IMAGE_KEY}: a picture on the clipboard comes before copied files, except where files are read first (a Mac)`, async () => {
+  const f = await fixture({ vision: true });
+  const notes = path.join(path.dirname(f.shot), "notes.txt");
+  await writeFile(notes, "not a picture");
+  const previous = { ...clipboardDefaults };
+  const read: string[] = [];
+  clipboardDefaults.image = async () => { read.push("image"); return new Uint8Array(PNG); };
+  clipboardDefaults.files = async () => { read.push("files"); return [notes]; };
+  clipboardDefaults.filesFirst = false;
+  const app = f.make(true);
+  const interactive = app.runInteractive(f.project);
+  try {
+    await f.screen.until((output) => output.includes("idle"));
+    f.input.write(PASTE);
+    await f.screen.until((output) => output.includes("[image 1]"));
+    expect(read).toEqual(["image"]);
+    // Finder puts a copied file's icon on the clipboard as a picture: there the files win.
+    clipboardDefaults.filesFirst = true;
+    f.input.write(PASTE);
+    await f.screen.until((output) => output.includes('notes.txt"'));
+    expect(read).toEqual(["image", "files"]);
+    f.input.write("\r");
+    await f.screen.until(idleAfter("Looked."));
+    expect(f.prompts[0]!.text).toContain(`User request:\n[image 1] "${notes}"\n`);
+    expect(f.prompts[0]!.images).toHaveLength(1);
+  } finally {
+    Object.assign(clipboardDefaults, previous);
+    f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
+  }
+});
+
+/** Files copied as this system's clipboard tool prints them (one path a line on Windows, file:// addresses
+ * elsewhere), read through the real reader with only the tool faked. */
+function copiedThroughTool(files: string[]): () => Promise<string[] | null | undefined> {
+  if (process.platform === "win32") return () => readClipboardFiles({ platform: "win32", env: {}, run: async () => files.map((file) => `${file}\r\n`).join("") });
+  return () => readClipboardFiles({ platform: "linux", env: { DISPLAY: ":0" }, run: async () => files.map((file) => `${pathToFileURL(file).href}\n`).join("") });
+}
+
+test("the paste-picture key leaves out a copied file whose name has a control or bidi character, and says so", async () => {
+  const f = await fixture({ vision: true });
+  const previous = { ...clipboardDefaults };
+  clipboardDefaults.image = async () => null;
+  clipboardDefaults.files = copiedThroughTool([path.join(path.dirname(f.shot), "a\u202egnp.exe"), path.join(path.dirname(f.shot), "b\x1b[2J.png"), f.shot]);
+  const app = f.make(true);
+  const interactive = app.runInteractive(f.project);
+  try {
+    await f.screen.until((output) => output.includes("idle"));
+    f.input.write(PASTE);
+    await f.screen.until((output) => output.includes("a copied file's name has control characters; left out"));
+    f.input.write("\r");
+    await f.screen.until(idleAfter("Looked."));
+    expect(f.prompts[0]!.text).toContain("User request:\n[image 1]\n");
+    expect(f.prompts[0]!.text).not.toMatch(/[\x00-\x09\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/);
+    expect(f.prompts[0]!.images).toHaveLength(1);
+  } finally {
+    Object.assign(clipboardDefaults, previous);
+    f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
+  }
+});
+
+test(`${PASTE_IMAGE_KEY}: when every copied name has a control character, it says so and pastes nothing else`, async () => {
+  const f = await fixture({ vision: true });
+  const previous = { ...clipboardDefaults };
+  let textRead = false;
+  clipboardDefaults.image = async () => null;
+  clipboardDefaults.files = copiedThroughTool([path.join(path.dirname(f.shot), "a‮gnp.exe"), path.join(path.dirname(f.shot), "b\x1b[2J.png")]);
+  clipboardDefaults.text = async () => { textRead = true; return "agnp.exe"; };
+  const app = f.make(true);
+  const interactive = app.runInteractive(f.project);
+  try {
+    await f.screen.until((output) => output.includes("idle"));
+    f.input.write(PASTE);
+    await f.screen.until((output) => output.includes("a copied file's name has control characters; left out"));
+    expect(textRead).toBe(false);
+    expect(f.screen.output).not.toContain("no picture on the clipboard");
+    f.input.write("hi\r");
+    await f.screen.until(idleAfter("Looked."));
+    expect(f.prompts[0]!.text).toEndWith("User request:\nhi");
+  } finally {
+    Object.assign(clipboardDefaults, previous);
+    f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
+  }
+});
+
+test.skipIf(process.platform !== "win32")(`Windows: ${PASTE_IMAGE_KEY} with a picture copied from another computer's share still asks before opening it`, async () => {
+  const f = await fixture({ vision: true });
+  const previous = { ...clipboardDefaults };
+  clipboardDefaults.image = async () => null;
+  clipboardDefaults.files = async () => ["\\\\nas\\shots\\pic.png"];
+  const app = f.make(true);
+  const interactive = app.runInteractive(f.project);
+  try {
+    await f.screen.until((output) => output.includes("idle"));
+    f.input.write(PASTE);
+    await f.screen.until((output) => output.includes('pic.png"'));
+    f.input.write("\r");
+    await f.screen.until(waiting("Attach this picture?"));
+    expect(f.screen.output).toContain("is on another computer, nas.");
+    f.input.write("1");
+    await f.screen.until(idleAfter("Looked."));
+    expect(f.screen.output).toContain("not opened, so not attached");
+    expect(f.prompts[0]!.text).toEndWith('User request:\n"\\\\nas\\shots\\pic.png"');
     expect(f.prompts[0]!.images).toBeUndefined();
   } finally {
     Object.assign(clipboardDefaults, previous);

@@ -32,6 +32,7 @@ import { formatDuration } from "../mcp/clock";
 import { sandboxLines, sandboxSummary } from "../mcp/sandbox";
 import type { LSPManager } from "../lsp/manager";
 import type { SkillRegistry } from "../skills/registry";
+import { runPackCommand } from "../packs/command";
 import type { ProjectContext } from "../project/context";
 import type { ProjectInfo } from "../project/inspect";
 import { CHECK_NAMES, type CheckName, type VerificationReport } from "../verify/evidence";
@@ -114,6 +115,8 @@ export interface CommandHost {
   readonly references?: ReferenceLibrary;
   /** Reads the reference files again after /references add, so the new source is searched with no restart. */
   reloadReferences?(): Promise<void>;
+  /** Indexes skills again after /pack add or /pack remove. */
+  reloadSkills?(): Promise<void>;
   /** The shared secret scrubber, for /secrets. */
   readonly scrubber: Scrubber;
   /** /secrets files on|off: scrub config files and config-looking command output (MCP results always). */
@@ -534,6 +537,10 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     }
     if (/^\/skills(?:\s|$)/.test(prompt)) {
       await handleSkillsCommand(host, prompt);
+      return;
+    }
+    if (/^\/pack(?:\s|$)/.test(prompt)) {
+      await handlePackCommand(host, prompt);
       return;
     }
     if (/^\/crew(?:\s|$)/.test(prompt)) {
@@ -1274,12 +1281,15 @@ async function handleLabCommand(host: CommandHost, prompt: string): Promise<void
     : `[lab] They were already in ${place}.\n`);
 }
 
-/** "8 indexed (6 bundled)", or "2 indexed; bundled: off" when skills.bundled is false. */
+/** "8 indexed (6 bundled)", "10 indexed (6 bundled, 2 from packs)", or "2 indexed; bundled: off" when skills.bundled is false. */
 function skillCountLine(host: CommandHost): string {
   const skills = host.skillRegistry!.list();
   const bundled = skills.filter((skill) => skill.source === "bundled").length;
-  if (host.projectContext!.skills.bundled === false) return `${skills.length} indexed; bundled: off`;
-  return `${skills.length} indexed${bundled ? ` (${bundled} bundled)` : ""}`;
+  const packs = skills.filter((skill) => skill.source === "pack").length;
+  const fromPacks = packs ? `${packs} from packs` : "";
+  if (host.projectContext!.skills.bundled === false) return `${skills.length} indexed${fromPacks ? ` (${fromPacks})` : ""}; bundled: off`;
+  const parts = [bundled ? `${bundled} bundled` : "", fromPacks].filter(Boolean);
+  return `${skills.length} indexed${parts.length ? ` (${parts.join(", ")})` : ""}`;
 }
 
 async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<void> {
@@ -1312,7 +1322,9 @@ async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<v
           `SHA256: ${inspected.sha256}`,
           inspected.skill.source === "bundled"
             ? `Bundled with Casper and trusted. /skills block ${id} stops it; /settings turns them all off.`
-            : `After reviewing: /skills trust ${id}${host.interactive ? "" : ` ${inspected.sha256}`}`,
+            : inspected.skill.source === "pack"
+              ? `Comes with pack ${inspected.skill.pack}, reviewed as a whole when you add it (/pack list). /skills block ${id} stops it.`
+              : `After reviewing: /skills trust ${id}${host.interactive ? "" : ` ${inspected.sha256}`}`,
           "",
         ].join("\n"));
       } else if (action === "trust" && id && sha256 && !extra.length) {
@@ -1339,6 +1351,25 @@ async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<v
       host.output.write(`[skills] ${error instanceof Error ? error.message : String(error)}\n`);
     }
   }
+
+/** /pack add, list and remove: only this typed line reaches it, and the add box is answered only by you. */
+async function handlePackCommand(host: CommandHost, prompt: string): Promise<void> {
+  const signal = host.commandAbort?.signal;
+  await runPackCommand({
+    homeDir: host.homeDir(), cwd: host.activeWorkspaceRoot(), packsOn: host.projectContext?.packs !== false,
+    // Like /skills trust: the box itself takes only a key pressed after it appeared.
+    canAsk: host.interactive && !host.closing,
+    print: (line) => { if (!host.closing) host.output.write(`${terminalText(line)}\n`); },
+    printRows: (rows) => { if (!host.closing) host.terminal.writeRows(rows); },
+    approve: (preview, question, choices) => host.approveChoice(preview, question, choices, signal),
+    takenNames: () => ({
+      skills: (host.skillRegistry?.list() ?? []).map((skill) => ({ name: skill.name, source: skill.source, ...(skill.pack ? { pack: skill.pack } : {}) })),
+      servers: (host.mcp?.status() ?? []).map((server) => server.name),
+    }),
+    ...(host.reloadSkills ? { reload: () => host.reloadSkills!() } : {}),
+    git: signal ? { signal } : {},
+  }, prompt.slice("/pack".length));
+}
 
 /** A failed sign-in in plain words: the reason Casper has (never provider text) and the next step. */
 export function loginFailureText(result: Extract<RuntimeAuthenticationResult, { status: "failed" }>): string {

@@ -28,7 +28,7 @@ import { prepareCapabilities, pageRun, smokeRun } from "./task-tools";
 import { bigModelReceipt, switchToBigModel, restoreModel, askBigModelRetry, bigModelOf } from "./big-model";
 import { receiptSurface } from "./task-run";
 import { ensureRuntime } from "./runtime-start";
-import { reloadProject, writeProjectFile } from "./project-file";
+import { followTheme, reloadProject, writeProjectFile } from "./project-file";
 
 export async function runVerification(app: CasperApp, checks: readonly CheckName[],
   repair: boolean,
@@ -228,6 +228,7 @@ export async function projectAfterSetup(app: CasperApp, context: ProjectContext,
   const checks = (c: ProjectContext) => JSON.stringify([c.model.commands, c.model.namedChecks ?? {}, c.verification.checks ?? null]);
   if (checks(fresh) === checks(context)) return undefined;
   app.projectContext = fresh;
+  followTheme(app, context.theme);
   return fresh;
 }
 

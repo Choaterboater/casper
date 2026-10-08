@@ -3,9 +3,10 @@ import {
   matchesKey, setCapabilityOverrides, TuiMainScreen, truncateToWidth, visibleWidth, wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
-import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES } from "../app/images";
+import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } from "../app/images";
+import { readClipboardFiles } from "./clipboard-files";
 import { COMMANDS, fitDescriptions, RUNS_DURING_WORK } from "./commands";
-import { BUSY_GLYPH, hasTerminalControls, markdownTheme, paint, PROMPT_GLYPH, terminalText } from "./format";
+import { BUSY_GLYPH, hasLineControls, hasTerminalControls, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
 import { renderPanel } from "./presentation";
@@ -41,11 +42,20 @@ const EXIT_NOTE = "Ctrl-C again to exit · Ctrl-D exits too";
 
 /** The key that pastes a picture: Ctrl+V, or Alt+V on Windows, where Ctrl+V is the terminal's own text paste (as in Pi). */
 export const PASTE_IMAGE_KEY = process.platform === "win32" ? "alt+v" : "ctrl+v";
-/** Where a pasted picture comes from: the system clipboard through pi-tui's helper. Tests swap it.
- * Undefined: no clipboard helper here; null: no picture on the clipboard. */
-export const clipboardDefaults: { image: () => Promise<Uint8Array | null | undefined>; text: () => Promise<string | null | undefined> } = {
+/** Where a pasted picture comes from: the system clipboard through pi-tui's helper, and files copied in a file
+ * manager through the system's clipboard tool (tui/clipboard-files.ts). Tests swap them.
+ * Undefined: no clipboard helper here; null: nothing of that kind on the clipboard. */
+export const clipboardDefaults: {
+  image: () => Promise<Uint8Array | null | undefined>;
+  text: () => Promise<string | null | undefined>;
+  files: () => Promise<string[] | null | undefined>;
+  /** Copied files are looked for before a picture: on a Mac, where Finder also puts a copied file's icon on the clipboard as a picture. */
+  filesFirst: boolean;
+} = {
   image: async () => getNativeClipboard()?.getImage(),
   text: async () => getNativeClipboard()?.getText(),
+  files: () => readClipboardFiles(),
+  filesFirst: process.platform === "darwin",
 };
 
 /** Spinner frames (braille; ASCII on the old Windows console); the footer dot and Working panel title cycle through
@@ -144,6 +154,9 @@ export class TerminalSurface {
   private readonly theme: MarkdownTheme;
   private readonly accent: (text: string) => string;
   private readonly muted: (text: string) => string;
+  private readonly border: (text: string) => string;
+  /** The highlighted choice in a list or question. */
+  private readonly selected: (text: string) => string;
   private status = "";
   /** The Working box's lines: the latest steps and what the model is doing now. */
   private activity?: string[];
@@ -209,14 +222,16 @@ export class TerminalSurface {
 
   constructor(private readonly io: RuntimePickerIO, private readonly cancel: () => void, private readonly eof: () => void) {
     this.theme = markdownTheme(io.color);
-    this.accent = text => paint(text, "36", io.color);
-    this.muted = text => paint(text, "2", io.color);
+    this.accent = text => tint(text, "accent", io.color);
+    this.muted = text => tint(text, "muted", io.color);
+    this.border = text => tint(text, "border", io.color);
+    this.selected = text => tint(text, "selection", io.color);
     // Model-written links show their URL in parentheses instead of hiding it behind an OSC 8 hyperlink.
     setCapabilityOverrides({ hyperlinks: false });
     this.terminal = new StreamTerminal(io, () => this.close());
     this.tui = new StableMainScreen(this.terminal);
-    this.editor = new PromptEditor(this.tui, { borderColor: this.muted, selectList: {
-      selectedPrefix: this.accent, selectedText: this.accent, description: this.muted, scrollInfo: this.muted, noMatch: this.muted,
+    this.editor = new PromptEditor(this.tui, { borderColor: this.border, selectList: {
+      selectedPrefix: this.selected, selectedText: this.selected, description: this.muted, scrollInfo: this.muted, noMatch: this.muted,
     } }, { autocompleteMaxVisible: 7 });
     this.editor.glyph = () => this.pendingAsk || this.pendingEdit ? "?" : this.busy ? BUSY_GLYPH : PROMPT_GLYPH;
     this.editor.paintGutter = text => this.busy && !this.pendingAsk && !this.pendingEdit ? this.muted(text) : this.accent(text);
@@ -254,7 +269,7 @@ export class TerminalSurface {
     this.tui.addChild({
       render: width => {
         const editorLines = this.editor.render(width);
-        const rule = this.muted("─".repeat(width));
+        const rule = this.border("─".repeat(width));
         const activity = this.activity ? renderPanel(`${SPINNER_FRAMES[this.spinnerFrame]} Working`, this.activity.map(line => { const fitted = truncateToWidth(line, Math.max(1, width - 4)); return line.startsWith("↳ ") ? this.muted(fitted) : fitted; }), width, this.io.color, "accent") : [];
         const block = this.slot ? this.slot.render(width).map(line => truncateToWidth(line, width))
           : this.lending ? [rule, this.muted(truncateToWidth("  exclusive input in progress · Esc or Ctrl+C cancels", width)), rule]
@@ -337,7 +352,7 @@ export class TerminalSurface {
         }
       }
       if (matchesKey(data, "ctrl+l")) { this.tui.requestRender(true); return { consume: true }; }
-      // A picture from the clipboard goes in as [image N]; with no picture, the clipboard's text is pasted.
+      // A picture from the clipboard goes in as [image N]; with no picture, copied files' paths, else the clipboard's text.
       if (matchesKey(data, PASTE_IMAGE_KEY) && !this.pendingAsk) { void this.pasteImage(); return { consume: true }; }
       // The last step in full (an edit's diff, a command's output), even while work runs.
       if (matchesKey(data, "ctrl+t")) {
@@ -355,12 +370,15 @@ export class TerminalSurface {
     });
   }
 
-  /** Ctrl+V: the clipboard's picture as `[image N]` at the cursor, kept until the request is sent. */
+  /** Ctrl+V: the clipboard's picture as `[image N]` at the cursor, kept until the request is sent. With no picture,
+   * files copied in a file manager, then the clipboard's text. */
   private async pasteImage(): Promise<void> {
+    if (clipboardDefaults.filesFirst && await this.pasteFiles()) return;
     let bytes: Uint8Array | null | undefined;
     try { bytes = await clipboardDefaults.image(); } catch { bytes = undefined; }
     if (this.closed) return;
     if (!bytes?.length) {
+      if (!clipboardDefaults.filesFirst && await this.pasteFiles()) return;
       let text: string | null | undefined;
       try { text = await clipboardDefaults.text(); } catch { text = undefined; }
       // As a bracketed paste: the editor drops terminal control codes from it (and folds a long paste), as for any paste.
@@ -378,6 +396,23 @@ export class TerminalSurface {
     this.pasted.set(number, { data: Buffer.from(bytes).toString("base64"), mimeType });
     this.editor.insertTextAtCursor(`${imageLabel(number)} `);
     this.render();
+  }
+
+  /** Copied files go in as quoted paths, as if dropped: a picture among them becomes `[image N]` when the request is
+   * sent, with the same checks and limits as a typed path. False when no files were copied. */
+  private async pasteFiles(): Promise<boolean> {
+    let files: string[] | null | undefined;
+    try { files = await clipboardDefaults.files(); } catch { files = undefined; }
+    if (this.closed) return true;
+    if (!files?.length) return false;
+    // A name with a control or bidi character would not show as it is: it is left out, not changed.
+    const shown = files.filter((file) => !hasLineControls(file));
+    if (shown.length < files.length) this.flashNote("a copied file's name has control characters; left out");
+    if (!shown.length) return true;
+    // As a paste, so its words never count as typed ones.
+    this.editor.handleInput(`\x1b[200~${shown.map(promptPath).join(" ")} \x1b[201~`);
+    this.render();
+    return true;
   }
 
   /** What was pasted into the line just sent (empty when all of it was typed). */
@@ -405,7 +440,7 @@ export class TerminalSurface {
     // The badge leads and is never cut off; a window too narrow for it gets the short form.
     const text = visibleWidth(this.badge) + 1 < width ? this.badge : "WRITES · ctrl+o";
     const rest = width - visibleWidth(text) - 1;
-    const badge = paint(text, "1;33", this.io.color);
+    const badge = tint(text, "warning", this.io.color, "1");
     return rest > 2 ? `${badge} ${this.footerText(rest)}` : truncateToWidth(badge, width);
   }
 
@@ -655,7 +690,7 @@ private updateSpinner(): void {
         ...(from === "ai" ? [this.muted(AI_ASKS_LABEL)] : []),
         ...wrapTextWithAnsi(this.accent(safeQuestion), width),
         ...shown.flatMap((option, index) => askOptionLines(picked(index) ? "✓ " : "• ", option, width,
-          { label: text => picked(index) ? this.accent(text) : text, description: this.muted })),
+          { label: text => picked(index) ? this.selected(text) : text, description: this.muted })),
         ...typed.flatMap(answer => wrapTextWithAnsi(`${this.accent("→")} ${terminalText(answer).replace(/\s+/g, " ")}`, width)),
         ...(chosen === undefined ? [this.muted("  (skipped)")] : []),
       ].map(line => truncateToWidth(line, width));
@@ -717,7 +752,7 @@ private updateSpinner(): void {
     return promise;
   }
 
-  /** The whole question and every option, wrapped to the width; the highlighted option is accented.
+  /** The whole question and every option, wrapped to the width; the highlighted option in the selection colour.
    * When that is taller than `height` rows, only the highlighted option keeps its description, so the
    * question itself stays on screen instead of scrolling away. */
   private renderAsk(width: number, height: number): string[] {
@@ -734,9 +769,9 @@ private updateSpinner(): void {
         const selected = index === this.askActiveIndex;
         const number = index < 9 ? `${index + 1} ` : "  ";
         const marker = number + (this.askMulti ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "");
-        return askOptionLines(selected ? this.accent("→ ") : "  ",
+        return askOptionLines(selected ? this.selected("→ ") : "  ",
           { label: marker + option.label, description: compact && !selected ? undefined : option.description }, width,
-          selected ? { label: this.accent, description: this.accent } : { label: text => text, description: this.muted });
+          selected ? { label: this.selected, description: this.selected } : { label: text => text, description: this.muted });
       }),
       ...wrapTextWithAnsi(this.muted(hint), width),
     ].map(line => truncateToWidth(line, width));

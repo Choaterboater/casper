@@ -31,6 +31,10 @@ folder, inside the shell sandbox. On Linux and macOS the sandbox gives the tools
 and no writes outside the project, temp and package caches. Where
 no sandbox runs (Windows, bubblewrap missing, `--no-sandbox`) a program can still open a
 network connection itself, and the report's second line says so. See [SECURITY.md](SECURITY.md).
+Installing a tool and `/security-review update` are not scans: they write `~/.casper` and need the
+network, so they run outside the sandbox, with only Casper's own arguments on hash-checked files. Your
+own osv-scanner on PATH was never checked, so `/security-review update` keeps it in the sandbox, where it
+can't download; only the copy Casper installs can.
 
 ## Installing the tools
 

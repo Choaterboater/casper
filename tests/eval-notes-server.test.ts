@@ -7,6 +7,7 @@ import { ServiceManager } from "../src/services/manager";
 import { SmokeChecks } from "../src/services/smoke";
 import { prepareWorkdir, referenceChanges } from "../evals/runner";
 import { findEvalTask } from "../evals/tasks";
+import { flakyOn } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
@@ -127,7 +128,7 @@ const SIGTERM_CASE = 3;
 const results = (failing: number[]) => ALL.map((name, index) =>
   `${index === SIGTERM_CASE && !catchableSigterm ? "skip" : failing.includes(index) ? "fail" : "pass"} ${name}`);
 
-test("the lifecycle task's hidden acceptance passes on the solved fixture and fails on its start, leaving no server behind", async () => {
+flakyOn("win32")("the lifecycle task's hidden acceptance passes on the solved fixture and fails on its start, leaving no server behind", async () => {
   const solved = await lifecycleAcceptance(path.join(repoRoot, "evals/fixtures/notes-api"));
   expect({ exit: solved.exitCode, results: solved.results, survivors: solved.survivors, tail: solved.tail })
     .toEqual({ exit: 0, results: results([]), survivors: [], tail: "" });

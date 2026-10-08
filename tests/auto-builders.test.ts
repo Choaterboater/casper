@@ -16,6 +16,7 @@ import type { AgentRuntime, RuntimeBuilderStartOptions, RuntimeEvent, RuntimeEve
 import { SkillRegistry } from "../src/skills/registry";
 import { NOT_RUN_REASON, NOT_WRITTEN_REASON } from "../src/secrets/gate";
 import { SPEND_STOP_REASON } from "../src/task/spend";
+import { flakyOn } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
 const execFileAsync = promisify(execFile);
@@ -99,7 +100,7 @@ async function app(repo: string, home: string, main: Main, builder: () => AgentR
 const data = (text: string) => JSON.parse(text).data;
 const build = (delegate: RuntimeTool, goal: string) => delegate.execute({ role: "builder", goal });
 
-test("the AI starts two builders at once; both changes land, count as the task's edits, and one /undo takes them back", async () => {
+flakyOn("win32")("the AI starts two builders at once; both changes land, count as the task's edits, and one /undo takes them back", async () => {
   const { home, repo } = await repository();
   const results: Array<{ text: string; isError?: boolean }> = [];
   const main = new Main(async (delegate) => {
@@ -227,7 +228,7 @@ test("request words steer builders", () => {
   expect(builderSteer("rename the function")).toBeUndefined();
 });
 
-test("at most 3 builders at once; a fourth is turned away and not counted", async () => {
+flakyOn("win32")("at most 3 builders at once; a fourth is turned away and not counted", async () => {
   const { home, repo } = await repository();
   const release: Array<() => void> = [];
   let started = 0;

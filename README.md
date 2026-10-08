@@ -147,7 +147,7 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 | | |
 | --- | --- |
 | Checking work | [Verification](docs/VERIFICATION.md) · [Undo](docs/UNDO.md) · [Security checks](docs/SECURITY_CHECKS.md) |
-| Network | [MCP](docs/MCP.md) · [Network checks](docs/NETWORK-CHECKS.md) · [Skills](docs/SKILLS.md) · [References](docs/REFERENCES.md) |
+| Network | [MCP](docs/MCP.md) · [Network checks](docs/NETWORK-CHECKS.md) · [Skills](docs/SKILLS.md) · [Packs](docs/PACKS.md) · [References](docs/REFERENCES.md) |
 | Everyday use | [Terminal](docs/TERMINAL_UX.md) · [tmux](docs/TMUX.md) · [Sessions](docs/SESSIONS.md) · [Memory](docs/MEMORY.md) · [New projects](docs/NEW.md) |
 | Tools | [Services](docs/SERVICES.md) · [Browser](docs/BROWSER.md) · [LSP](docs/LSP.md) · [Debugger](docs/DEBUGGER.md) · [Diagrams](docs/VISUALIZATION.md) · [Helpers](docs/DELEGATION.md) · [Crews](docs/CREWS.md) · [Learn](docs/LEARNING.md) |
 | Setup | [Doctor](docs/DOCTOR.md) · [Configuration](docs/CONFIGURATION.md) · [Scripting](docs/SCRIPTING.md) · [Secrets](docs/SECRETS.md) · [Security](docs/SECURITY.md) · [Reader](docs/READER.md) |

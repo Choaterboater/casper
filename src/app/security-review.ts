@@ -174,7 +174,7 @@ async function updateAdvisories(host: SecurityReviewHost): Promise<void> {
   if (!host.canAsk()) { host.write(`${formatQuestion(OSV_UPDATE_QUESTION)}${CANT_ASK_UPDATE}\n`); return; }
   const answer = await ask(host, OSV_UPDATE_QUESTION.text, OSV_UPDATE_QUESTION.choices);
   if (answer !== OSV_UPDATE_QUESTION.choices[1]) { host.write("Nothing was downloaded.\n"); return; }
-  const result = await updateOsvDb(host.root, location.path, { homeDir: host.homeDir, ...host.install, ...(host.signal ? { signal: host.signal } : {}) });
+  const result = await updateOsvDb(host.root, location, { homeDir: host.homeDir, ...host.install, ...(host.signal ? { signal: host.signal } : {}) });
   host.write(`${terminalText(result.message)}\n`);
 }
 

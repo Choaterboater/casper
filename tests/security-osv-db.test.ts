@@ -3,8 +3,10 @@ import { mkdir, mkdtemp, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { formatSecurityReport } from "../src/security/format";
-import { osvDbState, updateOsvDb } from "../src/security/install";
+import { OSV_PATH_SANDBOXED, osvDbState, updateOsvDb } from "../src/security/install";
 import { OSV_NO_DATA, SecurityCheck } from "../src/security/run";
+import { SECURITY_TOOLS } from "../src/security/tools";
+import { useSandbox, type ShellSandbox } from "../src/sandbox/manager";
 import { fakeTools, fixtureRepo } from "./fixtures/security-tools/setup";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -39,12 +41,12 @@ test("with data downloaded 9 days ago the line shows the date and the age", asyn
   expect(formatSecurityReport(report)).toContain("osv-scanner   ok           advisory data downloaded 2026-09-20 (9 days old)");
 });
 
-test("the update step asks osv-scanner to download into Casper's folder, with no credentials", async () => {
+test("the update step asks osv-scanner to download into Casper's folder, with no credentials and no call analysis that would run the repo's go toolchain", async () => {
   const root = await fixtureRepo("casper-security-osv-");
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-security-osv-home-"));
   temps.push(root, home);
   const seen: Array<{ args: readonly string[]; env: Record<string, string> }> = [];
-  const result = await updateOsvDb(root, "/pinned/osv-scanner", {
+  const result = await updateOsvDb(root, { kind: "pinned", path: "/pinned/osv-scanner" }, {
     homeDir: home, env: { PATH: "/usr/bin", HTTPS_PROXY: "http://corp:8080", MIST_APITOKEN: "abc123" },
     run: async (options) => {
       seen.push({ args: options.args, env: options.env });
@@ -56,7 +58,51 @@ test("the update step asks osv-scanner to download into Casper's folder, with no
   });
   expect(result).toEqual({ ok: true, message: "Advisory data downloaded for PyPI." });
   expect(seen[0]!.args).toContain("--download-offline-databases");
+  // Outside the sandbox, nothing of the repo runs: osv-scanner's Go call analysis would run the go toolchain on it.
+  expect(seen[0]!.args).toContain("--no-resolve");
+  expect(seen[0]!.args).toContain("--no-call-analysis=all");
   expect(seen[0]!.env.OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY).toBe(path.join(home, ".casper", "security", "osv-db"));
   expect(seen[0]!.env.HTTPS_PROXY).toBe("http://corp:8080");
   expect(seen[0]!.env.MIST_APITOKEN).toBeUndefined();
+});
+
+test("the advisory download is not held by the session's shell sandbox, which cannot write ~/.casper or reach the advisory server", async () => {
+  const root = await fixtureRepo("casper-security-osv-");
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-security-osv-home-"));
+  temps.push(root, home);
+  const tools = await fakeTools(home, { "osv-scanner": "clean" });
+  const located = await tools.find(SECURITY_TOOLS["osv-scanner"]);
+  if (located.kind !== "pinned") throw new Error("the fake osv-scanner was not written");
+  const wrapped: string[] = [];
+  const held = { on: true, wrap: async (command: string) => { wrapped.push(command); return { command: "false", id: "1", held: true }; }, finished() {} } as unknown as ShellSandbox;
+  useSandbox(held);
+  try {
+    await updateOsvDb(root, located, { homeDir: home, env: { PATH: process.env.PATH ?? "", HTTPS_PROXY: "http://corp:8080", MIST_APITOKEN: "abc123" } });
+  } finally { useSandbox(undefined); }
+  expect(wrapped).toEqual([]);
+  const seen = await tools.recorded("osv-scanner");
+  expect(seen?.args).toContain("--download-offline-databases");
+  expect(seen?.env.OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY).toBe(path.join(home, ".casper", "security", "osv-db"));
+  expect(seen?.env.HTTPS_PROXY).toBe("http://corp:8080");
+  expect(seen?.env.MIST_APITOKEN).toBeUndefined();
+});
+
+test("your own osv-scanner on PATH was never hash-checked, so the advisory download keeps it in the shell sandbox and says so", async () => {
+  const root = await fixtureRepo("casper-security-osv-");
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-security-osv-home-"));
+  temps.push(root, home);
+  const tools = await fakeTools(home, { "osv-scanner": "clean" });
+  const located = await tools.find(SECURITY_TOOLS["osv-scanner"]);
+  if (located.kind === "missing") throw new Error("the fake osv-scanner was not written");
+  const wrapped: string[] = [];
+  const held = { on: true, wrap: async (command: string) => { wrapped.push(command); return { command: "false", id: "1", held: true }; }, finished() {} } as unknown as ShellSandbox;
+  useSandbox(held);
+  let result;
+  try {
+    result = await updateOsvDb(root, { kind: "path", path: located.path }, { homeDir: home, env: { PATH: process.env.PATH ?? "" } });
+  } finally { useSandbox(undefined); }
+  expect(wrapped).toHaveLength(1);
+  expect(wrapped[0]).toContain("--download-offline-databases");
+  expect(await tools.recorded("osv-scanner")).toBeUndefined();
+  expect(result).toEqual({ ok: false, message: OSV_PATH_SANDBOXED });
 });

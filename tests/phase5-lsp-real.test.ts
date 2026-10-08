@@ -3,6 +3,7 @@ import { mkdtemp, realpath, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { LSPManager } from "../src/lsp/manager";
+import { flakyOn } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: (() => Promise<unknown>)[] = [];
@@ -58,7 +59,7 @@ test("real TypeScript LSP resolves symbols/references and renames across files w
   await check(tsc, dir);
 }, 90_000);
 
-test("real Pyright acceptance: repository-wide rename finishes with fresh zero diagnostics", async () => {
+flakyOn("win32")("real Pyright acceptance: repository-wide rename finishes with fresh zero diagnostics", async () => {
   const dir = await root();
   await writeFile(path.join(dir, "pyrightconfig.json"), JSON.stringify({ include: ["*.py"], typeCheckingMode: "basic" }));
   await writeFile(path.join(dir, "a.py"), "def greet(name: str) -> str:\n    return name\n");

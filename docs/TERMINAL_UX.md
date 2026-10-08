@@ -23,7 +23,7 @@ Casper, `/help <word>` only the lines that mention a word (`/help mcp`), and
 | Ctrl+D | Exit when the prompt is empty |
 | Ctrl+T | Show the last step in full: an edit's whole diff, what a command printed, or the provider's own words after an `[error]` (works during work too) |
 | Ctrl+L | Redraw the screen |
-| Ctrl+V (Alt+V on Windows) | Paste a picture from the clipboard; it shows as `[image 1]` and goes with the request. With no picture on the clipboard, its text is pasted |
+| Ctrl+V (Alt+V on Windows) | Paste a picture from the clipboard; it shows as `[image 1]` and goes with the request. A file you copied in Finder, Explorer or a file manager goes in as its path, and a picture file goes with the request like a dropped one. With neither on the clipboard, its text is pasted |
 | Ctrl+O | Turn MCP writes off for every server at once (see [MCP.md](MCP.md)) |
 
 ### Commands
@@ -61,6 +61,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/allowed`, `/allowed forget <n, command or all>` | The shell commands you said yes to for this project (saved, and for this session); take one back |
 | `/lab`, `/lab import <file>` | Your lab devices; add more from a file ([NETWORK-CHECKS.md](NETWORK-CHECKS.md)) |
 | `/skills` | Skills and whether you trust them ([SKILLS.md](SKILLS.md)) |
+| `/pack add <folder or link>`, `/pack list`, `/pack remove <name>` | Skill packs: add one after a box that shows it, list them, take one out ([PACKS.md](PACKS.md)) |
 | `/mcp` | MCP servers: set up Casper's network server (`/mcp setup network`) and its logins (`/mcp login`), add a server over ssh (`/mcp setup ssh`), connect, writes on or off, allow, forget, docs ([MCP.md](MCP.md)). `/mcp` is one line per server; on a normal terminal an arrow-key picker under it connects, disconnects, forgets or shows details, and `/mcp detail [name]` prints the full status |
 | `/lsp` | Language servers ([LSP.md](LSP.md)) |
 | `/browser` | A disposable browser; screenshots ([BROWSER.md](BROWSER.md)) |
@@ -142,6 +143,9 @@ Transcript lines are inline, not boxed: `✓`/`✗`/`•` tool lines, `[model]`,
 `[approval]`, `[task]` and similar bracketed notices, and the `❯ …` echo of each
 prompt. Green marks success, red an error, amber a notice or decision, cyan the
 accent (banner, prompt echo, Markdown structure), dim the muted status lines.
+Those are the `default` theme's colours; `theme: light` or `high-contrast` (or **Theme** in
+`/settings`) swaps the colours of each role (`src/tui/theme.ts`) and nothing else
+([CONFIGURATION.md](CONFIGURATION.md#theme)).
 A fenced block in an assistant message copies clean: a title line with its language
 (`── ts ────`), then the code exactly as written with no side border and no indent, then a
 closing rule. A line wider than the window is cut at the edge only (no character added or
@@ -394,12 +398,18 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   a picture file dropped or typed as a full path (`/…/shot.png`, `~/…`, `C:\…`) becomes
   `[image N]` when you send, also at the start of the line (then it is a request, not a
   command). PNG, JPEG, GIF and WebP, up to 20 MB each (a pasted picture too) and 8 a
-  request. With no picture on the clipboard, its text is pasted like any paste, with
-  terminal control codes taken out. A dropped file's
+  request. With no picture on the clipboard, files you copied in Finder, Explorer or a
+  Linux file manager go in as quoted paths, as if dropped: a picture file among them is
+  attached when you send, with the same checks and limits; any other file stays as its
+  path. A name with a control or bidi character is left out, and says so. On a Mac the
+  copied files are looked for first, since Finder also puts the file's icon on the
+  clipboard as a picture. Casper reads the list with the system's own tool (`osascript`,
+  Windows PowerShell, `wl-paste` or `xclip`), for at most a few seconds. With neither,
+  its text is pasted like any paste, with terminal control codes taken out. A dropped file's
   path stays on a line under the request, so the AI can still copy it. A pasted picture is
   saved to a private temp folder, deleted when Casper closes, and its path goes on the same kind of line. A bare name like
-  `logo.png` stays a word. On Windows, a path on another computer's share (`\\nas\shots\pic.png`)
-  asks first, `Attach this picture?` with `1 No · 2 Yes, this once`, once per computer: opening it
+  `logo.png` stays a word. On Windows, a path on another computer's share (`\\nas\shots\pic.png`),
+  typed, dropped or copied, asks first, `Attach this picture?` with `1 No · 2 Yes, this once`, once per computer: opening it
   sends your Windows login (a hash of it) there. A no leaves the path as words.
   When the model can't see pictures, one question:
   `1 Send without it · 2 Switch to <a model you set up that can> for this request` (the switch is

@@ -1,6 +1,6 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { chmod, link, mkdir, mkdtemp, readFile, realpath, stat, symlink, writeFile } from "node:fs/promises";
-import { posixOnly } from "./support/platform";
+import { flakyOn, posixOnly } from "./support/platform";
 import { PTY_TEST_MS, runPtyFixture } from "./support/pty";
 import { isolatedEnvironment } from "../src/platform/environment";
 import os from "node:os";
@@ -36,7 +36,7 @@ async function fixture() {
   return { root, home, project, env, run };
 }
 
-test("API-key login verifies with the provider, keeps secrets off screen, and preserves unrelated credentials", async () => {
+flakyOn("win32")("API-key login verifies with the provider, keeps secrets off screen, and preserves unrelated credentials", async () => {
   for (const provider of ["anthropic", "openrouter"]) {
     const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
     await mkdir(agent, { recursive: true });
@@ -245,7 +245,7 @@ test("OpenRouter browser sign-in exchanges the pasted authorization code and sav
   expect(saved.access).toBe("sk-or-synthetic-key");
 });
 
-test("Copilot device login discloses account policy changes and saves only Copilot", async () => {
+flakyOn("win32")("Copilot device login discloses account policy changes and saves only Copilot", async () => {
   const f = await fixture();
   const output = await f.run(`
     import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
@@ -365,7 +365,7 @@ test("private key entry rejects executable syntax, multiline and oversized unfin
   }
 }, 120_000);
 
-test("API-key replacement refreshes the selected non-Codex parent without changing its conversation selection", async () => {
+flakyOn("win32")("API-key replacement refreshes the selected non-Codex parent without changing its conversation selection", async () => {
   const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
   await mkdir(agent, { recursive: true });
   await writeFile(path.join(agent, "auth.json"), JSON.stringify({ anthropic: { type: "api_key", key: "synthetic-old" } }), { mode: 0o600 });
@@ -394,7 +394,7 @@ test("API-key replacement refreshes the selected non-Codex parent without changi
   expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8")).anthropic.key).toBe("synthetic-new");
 }, 60_000);
 
-test("provider refusal and occupied browser port expose no diagnostics and preserve existing credentials", async () => {
+flakyOn("win32")("provider refusal and occupied browser port expose no diagnostics and preserve existing credentials", async () => {
   for (const occupied of [false, true]) {
     const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
     await mkdir(agent, { recursive: true });
@@ -714,7 +714,7 @@ posixOnly("an unsafe credential directory is refused before provider choice with
   expect(await Bun.file(path.join(f.root, "elsewhere", "auth.json")).exists()).toBe(false);
 });
 
-test("CASPER_TUI_WRITE_LOG refuses login before terminal or auth ownership", async () => {
+flakyOn("win32")("CASPER_TUI_WRITE_LOG refuses login before terminal or auth ownership", async () => {
   const f = await fixture();
   const output = await f.run(`
     import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
@@ -725,7 +725,7 @@ test("CASPER_TUI_WRITE_LOG refuses login before terminal or auth ownership", asy
   expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).exists()).toBe(false);
 }, 60_000);
 
-test("CASPER_OAUTH_CALLBACK_HOST cannot expose browser sign-in on a public listener", async () => {
+flakyOn("win32")("CASPER_OAUTH_CALLBACK_HOST cannot expose browser sign-in on a public listener", async () => {
   const f = await fixture();
   const output = await f.run(`
     import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};

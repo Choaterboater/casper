@@ -31,6 +31,8 @@ export interface ProjectContext {
   cache?: LoadedConfiguration["cache"];
   /** `display:` in the user's config (quiet, normal or detailed). Unset: normal. */
   display?: LoadedConfiguration["display"];
+  /** `theme:` in the user's config: the screen's colours, by name. Unset: default. */
+  theme?: string;
   /** `showPages:` in the user's config (ask, on or off). Unset: ask once a session. */
   showPages?: LoadedConfiguration["showPages"];
   /** `delegate.build: false`: the AI starts no builders. Unset: on. */
@@ -42,6 +44,8 @@ export interface ProjectContext {
   browser?: boolean;
   /** `templates: off` in the user's config: a first request that fits a template is never built for you. Unset: on. */
   templates?: boolean;
+  /** `packs: off` in the user's config: the packs you added are not used and /pack add adds none. Unset: on. */
+  packs?: boolean;
   /** `visualize: off` in the user's config: the AI's diagram tool is never offered. Unset: on. */
   diagrams?: boolean;
   /** Managed services declared in .casper/project.yaml (see docs/SERVICES.md). */
@@ -135,12 +139,14 @@ export async function loadProjectContext(
     ...(configuration.sideQuestions !== undefined ? { sideQuestions: configuration.sideQuestions } : {}),
     ...(configuration.cache ? { cache: configuration.cache } : {}),
     ...(configuration.display ? { display: configuration.display } : {}),
+    ...(configuration.theme ? { theme: configuration.theme } : {}),
     ...(configuration.showPages ? { showPages: configuration.showPages } : {}),
     ...(configuration.delegate ? { delegate: configuration.delegate } : {}),
     spend: configuration.spend,
     visualize: configuration.visualize,
     ...(configuration.browser !== undefined ? { browser: configuration.browser } : {}),
     ...(configuration.templates !== undefined ? { templates: configuration.templates } : {}),
+    ...(configuration.packs !== undefined ? { packs: configuration.packs } : {}),
     ...(configuration.diagrams !== undefined ? { diagrams: configuration.diagrams } : {}),
     services: configuration.services,
     smoke: configuration.smoke,

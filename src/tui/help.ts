@@ -94,7 +94,7 @@ Local commands:
   /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
   /output all                       Every tool call of the last task on its own line (the screen folds them into a summary)
   /details [quiet|normal|detailed] [--session]  Failures only, steps folded (default), or every step with small diffs; remembered like /effort, --session for this session only. Ctrl+T shows the last step in full
-  /settings                         Every switch at a glance, then one by number, written to ~/.casper/config.yaml for you: web lookups, browser tool, starter templates, diagram tool, new-version notice, side questions with ?, suggestions, built-in skills, spend notes, spend pause, prompt cache, page checks, show the AI the pages, work shown, untrusted-text reader, helpers that build, Playwright tests, send Casper's name to OpenRouter
+  /settings                         Every switch at a glance, then one by number, written to ~/.casper/config.yaml for you: web lookups, browser tool, starter templates, diagram tool, new-version notice, side questions with ?, suggestions, built-in skills, packs, spend notes, spend pause, prompt cache, page checks, show the AI the pages, work shown, theme, untrusted-text reader, helpers that build, Playwright tests, send Casper's name to OpenRouter
   /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
   /permissions                      What each tool may do and when Casper asks you
@@ -130,6 +130,9 @@ Local commands:
   /skills inspect <id>              Show a skill and its fingerprint (sha256)
   /skills trust <id>                Show a skill, then 1 No · 2 Trust it (exactly what was shown)
   /skills block <id>                Never use this skill
+  /pack add <folder or link>        Add a skill pack from a folder or https://github.com/owner/repo@<commit>: shows it, then 1 No · 2 Yes, add it · 3 Show me what's inside
+  /pack list                        The packs you added, and any not used because their files changed
+  /pack remove <name>               Take a pack out
   /mcp                              One line per server; on a normal terminal pick one with the arrow keys to connect, disconnect, forget or see details
   /mcp detail [name]                The full status of every server, or one; secrets hidden (no connection)
   /mcp setup network                Set up Casper's network server (Mist, Central, ClearPass): 1 Not now · 2 Set it up
@@ -194,7 +197,7 @@ Without a restored selection or Casper default, choose with /model; there is no 
 Switching provider sends the rest of the conversation to that provider.
 The picker refreshes provider catalogs over the network when CASPER_OFFLINE=1 is not set; selection does not generate a model response.
 Provider-defined credential checks may run configured key-resolution commands.
-Keys: Esc stops work. Ctrl-C cancels work; idle, it clears a draft; twice on empty exits. Ctrl+T shows the last step in full (an edit's diff, a command's output). Ctrl+O turns MCP writes off. Ctrl+L redraws the screen. Ctrl+V (Alt+V on Windows) pastes a picture from the clipboard as [image 1]; a dropped picture file works too. Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history. Tab completes commands and file paths (@). Enter during work sends your line to the AI (it reads it at its next step) or queues it for after the task; Esc gives queued lines back. A queued line never answers an approval.
+Keys: Esc stops work. Ctrl-C cancels work; idle, it clears a draft; twice on empty exits. Ctrl+T shows the last step in full (an edit's diff, a command's output). Ctrl+O turns MCP writes off. Ctrl+L redraws the screen. Ctrl+V (Alt+V on Windows) pastes a picture from the clipboard as [image 1], or the path of a file you copied in Finder, Explorer or a file manager (a picture file goes with the request); a dropped picture file works too. Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history. Tab completes commands and file paths (@). Enter during work sends your line to the AI (it reads it at its next step) or queues it for after the task; Esc gives queued lines back. A queued line never answers an approval.
 Checks: typecheck lint test build (all configured by default; verification.checks selects).
 verification.mode: auto (Casper runs the checks after edits, repairs failures within repair.maxAttempts), offer (the model may use casper_check; the receipt suggests /verify) or off. Unset: auto, except that interactive sessions use offer once the checks are measured at 60 s or more.
 --verify selects auto and --no-verify selects off for one run. Auto skips checks when no files changed, and checks whose declared scope misses every changed file. The receipt says why.

@@ -132,6 +132,13 @@ export async function reloadReferences(app: CasperApp): Promise<void> {
   await old?.close();
 }
 
+/** Skills indexed again from the same settings, after /pack add or /pack remove. */
+export async function reloadSkills(app: CasperApp): Promise<void> {
+  if (!app.projectContext || app.closing) return;
+  const registry = await app.loadSkillRegistryFn(app.projectContext);
+  if (!app.closing) app.skillRegistry = registry;
+}
+
 /** The project's sandbox.denyRead as absolute paths, resolved like the shell sandbox does (from the session's folder). */
 export function projectPrivatePaths(app: CasperApp): string[] {
   if (!app.projectContext) return [];

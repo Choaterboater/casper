@@ -13,11 +13,13 @@ writes your answer into `~/.casper/config.yaml` for you, keeping your comments a
 
 ```text
 Settings (saved in ~/.casper/config.yaml for you):
-  Web lookups: on (DuckDuckGo) · Browser tool: on · Starter templates: on · Diagram tool: on
-  New-version notice: on · Suggestions: on · Built-in skills: on
+  Web lookups: on (DuckDuckGo) · Browser tool: on · Starter templates: on
+  Diagram tool: on · New-version notice: on · Suggestions: on
+  Side questions with ?: on · Built-in skills: on · Packs: on
   Spend notes: at $1 a task · Spend pause: off · Prompt cache: auto
   Page checks: on · Show the AI the pages: ask once a session
-  Work shown: normal · Untrusted-text reader: on · Playwright tests: on
+  Work shown: normal · Theme: default · Untrusted-text reader: on
+  Helpers that build: on · Playwright tests: on
   Send Casper's name to OpenRouter: on
 Pick one to change:
   1 Done                              nothing changes
@@ -29,21 +31,23 @@ Pick one to change:
   7 Suggestions                       on
   8 Side questions with ?             on
   9 Built-in skills                   on
-  9 Spend notes                       at $1 a task
- 10 Spend pause                       off
- 11 Prompt cache                      auto
- 12 Page checks                       on
- 13 Show the AI the pages             ask once a session
- 14 Work shown                        normal
- 15 Untrusted-text reader             on
- 16 Helpers that build                on
- 17 Playwright tests                  on
- 18 Send Casper's name to OpenRouter  on
+ 10 Packs                             on
+ 11 Spend notes                       at $1 a task
+ 12 Spend pause                       off
+ 13 Prompt cache                      auto
+ 14 Page checks                       on
+ 15 Show the AI the pages             ask once a session
+ 16 Work shown                        normal
+ 17 Theme                             default
+ 18 Untrusted-text reader             on
+ 19 Helpers that build                on
+ 20 Playwright tests                  on
+ 21 Send Casper's name to OpenRouter  on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
-A change applies from now on (built-in skills and the prompt cache from the next start) and says so:
+A change applies from now on (built-in skills, packs and the prompt cache from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Where Casper can't ask (a one-shot
 run), `/settings` lists them. `/details <level>` saves the work shown the same way, like `/effort`.
 
@@ -98,6 +102,19 @@ from it, with one `[new]` line and no question (see [NEW.md](NEW.md)). It is on.
 `/settings` (it writes `templates: off`): the request goes straight to the AI. Say "from scratch" in a
 request to skip it once. A project file (or a profile it picks) can't turn it on or off.
 
+### Packs
+
+Skill packs you add with `/pack add` (see [PACKS.md](PACKS.md)) are on. Their skills cost no tokens
+until a request fits one. Turn them off with `/settings` (it writes `packs: off`): the packs you added
+stay in `~/.casper/packs` but no skill of theirs is used, and `/pack add` adds none. It applies from
+the next start. A project file (or a profile it picks) can't turn packs on or off or name a pack:
+`packs:` in `.casper/project.yaml` stops configuration loading with an error.
+
+```yaml
+# ~/.casper/config.yaml or a profile's config.yaml
+packs: off # default on
+```
+
 ### Diagram tool
 
 The AI draws a diagram when a task asks for a map, chart or flow (see
@@ -150,7 +167,8 @@ Casper reads these files if they exist:
 Casper also keeps its own files, which you normally do not edit by hand:
 `~/.casper/settings.json` (default model, effort and model roles; see
 [Model roles](#model-roles-and-automatic-effort)), `~/.casper/skills-trust.json` (skill review
-decisions), `~/.casper/agent/` (sign-ins and conversations; see
+decisions), `~/.casper/packs/`, `~/.casper/packs.json` and `~/.casper/packs.key` (the packs you added
+and what you were shown; see [PACKS.md](PACKS.md)), `~/.casper/agent/` (sign-ins and conversations; see
 [Provider credentials](#provider-credentials)) and `~/.casper/projects/` (per-project state).
 
 **Which file wins.** Settings apply in this order, later ones winning: safe defaults → global →
@@ -187,8 +205,8 @@ loading.
 
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
-anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`,
-`showPages`, `suggestions`, `updates`, `sideQuestions`, `telemetry`, `pages: off`, `browser`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
+anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
+`showPages`, `suggestions`, `updates`, `sideQuestions`, `telemetry`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
@@ -636,6 +654,52 @@ command printed. The window title names the conversation from its first request
 display: detailed   # quiet, normal (default), or detailed
 ```
 
+## Theme
+
+The screen's colours. A theme changes colours only: the words, glyphs, bold text and layout stay
+the same, and nothing goes to the model. `NO_COLOR`, a pipe and `TERM=dumb` still show no colour,
+whatever the theme.
+
+- `default`: Casper's own look, cyan for structure and faint text for what is secondary.
+- `light`: for a light terminal background; blue and magenta in place of cyan and yellow.
+- `high-contrast`: bright colours and no faint text.
+
+Pick **Theme** in `/settings`, or set it in your own config. A project's `.casper/project.yaml`
+can't set it, so a repository can't make a warning or an approval hard to read. A name Casper has
+no theme for uses `default`, and one `[config]` line at start (and `casper doctor`) says so;
+`/settings` shows it as written, with every theme to pick instead.
+
+```yaml
+# ~/.casper/config.yaml or a profile's config.yaml
+theme: light   # default, light, high-contrast, or a theme a pack you added brings
+```
+
+A pack you added can bring one theme (see [PACKS.md](PACKS.md#a-theme)). It shows in `/settings`
+next to these, marked with its pack, and `theme:` can name it. It is there only while packs are on
+and the pack is still what you saw; otherwise `theme:` that names it uses `default`, with the line
+above. Its name can't be a built-in theme's or another pack's theme's.
+
+A theme file, which a pack can carry, is YAML (or JSON) with a `name` (lowercase letters, numbers
+and single hyphens, like a skill's) and `colors`, by role: `accent`, `muted`, `border`,
+`selection`, `success`, `warning`, `error`, `diffAdded`, `diffRemoved` and `diffHunk`. A colour is
+`"#rrggbb"` (in quotes: YAML reads a bare `#` as a comment) or one of `default`, `dim`, `black`,
+`red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `gray`, `bright-red`,
+`bright-green`, `bright-yellow`, `bright-blue`, `bright-magenta`, `bright-cyan` and
+`bright-white`. A role left out takes the default theme's colour. Nothing else is read: another
+field, any character but plain printable ASCII (so no escape, control or invisible character, not
+even in a comment), a backslash, YAML anchors, aliases and tags, and a file over 8 KiB are
+refused, so a theme can't build on another, pull in a file or run anything. A `#rrggbb` colour
+is drawn exactly where the terminal says it can (`COLORTERM=truecolor`, Windows Terminal), and as
+the nearest of 256 colours elsewhere.
+
+```yaml
+name: ocean
+colors:
+  accent: "#3399ff"
+  selection: bright-cyan
+  warning: magenta
+```
+
 ## Showing the AI the pages
 
 After a UI change in a web project, the page check saves a desktop and a phone screenshot of each
@@ -663,6 +727,7 @@ skills itself; Pi's own skill discovery is turned off inside Casper.
 | Project | `<project>/.casper/skills/` | No, until you review it |
 | Bundled with Casper (since v0.2.18) | Inside the `casper` binary (source: `skills/network/*/SKILL.md`) | Yes; on unless `skills.bundled: false`. See [SKILLS.md](SKILLS.md) |
 | Other tools **(opt-in)** | `~/.pi/agent/skills/`, `~/.agents/skills/`, `~/.claude/skills/`, `~/.codex/skills/`; in the project `.pi/skills/`, `.agents/skills/`, `.claude/skills/`, `.codex/skills/` | No, until you review it |
+| Packs | `~/.casper/packs/<name>/`, added only by your `/pack add` | Yes, while every file is what the add box showed you; on unless `packs: off`. See [PACKS.md](PACKS.md) |
 
 To use other tools' skill folders, turn them on in `~/.casper/config.yaml` or
 `~/.casper/profiles/<profile>/config.yaml`:
@@ -741,7 +806,8 @@ and `/skills diagnostics` says why. A project's same-name skill never replaces a
 Skills are optional procedures, not a substitute for the repository: frontend, design and other
 work use the project's own files. Only the selected skills' bodies are read and added, with their
 source and folder. When two skills share a name, both show in `/skills` with different IDs, but
-only one is used: the more relevant, then project → user → other tools, then ID. Limits: 16 KiB of
+only one is used: the more relevant, then project → user → other tools, then ID. A pack's skill is
+never used when any other skill has its name. Limits: 16 KiB of
 frontmatter, 256 KiB per skill file, and 64 KiB of skill bodies per request. A bad or oversized
 skill gives a warning; it does not stop Casper from starting.
 

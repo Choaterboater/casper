@@ -1,7 +1,7 @@
 import { fuzzyFilter, getKeybindings, Input, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { TUI } from "@earendil-works/pi-tui";
 import type { Api, Model, ModelsRefreshOptions, ModelsRefreshResult } from "@earendil-works/pi-ai";
-import { paint, terminalText } from "../tui/format";
+import { terminalText, tint } from "../tui/format";
 
 /** The slice of ModelRuntime the browser consumes; `pi-model-picker.ts` passes a sanitized view
  * whose provider/id/name values are already control-character safe. */
@@ -108,9 +108,10 @@ export class ModelBrowser {
    * rebuilds inside `render`. */
   invalidate(): void {}
 
-  private accent(text: string): string { return paint(text, "36", this.options.color); }
-  private muted(text: string): string { return paint(text, "2", this.options.color); }
-  private rule(width: number): string { return this.muted("─".repeat(width)); }
+  private accent(text: string): string { return tint(text, "accent", this.options.color); }
+  private selected(text: string): string { return tint(text, "selection", this.options.color); }
+  private muted(text: string): string { return tint(text, "muted", this.options.color); }
+  private rule(width: number): string { return tint("─".repeat(width), "border", this.options.color); }
 
   /** Width-dependent panes rebuild per render; state changes only request one. */
   render(width: number): string[] {
@@ -125,7 +126,7 @@ export class ModelBrowser {
       const entry = sidebar[i] ?? "";
       // Pad by visible width: ANSI-bearing sidebar lines must still align the divider column.
       const left = entry + " ".repeat(Math.max(0, sidebarWidth - visibleWidth(entry)));
-      lines.push(truncateToWidth(`${left}${this.muted(" │ ")}${main[i] ?? ""}`, width));
+      lines.push(truncateToWidth(`${left}${tint(" │ ", "border", this.options.color)}${main[i] ?? ""}`, width));
     }
     lines.push(this.rule(width));
     lines.push(truncateToWidth(this.summaryLine(), width));
@@ -141,8 +142,8 @@ export class ModelBrowser {
   }
 
   private statusSuffix(): string {
-    if (this.errorMessage) return " " + paint(terminalText(this.errorMessage).replace(/\s+/g, " ").trim(), "31", this.options.color);
-    if (this.refreshStatusMessage) return paint(` · ${this.refreshStatusMessage}`, this.refreshStatusSuccess ? "32" : "2", this.options.color);
+    if (this.errorMessage) return " " + tint(terminalText(this.errorMessage).replace(/\s+/g, " ").trim(), "error", this.options.color);
+    if (this.refreshStatusMessage) return tint(` · ${this.refreshStatusMessage}`, this.refreshStatusSuccess ? "success" : "muted", this.options.color);
     return "";
   }
 
@@ -193,7 +194,7 @@ export class ModelBrowser {
     for (let i = windowStart; i < Math.min(windowStart + windowRows, entries.length); i++) {
       const entry = entries[i]!;
       const label = truncateToWidth(entry.label, width - 4);
-      const cursor = this.focus === "sidebar" && this.sidebarIndex === i ? this.accent("> ") : "  ";
+      const cursor = this.focus === "sidebar" && this.sidebarIndex === i ? this.selected("> ") : "  ";
       const active = this.scope === entry.provider ? this.accent(label) : label;
       lines.push(`${cursor}${active}${this.muted(String(entry.count).padStart(width - visibleWidth(label) - 2))}`);
     }
@@ -283,9 +284,9 @@ export class ModelBrowser {
   }
 
   private rowText(item: Item, selected: boolean, width: number): string {
-    const cursor = selected ? this.accent("> ") : "  ";
+    const cursor = selected ? this.selected("> ") : "  ";
     const marker = sameRef(this.current, item) ? this.accent("✓ ") : "  ";
-    const id = this.muted(`${item.provider}/`) + (selected ? this.accent(item.id) : item.id);
+    const id = this.muted(`${item.provider}/`) + (selected ? this.selected(item.id) : item.id);
     const badge = sameRef(this.defaultModel, item) ? this.muted(" · default") : "";
     const meta = this.metaText(item, width);
     const metaWidth = meta ? visibleWidth(meta) + 1 : 0;

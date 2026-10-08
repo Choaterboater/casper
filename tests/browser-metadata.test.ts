@@ -149,7 +149,8 @@ browserTest("a yes opens it; a redirect there asks first and then follows", asyn
   const f = await fixture(() => true);
   expect(await f.session.run({ action: "open", url: `${f.home}/redirect` })).toMatchObject({ url: `${f.metadata}/secret` });
   expect(f.asked).toEqual([{ address: "::1", url: `${f.metadata}/secret` }]);
-  expect(reached(f.hits)).toEqual(["metadata/secret"]);
+  // Chrome may also ask for the page's icon there while the yes still holds (it ends with the action), or not.
+  expect(reached(f.hits).filter(hit => hit !== "metadata/favicon.ico")).toEqual(["metadata/secret"]);
 }, 30_000);
 
 browserTest("a no to a redirect, a picture, a frame or a fetch there keeps them all from reaching it, one question each time", async () => {
