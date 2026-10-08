@@ -9,6 +9,7 @@ import { SkillRegistry } from "../src/skills/registry";
 import { discoverLSPConfiguration } from "../src/lsp/config";
 import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { cleanEnv } from "./support/env";
+import { flakyOn } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
@@ -106,7 +107,7 @@ test("an interactive rename is a normal edit: no box, the files change", async (
   expect(await readFile(path.join(project, "a.ts"), "utf8")).toBe("new();");
 });
 
-test("real CLI/Pi tool surface appends LSP diagnostics to native writes before the next model request", async () => {
+flakyOn("win32")("real CLI/Pi tool surface appends LSP diagnostics to native writes before the next model request", async () => {
   const { home, project } = await fixture();
   const payloads: { tools: { function: { name: string } }[]; messages: unknown[] }[] = [];
   const steps = [

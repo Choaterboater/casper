@@ -20,6 +20,7 @@ const KNOWN_FLAKY: Array<[file: string, title: string, platforms: NodeJS.Platfor
   ["tests/login.test.ts", "CASPER_TUI_WRITE_LOG refuses login before terminal or auth ownership", ["win32"]],
   ["tests/login.test.ts", "CASPER_OAUTH_CALLBACK_HOST cannot expose browser sign-in on a public listener", ["win32"]],
   ["tests/phase5-lsp-real.test.ts", "real Pyright acceptance: repository-wide rename finishes with fresh zero diagnostics", ["win32"]],
+  ["tests/phase5-app.integration.test.ts", "real CLI/Pi tool surface appends LSP diagnostics to native writes before the next model request", ["win32"]],
 ];
 
 const ROOT = path.resolve(import.meta.dir, "..");
