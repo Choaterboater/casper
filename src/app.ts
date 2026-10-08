@@ -33,6 +33,7 @@ import type { Readable } from "node:stream";
 import { loadProjectContext, type ProjectContext } from "./project/context";
 import { inspectProject, type ProjectInfo } from "./project/inspect";
 import type { ChildProject } from "./project/child";
+import { forgetSshSecrets } from "./ssh/login";
 import { useTelemetrySetting } from "./runtime/openrouter-attribution";
 import type { AgentRuntime, RuntimeAuthProvider, RuntimeSession, RuntimeImage, RuntimeTool, RuntimeShell } from "./runtime/types";
 import { SkillRegistry, skillRegistryOptions } from "./skills/registry";
@@ -424,6 +425,8 @@ export class CasperApp {
     const stopTelemetry = useTelemetrySetting(() => this.projectContext?.telemetry);
     this.lifecycle.add({ name: "pasted-pictures", close: () => this.pastedImageFiles.remove() });
     this.lifecycle.add({ name: "telemetry", close: async () => stopTelemetry() });
+    // Passwords typed for ssh this session (memory only) are forgotten with the session.
+    this.lifecycle.add({ name: "ssh-secrets", close: async () => forgetSshSecrets() });
     this.inspectProjectFn = options.inspectProject ?? inspectProject;
     this.loadProjectContextFn = options.loadProjectContext ?? loadProjectContext;
     this.loadSkillRegistryFn = options.loadSkillRegistry ?? ((context) => SkillRegistry.discover(skillRegistryOptions(context)));

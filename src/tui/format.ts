@@ -37,6 +37,9 @@ export function hasTerminalControls(text: string): boolean { return UNSAFE_TERMI
  * the layout's cell count. */
 export function terminalText(text: string): string {
   if (text.includes("\uFE0F")) text = text.replace(EMOJI_PRESENTATION, "");
+  // A carriage return is a line end (CRLF from Windows and ssh output, or a progress bar redrawing its line), not a
+  // control to show as "\u{d}": CRLF is one line break and a lone CR is a line break too.
+  if (text.includes("\r")) text = text.replace(/\r\n?/g, "\n");
   if (!UNSAFE_TERMINAL.test(text)) return text;
   UNSAFE_TERMINAL_G.lastIndex = 0;
   return stripVTControlCharacters(text).replace(UNSAFE_TERMINAL_G,

@@ -47,10 +47,20 @@ export interface RuntimeStartOptions {
   cache?: PromptCacheSetting;
 }
 
+/** What the private ssh login adds to one allowed ssh command (see src/ssh/askpass.ts). */
+export interface SshRun {
+  /** Added to this command's environment only. */
+  env?: Record<string, string>;
+  /** The command has ended: stop listening. */
+  done?(): Promise<void>;
+  /** A plain line added to the output when the command fails (why ssh will not be asked for a password). */
+  afterFail?: string;
+}
+
 /** The AI's shell, as Casper holds it (see src/sandbox/manager.ts). */
 export interface RuntimeShell {
   /** The command as the sandbox runs it (`id` set), or as it is when nothing holds it. */
-  wrap(command: string, cwd: string): Promise<{ command: string; id?: string }>;
+  wrap(command: string, cwd: string): Promise<{ command: string; id?: string; ssh?: SshRun }>;
   /** A held command has ended (the sandbox cleans up after it). */
   finished?(id: string): void;
   /** After a held command failed: what the sandbox refused, as one line the AI reads, or undefined. */

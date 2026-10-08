@@ -134,6 +134,10 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
   server runs in it too, reaching only your login hosts. On Windows, or
   Linux without bubblewrap (`sudo apt install bubblewrap socat`; Casper fetches ripgrep itself), the AI's shell asks before
   each command that changes something. [Sandbox](docs/SECURITY.md)
+- **Private ssh passwords.** When an `ssh` or `scp` you allowed asks for a password or a key's passphrase, Casper
+  shows its own hidden box (1 No · 2 Yes, this once · 3 Yes, for this session) and the password goes to ssh only,
+  never to the AI, and is hidden wherever the AI reads. Nothing is saved; `ssh_login: off` turns it off.
+  [Private ssh passwords](docs/CONFIGURATION.md#private-ssh-passwords)
 - **Secrets hidden, best effort.** Known device secrets (passwords, keys, SNMP communities) are
   swapped for `<secret hidden>` before the AI sees them. Known formats only. [Secrets](docs/SECRETS.md)
 - **Untrusted text, read at arm's length.** The AI can read a log, an email or a web form through

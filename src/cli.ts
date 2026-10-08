@@ -8,6 +8,12 @@ import path from "node:path";
 import { sourceDependencyProblem } from "./runtime/source-deps";
 
 if (import.meta.main) {
+  // ssh started Casper to ask for a password (see src/ssh/askpass.ts): answer it and stop, nothing else loads. A normal
+  // start never loads the helper (the names are the ones in src/ssh/askpass-helper.ts).
+  if (process.env.CASPER_ASKPASS_ENDPOINT && process.env.CASPER_ASKPASS_TOKEN) {
+    const { processIO, runAskpassHelper } = await import("./ssh/askpass-helper");
+    process.exit(await runAskpassHelper(process.argv.slice(2), process.env, processIO));
+  }
   const problem = sourceDependencyProblem(path.dirname(import.meta.dir));
   if (problem) {
     console.error(problem);

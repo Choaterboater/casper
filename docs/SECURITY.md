@@ -48,7 +48,8 @@ the operating system, not a list of words:
   (`~/.casper/agent/auth.json`, `~/.pi/agent/auth.json`), their provider settings, which may hold
   provider keys (`~/.casper/agent/models.json`, `~/.pi/agent/models.json`), `~/.casper/mcp-consent.key`, `~/.casper/packs.key`, your network logins
   (`~/.casper/network-logins.json`), your MCP servers and profiles (`~/.casper/mcp.json`,
-  `~/.casper/profiles`), the saved conversations of every project (`~/.casper/agent/sessions`), or Casper's own
+  `~/.casper/profiles`), the saved conversations of every project (`~/.casper/agent/sessions`), the
+  private ssh login's socket folders (`~/.casper/run`), or Casper's own
   records in `~/.casper/projects` (your security approvals, lab answers, remembered hosts and undo copies;
   the browser's pictures there stay readable to the AI's `read`), `~/.casper/mcp-consent.json`,
   `~/.casper/skills-trust.json`, and the packs you added with their record (`~/.casper/packs`,
@@ -93,6 +94,40 @@ the operating system, not a list of words:
   looks inside `bash -c '...'`, `$(...)`, loops and `xargs`; a machine named by a variable (`ssh root@$H`)
   asks `Reach another machine ($H)?` every time, because `$H` could be any machine next time. An
   `-o HostName=` in the command is the machine it really reaches, so that is the one the question names.
+- **Private ssh passwords.** An `ssh` or `scp` that runs alone (the same plain command that runs outside the sandbox
+  with your keys, after your yes) may ask for a password or a key passphrase. Casper then shows its own numbered
+  question (`1 No · 2 Yes, this once · 3 Yes, for this session`) and its own hidden box, labelled as Casper's, not
+  "The AI asks". The password goes to ssh through OpenSSH's `SSH_ASKPASS` (Casper itself, started by ssh with
+  `SSH_ASKPASS_REQUIRE=force`) over a Unix socket in a private folder (`~/.casper/run/...`, 0700, on the private-places
+  list, removed when the command ends) or a named pipe on Windows. A home folder too long for a Unix socket gets no
+  box (the temp folder is not used instead) and the AI reads a line saying so. Who gets it:
+  - Only a plain `ssh` or `scp` that runs outside the sandbox with your keys (the rule above): the bare word `ssh` or
+    `scp`, found on `PATH` through absolute folders that no sandboxed command may write (the project and the other
+    places the sandbox allows are not), and not Casper's own bin folder. `./ssh`, `bin/ssh` and a script a project (or the
+    AI) put on the path get none of it, and ssh runs as it did. A user-owned prefix such as Homebrew's counts like any
+    other, as for running outside the sandbox.
+  - Only a command with no pipe, `;`, `&&`, `sudo`, `sshpass`, port forward or `-o ProxyCommand`, never any other
+    command, and none at all when you set `ssh_login: off` (your own `~/.casper/config.yaml`; a project can't).
+    Casper takes its own `SSH_ASKPASS` out of every other command's environment.
+  - Only for the machine you said yes to: a `user@host's password:` prompt for another user or machine is refused, and
+    a remembered password is used only for exactly that user and machine, once per command (ssh asking again means it
+    was wrong). A passphrase and a bare `Password:` are asked every time and never kept.
+  - Only prompts of ssh's own shapes (`user@host's password:`, `(user@host) Password:`, `Password:`,
+    `Enter passphrase for key '...':`). A host-key question, a one-time code, or a server's sentence that merely says
+    "password" gets no box and no answer.
+  - At most 4 boxes and 8 requests a command, one at a time. The socket's name is random and its token is checked;
+    a malformed or half-sent request is dropped without a reply, and a connection that never finishes its first line is
+    closed after 5 seconds.
+  A run with no full terminal (one-shot, `--json`, piped, a builder) refuses with a plain line instead. From a source
+  checkout on Windows there is no box (no batch file ever receives a prompt from a server); the installed Casper has it.
+  What this does not close: the socket's name and token are in the environment of the ssh command, so a program of
+  yours running as you at that moment (or ssh's own children, such as a `ProxyCommand` from `~/.ssh/config`) could read
+  them and ask the same questions while the command runs; each question would show you the box for that machine, and
+  you can say No. The token cannot be bound to one process or one prompt, so it is limited to the command's lifetime
+  and a few requests instead. The password is never in a command, an argument or a file, and never in a tool result or
+  the model's context; from the moment you type it Casper hides it everywhere the AI reads (any length; see
+  [SECRETS.md](SECRETS.md)). Saved passwords are not part of this (nothing is written to disk), and the MCP ssh server
+  still uses keys or an agent only. See [CONFIGURATION.md](CONFIGURATION.md#private-ssh-passwords).
 - **Services and dev servers** keep the machine's own network on Linux; on macOS they reach only listed
   hosts too (others ask). Either way you and the page check reach them on localhost; their files are
   held the same way.

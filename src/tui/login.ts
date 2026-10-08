@@ -3,14 +3,26 @@ import type { RuntimeLoginIO } from "../runtime/types";
 import { terminalText, tint } from "./format";
 import { Panel, panelColor } from "./presentation";
 
+/** A typed or pasted password: no control characters (an escape sequence is a key press, not text). Spaces and non-ASCII are fine. */
+const PASSWORD_TEXT = /^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}]*$/u;
+
 interface LoginDisplay {
   signal: AbortSignal;
   choose<T extends string>(title: string, items: readonly { id: T; label: string }[]): Promise<T | undefined>;
   /** A short muted note under every later screen: where the key is saved, and what the provider charges. */
   setNote(text: string): void;
-  privateInput(label: string, signal?: AbortSignal): Promise<string>;
+  privateInput(label: string, signal?: AbortSignal, options?: PrivateInputOptions): Promise<string>;
   device(url: string, code: string): void;
   browser(url: string): void;
+}
+
+/** A hidden box that is not a provider login: its own title and words, and (a password) any printable text, spaces and
+ * non-ASCII letters included. Keys and codes stay printable ASCII. */
+export interface PrivateInputOptions {
+  title?: string;
+  /** The lines under the label, in place of the key-and-redirect-URL ones. */
+  hint?: string;
+  password?: boolean;
 }
 
 /** The program and arguments that open `url` in the system browser. On Windows not `cmd /c start`: cmd reads the
@@ -122,14 +134,14 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
         } finally { clearPanel(); answer = undefined; selecting = false; }
       },
       setNote: (text) => { note = text; },
-      privateInput: async (label, promptSignal) => {
+      privateInput: async (label, promptSignal, inputOptions) => {
         await fresh();
         const inputSignal = AbortSignal.any([signal, ...(promptSignal ? [promptSignal] : [])]);
         inputSignal.throwIfAborted();
-        const panel = new Panel("Enter private login input", io.color, "warning");
+        const panel = new Panel(inputOptions?.title ?? "Enter private login input", io.color, "warning");
         panel.addChild(new Text(terminalText(label), 0, 1));
         panel.addChild(new Text("1. Paste or type here. Input stays hidden.\n2. Press Enter separately to submit.", 0, 0));
-        panel.addChild(new Text("Never enter keys, codes or redirect URLs in chat.\nEsc / Ctrl+C: cancel", 0, 1));
+        panel.addChild(new Text(`${inputOptions?.hint ?? "Never enter keys, codes or redirect URLs in chat."}\nEsc / Ctrl+C: cancel`, 0, 1));
         if (note) panel.addChild(new Text(muted(terminalText(note)), 0, 0));
         const status = new Text(muted("Private input: [empty]"), 0, 0);
         panel.addChild(status);
@@ -140,7 +152,7 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
           const abort = () => { cleanup(); reject(new Error("Login input cancelled")); };
           const append = (text: string) => {
             // Keys and redirects are printable ASCII. Reject rather than strip controls/newlines.
-            if (!/^[\x21-\x7e]*$/.test(text) || value.length + text.length > 8192) {
+            if (!(inputOptions?.password ? PASSWORD_TEXT : /^[\x21-\x7e]*$/).test(text) || value.length + text.length > 8192) {
               cleanup(); reject(new Error("Invalid private input")); return;
             }
             value += text;
@@ -154,8 +166,8 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
             if (matchesKey(key, "enter")) {
               if (!value) return;
               const result = value; cleanup(); write("Private input received.\n"); resolve(result);
-            } else if (matchesKey(key, "backspace")) { value = value.slice(0, -1); append(""); }
-            else if (/^[\x20-\x7e]+$/.test(key)) append(key);
+            } else if (matchesKey(key, "backspace")) { value = [...value].slice(0, -1).join(""); append(""); }
+            else if ((inputOptions?.password ? PASSWORD_TEXT : /^[\x20-\x7e]+$/).test(key) && key.length > 0) append(key);
             // Navigation, history, undo, clipboard and editor commands have no meaning here.
           };
           io.requestRender();

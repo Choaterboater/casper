@@ -189,6 +189,9 @@ export function settingRows(context: ProjectContext): Setting[] {
     onOffRow("Send Casper's name to OpenRouter", context.telemetry !== false,
       "On OpenRouter requests Casper sends only the app name and site, so OpenRouter files the use under Casper (kept out of its public rankings for now); nothing about your code. CASPER_TELEMETRY=0 turns it off too.",
       ["telemetry"]),
+    onOffRow("Private ssh passwords", context.sshLogin !== false,
+      "When ssh you allowed asks for a password or key passphrase, Casper shows its own hidden box (1 No, 2 Yes once, 3 Yes for this session). The AI never sees what you type. Off: ssh gets no box and a login that needs a password fails.",
+      ["ssh_login"]),
   ];
 }
 

@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import type { ProjectContext } from "../project/context";
-import type { RuntimeShell } from "../runtime/types";
+import type { RuntimeShell, SshRun } from "../runtime/types";
 import { casperAgentDir } from "../runtime/agent-store";
 import { displayPath, realpathLongest, within } from "../platform/project-paths";
 import { describeSandbox, ShellSandbox, type HostAnswer, type ShellSandboxOptions, type WriteAsker } from "../sandbox/manager";
@@ -14,7 +14,10 @@ import type { TaskResult } from "../task/result";
 import { terminalText } from "../tui/format";
 import { blockedBySandbox } from "../verify/command";
 import { hideCommandSecrets } from "../secrets/files";
-import { remoteTargets, runsAlone, splitShell, targetLabel, trustedProgram, type RemoteTarget } from "../sandbox/remote";
+import { remoteTargets, runsAlone, segmentTargets, splitShell, targetLabel, trustedProgram, type RemoteTarget } from "../sandbox/remote";
+import { startAskpass } from "../ssh/askpass";
+import { forgetSshSecrets, sshLoginHandler, sshSessionMemory, type SshLoginHost } from "../ssh/login";
+import { forgetOnceSecrets } from "../secrets/typed";
 import { HOST_CHOICES, REACH_CHOICES, shellCommandChoices, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
 import { commandPrefix, matchesPrefix, readOnlyCommand } from "../sandbox/read-only";
 
@@ -33,7 +36,22 @@ export interface SandboxHost {
   planning(): boolean;
   /** Your lab list (names or addresses): ssh to these doesn't ask, unless /lab ssh off. */
   labHosts?(): readonly string[];
+  /** The private ssh login: Casper's own hidden box for a password or passphrase ssh asks for. Unset: a run that can't ask. */
+  ssh?: SshLoginHost;
 }
+
+/** The private ssh login for one run: `on` reads the user's `ssh_login` setting each time; `start` is a test seam. */
+export interface SshLoginSettings {
+  on?: () => boolean;
+  start?: typeof startAskpass;
+}
+
+const NO_TERMINAL: SshLoginHost = { canTypePrivately: () => false, ask: async () => undefined, write: () => {} };
+/** An ssh option (before the machine's name, never the command that runs over there) sets BatchMode=yes: ssh then never
+ * calls the password program. */
+const batchMode = (options: Array<[string, string]>) => options.some(([flag, value]) => flag === "-o" && /^BatchMode(?:=|\s+)(?:yes|true|1)$/i.test(value.trim()));
+export const SSH_NOT_STARTED_LINE = "[ssh] Casper's private password box could not start here, so ssh was not given one.";
+export const SSH_BATCH_MODE_LINE = "[ssh] This command sets BatchMode=yes, so ssh never asks for a password. If the login needs one, run it again without BatchMode=yes: Casper then asks the user in its own hidden box.";
 
 export const hostQuestion = (host: string) => `A shell command wants to reach ${terminalText(host)}. Allow it?`;
 /** A command as a question shows it: one line, with any secret the AI typed into it hidden. */
@@ -89,7 +107,7 @@ export function sandboxStartupNotes(root: string): string[] {
 
 /** How the AI's bash runs this session (see RuntimeShell). Before a command reaches another machine (ssh, scp, sftp,
  * rsync, nc, telnet, socat) Casper asks "Reach <host>?", sandbox or not; a run that can't ask refuses it. */
-export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: SandboxStore): RuntimeShell & { close(): Promise<void> } {
+export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: SandboxStore, ssh: SshLoginSettings = {}): RuntimeShell & { close(): Promise<void> } {
   // The sandbox's own store when it has one, so /sandbox forget and the shell see the same answers.
   const store = sandbox.store ?? given;
   let logs: Promise<string> | undefined;
@@ -140,20 +158,34 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
     cleared.set(command, targets);
     return { asked };
   };
+  /** The private ssh login for a plain ssh or scp you allowed: ssh may ask Casper's hidden box for a password or passphrase.
+   * Never for anything else, and not when you turned it off (ssh_login: off). */
+  const sshLogin = async (command: string, targets: RemoteTarget[]): Promise<{ ssh?: SshRun }> => {
+    if (ssh.on && !ssh.on()) return {};
+    const words = splitShell(command).segments[0]?.words ?? [];
+    // BatchMode=yes tells ssh never to ask: that is the command's own choice, so it stays, and the AI reads why it failed.
+    if (batchMode(segmentTargets(words).values)) return { ssh: { afterFail: SSH_BATCH_MODE_LINE } };
+    const handler = sshLoginHandler(host.ssh ?? NO_TERMINAL, sshSessionMemory, targets.map(targetLabel).join(", "),
+      targets.map((target) => ({ typed: target.typed, host: target.host, ...(target.user ? { user: target.user } : {}) })));
+    const run = await (ssh.start ?? startAskpass)(handler, { home: sandbox.home });
+    return run ? { ssh: { env: run.env, done: () => run.close() } } : { ssh: { afterFail: SSH_NOT_STARTED_LINE } };
+  };
   const shell: RuntimeShell & { close(): Promise<void> } = {
     keepEnv: sandbox.user.keepEnv ?? [],
     async wrap(command, cwd) {
       const targets = cleared.get(command);
       cleared.delete(command);
-      if (!sandbox.on) return { command };
-      // You said yes to this ssh or scp: a plain one runs outside the sandbox, with your own keys (the sandbox hides
-      // ~/.ssh), like lab checks. Anything more stays in the sandbox and may only reach the hosts you named. Only the
-      // ssh or scp the PATH finds outside every place a sandboxed command may write counts as plain.
+      // The password you typed for "Yes, this once" has done its job once the next command starts.
+      forgetOnceSecrets();
+      // Only the ssh or scp the PATH finds outside every place a sandboxed command may write counts as plain (see trustedProgram).
       const plain = targets !== undefined && runsAlone(command, sandbox.root, cwd)
         && trustedProgram(splitShell(command).segments[0]!.words[0]!, sandbox.searchPath, (place) => sandboxWrites(place, cwd), sandbox.ownBin) !== undefined;
+      if (!sandbox.on) return { command, ...(plain ? await sshLogin(command, targets) : {}) };
+      // You said yes to this ssh or scp: a plain one runs outside the sandbox, with your own keys (the sandbox hides
+      // ~/.ssh), like lab checks. Anything more stays in the sandbox and may only reach the hosts you named.
       if (plain) {
         sayOnce(`[sandbox] ${targets.map(targetLabel).join(", ")}: plain ssh and scp you allow run outside the sandbox, with your own keys.`);
-        return { command };
+        return { command, ...await sshLogin(command, targets) };
       }
       let wrapped;
       try { wrapped = await sandbox.wrap(command, { cwd, network: "ask", ...(host.planning() ? { readOnlyProject: true } : {}) }); }
@@ -226,7 +258,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       logs ??= mkdtemp(path.join(os.tmpdir(), "casper-shell-")).catch(() => "");
       return logs.then((dir) => dir || undefined);
     },
-    async close() { const dir = await logs; if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {}); },
+    async close() { forgetSshSecrets(); const dir = await logs; if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {}); },
   };
   return shell;
 }

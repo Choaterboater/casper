@@ -478,13 +478,16 @@ export function runsAlone(command: string, root: string, cwd = root): boolean {
  * folder has it. A program found in `ownBin` (Casper's own bin folder, searched first) is not the system's, so
  * undefined too.
  */
-export function trustedProgram(name: string, searchPath: string, writable: (place: string) => boolean, ownBin?: string): string | undefined {
+export function trustedProgram(name: string, searchPath: string, writable: (place: string) => boolean, ownBin?: string, platform: NodeJS.Platform = process.platform): string | undefined {
   // A name with a folder in it is not looked up on the PATH at all.
   if (!name || /[\\/]/.test(name)) return undefined;
   for (const dir of searchPath.split(path.delimiter)) {
     if (!dir || !path.isAbsolute(dir) || writable(dir)) return undefined;
-    const file = path.join(dir, name);
-    try { if (!statSync(file).isFile()) continue; accessSync(file, constants.X_OK); } catch { continue; }
+    // On Windows the shell finds ssh.exe when asked for ssh.
+    const file = [path.join(dir, name), ...(platform === "win32" ? [path.join(dir, `${name}.exe`)] : [])].find((candidate) => {
+      try { return statSync(candidate).isFile() && (accessSync(candidate, constants.X_OK), true); } catch { return false; }
+    });
+    if (!file) continue;
     if (ownBin && within(realpathLongest(ownBin), realpathLongest(file))) return undefined;
     return writable(file) ? undefined : file;
   }

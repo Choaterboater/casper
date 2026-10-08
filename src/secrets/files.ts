@@ -4,6 +4,7 @@ import { isSecretName, scrubAssignments, scrubExactValues, scrubUrlPasswords } f
 import { KIND_ORDER, keepLiterally, PEM_BEGIN, PEM_END, type SecretKind } from "./patterns";
 import { scrubProseSecrets } from "./prose";
 import { SECRET_MARKER, scrubText, snakeKey, type ScrubTextResult } from "./scrub";
+import { typedSecretValues } from "./typed";
 
 export { isSecretName, scrubAssignments, scrubExactValues, scrubUrlPasswords };
 
@@ -139,7 +140,7 @@ export function scrubPlainSecrets(text: string, options: PlainScrubOptions = {})
   let hidden = 0;
   let out = text;
   const add = (result: ScrubTextResult) => { out = result.text; hidden += result.hidden; for (const kind of result.kinds) kinds.add(kind); };
-  const exact = [...new Set([...secretEnvValues(options.env), ...(options.values ?? [])])].sort((a, b) => b.length - a.length);
+  const exact = [...new Set([...secretEnvValues(options.env), ...(options.values ?? []), ...typedSecretValues()])].sort((a, b) => b.length - a.length);
   add(scrubExactValues(out, exact));
   // Private keys are hidden in any output, with or without the device config rules.
   if (options.secretFile || PEM_BEGIN.test(out) || PEM_END.test(out)) add(scrubText(out, { keyFile: options.keyFile === true }));
