@@ -28,7 +28,13 @@ the operating system, not a list of words:
   `.git/config.worktree`, `.git/info`, the `core.hooksPath` folder, a worktree's `.git` file and its
   `commondir`, and the same files of each submodule that was there when the command started
   (`.git/modules/<name>` and the submodule's `.git` file). It can't move `.git` aside, and a
-  `.git/commondir` that appears in the project is removed at once. git runs a rebase or cherry-pick to-do's `exec` lines
+  `.git/commondir` that appears in the project is removed at once. The same holds for the other worktrees of the repo: their `commondir`, `gitdir` and
+  `config.worktree` are read-only, and a `config.worktree` that appears is removed when the command finishes (on macOS it is denied
+  outright; on Linux the watcher only sees `commondir` names, so a new `config.worktree` exists briefly, until the command finishes, and is then removed). On Linux the `worktrees` folder cannot be renamed either. Not covered: a brand-new worktree folder
+  a command makes inside `.git/worktrees` (the same class as a nested repository a command creates), so look at
+  `git worktree list` before running git in a folder you did not make. On Linux, `git worktree remove`, `prune`,
+  `move` and `repair` of an existing worktree fail inside the sandbox; run them outside it or through the write box.
+  Making a new worktree and committing in your own still work. git runs a rebase or cherry-pick to-do's `exec` lines
   on the next `--continue`: a command whose text names a write to one (`.git/rebase-merge`, `.git/rebase-apply`,
   `.git/sequencer`) is refused (a text check of the path), and an `exec` line any command adds, git's own writes
   included, is said after that command so you can look before you continue.

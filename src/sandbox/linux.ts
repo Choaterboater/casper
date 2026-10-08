@@ -44,7 +44,10 @@ export function bwrapArgs(options: LinuxWrapOptions, command: string): string[] 
   const insideWritable = (entry: string) => writable.some((allowed) => within(allowed, entry));
   // A git folder is bound onto itself, so a command can't move it aside and put another in its place (the
   // read-only files below would go with it).
-  const gitFolders = new Set(policy.denyWrite.filter((entry) => path.basename(entry) === "config").map((entry) => path.dirname(entry)));
+  const gitFolders = new Set(policy.denyWrite.filter((entry) => ["config", "commondir"].includes(path.basename(entry))).map((entry) => path.dirname(entry)));
+  // A worktree's folder sits in `<common>/worktrees`: that folder is bound too, or it could be renamed with the
+  // read-only files inside it and another put in its place.
+  for (const entry of policy.denyWrite) if (path.basename(entry) === "commondir" && path.basename(path.dirname(path.dirname(entry))) === "worktrees") gitFolders.add(path.dirname(path.dirname(entry)));
   for (const dir of gitFolders) if (insideWritable(dir) && isDirectory(dir)) args.push("--bind", dir, dir);
   for (const entry of policy.denyWrite) {
     if (!insideWritable(entry)) continue;
