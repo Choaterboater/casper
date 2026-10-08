@@ -77,9 +77,9 @@ file and set no variable.
    ```text
    Casper can set up its network server (casper-network-mcp 0.1.2, about 60 MB from pypi.org, installed with uv into ~/.casper/tools).
    It starts read-only. Logins are asked per product the first time you use it.
-     1 Not now
+   → 1 Not now
      2 Set it up
-   Type 1 or 2:
+   Press 1-2 or Up/Down + Enter · Esc is No
    ```
 
    `2` installs that exact version, every package checked against a hash lock that
@@ -97,9 +97,9 @@ file and set no variable.
 
    ```text
    Mist isn't set up yet. Casper will ask for a Mist API token. Use one that can reach only the sites you want, not an admin token.
-     1 Not now
+   → 1 Not now
      2 Add a login
-   Type 1 or 2:
+   Press 1-2 or Up/Down + Enter · Esc is No
    ```
 
    `2` asks for the Mist cloud (a numbered list) and the token, typed hidden. Central
@@ -555,9 +555,9 @@ the session ends or you turn writes off (the transcript says `[approval] allowed
 
 ```text
 Central writes are off.
-  1 Keep writes off
+→ 1 Keep writes off
   2 Enable for this server
-Type 1 or 2:
+Press 1-2 or Up/Down + Enter · Esc is No
 ```
 
 `1` (or anything other than `2`) keeps writes off. Each change still asks you.

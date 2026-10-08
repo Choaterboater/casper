@@ -94,9 +94,9 @@ junos-pyez   Junos PyEZ Python library (Apache-2.0)
 Will run: git -c core.hooksPath=/dev/null clone --depth 1 --filter=blob:none --sparse https://github.com/aruba/pycentral.git ~/.casper/reference-repos/pycentral
 Will run: git -c core.hooksPath=/dev/null -C ~/.casper/reference-repos/pycentral sparse-checkout set pycentral docs
 Download pycentral?
-  1 No
+→ 1 No
   2 Download
-Type 1 or 2:
+Press 1-2 or Up/Down + Enter · Esc is No
 Downloading (up to 5 minutes; Ctrl+C stops it)...
 Added pycentral to ~/.casper/references.yaml. The AI can search it now.
 ```
