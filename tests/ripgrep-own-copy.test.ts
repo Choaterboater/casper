@@ -256,7 +256,7 @@ test("without a usable ripgrep the engine is kept from downloading one (PI_OFFLI
     await thrown.instance.runOnce("/status", thrown.project);
     expect(wouldDownload()).toBe(false);
     await thrown.instance.close();
-    for (const result of [{ source: "pinned", path: path.join(home, "bin", "rg") }, { source: "path", path: "/usr/bin/rg" }] as const) {
+    for (const result of [{ source: "pinned", path: path.join(home, "bin", "rg") }, { source: "embedded", path: path.join(home, "bin", "rg") }, { source: "path", path: "/usr/bin/rg" }] as const) {
       delete process.env.PI_OFFLINE;
       const good = await app({ ripgrep: async () => result });
       await good.instance.runOnce("/status", good.project);

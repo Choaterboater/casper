@@ -139,14 +139,18 @@ test("lookup order: PATH, then Pi's copy, then Casper's earlier pinned copy, the
   await writeFile(path.join(agent, "bin", `rg${exe}`), "x");
   resetRipgrep();
   expect((await run({ homeDir: path.join(base, "second"), agentDir: agent }, source)).result).toEqual({ source: "agent", path: path.join(agent, "bin", "rg") });
-  // A ripgrep on PATH wins over everything, and the embedded copy is not even unpacked.
-  const bin = path.join(base, "bin");
-  await mkdir(bin);
-  await writeFile(path.join(bin, "rg"), "x");
-  resetRipgrep();
-  const third = await run({ homeDir: path.join(base, "third"), agentDir: agent, env: { PATH: bin } }, source);
-  expect(third.result).toEqual({ source: "path", path: path.join(bin, "rg") });
-  expect(await readdir(path.join(base, "third")).catch(() => [])).toEqual([]);
+  // A ripgrep on PATH wins over everything, and the embedded copy is not even unpacked. The run pretends to be Linux
+  // (colon-separated PATH), which a real Windows path with its own colon cannot be split into, so this part runs on
+  // Mac and Linux only; the PATH lookup itself is covered for every OS by ripgrep-own-copy.test.ts.
+  if (process.platform !== "win32") {
+    const bin = path.join(base, "bin");
+    await mkdir(bin);
+    await writeFile(path.join(bin, "rg"), "x");
+    resetRipgrep();
+    const third = await run({ homeDir: path.join(base, "third"), agentDir: agent, env: { PATH: bin } }, source);
+    expect(third.result).toEqual({ source: "path", path: path.join(bin, "rg") });
+    expect(await readdir(path.join(base, "third")).catch(() => [])).toEqual([]);
+  }
 });
 
 test("tools.downloads off and offline stop only the download: the embedded copy is still used", async () => {
