@@ -3,6 +3,7 @@ import { lstat, mkdtemp, readdir, readFile, realpath, rm } from "node:fs/promise
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../platform/environment";
+import { sandboxedArgv, sandboxPath, type SandboxedSpawn } from "../sandbox/spawn";
 import type { VerificationScope } from "./scope";
 
 /**
@@ -209,8 +210,13 @@ async function prismaDeploy(root: string, plan: MigrationPlan, dir: string, sign
   const env = isolatedEnvironment(dir, { PATH: `${path.join(root, "node_modules", ".bin")}${path.delimiter}${process.env.PATH ?? ""}`,
     // Only the database address is given, and it points at the throwaway copy.
     [plan.envName!]: `file:${path.join(dir, "check.db")}`, CHECKPOINT_DISABLE: "1", PRISMA_HIDE_UPDATE_MESSAGE: "1", npm_config_offline: "true" });
-  return await new Promise(resolve => {
-    const child = spawn(bin, ["migrate", "deploy", "--schema", plan.schema!], { cwd: root, env, shell: process.platform === "win32", stdio: ["ignore", "pipe", "pipe"], signal, timeout: APPLY_TIMEOUT_MS, killSignal: "SIGKILL" });
+  // The prisma under node_modules is the project's own code: it runs in the session's shell sandbox like every
+  // other check, with no network (the throwaway database is in temp).
+  let run: SandboxedSpawn;
+  try { run = await sandboxedArgv(bin, ["migrate", "deploy", "--schema", plan.schema!], { cwd: root, network: "none" }); }
+  catch (error) { return { ok: false, error: `prisma could not start in the sandbox (${error instanceof Error ? error.message : String(error)})`.slice(0, 300) }; }
+  try { return await new Promise(resolve => {
+    const child = spawn(run.file, run.args, { cwd: root, env: sandboxPath(env, Boolean(run.held)), shell: run.shell || process.platform === "win32", stdio: ["ignore", "pipe", "pipe"], signal, timeout: APPLY_TIMEOUT_MS, killSignal: "SIGKILL" });
     let output = "";
     const keep = (chunk: Buffer) => { output = (output + chunk.toString("utf8")).slice(-16_384); };
     child.stdout.on("data", keep); child.stderr.on("data", keep);
@@ -221,7 +227,7 @@ async function prismaDeploy(root: string, plan: MigrationPlan, dir: string, sign
       const error = /(?:Database error[^:\n]*:|Error:)\s*\n?\s*(.+)/.exec(output)?.[1]?.trim() ?? output.trim().split("\n").filter(Boolean).at(-1) ?? `exit ${code ?? killed}`;
       resolve({ ok: false, ...(migration ? { file: migration } : {}), error: error.slice(0, 500) });
     });
-  });
+  }); } finally { run.held?.sandbox.finished(run.held.id); }
 }
 
 const DIALECT_NAMES: Record<MigrationDialect, string> = { sqlite: "SQLite", postgres: "Postgres", mysql: "MySQL", unknown: "" };
