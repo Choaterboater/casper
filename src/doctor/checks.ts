@@ -364,7 +364,7 @@ export async function checkSecurityTools(ctx: DoctorContext): Promise<DoctorLine
 // --- Sandbox ---
 
 export async function checkSandbox(ctx: DoctorContext, loaded: LoadedConfiguration | undefined): Promise<DoctorLine[]> {
-  const state = ShellSandbox.detect({ platform: ctx.platform, agentDir: ctx.agentDir,
+  const state = ShellSandbox.detect({ platform: ctx.platform, agentDir: ctx.agentDir, home: ctx.homeDir,
     ...(loaded ? { settings: loaded.sandbox } : {}), ...(ctx.sandboxProblem ? { problem: ctx.sandboxProblem } : {}) });
   if (state.kind === "on") return [ok("Sandbox: can hold shell commands here")];
   if (state.kind === "off") return [note(`Sandbox: off (${state.reason}); Casper asks before shell commands that change things`)];

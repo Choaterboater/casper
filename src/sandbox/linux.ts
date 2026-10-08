@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import type { SandboxPolicy } from "./policy";
 import { within } from "../platform/project-paths";
+import { pinnedRipgrepPath } from "../security/ripgrep-pin";
 
 /**
  * Casper's own bubblewrap line for the two cases the sandbox runtime's shared network setup can't serve:
@@ -77,12 +78,14 @@ export function which(program: string, envPath = process.env.PATH ?? ""): string
 }
 
 /** The ripgrep the sandbox runtime scans the project with (it looks for nested git and settings files to keep
- * read-only): the one on PATH, or the copy Pi downloaded into its own folder (`<agentDir>/bin/rg`). */
-export function ripgrepPath(envPath = process.env.PATH ?? "", agentDir?: string): string | undefined {
+ * read-only): the one on PATH, the copy Pi downloaded into its own folder (`<agentDir>/bin/rg`), or the pinned copy
+ * Casper fetched into `<homeDir>/.casper/tools`. */
+export function ripgrepPath(envPath = process.env.PATH ?? "", agentDir?: string, homeDir?: string): string | undefined {
   const found = which("rg", envPath);
   if (found) return found;
-  const managed = agentDir ? path.join(agentDir, "bin", "rg") : undefined;
-  try { if (managed && statSync(managed).isFile()) return managed; } catch { /* not downloaded */ }
+  for (const managed of [agentDir ? path.join(agentDir, "bin", "rg") : undefined, homeDir ? pinnedRipgrepPath(homeDir) : undefined]) {
+    try { if (managed && statSync(managed).isFile()) return managed; } catch { /* not downloaded */ }
+  }
   return undefined;
 }
 
@@ -103,11 +106,11 @@ function apparmorRestricts(file = APPARMOR_USERNS): boolean {
 
 /** Why bubblewrap can't hold commands on this machine, or undefined when it can. Tried once per process. */
 let probed: string | undefined | null = null;
-export function linuxSandboxProblem(envPath = process.env.PATH ?? "", options: { agentDir?: string; apparmorFile?: string } = {}): string | undefined {
+export function linuxSandboxProblem(envPath = process.env.PATH ?? "", options: { agentDir?: string; homeDir?: string; apparmorFile?: string } = {}): string | undefined {
   if (probed !== null) return probed;
   const bwrap = which("bwrap", envPath);
   const socat = which("socat", envPath);
-  const rg = ripgrepPath(envPath, options.agentDir);
+  const rg = ripgrepPath(envPath, options.agentDir, options.homeDir);
   const missing = [!bwrap ? "bubblewrap" : "", !socat ? "socat" : "", !rg ? "ripgrep" : ""].filter(Boolean);
   if (missing.length > 0) {
     const named = missing.length === 1 ? missing[0]! : `${missing.slice(0, -1).join(", ")} and ${missing.at(-1)}`;

@@ -617,6 +617,10 @@ Security checks (src/security/tools.ts), installed only after you pick Install:
 - ansible-lint 26.9.0 (GPL-3.0-or-later), hash-locked uv install
 - cisco-ai-mcp-scanner 4.8.4 (Apache-2.0), opt-in, hash-locked uv install
 
+Search (src/security/ripgrep-pin.ts), fetched once when no ripgrep is on PATH
+(off with tools.downloads: off):
+- ripgrep 15.2.0 (MIT or Unlicense), sha256-pinned GitHub release
+
 Network checks (src/network), run from your own install:
 - ansible-core (GPL-3.0-or-later)
 - Junoser (Ruby gem; its licence as published with the gem)

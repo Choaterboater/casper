@@ -4,7 +4,7 @@ import path from "node:path";
 import { currentSandbox } from "../sandbox/manager";
 import { installEnv, securityEnv } from "./env";
 import { runInstallStep, runTool, type ToolRunner } from "./spawn";
-import { hostPlatform, pinnedToolDir, pinnedToolPath, SECURITY_TOOLS, type LockedSpec, type SecurityToolSpec, type UvLockSource } from "./tools";
+import { hostPlatform, pinnedToolDir, pinnedToolPath, SECURITY_TOOLS, type LockedSpec, type PinnedSpec, type SecurityToolSpec, type UvLockSource } from "./tools";
 import type { SecurityToolId } from "./types";
 
 /**
@@ -23,7 +23,7 @@ const MARKER = ".casper-installed.json";
 interface InstalledMarker { id: string; version: string; pin: string }
 
 /** What the pinned copy was installed from: the asset's sha256, or the lock's own hash. */
-export function pinFingerprint(spec: SecurityToolSpec, platform: NodeJS.Platform = process.platform, arch: string = process.arch): string | undefined {
+export function pinFingerprint(spec: PinnedSpec, platform: NodeJS.Platform = process.platform, arch: string = process.arch): string | undefined {
   if (spec.source.kind === "uv-lock") return createHash("sha256").update(spec.source.lock).digest("hex");
   const key = hostPlatform(platform, arch);
   return key ? spec.source.assets[key]?.sha256 : undefined;
@@ -66,15 +66,21 @@ export async function pathToolVersion(spec: SecurityToolSpec, file: string, opti
   return /\b(\d+\.\d+\.\d+)\b/.exec(`${result.stdout}\n${result.stderr}`)?.[1];
 }
 
-export async function findTool(spec: SecurityToolSpec, options: FindOptions): Promise<ToolLocation> {
+/** The pinned copy's program when Casper installed this exact version from this exact download; else undefined. */
+export async function pinnedCopy(spec: PinnedSpec, options: Pick<FindOptions, "homeDir" | "platform" | "arch">): Promise<string | undefined> {
   const platform = options.platform ?? process.platform;
   const pinned = pinnedToolPath(options.homeDir, spec, platform);
   try {
     const marker = JSON.parse(await readFile(path.join(pinnedToolDir(options.homeDir, spec), MARKER), "utf8")) as Partial<InstalledMarker>;
-    if (marker.id === spec.id && marker.version === spec.version && marker.pin === pinFingerprint(spec, platform, options.arch) && await isFile(pinned)) {
-      return { kind: "pinned", path: pinned, version: spec.version };
-    }
+    if (marker.id === spec.id && marker.version === spec.version && marker.pin === pinFingerprint(spec, platform, options.arch) && await isFile(pinned)) return pinned;
   } catch { /* not installed by Casper */ }
+  return undefined;
+}
+
+export async function findTool(spec: SecurityToolSpec, options: FindOptions): Promise<ToolLocation> {
+  const platform = options.platform ?? process.platform;
+  const pinned = await pinnedCopy(spec, options);
+  if (pinned) return { kind: "pinned", path: pinned, version: spec.version };
   const found = await onPath(spec.command, options.env ?? process.env, platform);
   if (!found) return { kind: "missing" };
   return { kind: "path", path: found, version: await pathToolVersion(spec, found, options) };
@@ -162,17 +168,28 @@ export interface InstallOptions {
 
 export interface InstallResult { id: string; ok: boolean; message: string }
 
+/** The largest download Casper reads into memory before checking its hash (the biggest pinned asset is far below it). */
+export const MAX_DOWNLOAD_BYTES = 60 * 1024 * 1024;
+
+export async function readCapped(response: Response): Promise<Uint8Array> {
+  const declared = Number(response.headers.get("content-length") ?? "0");
+  if (declared > MAX_DOWNLOAD_BYTES) throw new Error("download is larger than expected");
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > MAX_DOWNLOAD_BYTES) throw new Error("download is larger than expected");
+  return bytes;
+}
+
 async function defaultFetch(url: string): Promise<Uint8Array> {
   const response = await fetch(url, { redirect: "follow" });
   if (!response.ok) throw new Error(`download failed (HTTP ${response.status})`);
-  return new Uint8Array(await response.arrayBuffer());
+  return readCapped(response);
 }
 
 function toolsRoot(homeDir: string): string {
   return path.join(homeDir, ".casper", "tools");
 }
 
-async function finish(spec: SecurityToolSpec, dir: string, pin: string): Promise<void> {
+async function finish(spec: Pick<PinnedSpec, "id" | "version">, dir: string, pin: string): Promise<void> {
   const marker: InstalledMarker = { id: spec.id, version: spec.version, pin };
   await writeFile(path.join(dir, MARKER), `${JSON.stringify(marker)}\n`);
 }
@@ -188,7 +205,7 @@ async function tarProgram(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): Pr
   return windowsTar && await isFile(windowsTar) ? windowsTar : "tar";
 }
 
-async function installBinary(spec: SecurityToolSpec, options: InstallOptions): Promise<InstallResult> {
+export async function installBinary(spec: PinnedSpec, options: InstallOptions): Promise<InstallResult> {
   if (spec.source.kind !== "binary") throw new Error("not a binary tool");
   const platform = options.platform ?? process.platform;
   const key = hostPlatform(platform, options.arch ?? process.arch);
@@ -228,7 +245,12 @@ async function installBinary(spec: SecurityToolSpec, options: InstallOptions): P
     await finish(spec, staging, asset.sha256);
     const target = pinnedToolDir(options.homeDir, spec);
     await rm(target, { recursive: true, force: true });
-    await rename(staging, target);
+    try { await rename(staging, target); }
+    catch (error) {
+      // Another Casper starting at the same moment put the same checked copy there first: that is a success too.
+      if (!(await pinnedCopy(spec, { homeDir: options.homeDir, ...(options.platform ? { platform: options.platform } : {}), ...(options.arch ? { arch: options.arch } : {}) }))) throw error;
+      await rm(staging, { recursive: true, force: true });
+    }
     return { id: spec.id, ok: true, message: `${spec.label} ${spec.version} installed` };
   } catch (error) {
     await rm(staging, { recursive: true, force: true });

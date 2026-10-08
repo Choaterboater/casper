@@ -111,6 +111,8 @@ export interface LoadedConfiguration {
   pageChecks?: boolean;
   /** `telemetry: off`: no OpenRouter app-name headers (user or profile only). Unset: on, unless CASPER_TELEMETRY=0. */
   telemetry?: boolean;
+  /** `tools: { downloads: off }`: Casper does not fetch programs it needs, such as ripgrep (user or profile only). Unset: on. */
+  toolDownloads?: boolean;
   /** The user's lab devices (lab.hosts), from ~/.casper/config.yaml or the profile only; never a project file. */
   lab?: LabSettings;
   /** The profile whose own lab list replaces yours (~/.casper/profiles/<name>/config.yaml), when it has one. */
@@ -267,7 +269,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -495,6 +497,17 @@ function pathList(value: unknown, label: string): string[] | undefined {
   const list = stringArray(value);
   if (!list || list.some((entry) => !entry.trim())) throw new Error(`${label} must be a list of text`);
   return list.map((entry) => entry.trim());
+}
+
+const TOOLS_KEYS = ["downloads"];
+
+/** `tools:` from your own file or a profile: `tools: { downloads: off }` stops Casper fetching programs it needs (ripgrep). */
+function toolsLayer(document: Mapping, label: string, warnings: string[]): boolean | undefined {
+  const value = document.tools;
+  if (value === undefined || value === null) return undefined;
+  if (!isMapping(value)) throw new Error(`${label}: tools must be a mapping such as tools: { downloads: off }`);
+  for (const key of Object.keys(value)) if (!TOOLS_KEYS.includes(key)) warnings.push(`${label}: unknown key tools.${key} (ignored)`);
+  return onOffLayer(value.downloads, label, "tools.downloads");
 }
 
 /** `sandbox:` and `shell.keepEnv` from your own file or a profile: `sandbox: off`, or a mapping that adds hosts,
@@ -864,7 +877,11 @@ export async function loadConfiguration(
   let packs: boolean | undefined;
   let github: boolean | undefined;
   let telemetry: boolean | undefined;
+  // Fetching a program onto your computer is yours to turn off, not a repository's.
+  if (projectDocument.tools !== undefined) throw new Error("tools is a user setting (~/.casper/config.yaml); a project cannot turn Casper's program downloads on or off");
+  let toolDownloads: boolean | undefined;
   for (const [document, label] of [[globalDocument, labels.global], [userProfileDocument, labels.userProfile]] as const) {
+    toolDownloads = toolsLayer(document, label, sandboxWarnings) ?? toolDownloads;
     browser = onOffLayer(document.browser, label, "browser") ?? browser;
     templates = onOffLayer(document.templates, label, "templates") ?? templates;
     packs = onOffLayer(document.packs, label, "packs", "; /pack add adds a pack") ?? packs;
@@ -907,6 +924,7 @@ export async function loadConfiguration(
     ...(github !== undefined ? { github } : {}),
     ...(diagrams !== undefined ? { diagrams } : {}),
     ...(telemetry !== undefined ? { telemetry } : {}),
+    ...(toolDownloads !== undefined ? { toolDownloads } : {}),
     ...(pageChecks !== undefined ? { pageChecks } : {}),
     profileName: selectedProfile,
     policy: mergePolicy(
