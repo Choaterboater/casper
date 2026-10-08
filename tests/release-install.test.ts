@@ -126,6 +126,15 @@ posixOnly("an out-of-band digest installs, and a required version mismatch is re
   expect(pinned.stdout).toContain(`Installed casper ${CASPER_VERSION}`);
 });
 
+posixOnly("an out-of-band digest in capital letters still matches", async () => {
+  const root = await tempDir("casper-install-test-");
+  const release = await fakeRelease(root, artifactName(hostTarget()));
+  const digest = (await readFile(path.join(release, "SHA256SUMS"), "utf8")).split(" ")[0]!;
+  const result = await install(release, path.join(root, "bin"), ["--sha256", digest.toUpperCase(), "--version", CASPER_VERSION]);
+  expect(result.stderr).not.toContain("Checksum mismatch");
+  expect(result.exitCode).toBe(0);
+});
+
 posixOnly("a development symlink is preserved unless replacement is forced", async () => {
   const root = await tempDir("casper-install-test-");
   const artifact = artifactName(hostTarget());

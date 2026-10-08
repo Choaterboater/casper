@@ -5,7 +5,7 @@ import path from "node:path";
 import { assembleTaskTools, type TaskCapabilitySource } from "../src/app/capabilities";
 import { loadConfiguration } from "../src/config/load";
 import { githubEnv, GH_MISSING, GH_SIGNED_OUT, parseRemote } from "../src/github/gh";
-import { githubTool, grantText, NOT_ASKABLE, RERUN_GAP_MS, UNTRUSTED_END_WORDS, UNTRUSTED_WORDS, untrustedEnd, untrustedLabel, type GithubHost } from "../src/github/tool";
+import { githubTool, grantText, ODD, NOT_ASKABLE, RERUN_GAP_MS, UNTRUSTED_END_WORDS, UNTRUSTED_WORDS, untrustedEnd, untrustedLabel, type GithubHost } from "../src/github/tool";
 import type { RuntimeTool } from "../src/runtime/types";
 import type { ToolRunOptions, ToolRunResult } from "../src/security/spawn";
 import { removeTempDir } from "./support/temp-dir";
@@ -101,6 +101,11 @@ test("output is labelled untrusted, cleaned of escape codes, and shows the check
   expect(one).toContain("branch: fix-thing -> main");
   expect(one).toContain("check: test | completed | failure");
   expect(one).toContain("failed: test");
+});
+
+test("invisible characters GitHub sends are removed, including word joiners and the tag block", () => {
+  const sneaky = "a\u2060b\u2064c\u180ed\u034fe\u{e0041}\u{e007f}f\u200bg";
+  expect(sneaky.replace(ODD, "")).toBe("abcdefg");
 });
 
 test("ci: the last 40 log lines, the failing step, secrets and escape codes gone", async () => {

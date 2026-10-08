@@ -76,6 +76,11 @@ test("quiet, plain terminals and other tools show no output line", () => {
   expect(other.last()!.some(line => line.startsWith("↳"))).toBe(false);
 });
 
+test("the last output line is cut by characters, never in the middle of an emoji", () => {
+  const cut = lastOutputLine("ab" + "\u{1F600}".repeat(10), 5);
+  expect(cut).toBe("ab\u{1F600}\u{1F600}…");
+});
+
 test("--json ignores tool progress", () => {
   expect(new RuntimeEventMapper().map({ type: "tool_progress", toolName: "bash", toolCallId: "1", text: "secret-ish" })).toEqual([]);
 });

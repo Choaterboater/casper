@@ -172,7 +172,9 @@ export function lastOutputLine(text: string, max: number): string {
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]!.replace(/\s+/g, " ").trim();
     if (!line) continue;
-    return line.length > max ? `${line.slice(0, Math.max(0, max - 1))}…` : line;
+    // By code points, so the cut never splits an emoji or other surrogate pair.
+    const points = Array.from(line);
+    return points.length > max ? `${points.slice(0, Math.max(0, max - 1)).join("")}…` : line;
   }
   return "";
 }

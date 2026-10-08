@@ -50,7 +50,7 @@ export const NOT_ASKABLE = "GitHub needs your yes before Casper reads this repo,
 export const NOT_GRANTED = "Not done: you said no to GitHub for this repo.";
 
 // Control characters, bidi marks and zero-width characters: gone from text GitHub sends.
-const ODD = new RegExp(`[\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f${[[0x200b, 0x200f], [0x2028, 0x202e], [0x2066, 0x2069], [0xfeff, 0xfeff]].map(([a, b]) => `${String.fromCodePoint(a!)}-${String.fromCodePoint(b!)}`).join("")}]`, "g");
+export const ODD = new RegExp(`[\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f${[[0x200b, 0x200f], [0x2028, 0x202e], [0x2060, 0x2064], [0x2066, 0x2069], [0x180e, 0x180e], [0x034f, 0x034f], [0xfeff, 0xfeff], [0xe0000, 0xe007f]].map(([a, b]) => `${String.fromCodePoint(a!)}-${String.fromCodePoint(b!)}`).join("")}]`, "gu");
 
 function cleaner(host: GithubHost, marker: string) {
   const exact = [...(host.secrets?.() ?? []), ...["GH_TOKEN", "GITHUB_TOKEN"].map((name) => (host.env ?? process.env)[name] ?? "")]

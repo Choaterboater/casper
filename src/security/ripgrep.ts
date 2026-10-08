@@ -31,12 +31,20 @@ export type RipgrepResult =
   | { source: "path" | "agent" | "pinned" | "installed"; path: string }
   | { source: "none"; why: "off" | "offline" | "unsupported" | "failed"; message?: string };
 
-const FETCH_TIMEOUT_MS = 30_000;
+/** The server must answer within this; then the body gets a generous total, so a slow link still finishes. */
+const HEADERS_TIMEOUT_MS = 30_000;
+const BODY_TIMEOUT_MS = 5 * 60_000;
 
-async function fetchWithTimeout(url: string): Promise<Uint8Array> {
-  const response = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-  if (!response.ok) throw new Error(`download failed (HTTP ${response.status})`);
-  return readCapped(response);
+export async function fetchWithTimeout(url: string, fetcher: typeof fetch = fetch, timeouts = { headers: HEADERS_TIMEOUT_MS, body: BODY_TIMEOUT_MS }): Promise<Uint8Array> {
+  const control = new AbortController();
+  let timer = setTimeout(() => control.abort(new Error("the server did not answer in time")), timeouts.headers);
+  try {
+    const response = await fetcher(url, { redirect: "follow", signal: control.signal });
+    clearTimeout(timer);
+    timer = setTimeout(() => control.abort(new Error("the download took too long")), timeouts.body);
+    if (!response.ok) throw new Error(`download failed (HTTP ${response.status})`);
+    return await readCapped(response);
+  } finally { clearTimeout(timer); }
 }
 
 const isFile = (file: string) => stat(file).then((details) => details.isFile(), () => false);
@@ -105,6 +113,10 @@ export function addToPath(env: NodeJS.ProcessEnv, dir: string, platform: NodeJS.
  * none). When Casper's own step did not leave a usable `rg` (downloads off, offline, failed, unsupported, or the step
  * itself broke), PI_OFFLINE=1 makes the engine skip that download; it reads it from this process's environment each time
  * it looks for a tool, so the in-process engine and any child process see it. A usable copy changes nothing. */
-export function keepEngineFromFetchingRipgrep(env: NodeJS.ProcessEnv, result: RipgrepResult | undefined): void {
-  if (!result || result.source === "none") env.PI_OFFLINE = "1";
+export function keepEngineFromFetchingRipgrep(env: NodeJS.ProcessEnv, result: RipgrepResult | undefined): string | undefined {
+  if (result && result.source !== "none") return undefined;
+  const already = env.PI_OFFLINE === "1";
+  env.PI_OFFLINE = "1";
+  // The engine has no switch for tool downloads alone, so its own model-list refresh stops too: say so once.
+  return already || result?.why === "offline" ? undefined : "No ripgrep, so the engine's own downloads are off for this session (this also stops the /model list from refreshing online).\n";
 }

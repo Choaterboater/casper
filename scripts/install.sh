@@ -189,7 +189,8 @@ if [ -z "$EXPECTED_SHA" ]; then
   echo "Refusing to install an unverified binary; pass --sha256 <hex> if you verified it out of band." >&2
   exit 1
 fi
-actual_sha="$(digest "$tmp/$artifact")"
+actual_sha="$(digest "$tmp/$artifact" | tr 'A-F' 'a-f')"
+EXPECTED_SHA="$(printf '%s' "$EXPECTED_SHA" | tr 'A-F' 'a-f')"
 if [ "$actual_sha" != "$EXPECTED_SHA" ]; then
   echo "Checksum mismatch for ${artifact}:" >&2
   echo "  expected $EXPECTED_SHA" >&2

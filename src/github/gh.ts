@@ -8,7 +8,7 @@ import { git } from "../security/git";
 import { runInstallStep, type ToolRunner } from "../security/spawn";
 
 export const GH_TIMEOUT_MS = 30_000;
-/** What one gh call may print before Casper stops it: a list of pull requests, or a job's whole log (only its tail is kept). */
+/** What one gh call may print before Casper stops it: a list of pull requests, or a job's log (a log over the cap is refused with a plain message; only the tail of one within the cap is read). */
 export const JSON_BYTES = 1024 * 1024;
 export const LOG_BYTES = 8 * 1024 * 1024;
 

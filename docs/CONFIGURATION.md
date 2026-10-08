@@ -208,7 +208,7 @@ with `tools:` then `downloads: off` in `~/.casper/config.yaml` (or a profile you
 skips it. When Casper ends up without its own ripgrep (downloads off, offline, or the download failed its
 check), it also keeps the engine's grep tool from downloading one: Casper sets `PI_OFFLINE=1` for itself,
 so nothing unchecked is fetched. This also stops the engine's other automatic downloads in that session
-(for example its model-list refresh). A project file can't change `tools:`. See [SECURITY.md](SECURITY.md).
+(for example its model-list refresh); Casper says so once at start. The engine has no switch for tool downloads alone. A project file can't change `tools:`. See [SECURITY.md](SECURITY.md).
 
 ## Config files
 
