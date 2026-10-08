@@ -317,11 +317,11 @@ test("the footer line with reviewers and builders fits 40, 80 and 120 columns, a
   process.env.TERM = "xterm-256color";
   const session = interactiveTerminal();
   try {
-    session.terminal.setStatus(`proj/main │ model │ ctx 9%~${counts} │ working`); session.terminal.start();
+    session.terminal.setStatus(`proj/main │ model │ ctx 9%~${counts}`); session.terminal.start();
     const { visibleWidth } = await import("@earendil-works/pi-tui");
     for (const width of [40, 80, 120]) expect(visibleWidth(Bun.stripANSI(session.terminal.footerLine(width)!))).toBeLessThanOrEqual(width);
     expect(Bun.stripANSI(session.terminal.footerLine(80)!)).toContain("1 reviewer · 2 builders · $0.19");
-    expect(Bun.stripANSI(session.terminal.footerLine(120)!)).toContain("1 reviewer · 2 builders · $0.19 │ working");
+    expect(Bun.stripANSI(session.terminal.footerLine(120)!)).toEndWith("1 reviewer · 2 builders · $0.19");
     expect(Bun.stripANSI(session.terminal.footerLine(40)!)).toContain("proj/main");
   } finally { session.close(); }
 });

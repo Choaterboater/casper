@@ -28,8 +28,10 @@ afterAll(() => {
 });
 
 const REQUEST = "build a tool that lists Mist APs per site";
+/** Where a working footer (its elapsed time before the project: "⠋ building · 3s │") was last drawn. */
+const lastWorking = (text: string) => Math.max(-1, ...[...text.matchAll(/\d+s │/g)].map(match => match.index));
 /** The footer says idle again after the last work: the app reads commands (an earlier "idle" doesn't count). */
-const settled = (text: string) => text.lastIndexOf("idle") > Math.max(text.lastIndexOf("working"), text.lastIndexOf("waiting for you"));
+const settled = (text: string) => text.lastIndexOf("idle") > Math.max(lastWorking(text), text.lastIndexOf("waiting for you"));
 
 interface Harness {
   app: CasperApp;

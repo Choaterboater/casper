@@ -1,5 +1,5 @@
 import type { InteractiveTerminal } from "../tui/terminal";
-import { BUSY_GLYPH, displayPath, formatDuration, formatToolActivity, lastOutputLine, redactPreview, runningElapsed, terminalText } from "../tui/format";
+import { BUSY_GLYPH, displayPath, formatToolActivity, lastOutputLine, redactPreview, runningElapsed, terminalText } from "../tui/format";
 import type { RuntimeEvent } from "../runtime/types";
 import type { OutputWriter } from "./commands";
 import { SPEND_STOP_REASON } from "../task/spend";
@@ -130,9 +130,9 @@ export function buildersLine(goals: readonly string[], reviewers = 0): string | 
   return `${who} working${short.length ? `: ${short.join(", ")}` : ""}${more}`;
 }
 
-/** One line for a finished group of steps: "✓ 14 edits · 6 commands · 38s", or "• 14 edits · 6 commands · 1 failed · 38s"
- * (never a green ✓ over a failure). */
-export function stepSummary(steps: ReadonlyArray<{ kind: StepKind; failed?: boolean; startedAt: number; endedAt?: number }>): string {
+/** One line for a finished group of steps: "✓ 14 edits · 6 commands", or "• 14 edits · 6 commands · 1 failed"
+ * (never a green ✓ over a failure). No time: the footer and the Working box show how long work takes. */
+export function stepSummary(steps: ReadonlyArray<{ kind: StepKind; failed?: boolean }>): string {
   const counts = new Map<StepKind, number>();
   for (const step of steps) counts.set(step.kind, (counts.get(step.kind) ?? 0) + 1);
   const parts = (["edit", "command", "read", "other"] as const).flatMap(kind => {
@@ -141,10 +141,6 @@ export function stepSummary(steps: ReadonlyArray<{ kind: StepKind; failed?: bool
   });
   const failed = steps.filter(step => step.failed).length;
   if (failed) parts.push(`${failed} failed`);
-  const first = Math.min(...steps.map(step => step.startedAt));
-  const last = Math.max(...steps.map(step => step.endedAt ?? step.startedAt));
-  const duration = formatDuration(last - first);
-  if (duration) parts.push(duration);
   return `${failed ? "•" : "✓"} ${parts.join(" · ")}`;
 }
 
@@ -471,7 +467,8 @@ export class RuntimeEventView {
         const provider = terminalText(event.provider ?? "the model provider");
         const wait = `${Math.max(1, Math.ceil(event.delayMs / 1000))}s`;
         this.output.write(`… Can't reach ${provider} · trying again in ${wait} (${event.attempt} of ${event.maxAttempts})${this.terminal.rich ? " · Esc stops" : ""}\n`);
-        this.setStaticActivity(`Retrying ${provider} · attempt ${event.attempt} of ${event.maxAttempts}`);
+        // Said once, by that line (in the warning colour): the Working box drops what it showed instead of repeating it.
+        this.setStaticActivity();
         this.endedWithNewline = true;
         break;
       }
@@ -562,10 +559,11 @@ export class RuntimeEventView {
         const refusal = event.isError && !spendStop ? refusalForScreen(event.output?.text ?? "") : undefined;
         const notRun = spendStop || refusal !== undefined;
         const suffix = spendStop ? NOT_RUN : REFUSED;
-        const endLine = (inset: number, detail: boolean) => notRun
+        // `timed`: with the step's time. The rich terminal's folded lines leave it out (the footer and box show time).
+        const endLine = (inset: number, detail: boolean, timed = true) => notRun
           ? `${formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}) }, undefined, this.fit(inset + suffix.length))}${suffix}`
             + (detail && refusal ? `\n  ${redactPreview(refusal).slice(0, 240)}` : "")
-          : formatToolActivity(detail ? shown : { ...shown, output: undefined }, elapsed, this.fit(inset));
+          : formatToolActivity(detail ? shown : { ...shown, output: undefined }, timed ? elapsed : undefined, this.fit(inset));
         const label = formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}) }, undefined, this.fit()).replace(/^• /, "");
         this.expanded = event.diff && !event.isError ? { title: label, body: event.diff, diff: true }
           : { title: `${label}${notRun ? " · not run" : event.isError ? " · failed" : ""}`, body: (refusal ?? event.output?.text ?? "").replace(/\n$/, "") || "(no output text)", diff: false };
@@ -579,6 +577,12 @@ export class RuntimeEventView {
           break;
         }
         let step = this.steps.find(candidate => candidate.endedAt === undefined && (event.toolCallId ? candidate.id === event.toolCallId : candidate.toolName === event.toolName));
+        // The AI's question answered: its box stays in the transcript with the answer, so no "✓ ask" line as well.
+        if (event.toolName === "ask" && !event.isError) {
+          if (step) this.steps = this.steps.filter(candidate => candidate !== step);
+          this.renderBox();
+          break;
+        }
         if (!step) {
           // It ended after its turn folded (or never said it started): it still shows until the next fold or receipt.
           step = { toolName: event.toolName, kind: stepKind(event.toolName), startedAt: performance.now() - (elapsed ?? 0), line: "" };
@@ -588,7 +592,7 @@ export class RuntimeEventView {
         step.failed = event.isError && !notRun;
         if (notRun) step.notRun = true;
         step.line = endLine(4, false);
-        step.printed = endLine(0, true);
+        step.printed = endLine(0, true, false);
         if (event.diff && !event.isError) step.diff = event.diff;
         this.renderBox();
         break;

@@ -55,14 +55,15 @@ export function renderProjectSummary(context: ProjectContext): string {
   ].join("\n");
 }
 
-/** With the wordmark header above, the name and version are already on screen.
- * The slash-command hint is only meaningful where someone can type one. */
-export function renderBanner(context: ProjectContext, options: { wordmark?: boolean; interactive?: boolean; checks?: string; shell?: string } = {}): string {
+/** With the wordmark header above, the name and version are already on screen. `model` (the model line or block)
+ * comes before the slash-command hint, which is only meaningful where someone can type one. */
+export function renderBanner(context: ProjectContext, options: { wordmark?: boolean; interactive?: boolean; checks?: string; shell?: string; model?: string } = {}): string {
   return [
     ...(options.wordmark ? [] : [TEXT_HEADER]),
     ` project   ${one(context.model.project.name)} · branch ${context.info.gitBranch ? one(context.info.gitBranch) : "(no git branch)"} · profile ${context.profileName}`,
     ...(options.checks ? [` checks    ${options.checks}`] : []),
     ...(options.shell ? [` shell     ${options.shell}`] : []),
+    ...(options.model ? [options.model] : []),
     ...(options.interactive ? [" /help · /status · /login · /model"] : []),
     "",
   ].join("\n");

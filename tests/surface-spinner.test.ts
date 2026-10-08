@@ -5,7 +5,7 @@ import { TerminalSurface } from "../src/tui/surface";
 
 /** The footer spinner is the visible-motion contract: while a prompt runs or tool activity is
  * on screen the state glyph cycles through braille frames (ASCII ones in the old Windows console), and it
- * returns to the static ○ when idle. Rendered output is the observable surface; private timer fields are not asserted. */
+ * leaves the footer when idle (no state mark then). Rendered output is the observable surface; private timer fields are not asserted. */
 
 const SPINNER = GLYPHS.spinner;
 /** A footer line that starts with a frame. The ASCII frames (| / - \) also turn up inside other text, such as "/ for commands". */
@@ -34,9 +34,9 @@ test("the footer spinner animates while activity is present", async () => {
     await Promise.resolve();
     const moving = SPINNER.filter(frame => chunks.some(text => text.includes(` ${frame} `)));
     expect(moving.length).toBeGreaterThan(1);
-    // Elapsed time rides the same footer. Bun's fake timers freeze Date, so the segment renders
-    // as "· 0s" here; the assertion proves the wiring, not clock arithmetic.
-    expect(chunks.some(text => /· \d+(s|m\ds)/.test(text))).toBe(true);
+    // Elapsed time rides the same footer, right after the spinner. Bun's fake timers freeze Date, so it renders
+    // as "0s" here; the assertion proves the wiring, not clock arithmetic.
+    expect(chunks.some(text => SPINNER.some(frame => text.includes(`${frame} 0s │ `)))).toBe(true);
     const panelFrames = chunks
       .filter(text => text.includes("Working"))
       .map(text => SPINNER.find(frame => text.includes(`${frame} Working`)))
@@ -46,7 +46,7 @@ test("the footer spinner animates while activity is present", async () => {
   } finally { vi.useRealTimers(); }
 });
 
-test("the footer returns to the static ○ after activity clears", async () => {
+test("the footer drops the spinner and the time after activity clears", async () => {
   // Bun's fake timers do not flush the renderer's nextTick/setTimeout chain reliably, so the
   // idle transition is exercised against the platform clock; 300ms is bounded and rare.
   const { surface, chunks } = makeSurface();
@@ -57,9 +57,10 @@ test("the footer returns to the static ○ after activity clears", async () => {
     chunks.length = 0;
     surface.setActivity(undefined);
     await new Promise(resolve => setTimeout(resolve, 300));
-    const idle = chunks.filter(text => text.includes("○"));
+    const idle = chunks.filter(text => text.includes("Casper · / for commands"));
     expect(idle.length).toBeGreaterThan(0);
     expect(spinning(idle.at(-1)!)).toBe(false);
+    expect(Bun.stripANSI(surface.footerLine(80))).toStartWith("Casper · / for commands");
   } finally { surface.close(); }
 });
 test("a picker open during work (the model picker, sign-in) shows waiting for you, not a spinner", async () => {

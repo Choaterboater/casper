@@ -464,7 +464,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       host.output.write(` debugger  ${host.debugSession?.status().state ?? "idle"}; explicit local DAP (/debug)\n`);
       const usage = host.session?.getUsage?.();
       const cost = usage && formatCostShort(usage, host.session?.getStatus?.());
-      host.output.write(` context   ${usage?.context?.percent == null ? "—" : `${usage.context.percent.toFixed(1)}%~`} · ${usage ? `${formatTokenSplit(usage.tokens)}${cost ? ` · ${cost}` : ""}` : "— tokens"} (/context, /usage)\n`);
+      host.output.write(` context   ${usage?.context?.percent == null ? "—" : `${usage.context.percent.toFixed(0)}%~`} · ${usage ? `${formatTokenSplit(usage.tokens)}${cost ? ` · ${cost}` : ""}` : "— tokens"} (/context, /usage)\n`);
       host.output.write(" policy    native coding tools enabled (/permissions)\n");
       host.output.write(` shell     ${host.sandbox ? sandboxStatusLine(host.sandbox) : "not started"}\n`);
       host.output.write(` checks    ${describeChecksPlan(await host.checksPlan(host.projectContext!))}\n`);

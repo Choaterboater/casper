@@ -76,8 +76,8 @@ test("during a task: /model <id> and the /model picker apply from the model's ne
         selectModel: async (options) => {
           selections.push({ query: options.query, persist: options.persist, picker: Boolean(options.picker) });
           // The picker: the person picks "picked" in it.
-          const id = options.picker ? await options.picker.mount(async () => "picked") : options.query!.split("/")[1]!;
-          status = { ...status, model: id };
+          const [provider, id] = options.picker ? ["fixture", await options.picker.mount(async () => "picked")] : options.query!.split("/");
+          status = { ...status, provider: provider!, model: id! };
           return { status, selected: true, savedDefault: options.persist !== false };
         },
         getState: () => ({ cwd: "", isStreaming: true }),
@@ -94,13 +94,16 @@ test("during a task: /model <id> and the /model picker apply from the model's ne
     app.input.write("write a poem\r");
     await app.until(() => started);
     app.input.write("/model fixture/other\r");
+    // One line; the same provider gets the context as before, so it says nothing about where the context goes.
     await app.until(text => text.includes("[model] fixture/other from the model's next step; saved"));
-    await app.until(text => text.includes("[model] The model's next step sends this conversation's context to fixture."));
+    expect(app.screen()).not.toMatch(/context (?:goes|to fixture)/);
+    app.input.write("/model cloud/big\r");
+    await app.until(text => text.includes("[model] cloud/big from the model's next step; saved · this conversation's context goes to cloud"));
     app.input.write("/model --session fixture/third\r");
     await app.until(text => text.includes("[model] fixture/third from the model's next step (this conversation)"));
     app.input.write("/model\r");
     await app.until(text => text.includes("[model] fixture/picked from the model's next step; saved"));
-    expect(selections).toEqual([{ query: "fixture/other", persist: true, picker: false }, { query: "fixture/third", persist: false, picker: false },
+    expect(selections).toEqual([{ query: "fixture/other", persist: true, picker: false }, { query: "cloud/big", persist: true, picker: false }, { query: "fixture/third", persist: false, picker: false },
       { query: undefined, persist: true, picker: true }]);
     app.input.write("/model role fast fixture/x\r");
     await app.until(text => text.includes("/model waits until this task ends"));

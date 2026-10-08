@@ -200,11 +200,11 @@ test("plain /model lists locally; an exact selection is remembered across fresh 
   expect(selected.exit).toBe(0);
   expect(selected.stdout).toContain("conversation");
   const restored = await f.cli("/model");
-  expect(restored.stdout).toContain("fixture / second");
+  expect(restored.stdout).toContain(" model     fixture/second · effort");
   expect(restored.stdout).not.toContain("No Casper model selected");
   expect(restored.stdout).not.toContain("\u001b[");
   expect((await f.cli("/model", "--session", "fixture/first")).exit).toBe(0);
-  expect((await f.cli("/model")).stdout).toContain("fixture / second");
+  expect((await f.cli("/model")).stdout).toContain(" model     fixture/second · effort");
 }, 180_000);
 
 // python3 runs the standard-library PTY fixture; Windows has no equivalent here.

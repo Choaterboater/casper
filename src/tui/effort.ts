@@ -25,11 +25,11 @@ export function effortChoices(supported: readonly string[] | undefined): string[
 
 /**
  * Next effort in that ring. From a typical `high` with no xhigh/max, one step lands on `auto`.
- * Undefined when the model has nothing to cycle (no supported level beside the auto placeholder).
+ * Undefined when the model has nothing to cycle: one level or none, where `auto` could only pick that level.
  */
 export function nextEffort(current: string | undefined, supported: readonly string[] | undefined): string | undefined {
   const choices = effortChoices(supported);
-  if (choices.length < 2) return undefined;
+  if (choices.length < 3) return undefined;
   const index = choices.indexOf(current ?? "");
   return choices[index === -1 ? 0 : (index + 1) % choices.length];
 }

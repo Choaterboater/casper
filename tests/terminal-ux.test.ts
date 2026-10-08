@@ -93,7 +93,7 @@ test("model and auth display distinguishes uninitialized, missing, configured an
   expect(formatRuntimeStatus({ provider: "fixture", model: "test", auth: "missing" })).toContain("credentials missing");
   expect(formatRuntimeStatus({ auth: "unknown" })).toContain("none selected");
   expect(formatRuntimeStatus({ provider: "fixture", model: "test", auth: "configured", thinkingLevel: "high", configuredEffort: "auto", autoEffort: { state: "pending" }, modelRole: "fast" }))
-    .toContain("effort auto → high for now; your first request picks the level · role fast");
+    .toContain("effort auto → high for now; your next request picks the level · role fast");
   expect(formatRuntimeStatus({ provider: "fixture", model: "test", auth: "configured", thinkingLevel: "low", configuredEffort: "auto", autoEffort: { state: "classified" } })).toContain("effort auto → low\n");
 });
 

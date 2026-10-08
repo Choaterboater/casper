@@ -56,10 +56,12 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promi
     app.cancelBeforeCommand = false;
     updateFooter(app);
     // A request typed at the empty-folder question runs first, as if typed at the prompt.
-    const queued = app.queuedPrompt ?? app.queuedLines.shift();
+    const early = app.queuedPrompt;
+    const queued = early ?? app.queuedLines.shift();
     app.queuedPrompt = undefined;
-    // A queued line is a request of its own: the last receipt's row no longer applies.
-    if (queued) { app.terminal.offerNext(undefined); app.events.writePrompt(queued); }
+    // A queued line is a request of its own: the last receipt's row no longer applies. A line typed during work was
+    // echoed (❯) on the rich terminal when it was typed, so only the plain terminal says it again as it runs.
+    if (queued) { app.terminal.offerNext(undefined); if (early !== undefined || !app.terminal.rich) app.events.writePrompt(queued); }
     const line = queued ?? await app.terminal.readCommand();
     if (line === undefined) break;
     // What was pasted into the line: words Casper reads ("big model:") count only where the person typed.

@@ -43,7 +43,7 @@ def exercise(bun, repo, root, no_color=False):
         # Direct exact match, then search-prefilled picker and explicit save.
         s.until_ready()
         s.send("\x01\x0b/model fixture/first\n")
-        s.until("fixture / first")
+        s.until("model     fixture/first")
         s.until_ready()
         s.send("/model sec\n")
         s.until("second · fixture/second")
