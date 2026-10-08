@@ -15,4 +15,3 @@
 - A known slow test uses `flakyOn("win32")` and the list in `tests/flaky-list.test.ts`; read the real failing line of a red job before calling it a flake or re-running it.
 - A change to the sandbox, approval boxes, the private-places list, secrets handling or `.github/workflows` needs the owner's review before merge: say so in the PR.
 - A PR stacked on another one is rebased after the first is squash-merged by cherry-picking only its own commit onto the new `origin/main`.
-- Details and the check commands: `CONTRIBUTING.md`.
