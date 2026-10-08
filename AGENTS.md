@@ -1,4 +1,4 @@
-# Notes for Claude
+# Notes for coding agents (Casper, Claude and others)
 
 - Commits are authored by the repo owner only: `Choaterboater <280862039+Choaterboater@users.noreply.github.com>`.
   The `.claude/settings.json` startup hook sets this; check `git config user.name` before committing.
