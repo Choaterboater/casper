@@ -1,8 +1,10 @@
+import { currentShell } from "../src/app/runtime-start";
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp, type CasperAppOptions } from "../src/app";
+import { rebindWorkspace } from "../src/app/session-branches";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeStartOptions } from "../src/runtime/types";
 import { currentSandbox } from "../src/sandbox/manager";
@@ -151,4 +153,48 @@ test("--no-sandbox with /verify alone: the receipt and the JSON say the checks w
     expect(event.sandbox).toEqual({ held: false, reason: "--no-sandbox" });
     expect(event.text).toContain("Shell commands and checks were not sandboxed (--no-sandbox)");
   } finally { await f.app.close(); }
+});
+
+test("after a branch or switch rebinds the workspace, the conversation's shell wraps with the new sandbox", async () => {
+  const engine = fakeEngine();
+  const f = await fixture({ sandboxSeams: { engine, problem: () => undefined, platform: "linux" } });
+  try {
+    await f.app.runOnce("Write the notes", f.project);
+    const shell = f.started()!.shell!;
+    const before = f.app.sandbox;
+    // Both /branch and /switch end in this call.
+    await rebindWorkspace(f.app, f.project);
+    expect(f.app.sandbox).not.toBe(before);
+    const wrapped = await shell.wrap("npm test", f.project);
+    expect(wrapped.id).toBeDefined();
+    expect(wrapped.command).toContain("CASPER_FAKE_HELD=ask");
+    // A second rebind (a switch back) still reaches the current sandbox.
+    await rebindWorkspace(f.app, f.project);
+    expect((await shell.wrap("npm test", f.project)).command).toContain("CASPER_FAKE_HELD=ask");
+  } finally { await f.app.close(); }
+});
+
+test("finished and refused go to the shell that wrapped the command, even after the app's shell changed", async () => {
+  const calls: string[] = [];
+  let n = 0;
+  const made = (name: string) => ({
+    wrap: async () => ({ command: "x", id: `${name}-${++n}` }),
+    finished: (id: string) => { calls.push(`${name} finished ${id}`); },
+    refused: async (id: string) => { calls.push(`${name} refused ${id}`); return "blocked"; },
+  });
+  const app = { shell: made("old") } as unknown as CasperApp;
+  const shell = currentShell(app);
+  const first = await shell.wrap("a", "/");
+  const second = await shell.wrap("b", "/");
+  (app as { shell: unknown }).shell = made("new");
+  shell.finished!(first.id!);
+  expect(await shell.refused!(second.id!, "out")).toBe("blocked");
+  expect(calls).toEqual(["old finished old-1", "old refused old-2"]);
+  // A failing command is refused() and THEN finished() with the same id: both must still reach the shell that wrapped it.
+  calls.length = 0;
+  const third = await shell.wrap("c", "/");
+  (app as { shell: unknown }).shell = made("newer");
+  await shell.refused!(third.id!, "out");
+  shell.finished!(third.id!);
+  expect(calls).toEqual(["new refused new-3", "new finished new-3"]);
 });

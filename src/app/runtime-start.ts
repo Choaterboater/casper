@@ -10,7 +10,7 @@ import { boundCapabilityResult } from "../capabilities/result";
 import { hiddenSecretGate } from "../secrets/gate";
 import { fileChangeTool } from "../runtime/observation";
 import { scrubToolOutput } from "../secrets/tool-output";
-import type { AgentRuntime, RuntimeSession } from "../runtime/types";
+import type { AgentRuntime, RuntimeSession, RuntimeShell } from "../runtime/types";
 import { planToolGate } from "../flows/plan";
 import { AGENT_DIR_ENV, casperAgentDir } from "../runtime/agent-store";
 import { systemPromptAppend } from "./prompt";
@@ -68,10 +68,12 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         // Config files and config-looking command output (/secrets files off stops these for this
         // session), plus .env, credential files and secret env values (always).
         scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(app.scrubber, toolName, input, texts, signal, { configs: app.scrubFiles, networkLoginFile: networkLoginFile(app) }),
-        ...(app.shell ? { shell: app.shell } : {}),
+        // The conversation outlives a workspace rebind, so it holds a facade that follows the current shell.
+        ...(app.shell ? { shell: currentShell(app) } : {}),
         ...(context.cache ? { cache: context.cache } : {}),
         // The project's sandbox.denyRead (GreenCLI lists its data and log folders there): the file tools refuse them too.
         privatePaths: projectPrivatePaths(app),
+        currentPrivatePaths: () => projectPrivatePaths(app),
       });
       const resumeNotice = await (await ensureSessionWorkspace(app)).resumeActive(app.session);
       if (resumeNotice) app.output.write(`[sessions] ${resumeNotice}\n`);
@@ -181,4 +183,28 @@ export async function checkSignIn(app: CasperApp): Promise<void> {
 export function appAgentDir(app: CasperApp): string {
   return app.sessionHomeDir ? path.join(app.sessionHomeDir, ".casper", "agent")
     : process.env[AGENT_DIR_ENV] && process.env[AGENT_DIR_ENV] !== "undefined" ? process.env[AGENT_DIR_ENV]! : casperAgentDir();
+}
+
+/** A shell for the conversation that always forwards to the app's current shell: after /branch or /switch the
+ * workspace gets a new sandbox, and the old one (closed) must not be the one a running conversation keeps using. */
+export function currentShell(app: CasperApp): RuntimeShell {
+  // The shell that wrapped a command gets its finished/refused, even if a switch replaced app.shell meanwhile.
+  const wrappedBy = new Map<string, RuntimeShell>();
+  return {
+    get keepEnv() { return app.shell?.keepEnv ?? []; },
+    wrap: async (command, cwd) => {
+      const shell = app.shell;
+      if (!shell) return { command };
+      const wrapped = await shell.wrap(command, cwd);
+      if (wrapped.id) wrappedBy.set(wrapped.id, shell);
+      return wrapped;
+    },
+    finished: (id) => { const shell = wrappedBy.get(id); wrappedBy.delete(id); shell?.finished?.(id); },
+    // refused() is followed by finished() for the same command, so only finished() forgets which shell wrapped it.
+    refused: async (id, output) => wrappedBy.get(id)?.refused?.(id, output),
+    approve: async (command, signal, options) => app.shell?.approve?.(command, signal, options),
+    outsideWrite: async (absolute) => app.shell?.outsideWrite?.(absolute),
+    wroteOutside: (absolute) => app.shell?.wroteOutside?.(absolute),
+    logDir: async () => app.shell?.logDir?.(),
+  };
 }

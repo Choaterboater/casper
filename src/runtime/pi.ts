@@ -586,6 +586,17 @@ export const BASH_TIMEOUT_CAP_SECONDS = 3600;
 export const SCRUBBED_TOOLS: ReadonlySet<string> = new Set(["read", "bash", "powershell", "grep", "service", "browser", "lsp"]);
 export const SCRUB_FAILED_TEXT = "Output not shown: Casper could not check it for device secrets. Try a smaller read or another command.";
 
+/** The path context the file and command gates read. denyRead follows the app's current workspace when the
+ * conversation supplies a reader for it (it outlives a rebind), and is read at each call. */
+export function toolPathContext(root: string, home: string, agentDir: string | undefined, options: Pick<RuntimeStartOptions, "privatePaths" | "currentPrivatePaths">) {
+  const context: { root: string; home: string; agentDir: string | undefined; readonly denyRead?: readonly string[] } = { root, home, agentDir };
+  // A getter, defined directly: spreading an object with a getter would freeze its value at that moment.
+  if (options.privatePaths?.length || options.currentPrivatePaths) {
+    Object.defineProperty(context, "denyRead", { enumerable: true, get: () => options.currentPrivatePaths?.() ?? options.privatePaths ?? [] });
+  }
+  return context;
+}
+
 export class PiRuntime implements AgentRuntime {
   private runtime?: AgentSessionRuntime;
   private models?: PiModels;
@@ -674,7 +685,7 @@ export class PiRuntime implements AgentRuntime {
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
       bounded?.signal.throwIfAborted();
       // ~ in tool paths stays the real home: Pi's own file tools expand it with os.homedir(), and the checks must agree.
-      const pathContext = { root: cwd, home: os.homedir(), agentDir, ...(options.privatePaths?.length ? { denyRead: options.privatePaths } : {}) };
+      const pathContext = toolPathContext(cwd, os.homedir(), agentDir, options);
       const extensionFactory = (pi: ExtensionAPI) => {
         // Runs after the runtime's own attribution, so Casper's identity replaces Pi's. With
         // CASPER_TELEMETRY=0 or telemetry: off there is none to add, and the runtime's is taken out too.

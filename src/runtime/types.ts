@@ -41,6 +41,8 @@ export interface RuntimeStartOptions {
   shell?: RuntimeShell;
   /** The project's sandbox.denyRead (absolute): the file tools refuse these like ~/.ssh. */
   privatePaths?: readonly string[];
+  /** The same list read fresh at each tool call, for a conversation that outlives a workspace rebind. */
+  currentPrivatePaths?: () => readonly string[];
   /** How long the provider keeps the prompt cache (`cache:` in ~/.casper/config.yaml). Unset: auto. */
   cache?: PromptCacheSetting;
 }
