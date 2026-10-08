@@ -98,4 +98,7 @@ test.skipIf(!posix)("a worker stuck on the CPU is shown with its children and wh
   expect(section).toMatch(new RegExp(`^children[^\\n]*\\n(?:[^\\n]*\\n)*?\\s*${childPid}\\s+${workerPid}\\s`, "m"));
   // A worker on the CPU gets a native stack, or a line saying this host has no tool to take one.
   expect(section).toMatch(/^native stack(?: \((?:sample|gdb|eu-stack),|: no native stack tool)/m);
+  // The header is written before the tool runs, so on macOS the sample report itself must be there too:
+  // "Call graph:" is only in the report file, so this also checks that the file is read back into the dump.
+  if (/^native stack \(sample,/m.test(section)) expect(section).toMatch(/^\s*Call graph:/m);
 }, 60_000);
