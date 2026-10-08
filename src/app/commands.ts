@@ -376,11 +376,16 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         await session.resumeConversation(id);
       }
       host.lastTaskRequest = undefined;
-      // Like --continue and --resume, a one-shot /clear or /resume does not change what later sessions open.
+      // Like --continue and --resume, a one-shot /clear or /resume does not change what later sessions open, and says so.
       if (host.interactive) await (await host.ensureSessionWorkspace()).rememberConversation(session);
-      host.output.write(prompt === "/clear"
-        ? "[session] New conversation. Your files are not changed; /resume brings the last one back.\n"
-        : `[session] Back in ${title ? `"${terminalText(title)}"` : "that conversation"}. Your files are not changed; /resume lists the others.\n`);
+      const named = title ? `"${terminalText(title)}"` : "that conversation";
+      host.output.write(!host.interactive
+        ? prompt === "/clear"
+          ? "[session] New conversation for this run only: a one-shot run doesn't change what Casper opens next. Run /clear in a session for that.\n"
+          : `[session] Opened ${named} for this run only: a one-shot run doesn't change what Casper opens next. Use casper --resume ${id.slice(0, 8)} "<prompt>" to continue it.\n`
+        : prompt === "/clear"
+          ? "[session] New conversation. Your files are not changed; /resume brings the last one back.\n"
+          : `[session] Back in ${named}. Your files are not changed; /resume lists the others.\n`);
       host.output.write(`${formatRuntimeStatus(session.getStatus?.())}\n`);
       const turns = prompt === "/clear" ? [] : recentTurnLines(session.recentTurns?.(12) ?? []);
       if (turns.length) host.output.write(`Last turns:\n${turns.map(line => terminalText(line)).join("\n")}\n`);

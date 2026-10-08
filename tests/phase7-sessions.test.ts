@@ -252,7 +252,8 @@ describe("Phase 7 sessions and worktrees", () => {
     Object.assign(session, { clearConversation: async () => {
       await writeFile(clearedFile, "");
       await session.switchSession({ cwd: repo, sessionFile: clearedFile });
-    } });
+    }, resumeConversation: async () => { await session.switchSession({ cwd: repo, sessionFile: keptFile }); } });
+    let written = "";
     const app = new CasperApp({
       sessionHomeDir: home,
       runtimeFactory: () => new BranchRuntime(session),
@@ -260,14 +261,20 @@ describe("Phase 7 sessions and worktrees", () => {
       loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
       loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
       loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
-      output: { write: () => {} },
+      output: { write: (text: string) => { written += text; } },
     });
     cleanup.push(() => app.close());
     await app.runOnce("explain tracked.txt", repo);
     expect(prompted).toEqual([freshFile]);
-    // A one-shot /clear starts a new conversation for this run only.
+    // A one-shot /clear starts a new conversation for this run only, and says so.
     await app.runOnce("/clear");
     expect(session.getSessionInfo().sessionFile).toBe(clearedFile);
+    expect(written).toContain("[session] New conversation for this run only: a one-shot run doesn't change what Casper opens next. Run /clear in a session for that.\n");
+    expect(written).not.toContain("/resume brings the last one back");
+    // So does a one-shot /resume <id>, naming the way to continue that conversation.
+    await app.runOnce("/resume 0123456789abcdef");
+    expect(written).toContain(`[session] Opened that conversation for this run only: a one-shot run doesn't change what Casper opens next. Use casper --resume 01234567 "<prompt>" to continue it.\n`);
+    expect(written).not.toContain("/resume lists the others");
     const store = await SessionBranchStore.open({ projectKey: (await GitWorktreeManager.open(repo, home))!.projectKey, primaryWorkspace: await realpath(repo), homeDir: home });
     expect(store.get("main")?.sessionFile).toBe(keptFile);
   });

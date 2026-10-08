@@ -60,7 +60,8 @@ folder.
 
 A one-shot run (`casper "<prompt>"`, `casper --json ...`) starts a new conversation
 unless you give it `--continue` or `--resume`, even in a folder where a session left one
-open. Its `/clear` or `/resume` does not change what the next session opens.
+open. Its `/clear` or `/resume` lasts for that run only and says so: it does not change
+what the next session opens.
 
 From the command line, `casper --continue` continues the folder's most recent
 conversation, and `casper --resume <id-prefix>` continues the saved one whose ID
