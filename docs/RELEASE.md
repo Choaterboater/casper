@@ -92,11 +92,28 @@ so one answer costs far fewer tokens; `trigger_device_upgrade` writes the firmwa
 its dry run now catches a body the endpoint would reject; an accepted firmware change says "queued, not
 applied yet". Installs on 0.1.1 are offered the update by `/mcp setup network`.
 
-**An older `gh` no longer stops an install.** A signed-in `gh` older than 2.49 has no `attestation` command,
-and `install.sh`, `install.ps1` and `casper update` read that as "this download isn't a Casper build". They now
-ask `gh` whether it has the command first; if not, they continue with the SHA-256 and signature checks and
-say "This gh is too old to check where it was built (gh 2.49 or newer can)." A `gh` that has the command and
-says the file does not match still stops the install.
+**An older `gh` no longer stops an install.** `gh` can check where a download was built only from 2.56. A signed-in
+`gh` from 2.47 to 2.55 has an `attestation` command that cannot do that check, and `install.sh`, `install.ps1` and
+`casper update` read its failure as "this download isn't a Casper build". They now ask `gh` for its version first;
+an older one is skipped: the SHA-256 and signature checks still run, and they say "This gh is too old to check
+where it was built (gh 2.56 or newer can)." A `gh` that can check and says the file does not match still stops
+the install.
+
+**Sandbox: after `/branch` and `/switch`, worktrees, and ssh.** After `/branch` or `/switch` the AI's shell
+always goes through the session's current sandbox and the private places follow the folder you are in; a
+sandbox that was replaced or closed refuses a command instead of running it as it is. On macOS a `/branch`
+session folder under `~/.casper` is writable again, while your keys, settings, packs and other sessions' folders
+stay out of reach. A linked git worktree keeps its pointer files read-only, in both directions, so a sandboxed
+command cannot change what git runs in another checkout. Only the system's own `ssh` and `scp` run outside the
+sandbox after your yes; a program of that name in a project, or one in Casper's own folder, stays inside it. One
+limit on macOS: a brand-new file created directly in `~/.casper` during a `/branch` session is not blocked (the
+existing entries are); [SECURITY.md](SECURITY.md) has the detail.
+
+**Casper shows what it is doing while it waits.** A check Casper runs itself (typecheck, lint, test and the rest)
+adds a line such as `test · 3m05s` after 10 seconds, with the last line it printed dimly under it. If the model
+has said nothing for 10 seconds the box reads `Waiting for <provider/model> · 14s`, and during a provider retry
+`Retrying <provider> · attempt 2 of 3`. A plain terminal prints `[checks] test still running · 3m` once a
+minute; `--json` and `/details quiet` print nothing extra. A check's result is unchanged.
 
 **`/security-review update` with the sandbox on.** The advisory download always failed with the shell
 sandbox on, which has no network and can't write `~/.casper`. It now runs outside the sandbox, like
