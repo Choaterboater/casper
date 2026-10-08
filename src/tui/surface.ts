@@ -3,9 +3,10 @@ import {
   matchesKey, setCapabilityOverrides, TuiMainScreen, truncateToWidth, visibleWidth, wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
-import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES } from "../app/images";
+import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } from "../app/images";
+import { readClipboardFiles } from "./clipboard-files";
 import { COMMANDS, fitDescriptions, RUNS_DURING_WORK } from "./commands";
-import { BUSY_GLYPH, hasTerminalControls, markdownTheme, paint, PROMPT_GLYPH, terminalText } from "./format";
+import { BUSY_GLYPH, hasLineControls, hasTerminalControls, markdownTheme, paint, PROMPT_GLYPH, terminalText } from "./format";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
 import { renderPanel } from "./presentation";
@@ -41,11 +42,20 @@ const EXIT_NOTE = "Ctrl-C again to exit · Ctrl-D exits too";
 
 /** The key that pastes a picture: Ctrl+V, or Alt+V on Windows, where Ctrl+V is the terminal's own text paste (as in Pi). */
 export const PASTE_IMAGE_KEY = process.platform === "win32" ? "alt+v" : "ctrl+v";
-/** Where a pasted picture comes from: the system clipboard through pi-tui's helper. Tests swap it.
- * Undefined: no clipboard helper here; null: no picture on the clipboard. */
-export const clipboardDefaults: { image: () => Promise<Uint8Array | null | undefined>; text: () => Promise<string | null | undefined> } = {
+/** Where a pasted picture comes from: the system clipboard through pi-tui's helper, and files copied in a file
+ * manager through the system's clipboard tool (tui/clipboard-files.ts). Tests swap them.
+ * Undefined: no clipboard helper here; null: nothing of that kind on the clipboard. */
+export const clipboardDefaults: {
+  image: () => Promise<Uint8Array | null | undefined>;
+  text: () => Promise<string | null | undefined>;
+  files: () => Promise<string[] | null | undefined>;
+  /** Copied files are looked for before a picture: on a Mac, where Finder also puts a copied file's icon on the clipboard as a picture. */
+  filesFirst: boolean;
+} = {
   image: async () => getNativeClipboard()?.getImage(),
   text: async () => getNativeClipboard()?.getText(),
+  files: () => readClipboardFiles(),
+  filesFirst: process.platform === "darwin",
 };
 
 /** Spinner frames (braille; ASCII on the old Windows console); the footer dot and Working panel title cycle through
@@ -337,7 +347,7 @@ export class TerminalSurface {
         }
       }
       if (matchesKey(data, "ctrl+l")) { this.tui.requestRender(true); return { consume: true }; }
-      // A picture from the clipboard goes in as [image N]; with no picture, the clipboard's text is pasted.
+      // A picture from the clipboard goes in as [image N]; with no picture, copied files' paths, else the clipboard's text.
       if (matchesKey(data, PASTE_IMAGE_KEY) && !this.pendingAsk) { void this.pasteImage(); return { consume: true }; }
       // The last step in full (an edit's diff, a command's output), even while work runs.
       if (matchesKey(data, "ctrl+t")) {
@@ -355,12 +365,15 @@ export class TerminalSurface {
     });
   }
 
-  /** Ctrl+V: the clipboard's picture as `[image N]` at the cursor, kept until the request is sent. */
+  /** Ctrl+V: the clipboard's picture as `[image N]` at the cursor, kept until the request is sent. With no picture,
+   * files copied in a file manager, then the clipboard's text. */
   private async pasteImage(): Promise<void> {
+    if (clipboardDefaults.filesFirst && await this.pasteFiles()) return;
     let bytes: Uint8Array | null | undefined;
     try { bytes = await clipboardDefaults.image(); } catch { bytes = undefined; }
     if (this.closed) return;
     if (!bytes?.length) {
+      if (!clipboardDefaults.filesFirst && await this.pasteFiles()) return;
       let text: string | null | undefined;
       try { text = await clipboardDefaults.text(); } catch { text = undefined; }
       // As a bracketed paste: the editor drops terminal control codes from it (and folds a long paste), as for any paste.
@@ -378,6 +391,23 @@ export class TerminalSurface {
     this.pasted.set(number, { data: Buffer.from(bytes).toString("base64"), mimeType });
     this.editor.insertTextAtCursor(`${imageLabel(number)} `);
     this.render();
+  }
+
+  /** Copied files go in as quoted paths, as if dropped: a picture among them becomes `[image N]` when the request is
+   * sent, with the same checks and limits as a typed path. False when no files were copied. */
+  private async pasteFiles(): Promise<boolean> {
+    let files: string[] | null | undefined;
+    try { files = await clipboardDefaults.files(); } catch { files = undefined; }
+    if (this.closed) return true;
+    if (!files?.length) return false;
+    // A name with a control or bidi character would not show as it is: it is left out, not changed.
+    const shown = files.filter((file) => !hasLineControls(file));
+    if (shown.length < files.length) this.flashNote("a copied file's name has control characters; left out");
+    if (!shown.length) return true;
+    // As a paste, so its words never count as typed ones.
+    this.editor.handleInput(`\x1b[200~${shown.map(promptPath).join(" ")} \x1b[201~`);
+    this.render();
+    return true;
   }
 
   /** What was pasted into the line just sent (empty when all of it was typed). */

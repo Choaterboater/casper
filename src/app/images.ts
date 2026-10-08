@@ -60,7 +60,15 @@ const EXTENSION = String.raw`\.(?:png|jpe?g|gif|webp)`;
 function pathPattern(platform: NodeJS.Platform): RegExp {
   const start = platform === "win32" ? String.raw`(?:[A-Za-z]:[\\/]|~[\\/]|\\\\)` : String.raw`(?:~\/|\/)`;
   const unquoted = platform === "win32" ? String.raw`[^\s"']*?` : String.raw`(?:\\.|[^\s"'\\])*?`;
-  return new RegExp(String.raw`(["'])(${start}[^"'\n]*?${EXTENSION})\1|(?<=^|\s)(${start}${unquoted}${EXTENSION})(?=$|[\s,;:)!?])`, "gi");
+  return new RegExp(String.raw`(["'])(${start}(?:(?!\1)[^\n])*?${EXTENSION})\1|(?<=^|\s)(${start}${unquoted}${EXTENSION})(?=$|[\s,;:)!?])`, "gi");
+}
+
+/** A file's path as the prompt takes it: in double quotes, or single ones when the name has a double quote; with both,
+ * each space, quote and backslash escaped (POSIX; a Windows name never has a double quote). */
+export function promptPath(file: string): string {
+  if (!file.includes('"')) return `"${file}"`;
+  if (!file.includes("'")) return `'${file}'`;
+  return file.replace(/[\s"'\\]/g, "\\$&");
 }
 
 export interface AttachOptions {

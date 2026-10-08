@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { readFile, readdir, stat, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { attachImages, imageMimeType, MAX_IMAGES, PastedImageFiles, shareHost, startsWithImageFile } from "../src/app/images";
+import { attachImages, imageMimeType, MAX_IMAGES, PastedImageFiles, promptPath, shareHost, startsWithImageFile } from "../src/app/images";
 import { removeTempDir } from "./support/temp-dir";
 
 const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
@@ -74,6 +74,33 @@ test("Windows paths with a drive letter are read", async () => {
   // Written the way a Windows terminal pastes a dropped file (quoted); `resolve` stands in for the Windows disk.
   const windows = await attachImages(`"C:\\Users\\me\\w.png" fix it`, { cwd: dir, home: dir, platform: "win32", resolve: () => shot });
   expect(windows.text.split("\n")[0]).toBe("[image 1] fix it");
+});
+
+test("a copied file's path, quoted as the prompt takes it, is read back as the same path", async () => {
+  const dir = await folder();
+  const shot = path.join(dir, "w.png");
+  await writeFile(shot, PNG);
+  const cases: Array<[NodeJS.Platform, string]> = [
+    ["win32", "C:\\Users\\me\\My Shots\\Bob's shot.png"], ["win32", "\\\\?\\C:\\long\\a.png"],
+    ["linux", "/home/me/My Shots/a.png"], ["linux", '/home/me/say "hi".png'], ["darwin", "/Users/me/Bob's \"best\" shot.png"],
+  ];
+  for (const [platform, file] of cases) {
+    const result = await attachImages(`look at ${promptPath(file)} please`, { cwd: dir, home: dir, platform, resolve: () => shot });
+    expect(result.text).toBe(`look at [image 1] please\n\n[image 1] is the file ${file}`);
+  }
+  expect(promptPath("C:\\a b\\c.png")).toBe('"C:\\a b\\c.png"');
+  expect(promptPath('/a/"b".png')).toBe(`'/a/"b".png'`);
+});
+
+test("Windows: a copied picture on another computer's share still asks before it is opened", async () => {
+  const dir = await folder();
+  const shot = path.join(dir, "w.png");
+  await writeFile(shot, PNG);
+  const asked: Array<[string, string]> = [];
+  const result = await attachImages(`${promptPath("\\\\nas\\my shots\\pic.png")} `, { cwd: dir, home: dir, platform: "win32", resolve: () => shot,
+    confirmShare: async (file, host) => { asked.push([file, host]); return false; } });
+  expect(asked).toEqual([["\\\\nas\\my shots\\pic.png", "nas"]]);
+  expect(result.images).toEqual([]);
 });
 
 test("Windows network paths name their computer; local paths name none", () => {

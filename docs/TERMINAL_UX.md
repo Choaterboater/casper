@@ -23,7 +23,7 @@ Casper, `/help <word>` only the lines that mention a word (`/help mcp`), and
 | Ctrl+D | Exit when the prompt is empty |
 | Ctrl+T | Show the last step in full: an edit's whole diff, what a command printed, or the provider's own words after an `[error]` (works during work too) |
 | Ctrl+L | Redraw the screen |
-| Ctrl+V (Alt+V on Windows) | Paste a picture from the clipboard; it shows as `[image 1]` and goes with the request. With no picture on the clipboard, its text is pasted |
+| Ctrl+V (Alt+V on Windows) | Paste a picture from the clipboard; it shows as `[image 1]` and goes with the request. A file you copied in Finder, Explorer or a file manager goes in as its path, and a picture file goes with the request like a dropped one. With neither on the clipboard, its text is pasted |
 | Ctrl+O | Turn MCP writes off for every server at once (see [MCP.md](MCP.md)) |
 
 ### Commands
@@ -394,12 +394,18 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   a picture file dropped or typed as a full path (`/…/shot.png`, `~/…`, `C:\…`) becomes
   `[image N]` when you send, also at the start of the line (then it is a request, not a
   command). PNG, JPEG, GIF and WebP, up to 20 MB each (a pasted picture too) and 8 a
-  request. With no picture on the clipboard, its text is pasted like any paste, with
-  terminal control codes taken out. A dropped file's
+  request. With no picture on the clipboard, files you copied in Finder, Explorer or a
+  Linux file manager go in as quoted paths, as if dropped: a picture file among them is
+  attached when you send, with the same checks and limits; any other file stays as its
+  path. A name with a control or bidi character is left out, and says so. On a Mac the
+  copied files are looked for first, since Finder also puts the file's icon on the
+  clipboard as a picture. Casper reads the list with the system's own tool (`osascript`,
+  Windows PowerShell, `wl-paste` or `xclip`), for at most a few seconds. With neither,
+  its text is pasted like any paste, with terminal control codes taken out. A dropped file's
   path stays on a line under the request, so the AI can still copy it. A pasted picture is
   saved to a private temp folder, deleted when Casper closes, and its path goes on the same kind of line. A bare name like
-  `logo.png` stays a word. On Windows, a path on another computer's share (`\\nas\shots\pic.png`)
-  asks first, `Attach this picture?` with `1 No · 2 Yes, this once`, once per computer: opening it
+  `logo.png` stays a word. On Windows, a path on another computer's share (`\\nas\shots\pic.png`),
+  typed, dropped or copied, asks first, `Attach this picture?` with `1 No · 2 Yes, this once`, once per computer: opening it
   sends your Windows login (a hash of it) there. A no leaves the path as words.
   When the model can't see pictures, one question:
   `1 Send without it · 2 Switch to <a model you set up that can> for this request` (the switch is
