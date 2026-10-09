@@ -36,20 +36,20 @@ Casper itself is free and open source. A task spends money only with your own mo
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.27/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.28/install.sh | sh
 ```
 
 Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.27/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.28/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
 [release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.2.27**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.27`,
+if anything is wrong. These commands pin **v0.2.28**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.28`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 Use the one-line command above rather than downloading a program in your browser: the installer
@@ -82,7 +82,7 @@ From the shell:
 ```sh
 casper "Explain this project"
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.2.27 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.2.28 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
@@ -166,8 +166,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 
 ## What's new
 
-v0.2.27: skill packs you add from a folder or a GitHub commit after seeing every file, colour themes, `/mcp` as one line per server with an arrow-key picker, pasted pictures saved where the AI can open them, pasting a file you copied, the network server 0.1.2 (far smaller Central answers), checking pull requests and CI on GitHub from inside Casper, a quiet start on Linux and in WSL with ripgrep fetched for you, private ssh passwords, live lines while a long check runs, and an older `gh` no longer stopping an install.
-[Release notes](docs/RELEASE.md#v0227-skill-packs-colour-themes-mcp-you-can-click-through-and-pasted-pictures-and-files) ·
+v0.2.28: one table of commands (the menu completes subcommands, and every command does what `/help` says), the names you know from other tools (`/new`, `/theme`, `/copy`, `/export`, `/rename`, `/logout`, `/config`, `/cost`, `/thinking`), screens that say each thing once (an answered box leaves one line), one picker style with an Other row in the AI's questions, a plain `git push` or `gh pr` with your GitHub login after a yes when the sandbox is on, `/permissions` on one screen, checks the sandbox blocked reported as "could not check", and ripgrep inside the release program.
+[Release notes](docs/RELEASE.md#v0228-one-table-of-commands-screens-that-say-things-once-and-git-push-with-your-github-login) ·
 [Roadmap](https://choaterboater.github.io/casper/roadmap.html).
 
 ## Contributing

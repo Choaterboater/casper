@@ -39,10 +39,10 @@
         <img class="hero-logo" src="assets/logo.svg" alt="Casper's ghost logo" width="88" height="88">
         <h1 id="hero-title">Casper</h1>
         <p class="lead">A coding helper for your terminal. Build web apps, APIs, command-line tools and scripts in the language your project uses, and Casper checks the AI's work before it tells you "done". Network engineers get extra care built in.</p>
-        <p class="muted small">Version 0.2.27 · early preview, not signed · MIT licence</p>
+        <p class="muted small">Version 0.2.28 · early preview, not signed · MIT licence</p>
 
-        <div class="cmd"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.27/install.sh | sh</code></pre></div>
-        <div class="cmd"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.27/install.ps1 | iex</code></pre></div>
+        <div class="cmd"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.28/install.sh | sh</code></pre></div>
+        <div class="cmd"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.28/install.ps1 | iex</code></pre></div>
         <p class="small muted">No Bun or source checkout needed. The installer checks the file's SHA-256 and runs the new program's <code>--version</code> before it replaces an older install. Then run <code>casper</code> in your project folder.</p>
 
         <div class="actions">
@@ -160,7 +160,7 @@
 
       <section aria-labelledby="receipt">
         <h2 id="receipt">What "done" looks like</h2>
-        <p>A real Casper 0.2.27 run. The AI here is a scripted stand-in so the capture is repeatable, but its edit is real, and every line after it is the real Casper code: the check, the proof and the receipt.</p>
+        <p>A real Casper 0.2.28 run. The AI here is a scripted stand-in so the capture is repeatable, but its edit is real, and every line after it is the real Casper code: the check, the proof and the receipt.</p>
         <figure class="capture">
 <pre class="term" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">fix the sum bug in src/sum.js</span>
 <span class="dim">[model]</span> scripted/site-capture · effort off
@@ -203,8 +203,8 @@ independently certified.
       </section>
 
       <section aria-labelledby="next">
-        <h2 id="next">New in 0.2.27</h2>
-        <p>Add a pack of skills from a folder or a GitHub commit after a box that shows every file, and pick a colour theme (light or high contrast) in <code>/settings</code>. <code>/mcp</code> is now one line per server with an arrow-key picker to connect, disconnect, forget or change writes and the sandbox. A picture you paste is also saved where the AI can open it, and a file you copied pastes as its path. The network server it installs (0.1.2) returns far shorter Central answers and a firmware upgrade that works, Casper can now look at this repo's pull requests and CI on GitHub and re-run failed checks (it asks first, and the AI never sees your login), it starts quietly on Linux and in WSL, and it fetches ripgrep itself. An older <code>gh</code> no longer stops an install. When an <code>ssh</code> you allowed asks for a password, Casper shows its own hidden box and the password goes to ssh only. Long checks show a live line while they run.</p>
+        <h2 id="next">New in 0.2.28</h2>
+        <p>Commands do what <code>/help</code> says: one table drives the menu, completion and help, and the names you know from other tools work (<code>/new</code> for a new conversation, <code>/theme</code>, <code>/copy</code>, <code>/export</code>, <code>/rename</code>, <code>/logout</code>, <code>/config</code>, <code>/cost</code>, <code>/thinking</code>). The screen says each thing once: an answered box leaves one line, <code>question → answer</code>, every picker has one numbered style, and the AI's questions have an Other row for your own answer. With the sandbox on, a plain <code>git push</code> or <code>gh pr</code> can run with your GitHub login after you say yes (the AI never sees it). <code>/permissions</code> is one screen, a check the sandbox blocked says "could not check" instead of being repaired, and the release program carries its own ripgrep.</p>
       </section>
     </div>
   </main>
@@ -212,7 +212,7 @@ independently certified.
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.27</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.28</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

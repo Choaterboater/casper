@@ -285,7 +285,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Casper
-        run: curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.27/install.sh | sh
+        run: curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.28/install.sh | sh
       - name: Fix the failing test
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

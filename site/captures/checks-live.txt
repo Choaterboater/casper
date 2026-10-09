@@ -1,4 +1,4 @@
-# Casper 0.2.27 · /verify: one line per check as it finishes, then the receipt
+# Casper 0.2.28 · /verify: one line per check as it finishes, then the receipt
 
 ❯ /verify
 [verify] No typecheck command here, so Casper runs lint, test and build.
