@@ -1,4 +1,4 @@
-# Casper 0.2.28 · a write tool on an MCP server asks first; 1 (or Esc) says no
+# Casper 0.2.29 · a write tool on an MCP server asks first; 1 (or Esc) says no
 
 ❯ set the lab site on the fixture server
 [model] scripted/site-capture · effort off

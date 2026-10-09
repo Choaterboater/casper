@@ -4,11 +4,102 @@
 published, and what the installers promise. **When you'd use it:** to see what is new
 before you upgrade, or when you build or publish a release yourself.
 
-Casper distributes an unsigned **v0.2.28 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.28`,
+Casper distributes an unsigned **v0.2.29 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.29`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.29: commands during a task, models on this computer with no setup, and sign-ins from other tools
+
+Every command now runs during a task, a model server on your own computer shows in `/model` by itself,
+and `/login` offers a sign-in Claude Code, Codex CLI or GitHub CLI left on this computer (an API key or
+GitHub CLI's sign-in is used; a plan sign-in starts Casper's own sign-in to the same account). Without a sandbox
+(Windows, or Linux without bubblewrap), everyday read-only lines no longer ask, and `/permissions` is a short
+screen.
+
+- Every command runs at once during a task, with whatever follows it; only the few that would change the task wait
+- `/btw <question>` asks a side question, also with side questions off
+- Ollama, LM Studio, llama.cpp and vLLM show in `/model` with no sign-in and no `models.json`
+- `/login` offers a sign-in Claude Code, Codex CLI or GitHub CLI left on this computer
+- With no sandbox, a `cd` into the project, globs, `2>&1` and `--version` are plain reads, and a yes to a line covers its one real command
+- `/permissions` is short, with the Stop asking box under it; `/permissions details` is the full screen
+- A sign-in that can't be renewed says `/login`; a helper stopped by its limit hands back what it found
+
+**Commands during a task.** Enter during work runs any command at once, with whatever follows it, as when
+idle: `/permissions all`, `/settings`, `/login`, `/memory remember …`, `/mcp writes …`, `/details quiet`,
+`/tasks stop 2` and the rest. A setting or permission you change applies from the task's next step, and the
+command says so (`The running task uses it from its next step.`); a tool the task already has (web lookups,
+the reader, the browser, builders, the spend limits) changes from your next request (`The running task keeps
+what it had; your next request uses it.`). `/mcp`, `/tasks` and `/diff list` print their lists instead of a
+picker, and `/permissions` shows its screen without the box. A picker or question a command opens gives way
+when the task asks you something: it closes and says `… — closed for the task's question; type the command
+again`. A private box for a key or a password (`/login`, `/mcp login`) is never closed under you: the task's
+box waits. Only the commands that would change what the task works on, or start model work of their own,
+wait: `/clear` and `/new`, `/resume`, `/compact`, `/undo`, `/redo`, `/branch <name>`, `/switch`, `/project
+<name>`, `/project new`, `/plan`, `/verify`, `/security-review`, `/delegate`, `/crew` and a picked suggestion.
+They keep their draft and say why (`/undo waits until this task ends · draft kept · Esc stops the task`).
+
+**`/btw <question>`.** A side question, idle or during a task, the same as a line you start with `?`: your
+fast model answers with no tools, and the conversation never sees it. It still works with side questions
+off, since it is typed on purpose.
+
+**Models on this computer with no setup.** Start Ollama, LM Studio, llama.cpp's `llama-server` or vLLM and
+its models show in `/model`, with no sign-in and no file to edit. Casper looks at their usual addresses
+(`127.0.0.1:11434`, `:1234`, `:8080`, `:8000`, or where `OLLAMA_HOST`, `LM_STUDIO_BASE_URL`,
+`LLAMA_CPP_BASE_URL` or `VLLM_BASE_URL` points) in the background from the start and again each time you
+open `/model`, so the start never waits. A server that isn't running is skipped without a word. With nothing
+signed in, a found server counts: your first request picks its first model and saves it. Model names are
+`ollama/qwen3:8b`, `lm-studio/…`, `llama.cpp/…` and `vllm/…`; Casper reads the context window where the
+server tells it, leaves embedding models out, and sends the server only the word `local` as its key. Your
+own `models.json` entry for the same server still wins. `casper doctor` lists the servers it finds. The
+**Local models** row in `/settings` (`localModels: false`) turns it off. See
+[CONFIGURATION.md](CONFIGURATION.md#local-models).
+
+**Sign-ins from other tools.** On a computer where Claude Code, Codex CLI or GitHub CLI is already signed in,
+`/login` (and the sign-in Casper opens by itself) first says `Found a Codex CLI sign-in on this computer` and
+offers one row per sign-in found (such as `1 Codex CLI · use its OpenAI API key`), then `Sign in separately`
+and `Not now`. Only providers with no sign-in yet are offered, and
+finding one reads no key. An API key from Claude Code or Codex CLI is checked with Anthropic or OpenAI, then
+copied. GitHub CLI's sign-in is exchanged for GitHub Copilot the way Copilot's own sign-in is, and gh stays
+signed in (a classic `ghp_` token is refused: Copilot doesn't take it). A Claude or ChatGPT plan sign-in is
+never copied, because its refresh token changes on use and a shared copy would sign the other tool out:
+picking it starts Casper's own sign-in to the same account. `~/.codex/auth.json`, and those tools' sign-in
+files wherever their folder setting moves them, join the private places the AI's tools can't read. **Sign-ins
+from other tools** in `/settings` (`other_logins: off`) turns the offer off. See
+[TERMINAL_UX.md](TERMINAL_UX.md#provider-login).
+
+**Fewer questions with no sandbox.** On Windows, and on Linux without bubblewrap, more lines count as plain
+reads and run without a box: a leading `cd` into a folder in the project (on Windows also a Git Bash path such
+as `/c/Users/me/project`), `*` and `?` globs that Casper expands and checks file by file, `find … | xargs wc`,
+`--version` alone for a few toolchains, a `<` or `>` inside quotes (`grep -n "<div" x.html`), and reads joined by `|`, `&&`, `;`, `2>&1` or `2>/dev/null`. A line whose
+other commands are all plain reads counts as its one command that is not, so a yes to `npm test` covers
+`cd app && npm test 2>&1 | tail -25`; `python -m pytest` and `python -m unittest` are a prefix of their own. A
+glob that picks a private file, `xargs` with anything but `wc`, and a remembered command followed by a file
+read still ask. An answered `Run this command?` box leaves no line after a yes (the command's own line shows
+it ran), or one short line after 3 (`✓ allowed until you quit: npm test`) or 4 (`✓ allowed always in this
+project: npm test`); after the third yes Casper says
+once that `/permissions all` stops the questions until you quit. See [SECURITY.md](SECURITY.md).
+
+**A short `/permissions`.** `/permissions` now says whether Casper is asking, one line per kind (state · how to
+change it) and what stays protected, then the box `Stop asking until you quit?` (`1 Keep asking` first, so
+Enter changes nothing). `/permissions details` is the full screen of where each permission came from and
+every way to be asked less. `allowall` and `allow-all` are `/permissions all`, which still asks first, and a
+mistyped word gets a suggestion (`Did you mean /permissions all (it asks first)?` for `allow` or `yolo`) and
+runs nothing.
+
+**Smaller fixes.** When a saved sign-in can't be renewed, `/model` says `Your anthropic sign-in expired. Run
+/login to sign in again; showing saved models.`, and other refresh failures read in a few words (`HTTP 503`,
+`timed out`, `can't reach it`), never the provider's URL or stack; a request with such a sign-in says the same,
+with `/login` as the next step. A Claude sign-in out of extra usage says to add more at
+claude.ai/settings/usage, or `/model` to pick another model. A helper or builder now also gets its last
+turn to report when it is 30 seconds from its time limit, not only when it uses up its turns or tool calls,
+and the main AI gets that report marked partial (`partial: stopped at its 12-turn limit`); one still on a
+step at its time limit hands back its last words or the files it looked at.
+
+**Not done yet.** `/login` still has no "a model on this computer" row; a running server now shows in
+`/model` without one. A server on another machine, or one that needs a key, still goes in `models.json`.
+Windows still has no shell sandbox.
 
 ## v0.2.28: one table of commands, screens that say things once, and `git push` with your GitHub login
 
