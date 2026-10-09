@@ -2,6 +2,7 @@ import { fuzzyFilter, getKeybindings, Input, truncateToWidth, visibleWidth } fro
 import type { TUI } from "@earendil-works/pi-tui";
 import type { Api, Model, ModelsRefreshOptions, ModelsRefreshResult } from "@earendil-works/pi-ai";
 import { terminalText, tint } from "../tui/format";
+import { errorText, refreshFailure } from "./model-errors";
 
 /** The slice of ModelRuntime the browser consumes; `pi-model-picker.ts` passes a sanitized view
  * whose provider/id/name values are already control-character safe. */
@@ -23,6 +24,32 @@ const SEARCH_FURNITURE = 4; // header, blank, search, blank
 const TAGS_WIDTH = 18;
 const PRICE_WIDTH = 12;
 const CTX_WIDTH = 9;
+
+/** "a", "a and b", "a, b and c". */
+function listWords(words: readonly string[]): string {
+  return words.length < 2 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
+}
+
+/** The header line for failed catalog refreshes: providers whose sign-in expired are told to /login, the rest get a
+ * few plain words each (never the URL, body or stack), and the saved rows stay listed. */
+export function refreshErrorMessage(errors: ReadonlyMap<string, Error>): string {
+  const login: string[] = [];
+  const other: Array<[string, string]> = [];
+  for (const [provider, error] of errors) {
+    const name = terminalText(provider);
+    const cause = refreshFailure(terminalText(errorText(error)));
+    if (cause === "login") login.push(name);
+    else other.push([name, cause]);
+  }
+  const parts: string[] = [];
+  if (login.length) parts.push(`Your ${listWords(login)} sign-in${login.length > 1 ? "s" : ""} expired. Run /login to sign in again`);
+  if (other.length === 1) parts.push(`Could not refresh ${other[0]![0]} (${other[0]![1]})`);
+  else if (other.length > 1) {
+    const shown = other.slice(0, 3).map(([name, cause]) => `${name}: ${cause}`).join(", ") + (other.length > 3 ? `, ${other.length - 3} more` : "");
+    parts.push(`Could not refresh ${other.length} model catalogs (${shown})`);
+  }
+  return `${parts.join(". ")}; showing saved models.`;
+}
 
 /** Model identity is provider + id within a catalog snapshot; full Model equality is unnecessary. */
 function sameRef(a: ModelRef | undefined, b: ModelRef): boolean {
@@ -400,11 +427,9 @@ export class ModelBrowser {
       const result = await this.options.catalog.refresh({ signal: this.refreshAbortController.signal });
       if (this.closed) return;
       if (result.aborted && timedOut) {
-        this.errorMessage = "Model refresh timed out; showing cached models.";
-      } else if (result.errors.size === 1) {
-        this.errorMessage = `Could not refresh ${result.errors.keys().next().value}; showing cached models.`;
-      } else if (result.errors.size > 1) {
-        this.errorMessage = `Could not refresh ${result.errors.size} model catalogs (${[...result.errors.keys()].map(name => terminalText(name)).join(", ")}); showing cached models.`;
+        this.errorMessage = "Model refresh timed out; showing saved models.";
+      } else if (result.errors.size) {
+        this.errorMessage = refreshErrorMessage(result.errors);
       } else {
         this.errorMessage = this.options.catalog.getError();
         if (!this.errorMessage) {
@@ -422,9 +447,10 @@ export class ModelBrowser {
       this.options.tui.requestRender();
     } catch (error) {
       if (this.closed) return;
-      this.errorMessage = timedOut
-        ? "Model refresh timed out; showing cached models."
-        : `Could not refresh model catalogs: ${error instanceof Error ? error.message : String(error)}`;
+      const cause = timedOut ? "timed out" : refreshFailure(terminalText(errorText(error)));
+      this.errorMessage = cause === "login" ? "Your sign-in expired. Run /login to sign in again; showing saved models."
+        : cause === "timed out" ? "Model refresh timed out; showing saved models."
+        : `Could not refresh model catalogs (${cause}); showing saved models.`;
       this.options.tui.requestRender();
     } finally {
       clearTimeout(this.refreshTimeout);

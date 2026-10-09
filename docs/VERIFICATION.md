@@ -259,6 +259,7 @@ provider's own message (a plain terminal prints it on the next line):
 | Cause | Next step |
 | --- | --- |
 | The key is wrong or expired (401) | `/login` to sign in again |
+| A saved sign-in could not be renewed (the token server said `invalid_grant`, 400 or 401; offline or a 5xx while renewing reads as those causes) | `/login` to sign in again |
 | Out of credits (402, "quota") | Add credits on the provider's site, or `/model` to pick another model |
 | Rate limited or overloaded (429, 529) | Wait a minute, then ask again |
 | Can't reach the provider (offline, DNS) | Check your internet connection, then ask again |

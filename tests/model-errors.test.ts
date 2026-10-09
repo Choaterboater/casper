@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { RuntimeEventView } from "../src/app/events";
-import { explainModelError } from "../src/runtime/model-errors";
+import { errorText, explainModelError, refreshFailure, signInExpired } from "../src/runtime/model-errors";
 import { formatReceipt } from "../src/task/result";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -28,6 +28,47 @@ test("provider errors are sorted by cause", () => {
   expect(cases.map(([message]) => explainModelError(message)?.cause as string | undefined)).toEqual(cases.map(([, cause]) => cause));
 });
 
+test("a sign-in that can't be renewed is an expired sign-in with /login as the next step; other refresh failures get a few words", () => {
+  const expired = 'OAuth refresh failed for anthropic: Anthropic token refresh request failed. url=https://example.invalid/v1/oauth/token; details=Error: HTTP request failed. status=400; body={"error": "invalid_grant", "error_description": "Refresh token not found or invalid"}; stack=Error\n    at post (file:///example/x.js:1:1)';
+  expect(signInExpired(expired)).toBe(true);
+  expect(signInExpired("Refresh token not found or invalid")).toBe(true);
+  expect(signInExpired("500 Internal server error")).toBe(false);
+  expect(explainModelError(expired)).toEqual({ cause: "key", line: "Your sign-in expired and could not be renewed. Next: /login to sign in again." });
+  expect(explainModelError("OAuth refresh failed for anthropic")?.cause).toBe("key");
+  expect(errorText(new Error("OAuth refresh failed for anthropic", { cause: new Error("invalid_grant") }))).toBe("OAuth refresh failed for anthropic: invalid_grant");
+  expect(errorText("plain")).toBe("plain");
+  const cases: Array<[string, string]> = [
+    [expired, "login"], ["401 Unauthorized", "login"], ["fetch failed", "can't reach it"], ["getaddrinfo ENOTFOUND example.invalid", "can't reach it"],
+    ["Request timed out", "timed out"], ["The operation was aborted due to timeout", "timed out"], ["429 Too Many Requests", "busy, try later"],
+    ["HTTP request failed. status=502; url=https://example.invalid/x?token=abc", "HTTP 502"], ["500 Internal server error", "HTTP 500"],
+    ["catalog file is not JSON\n    at parse (file:///example/x.js:1:1)", "catalog file is not JSON"], ["bad reply url=https://example.invalid/?k=1", "bad reply"],
+    ["x".repeat(100), `${"x".repeat(59)}…`], ["", "unknown error"],
+  ];
+  expect(cases.map(([message]) => refreshFailure(message))).toEqual(cases.map(([, words]) => words));
+});
+
+test("Pi wraps every refresh failure in the same words: offline, a timeout or a 5xx is not an expired sign-in", () => {
+  const wrap = (details: string) => errorText(new Error("OAuth refresh failed for anthropic",
+    { cause: new Error(`Anthropic token refresh request failed. url=https://example.invalid/v1/oauth/token; details=${details}`) }));
+  const offline = wrap("TypeError: fetch failed; cause=Error: getaddrinfo ENOTFOUND example.invalid");
+  const timeout = wrap("TimeoutError: The operation was aborted due to timeout");
+  const down = wrap("Error: HTTP request failed. status=503; url=https://example.invalid/v1/oauth/token; body=busy");
+  const rejected = wrap('Error: HTTP request failed. status=401; body={"error":"unauthorized"}');
+  for (const message of [offline, timeout, down]) expect(signInExpired(message)).toBe(false);
+  expect([offline, timeout, down, rejected].map(refreshFailure)).toEqual(["can't reach it", "timed out", "HTTP 503", "login"]);
+  expect(explainModelError(offline)?.cause).toBe("offline");
+  expect(explainModelError(timeout)?.cause).toBe("offline");
+  expect(explainModelError(down)).toBeUndefined();
+  expect(explainModelError(rejected)?.line).toBe("Your sign-in expired and could not be renewed. Next: /login to sign in again.");
+  expect(refreshFailure("OAuth refresh failed for kimi-coding: Kimi Code token refresh failed with status 500")).toBe("HTTP 500");
+  expect(refreshFailure("OAuth refresh failed for openai-codex: OpenAI Codex token refresh failed (400): bad")).toBe("login");
+  expect(refreshFailure("OAuth refresh failed for xai: xAI OAuth token refresh failed (HTTP 401)")).toBe("login");
+  expect(refreshFailure("OAuth refresh failed for openai-codex: OpenAI Codex token refresh error: fetch failed")).toBe("can't reach it");
+  // A wrapper with no cause anyone can read still has only one fix.
+  expect(explainModelError("OAuth refresh failed for anthropic: Anthropic token refresh returned invalid JSON")?.line)
+    .toBe("Your sign-in could not be renewed. Next: /login to sign in again.");
+});
+
 test("each cause has one plain next step", () => {
   expect(explainModelError("401 Unauthorized")?.line).toBe("The provider rejected the sign-in (the key is wrong or expired). Next: /login to sign in again.");
   expect(explainModelError("402 Payment Required")?.line).toBe("The provider says the account is out of credits. Next: add credits on the provider's site, or /model to pick another model.");
@@ -35,6 +76,12 @@ test("each cause has one plain next step", () => {
   expect(explainModelError("fetch failed")?.line).toBe("Can't reach the provider. Next: check your internet connection, then ask again.");
   expect(explainModelError("403 Forbidden")?.line).toBe("The provider refused the request. Next: check the key with /login, or /model to pick a model your account can use.");
   expect(explainModelError("prompt is too long")?.line).toBe("The conversation is too long for this model. Next: /compact, then ask again.");
+});
+
+test("a Claude sign-in out of extra usage says where to add more, or to pick another model", () => {
+  const message = `400 {"type":"error","error":{"type":"invalid_request_error","message":"You're out of extra usage. Add more at claude.ai/settings/usage and keep going."},"request_id":"req_0"}`;
+  expect(explainModelError(message)).toEqual({ cause: "credits",
+    line: "Your Claude sign-in is out of extra usage (Casper's Claude use is billed as extra usage, not your plan's included use). Next: add more at claude.ai/settings/usage, or /model to pick another model." });
 });
 
 function view(rich: boolean) {
