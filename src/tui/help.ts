@@ -102,7 +102,7 @@ Local commands:
   /theme                            Pick the screen's colours (the Theme row of /settings), saved for you
   /hotkeys                          The keys Casper uses
   /copy [n]                         Copy the last answer, or its code block n, to the clipboard
-  /export [file]                    Save this conversation to a file in the project: Markdown, or every message as .jsonl
+  /export [file]                    Save this conversation to ~/.casper/exports, or to [file] in the project: Markdown, or every message as .jsonl
   /rename <title>                   Name this conversation (the window title and /resume)
   /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)

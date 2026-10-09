@@ -167,6 +167,20 @@ test("a command description too long for the menu ends at a word with …, never
   expect(fitDescriptions(items, 200)).toEqual(items);
 });
 
+test("a subcommand label too wide for the menu's column ends with …, never cut mid-bracket with no mark", async () => {
+  const { findCommand, fitDescriptions, subcommandItems } = await import("../src/tui/commands");
+  const items = subcommandItems(findCommand("model")!, "")!;
+  // The column is at most 32 wide with 2 of margin: 30 columns for a label.
+  const labels = fitDescriptions(items, 100).map((item) => item.label);
+  expect(labels).toContain("role <fast|build|reason|…");
+  expect(labels).toContain("big <selector|clear>");
+  for (const label of labels) expect(label!.length).toBeLessThanOrEqual(30);
+  // A dimmed label (during a task) is cut by columns with its colour kept.
+  const [dim] = fitDescriptions([{ value: "role ", label: `\x1b[2m${"role <fast|build|reason|review> <selector|clear>"}\x1b[22m`, description: "x" }], 100);
+  expect(Bun.stripANSI(dim!.label!)).toEndWith("…");
+  expect(Bun.stripANSI(dim!.label!).length).toBeLessThanOrEqual(30);
+});
+
 test("/diff list during a task prints the list with no picker, so nothing sits in the way of a box the task opens", async () => {
   const gate = Promise.withResolvers<void>();
   let turns = 0, second = false;
