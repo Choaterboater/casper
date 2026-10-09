@@ -18,7 +18,8 @@ import { remoteTargets, runsAlone, segmentTargets, splitShell, targetLabel, trus
 import { startAskpass } from "../ssh/askpass";
 import { forgetSshSecrets, sshLoginHandler, sshSessionMemory, type SshLoginHost } from "../ssh/login";
 import { forgetOnceSecrets } from "../secrets/typed";
-import { HOST_CHOICES, REACH_CHOICES, shellCommandChoices, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
+import { githubLoginChoices, HOST_CHOICES, REACH_CHOICES, shellCommandChoices, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
+import { githubLoginCommand, githubRunEnv, LOGIN_FAILED, startsGitOrGh, type GithubLoginCommand } from "../sandbox/github-login";
 import { commandPrefix, matchesPrefix, readOnlyCommand } from "../sandbox/read-only";
 
 /**
@@ -78,6 +79,15 @@ export const reachQuestion = (target: RemoteTarget, command: string) => `Reach $
 /** The AI reads these when a command to another machine does not run. */
 export const reachCantAsk = (target: RemoteTarget) => `Not run: this command reaches ${targetLabel(target)}${target.unclear ? "" : ", another machine,"} and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user; they can run it themselves${target.unclear ? " or in a Casper session" : `, in a Casper session, or with --allow-reach ${target.typed} for one run`}.`;
 export const reachDeclined = (target: RemoteTarget) => `Not run: the user said no to reaching ${targetLabel(target)}. Don't try it again another way; ask the user what to do instead.`;
+/** "Run outside the sandbox with your GitHub login?  git push -u origin main" */
+export const githubLoginQuestion = (command: string) => `Run outside the sandbox with your GitHub login?  ${shownCommand(command)}`;
+export const GITHUB_LOGIN_DECLINED = "Not run: the user said no to using their GitHub login for this command. Don't try it again another way; ask the user what to do instead.";
+export const GITHUB_LOGIN_LINE = "[sandbox] Plain git and gh commands you allow run outside the sandbox, with your GitHub login; the AI reads their output, never the login.";
+/** The AI reads these when a git or gh command failed in the sandbox for want of the login. There is no setting that
+ * opens ~/.config/gh to the sandbox: the AI is told so, so it doesn't offer one. */
+const GITHUB_HIDDEN = "Your GitHub login (~/.config/gh, git's saved logins) is hidden from commands in the sandbox, and no setting opens it: don't offer one.";
+export const GITHUB_LOGIN_HINT = `[sandbox] ${GITHUB_HIDDEN} A plain git push/pull/fetch or gh command runs outside the sandbox with the user's login after they say yes: send it as a command of its own (no cd, pipe, ;, &&, 2>&1, -c or VAR= in front).`;
+export const GITHUB_LOGIN_CANT_ASK = `[sandbox] ${GITHUB_HIDDEN} This run can't ask the user to use it: tell them, and they can run the command themselves.`;
 export const SHELL_CANT_ASK = "Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.";
 export const SHELL_DECLINED = "Not run: the user said no to this command. Don't run it again; ask the user what to do instead.";
 export const writeQuestion = (from: WriteAsker, folder: string) => `${from === "shell" ? "A shell command" : "The AI"} wants to write to ${terminalText(folder)}. Allow it?`;
@@ -135,6 +145,12 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
   const { sessionCommands, sessionPrefixes } = store;
   /** Commands you said yes to just now, with the hosts they reach (wrap lets them through). */
   const cleared = new Map<string, RemoteTarget[]>();
+  /** git and gh commands you said yes to just now: wrap runs them outside the sandbox with your GitHub login. */
+  const githubCleared = new Set<string>();
+  /** Plain git and gh commands a run that can't ask kept in the sandbox: their failure note says so. */
+  const githubUnasked = new Set<string>();
+  /** Held runs of git or gh: if one fails for want of the login, the AI is told how to run it with your yes. */
+  const heldGithub = new Map<string, { unasked: boolean }>();
   const said = new Set<string>();
   /** --allow-reach: a machine allowed for this run, by the name the command typed or the address it resolves to. */
   // An alias from ~/.ssh/config counts by its real address too.
@@ -156,6 +172,30 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       writeBlocked: (place) => !sandbox.writeAllowed(place),
       readBlocked: (place) => [path.resolve(place), realpathLongest(place)].some((name) => denyRead.some((entry) => within(entry, name))),
     };
+  };
+  /** The plain git or gh command that may use your GitHub login outside the sandbox: only the system's own git or gh
+   * (see trustedProgram), run in the project. */
+  const githubPlain = (command: string, cwd: string): GithubLoginCommand | undefined => {
+    const places = localPlaces();
+    const found = githubLoginCommand(command, { root: sandbox.root, cwd, home: sandbox.home, ...places, readable: (place) => sandbox.writeAllowed(place) });
+    return found && trustedProgram(found.tool, sandbox.searchPath, (place) => sandboxWrites(place, cwd), sandbox.ownBin) !== undefined ? found : undefined;
+  };
+  /** "Run outside the sandbox with your GitHub login?": a reason refuses the command. Not answered by /permissions all,
+   * and a run that can't ask leaves the command in the sandbox, as before. */
+  const githubLogin = async (command: string, signal?: AbortSignal): Promise<string | undefined> => {
+    const found = githubPlain(command, sandbox.root);
+    if (!found) return undefined;
+    // A command that types its own address could send the project anywhere: it asks every time.
+    if (!found.address && (store.sessionGithub.has(found.action) || await store.allowsGithub(found.action))) { githubCleared.add(command); return undefined; }
+    if (!host.canAsk()) { githubUnasked.add(command); return undefined; }
+    const answer = await host.pick(githubLoginQuestion(command), githubLoginChoices(found.action, !found.address), signal);
+    if (answer === YES_SESSION && !found.address) store.sessionGithub.add(found.action);
+    else if (answer === YES_ALWAYS && !found.address) {
+      try { await store.addGithub(found.action); }
+      catch (error) { store.sessionGithub.add(found.action); host.write(`[sandbox] Not saved (${terminalText(error instanceof Error ? error.message : String(error))}); ${found.action} doesn't ask again this session.\n`); }
+    } else if (answer !== YES_ONCE) return GITHUB_LOGIN_DECLINED;
+    githubCleared.add(command);
+    return undefined;
   };
   const sayOnce = (line: string) => { if (said.has(line)) return; said.add(line); host.write(`${line}\n`); };
   /** undefined: runs (and whether the question already showed the command); a string: refused, the AI reads why. */
@@ -205,6 +245,13 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       cleared.delete(command);
       // The password you typed for "Yes, this once" has done its job once the next command starts.
       forgetOnceSecrets();
+      // You said yes to this git or gh command: it runs outside the sandbox, with your GitHub login (the sandbox hides
+      // ~/.config/gh and git's saved logins). Checked again where it runs; anything else stays in the sandbox.
+      if (githubCleared.delete(command) && sandbox.on && githubPlain(command, cwd)) {
+        sayOnce(GITHUB_LOGIN_LINE);
+        return { command, env: githubRunEnv() };
+      }
+      const unasked = githubUnasked.delete(command);
       // Only the ssh or scp the PATH finds outside every place a sandboxed command may write counts as plain (see trustedProgram).
       const shape = targets !== undefined && runsAlone(command, sandbox.root, cwd, localPlaces());
       const plain = shape
@@ -227,6 +274,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
         if (refused) throw new Error(refused);
         return { command, ...unplain };
       }
+      if (wrapped.held && startsGitOrGh(command)) heldGithub.set(wrapped.id, { unasked });
       if (targets && wrapped.held) {
         sandbox.allowForRun(wrapped.id, targets.flatMap((target) => [target.host, target.typed]));
         // ssh inside the sandbox goes through its proxy only on Linux (socat); nc, telnet and socat never do.
@@ -237,11 +285,16 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       }
       return wrapped.held ? { command: wrapped.command, id: wrapped.id, ...unplain } : { command, ...unplain };
     },
-    finished(id) { sandbox.finished(id); },
+    finished(id) { heldGithub.delete(id); sandbox.finished(id); },
     async refused(id, output) {
       const reason = await blockedBySandbox(sandbox, id, output);
-      if (!reason) return undefined;
+      const git = heldGithub.get(id);
+      heldGithub.delete(id);
+      // git or gh failed for want of your login (Linux hides the files without a report, so the output says it).
+      const github = git && LOGIN_FAILED.test(`${output}\n${reason ?? ""}`) ? (git.unasked ? GITHUB_LOGIN_CANT_ASK : GITHUB_LOGIN_HINT) : undefined;
+      if (!reason) return github;
       const blocked = `[sandbox] ${reason[0]!.toUpperCase()}${reason.slice(1)}.`;
+      if (github) return `${blocked} ${github.replace(/^\[sandbox\] /, "")}`;
       // Refused only for writes to folders Casper may offer: one question for all of them (the next command gets
       // the new policy).
       const writes = sandbox.refused(id, output).map((line) => /^wanted to write (\/.*)$/.exec(line)?.[1]);
@@ -269,6 +322,8 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       if (options?.reached) return remoteTargets(command, sandbox.home).length ? undefined : shell.approve!(command, signal);
       const remote = await reach(command, signal);
       if (remote.refused) return remote.refused;
+      // A plain git or gh command that needs your GitHub login, which the sandbox hides: asked here, run outside it.
+      if (sandbox.on) { const refused = await githubLogin(command, signal); if (refused) return refused; }
       if (!sandbox.asksFirst) return undefined;
       // The host question showed this command and you said yes: it is not asked twice.
       if (remote.asked) return undefined;

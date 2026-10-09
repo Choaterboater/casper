@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, HOST_CHOICES, kindAllowChoices, NO, REACH_CHOICES,
-  SHELL_COMMAND_CHOICES, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION, YES_WORDS,
+  SHELL_COMMAND_CHOICES, writeChoices, githubLoginChoices, YES_ALWAYS, YES_ONCE, YES_SESSION, YES_WORDS,
 } from "../src/app/safe-choices";
 import { labAskFor } from "../src/network/checks";
 
@@ -28,6 +28,8 @@ const boxes: Array<[string, string[]]> = [
   ["a host the sandbox doesn't list", labels(HOST_CHOICES)],
   ["a write outside the project", labels(writeChoices("~/apps/x"))],
   ["reach another machine", labels(REACH_CHOICES)],
+  ["a git or gh command with your GitHub login", labels(githubLoginChoices("git push"))],
+  ["a git or gh command with your GitHub login, to an address it types", labels(githubLoginChoices("git clone", false))],
   ["a shell command with no sandbox", labels(SHELL_COMMAND_CHOICES)],
   ["a device check (junos-commit)", labAskFor("junos-commit", "junos-commit", [{ name: "r1", address: "10.0.0.2" }]).choices],
   ["a device check (ansible)", labAskFor("aoscx-check", "ansible-check", [{ name: "sw1", address: "10.0.0.1" }]).choices],

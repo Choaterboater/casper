@@ -86,6 +86,9 @@ const RULES: ProseRule[] = [
   // taken, so a name tokenName() turns down does not hide the next name from the search.
   { re: new RegExp(String.raw`(?<![\w-])(?=([\w-]+))\1(?=["']?\s*[=:]\s*["']?(${UUID}|[0-9a-fA-F]{32,})\b)`, "gid"),
     group: 2, kind: "key", accept: (_value, match) => tokenName(match[1]!) },
+  // A GitHub token anywhere (ghp_, gho_, ghu_, ghs_, ghr_, github_pat_): git and gh may run outside the sandbox with your
+  // login, so one that shows up in their output is hidden even with no name in front.
+  { re: /(?<![\w])(gh[pousr]_[A-Za-z0-9]{36,251}|github_pat_[A-Za-z0-9_]{22,251})(?![\w])/gd, group: 1, kind: "key", accept: () => true },
 ];
 
 const TOKEN_ID = /token[-_]?id\b/gi;

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   ADD_LOGIN_CHOICES, DOCS_COPY_CHOICES, SKILL_TRUST_CHOICES, REPLACE_LOGIN_CHOICES, ALREADY_FAILING_CHOICES, forgetLoginChoices, APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, allowKindsChoices, kindAllowChoices, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, NETWORK_SETUP_CHOICES, NETWORK_SETUP_UV_CHOICES, NETWORK_UPDATE_CHOICES, REFERENCE_ADD_CHOICES, sshHostChoices, sshNameChoices, DOCTOR_INSTALL_CHOICES, DOCTOR_UPDATE_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
-  REPAIR_LIMIT_STOP, pictureChoices, spendChoices, undoChangedChoices, missingFolderChoices, workFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES, writeChoices,
+  REPAIR_LIMIT_STOP, pictureChoices, spendChoices, undoChangedChoices, missingFolderChoices, workFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES, writeChoices, githubLoginChoices,
 } from "../src/app/safe-choices";
 import { planEditorHeading } from "../src/flows/plan";
 import { beforeWorkPanel } from "../src/flows/suggest";
@@ -75,6 +75,8 @@ const firsts: Array<[string, string, string]> = [
   ["run this command? (no sandbox)", SHELL_COMMAND_CHOICES[0].label, "No"],
   ["a write outside the project (shell or the AI's write tool)", writeChoices("~/Library/Application Support/SomeApp")[0]!.label, "No"],
   ["reach another machine (ssh, scp, nc ...)", REACH_CHOICES[0].label, "No"],
+  ["run outside the sandbox with your GitHub login", githubLoginChoices("git push")[0]!.label, "No"],
+  ["run outside the sandbox with your GitHub login (an address typed in the command)", githubLoginChoices("git clone", false)[0]!.label, "No"],
   ["the AI security review", AI_REVIEW_CHOICES[0].label, "Stop here"],
   // Both choices spend tokens; Plan first is the one that changes no files and ends at Build this plan? (1 Stop).
   // It is asked only for a big, vague request: one that lists concrete requirements goes straight to building.

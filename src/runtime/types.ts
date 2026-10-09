@@ -61,8 +61,9 @@ export interface SshRun {
 
 /** The AI's shell, as Casper holds it (see src/sandbox/manager.ts). */
 export interface RuntimeShell {
-  /** The command as the sandbox runs it (`id` set), or as it is when nothing holds it. */
-  wrap(command: string, cwd: string): Promise<{ command: string; id?: string; ssh?: SshRun }>;
+  /** The command as the sandbox runs it (`id` set), or as it is when nothing holds it. `env` is added to this command's
+   * environment only (a git or gh command you allowed to use your GitHub login, outside the sandbox). */
+  wrap(command: string, cwd: string): Promise<{ command: string; id?: string; ssh?: SshRun; env?: Record<string, string> }>;
   /** A held command has ended (the sandbox cleans up after it). */
   finished?(id: string): void;
   /** After a held command failed: what the sandbox refused, as one line the AI reads, or undefined. */

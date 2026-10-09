@@ -398,6 +398,13 @@ sandbox and, when one fails because the sandbox blocked something (`EPERM`), ask
 (`/allowed` lists and forgets a saved "always for this project"); `outside` always runs them outside; `inside` never does
 and never asks. A project file cannot set it.
 
+Your GitHub login (`~/.config/gh`, `~/.git-credentials` and the like) stays hidden from sandboxed commands, and there is no
+setting that opens it. Instead the AI's plain `git push`, `pull`, `fetch`, `clone` or `ls-remote`, or `gh pr`, `issue`,
+`run`, `repo view|clone`, `api` (GET) or `auth status`, asks `Run outside the sandbox with your GitHub login?` and, after
+your yes, runs as typed outside the sandbox with your own login; the AI reads only its output. 3 and 4 at that box cover
+that kind of command (`git push`) for the session or for this project; `/allowed` lists a saved one and
+`/allowed forget <n>` takes it back. Nothing to configure; see [SECURITY.md](SECURITY.md) for what counts as plain.
+
 `sandbox: off` turns it off for every run (like `--no-sandbox` for one run); the receipt then
 says shell commands and checks were not sandboxed. A project's `.casper/project.yaml` can only
 add denies:

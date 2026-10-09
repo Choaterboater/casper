@@ -1517,7 +1517,7 @@ async function handlePermissions(host: CommandHost, prompt: string): Promise<voi
   }
   await sandbox?.loadRemembered();
   const all = await sandbox?.store?.allowed() ?? [];
-  const entries = all.filter((entry) => entry.kind !== "checks");
+  const entries = all.filter((entry) => entry.kind !== "checks" && entry.kind !== "github");
   const basics = permissionsText(sandbox).split("\n");
   const context = host.projectContext;
   const reach = await sandbox?.store?.reachHosts() ?? [];
@@ -1529,6 +1529,7 @@ async function handlePermissions(host: CommandHost, prompt: string): Promise<voi
     listedHosts: sandbox?.on ? sandbox.allowedHosts().length : 0, rememberedHosts: sandbox?.rememberedHosts() ?? [], reachHosts: reach,
     labDevices: context?.lab?.hosts?.length ?? 0, labAsks: sandbox?.store ? !(await sandbox.store.labReach()) : undefined,
     checks: sandbox?.user.checks ?? "ask", checksRemembered: all.some((entry) => entry.kind === "checks"),
+    githubLogin: all.filter((entry) => entry.kind === "github").map((entry) => `${entry.value}${entry.session ? " (this session)" : ""}`),
     writesForGood: forGood, writesSession: (sandbox?.allowedWriteFolders() ?? []).filter((folder) => !forGood.includes(folder)),
     mcpWritesOn: host.mcp?.writesOn() ?? [], mcpAllowAll: host.allowances?.allowAllServers() ?? [],
     web: context?.web?.enabled !== false, github: context?.github !== false, sshLogin: context?.sshLogin !== false, downloads: context?.toolDownloads !== false,

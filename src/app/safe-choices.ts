@@ -228,6 +228,20 @@ export const REACH_CHOICES = [
   { label: YES_ALWAYS, description: "kept in ~/.casper, never in the repo; /sandbox forget <host> undoes it" },
 ] as const satisfies readonly Choice[];
 
+/** "Run outside the sandbox with your GitHub login?  git push -u origin main": a plain git push, pull, fetch, clone or
+ * ls-remote, or gh pr, issue, run, repo, api (GET) or auth status, that the sandbox would run without your login. Enter
+ * runs nothing. 3 and 4 cover that kind of command (`git push`); a command that types its own address gets 1 and 2 only. */
+export function githubLoginChoices(action: string, remember = true): Choice[] {
+  return [
+    { label: NO, description: "the command does not run" },
+    { label: YES_ONCE, description: "this command only; the AI reads its output, never your login" },
+    ...(remember ? [
+      { label: YES_SESSION, description: `${action} commands don't ask again until Casper exits` },
+      { label: YES_ALWAYS, description: `${action} commands; kept in ~/.casper, never in the repo; /allowed forget undoes it` },
+    ] : []),
+  ];
+}
+
 /** "Run this command?  npm test --watch" when no sandbox can run (Windows, bubblewrap missing). Enter runs nothing.
  * 3 and 4 cover commands starting with the prefix (`npm test`), or this exact command when it has none. */
 export function shellCommandChoices(prefix?: string): Choice[] {
