@@ -5,7 +5,7 @@ import {
 import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
 import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } from "../app/images";
 import { readClipboardFiles } from "./clipboard-files";
-import { COMMANDS, findCommand, fitDescriptions, menuRunsDuringWork } from "./commands";
+import { commandMenu, COMMANDS, findCommand, fitDescriptions, menuRunsDuringWork } from "./commands";
 import { BUSY_GLYPH, formatElapsed, hasLineControls, hasTerminalControls, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
 import { answerRecord, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, OTHER_CHOICE, typedChoice } from "./choices";
 import { GLYPHS } from "./glyphs";
@@ -579,7 +579,10 @@ private updateSpinner(): void {
       this.autocomplete = {
         triggerCharacters: ["/", "@"],
         getSuggestions: async (...args) => {
-          const result = await provider.getSuggestions(...args);
+          // The command names: each command once, found by its name or an alias (Pi's own list would need an alias row).
+          const before = (args[0][args[1]] ?? "").slice(0, args[2]);
+          const names = !args[3].force && /^\/\S*$/.test(before) ? commandMenu(before.slice(1)) : undefined;
+          const result = names ? (names.length ? { items: names, prefix: before } : null) : await provider.getSuggestions(...args);
           if (!result) return null;
           const items = result.items.filter(item =>
             [item.value, item.label, item.description ?? ""].every(value => !hasTerminalControls(value) && !/[\r\n\t]/.test(value)));

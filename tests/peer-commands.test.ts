@@ -7,7 +7,7 @@ import { codeBlocks } from "../src/app/peer-commands";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeSession } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
-import { canonicalLine, COMMANDS, findCommand } from "../src/tui/commands";
+import { canonicalLine, commandMenu, COMMANDS, findCommand } from "../src/tui/commands";
 import { commandProblem, FULL_HELP_TEXT, HOTKEYS_TEXT, KEYS_HELP, unknownCommandMessage } from "../src/tui/help";
 import { richApp } from "./support/app";
 import { removeTempDir } from "./support/temp-dir";
@@ -19,7 +19,9 @@ test("the names every peer uses run here: /new is a new conversation, and the al
   const aliases: Record<string, string> = { new: "clear", cost: "usage", config: "settings", thinking: "effort", quit: "exit" };
   for (const [alias, name] of Object.entries(aliases)) {
     expect([alias, findCommand(alias)?.name]).toEqual([alias, name]);
-    expect(COMMANDS.find((command) => command.name === alias)?.description).toContain(`(same as /${name})`);
+    // One row per command: the alias is not a row of its own, but typing it finds its command and says which.
+    expect(COMMANDS.some((command) => command.name === alias)).toBe(false);
+    expect(commandMenu(alias)[0]).toMatchObject({ value: alias, label: `${name} (${alias})` });
   }
   for (const name of ["theme", "hotkeys", "copy", "export", "rename", "logout"]) expect([name, findCommand(name)?.name]).toEqual([name, name]);
   expect(canonicalLine("/cost")).toBe("/usage");
@@ -103,7 +105,7 @@ async function oneShot() {
     const error = await app.runOnce(line, project).then(() => "", (thrown: Error) => thrown.message);
     return output.slice(from) + error;
   };
-  return { app, project, fake, copied, run };
+  return { app, home, project, fake, copied, run };
 }
 
 test("/copy, /export, /rename and /logout work on the conversation, the clipboard, a file and the saved sign-ins", async () => {
@@ -121,12 +123,16 @@ test("/copy, /export, /rename and /logout work on the conversation, the clipboar
   expect(f.fake.names).toEqual(["add a ping check", "EVPN lab"]);
   expect(await f.run("/rename")).toContain("Usage: /rename <title>");
 
-  expect(await f.run("/export")).toMatch(/\[export\] Saved 2 messages to .*casper-conversation-abcdef01\.md\./);
-  const markdown = await readFile(path.join(f.project, "casper-conversation-abcdef01.md"), "utf8");
+  // No file named: ~/.casper/exports, outside the project, and the line says the whole path.
+  const exported = path.join(f.home, ".casper", "exports", "casper-conversation-abcdef01.md");
+  expect(await f.run("/export")).toContain(`[export] Saved 2 messages to ${exported}.`);
+  expect(await Bun.file(path.join(f.project, "casper-conversation-abcdef01.md")).exists()).toBe(false);
+  const markdown = await readFile(exported, "utf8");
   expect(markdown).toStartWith("# EVPN lab\n\n## You\n\nadd a ping check\n\n## Casper\n\nAdded it.");
   expect(markdown).not.toContain("Casper initial classification");
   expect(await f.run("/export")).toContain("is already there; nothing was changed. Give another name: /export <file>");
   expect(await f.run("/export all.jsonl")).toContain("[export] Saved every message to");
+  // A named file still goes where asked, from the project folder.
   expect(f.fake.exported).toEqual([path.join(f.project, "all.jsonl")]);
   // A .jsonl that fails leaves no empty file behind: the same name works next time.
   f.fake.failExport = true;

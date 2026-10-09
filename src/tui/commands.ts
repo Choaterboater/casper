@@ -1,4 +1,4 @@
-import { type AutocompleteItem, type SlashCommand, visibleWidth } from "@earendil-works/pi-tui";
+import { type AutocompleteItem, fuzzyFilter, type SlashCommand, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 /** A fixed word after a command's name (`/mcp detail`), with what follows it and what it does. */
 export interface Subcommand {
@@ -21,7 +21,7 @@ export interface Subcommand {
 export interface CommandSpec {
   readonly name: string;
   readonly description: string;
-  /** Other names for the same command; each is listed in the menu too. */
+  /** Other names for the same command. The menu shows the command once; typing an alias finds it ("usage (cost)"). */
   readonly aliases?: readonly string[];
   /** Runs, but is not in the menu or the did-you-mean (Casper types it for you, or it is an old name). */
   readonly hidden?: true;
@@ -296,15 +296,42 @@ export function subcommandItems(command: CommandSpec, typed: string): Autocomple
   return found.map((sub) => ({ value: sub.args ? `${sub.name} ` : sub.name, label: sub.args ? `${sub.name} ${sub.args}` : sub.name, description: sub.description }));
 }
 
-/** The / menu: every command that is not hidden, and each alias on its own row. */
-export const COMMANDS: SlashCommand[] = COMMAND_REGISTRY.filter((command) => !command.hidden).flatMap((command) => [
-  { name: command.name, description: command.description, ...(command.argumentHint ? { argumentHint: command.argumentHint } : {}),
-    ...(command.subcommands?.length ? { getArgumentCompletions: (typed: string) => subcommandItems(command, typed) } : {}) },
-  ...(command.aliases ?? []).map((alias) => ({ name: alias, description: `${command.description} (same as /${command.name})` })),
-]);
+/** The / menu: every command that is not hidden, once. Aliases are not rows of their own (commandMenu matches them). */
+export const COMMANDS: SlashCommand[] = COMMAND_REGISTRY.filter((command) => !command.hidden).map((command) => ({
+  name: command.name, description: command.description, ...(command.argumentHint ? { argumentHint: command.argumentHint } : {}),
+  ...(command.subcommands?.length ? { getArgumentCompletions: (typed: string) => subcommandItems(command, typed) } : {}),
+}));
+
+/** The / menu for what is typed after "/" (no space yet): each command once, found by its name or an alias, best match
+ * first. A row an alias matched says so ("usage (cost)"); an alias typed whole stays as typed when the row is picked. */
+export function commandMenu(typed: string): AutocompleteItem[] {
+  const words = COMMAND_REGISTRY.filter((command) => !command.hidden).flatMap((command) => [
+    { command, word: command.name, alias: undefined as string | undefined },
+    ...(typed ? command.aliases ?? [] : []).map((alias) => ({ command, word: alias, alias })),
+  ]);
+  const seen = new Set<string>();
+  return fuzzyFilter(words, typed, (entry) => entry.word)
+    .filter(({ command }) => !seen.has(command.name) && Boolean(seen.add(command.name)))
+    .map(({ command, alias }) => ({
+      value: alias !== undefined && alias === typed ? alias : command.name,
+      label: alias === undefined ? command.name : `${command.name} (${alias})`,
+      description: command.argumentHint ? `${command.argumentHint} — ${command.description}` : command.description,
+    }));
+}
+
+/** A menu label wider than `most` columns, cut after a "|" or before a space where it can, and always ending in "…":
+ * Pi would cut "role <fast|build|reason|review> <selector|clear>" mid-bracket with no mark. */
+function fitLabel(label: string, most: number): string {
+  if (visibleWidth(label) <= most) return label;
+  // A dimmed (colored) label: cut by columns, keeping its color codes whole.
+  if (label.includes("\x1b")) return truncateToWidth(label, most, "…");
+  const cut = label.slice(0, most - 1);
+  const at = Math.max(cut.lastIndexOf(" "), cut.lastIndexOf("|") + 1);
+  return `${(at > most / 2 ? cut.slice(0, at) : cut).trimEnd()}…`;
+}
 
 /** Pi's command menu cuts a long description at the column, mid-word and with no mark. Trimmed here first: it ends at
- * a word, with "…". Mirrors Pi's slash-menu layout (a 12-32 column label, two columns of margin); verified against
+ * a word, with "…"; a label wider than its column ends with "…" too. Mirrors Pi's slash-menu layout (a 12-32 column label, two columns of margin); verified against
  * @earendil-works/pi-tui 0.87.0 (SelectList.renderItem). `width` is the menu's width. */
 export function fitDescriptions<T extends { value: string; label?: string; description?: string }>(items: readonly T[], width: number): T[] {
   if (width <= 40) return [...items];
@@ -313,6 +340,8 @@ export function fitDescriptions<T extends { value: string; label?: string; descr
   const room = width - 2 - column - 2;
   if (room <= 10) return [...items];
   return items.map(item => {
+    const label = item.label === undefined ? undefined : fitLabel(item.label, column - 2);
+    if (label !== item.label) item = { ...item, label };
     const text = item.description;
     if (!text || visibleWidth(text) <= room) return item;
     const cut = text.slice(0, room - 1);

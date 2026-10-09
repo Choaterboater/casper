@@ -1,12 +1,14 @@
 /** Commands every peer has under the same name: /copy, /export, /rename and /logout. All local; none calls a model. */
 
-import { rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { CommandHost } from "./commands";
 import { copyText } from "../tui/clipboard-files";
 import { terminalText } from "../tui/format";
-import { tildePath } from "../new/scaffold";
 import { requestOf } from "../sessions/resume";
+
+/** Where /export saves when no file is named: ~/.casper/exports. */
+export function exportFolder(home: string): string { return path.join(home, ".casper", "exports"); }
 
 /** The fenced code blocks of an answer, in order, without their fences. */
 export function codeBlocks(text: string): string[] {
@@ -49,13 +51,18 @@ export async function conversationCommand(host: CommandHost, prompt: string): Pr
   let id = "";
   let name: string | undefined;
   try { const info = host.session.getSessionInfo?.(); id = info?.sessionId.slice(0, 8) ?? ""; name = info?.name; } catch { /* not saved: no id */ }
-  const file = path.resolve(host.activeWorkspaceRoot(), argument || `casper-conversation${id ? `-${id}` : ""}.md`);
-  const shown = terminalText(tildePath(file, host.homeDir()));
+  // A named file goes where asked (from the project folder); the default goes in ~/.casper/exports, with Casper's other
+  // per-user files, so an export never lands in the repo to be committed by mistake.
+  const file = argument ? path.resolve(host.activeWorkspaceRoot(), argument)
+    : path.join(exportFolder(host.homeDir()), `casper-conversation${id ? `-${id}` : ""}.md`);
+  // The whole path, so it can be opened or copied as shown.
+  const shown = terminalText(file);
   const jsonl = /\.jsonl$/i.test(file);
   if (jsonl && !host.session.exportJsonl) throw new Error("This runtime can't save every message; use a .md file.");
   const markdown = `# ${name ?? "Casper conversation"}\n\n${turns.map((turn) => `## ${turn.role === "user" ? "You" : "Casper"}\n\n${turn.role === "user" ? requestOf(turn.text) : turn.text.trim()}\n`).join("\n")}`;
   let made = false;
   try {
+    if (!argument) await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
     // Never over an existing file: "wx" fails when it is there.
     await writeFile(file, jsonl ? "" : markdown, { flag: "wx", mode: 0o600 });
     made = true;

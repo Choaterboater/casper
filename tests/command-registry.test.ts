@@ -3,7 +3,7 @@ import { PassThrough } from "node:stream";
 import type { CasperApp } from "../src/app";
 import { handlePrompt, handleSlashCommand } from "../src/app/command-loop";
 import type { AgentRuntime } from "../src/runtime/types";
-import { COMMAND_REGISTRY, COMMANDS, menuRunsDuringWork, runsAfterCleanupError, runsDuringWork, takesArguments } from "../src/tui/commands";
+import { COMMAND_REGISTRY, commandMenu, COMMANDS, menuRunsDuringWork, runsAfterCleanupError, runsDuringWork, takesArguments } from "../src/tui/commands";
 import { commandProblem, FULL_HELP_TEXT, unknownCommandMessage } from "../src/tui/help";
 import { TerminalSurface } from "../src/tui/surface";
 import { richApp } from "./support/app";
@@ -109,8 +109,36 @@ function surface() {
   return { s, input, screen: () => Bun.stripANSI(output), mark: () => output.length, since: (from: number) => Bun.stripANSI(output.slice(from)) };
 }
 
-test("the menu lists /quit, completes a command's subcommands, and shows what follows a name", async () => {
-  expect(COMMANDS.find((command) => command.name === "quit")?.description).toBe("Leave Casper (stops a task that is running) (same as /exit)");
+test("the menu lists each command once; an alias finds its command, says which, and Enter on it runs it", async () => {
+  // One row per command that is not hidden: no alias rows (they made 52 commands 57 rows).
+  const shown = COMMAND_REGISTRY.filter((command) => !command.hidden);
+  expect(COMMANDS.map((command) => command.name)).toEqual(shown.map((command) => command.name));
+  expect(commandMenu("").map((item) => item.value)).toEqual(shown.map((command) => command.name));
+  for (const alias of shown.flatMap((command) => command.aliases ?? [])) expect(COMMANDS.some((command) => command.name === alias)).toBe(false);
+  // Typed whole, an alias is the first row and stays as typed; part of one finds the command by its name.
+  expect(commandMenu("cost")[0]).toEqual({ value: "cost", label: "usage (cost)", description: "Inspect session tokens and available cost estimates" });
+  expect(commandMenu("thinking")[0]).toMatchObject({ value: "thinking", label: "effort (thinking)" });
+  expect(commandMenu("q")[0]).toMatchObject({ value: "exit", label: "exit (quit)" });
+  // A command a name and an alias both match is still one row.
+  expect(commandMenu("co").filter((item) => item.value === "usage" || item.value === "cost")).toHaveLength(1);
+
+  const { s, input, mark, since } = surface();
+  try {
+    s.start();
+    s.setStatus("project │ idle", process.cwd());
+    const submitted = s.readCommand();
+    const from = mark();
+    input.write("/cost");
+    await Bun.sleep(150);
+    expect(since(from)).toMatch(/→ usage \(cost\)\s+Inspect session tokens/);
+    input.write("\r");
+    await Bun.sleep(50);
+    input.write("\r");
+    expect((await submitted)?.trim()).toBe("/cost");
+  } finally { s.close(); input.destroy(); }
+});
+
+test("the menu completes a command's subcommands and shows what follows a name", async () => {
   const { s, input, mark, since } = surface();
   try {
     s.start();

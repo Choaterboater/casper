@@ -54,7 +54,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/theme` | The Theme row of `/settings` on its own: pick the screen's colours |
 | `/hotkeys` | The keys Casper uses, one a line |
 | `/copy [n]` | Copy the last answer, or its code block n, to the clipboard |
-| `/export [file]` | Save this conversation to a file in the project (Markdown; a `.jsonl` name saves every message); never over a file that is there |
+| `/export [file]` | Save this conversation (Markdown; a `.jsonl` name saves every message): to `~/.casper/exports` with Casper's other per-user files, or to `file` from the project folder; it says the whole path; never over a file that is there |
 | `/rename <title>` | Name this conversation (the window title and `/resume`) |
 | `/output [n\|all]` | Full command and output of a recent tool call from the last task |
 | `/receipt [n\|list]` | The last task's receipt in detail, a saved one, or the last 10 |
@@ -423,8 +423,10 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 
 - Type `/` for a fuzzy list. Tab completes; Enter on a partial choice inserts it,
   and a second Enter submits. An exact command submits literally. A row shows what may
-  follow the name (`[n|list]`), `/quit` is listed beside `/exit`, and a space after a
-  command lists its subcommands for Tab.
+  follow the name (`[n|list]`), and a space after a command lists its subcommands for Tab.
+  Each command is one row: an alias finds its command and the row says which (`/cost` shows
+  `usage (cost)`, `/q` shows `exit (quit)`), and Enter on an alias typed whole runs it as typed.
+  A label too wide for its column ends with `…` (`role <fast|build|reason|…`), never cut with no mark.
 - `@`/Tab offers file-path completion. This inserts a reference; it does **not**
   attach/read the file or grant additional permissions. Unsafe control-bearing
   completion labels are omitted.

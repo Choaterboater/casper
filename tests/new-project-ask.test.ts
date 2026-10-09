@@ -12,7 +12,7 @@ import type { NewProjectOptions, NewProjectResult } from "../src/new/scaffold";
 import { tildePath } from "../src/new/scaffold";
 import { parseCliArgs } from "../src/cli-args";
 import { terminalNewProject } from "../src/cli-main";
-import { COMMANDS } from "../src/tui/commands";
+import { commandMenu, COMMANDS } from "../src/tui/commands";
 import { FULL_HELP_TEXT, HELP_TEXT } from "../src/tui/help";
 import type { AgentRuntime, RuntimeSession } from "../src/runtime/types";
 import { removeTempDir } from "./support/temp-dir";
@@ -548,7 +548,7 @@ test("casper new opens the app only for a person at a terminal; --list and scrip
 test("/project new is in the command palette and the full help; casper new is in the short help; /new is a new conversation", () => {
   const project = COMMANDS.find(command => command.name === "project");
   expect(project?.getArgumentCompletions?.("n")).toEqual([{ value: "new ", label: "new [template] [name]", description: "Start a new project in ~/Projects (no model)" }]);
-  expect(COMMANDS.find(command => command.name === "new")?.description).toBe("Start a fresh conversation; keep files and saved conversations (same as /clear)");
+  expect(commandMenu("new")[0]).toEqual({ value: "new", label: "clear (new)", description: "Start a fresh conversation; keep files and saved conversations" });
   expect(HELP_TEXT).toContain("casper new [name]");
   expect(FULL_HELP_TEXT).toContain("/project new [name]               Start a new project in ~/Projects (no model)");
   expect(FULL_HELP_TEXT).toContain("/project new <template> <name>");
