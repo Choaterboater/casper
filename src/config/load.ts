@@ -73,6 +73,8 @@ export interface LoadedConfiguration {
   updates?: boolean;
   /** `sideQuestions: false`: a line that starts with `?` is an ordinary request, not a side question (user or profile only). */
   sideQuestions?: boolean;
+  /** `localModels: false`: Casper does not look for model servers on this computer (user or profile only). */
+  localModels?: boolean;
   /** `cache: auto|long|short|off`: how long the provider keeps the prompt cache (user or profile only). Unset: auto. */
   cache?: PromptCacheSetting;
   /** `display: quiet|normal|detailed`: how much of the work shows on screen (user or profile only). Unset: normal. */
@@ -271,7 +273,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -713,12 +715,15 @@ export async function loadConfiguration(
   if (projectDocument.updates !== undefined) throw new Error("updates is a user setting (~/.casper/config.yaml); a project cannot turn the new-version notice on or off");
   // A side question is a model call at your cost: a project file never turns it on or off.
   if (projectDocument.sideQuestions !== undefined) throw new Error("sideQuestions is a user setting (~/.casper/config.yaml); a project cannot turn side questions on or off");
+  // Which servers on your computer Casper asks for models is yours too.
+  if (projectDocument.localModels !== undefined) throw new Error("localModels is a user setting (~/.casper/config.yaml); a project cannot turn local models on or off");
   // What you pay for caching is your choice too.
   if (projectDocument.cache !== undefined) throw new Error(CACHE_IN_PROJECT_ERROR);
   let bigModelLastTry: boolean | undefined;
   let suggestions: boolean | undefined;
   let updates: boolean | undefined;
   let sideQuestions: boolean | undefined;
+  let localModels: boolean | undefined;
   let cache: PromptCacheSetting | undefined;
   // How much shows on your screen is yours, not a repository's.
   if (projectDocument.display !== undefined) throw new Error("display is a user setting (~/.casper/config.yaml); a project cannot change what shows on your screen");
@@ -755,6 +760,11 @@ export async function loadConfiguration(
       const value = document.sideQuestions === "off" ? false : document.sideQuestions === "on" ? true : document.sideQuestions;
       if (typeof value !== "boolean") throw new Error(`${label}: sideQuestions must be true or false`);
       sideQuestions = value;
+    }
+    if (document.localModels !== undefined && document.localModels !== null) {
+      const value = document.localModels === "off" ? false : document.localModels === "on" ? true : document.localModels;
+      if (typeof value !== "boolean") throw new Error(`${label}: localModels must be true or false`);
+      localModels = value;
     }
     if (document.cache !== undefined && document.cache !== null) {
       // YAML reads a bare `off` as text, but `cache: false` means the same.
@@ -910,6 +920,7 @@ export async function loadConfiguration(
     ...(suggestions !== undefined ? { suggestions } : {}),
     ...(updates !== undefined ? { updates } : {}),
     ...(sideQuestions !== undefined ? { sideQuestions } : {}),
+    ...(localModels !== undefined ? { localModels } : {}),
     ...(cache ? { cache } : {}),
     ...(display ? { display } : {}),
     ...(theme ? { theme } : {}),

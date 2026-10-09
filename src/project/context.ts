@@ -27,6 +27,8 @@ export interface ProjectContext {
   updates?: boolean;
   /** `sideQuestions: false` in the user's config: a line starting with `?` is an ordinary request. */
   sideQuestions?: boolean;
+  /** `localModels: false` in the user's config: no model servers on this computer are looked for. */
+  localModels?: boolean;
   /** `cache:` in the user's config (auto, long, short or off). Unset: auto. */
   cache?: LoadedConfiguration["cache"];
   /** `display:` in the user's config (quiet, normal or detailed). Unset: normal. */
@@ -143,6 +145,7 @@ export async function loadProjectContext(
     ...(configuration.suggestions !== undefined ? { suggestions: configuration.suggestions } : {}),
     ...(configuration.updates !== undefined ? { updates: configuration.updates } : {}),
     ...(configuration.sideQuestions !== undefined ? { sideQuestions: configuration.sideQuestions } : {}),
+    ...(configuration.localModels !== undefined ? { localModels: configuration.localModels } : {}),
     ...(configuration.cache ? { cache: configuration.cache } : {}),
     ...(configuration.display ? { display: configuration.display } : {}),
     ...(configuration.theme ? { theme: configuration.theme } : {}),

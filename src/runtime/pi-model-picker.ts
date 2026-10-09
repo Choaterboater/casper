@@ -7,7 +7,9 @@ import { ModelBrowser } from "./pi-model-browser";
 type Pick = { provider: string; id: string; persist: boolean };
 
 export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime, current: AgentSession["model"],
-  defaultModel: { provider: string; id: string } | undefined, query: string | undefined, signal?: AbortSignal, sessionOnly = false): Promise<Pick | undefined> {
+  defaultModel: { provider: string; id: string } | undefined, query: string | undefined, signal?: AbortSignal, sessionOnly = false,
+  /** Runs before each catalog refresh: the local model servers are probed again (src/runtime/local-models.ts). */
+  beforeRefresh?: (signal?: AbortSignal) => Promise<void>): Promise<Pick | undefined> {
   signal?.throwIfAborted();
   const previousBindings = getKeybindings();
   setKeybindings(new KeybindingsManager({ ...TUI_KEYBINDINGS,
@@ -39,6 +41,7 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
       };
       if (key === "refresh") return async (options: Parameters<ModelRuntime["refresh"]>[0]) => {
         try {
+          await beforeRefresh?.(options?.signal).catch(() => undefined);
           // The browser shows freshness status and keeps cached rows on failure, so live
           // catalog refresh (new provider models) is safe here, unlike startup paths. No
           // allowNetwork override: Pi's default fetches unless PI_OFFLINE is set.

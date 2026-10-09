@@ -268,3 +268,31 @@ test("the long help's /settings line lists every switch", async () => {
   const line = FULL_HELP_TEXT.split("\n").find((entry) => entry.trimStart().startsWith("/settings, /config "))!.toLowerCase();
   for (const row of await rowsFor(home, project)) expect(line).toContain(row.label.toLowerCase());
 });
+
+test("Local models row: on by default, names the servers, a pick writes localModels: false", async () => {
+  const { home, project, config } = await folders();
+  const label = "Local models";
+  const host = fakeHost(home, project, [label, "Keep them on", label, "Turn them off", "Done"]);
+  await runSettings(host);
+  expect(host.asked[1]!.split("\n").slice(1)).toEqual(["1 Keep them on", "2 Turn them off"]);
+  expect(host.asked[1]).toContain("Ollama, LM Studio, llama.cpp and vLLM");
+  expect(host.asked[1]).toContain("from the next start");
+  expect(await readFile(config, "utf8")).toBe("localModels: false\n");
+  expect((await host.context())!.localModels).toBe(false);
+  expect(await valueOf(home, project, label)).toBe("off");
+});
+
+test("localModels: off loads from your own config; a project file can't set it", async () => {
+  const { home, project, config, projectFile } = await folders();
+  const load = () => loadConfiguration({ projectRoot: project, homeDir: home });
+  expect((await load()).localModels).toBeUndefined();
+  await writeFile(config, "localModels: off\n");
+  expect((await load()).localModels).toBe(false);
+  await writeFile(config, "localModels: on\n");
+  expect((await load()).localModels).toBe(true);
+  await writeFile(projectFile, "localModels: false\n");
+  await expect(load()).rejects.toThrow("localModels is a user setting");
+  await writeFile(projectFile, "");
+  await writeFile(config, "localModels: maybe\n");
+  await expect(load()).rejects.toThrow("localModels must be true or false");
+});

@@ -38,7 +38,7 @@ async function run(respond: (count: number) => Response, body: string) {
   await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify(routing));
   const env = { ...isolatedEnvironment(home), TMPDIR: root, PI_CODING_AGENT_DIR: agent, CASPER_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" };
   const child = Bun.spawn([process.execPath, "-e", `import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
-    const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd() });
+    const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd(), localModels: false });
     try { ${body} } finally { await runtime.dispose(); }`], { cwd: project, env, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });

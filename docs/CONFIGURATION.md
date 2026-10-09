@@ -17,7 +17,7 @@ Settings (saved in ~/.casper/config.yaml for you):
   Diagram tool: on · New-version notice: on · Suggestions: on
   Side questions with ?: on · Built-in skills: on · GitHub tool: on · Packs: on
   Spend notes: at $1 a task · Spend pause: off · Prompt cache: auto
-  Page checks: on · Show the AI the pages: ask once a session
+  Local models: on · Page checks: on · Show the AI the pages: ask once a session
   Work shown: normal · Theme: default · Untrusted-text reader: on
   Helpers that build: on · Playwright tests: on
   Send Casper's name to OpenRouter: on · Private ssh passwords: on
@@ -36,22 +36,23 @@ Pick one to change:
  12 Spend notes                       at $1 a task
  13 Spend pause                       off
  14 Prompt cache                      auto
- 15 Page checks                       on
- 16 Show the AI the pages             ask once a session
- 17 Work shown                        normal
- 18 Theme                             default
- 19 Untrusted-text reader             on
- 20 Helpers that build                on
- 21 Playwright tests                  on
- 22 Send Casper's name to OpenRouter  on
- 23 Private ssh passwords             on
+ 15 Local models                      on
+ 16 Page checks                       on
+ 17 Show the AI the pages             ask once a session
+ 18 Work shown                        normal
+ 19 Theme                             default
+ 20 Untrusted-text reader             on
+ 21 Helpers that build                on
+ 22 Playwright tests                  on
+ 23 Send Casper's name to OpenRouter  on
+ 24 Private ssh passwords             on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
-Every row has its number: past 9, type it and press Enter (`Type 1-23 + Enter or Up/Down + Enter`).
+Every row has its number: past 9, type it and press Enter (`Type 1-24 + Enter or Up/Down + Enter`).
 A plain terminal (`TERM=dumb`) asks the same list as numbered lines.
-A change applies from now on (built-in skills, packs and the prompt cache from the next start) and says so:
+A change applies from now on (built-in skills, packs, the prompt cache and local models from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` A switch turned off is written as
 `false` (`packs: false`). In a config you write yourself, `off` works the same for every switch
 except `suggestions`, `skills.bundled` and `verification.e2e`, which take only `true` or `false`,
@@ -283,7 +284,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
-`showPages`, `suggestions`, `updates`, `sideQuestions`, `telemetry`, `ssh_login`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
+`showPages`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `telemetry`, `ssh_login`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
@@ -483,22 +484,45 @@ referer, so after this change your usage may show under a new Casper app entry.
 
 ## Local models
 
-Casper can use a model that runs on your own computer, through any server that speaks the OpenAI
-chat format: Ollama, LM Studio, llama.cpp's `llama-server` and vLLM all do. You tell Casper where
-the server is in `models.json`. No `/login` is needed.
+Casper can use a model that runs on your own computer. Start the server and its models show in
+`/model`, with no sign-in and no file to edit. Casper looks for four servers at their usual addresses
+on this computer:
+
+| Server | Provider name | Address Casper tries | Variable that moves it |
+| --- | --- | --- | --- |
+| Ollama | `ollama` | `http://127.0.0.1:11434` | `OLLAMA_BASE_URL` or `OLLAMA_HOST` |
+| LM Studio | `lm-studio` | `http://127.0.0.1:1234/v1` | `LM_STUDIO_BASE_URL` |
+| llama.cpp (`llama-server`) | `llama.cpp` | `http://127.0.0.1:8080` | `LLAMA_CPP_BASE_URL` or `LLAMA_BASE_URL` |
+| vLLM | `vllm` | `http://127.0.0.1:8000/v1` | `VLLM_BASE_URL` |
+
+- **When.** In the background from the start, so the start never waits for it (one server's look stops
+  after 0.8 s), and again each time you open `/model`, so a model you just pulled appears there. Only a
+  start whose saved model is a found server's waits for the look. Helpers use what the main session found.
+- **Nothing signed in?** A found server counts: the start doesn't say "not signed in", and your first
+  request picks the first model found (Ollama's first) and saves it as your default. `/model` picks another.
+- **Quiet when absent.** A server that isn't running is skipped without a word. If you set its variable
+  and nothing answers there, Casper says so once, at your first request.
+- **The model name** is the provider name, a slash and the server's own id: `ollama/qwen3:8b`,
+  `lm-studio/qwen2.5-coder-7b`. Use it with `casper --model ollama/qwen3:8b` or `/model`.
+- **Context window.** Casper reads it where the server tells: for Ollama a loaded model's window, else a
+  `num_ctx` in the model's settings, else `OLLAMA_CONTEXT_LENGTH`; a loaded LM Studio model's window;
+  llama.cpp's `-c`; vLLM's `--max-model-len`. Otherwise it uses the usual 128k (never more than the
+  model was trained for), so set the window yourself if you can (see the limits below).
+- **Embedding models** (`nomic-embed-text` and the like) are left out: they can't chat.
+- **No key leaves for it.** A found server is sent the word `local` as its key, and nothing else: keys
+  are kept per provider, so no other provider's key is ever sent to it. The look itself sends no key.
+- **Off switch.** `/settings` **Local models** (it writes `localModels: false` in `~/.casper/config.yaml`;
+  a project file can't change it). A change applies from the next start.
+
+**Your models.json still works, and wins.** A provider you set up yourself in `models.json` with the
+same name (`ollama`), or one that points at the same address under another name, is used as you wrote
+it and the found one is not added. Use the file for a server Casper doesn't look for, a server on
+another machine that needs a key, or to set exact windows.
 
 **Where the file is.** `~/.casper/agent/models.json` (create it if it isn't there). If you moved
 Casper's store with `CASPER_AGENT_DIR`, it is `models.json` in that folder. Pi's own docs say
 `~/.pi/agent`; that is not where Casper reads. Only you can set this up: a project can't add a
 server address, and the AI's tools can't read or change the file.
-**The file.** Pick the server you run and use its address:
-
-| Server | `baseUrl` |
-| --- | --- |
-| Ollama | `http://127.0.0.1:11434/v1` |
-| LM Studio | `http://127.0.0.1:1234/v1` |
-| llama.cpp (`llama-server`) | `http://127.0.0.1:8080/v1` |
-| vLLM | `http://127.0.0.1:8000/v1` |
 
 ```json
 {
@@ -515,26 +539,18 @@ server address, and the AI's tools can't read or change the file.
 ```
 
 - `ollama` is a name you choose. It becomes the first half of the model name (`ollama/qwen2.5-coder:7b`).
-  Use a different name for each server (`lmstudio`, `llamacpp`, `vllm`) if you run more than one.
-- `baseUrl`, `api` and `models` are required. Keep `"api": "openai-completions"`.
+- `baseUrl` (the address ending in `/v1`), `api` and `models` are required. Keep `"api": "openai-completions"`.
 - `apiKey` is required too, but a local server ignores it: any text works. Without the line Casper says
-  `<name> at <address> needs an apiKey line in models.json`. The key is kept per provider, so no other
-  provider's key is ever sent to your server.
-- The two `compat` lines stop Casper sending parts of the request that most local servers don't know.
-  Leave them in unless your server handles them.
+  `<name> at <address> needs an apiKey line in models.json`.
+- The two `compat` lines stop Casper sending parts of the request that most local servers don't know
+  (found servers get them too). Leave them in unless your server handles them.
 - `contextWindow` is optional; set it to what you started the server with so the footer's context
   figure is right. A local model shows as free.
-
-**Pick the model id.** The id is the name the server itself uses, exactly.
-Ollama: `ollama list`. LM Studio and vLLM: the id shown on the server's page, or open
-`<baseUrl>/models` in a browser. llama.cpp: `<baseUrl>/models`.
-
-**Use it.** Start with `casper --model ollama/qwen2.5-coder:7b`, or type `/model` inside Casper and pick
-it. Start the server first; if Casper can't reach it, it says it can't reach the provider.
+- The id is the name the server itself uses, exactly: `ollama list`, or open `<baseUrl>/models`.
 
 **Privacy.** A model on the same computer sends nothing off it. A server that forwards your request
-elsewhere does send it: Ollama's `:cloud` models run on Ollama's servers, and a `baseUrl` that points at
-another machine goes there. Check what the model really is before you rely on this.
+elsewhere does send it: Ollama's `:cloud` models run on Ollama's servers, and a `baseUrl` or a variable
+above that points at another machine goes there. Check what the model really is before you rely on this.
 
 **Know the limits.**
 - Small models often can't use tools. Casper then says the model can't edit files or run commands;
@@ -656,6 +672,7 @@ repair:
 suggestions: false   # no suggested next steps anywhere
 updates: false       # no "a newer Casper is out" line at the start of a session
 sideQuestions: false # a line starting with ? is an ordinary request, not a side question
+localModels: false   # don't look for Ollama, LM Studio, llama.cpp or vLLM on this computer
 pages: off           # no page checks after a UI change, in any project
 telemetry: off       # don't send Casper's name to OpenRouter (same as CASPER_TELEMETRY=0)
 ssh_login: off       # ssh never gets Casper's hidden password box (see Private ssh passwords)

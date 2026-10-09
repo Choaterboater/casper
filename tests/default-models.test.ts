@@ -27,7 +27,7 @@ async function run(auth: Record<string, unknown>, body: string): Promise<unknown
   await writeFile(path.join(agent, "auth.json"), JSON.stringify(auth), { mode: 0o600 });
   const env = { ...isolatedEnvironment(home), TMPDIR: root, PI_CODING_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" };
   const child = Bun.spawn([process.execPath, "-e", `import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
-    const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd() });
+    const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd(), localModels: false });
     try { ${body} } finally { await runtime.dispose(); }`], { cwd: project, env, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
@@ -137,4 +137,29 @@ test("a provider with an address and no apiKey in models.json is told to add an 
     expect(keylessAddress(dir, "nothing")).toBeUndefined();
     expect(keylessAddress(nodePath.join(dir, "none"), "ollama")).toBeUndefined();
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("nothing signed in but a model server on this computer: not 'not signed in', and a request picks its model and runs", async () => {
+  const { localModelDefaults, clearLocalServers } = await import("../src/runtime/local-models");
+  const saved = localModelDefaults.discover;
+  localModelDefaults.discover = async () => ({ problems: [], servers: [{ provider: "ollama", name: "Ollama", baseUrl: "http://127.0.0.1:11434/v1", models: [{ id: "qwen3:8b" }] }] });
+  clearLocalServers();
+  const keys = Object.entries(process.env).filter(([name]) => /_API_KEY$|_TOKEN$/.test(name));
+  for (const [name] of keys) delete process.env[name];
+  try {
+    let current: Record<string, unknown> = { auth: "unknown", blocked: "No Casper model selected. Use /model to choose one." };
+    const local = await appWith(() => current, async () => {
+      current = { provider: "ollama", model: "qwen3:8b", auth: "configured" };
+      return { selected: true, savedDefault: true, status: current };
+    });
+    await local.app.runOnce("explain this project", local.root);
+    expect(local.app.signedIn).toBe(true);
+    expect(local.prompts()).toBe(1);
+    expect(local.output()).toContain("[model] Casper picked ollama/qwen3:8b found on this computer and saved it as your default.");
+    expect(local.output()).not.toContain("not signed in");
+    await local.app.close();
+  } finally {
+    for (const [name, value] of keys) process.env[name] = value;
+    localModelDefaults.discover = saved; clearLocalServers();
+  }
 });

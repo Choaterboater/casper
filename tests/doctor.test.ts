@@ -100,7 +100,7 @@ test("config: a file that doesn't parse is named with its line; a bad setting is
 
 test("sign-in: none is something to fix; a self-renewing sign-in is fine; an expired one without renewal is named", async () => {
   const dir = await home();
-  expect(await checkSignIn(context(dir))).toEqual([{ status: "fail", text: "No model sign-in", next: "run casper and type /login" }]);
+  expect(await checkSignIn(context(dir))).toEqual([{ status: "fail", text: "No model sign-in", next: "run casper and type /login, or start a model server such as Ollama" }]);
   await writeFile(path.join(dir, ".casper", "agent", "auth.json"), JSON.stringify({
     anthropic: { type: "oauth", access: "a", refresh: "r", expires: 1 },
     "openai-codex": { type: "oauth", access: "a", expires: 1 },
@@ -229,7 +229,7 @@ test("runDoctor: exit 1 only for something to fix; each fix asks with 1 Not now 
   const broken = context(await home(), { fetch: releases("v0.2.22") });
   const script = await runDoctor(broken, { write: (text) => { output += text; } });
   expect(script.exitCode).toBe(1);
-  expect(output).toContain("✗ No model sign-in\n    → run casper and type /login\n");
+  expect(output).toContain("✗ No model sign-in\n    → run casper and type /login, or start a model server such as Ollama\n");
   expect(output).toContain("1 thing to fix (✗)");
 });
 
@@ -275,4 +275,19 @@ test("version: a Windows update that did not finish is a failure line with the l
   expect(lines[0]!.text).toContain("The last update to Casper 0.2.23 did not finish: Casper did not exit in time");
   expect(lines[0]!.next).toContain("install.ps1 | iex");
   expect(lines[1]).toMatchObject({ status: "note", fix: "update" });
+});
+
+test("sign-in: a model server found on this computer counts; a variable pointing at nothing is a note; localModels false looks for none", async () => {
+  const { localModelDefaults } = await import("../src/runtime/local-models");
+  const saved = localModelDefaults.discover;
+  let looked = 0;
+  localModelDefaults.discover = async () => { looked++; return { servers: [{ provider: "ollama", name: "Ollama", baseUrl: "http://127.0.0.1:11434/v1", models: [{ id: "qwen3:8b" }] }],
+    problems: ["VLLM_BASE_URL is set (http://192.0.2.7:8000) but no vLLM answered there; its models are not in /model."] }; };
+  try {
+    const dir = await home();
+    expect(await checkSignIn(context(dir))).toEqual([{ status: "ok", text: "Sign-in: ollama (found on this computer)" },
+      { status: "note", text: "VLLM_BASE_URL is set (http://192.0.2.7:8000) but no vLLM answered there; its models are not in /model." }]);
+    expect(await checkSignIn(context(dir), false)).toEqual([{ status: "fail", text: "No model sign-in", next: "run casper and type /login, or start a model server such as Ollama" }]);
+    expect(looked).toBe(1);
+  } finally { localModelDefaults.discover = saved; }
 });

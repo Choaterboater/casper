@@ -42,7 +42,7 @@ export async function collectDoctorLines(ctx: DoctorContext): Promise<DoctorLine
   const mcp = await settle(checkMcp(ctx, profile), "MCP", (lines) => ({ lines, servers: [] }));
   const one = (work: Promise<DoctorLine[]>, what: string) => settle(work, what, (lines) => lines);
   const [version, link, signIn, network, languages, security, sandbox, disk] = await Promise.all([
-    one(checkVersion(ctx), "Version"), one(checkPathLink(ctx), "casper on PATH"), one(checkSignIn(ctx), "Sign-in"),
+    one(checkVersion(ctx), "Version"), one(checkPathLink(ctx), "casper on PATH"), one(checkSignIn(ctx, config.loaded?.localModels !== false), "Sign-in"),
     one(checkNetworkServer(ctx, mcp.servers), "Network server"), one(checkLanguageServers(ctx, profile), "Language servers"),
     one(checkSecurityTools(ctx), "Security tools"), one(checkSandbox(ctx, config.loaded), "Sandbox"), one(checkDisk(ctx), "Disk"),
   ]);
