@@ -6,6 +6,7 @@ import { looksLikeRefusedLogin } from "../ssh/auth-failed";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
 import { matchConversation } from "../sessions/resume";
 import { PiModels } from "./pi-models";
+import { localServers, registerLocalServers } from "./local-models";
 import { authenticatePi } from "./pi-auth";
 import { applyOpenRouterAttribution, isOpenRouterModel } from "./openrouter-attribution";
 import {
@@ -357,6 +358,8 @@ class PiRuntimeSession implements RuntimeSession {
       promptSignal.throwIfAborted();
       const notice = this.readOnly ? undefined : this.models.smallWindowNotice(session);
       if (notice) this.emit({ type: "notice", message: notice });
+      const localNotice = this.readOnly ? undefined : this.models.localNotice();
+      if (localNotice) this.emit({ type: "notice", message: localNotice });
       if (status.configuredEffort === "auto") this.emit({ type: "model_controls_changed", status });
       promptSignal.throwIfAborted();
       const images = options?.images?.map(({ data, mimeType }) => ({ type: "image" as const, data, mimeType }));
@@ -714,8 +717,14 @@ export class PiRuntime implements AgentRuntime {
     const agentDir = getAgentDir();
     const readOnly = bounded && readOnlyTools ? bounded as RuntimeReadOnlyStartOptions : undefined;
     if (readOnly) await checkReadOnlyState(readOnly, agentDir);
+    // Local model servers are probed in the background: the start never waits for them (a closed port can take
+    // seconds on Windows). Only a model the start needs that is not in the catalog yet waits (PiModels.create).
+    // A helper never probes: it gets what the main session found.
+    const local = options.localModels === false ? undefined : localServers({ cachedOnly: Boolean(bounded) });
     const modelRuntime = await ModelRuntime.create({ authPath: `${agentDir}/auth.json`, modelsPath: `${agentDir}/models.json`, signal: bounded?.signal });
     const models = this.models = new PiModels(modelRuntime, agentDir, this.home);
+    if (local) models.useLocalServers(local.then((found) => { registerLocalServers(modelRuntime, found.servers); return found; }),
+      bounded ? undefined : async (signal) => { registerLocalServers(modelRuntime, (await localServers({ refresh: true, signal })).servers); });
     const tools = new PiToolController(options.tools ?? []);
     let limitReason: string | undefined;
     let toolCalls = 0;

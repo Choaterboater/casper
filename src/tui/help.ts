@@ -99,7 +99,7 @@ Local commands:
   /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
   /output all                       Every tool call of the last task on its own line (the screen folds them into a summary)
   /details [quiet|normal|detailed] [--session]  Alone: the level now. Failures only, steps folded (default), or every step with small diffs; remembered like /effort, --session (before or after) for this session only. Ctrl+T shows the last step in full
-  /settings, /config                Every switch at a glance, then one by number, written to ~/.casper/config.yaml for you: web lookups, browser tool, starter templates, diagram tool, new-version notice, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, page checks, show the AI the pages, work shown, theme, untrusted-text reader, helpers that build, Playwright tests, send Casper's name to OpenRouter, private ssh passwords
+  /settings, /config                Every switch at a glance, then one by number, written to ~/.casper/config.yaml for you: web lookups, browser tool, starter templates, diagram tool, new-version notice, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, local models, page checks, show the AI the pages, work shown, theme, untrusted-text reader, helpers that build, Playwright tests, send Casper's name to OpenRouter, private ssh passwords
   /theme                            Pick the screen's colours (the Theme row of /settings), saved for you
   /hotkeys                          The keys Casper uses
   /copy [n]                         Copy the last answer, or its code block n, to the clipboard
@@ -214,6 +214,7 @@ Restored conversations keep their model; a missing or unavailable model blocks s
 Without a restored selection or Casper default, choose with /model; there is no other fallback.
 Switching provider sends the rest of the conversation to that provider.
 The picker refreshes provider catalogs over the network when CASPER_OFFLINE=1 is not set; selection does not generate a model response.
+Model servers on this computer (Ollama, LM Studio, llama.cpp, vLLM) show in /model with no sign-in; the picker looks for them again each time it opens. /settings turns that off.
 Provider-defined credential checks may run configured key-resolution commands.
 Keys: ${KEYS_HELP}
 Checks: typecheck lint test build (all configured by default; verification.checks selects).

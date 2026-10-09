@@ -5,6 +5,7 @@ import { rememberTool } from "./side-question";
 import type { CasperApp } from "../app";
 import path from "node:path";
 import { hasSignIn } from "../tui/model-preference";
+import { localServers } from "../runtime/local-models";
 import { formatRuntimeStartLine } from "../tui/format";
 import { boundCapabilityResult } from "../capabilities/result";
 import { hiddenSecretGate } from "../secrets/gate";
@@ -71,6 +72,7 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         // The conversation outlives a workspace rebind, so it holds a facade that follows the current shell.
         ...(app.shell ? { shell: currentShell(app) } : {}),
         ...(context.cache ? { cache: context.cache } : {}),
+        ...(context.localModels === false ? { localModels: false } : {}),
         // The project's sandbox.denyRead (GreenCLI lists its data and log folders there): the file tools refuse them too.
         privatePaths: projectPrivatePaths(app),
         currentPrivatePaths: () => projectPrivatePaths(app),
@@ -180,9 +182,13 @@ export function observeEdit(app: CasperApp, path: string): void {
   app.observations.recordEdit(path);
 }
 
-/** Whether any sign-in exists yet, for the banner and footer only. */
+/** Whether any sign-in exists yet, for the banner and footer only. With none, a model server found on this computer
+ * counts: the probe starts here (the runtime reuses it), and the banner waits for it 0.3 s at most. */
 export async function checkSignIn(app: CasperApp): Promise<void> {
   app.signedIn = await hasSignIn(appAgentDir(app));
+  if (app.signedIn || app.projectContext?.localModels === false) return;
+  const found = await Promise.race([localServers(), Bun.sleep(300).then(() => undefined)]);
+  if (found?.servers.some((server) => server.models.length)) app.signedIn = true;
 }
 
 /** Casper's state folder for this session: its login and saved conversations. */

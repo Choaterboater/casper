@@ -17,6 +17,8 @@ async function fixture() {
   const home = path.join(root, "home"); const project = path.join(root, "project");
   const agent = path.join(home, ".pi/agent"); const casper = path.join(home, ".casper");
   await mkdir(agent, { recursive: true }); await mkdir(casper); await mkdir(path.join(project, ".pi"), { recursive: true });
+  // A model server running on this machine must not change the picker these tests read.
+  await writeFile(path.join(casper, "config.yaml"), "localModels: false\n");
   const shared = JSON.stringify({ defaultProvider: "fixture", defaultModel: "shared", defaultThinkingLevel: "high", retry: { enabled: false } });
   await writeFile(path.join(agent, "settings.json"), shared);
   await writeFile(path.join(project, ".pi/settings.json"), shared);
@@ -29,7 +31,7 @@ async function fixture() {
   async function run(body: string) {
     const child = Bun.spawn([process.execPath, "-e", `import { PiRuntime } from ${JSON.stringify(adapter)};
 const runtime = new PiRuntime();
-try { const session = await runtime.start({ cwd: process.cwd() }); ${body} } finally { await runtime.dispose(); }`],
+try { const session = await runtime.start({ cwd: process.cwd(), localModels: false }); ${body} } finally { await runtime.dispose(); }`],
       { cwd: project, env, stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => child.kill(), 60_000); // A real Pi runtime in a fresh Bun child; a slow Windows CI runner has needed more than 25 s.
     try {

@@ -45,6 +45,9 @@ export interface RuntimeStartOptions {
   currentPrivatePaths?: () => readonly string[];
   /** How long the provider keeps the prompt cache (`cache:` in ~/.casper/config.yaml). Unset: auto. */
   cache?: PromptCacheSetting;
+  /** Find model servers on this computer (Ollama, LM Studio, llama.cpp, vLLM) and list their models in /model
+   * (`localModels:` in ~/.casper/config.yaml). Unset: on. */
+  localModels?: boolean;
 }
 
 /** What the private ssh login adds to one allowed ssh command (see src/ssh/askpass.ts). */

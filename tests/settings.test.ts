@@ -48,7 +48,7 @@ test("the settings list shows each switch and where it stands", async () => {
   const context = await loadProjectContext(await inspectProject(project), { homeDir: home });
   expect(settingRows(context).map((row) => `${row.label}: ${row.value}`)).toEqual([
     "Web lookups: off", "Browser tool: on", "Starter templates: on", "Diagram tool: on", "New-version notice: off", "Suggestions: on", "Side questions with ?: on", "Built-in skills: on", "GitHub tool: on", "Packs: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task",
-    "Prompt cache: auto", "Page checks: on", "Show the AI the pages: ask once a session",
+    "Prompt cache: auto", "Local models: on", "Page checks: on", "Show the AI the pages: ask once a session",
     "Work shown: normal", "Theme: default", "Untrusted-text reader: on", "Helpers that build: on", "Playwright tests: on", "Send Casper's name to OpenRouter: on", "Private ssh passwords: on",
   ]);
   expect(settingRows(context).find((row) => row.label === "Playwright tests")!.question).toBe("Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are on.");

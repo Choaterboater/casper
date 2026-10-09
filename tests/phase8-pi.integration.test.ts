@@ -182,7 +182,7 @@ posixOnly("real Pi forwards correlated bounded shell diagnostics without edit bo
 const runtime = new PiRuntime();
 const events = [];
 try {
-  const session = await runtime.start({ cwd: process.cwd() });
+  const session = await runtime.start({ cwd: process.cwd(), localModels: false });
   session.subscribe(event => { if (event.type === 'assistant_response_start' || event.type === 'tool_start' || event.type === 'tool_end') events.push(event); });
   await session.prompt('Run the fixture commands.');
   console.log('OBSERVATIONS=' + JSON.stringify(events));
@@ -222,7 +222,7 @@ const schedule = globalThis.setTimeout;
 // "absurd": a day-long timeout is capped at one hour, which is accelerated the same way.
 globalThis.setTimeout = (callback, ms, ...args) => schedule(callback, (${JSON.stringify(mode)} === "default" && ms === 120_000) || (${JSON.stringify(mode)} === "absurd" && ms === 3_600_000) ? 100 : ms, ...args);
 try {
-  const session = await runtime.start({ cwd: process.cwd() });
+  const session = await runtime.start({ cwd: process.cwd(), localModels: false });
   const controller = new AbortController();
   session.subscribe(event => {
     events.push(event);
@@ -259,7 +259,7 @@ test("real Pi refuses a model's git stash, and the model sees why", async () => 
 const runtime = new PiRuntime();
 const ends = [];
 try {
-  const session = await runtime.start({ cwd: process.cwd() });
+  const session = await runtime.start({ cwd: process.cwd(), localModels: false });
   session.subscribe((event) => { if (event.type === "tool_end") ends.push({ isError: event.isError, text: event.output?.text }); });
   await session.prompt("Stash it.");
   console.log("RESULT=" + JSON.stringify(ends));
@@ -284,7 +284,7 @@ test("real Pi's write reports its size: a rewrite counts changed lines, a new fi
 const runtime = new PiRuntime();
 const ends = [];
 try {
-  const session = await runtime.start({ cwd: process.cwd() });
+  const session = await runtime.start({ cwd: process.cwd(), localModels: false });
   session.subscribe((event) => { if (event.type === "tool_end") ends.push({ path: event.input?.path, lines: event.lines }); });
   await session.prompt("Write both.");
   console.log("RESULT=" + JSON.stringify(ends));
@@ -312,7 +312,7 @@ const slow = { name: "slow", description: "Waits briefly.", inputSchema: { type:
   ${sequential ? "sequential: true," : ""}
   execute: async (args) => { log.push("start " + args.id); await new Promise((done) => setTimeout(done, 150)); log.push("end " + args.id); return { text: "ok" }; } };
 try {
-  const session = await runtime.start({ cwd: process.cwd(), tools: [slow] });
+  const session = await runtime.start({ cwd: process.cwd(), localModels: false, tools: [slow] });
   await session.prompt("Run both.");
   console.log("RESULT=" + JSON.stringify(log));
 } finally { await runtime.dispose(); }

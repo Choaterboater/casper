@@ -44,7 +44,7 @@ test("during a run, /model and /effort apply from the model's next step on the r
   const child = Bun.spawn([process.execPath, "-e", `import { PiRuntime } from ${JSON.stringify(adapter)};
 const runtime = new PiRuntime();
 try {
-  const session = await runtime.start({ cwd: process.cwd() });
+  const session = await runtime.start({ cwd: process.cwd(), localModels: false });
   await session.selectModel({ query: 'fixture/first:low' });
   const running = session.prompt('list the files');
   while (!session.getState().isStreaming) await new Promise(resolve => setTimeout(resolve, 10));

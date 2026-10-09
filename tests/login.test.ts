@@ -377,7 +377,7 @@ flakyOn("win32")("API-key replacement refreshes the selected non-Codex parent wi
       if (url === 'https://api.anthropic.com/v1/models') { calls.push(url); return Response.json({}, { status: 200 }); }
       throw new Error('NETWORK_FORBIDDEN');
     };
-    const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd() });
+    const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd(), localModels: false });
     const model = (await session.selectModel({})).models.find(item => item.provider === 'anthropic');
     await session.selectModel({ query: model.provider + '/' + model.id });
     const before = session.getStatus(); const input = new PassThrough();
@@ -544,7 +544,7 @@ test("pinned Codex device flow saves provider-scoped credentials and refreshes a
       if (url.endsWith('/oauth/token')) return Response.json({ access_token: access, refresh_token: 'synthetic-new', expires_in: 3600 });
       throw new Error('UNEXPECTED_NETWORK');
     };
-    const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd() });
+    const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd(), localModels: false });
     const listed = await session.selectModel({}); const chosen = listed.models.find(model => model.provider === 'openai-codex');
     if (!chosen) throw new Error('Missing built-in Codex model');
     await session.selectModel({ query: chosen.provider + '/' + chosen.id });
@@ -586,7 +586,7 @@ test("a committed credential with failed synchronization blocks stale parent aut
       if (url.endsWith('/usercode')) return Response.json({ device_auth_id: 'id', user_code: 'ABCD-EFGH', interval: 0 });
       if (url.endsWith('/deviceauth/token')) return Response.json({ authorization_code: 'code', code_verifier: 'verifier' });
       return Response.json({ access_token: access, refresh_token: 'committed', expires_in: 3600 }); };
-    const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd() });
+    const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd(), localModels: false });
     const chosen = (await session.selectModel({})).models.find(model => model.provider === 'openai-codex');
     await session.selectModel({ query: chosen.provider + '/' + chosen.id }); const before = session.getStatus();
     const original = ModelRuntime.prototype.refresh; ModelRuntime.prototype.refresh = async () => { throw new Error('synthetic sync failure'); };

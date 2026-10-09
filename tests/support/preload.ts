@@ -29,6 +29,11 @@ sandboxDefaults.problem = () => undefined;
 const { browserDefaults } = await import("../../src/browser/discovery");
 browserDefaults.installed = async () => false;
 
+// No model server on this machine (a developer's own Ollama) counts as found, so /model lists the same models
+// everywhere. Tests of local models set their own discover and point it at a fake server.
+const { localModelDefaults } = await import("../../src/runtime/local-models");
+localModelDefaults.discover = async () => ({ servers: [], problems: [] });
+
 // A session's sandbox becomes the process-wide one (useSandbox) until its app closes. One a test leaves open
 // changes later tests in the same run (their checks, the security header), and a real one keeps its network
 // relays running after the suite: bun test runs no exit handlers. Close every app and sandbox a test opens.

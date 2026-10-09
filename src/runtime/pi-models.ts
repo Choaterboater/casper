@@ -11,6 +11,7 @@ import { anyModelMatches } from "./pi-model-browser";
 import { openRouterRequestHeaders } from "./openrouter-attribution";
 import { compactionReserveFor, smallWindowWarning } from "./small-window";
 import { lockBusy } from "../platform/files";
+import { LOCAL_SERVERS, type LocalDiscovery } from "./local-models";
 
 type Selection = { reference?: ModelReference; source: "conversation" | "default" | "none"; role?: string; effort?: string; auto?: RuntimeStatus["autoEffort"] };
 type Settings = ReturnType<SettingsManager["getGlobalSettings"]>;
@@ -278,6 +279,34 @@ export class PiModels {
     if (Object.keys(overrides).length) settingsManager.applyOverrides({ compaction: { modelOverrides: overrides } });
   }
 
+  private localRefresh?: (signal?: AbortSignal) => Promise<void>;
+  private localReady?: Promise<unknown>;
+  private localFound = false;
+  private localProblems: string[] = [];
+  /** Local model servers (src/runtime/local-models.ts): `ready` settles once the background probe has added them,
+   * `refresh` probes again when /model opens, and the problems found (a variable set to a server that did not
+   * answer) show once, at the first request after the probe. */
+  useLocalServers(ready: Promise<LocalDiscovery>, refresh?: (signal?: AbortSignal) => Promise<void>): void {
+    this.localRefresh = refresh;
+    this.localReady = ready.then((found) => { this.localFound = found.servers.length > 0; this.localProblems = [...found.problems]; }, () => undefined);
+  }
+  localNotice(): string | undefined {
+    const message = this.localProblems.join(" ");
+    this.localProblems = [];
+    return message || undefined;
+  }
+  /** Waits for the local servers only when `missing` says a model the caller needs is not in the catalog yet. */
+  private async localWhen(missing: () => boolean): Promise<void> {
+    if (this.localReady && missing()) await this.localReady;
+  }
+  /** Whether `query` names no model in the catalog now (it may be a found server's, still being probed). */
+  private unresolved(query: string): boolean {
+    try {
+      const { reference } = resolveModelSelection(query, this.catalog.getModels(), this.getRoles(), this.defaultReference());
+      return !this.catalog.getModel(reference.provider, reference.id);
+    } catch { return true; }
+  }
+
   private warned = new WeakSet<AgentSession>();
   /** The plain-words warning for a small window, once per session and only for the selected main model. */
   smallWindowNotice(session: AgentSession): string | undefined {
@@ -305,6 +334,12 @@ export class PiModels {
     if (shared) settingsManager.applyOverrides(withoutModels(shared.getProjectSettings()));
     this.shrinkCompactionReserve(settingsManager);
     const recorded = manager.buildSessionContext().model;
+    // The model this start needs may be a found server's, still being probed: only then does the start wait for it.
+    await this.localWhen(() => {
+      if (!recorded && readOnly?.modelRole && this.getRoles()[readOnly.modelRole]) return this.unresolved(`@${readOnly.modelRole}`);
+      const wanted = recorded ? { provider: recorded.provider, id: recorded.modelId } : this.defaultReference(preferences);
+      return Boolean(wanted && !this.catalog.getModel(wanted.provider, wanted.id));
+    });
     const roles = this.getRoles();
     const routed = readOnly?.modelRole && roles[readOnly.modelRole]
       ? resolveModelSelection(`@${readOnly.modelRole}`, this.catalog.getModels(), roles, this.defaultReference(preferences)) : undefined;
@@ -465,6 +500,9 @@ export class PiModels {
     try {
       let resolved: ResolvedModelSelection | undefined;
       if (options.query) {
+        const query = options.query;
+        await this.localWhen(() => this.unresolved(query));
+        signal.throwIfAborted();
         try { resolved = resolveModelSelection(options.query, this.catalog.getModels(), this.getRoles(), this.defaultReference()); }
         catch (error) { if (!options.picker || options.query.startsWith("@") || options.query.includes(":")) throw error; }
       }
@@ -480,7 +518,7 @@ export class PiModels {
       if (!model && options.picker) {
         signal.throwIfAborted();
         const picked = await options.picker.mount(view => pickPiModel(view, this.catalog,
-          this.status(session).blocked ? undefined : session.model, this.defaultReference(), options.query, signal, options.persist === false));
+          this.status(session).blocked ? undefined : session.model, this.defaultReference(), options.query, signal, options.persist === false, this.localRefresh));
         signal.throwIfAborted();
         if (!picked) return { status: this.status(session), selected: false, savedDefault: false };
         model = this.catalog.getModel(picked.provider, picked.id); persist = options.persist === false ? false : picked.persist;
@@ -513,12 +551,17 @@ export class PiModels {
     } finally { this.selecting = false; this.selectionSignal = undefined; finish(); }
   }
 
-  /** When no model is selected yet, pick one for a signed-in provider (`provider` first) and save it as the
-   * default. Never replaces a model the user chose. Undefined when nothing was picked. */
+  /** When no model is selected yet, pick one for a signed-in provider (`provider` first), else the first model of a
+   * server found on this computer, and save it as the default. Never replaces a model the user chose. Undefined when
+   * nothing was picked. */
   async selectDefaultIfUnset(session: AgentSession, options: { provider?: string; signal?: AbortSignal } = {}): Promise<RuntimeModelSelection | undefined> {
     if (this.selections.get(session)?.reference) return undefined;
     const candidates = [...DEFAULT_MODELS].sort((a, b) => Number(b.provider === options.provider) - Number(a.provider === options.provider));
-    const pick = candidates.find(({ provider, id }) => !this.staleAuth.has(provider) && this.catalog.hasConfiguredAuth(provider) && this.catalog.getModel(provider, id));
+    const signedIn = () => candidates.find(({ provider, id }) => !this.staleAuth.has(provider) && this.catalog.hasConfiguredAuth(provider) && this.catalog.getModel(provider, id));
+    await this.localWhen(() => !signedIn());
+    options.signal?.throwIfAborted();
+    const local = () => LOCAL_SERVERS.flatMap(({ id }) => this.catalog.getRegisteredProviderConfig(id)?.apiKey === "local" ? this.catalog.getModels(id) : [])[0];
+    const pick = signedIn() ?? local();
     if (!pick) return undefined;
     return this.select(session, { query: `${pick.provider}/${pick.id}`, persist: true, signal: options.signal });
   }

@@ -21,6 +21,7 @@ import { SECURITY_TOOL_ORDER, type SecurityToolId } from "../security/types";
 import { packThemes } from "../packs/themes";
 import { BUILT_IN_THEMES, themeNote } from "../tui/theme";
 import { lastUpdateFailure, updateFailureLines } from "../update/handoff-log";
+import { localModelDefaults } from "../runtime/local-models";
 import { compareVersions, defaultRunner, lookUpNewest, type Fetcher, type Install, type ProcessRunner } from "../update/command";
 import { jsonErrorPosition } from "./json-position";
 
@@ -229,9 +230,10 @@ async function customProviders(ctx: DoctorContext): Promise<string[]> {
   } catch { return []; }
 }
 
-/** Each provider in Casper's sign-in file, and any provider key in the environment. Reads only which providers are
- * there and when a sign-in runs out; never a key, and nothing is sent anywhere. */
-export async function checkSignIn(ctx: DoctorContext): Promise<DoctorLine[]> {
+/** Each provider in Casper's sign-in file, any provider key in the environment, and the model servers found on this
+ * computer (`localModels` false: none are looked for). Reads only which providers are there and when a sign-in runs
+ * out; never a key. Nothing is sent anywhere but the keyless look at the local servers' model lists. */
+export async function checkSignIn(ctx: DoctorContext, localModels = true): Promise<DoctorLine[]> {
   const now = (ctx.now ?? Date.now)();
   const lines: DoctorLine[] = [];
   let saved: Record<string, unknown> = {};
@@ -257,9 +259,12 @@ export async function checkSignIn(ctx: DoctorContext): Promise<DoctorLine[]> {
   if (custom.length) signedIn.push(`${custom.join(", ")} (models.json)`);
   const fromEnv = Object.keys(ctx.env).filter((name) => ctx.env[name] && isModelProviderKeyName(name)).sort();
   if (fromEnv.length) signedIn.push(...fromEnv.map((name) => `$${name}`));
+  const found = localModels ? await localModelDefaults.discover({ env: ctx.env }).catch(() => undefined) : undefined;
+  const servers = found?.servers.filter((server) => server.models.length && !custom.includes(server.provider)).map((server) => server.provider) ?? [];
+  if (servers.length) signedIn.push(`${servers.join(", ")} (found on this computer)`);
   if (signedIn.length) lines.unshift(ok(`Sign-in: ${signedIn.join(", ")}`));
-  if (!lines.length) return [fail("No model sign-in", "run casper and type /login")];
-  return lines;
+  if (!lines.length) lines.push(fail("No model sign-in", "run casper and type /login, or start a model server such as Ollama"));
+  return [...lines, ...(found?.problems ?? []).map((problem) => note(problem))];
 }
 
 // --- MCP servers ---

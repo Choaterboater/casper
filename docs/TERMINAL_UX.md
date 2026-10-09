@@ -472,7 +472,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   while nothing is typed, so a custom answer cannot start with a row's number unless
   Other is picked first (or a letter is typed first); a digit past the last row is ordinary text. A list longer
   than nine (`/settings`) numbers every row: type the number and press Enter
-  (`Type 1-23 + Enter or Up/Down + Enter`).
+  (`Type 1-24 + Enter or Up/Down + Enter`).
 - Every numbered list draws the same way and ends with the same hint, `Press 1-4 or
   Up/Down + Enter`, followed by what else it takes: `Esc skip` for a question or picker
   (a question that takes a typed answer shows that with its Other row, not in the hint),
@@ -502,7 +502,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   (the box stays open). Keys pressed in the first moment after a box opens (about 0.3 s) are ignored, so a key
   typed mid-sentence never answers a box that just appeared.
 - Casper's own numbered questions and approvals also work on the plain terminal: it prints the
-  choices as numbered lines and reads `Type 1, 2 or 3:` (`Type 1-23:` past nine); a number or
+  choices as numbered lines and reads `Type 1, 2 or 3:` (`Type 1-24:` past nine); a number or
   a choice's words pick it. A question that takes a typed answer lists `Other — type your own answer`
   as its last number; picking it asks `Your answer: `. `/settings`, `/preview` and the question after a check times out
   ask there too, as numbered lines. Enter picks choice 1, and at every Casper question choice 1 is the one that does nothing
