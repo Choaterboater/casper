@@ -349,6 +349,9 @@ export interface RuntimeSession {
   steer?(text: string): Promise<boolean>;
   /** Lines steered in that the model never read (the run ended first); they are taken out of the runtime. */
   takeUnsent?(): string[];
+  /** A bounded child near its deadline: its next tool call or turn ends its work and, with `reportTurn`, it gets the
+   * tool-free turn to report, with `reason` as its limit. */
+  wrapUp?(reason: string): void;
   abort(): Promise<void>;
   subscribe(listener: RuntimeEventListener): () => void;
   getState(): RuntimeState;

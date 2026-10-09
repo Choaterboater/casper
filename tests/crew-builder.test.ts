@@ -60,6 +60,15 @@ test("a builder starts in its copy with the builder limits, the given shell, and
   expect(runtime.disposals).toBe(1);
 });
 
+test("a builder is told the deadline it really has, and the default is in minutes", async () => {
+  const runtime = new BuilderRuntime();
+  await manager(() => runtime).runBuilder(job);
+  expect(runtime.prompts[0]).toContain(`${BUILDER_LIMITS.timeoutMs / 60_000} minutes, then one tool-free turn to report`);
+  const shorter = new BuilderRuntime();
+  await manager(() => shorter, 90_000).runBuilder(job);
+  expect(shorter.prompts[0]).toContain("90 seconds, then one tool-free turn to report");
+});
+
 test("your private paths stay private in the copy too", async () => {
   const runtime = new BuilderRuntime();
   const main = path.join(os.tmpdir(), "casper-crew-main");

@@ -55,10 +55,14 @@ not proof that the code works.
 
 - A third helper turned away because two are already running does not count
   toward the 4. It can be sent again later.
-- When a helper uses up its turns or tool calls, it gets one last turn with no
-  tools, so it can report what it found so far.
-- A helper stopped part way returns its last words, not an empty report. Its
-  status says it was cut short.
+- When a helper uses up its turns or tool calls, or is 30 seconds from its time
+  limit, it is told to stop and gets one last turn with no tools to report what
+  it found so far, marked partial, if the step it is on finishes in time.
+- The main AI then gets that report with status `limited` and a reason such as
+  `partial: stopped at its 12-turn limit`, not an empty result. A helper that
+  wrote nothing, or was still on a step at its time limit (status `timed_out`),
+  still hands back its last words or which files it looked at. `casper learn` keeps its whole
+  limit instead, since it saves nothing from a partial run.
 
 ## Which model a helper uses
 

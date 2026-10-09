@@ -102,7 +102,7 @@ class PiRuntimeSession implements RuntimeSession {
     private readonly runtime: AgentSessionRuntime,
     private readonly tools: PiToolController,
     private readonly models: PiModels,
-    private readonly readOnly?: { options: RuntimeReadOnlyStartOptions | RuntimeBuilderStartOptions; limitReason: () => string | undefined },
+    private readonly readOnly?: { options: RuntimeReadOnlyStartOptions | RuntimeBuilderStartOptions; limitReason: () => string | undefined; wrapUp: (reason: string) => void },
     private readonly cache?: PromptCacheSetting,
   ) {
     this.bind(runtime.session);
@@ -398,6 +398,8 @@ class PiRuntimeSession implements RuntimeSession {
     return left;
   }
 
+  wrapUp(reason: string): void { this.readOnly?.wrapUp(reason); }
+
   abort(): Promise<void> {
     this.promptController?.abort();
     return this.runtime.session.abort();
@@ -591,6 +593,12 @@ export const PI_TOOL_RULES: readonly string[] = [
 /** A bash timeout above this is capped: one hour, the longest a Casper check may run, so the cap never
  * cuts short a command a check itself would allow, while a day-long timeout cannot hang a session. */
 export const BASH_TIMEOUT_CAP_SECONDS = 3600;
+/** What a bounded child is told when its report turn starts: without it a model mid-search calls tools again, they
+ * are refused, and the run ends with no report at all. */
+export function reportNowText(reason: string): string {
+  return `${reason}. No more tool calls. Reply now with your report on what you found or did so far: start with "Partial:", give the evidence you have, then what you did not get to.`;
+}
+
 /** Tools whose output may hold a secret (see scrubToolOutput): native reads and shells, dev servers, pages, language servers. */
 export const SCRUBBED_TOOLS: ReadonlySet<string> = new Set(["read", "bash", "powershell", "grep", "service", "browser", "lsp"]);
 export const SCRUB_FAILED_TEXT = "Output not shown: Casper could not check it for device secrets. Try a smaller read or another command.";
@@ -714,6 +722,8 @@ export class PiRuntime implements AgentRuntime {
     let turns = 0;
     /** Set once to spend the single tool-free turn that lets a spent child hand back a report. */
     let wrapUp = false;
+    /** Set by the caller near its deadline (RuntimeSession.wrapUp): the child's next tool call or turn ends its work. */
+    let deadline: string | undefined;
 
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
       bounded?.signal.throwIfAborted();
@@ -732,8 +742,9 @@ export class PiRuntime implements AgentRuntime {
           }
           // The report turn is tool-free whichever budget ran out: the work is already spent.
           if (wrapUp) return { block: true, reason: limitReason ?? "Subagent budget exhausted", terminate: true };
-          if (++toolCalls > bounded.maxToolCalls) {
-            limitReason ??= "Subagent tool-call budget exhausted";
+          if (deadline) limitReason ??= deadline;
+          if (deadline || ++toolCalls > bounded.maxToolCalls) {
+            limitReason ??= `Stopped at its ${bounded.maxToolCalls}-tool-call limit`;
             // Before the report turn the child keeps the loop: cutting it off mid-investigation
             // returns nothing at all.
             return { block: true, reason: `${limitReason}; reply now with your findings and stop calling tools` };
@@ -892,13 +903,18 @@ export class PiRuntime implements AgentRuntime {
             if (previous?.action === "end") return previous;
             if (message.stopReason === "error" || message.stopReason === "aborted") return previous ?? undefined;
             turns++;
-            if (!limitReason && message.content.some((part) => part.type === "toolCall") && (turns >= bounded.maxTurns || toolCalls >= bounded.maxToolCalls)) {
-              limitReason = "Subagent turn/tool-call budget exhausted";
+            if (!limitReason && message.content.some((part) => part.type === "toolCall")) {
+              limitReason = deadline ?? (turns >= bounded.maxTurns ? `Stopped at its ${bounded.maxTurns}-turn limit`
+                : toolCalls >= bounded.maxToolCalls ? `Stopped at its ${bounded.maxToolCalls}-tool-call limit` : undefined);
             }
             if (bounded.signal.aborted) return { action: "end" };
-            // A spent child gets exactly one tool-free turn to report what it already found;
-            // without it the loop ends on a tool call and the caller receives an empty result.
-            if (limitReason && bounded.reportTurn && !wrapUp) { wrapUp = true; return previous ?? undefined; }
+            // A spent child gets exactly one tool-free turn to report what it already found, and is told so: a model
+            // not told calls tools again, they are refused, and the caller receives an empty result.
+            if (limitReason && bounded.reportTurn && !wrapUp) {
+              wrapUp = true;
+              created.session.agent.steer({ role: "user", content: [{ type: "text", text: reportNowText(limitReason) }], timestamp: Date.now() });
+              return previous ?? undefined;
+            }
             return limitReason ? { action: "end" } : previous ?? undefined;
           };
         }
@@ -916,7 +932,7 @@ export class PiRuntime implements AgentRuntime {
       agentDir,
       sessionManager: bounded ? SessionManager.inMemory(options.cwd) : SessionManager.create(options.cwd),
     });
-    this.wrapper = new PiRuntimeSession(this.runtime, tools, models, bounded ? { options: bounded, limitReason: () => limitReason } : undefined,
+    this.wrapper = new PiRuntimeSession(this.runtime, tools, models, bounded ? { options: bounded, limitReason: () => limitReason, wrapUp: (reason) => { deadline ??= reason; } } : undefined,
       bounded ? (bounded.cache === "off" ? "off" : "short") : options.cache);
     return this.wrapper;
   }

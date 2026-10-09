@@ -30,6 +30,9 @@ class ChildRuntime implements AgentRuntime {
   beforeStart = async () => {};
   /** What the child session's getUsage returns (its effort classifier's calls); unset, it has none. */
   usage?: RuntimeUsage;
+  /** Each reason Casper gave the child's wrapUp (near its deadline). */
+  wrapUps: string[] = [];
+  onWrapUp = () => {};
   constructor(private readonly respond: (emit: (event: RuntimeEvent) => void) => Promise<void> = async (emit) => {
     emit({ type: "assistant_text_delta", delta: "Evidence: index.ts:1" });
   }) {}
@@ -41,6 +44,7 @@ class ChildRuntime implements AgentRuntime {
     return {
       prompt: async (text) => { this.prompts.push(text); await this.respond((event) => { for (const listener of listeners) listener(event); }); },
       abort: async () => { this.aborts++; this.onAbort(); },
+      wrapUp: (reason) => { this.wrapUps.push(reason); this.onWrapUp(); },
       subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
       getState: () => ({ cwd: options.cwd, isStreaming: false }),
       ...(this.usage ? { getUsage: () => this.usage! } : {}),
@@ -345,6 +349,88 @@ describe("Phase 8 bounded subagents", () => {
     expect(formatSubagentReport(result)).toContain("checking callers");
   });
 
+  test("a helper stopped at a limit hands back its report, marked partial", async () => {
+    const child = new ChildRuntime(async (emit) => {
+      emit({ type: "assistant_response_start" });
+      emit({ type: "assistant_response_end", stopReason: "toolUse" });
+      emit({ type: "assistant_response_start" });
+      emit({ type: "assistant_text_delta", delta: "Partial: the budget check is in src/agents/manager.ts:9; callers not read yet" });
+      emit({ type: "assistant_response_end", stopReason: "stop" });
+      emit({ type: "assistant_response_end", stopReason: "limit", errorMessage: "Stopped at its 12-turn limit" });
+    });
+    const tool = manager(() => child).createTool(() => task);
+    const result = await tool.execute({ role: "explorer", goal: "Audit the budget code" });
+    // Still flagged (it is not a whole answer), with the reason and the findings first in the result.
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain('"status":"limited","reason":"partial: stopped at its 12-turn limit"');
+    expect(result.text).toContain("manager.ts:9");
+  });
+
+  test("a helper that wrote nothing before its limit still says where it looked", async () => {
+    const child = new ChildRuntime(async (emit) => {
+      emit({ type: "assistant_response_start" });
+      emit({ type: "assistant_response_end", stopReason: "toolUse" });
+      emit({ type: "tool_start", toolName: "read", input: { path: "src/app.ts" } });
+      emit({ type: "tool_end", toolName: "read", input: { path: "src/app.ts" }, isError: false });
+      emit({ type: "tool_end", toolName: "grep", input: { pattern: "maxTurns" }, isError: false });
+      emit({ type: "assistant_response_end", stopReason: "limit", errorMessage: "Stopped at its 48-tool-call limit" });
+    });
+    const result = await manager(() => child).run(task);
+    expect(result.status).toBe("limited");
+    expect(result.reason).toBe("partial: stopped at its 48-tool-call limit");
+    expect(result.response).toBe("Partial: no report was written before the limit. It looked at: src/app.ts, maxTurns.");
+  });
+
+  test("near its deadline a helper is told to wrap up and reports instead of timing out", async () => {
+    const wrapped = gate();
+    const child = new ChildRuntime(async (emit) => {
+      emit({ type: "assistant_response_start" });
+      emit({ type: "assistant_response_end", stopReason: "toolUse" });
+      await wrapped.promise;
+      emit({ type: "assistant_response_start" });
+      emit({ type: "assistant_text_delta", delta: "Partial: entry point is src/cli.ts:1" });
+      emit({ type: "assistant_response_end", stopReason: "stop" });
+      emit({ type: "assistant_response_end", stopReason: "limit", errorMessage: child.wrapUps[0] });
+    });
+    child.onWrapUp = wrapped.release;
+    const result = await manager(() => child, 400).run(task);
+    // The reserve is a quarter of a short deadline: the wrap-up comes at 300 ms, before the 400 ms stop.
+    expect(child.wrapUps).toEqual(["Stopped near its 0.4-second time limit"]);
+    expect(result.status).toBe("limited");
+    expect(result.reason).toBe("partial: stopped near its 0.4-second time limit");
+    expect(result.response).toBe("Partial: entry point is src/cli.ts:1");
+    expect(child.aborts).toBe(0);
+  });
+
+  test("a helper is told the deadline its manager really enforces", async () => {
+    const child = new ChildRuntime();
+    await manager(() => child, 90_000).run(task);
+    expect(child.prompts[0]).toContain("90 seconds, then one tool-free turn to report");
+    expect(child.prompts[0]).not.toContain(`${SUBAGENT_LIMITS.timeoutMs / 60_000} minutes`);
+  });
+
+  test("a helper still on a step at its hard deadline hands back where it looked; learn's runs stay empty", async () => {
+    for (const reportTurn of [true, false]) {
+      const finish = gate();
+      const child = new ChildRuntime(async (emit) => {
+        emit({ type: "tool_end", toolName: "read", input: { path: "src/app.ts" }, isError: false });
+        emit({ type: "tool_start", toolName: "grep", input: { pattern: "slow" } });
+        await finish.promise;
+      });
+      child.onAbort = finish.release;
+      const result = await manager(() => child, 30).run({ ...task, reportTurn });
+      expect(result.status).toBe("timed_out");
+      expect(result.response).toBe(reportTurn ? "Partial: no report was written before the limit. It looked at: src/app.ts." : "");
+    }
+  });
+
+  test("every helper kind is told it gets a report turn and how long it has", async () => {
+    const child = new ChildRuntime();
+    await manager(() => child).run({ ...task, role: "reviewer" });
+    expect(child.options?.reportTurn).toBe(true);
+    expect(child.prompts[0]).toContain(`${SUBAGENT_LIMITS.timeoutMs / 60_000} minutes, then one tool-free turn to report`);
+  });
+
   test("only the final response is returned; streamed Unicode and terminal controls are bounded", async () => {
     const child = new ChildRuntime(async (emit) => {
       emit({ type: "assistant_response_start" });
@@ -435,6 +521,17 @@ describe("Phase 8 bounded subagents", () => {
       attempt(emit, "toolUse", "Looking"); attempt(emit, "error"); attempt(emit, "error");
     })).run(task);
     expect({ status: exhausted.status, reason: exhausted.reason }).toEqual({ status: "failed", reason: "429 Provider returned error" });
+  });
+
+  test("a provider's own cut-off text stays marked as the provider's after it is called partial", async () => {
+    for (const reportTurn of [true, false]) {
+      const result = await manager(() => new ChildRuntime(async (emit) => {
+        emit({ type: "assistant_response_start" });
+        emit({ type: "assistant_response_end", stopReason: "length", errorMessage: "provider echoed source text" });
+      })).run({ ...task, reportTurn });
+      expect({ status: result.status, reason: result.reason, providerReason: result.providerReason })
+        .toEqual({ status: "limited", reason: "partial: provider echoed source text", providerReason: true });
+    }
   });
 
   test("a child's tool errors carry Pi's message, which the child also saw, not just the tool name", async () => {

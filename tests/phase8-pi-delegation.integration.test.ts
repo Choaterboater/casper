@@ -72,6 +72,21 @@ test("real read-only Pi spends its one opt-in report turn without doing more wor
   expect(report.events.filter((event) => event.type === "tool_end" && event.isError).length).toBeGreaterThan(0);
 }, 30_000);
 
+test("real read-only Pi tells a spent child to report, and the child's report comes back", async () => {
+  const f = await fixture((payload) => JSON.stringify(payload.messages).includes("No more tool calls")
+    ? answer("Partial: fixture.txt:1 holds LOCAL_EVIDENCE_8")
+    : calls([{ name: "read", args: { path: "fixture.txt" } }]));
+  const result = await f.run([adapter, f.project, "report"]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  const report: { events: RuntimeEvent[] } = JSON.parse(result.stdout.split("READONLY_RESULT=")[1]!);
+  // Two budget turns, then the report turn with the instruction and no tools run.
+  expect(f.payloads).toHaveLength(3);
+  expect(JSON.stringify(f.payloads[2]!.messages)).toContain("Stopped at its 2-turn limit. No more tool calls.");
+  const text = report.events.flatMap((event) => event.type === "assistant_text_delta" ? [event.delta] : []).join("");
+  expect(text).toContain("Partial: fixture.txt:1 holds LOCAL_EVIDENCE_8");
+  expect(report.events).toContainEqual(expect.objectContaining({ type: "assistant_response_end", stopReason: "limit", errorMessage: "Stopped at its 2-turn limit" }));
+}, 30_000);
+
 test("delegation follows a reviewed worktree switch and return with fresh project context", async () => {
   const f = await fixture((payload) => payload.messages.some((message) => message.role === "tool")
     ? answer("WORKSPACE_EVIDENCE: fixture.txt:1")
