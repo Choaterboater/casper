@@ -395,6 +395,17 @@ export class RuntimeEventView {
   /** ctrl+t: the last finished step in full, or undefined before the first one. */
   lastStep(): ExpandedStep | undefined { return this.expanded; }
 
+  /** What ctrl+t shows next, set by Casper itself (the plan's cases and details). */
+  showOnExpand(step: ExpandedStep): void { this.expanded = step; }
+
+  /** While set, the model's words are kept off the screen (Casper shows them its own way after the turn) and the
+   * Working box says this instead. */
+  holdText(activity: string | undefined): void { this.heldText = activity; if (activity) this.held = ""; }
+  private heldText?: string;
+  private held = "";
+  /** Everything the model wrote while its words were held, every response of the turn and a cut-off one included. */
+  heldWords(): string { return this.held; }
+
   /** The receipt is next: fold what finished, and the Working box goes away whatever arrives late. */
   reset(): void {
     this.fold();
@@ -474,6 +485,8 @@ export class RuntimeEventView {
         break;
       }
       case "assistant_response_end": {
+        // Held words of one response are kept apart from the next one's.
+        if (this.heldText && this.held.trim() && !this.held.endsWith("\n\n")) this.held += this.held.endsWith("\n") ? "\n" : "\n\n";
         // A failed attempt that will be retried is not the outcome; the retry line says what happens next.
         if (event.retrying) { this.terminal.endAssistant(); break; }
         this.setStaticActivity(event.stopReason === "toolUse" ? "Starting tools…" : undefined);
@@ -496,6 +509,13 @@ export class RuntimeEventView {
       case "assistant_text_delta":
         // The model moved on: the finished steps fold into one line above its words.
         if (this.steps.some(step => step.endedAt !== undefined)) this.fold();
+        // Words Casper shows its own way once the turn ends (the plan screen): the Working box says what is coming.
+        if (this.heldText) {
+          this.held = (this.held + event.delta).slice(-65_536);
+          this.heardAt = performance.now();
+          if (this.responseActivity !== this.heldText) { this.clearResponseActivity(); this.setResponseActivity(this.heldText); }
+          break;
+        }
         this.setStaticActivity();
         this.terminal.assistant(event.delta);
         this.endedWithNewline = true;

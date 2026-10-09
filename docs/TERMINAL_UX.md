@@ -22,7 +22,7 @@ takes nothing after its name says so (`Usage: /settings, with nothing after it.`
 | Esc | Stop the current work |
 | Ctrl+C | Cancel work; when idle, clear the draft; twice on an empty prompt exits |
 | Ctrl+D | Exit when the prompt is empty |
-| Ctrl+T | Show the last step in full: an edit's whole diff, what a command printed, or the provider's own words after an `[error]` (works during work too) |
+| Ctrl+T | Show the last step in full: an edit's whole diff, what a command printed, the provider's own words after an `[error]`, or a plan's cases to test and details (works during work too) |
 | Ctrl+L | Redraw the screen |
 | Ctrl+V (Alt+V on Windows) | Paste a picture from the clipboard; it shows as `[image 1]` and goes with the request. A file you copied in Finder, Explorer or a file manager goes in as its path, and a picture file goes with the request like a dropped one. With neither on the clipboard, its text is pasted |
 | Ctrl+O | Turn MCP writes off for every server at once (see [MCP.md](MCP.md)) |
@@ -271,12 +271,36 @@ is built as asked, with no question. Plan first (or `/plan <request>`) runs a
 plan turn: the model may only read (read, grep, find, ls and look-only shell commands such as `ls`,
 `cat` or `git log`); every other tool, MCP and Casper's own tools included, is refused with "Planning
 only" and shown as `— not run`, not as a failed step (the receipt does not count it). This is Casper's gate, not a
-sandbox, and a file that changed anyway is named on the receipt (`– Changed while planning: …`). The plan is shown
-once, as the model wrote it, then one line (`Casper plan: 9 steps, 9 cases to test.`) and "Build this plan?":
-1 Stop · 2 Build, and on a rich terminal 3 Edit the plan, so Enter builds nothing. 3 opens the plan and its cases
-in the editor: edit the lines, then Enter asks again; Esc stops without building. A plan you changed is listed
-again before it builds. The plain terminal asks the same question without 3, and a run that cannot ask
-stops after showing the plan. `/plan` on its own says what to type, with an example.
+sandbox, and a file that changed anyway is named on the receipt (`– Changed while planning: …`). The plan is
+written for you, not for the code, and shown once by Casper (the model's answer is not streamed as well):
+
+```
+Casper plan · A cleaner, animated header
+
+What you'll see
+  The ghost and the name in one colour, with a short fade-in.
+
+Steps
+  1. Write the tests first, then the change.
+  2. Draw the header in the accent colour.
+
+Tests: 3 cases · Ctrl+T shows them and the details
+```
+
+What you'll see has a small text mock-up when the change shows on screen. The steps are plain words; the
+cases to test are listed once, and the files, functions and exact assertions (the plan's Details) stay one key
+away: Ctrl+T on the rich terminal. Long lines wrap; nothing is cut. Then "Build this plan?": 1 Stop · 2 Build,
+and on a rich terminal 3 Edit the plan, so Enter builds nothing. 3 opens the steps and cases in the editor: edit
+the lines, then Enter shows only what you changed (`Your changes:` with `-` and `+` lines, and the steps' new
+order if you moved any) and asks again. Words typed after a line behind ` - `, ` -- `, ` // `, ` (` or ` note`, or a
+`Note:` line, are your note (`Your note: …`), not part of the step; other words added to a line change it. Esc stops
+without building. Build gives the model the whole plan, the details and your notes included. The plain terminal asks
+without Edit: its tests line ends `choose 3 to see them`, and 3 Show the details lists the cases and the details,
+then asks again; a run that cannot ask lists everything and stops. An answer with only the older `Plan:` and
+`Tests:` sections reads as before, and anything outside the plan's sections (a `Risks:` list, say) goes with the
+details. When no plan comes of the answer (no numbered steps, Esc, a model failure) Casper prints what the model
+wrote, so nothing it said is lost. `/plan`
+on its own says what to type, with an example.
 
 ### Layout stability
 

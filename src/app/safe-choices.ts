@@ -36,6 +36,12 @@ export const PLAN_CHOICES_EDIT = [
   { label: "Edit the plan", description: "change the steps and cases first, then choose again" },
 ] as const satisfies readonly Choice[];
 
+/** The plain terminal has no Ctrl+T and no editor: its third choice lists the cases and the details, then asks again. */
+export const PLAN_CHOICES_DETAILS = [
+  ...PLAN_CHOICES,
+  { label: "Show the details", description: "list the cases to test and the details, then choose again" },
+] as const satisfies readonly Choice[];
+
 /** "<model> can't see pictures, and this request has one." Both send the request: 1 on your model without the
  * pictures, 2 on one that sees them, for this request only. */
 export function pictureChoices(model: string, count: number): Choice[] {
