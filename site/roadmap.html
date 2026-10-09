@@ -80,6 +80,7 @@
           <li><a href="#next">Next release, built, not released</a>
             <ul>
               <li><a href="#network-releases">Network server updates between Casper releases</a></li>
+              <li><a href="#model-words">A model by its name in words</a></li>
             </ul>
           </li>
           <li><a href="#coming">Planned, not started</a>
@@ -619,6 +620,18 @@
           Casper ships with, which stays the floor and the offline fallback. Only the server Casper set up is updated, never
           one you run from your own checkout. <strong>Network server updates</strong> in <code>/settings</code>,
           <code>tools: { downloads: off }</code> or <code>CASPER_OFFLINE=1</code> turns it off.</p>
+        </article>
+        <article class="card" id="model-words" aria-labelledby="model-words-h">
+          <h3 id="model-words-h">A model by its name in words <span class="badge soon">built, not released</span></h3>
+          <ul>
+            <li><strong><code>/model opus 5.5</code></strong> picks the model the words name, with no model call:
+            case, dots and spaces do not matter, and <code>/model opus</code> is the newest Opus. Words that name
+            several ask which by number; words that name none list the closest few.</li>
+            <li><strong>A typed line that only asks to change the model</strong>, such as
+            <code>change model to opus 5.5</code> or <code>switch to sonnet 5</code>, is done here with no model call,
+            also during a task, and says so. Anything else, such as
+            <code>change the model class in models.py</code>, goes to the AI as before.</li>
+          </ul>
         </article>
       </section>
 

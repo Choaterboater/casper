@@ -109,7 +109,7 @@ test("--json ends with an error event when Casper stops before a receipt", async
   expect(result.exit).toBe(64);
   const lines = result.stdout.trim().split("\n").map((line) => JSON.parse(line));
   expect(lines.map((line) => line.type)).toEqual(["error"]);
-  expect(lines[0].message).toContain("Unknown model");
+  expect(lines[0].message).toContain("No model matches \"fixture/nope\". Run casper /model to list models.");
 }, 60_000);
 
 shellCheckTest("--json tells a check the model asked for (casper_check) from one Casper ran", async () => {

@@ -38,7 +38,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/help`, `/help <word>`, `/help all` | Short help, the lines that mention a word (`/help mcp`), or the full reference |
 | `/status` | Project, model, sign-in and connections (`/project` alone shows the same) |
 | `/doctor` | Check Casper's own setup and fix what it can, each fix after a question (see [DOCTOR.md](DOCTOR.md)); during a task it only reports |
-| `/model`, `/model big <model>` | Pick a model (remembered; `--session`, before or after the model, for this conversation only; an id no model matches is an error); your big model for when repairs run out |
+| `/model`, `/model <words>`, `/model big <model>` | Pick a model (remembered; `--session`, before or after the model, for this conversation only); words pick the model they name (`/model opus 5.5`), several ask which, none name the closest; your big model for when repairs run out |
 | `/effort [level\|auto]`, `/thinking` | Reasoning effort (the model's own levels; one it lacks is refused), or `auto` per request; Shift+Tab cycles it (see [Model and effort](#model-and-effort)) |
 | `/login [provider]`, `/logout [provider]` | Sign in to a provider: `codex`, `copilot`, `anthropic` or `openrouter` (see [Provider login](#provider-login)); remove a sign-in Casper saved (`/logout` alone lists them; environment variables stay) |
 | `/context`, `/usage`, `/cost` | Context estimate; session tokens and estimated cost (`/cost` is `/usage`) |
@@ -336,6 +336,28 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
   `-` for `–`, `|` for `▌`, `└` for `↳`, `~` for `…`. Windows Terminal and other terminals keep the symbols.
 - `/model provider/id`: exact selection, remembered globally. During a task it applies from the
   model's next step, like `/effort` (see Input and commands).
+- `/model <words>` (`/model opus 5.5`, `/model sonnet 5`, `/model opus`, `/model qwen3`): the
+  model the words name among the ones you can pick, with no model call, said in one line
+  (`[model] anthropic/claude-opus-5-5 (from "opus 5.5")`). Case, dots, spaces and a leading provider
+  do not matter. The words must appear whole and in order in the id; the best match wins: the whole
+  id, then an id the words end (`opus 5` is `claude-opus-5`, not `claude-opus-5-5`), then the newest
+  version (`opus` is the newest Opus; a size such as `8b` or `2.4t` is no version). A dated copy ranks
+  below its undated alias, and the provider you are on comes first. Several equally good (`qwen3` with
+  two sizes), words that name several families (`claude`: Opus, Sonnet, Haiku), matches on several
+  other providers, or a better match only on another provider while yours has one too, ask which by
+  number (more than four open the browser on the words); words never move you to another provider
+  by themselves. None says
+  `No model matches "opus 9"; closest: …. /model to see all. Model unchanged.` Part of a word
+  (`/model secon`) opens the browser already searched. Exact ids, `@role`, `:effort` and `--session`
+  work as before, also with words (`/model opus 5.5:high`).
+- A typed line that only asks to change the model (`change model to opus 5.5`, `switch to sonnet 5`,
+  `use opus`, `set model to <id>`) is done the same way, with no model call, idle or during a task,
+  and says so first: `[model] Handled here, no model call: /model opus 5.5 does the same.` It counts
+  only when you typed the whole short line (nothing pasted, no file name, path or code in it) and
+  its words start the name of a model you can pick; without the word "model" in the line they must
+  also be a model family (`opus`, `qwen`, `gpt` …) or carry a version (`sonnet 5`), so `use next`,
+  `switch to main` and `use the 70b model` stay requests. Anything else (`change the model class in
+  models.py to …`) goes to the AI as before. To ask the AI instead, say it another way.
 - `/model --session [provider/id]`: for this conversation only; the browser opens with Enter
   choosing for this session only.
 - `/effort`: automatic or supported fixed-effort picker in an interactive terminal, otherwise a list.
@@ -548,7 +570,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   `/doctor` only reports during a task (its fixes ask after it); `/exit` and `/quit` stop the
   task and leave; `/mcp`, `/tasks` and `/diff list` print their lists instead of a picker, and
   `/permissions` (and `/permissions details`) shows its screen without the stop-asking box.
-  `/effort` and `/model` (the picker, `/model <provider/id>` or `/model --session <provider/id>`)
+  `/effort` and `/model` (the picker, `/model <provider/id>`, `/model <words>` or `/model --session <provider/id>`)
   apply from the model's next step (`[model] <provider/id> from the model's next step; saved`); the
   step already running keeps its model; the `/model` picker also closes when the model's work ends.
   A picker, question or numbered box (`/permissions all`, `/mcp writes`) a command opens during a task

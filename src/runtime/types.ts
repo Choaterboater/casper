@@ -200,6 +200,10 @@ export interface RuntimeModelSelectionOptions {
   persist?: boolean;
   signal?: AbortSignal;
   picker?: RuntimeModelPickerHost;
+  /** Words that name several models equally well (at most 4): the caller's numbered question picks one; undefined
+   * changes nothing. Without it, or with more than 4, the picker opens on the words, else the result lists them as
+   * `candidates`. */
+  choose?: (models: Array<{ provider: string; id: string; name: string }>) => Promise<{ provider: string; id: string } | undefined>;
 }
 
 export interface RuntimeModelSelection {
@@ -208,7 +212,19 @@ export interface RuntimeModelSelection {
   savedDefault: boolean;
   /** Plain-terminal listing; opening a list never selects its first row. */
   models?: Array<{ provider: string; id: string; name: string }>;
+  /** The loose words (`opus 5.5`) the model was found from, when the query was no exact id or role. */
+  from?: string;
+  /** The words named several models equally well and nothing was picked. */
+  candidates?: Array<{ provider: string; id: string; name: string }>;
 }
+
+export type RuntimeModelWordsOptions = { head?: boolean; wait?: boolean };
+
+/** What loose words name among the models you can pick now, without selecting anything (src/runtime/model-words.ts). */
+export type RuntimeModelWordsMatch =
+  | { kind: "one"; model: { provider: string; id: string } }
+  | { kind: "several"; models: Array<{ provider: string; id: string }> }
+  | { kind: "none"; closest: Array<{ provider: string; id: string }> };
 
 export interface RuntimeModelInfo {
   provider: string;
@@ -324,6 +340,10 @@ export interface RuntimeSession {
   /** What a selector (`@reason`, `provider/id`) names, without selecting it: its context window and input price
    * per million tokens, when the catalog knows them. Undefined when nothing matches. Makes no call. */
   describeModel?(query: string): RuntimeModelInfo | undefined;
+  /** The model an exact id or loose words name among the signed-in models, without selecting it. Makes no call.
+   * `head`: the words must start the model's name (a typed line that asks to change the model); `wait: false`: no
+   * wait for model servers on this computer still being found. */
+  matchModel?(words: string, options?: RuntimeModelWordsOptions): Promise<RuntimeModelWordsMatch>;
   /** A signed-in model that can see images, for a request with pictures on one that can't: the user's model
    * roles first, then the provider's default. Undefined when none can. Makes no call. */
   visionModel?(): RuntimeModelInfo | undefined;

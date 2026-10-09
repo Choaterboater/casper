@@ -51,7 +51,7 @@ test("every --effort level runs on every model, mapped to the nearest level it s
 test("an unknown --model or effort word is a usage error before any model request", async () => {
   const f = await fixture();
   for (const [args, message] of [
-    [["--model", "fixture/nope", "hi"], "Unknown model"],
+    [["--model", "fixture/nope", "hi"], "--model: No model matches \"fixture/nope\". Run casper /model to list models."],
     [["--effort", "loud", "hi"], "--effort must be one of"],
     [["--model", "fixture/second:high", "--effort", "low", "hi"], "either in --model"],
     [["--model"], "--model needs a value"],
