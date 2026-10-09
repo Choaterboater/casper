@@ -1,16 +1,19 @@
 import { lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { privatePlaces, realpathLongest, within } from "../platform/project-paths";
+import { privatePlaces, realpathLongest, windowsShellPath, within } from "../platform/project-paths";
 import { splitShell } from "./remote";
+import { isOutside } from "../platform/inside";
 
 /**
  * With no sandbox (Windows, bubblewrap missing), the AI's shell asks before each command. Two things keep that from
  * becoming dozens of boxes a task: commands that only read (ls, git status, grep) run without asking, and a "don't ask
  * again" answer covers a command prefix (npm test, git commit), never a whole interpreter or a whole multi-purpose tool.
  * A text check, not a shell parser, and an allow-list: each program and git subcommand names the options it may have,
- * and anything else (an unknown option, a VAR=value start, a glob, $ or ~) asks as before. Every file it names must
+ * and anything else (an unknown option, a VAR=value start, $ or ~) asks as before. Every file it names must
  * really be in the project (links resolved) and not private; a search of a folder that holds a private place asks.
+ * A leading `cd` to a folder in the project is fine (later words are read from there), and a * or ? is expanded here,
+ * the way bash would, so each file it picks is checked.
  */
 
 /** Where a read runs: the project, your home folder and the private places (the sandbox's denyRead). */
@@ -178,20 +181,8 @@ const GIT_READERS: Record<string, Spec> = {
  * *.properties or a plain *.pem (CA bundles): most repos have those, and every search of the project would ask. */
 const PRIVATE_NAME = /(?:^|\/)(?:\.env(?:\..*)?|[^/]*\.env|\.envrc|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?|\.netrc|_netrc|\.npmrc|\.pypirc|\.pgpass|\.dockercfg|\.git-credentials|[^/]*credentials(?:\.\w+)?|\.?secrets?\.(?:ya?ml|json|toml|env|txt)|[^/]*\.(?:key|p12|pfx|ppk|tfvars|tfstate(?:\.backup)?|ovpn)|[^/]*key[^/]*\.pem)$/i;
 
-/** True when an unquoted * ? [ or { would make the shell pick the files: `cat .en*` can't be checked by its text. */
-function hasGlob(text: string): boolean {
-  let quote: string | undefined;
-  for (let index = 0; index < text.length; index++) {
-    const char = text[index]!;
-    if (quote) { if (char === quote) quote = undefined; else if (char === "\\" && quote === "\"") index++; continue; }
-    if (char === "'" || char === "\"") quote = char;
-    else if (char === "\\") index++;
-    else if ("*?[{".includes(char)) return true;
-  }
-  return false;
-}
-
-interface Place { root: string; realRoot: string; private: string[] }
+/** `cwd`: the folder the command runs in (the project, or a folder in it a `cd` on the line moved to). */
+interface Place { root: string; realRoot: string; private: string[]; cwd: string }
 
 function placeOf(where: ReadPlace | string | undefined): Place {
   const given = typeof where === "string" ? { root: where } : where;
@@ -200,7 +191,7 @@ function placeOf(where: ReadPlace | string | undefined): Place {
   // ~/.casper as a whole: its settings, logins and remembered answers are not for a read that runs without asking.
   const deny = [...(given?.denyRead ?? []), path.join(home, ".casper")];
   const places = privatePlaces({ root, home, denyRead: deny }).flatMap((place) => place.paths);
-  return { root, realRoot: realpathLongest(root), private: [...new Set(places)] };
+  return { root, realRoot: realpathLongest(root), private: [...new Set(places)], cwd: root };
 }
 
 /** A ".." is only plain text when nothing before it can be a link: leading ../ steps (with a root that is not itself
@@ -225,6 +216,14 @@ function plainWindowsName(word: string): boolean {
   });
 }
 
+/** Where a path word leads from the folder the command runs in. On Windows the shell is Git Bash: /c/Users is C:\Users, and
+ * any other / path (/tmp, /etc, //host) is a folder of Git's own or a share, so it is undefined (the command asks). */
+function resolveWord(word: string, place: Place, windows = process.platform === "win32"): string | undefined {
+  if (!windows || !word.startsWith("/")) return path.resolve(place.cwd, word);
+  const drive = windowsShellPath(word);
+  return drive === word || /^\/(?:mnt|cygdrive|proc)\//i.test(word) ? undefined : path.resolve(drive);
+}
+
 /** A file word is fine when it, and where its links lead, is in the project and not private. `folder`: the command
  * reads all of it, so a private place inside counts too. */
 function fileOk(word: string, place: Place, folder: boolean, contents = false, windowsNames = true): boolean {
@@ -232,7 +231,8 @@ function fileOk(word: string, place: Place, folder: boolean, contents = false, w
   // A backslash is a separator on Windows (Git Bash): a path word with one can't be checked by its text.
   if (word.includes("\\") || !plainDots(word, place)) return false;
   if (windowsNames && !plainWindowsName(word)) return false;
-  const absolute = path.resolve(place.root, word);
+  const absolute = resolveWord(word, place);
+  if (absolute === undefined) return false;
   const real = realpathLongest(absolute);
   if (!within(place.root, absolute) || !within(place.realRoot, real)) return false;
   for (const candidate of [absolute, real]) {
@@ -269,14 +269,54 @@ function holdsPrivateFile(folder: string): boolean {
   return false;
 }
 
-/** Checks one program's words against its spec. `git`: a word with a colon in it (rev:path, :path, ::path, :(magic), a colon inside braces) asks. */
-function allowed(spec: Spec, args: readonly string[], place: Place, git = false): boolean {
+/** More files than this from one * or ? and the command asks: checking each costs more than a question. */
+const MAX_MATCHES = 1000;
+
+/** The files bash puts in place of a word with an unquoted * or ? (and no quote in it), as bash writes them; the word itself
+ * when nothing matches (bash keeps it then). Undefined (ask) for a part that starts with a dot (.* can pick ..), or too many.
+ * Names are matched ignoring case and never start with a dot, so the list holds every name bash picks, and maybe more. */
+function expandGlob(word: string, place: Place): string[] | undefined {
+  let found = [""];
+  const parts = word.split("/");
+  for (const [at, part] of parts.entries()) {
+    const join = (prefix: string, name: string) => at === 0 ? name : `${prefix}/${name}`;
+    if (!/[*?]/.test(part)) { found = found.map((prefix) => join(prefix, part)); continue; }
+    if (part.startsWith(".")) return undefined;
+    const pattern = new RegExp(`^${part.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")}$`, "is");
+    const next: string[] = [];
+    for (const prefix of found) {
+      const folder = resolveWord(at === 0 ? "." : prefix || "/", place);
+      if (folder === undefined) return undefined;
+      let names: string[];
+      try { names = readdirSync(folder); } catch { continue; }
+      for (const name of names) if (!name.startsWith(".") && pattern.test(name)) next.push(join(prefix, name));
+      if (next.length > MAX_MATCHES) return undefined;
+    }
+    found = next;
+  }
+  const there = found.filter((match) => { try { lstatSync(resolveWord(match, place) ?? ""); return true; } catch { return false; } });
+  return there.length ? there.sort() : [word];
+}
+
+/** Checks one program's words against its spec. `git`: a word with a colon in it (rev:path, :path, ::path, :(magic), a colon inside braces) asks.
+ * `globs`: the args with an unquoted * or ?, put in place by the files they pick; each must be a file word (never an option,
+ * an option's value or a search pattern). `stdin`: it may read only what is piped in, no file at all (`| tail -25`). */
+function allowed(spec: Spec, args: readonly string[], place: Place, git = false, globs: ReadonlySet<number> = new Set(), stdin = false): boolean {
   const options = new Set<string>();
   const words: string[] = [];
   const files: string[] = [];
   let dashAt = Infinity;
   const longs = spec.long ?? [];
   let index = 0;
+  let firstFromGlob = false;
+  const pushWord = (at: number): boolean => {
+    if (!globs.has(at)) { words.push(args[at]!); return true; }
+    const found = expandGlob(args[at]!, place);
+    if (!found || found.some((word) => word.startsWith("-"))) return false;
+    if (!words.length) firstFromGlob = true;
+    words.push(...found);
+    return true;
+  };
   // A value given as the next word is never an option: `git diff -U --no-index` would hide --no-index from this
   // check while git reads it. A number (head -n -5, tail -n +5) is fine.
   const takeValue = (name: string, joined: string | undefined): boolean => {
@@ -284,6 +324,7 @@ function allowed(spec: Spec, args: readonly string[], place: Place, git = false)
     if (value === undefined) {
       value = args[++index];
       if (value === undefined) return true;
+      if (globs.has(index)) return false;
       if (value.startsWith("-") && !/^[-+]\d+$/.test(value)) return false;
     }
     if (spec.pathOptions?.includes(name)) files.push(value);
@@ -291,8 +332,13 @@ function allowed(spec: Spec, args: readonly string[], place: Place, git = false)
   };
   for (; index < args.length; index++) {
     const arg = args[index]!;
-    if (arg === "--") { dashAt = words.length; words.push(...args.slice(index + 1)); break; }
-    if (!arg.startsWith("-") || arg === "-") { words.push(arg); continue; }
+    if (arg === "--") {
+      dashAt = words.length;
+      for (let at = index + 1; at < args.length; at++) if (!pushWord(at)) return false;
+      break;
+    }
+    if (globs.has(index) && arg.startsWith("-")) return false;
+    if (!arg.startsWith("-") || arg === "-") { if (!pushWord(index)) return false; continue; }
     if (spec.anyOption) continue;
     if (spec.number && /^-\d+$/.test(arg)) continue;
     if (arg.startsWith("--")) {
@@ -324,9 +370,11 @@ function allowed(spec: Spec, args: readonly string[], place: Place, git = false)
   const kind = spec.words ?? "paths";
   if (kind === "none") return words.length === 0;
   if (spec.maxWords !== undefined && words.length > spec.maxWords) return false;
-  if (!files.every((file) => fileOk(file, place, false))) return false;
+  if (stdin ? files.length > 0 : !files.every((file) => fileOk(file, place, false))) return false;
   if (kind === "text") return true;
   const skip = spec.pattern && !spec.pattern.some((option) => options.has(option)) ? 1 : 0;
+  // `grep foo* x`: bash's first file would be the pattern, and the rest files the check can't line up.
+  if (skip && firstFromGlob) return false;
   const given = words.slice(skip);
   // git reads rev:path, :path (short magic), ::path and :(magic) from any word, before or after `--`, so any git word that
   // is not an option and has a colon in it asks. Option values (--grep=a:b, -S a:b, -e a:b) are not words.
@@ -337,8 +385,9 @@ function allowed(spec: Spec, args: readonly string[], place: Place, git = false)
   if (git && spec.pathspec && given.some((word) => /[*?[]/.test(word))) return false;
   const paths = given;
   const recursive = typeof spec.recursive === "function" ? spec.recursive(options) : Boolean(spec.recursive);
-  if (spec.regularFiles && !paths.every((word) => word === "-" || isRegularFile(path.resolve(place.root, word)))) return false;
+  if (spec.regularFiles && !paths.every((word) => word === "-" || isRegularFile(resolveWord(word, place) ?? ""))) return false;
   const list = paths.length ? [...paths] : recursive ? ["."] : [];
+  if (stdin) return list.length === 0;
   // git grep REV with no path in the project and none after `--` searches that revision's whole tree (HEAD:.env): the
   // whole-folder rule applies, as it does for `git grep X` with no word at all.
   if (git && spec.contents && paths.length && given.some((word, at) => !afterDash(at) && !existsInProject(word, place))
@@ -348,7 +397,9 @@ function allowed(spec: Spec, args: readonly string[], place: Place, git = false)
 
 /** True when the word names something that is there in the project (links not followed): then it is a path, not a revision. */
 function existsInProject(word: string, place: Place): boolean {
-  try { lstatSync(path.resolve(place.root, word)); return true; } catch { return false; }
+  const absolute = resolveWord(word, place);
+  if (absolute === undefined) return false;
+  try { lstatSync(absolute); return true; } catch { return false; }
 }
 
 /** True when the path (links followed) is a regular file, or is not there at all (the program only reports that). */
@@ -379,16 +430,35 @@ function findAllowed(args: readonly string[], place: Place): boolean {
   return (starts.length ? starts : ["."]).every((word) => fileOk(word, place, true));
 }
 
-function readerSegment(words: string[], place: Place): boolean {
+/** Programs that only print their own version for `--version` (and the python ones for -V, java for -version), before
+ * reading any file of the project. Not pip, npm or the like (they load the project's own settings or packages first), and
+ * not go, cargo or rustc (a go.mod or rust-toolchain file there can make them fetch and run another toolchain). */
+const VERSION_ONLY: Record<string, readonly string[]> = Object.fromEntries([
+  ...["python", "python3", "py"].map((name) => [name, ["--version", "-V"]]),
+  ...["node", "bun", "deno", "git", "gcc", "clang", "make"].map((name) => [name, ["--version"]]),
+  ["java", ["--version", "-version"]],
+]);
+
+/** `python --version`, `node --version`: the program prints its version. */
+function versionOnly(words: readonly string[]): boolean {
+  return words.length === 2 && Object.hasOwn(VERSION_ONLY, words[0]!) && VERSION_ONLY[words[0]!]!.includes(words[1]!);
+}
+
+/** `globs`: the words (by place) with an unquoted * or ?. `stdin`: it may read only what is piped in (see allowed). */
+function readerSegment(words: string[], place: Place, globs: ReadonlySet<number> = new Set(), stdin = false): boolean {
   const [name, ...args] = words;
-  if (!name || name.includes("=") || name.includes("/") || name.includes("\\")) return false;
+  if (!name || globs.has(0) || name.includes("=") || name.includes("/") || name.includes("\\")) return false;
   // A word starting with ~ (even a quoted one: the text check would read it as a folder named ~). A $ can only be here
   // from inside single quotes (safeLine refuses every other one), where it is plain text.
   if (words.some((word) => word.startsWith("~"))) return false;
+  if (versionOnly(words)) return true;
+  if (stdin && (name === "find" || name === "git" || globs.size)) return false;
+  // find's start folders and git's pathspecs: the program reads * and ? itself, and expands them its own way.
+  if ((name === "find" || name === "git") && globs.size) return false;
   if (name === "find") return findAllowed(args, place);
   if (name === "git") {
     // git descends into submodules and runs their own config (core.fsmonitor): not a plain read there.
-    if (hasSubmodules(place.root)) return false;
+    if (hasSubmodules(place.cwd)) return false;
     let index = 0;
     while (args[index] === "--no-pager" || args[index] === "-P") index++;
     const sub = args[index];
@@ -396,16 +466,18 @@ function readerSegment(words: string[], place: Place): boolean {
     return Boolean(spec) && allowed(spec!, args.slice(index + 1), place, true);
   }
   const spec = Object.hasOwn(READERS, name) ? READERS[name] : undefined;
-  return Boolean(spec) && allowed(spec!, args, place);
+  return Boolean(spec) && allowed(spec!, args, place, false, new Set([...globs].map((at) => at - 1)), stdin);
 }
 
-/** Outside quotes only these characters may appear: letters, digits, space, tab and the punctuation of paths, options and
- * the allowed operators. Anything else (a backslash, $, backtick, !, ( ) { } * ?, a control or non-ASCII character) means
- * the line is not read by this check. < and > are kept here only so a later check can see and refuse them. */
-const SAFE_BARE = /^[A-Za-z0-9 \t._\-/:=@%+,|&;^~#<>]$/;
-/** Inside double quotes the same, plus the characters of a search pattern and !, which is plain text in a script. Never $,
- * backtick, " (the quote tracker does not model an escaped quote), < or > or a non-ASCII one; a backslash only as a pair. */
-const SAFE_QUOTED = /^[A-Za-z0-9 ._\-/:=@%+,|&;^~*?[\]{}()#'!]$/;
+/** Outside quotes only these characters may appear: letters, digits, space, tab, the punctuation of paths, options and
+ * the allowed operators, and * and ? (expanded here, see expandGlob). Anything else (a backslash, $, backtick, !, ( ) { } [ ],
+ * a control or non-ASCII character) means the line is not read by this check. < and > are kept here only so a later check
+ * can see and refuse them. */
+const SAFE_BARE = /^[A-Za-z0-9 \t._\-/:=@%+,|&;^~#<>*?]$/;
+/** Inside double quotes the same, plus the characters of a search pattern (< and > too: `grep "<input"`) and !, which is
+ * plain text in a script. Never $, backtick, " (the quote tracker does not model an escaped quote) or a non-ASCII one; a
+ * backslash only as a pair. */
+const SAFE_QUOTED = /^[A-Za-z0-9 ._\-/:=@%+,|&;^~*?[\]{}()#'!<>]$/;
 /** What may follow a backslash inside double quotes: bash keeps both as plain text unless the next one is $, backtick, " or
  * a backslash (or a newline), so any other printable ASCII character is fine. */
 const QUOTED_BACKSLASH = /^[\x20-\x7e]$/;
@@ -473,18 +545,181 @@ function withoutHarmlessRedirects(text: string): string {
   return out + text.slice(last);
 }
 
-/** True when every command on the line only reads files in the project: no redirect, no substitution, no
- * background job, no glob, no option it doesn't know, nothing outside the project or private. Pipes and && between
- * readers are fine. `where`: the project folder, or the project, your home and the private places. */
-export function readOnlyCommand(command: string, where?: ReadPlace | string): boolean {
+/** One command of a line: its words and text, the words with an unquoted * or ? (undefined when a word mixes one with a
+ * quoted part: which of them bash expands can't be told), and the operator after it (&&, ||, | or ;). */
+interface Part { words: string[]; text: string; globs: Set<number> | undefined; after: string | undefined }
+
+/** The line cut into its commands, or undefined when this check can't read it: a character outside the safe set, a
+ * redirect (but 2>/dev/null and the like), a substitution or a background job. */
+function lineParts(command: string): Part[] | undefined {
   const safe = safeLine(command);
-  if (safe === undefined) return false;
+  if (safe === undefined) return undefined;
   const text = withoutHarmlessRedirects(safe).trim();
-  if (!text || /[<>`]|\$\(|(?:^|[^&])&(?!&)/.test(maskQuoted(text)) || hasGlob(text)) return false;
+  if (!text || /[<>`]|\$\(|(?:^|[^&])&(?!&)/.test(maskQuoted(text))) return undefined;
+  // The line with every quote and what is inside it as \x01: what is left is what bash reads as operators and globs.
+  let quote: string | undefined;
+  let shape = "";
+  for (const char of text) {
+    if (quote) { if (char === quote) quote = undefined; shape += "\x01"; continue; }
+    if (char === "'" || char === "\"") { quote = char; shape += "\x01"; continue; }
+    shape += char;
+  }
   const line = splitShell(text);
-  if (!line.segments.length) return false;
+  const masked = splitShell(shape);
+  const operators = shape.match(/&&|\|\||[|;]/g) ?? [];
+  if (!line.segments.length || masked.segments.length !== line.segments.length || operators.length !== line.segments.length - 1) return undefined;
+  const parts: Part[] = [];
+  for (const [at, segment] of line.segments.entries()) {
+    const words = masked.segments[at]!.words;
+    if (words.length !== segment.words.length) return undefined;
+    let globs: Set<number> | undefined = new Set();
+    for (const [index, word] of words.entries()) {
+      if (!/[*?]/.test(word)) continue;
+      if (word.includes("\x01")) { globs = undefined; break; }
+      globs.add(index);
+    }
+    parts.push({ words: segment.words, text: segment.text, globs, after: operators[at] });
+  }
+  return parts;
+}
+
+/** The folder `cd <word>` moves to: one in the project, reached without a link, not private. Undefined otherwise. */
+function cdTarget(word: string, place: Place): string | undefined {
+  if (word.startsWith("-") || !fileOk(word, place, false)) return undefined;
+  // bash looks a relative name up in CDPATH first (BASH_ENV can set one), so `cd app` may land outside the project.
+  // A name starting with / or . never uses it.
+  if ((process.env.CDPATH || process.env.BASH_ENV) && !/^[./\\]|^[A-Za-z]:/.test(word)) return undefined;
+  const absolute = resolveWord(word, place);
+  if (absolute === undefined) return undefined;
+  // No link on the way (`cd link && cat ../x` would read next to where the link leads): every later word is read from a
+  // folder in the project, and a leading .. means what it says.
+  const plain = path.join(place.realRoot, path.relative(place.root, absolute));
+  const real = realpathLongest(absolute);
+  return within(plain, real) && within(real, plain) ? absolute : undefined;
+}
+
+/** What splits a word for xargs when it reads names a line each (no -0): white space, quotes and a backslash. */
+const XARGS_SPLITS = /[\s'"\\]/;
+
+/** True when every name under find's start folders reaches xargs as a whole path: none holds a character xargs splits on
+ * (unless names go NUL-ended, `split` false), and no link in there leads out of the project or to a private place (wc would
+ * count it). Links are not followed, as find doesn't; too many entries and it is false. */
+function plainNamesUnder(starts: readonly string[], place: Place, split: boolean): boolean {
+  let seen = 0;
+  const stack: string[] = [];
+  for (const start of starts) {
+    if (split && XARGS_SPLITS.test(start)) return false;
+    const absolute = resolveWord(start, place);
+    if (absolute === undefined) return false;
+    stack.push(absolute);
+  }
+  while (stack.length) {
+    const current = stack.pop()!;
+    let names: string[];
+    try { if (!lstatSync(current).isDirectory()) continue; names = readdirSync(current); } catch { continue; }
+    for (const name of names) {
+      if (++seen > MAX_ENTRIES || (split && XARGS_SPLITS.test(name))) return false;
+      const full = path.join(current, name);
+      let entry;
+      try { entry = lstatSync(full); } catch { continue; }
+      if (entry.isSymbolicLink()) {
+        const real = realpathLongest(full);
+        if (!within(place.realRoot, real) || place.private.some((privatePlace) => within(privatePlace, real))) return false;
+      } else if (entry.isDirectory()) stack.push(full);
+    }
+  }
+  return true;
+}
+
+/** `find ... | xargs wc -l`: wc only counts, so the names find prints (in the project) can go to it. No other program:
+ * `xargs grep` or `xargs cat` would print files the text check never sees (a .env, or where a link leads). find must print
+ * names only (not -printf or -ls: that text would reach wc as options or paths, --files0-from=.env prints the file), and
+ * each name must reach wc whole: -print0 with xargs -0, or names with nothing in them xargs splits on. */
+function xargsCounts(findArgs: readonly string[], args: readonly string[], place: Place): boolean {
+  let index = 0;
+  let nul = false;
+  while (["-0", "-r", "--null", "--no-run-if-empty"].includes(args[index] ?? "")) { if (args[index] === "-0" || args[index] === "--null") nul = true; index++; }
+  const rest = args.slice(index + 1);
+  if (args[index] !== "wc" || !rest.every((arg) => arg.startsWith("-")) || !allowed(READERS.wc!, rest, place)) return false;
+  if (findArgs.includes("-printf") || findArgs.includes("-ls") || findArgs.includes("-print0") !== nul) return false;
+  let at = 0;
+  while (findArgs[at] === "-P") at++;
+  const starts: string[] = [];
+  for (; at < findArgs.length && !/^[-()!,]/.test(findArgs[at]!); at++) starts.push(findArgs[at]!);
+  return plainNamesUnder(starts.length ? starts : ["."], place, !nul);
+}
+
+/** Per command of the line: whether it only reads (a `cd` to a folder in the project counting as one), and the folders it
+ * may run in. Later commands are read from the folder a cd moved to (from both, when the cd may fail and they still run:
+ * after ; or on a line with ||). A cd in a pipe asks. */
+function partReads(parts: readonly Part[], place: Place): { reads: boolean[]; folders: string[][] } {
+  const either = parts.some((part) => part.after === "||");
+  let folders = [place.cwd];
+  const reads: boolean[] = [];
+  const ranIn: string[][] = [];
+  for (const [at, part] of parts.entries()) {
+    ranIn.push(folders);
+    const before = parts[at - 1]?.after;
+    const [name, ...args] = part.words;
+    if (name === "cd") {
+      // Only before another command (`cd app` alone does nothing worth skipping a box for).
+      const moved = args.length === 1 && part.globs?.size === 0 && before !== "|" && (part.after === "&&" || part.after === ";")
+        ? folders.map((cwd) => cdTarget(args[0]!, { ...place, cwd })) : [undefined];
+      const fine = moved.every((folder) => folder !== undefined);
+      if (fine) folders = part.after === "&&" && !either ? moved as string[] : [...new Set([...folders, ...moved as string[]])];
+      reads.push(fine);
+      continue;
+    }
+    if (name === "xargs") {
+      reads.push(before === "|" && parts[at - 1]!.words[0] === "find" && reads[at - 1] === true && part.globs?.size === 0
+        && folders.every((cwd) => xargsCounts(parts[at - 1]!.words.slice(1), args, { ...place, cwd })));
+      continue;
+    }
+    reads.push(part.globs !== undefined && folders.every((cwd) => readerSegment(part.words, { ...place, cwd }, part.globs)));
+  }
+  return { reads, folders: ranIn };
+}
+
+/** True when every command on the line only reads files in the project: no redirect (but 2>/dev/null, 2>&1), no
+ * substitution, no background job, no option it doesn't know, nothing outside the project or private. Pipes, && and ;
+ * between readers are fine, and so is a leading `cd` to a folder in the project. A * or ? is expanded here, and each
+ * file it picks is checked. `where`: the project folder, or the project, your home and the private places. */
+export function readOnlyCommand(command: string, where?: ReadPlace | string): boolean {
+  const parts = lineParts(command);
+  return parts !== undefined && partReads(parts, placeOf(where)).reads.every(Boolean);
+}
+
+/** Shell builtins that change the shell itself (its folder, variables, aliases, options): what runs after them on the line
+ * is no longer what the check saw, so they are never the one command a "don't ask again" answer covers. */
+const SHELL_STATE = new Set(["cd", "pushd", "popd", "export", "set", "unset", "alias", "unalias", "declare", "typeset", "local", "readonly",
+  "shopt", "source", ".", "eval", "exec", "trap", "umask", "ulimit", "hash", "enable", "builtin", "command", "let", "read", "mapfile",
+  "readarray", "shift", "getopts", "function", "exit", "return", "history", "fc", "bind", "complete", "compgen"]);
+
+/** The one command on a line that is not a plain read, when everything else on the line is (a cd in the project and readers
+ * before it, and after it only a pipe into readers of what it prints, like `| tail -25`): `cd app && npm test 2>&1 | tail -25`
+ * is `npm test`. Its text, or undefined. A "don't ask again" answer for the line covers this command's prefix, and a later
+ * line of the same kind matches it. Nothing that reads a file may come after it: the files were checked before the line ran,
+ * and the command may change them (`git pull && cat x`, where x became a link). A program named by a relative path after a
+ * cd is given from the project folder (`cd sub && ./build.sh` is `./sub/build.sh`), so it never matches another folder's. */
+export function commandCore(command: string, where?: ReadPlace | string): string | undefined {
+  const parts = lineParts(command);
+  if (!parts) return undefined;
   const place = placeOf(where);
-  return line.segments.every((segment) => readerSegment(segment.words, place));
+  const { reads, folders } = partReads(parts, place);
+  const at = reads.indexOf(false);
+  if (at < 0 || reads.indexOf(false, at + 1) >= 0) return undefined;
+  const core = parts[at]!;
+  const name = core.words[0];
+  if (!name || name.includes("=") || SHELL_STATE.has(name)) return undefined;
+  for (let next = at + 1; next < parts.length; next++) {
+    if (parts[next - 1]!.after !== "|" || !parts[next]!.globs || !readerSegment(parts[next]!.words, place, parts[next]!.globs, true)) return undefined;
+  }
+  const cwds = folders[at]!;
+  if (!name.includes("/") || name.startsWith("/") || (cwds.length === 1 && cwds[0] === place.cwd)) return core.text;
+  if (cwds.length !== 1 || !core.text.startsWith(name)) return undefined;
+  const fromRoot = path.relative(place.root, path.resolve(cwds[0]!, name));
+  if (isOutside(fromRoot)) return undefined;
+  return `./${fromRoot.split(path.sep).join("/")}${core.text.slice(name.length)}`;
 }
 
 /** The git folder a project belongs to, found the way git does: the nearest .git going up from the project (a folder,
@@ -562,6 +797,9 @@ const NO_PREFIX = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "python",
   "nodemon", "concurrently", "cross-env", "dotenv", "direnv", "nix", "nix-shell", "osascript", "tsx", "ts-node", "cscript", "wscript", "mshta",
   "rundll32", "start", "command", "busybox", "stdbuf", "setsid", "caffeinate", "ionice", "script", "su", "runuser", "pkexec", "pypy", "luajit",
   "tmux", "screen", "crontab", "at", "batch"]);
+/** Python, and the modules whose `python -m <module>` runs the project's tests: a prefix of their own (see commandPrefix). */
+const PYTHONS = new Set(["python", "py", "pythonw"]);
+const TEST_MODULES = new Set(["pytest", "unittest"]);
 /** Tools whose second word is a subcommand: the prefix keeps it (git commit, npm test, cargo build), and the tool
  * alone gets none. */
 const SUBCOMMANDS = new Set(["git", "npm", "pnpm", "yarn", "bun", "cargo", "go", "docker", "podman", "kubectl", "pip", "pip3", "uv", "poetry",
@@ -580,6 +818,9 @@ export function commandPrefix(command: string): string | undefined {
   const name = words[0];
   if (!name || name.includes("=")) return undefined;
   const plain = plainName(name);
+  // `python -m pytest`, `.venv/Scripts/python.exe -m unittest`: a test run, like `pytest` (whose prefix is fine). The
+  // prefix keeps the -m and the module, so `python x.py` or `python -c` never match it.
+  if (PYTHONS.has(plain) && words[1] === "-m" && TEST_MODULES.has(words[2] ?? "")) return words.slice(0, 3).join(" ");
   if (NO_PREFIX.has(plain)) return undefined;
   if (!SUBCOMMANDS.has(plain)) return name;
   // `git` alone, or `git -C sub commit`, `npm --prefix x test`, `cargo +nightly build`: the exact command only.

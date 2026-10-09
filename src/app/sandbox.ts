@@ -18,9 +18,9 @@ import { remoteTargets, runsAlone, segmentTargets, splitShell, targetLabel, trus
 import { startAskpass } from "../ssh/askpass";
 import { forgetSshSecrets, sshLoginHandler, sshSessionMemory, type SshLoginHost } from "../ssh/login";
 import { forgetOnceSecrets } from "../secrets/typed";
-import { githubLoginChoices, HOST_CHOICES, REACH_CHOICES, shellCommandChoices, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
+import { githubLoginChoices, HOST_CHOICES, NO, REACH_CHOICES, shellCommandChoices, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
 import { githubLoginCommand, githubRunEnv, LOGIN_FAILED, startsGitOrGh, type GithubLoginCommand } from "../sandbox/github-login";
-import { commandPrefix, matchesPrefix, readOnlyCommand } from "../sandbox/read-only";
+import { commandCore, commandPrefix, matchesPrefix, readOnlyCommand } from "../sandbox/read-only";
 
 /**
  * The session's shell sandbox, as the app uses it: the host question, the ask-only fallback for the AI's shell
@@ -31,7 +31,8 @@ import { commandPrefix, matchesPrefix, readOnlyCommand } from "../sandbox/read-o
 export interface SandboxHost {
   /** Someone can answer a question now (an interactive session at a terminal, not closing). */
   canAsk(): boolean;
-  pick(question: string, options: Array<{ label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined>;
+  /** `record`: the line a box answered with that choice leaves instead of "<question> → <answer>" ("" for none; undefined keeps it). */
+  pick(question: string, options: Array<{ label: string; description?: string }>, signal?: AbortSignal, settings?: PickSettings): Promise<string | undefined>;
   write(text: string): void;
   /** A plan turn: the project is read-only for the shell. */
   planning(): boolean;
@@ -43,6 +44,8 @@ export interface SandboxHost {
   ssh?: SshLoginHost;
 }
 
+export interface PickSettings { record?: (answer: string) => string | undefined }
+
 /** The private ssh login for one run: `on` reads the user's `ssh_login` setting each time; `start` is a test seam. */
 export interface SshLoginSettings {
   on?: () => boolean;
@@ -52,8 +55,8 @@ export interface SshLoginSettings {
 /** One of the shell's own questions (a host, a write outside the project, another machine, a command): shown as a numbered
  * box, or, after `/permissions all`, answered "Yes, for this session" at once. Only these four go through here: the ssh
  * password box, MCP changes, GitHub, the spend pause and every question that is not about the shell are asked as always. */
-function sessionYesOr(host: SandboxHost, question: string, options: Array<{ label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined> {
-  return host.stopAsking?.() ? Promise.resolve(YES_SESSION) : host.pick(question, options, signal);
+function sessionYesOr(host: SandboxHost, question: string, options: Array<{ label: string; description?: string }>, signal?: AbortSignal, settings?: PickSettings): Promise<string | undefined> {
+  return host.stopAsking?.() ? Promise.resolve(YES_SESSION) : settings ? host.pick(question, options, signal, settings) : host.pick(question, options, signal);
 }
 
 const NO_TERMINAL: SshLoginHost = { canTypePrivately: () => false, ask: async () => undefined, write: () => {} };
@@ -90,6 +93,10 @@ export const GITHUB_LOGIN_HINT = `[sandbox] ${GITHUB_HIDDEN} A plain git push/pu
 export const GITHUB_LOGIN_CANT_ASK = `[sandbox] ${GITHUB_HIDDEN} This run can't ask the user to use it: tell them, and they can run the command themselves.`;
 export const SHELL_CANT_ASK = "Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.";
 export const SHELL_DECLINED = "Not run: the user said no to this command. Don't run it again; ask the user what to do instead.";
+/** Said once a session, after the third shell box answered yes. */
+export const STOP_ASKING_HINT = "Tip: /permissions all stops these questions until you quit (/permissions ask turns them back on).";
+/** A remembered exact command, as its one short line shows it. */
+const shortCommand = (command: string) => { const shown = shownCommand(command); return shown.length > 60 ? `${shown.slice(0, 59)}…` : shown; };
 export const writeQuestion = (from: WriteAsker, folder: string) => `${from === "shell" ? "A shell command" : "The AI"} wants to write to ${terminalText(folder)}. Allow it?`;
 /** "A and B", "A, B and C": the places one question names. */
 export const writePlaces = (places: string[]) => places.length > 1 ? `${places.slice(0, -1).join(", ")} and ${places.at(-1)}` : places[0] ?? "";
@@ -198,6 +205,8 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
     githubCleared.add(command);
     return undefined;
   };
+  /** Shell boxes answered yes this session: the third one also says how to stop them (/permissions all). */
+  let shellYeses = 0;
   const sayOnce = (line: string) => { if (said.has(line)) return; said.add(line); host.write(`${line}\n`); };
   /** undefined: runs (and whether the question already showed the command); a string: refused, the AI reads why. */
   const reach = async (command: string, signal?: AbortSignal): Promise<{ refused?: string; asked: boolean }> => {
@@ -329,12 +338,20 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       // The host question showed this command and you said yes: it is not asked twice.
       if (remote.asked) return undefined;
       // Commands that only read run without a box, like they would in the sandbox.
-      if (readOnlyCommand(command, { root: sandbox.root, home: sandbox.home, denyRead: sandbox.policy().denyRead })) return undefined;
-      if (sessionCommands.has(command) || [...sessionPrefixes].some((prefix) => matchesPrefix(command, prefix))) return undefined;
-      if (await store.allowsCommand(command)) return undefined;
+      const where = { root: sandbox.root, home: sandbox.home, denyRead: sandbox.policy().denyRead };
+      if (readOnlyCommand(command, where)) return undefined;
+      // `cd app && npm test 2>&1 | tail -25`: the one command that is not a read is what a remembered answer covers.
+      const core = commandCore(command, where);
+      if (sessionCommands.has(command) || [...sessionPrefixes].some((prefix) => matchesPrefix(command, prefix) || (core !== undefined && matchesPrefix(core, prefix)))) return undefined;
+      if (await store.allowsCommand(command, core)) return undefined;
       if (!host.canAsk()) return SHELL_CANT_ASK;
-      const prefix = commandPrefix(command);
-      const answer = await sessionYesOr(host, shellQuestion(command), shellCommandChoices(prefix), signal);
+      const prefix = commandPrefix(core ?? command);
+      const kept = prefix ?? shortCommand(command);
+      // A yes leaves no line of its own (the command's own line shows it ran); a remembered one leaves one short line.
+      const record = (answer: string) => answer === YES_ONCE ? "" : answer === YES_SESSION ? `✓ allowed until you quit: ${kept}`
+        : answer === YES_ALWAYS ? `✓ allowed always in this project: ${kept}` : undefined;
+      const answer = await sessionYesOr(host, shellQuestion(command), shellCommandChoices(prefix), signal, { record });
+      if (answer !== undefined && answer !== NO && !host.stopAsking?.() && ++shellYeses === 3) sayOnce(STOP_ASKING_HINT);
       if (answer === YES_ONCE) return undefined;
       if (answer === YES_SESSION) { if (prefix) sessionPrefixes.add(prefix); else sessionCommands.add(command); return undefined; }
       if (answer === YES_ALWAYS) { await (prefix ? store.addPrefix(prefix) : store.addCommand(command)); return undefined; }
