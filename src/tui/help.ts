@@ -1,4 +1,4 @@
-import { COMMANDS } from "./commands";
+import { COMMAND_REGISTRY, parseCommandLine, takesArguments } from "./commands";
 import { WRITES_OFF_MEANING } from "../mcp/presets";
 import { DOCTOR_HELP, UPDATE_HELP } from "../cli-args";
 import { NEW_HELP_LINE } from "../new/templates";
@@ -97,14 +97,17 @@ Local commands:
   /settings                         Every switch at a glance, then one by number, written to ~/.casper/config.yaml for you: web lookups, browser tool, starter templates, diagram tool, new-version notice, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, page checks, show the AI the pages, work shown, theme, untrusted-text reader, helpers that build, Playwright tests, send Casper's name to OpenRouter, private ssh passwords
   /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
-  /permissions                      What Casper may do here and how to be asked less; /permissions all stops the asking until you quit, write <folder> allows a folder, forget <folder> takes it back
+  /permissions                      What Casper may do here and how to be asked less
+  /permissions all|ask              Stop the shell's questions until you quit (asks first), or ask them again
+  /permissions write|forget <folder>  Allow a folder outside the project for this project, or take it back
   /sandbox                          What the shell sandbox holds: write folders, private folders, hosts
   /sandbox forget <host>            Forget a host or machine you allowed for this project (Yes, always)
   /allowed                          The shell commands you said yes to for this project (saved, and for this session), numbered
   /allowed forget <n>               Forget one by its number, its words (git log) or all of them; Casper asks before running it again
-  /lab                            Your lab devices: lab checks and the lab list use them
+  /lab                              Your lab devices: lab checks and the lab list use them
   /lab import <file>                Add devices to your lab list from a file (GreenCLI's lab export, or one host per line); asks first
-  /login [provider]                 Codex, Copilot, Anthropic or OpenRouter (Casper's credential store)
+  /lab ssh on|off                   Whether ssh and scp to your lab devices ask first (kept for this project)
+  /login [openai-codex|github-copilot|anthropic|openrouter]  Sign in to Codex, Copilot, Anthropic or OpenRouter (Casper's credential store)
   /project                          Show project context
   /project <name>                   Open a project folder inside this one, or offer to make it (before the model starts)
   /memory                           List project facts you saved
@@ -265,9 +268,10 @@ function closestCommand(word: string): string | undefined {
   const typed = word.replace(/^\//, "").toLowerCase();
   if (!typed) return undefined;
   let best: { name: string; distance: number } | undefined;
-  for (const name of [...COMMANDS.map((command) => command.name), "quit"]) {
+  for (const name of COMMAND_REGISTRY.filter((command) => !command.hidden).flatMap((command) => [command.name, ...command.aliases ?? []])) {
     const distance = editDistance(typed, name);
-    if (distance <= Math.max(1, Math.min(2, Math.floor(name.length / 3))) && (!best || distance < best.distance)) best = { name, distance };
+    // Distance 0 is the command itself: never "Did you mean" the name that was typed.
+    if (distance > 0 && distance <= Math.max(1, Math.min(2, Math.floor(name.length / 3))) && (!best || distance < best.distance)) best = { name, distance };
   }
   return best && `/${best.name}`;
 }
@@ -299,6 +303,14 @@ export function unknownCommandMessage(command: string): string {
   const near = closestCommand(command);
   const topic = TOPIC_COMMANDS[command.replace(/^\//, "").toLowerCase()];
   return `Unknown command ${JSON.stringify(command)}.${near ? ` Did you mean ${near}?` : topic ? ` ${topic}` : ""} Type /help for local commands.`;
+}
+
+/** Why a slash line can't run as typed (an unknown command, or words after one that takes none); undefined when it can. */
+export function commandProblem(line: string): string | undefined {
+  const parsed = parseCommandLine(line);
+  if (!parsed) return unknownCommandMessage(line.trim().split(/\s+/)[0]!);
+  if (parsed.args && !takesArguments(parsed.command)) return `Usage: /${parsed.typed}, with nothing after it.`;
+  return undefined;
 }
 
 /** Words people type as a command for something that lives in another command, and where it is. */

@@ -6,6 +6,8 @@ import { nextEffort } from "../tui/effort";
 import { formatEffort, terminalText } from "../tui/format";
 import { runTasksCommand } from "./background";
 import { runsDuringWork } from "../tui/commands";
+import { commandProblem } from "../tui/help";
+import { leadingImagePath } from "./images";
 import { opened } from "./new-project";
 import { updateFooter } from "./footer";
 import { backgroundTasks } from "./task-tools";
@@ -63,6 +65,11 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
     if (line === "/mcp") { void runMCPListDuringWork(app).catch(failed); return true; }
     void handleSlashCommand(app, line).catch(failed);
     return true;
+  }
+  if (line.startsWith("/") && leadingImagePath(line) === undefined) {
+    // A command Casper doesn't know, or words one doesn't take: said now, as when idle, not after the task.
+    const problem = commandProblem(line);
+    if (problem) { app.output.write(`[error] ${terminalText(problem)}\n`); return true; }
   }
   if (line.startsWith("/")) return `${terminalText(line.split(/\s+/)[0]!)} waits until this task ends${plain ? "; type it again then" : " · draft kept"}`;
   const pasted = app.terminal.takeSubmittedPastes();

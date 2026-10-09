@@ -44,7 +44,9 @@ of code keeps track of all of them so it can stop them later.
   cleanup is marked **unknown**. The debugger then blocks new debugger, model and
   workspace work. The browser, LSP and MCP managers keep the cleanup error and will
   not start a replacement. A failed cleanup after a check blocks further checks and
-  stops the repair loop. Local `/status` and `/help` still work.
+  stops the repair loop. `/doctor`, the commands that run during work (`/status`, `/help`,
+  `/context` and the others that only show something) and the ones that stop what is left
+  (`/tasks stop`, `/browser close`, `/debug stop`, `/services stop`, `/mcp disconnect`) still work.
 - **Limits in the code** — at most 1,024 live processes, 4,096 tracked identities and
   64 parent levels.
 

@@ -8,6 +8,8 @@ import type { VerificationReport } from "../verify/evidence";
 import { ProcessCleanupError } from "../platform/processes";
 import { SUGGESTION_COMMAND } from "./suggestions";
 import { runSlashCommand } from "./commands";
+import { findCommand, runsAfterCleanupError } from "../tui/commands";
+import { commandProblem } from "../tui/help";
 import { newProjectFromQuestions, opened } from "./new-project";
 import { runSettings } from "./settings";
 import { runPreview } from "../services/preview";
@@ -75,7 +77,8 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promi
       continue;
     }
 
-    if (prompt === "/quit" || prompt === "/exit") {
+    // Only the command leaves: "exit" or "quit" typed without the "/" is a request like any other.
+    if (prompt.startsWith("/") && findCommand(prompt)?.name === "exit") {
       break;
     }
 
@@ -106,10 +109,9 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promi
 export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pasted: readonly string[] }): Promise<VerificationReport | undefined> {
   if (app.closing) return;
   if (app.commandActive) throw new Error("Another command is active; wait for active subagents or workspace transition");
-  // Keep local status/help and cleanup available, but never forget an uncertain
+  // Keep what only shows something, /doctor and cleanup available, but never forget an uncertain
   // tree just because its originating command or model tool has finished.
-  if (!/^\/(?:help(?: \S.*)?|status|project|permissions|mcp|lsp|browser|debug|services|tasks|exit|quit|browser close|debug stop)$/.test(prompt)
-    && !/^\/(?:mcp|lsp) disconnect\s/.test(prompt) && !/^\/(?:services|tasks) stop\s/.test(prompt) && !/^\/services logs\s/.test(prompt)) {
+  if (!runsAfterCleanupError(prompt)) {
     if (app.cleanupError) throw app.cleanupError;
     app.browser?.assertCleanup(); app.mcp?.assertCleanup(); app.lsp?.assertCleanup(); app.services?.assertCleanup();
   }
@@ -175,6 +177,9 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
 
 /** Local command dispatch moved to app/commands.ts; the app is the command host. */
 export function handleSlashCommand(app: CasperApp, prompt: string): Promise<VerificationReport | undefined> {
+  // One table (src/tui/commands.ts) knows every command and which take words after the name.
+  const problem = commandProblem(prompt);
+  if (problem) return Promise.reject(new Error(problem));
   if (/^\/pane(?:\s|$)/.test(prompt)) return paneCommand(app, prompt.slice(5).trim()).then(() => undefined);
   if (/^\/details(?:\s|$)/.test(prompt)) return detailsCommand(app, prompt.slice(8).trim()).then(() => undefined);
   if (prompt.trim() === "/settings") return settingsCommand(app).then(() => undefined);
