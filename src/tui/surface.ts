@@ -191,9 +191,6 @@ export class TerminalSurface {
   private spinnerTimer?: NodeJS.Timeout;
   /** When the current busy/activity stretch began; drives the footer's elapsed timer. */
   private activeSince?: number;
-  /** Time the work spent waiting on the user, left out of the footer's elapsed time. */
-  private waitedMs = 0;
-  private waitStart?: number;
   /** Component shown in place of the editor while a picker is mounted. */
   private slot?: Component;
   /** Closes a picker that gives way to an approval or question (one opened during a task). */
@@ -251,6 +248,8 @@ export class TerminalSurface {
         const answer = value.trim() ? this.onBusySubmit?.(value.trim()) : undefined;
         if (answer === true) {
           this.editor.addToHistory(value); this.editor.setText("");
+          // After the words streamed so far, not above them: the answer carries on under the line.
+          this.endAssistant();
           this.write(this.accent(`${PROMPT_GLYPH} ${terminalText(value.trim())}`) + "\n");
           return;
         }
@@ -453,30 +452,28 @@ export class TerminalSurface {
   private footerText(width: number): string {
     // Waiting on the user: no spinner or running timer, so it never looks busy while it needs Enter.
     if (this.waiting && !this.note) return truncateToWidth(`${this.accent("?")} ${this.accent("waiting for you")}${this.muted(` │ ${this.status || "Casper"}`)}`, width);
+    // One state mark: the spinner while working (the status line ends with "idle" when Casper waits for a request).
     const active = this.busy || this.activity !== undefined;
-    const state = active ? this.accent(SPINNER_FRAMES[this.spinnerFrame]) : this.muted("○");
-    // A transient note replaces the status line so it is never truncated away; elapsed time
-    // rides on the status line so a long-running request is measurable at a glance.
-    const elapsed = active && this.activeSince !== undefined && !this.note
-      ? this.muted(` · ${formatElapsed(Date.now() - this.activeSince - this.waitedMs)}`) : "";
+    const state = active ? `${this.accent(SPINNER_FRAMES[this.spinnerFrame])} ` : "";
+    // A transient note replaces the status line so it is never truncated away. The elapsed time always sits right
+    // after the spinner (after the stages once there are some), so a long-running request is measurable at a glance.
+    const elapsed = active && this.activeSince !== undefined && !this.note ? formatElapsed(Date.now() - this.activeSince) : "";
     // The stages lead, so a narrow window truncates the project and model details, not the progress.
     // Narrow: only the current stage and the time, so neither is cut off.
-    const steps = this.steps && visibleWidth(`${this.steps}${elapsed} │ `) + 2 > width ? this.steps.split(" · ").at(-1)! : this.steps;
-    const rail = active && steps && !this.note ? `${steps}${elapsed ? this.muted(elapsed) : ""}${this.muted(" │ ")}` : "";
-    const text = this.note ? this.accent(this.note) : rail ? rail + this.muted(this.status || "Casper") : this.muted(this.status || "Casper · / for commands") + elapsed;
-    return truncateToWidth(`${state} ${text}`, width);
+    const steps = this.steps && visibleWidth(`${this.steps} · ${elapsed} │ `) + 2 > width ? this.steps.split(" · ").at(-1)! : this.steps;
+    const lead = active && !this.note ? [...(steps ? [steps] : []), ...(elapsed ? [this.muted(elapsed)] : [])].join(this.muted(" · ")) : "";
+    const text = this.note ? this.accent(this.note) : lead ? lead + this.muted(` │ ${this.status || "Casper"}`) : this.muted(this.status || "Casper · / for commands");
+    return truncateToWidth(`${state}${text}`, width);
   }
 
-  /** While work runs (a prompt in flight or tool activity), the footer dot and Working panel
- * title cycle through braille frames; idle returns to the static ○. */
+  /** While work runs (a prompt in flight or tool activity), the footer's state mark and the Working panel
+ * title cycle through braille frames; idle has no mark. */
 private updateSpinner(): void {
     const working = (this.busy || this.activity !== undefined) && !this.closed;
     const active = working && !this.waiting;
+    // The timer counts the whole task, a question's wait included, like the Working box's step times.
     if (working) this.activeSince ??= Date.now();
-    else { this.activeSince = undefined; this.waitedMs = 0; this.waitStart = undefined; }
-    // The timer pauses while a question waits for the user.
-    if (working && this.waiting) this.waitStart ??= Date.now();
-    else if (this.waitStart !== undefined) { this.waitedMs += Date.now() - this.waitStart; this.waitStart = undefined; }
+    else this.activeSince = undefined;
     if (active && this.spinnerTimer === undefined) {
       this.spinnerTimer = setInterval(() => {
         this.spinnerFrame = (this.spinnerFrame + 1) % SPINNER_FRAMES.length;
@@ -713,7 +710,8 @@ private updateSpinner(): void {
       signal?.removeEventListener("abort", cancel);
       this.pendingAsk = undefined; this.askQuestion = undefined; this.askOptions = undefined; this.askLabels = []; this.askFrom = "casper";
       this.askMulti = false; this.askSelections.clear(); this.askActiveIndex = 0;
-      chosen = answer;
+      // Typed words in an approval are a No (the first choice): the record ticks it, since it is the only record.
+      chosen = from === "approval" && answer && !options.some(option => option.label === answer[0]) ? [options[0]!.label] : answer;
       this.writeBlock(record);
       this.restoreSetAside(draft, draftPastes); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(answer);
     };

@@ -115,7 +115,7 @@ export async function setEffortDuringWork(app: CasperApp, level: string, persist
     const problem = effortProblem(level, session.getStatus?.());
     if (problem) throw new Error(problem);
     const updated = await session.setEffort(level, persist);
-    app.output.write(`[effort] ${formatEffort(updated) ?? level} from the model's next step${persist ? "; saved" : " (this conversation)"}\n`);
+    app.output.write(`[effort] ${formatEffort(updated, true) ?? level} from the model's next step${persist ? "; saved" : " (this conversation)"}\n`);
     updateFooter(app);
   } catch (error) { app.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); }
 }
@@ -132,6 +132,7 @@ export async function setModelDuringWork(app: CasperApp, argument: string): Prom
     const session = app.session;
     if (!session?.selectModel) throw new Error("model selection unavailable");
     const { rest: query, session: sessionOnly } = sessionFlag(argument);
+    const before = session.getStatus?.().provider;
     const picker = query ? undefined : app.terminal.exclusiveHost({ onYield: () => yielded.abort() });
     if (!query && !picker) { app.output.write("[model] The picker needs the full terminal; type /model <provider/id>.\n"); return; }
     if (picker) app.openModelPicker = handle;
@@ -143,8 +144,9 @@ export async function setModelDuringWork(app: CasperApp, argument: string): Prom
       return;
     }
     const label = `${result.status.provider}/${result.status.model}`;
-    app.output.write(`[model] ${terminalText(label)} from the model's next step${result.savedDefault ? "; saved" : " (this conversation)"}\n`);
-    app.output.write(`[model] The model's next step sends this conversation's context to ${terminalText(result.status.provider ?? "its provider")}.\n`);
+    // One line; it names where the context goes only when that is a different provider.
+    const moved = result.status.provider !== before ? ` · this conversation's context goes to ${terminalText(result.status.provider ?? "its provider")}` : "";
+    app.output.write(`[model] ${terminalText(label)} from the model's next step${result.savedDefault ? "; saved" : " (this conversation)"}${moved}\n`);
     updateFooter(app);
   } catch (error) {
     if (yielded.signal.aborted) app.output.write("[model] Model unchanged.\n");
@@ -180,7 +182,7 @@ export async function saveCycledEffort(app: CasperApp): Promise<void> {
   if (!session?.setEffort || !level) return;
   const saved = await session.setEffort(level, true);
   // During a task the footer shows its stages, not notes: say it in the transcript instead.
-  if (app.commandActive) app.output.write(`[effort] ${formatEffort(saved) ?? level} from the model's next step; saved\n`);
+  if (app.commandActive) app.output.write(`[effort] ${formatEffort(saved, true) ?? level} from the model's next step; saved\n`);
   else app.terminal.flashNote(`effort ${formatEffort(saved) ?? level} · saved`);
   updateFooter(app);
 }

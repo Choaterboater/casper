@@ -30,7 +30,7 @@ export function updateFooter(app: CasperApp): void {
     const status = app.session?.getStatus?.();
     const usage = app.session?.getUsage?.();
     const percent = usage?.context?.percent;
-    const effort = (status && formatEffort(status)) ?? "effort —";
+    const effort = (status && formatEffort(status, true)) ?? "effort —";
     const model = status?.model ? `${status.provider}/${status.model} · ${effort}`
       : app.session ? app.signedIn === false ? noModelFooter(false, app.interactive && app.terminal.rich) : "no model selected · /model"
       : (app.runModel ? `${terminalText(app.runModel)} (--model)` : app.savedModelDisplay) ?? noModelFooter(app.signedIn, app.interactive && app.terminal.rich);
@@ -40,7 +40,7 @@ export function updateFooter(app: CasperApp): void {
     const session = { tokens: app.spentBefore.tokens + spent.tokens, cost: app.spentBefore.cost + spent.cost };
     const shown = formatFooterSpend(spent, session, app.commandActive, status?.priced, status?.billing);
     const task = shown ? ` │ ${shown}` : "";
-    app.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${task}${buildersText(app)} │ ${app.commandActive ? "working" : "idle"}`, project.root);
+    app.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${task}${buildersText(app)}${app.commandActive ? "" : " │ idle"}`, project.root);
   } catch { app.terminal.setStatus("Session status unavailable · /status", app.projectContext.info.root); }
 }
 

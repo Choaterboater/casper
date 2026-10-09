@@ -10,5 +10,5 @@
  project   project · branch main · profile default
  checks    test — run after each change
  shell     sandboxed · writes: this project, temp, package caches · hosts: 11 listed (/sandbox)
- /help · /status · /login · /model
  model     not signed in · type a request to sign in
+ /help · /status · /login · /model

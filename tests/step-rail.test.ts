@@ -34,7 +34,7 @@ test("while work runs the footer leads with the steps; idle, it shows the plain 
   } finally { session.close(); }
 });
 
-test("the footer timer pauses while a question waits for the user", async () => {
+test("the footer timer counts a question's wait, like the Working box's step times", async () => {
   process.env.TERM = "xterm-256color";
   const session = interactiveTerminal();
   try {
@@ -52,8 +52,8 @@ test("the footer timer pauses while a question waits for the user", async () => 
     const from = session.screen.output.length;
     session.terminal.setSteps("checklist ✓ · building ✓");
     await session.screen.until(output => Bun.stripANSI(output.slice(from)).includes("building ✓ · "));
-    // Over two seconds passed, all of it waiting: the timer still reads under two seconds.
-    expect(Bun.stripANSI(session.screen.output.slice(from))).toMatch(/building ✓ · [01]s/);
+    // Over two seconds passed, all of it waiting: the timer counts them, so it agrees with the box's step times.
+    expect(Bun.stripANSI(session.screen.output.slice(from))).toMatch(/building ✓ · [2-9]s/);
     session.terminal.setSteps(undefined);
   } finally { session.close(); }
 }, 15_000);
@@ -115,4 +115,46 @@ test("while a picker is open the footer waits for you: no spinner, no running ti
     expect(surface.footerLine(100)).toStartWith("? waiting for you");
     done.resolve(); await picking;
   } finally { surface.close(); input.destroy(); }
+});
+
+test("the footer says the state once: idle at its end only while Casper waits for a request, never working", async () => {
+  const { mkdtemp, mkdir, realpath } = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const { PassThrough } = await import("node:stream");
+  const { CasperApp } = await import("../src/app");
+  const { updateFooter } = await import("../src/app/footer");
+  const { loadProjectContext } = await import("../src/project/context");
+  const { removeTempDir } = await import("./support/temp-dir");
+  const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-footer-state-")));
+  const home = path.join(base, "home"), project = path.join(base, "project");
+  await mkdir(home); await mkdir(project);
+  const app = new CasperApp({ runtimeFactory: () => { throw new Error("no model"); }, input: new PassThrough(), output: { write: () => {} }, sessionHomeDir: home,
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }) });
+  try {
+    await app.start(project);
+    const seen: string[] = [];
+    app.terminal.setStatus = (status: string) => { seen.push(status); };
+    updateFooter(app);
+    // A command or task runs (or a picker such as /settings is open): the spinner or "? waiting for you" says so.
+    app.commandActive = true;
+    updateFooter(app);
+    expect(seen[0]).toEndWith(" │ idle");
+    expect(seen[1]).not.toMatch(/idle|working/);
+  } finally { await app.close(); await removeTempDir(base); }
+});
+
+test("the elapsed time sits right after the spinner, before and after the first stage", async () => {
+  process.env.TERM = "xterm-256color";
+  const session = interactiveTerminal();
+  try {
+    session.terminal.setStatus("project │ fixture/demo"); session.terminal.start();
+    const command = session.terminal.readCommand();
+    session.input.write("go\r");
+    await command;
+    expect(Bun.stripANSI(session.terminal.footerLine(100)!)).toMatch(/^\S \d+s │ project │ fixture\/demo$/);
+    session.terminal.setSteps("building");
+    expect(Bun.stripANSI(session.terminal.footerLine(100)!)).toMatch(/^\S building · \d+s │ project │ fixture\/demo$/);
+    session.terminal.setSteps(undefined);
+  } finally { session.close(); }
 });

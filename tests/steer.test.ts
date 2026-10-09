@@ -95,6 +95,9 @@ test("Enter mid-task sends the line to the AI while it works; otherwise it is qu
     expect(state.prompts[1]).toContain("then add a title");
     state.gates[1]!.resolve();
     await app.until(text => text.lastIndexOf("idle") > text.lastIndexOf("then add a title"));
+    // Echoed once, with ❯, when it was typed; not again as "> then add a title" when it runs.
+    expect(app.screen()).toContain("❯ then add a title");
+    expect(app.screen()).not.toContain("> then add a title");
   } finally { for (const gate of state.gates) gate.resolve(); await app.close(); }
 }, 30_000);
 

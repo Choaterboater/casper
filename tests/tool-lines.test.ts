@@ -153,10 +153,33 @@ test("plain terminal prints only the end line of each tool", () => {
   expect(t.box).toBeUndefined();
 });
 
-test("the summary line counts steps and shows time only from a second up", () => {
-  expect(stepSummary([{ kind: "edit", startedAt: 0, endedAt: 10 }, { kind: "edit", startedAt: 20, endedAt: 30 }])).toBe("✓ 2 edits");
-  expect(stepSummary([{ kind: "command", startedAt: 0, endedAt: 38_000, failed: true }, { kind: "other", startedAt: 0, endedAt: 5 }]))
-    .toBe("• 1 command · 1 other step · 1 failed · 38.0s");
+test("rich: a finished step keeps its time in the Working box, and its folded line leaves it out; plain keeps it", () => {
+  let now = 1_000;
+  const clock = spyOn(performance, "now").mockImplementation(() => now);
+  try {
+    for (const rich of [true, false]) {
+      const t = fakeTerminal(rich);
+      t.handle(start("1", "bash", { command: "bun test" }));
+      now += 16_500;
+      t.handle(end("1", "bash", { command: "bun test" }));
+      if (rich) expect(t.box).toEqual(["✓ bash · bun test · 16.5s"]);
+      t.handle({ type: "message_end" });
+      expect(t.screen.at(-1)).toBe(rich ? "✓ bash · bun test" : "✓ bash · bun test · 16.5s");
+    }
+  } finally { clock.mockRestore(); }
+});
+
+test("rich: the AI's answered question leaves no ask step (its box is the record); a failed ask still shows", () => {
+  const t = fakeTerminal(true);
+  t.handle(start("1", "ask", {}), end("1", "ask", {}), { type: "message_end" });
+  expect(t.screen).toEqual([]);
+  t.handle(start("2", "ask", {}), end("2", "ask", {}, true), { type: "message_end" });
+  expect(t.screen).toEqual(["✗ ask — failed"]);
+});
+
+test("the summary line counts steps and leaves the time to the footer and the Working box", () => {
+  expect(stepSummary([{ kind: "edit" }, { kind: "edit" }])).toBe("✓ 2 edits");
+  expect(stepSummary([{ kind: "command", failed: true }, { kind: "other" }])).toBe("• 1 command · 1 other step · 1 failed");
 });
 
 test("a tool call stopped at the spend limit shows as not run, never as a failed step or with the model's instruction", () => {

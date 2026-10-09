@@ -98,10 +98,13 @@ async function startCasper(options: { terminal?: Terminal; env?: Record<string, 
 
 /** The last line on screen: the footer. */
 const footer = (s: ConptySession) => s.visible().trimEnd().split("\n").at(-1) ?? "";
-/** Casper waits for a line: the idle footer (○ then the project, │ between parts; the first frame's "○ Casper · /
- * for commands" comes before Casper reads keys) and an empty editor. Wait for a command's own output first: just
- * after Enter the footer still shows the idle from before. */
-const idle = (s: ConptySession) => s.waitFor("idle footer", () => footer(s).startsWith("○ ") && footer(s).includes(" │ ") && /^❯\s*$/m.test(s.visible()));
+/** The footer without a state: no spinner and elapsed time ("⠋ building · 3s │", "| 0s │" in the old console) and no
+ * "? waiting for you". */
+const quietFooter = (s: ConptySession) => !/\d+s │/.test(footer(s)) && !footer(s).includes("waiting for you");
+/** Casper waits for a line: the idle footer (no state mark, │ between parts; the first frame's "Casper · / for
+ * commands" comes before Casper reads keys) and an empty editor. Wait for a command's own output first: just after
+ * Enter the footer still shows the idle from before. */
+const idle = (s: ConptySession) => s.waitFor("idle footer", () => quietFooter(s) && footer(s).includes(" │ ") && /^❯\s*$/m.test(s.visible()));
 /** A choice box ignores keys for a moment after it opens, so a key typed early can't answer it. */
 const boxReady = () => Bun.sleep(600);
 /** Separator lines drawn across the whole screen at this width. */
@@ -293,7 +296,7 @@ conpty("ConPTY: a line typed during work is queued, and Esc stops the task and g
   s.send("next idea\n");
   await s.until("↳ queued · runs when this task ends");
   s.press("escape");
-  await s.waitFor("the line back in the prompt", () => /^❯ next idea\s*$/m.test(s.visible()) && footer(s).startsWith("○ "));
+  await s.waitFor("the line back in the prompt", () => /^❯ next idea\s*$/m.test(s.visible()) && quietFooter(s));
   // Sent again, it runs as its own task.
   s.press("enter");
   await s.until("Echo: next idea");

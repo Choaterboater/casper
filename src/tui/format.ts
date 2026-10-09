@@ -234,12 +234,13 @@ export function formatToolActivity(event: ToolEvent, elapsedMs?: number, fit: To
 }
 
 /** `auto` effort is Casper's setting; the level after the arrow is what the classifier chose (or the
- * provisional level before the first request). A role tells where the model came from. */
-export function formatEffort(status: RuntimeStatus): string | undefined {
+ * provisional level before the next request). A role tells where the model came from. `short` (the footer, a line
+ * said during work) leaves out the "for now" note. */
+export function formatEffort(status: RuntimeStatus, short = false): string | undefined {
   if (status.configuredEffort === "auto") {
     const state = status.autoEffort?.state;
-    // "pending" is before the first request, when Casper picks the level for that request.
-    const note = state === "pending" ? " for now; your first request picks the level" : state && state !== "classified" ? ` (${state})` : "";
+    // "pending" is before the next request (the first, or the next after auto was chosen), when Casper picks its level.
+    const note = state === "pending" ? short ? "" : " for now; your next request picks the level" : state && state !== "classified" ? ` (${state})` : "";
     return `auto → ${status.thinkingLevel ? terminalText(status.thinkingLevel) : "—"}${note}`;
   }
   return status.thinkingLevel ? terminalText(status.thinkingLevel) : undefined;
@@ -260,7 +261,7 @@ export function noModelFooter(signedIn: boolean | undefined, canSignIn = true): 
 export function formatRuntimeStatus(status?: RuntimeStatus, saved?: string, signedIn?: boolean, canSignIn = true): string {
   if (!status && saved) return ` model     ${terminalText(saved)} (starts on your first prompt; /model to change)`;
   if (!status) return signedIn === false ? ` model     ${noModelFooter(false, canSignIn)}` : " model     none yet · your first request picks one (/model to choose)";
-  const identity = status.provider && status.model ? `${status.provider} / ${status.model}` : "none selected";
+  const identity = status.provider && status.model ? `${status.provider}/${status.model}` : "none selected";
   const effort = formatEffort(status);
   const role = status.modelRole ? ` · role ${terminalText(status.modelRole)}` : "";
   return ` model     ${terminalText(identity)}${effort ? ` · effort ${effort}` : ""}${role}\n auth      ${status.auth === "configured" ? "credentials configured (not a connection test)" : status.auth === "missing" ? "credentials missing; use /login" : "unknown; use /login"}${status.selectionSource ? `\n selection ${status.selectionSource}${status.defaultModel ? ` · Casper default ${terminalText(status.defaultModel.provider)}/${terminalText(status.defaultModel.id)}` : " · no Casper default"}` : ""}${status.blocked ? `\n [model]   ${terminalText(status.blocked)}` : ""}`;

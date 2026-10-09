@@ -192,7 +192,7 @@ On a rich terminal the main screen keeps the model's words, questions and receip
 in a transient `Working` box that shows the last 3 steps, each updated in place (`• read · src/x.ts`
 while it runs, `✓ read · src/x.ts` once done), even with calls running side by side. A step still running after 10 s adds its elapsed time (`• bash · python -m pytest · 4m12s`), and a running command shows its latest output line dimly under it (not at `/details quiet`; plain terminals and `--json` get nothing extra). When the model
 moves on (its next words, or the end of its turn), the finished steps fold into one line:
-`✓ 14 edits · 6 commands · 38s` (`•` instead of `✓` when a step failed), with the changed files on one line under
+`✓ 14 edits · 6 commands` (`•` instead of `✓` when a step failed; how long work takes is in the footer and the box), with the changed files on one line under
 it (`  changed app.py, tests/test_app.py`, five at most, then `+N more`); a single step prints its own line. A failed command
 prints its line and cause above the summary; a failed edit the model tried again at once is counted,
 not printed. `/output all` lists every call of the last task on its own line. A command Casper refused before it ran (a private place such as `~/.ssh`, another machine
@@ -200,7 +200,7 @@ you said No to, or one a script run can't ask about) is not a failure: it reads
 `• bash · cat ~/.ssh/config — not run`, with the reason said to you on the next line, and is not
 counted as failed. The box also starts with `Waiting for <provider/model> · 0s` and ticks elapsed time
 even when the provider sends no intermediate progress events; progress updates change it to reasoning
-or tool preparation. When nothing has arrived for 10 s it reads `Waiting for <provider/model> · 14s`, and during a provider retry `Retrying <provider> · attempt 2 of 3`. A check Casper runs itself (typecheck, lint, test and the rest) adds `test · 3m05s` after 10 s with the last line it printed dimly under it (not at `/details quiet`); a plain terminal prints `[checks] test still running · 3m` once a minute for a long check, and `--json` prints nothing extra. It never displays hidden reasoning or generated arguments, and it is gone when
+or tool preparation. When nothing has arrived for 10 s it reads `Waiting for <provider/model> · 14s`. A provider retry is one amber line in the transcript, `… Can't reach <provider> · trying again in 4s (1 of 3) · Esc stops`, not repeated in the box. A check Casper runs itself (typecheck, lint, test and the rest) adds `test · 3m05s` after 10 s with the last line it printed dimly under it (not at `/details quiet`); a plain terminal prints `[checks] test still running · 3m` once a minute for a long check, and `--json` prints nothing extra. It never displays hidden reasoning or generated arguments, and it is gone when
 the receipt or the prompt returns. The plain terminal and scripts print one end line per tool call;
 having no box, they also print `… bash · bun test` when a call other than a look or an edit is still running after two seconds,
 so a long test run does not look hung.
@@ -213,14 +213,15 @@ remaining uncertainty stay explicit. This is guidance to the model; a provider's
 The prompt box keeps a fixed two-column gutter: `❯` while idle, `…` while a
 command is working, `?` while an exact approval is pending. The box never shifts
 horizontally between states, so a draft keeps its wrapping. The footer shows a
-state glyph (braille spinner while working, `○` idle, `? waiting for you` while a question,
-checklist or approval needs you, with the spinner stopped and the timer paused), then project/branch, provider/model, effort,
+state mark once: the braille spinner while working, `? waiting for you` while a question,
+checklist or approval needs you (with the spinner stopped), and `idle` at its end when Casper waits for a request. Then project/branch, provider/model, effort,
 estimated context occupancy, the current task's tokens and its cost from the model's price
 (`task 48.2k tok · $0.31`; from the second task on, the session's total too, so a new task never
 looks like a reset: `task 40.0k tok · session 1.1M tok · $0.04` while working, `session 1.1M tok · $0.04` idle; a free model shows tokens only; a subscription sign-in shows
 `sub ≈$0.31`, what the tokens would cost pay-per-token; /usage has the session totals split into
-out, new and cached, `44k out · 131k new · 4.9M cached`), and idle/working state. While a task runs, its stages
-lead the footer, each marked ✓ once done, then the elapsed time:
+out, new and cached, `44k out · 131k new · 4.9M cached`). While a task runs, its stages
+lead the footer, each marked ✓ once done, then the elapsed time (right after the spinner, `⠋ 0s │ …`, before the first stage);
+the time counts the whole task, a question's wait included, like the box's step times:
 `⠋ checklist ✓ · building ✓ · checks · 1m05s │ project…`; in a narrow window only the current stage
 and the time (`⠋ checks · 1m05s │ …`). When the AI reads, lists or searches a folder outside the project (temp aside), one line under its
 steps says where, once per folder: `[read] outside this project: ~/Projects`. Tool lines print paths relative to the project and fit one row:
@@ -311,9 +312,9 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
   only**. Escape/Ctrl+C cancel.
 - A fresh interactive session clears the viewport at startup: the new session renders from
   the top of the screen and the previous run's transcript stays in scrollback.
-- While a prompt runs or tool activity is on screen, the footer state dot and the Working
+- While a prompt runs or tool activity is on screen, the footer spinner and the Working
   panel title animate (braille spinner) so background work is visibly moving, and the
-  footer appends elapsed time (`· 1m35s`); idle shows ○ with no timer.
+  footer shows the elapsed time after it (`⠋ 1m35s │ …`); idle has no spinner or timer.
 - `/model provider/id`: exact selection, remembered globally. During a task it applies from the
   model's next step, like `/effort` (see Input and commands).
 - `/model --session [provider/id]`: explicitly temporary selection/picker.
@@ -326,7 +327,8 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
   switching away from a model and back within the current conversation.
 - `/effort auto`: classify each raw request before generation. `/status`, the
   `[model]` start line and the footer show `effort auto → <level>`; before the first
-  request that reads `auto → <level> for now; your first request picks the level`,
+  request that reads `auto → <level> for now; your next request picks the level` (the footer
+  and a line said during work keep it to `auto → <level>`),
   and `(fallback)`/`(unavailable)` follows when it could not classify, with an `[effort]`
   notice in the transcript). A fixed level disables it.
 - `/model roles`: inspect optional `fast`, `build`, `reason`, `review` mappings.
@@ -442,6 +444,9 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   (type a letter first); a digit past the last choice is ordinary text.
 - A question from the AI's `ask` tool starts with a muted `The AI asks:` line. Casper's own
   questions and approvals never do, so the AI can't pass off a question as a Casper approval.
+- An answered box stays in the transcript with `✓` on your choice (`→` before a typed answer,
+  `(skipped)` after Esc), and that is its only record: no `[ask]`, `[approval]` or `[server question]`
+  line and no `✓ ask` step under it. The plain terminal, which has no box, prints the line.
 - Every box takes the same input: approvals (an MCP change, a host, a shell command, a device
   check, `/mcp writes`) are the same numbered panel as any question. Press a choice's number
   (no Enter), or Up/Down and Enter; Esc is No. An approval takes no typed answer: typed words are
@@ -492,7 +497,8 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - Anything else you type during work goes to the AI. While the model is working it reads the
   line at its next step (`↳ sent to Casper · it reads this at its next step`); while Casper
   runs checks or writes the receipt, the line is queued and runs as the next request
-  (`↳ queued · runs when this task ends`). A line the AI never got to read runs next too. Esc
+  (`↳ queued · runs when this task ends`). The line is echoed once (`❯ …`, after the words
+  shown so far) when you type it, not again when it runs. A line the AI never got to read runs next too. Esc
   stops the task and puts queued lines back in the prompt instead of running them. Queued
   lines live outside the prompt, so a queued line never answers an approval box.
   Pickers borrow exclusive input ownership; pretyped text cannot answer a later

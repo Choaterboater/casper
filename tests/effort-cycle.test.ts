@@ -27,7 +27,9 @@ test("effort ring always offers auto and wraps from the highest supported level"
   expect(nextEffort("low", ["off", "low", "medium", "high"])).toBe("medium");
   expect(nextEffort("xhigh", ["off", "high", "xhigh", "max"])).toBe("max");
   expect(nextEffort("max", ["high", "max"])).toBe("auto");
-  expect(nextEffort(undefined, ["high"])).toBe("auto");
+  // One level: auto could only pick it, so there is nothing to cycle (no "[effort] automatic classification unavailable").
+  expect(nextEffort(undefined, ["high"])).toBeUndefined();
+  expect(nextEffort("off", ["off"])).toBeUndefined();
   expect(nextEffort("missing", ["low", "high"])).toBe("auto");
   expect(nextEffort("auto", [])).toBeUndefined();
   expect(nextEffort("off", undefined)).toBeUndefined();
@@ -212,7 +214,7 @@ test("interactive Shift+Tab steps through levels and saves the one it settles on
   try {
     await until(text => Bun.stripANSI(text).includes("idle"));
     input.write("\x1b[Z");
-    await until(text => Bun.stripANSI(text).includes("effort auto → high for now; your first request picks the level · saved"));
+    await until(text => Bun.stripANSI(text).includes("effort auto → high for now; your next request picks the level · saved"));
     input.write("\x1b[Z");
     await until(text => Bun.stripANSI(text).includes("effort off · saved"));
     expect(changes).toEqual([{ level: "auto", persist: false }, { level: "auto", persist: true }, { level: "off", persist: false }, { level: "off", persist: true }]);
@@ -285,12 +287,15 @@ test("during a running task: /usage runs, Shift+Tab and /effort apply from the n
   try {
     await until(text => Bun.stripANSI(text).includes("idle"));
     input.write("write a poem\r");
-    await until(() => prompts.length === 1 && screen().includes("working"));
+    await until(() => prompts.length === 1 && screen().includes("building"));
     input.write("/usage\r");
     await until(() => screen().includes("Usage:"));
     input.write("\x1b[Z");
     await until(() => /\[effort\] .+ from the model's next step; saved/.test(screen()));
     expect(changes).toEqual([{ level: "auto", persist: false }, { level: "auto", persist: true }]);
+    // One short line; the footer keeps the short form too ("auto → high", never the "for now" note).
+    expect(screen()).toMatch(/\[effort\] auto → \S+ from the model's next step; saved/);
+    expect(screen()).not.toContain("for now; your");
     input.write("/effort low --session\r");
     await until(() => screen().includes("[effort] low from the model's next step (this conversation)"));
     input.write("/undo\r");
