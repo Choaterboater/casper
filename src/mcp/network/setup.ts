@@ -6,6 +6,7 @@ import type { MCPServerDefinition } from "../config";
 import { addUserServer, MCP_FILE_LABEL, ServerExistsError } from "../docs";
 import { matchPreset } from "../presets";
 import { normaliseWords } from "../../skills/bundled";
+import { fetchReleaseLock, NETWORK_RELEASE_HOSTS, networkReleasesOff, newerNetworkRelease, releaseSpec, type NetworkReleaseOptions } from "./releases";
 import { NETWORK_SERVER, NETWORK_SERVER_NAME, networkServerEntry, readSetupState, writeSetupState } from "./server";
 import { runUvInstaller, uvInstaller } from "./uv";
 
@@ -37,6 +38,20 @@ export interface SetupHost {
   installer?: (spec: LockedSpec, options: InstallOptions & { uvMissing?: string }) => Promise<{ ok: boolean; message: string; entryPath?: string }>;
   /** Runs uv's official installer (test seam). */
   uvInstaller?: () => Promise<{ ok: boolean; message?: string }>;
+  /** Network server releases newer than the bundled pin: whether they are off, and test seams. Unset: off only with CASPER_OFFLINE=1. */
+  releases?: NetworkReleaseOptions;
+}
+
+function releaseOptions(releases: NetworkReleaseOptions | undefined): NetworkReleaseOptions {
+  if (releases) return releases;
+  const off = networkReleasesOff(process.env, {});
+  return off ? { off } : {};
+}
+
+/** The version to install: the newest release Casper knows of that is newer than both the installed version and the
+ * bundled pin, or else the bundled pin (the floor, and the one used offline). */
+export async function networkUpdateTarget(homeDir: string, installed: string | undefined, releases?: NetworkReleaseOptions): Promise<string> {
+  return await newerNetworkRelease(homeDir, installed, releaseOptions(releases)) ?? NETWORK_SERVER.version;
 }
 
 const CANT_ASK_SETUP = "This run can't ask you. Type /mcp setup network in the terminal to set up the network server.";
@@ -45,18 +60,18 @@ const NOT_NOW = "Not set up. Type /mcp setup network any time.";
 const READY = "Network server ready (read-only). Ask about Mist, Central or ClearPass; Casper asks for each login the first time.";
 
 /** The question: what is installed, how big, from where; it starts read-only; logins come later, per product. */
-export function networkSetupQuestion(): NumberedQuestion {
+export function networkSetupQuestion(version = NETWORK_SERVER.version): NumberedQuestion {
   return {
-    text: `Casper can set up its network server (${NETWORK_SERVER.label} ${NETWORK_SERVER.version}, about ${NETWORK_SERVER.approxMB} MB from ${NETWORK_SERVER.hosts[0]}, installed with uv into ~/.casper/tools).\n`
+    text: `Casper can set up its network server (${NETWORK_SERVER.label} ${version}, about ${NETWORK_SERVER.approxMB} MB from ${NETWORK_SERVER.hosts[0]}, installed with uv into ~/.casper/tools).\n`
       + "It starts read-only. Logins are asked per product the first time you use it.",
     choices: [...NETWORK_SETUP_CHOICES],
   };
 }
 
 /** The same question when uv isn't installed: it says so and shows uv's official installer, which 2 runs first. */
-export function networkSetupUvQuestion(platform: NodeJS.Platform = process.platform): NumberedQuestion {
+export function networkSetupUvQuestion(platform: NodeJS.Platform = process.platform, version = NETWORK_SERVER.version): NumberedQuestion {
   return {
-    text: `${networkSetupQuestion().text}\nIt needs uv, which isn't installed. Casper installs it first with uv's official installer:\n  ${uvInstaller(platform).shown}`,
+    text: `${networkSetupQuestion(version).text}\nIt needs uv, which isn't installed. Casper installs it first with uv's official installer:\n  ${uvInstaller(platform).shown}`,
     choices: [...NETWORK_SETUP_UV_CHOICES],
   };
 }
@@ -65,9 +80,16 @@ function hasUv(host: SetupHost): Promise<boolean> {
   return findUv(installEnv(host.install?.env ?? process.env), host.homeDir, host.install?.platform ?? process.platform).then(Boolean);
 }
 
-function updateQuestion(from: string): NumberedQuestion {
+/** Said first when `version` is a release newer than the one this Casper ships with (the question's own words stay
+ * last, so its one-line record reads as before). */
+function fromReleaseNote(version: string): string {
+  return version === NETWORK_SERVER.version ? ""
+    : `${version} is newer than the one this Casper ships with (${NETWORK_SERVER.version}); its hash lock comes from that release on ${NETWORK_RELEASE_HOSTS[1]} and is checked first.\n`;
+}
+
+function updateQuestion(from: string, to: string): NumberedQuestion {
   return {
-    text: `Casper's network server has an update (${from} → ${NETWORK_SERVER.version}, about ${NETWORK_SERVER.approxMB} MB from ${NETWORK_SERVER.hosts[0]}).`,
+    text: `${fromReleaseNote(to)}Casper's network server has an update (${from} → ${to}, about ${NETWORK_SERVER.approxMB} MB from ${NETWORK_SERVER.hosts[0]}).`,
     choices: [...NETWORK_UPDATE_CHOICES],
   };
 }
@@ -133,25 +155,28 @@ function olderThan(a: string, b: string): boolean {
   return false;
 }
 
-/** The installed version when Casper's own entry runs an older pin than this Casper's. A newer one (put there by a
- * newer Casper on the same machine) is kept: offering it would be a downgrade. */
-async function availableUpdate(homeDir: string, configured: readonly MCPServerDefinition[]): Promise<{ name: string; from: string; to: string } | undefined> {
+/** The installed version when Casper's own entry runs an older version than this Casper's pin or the newest release
+ * it knows of. A newer one (put there by a newer Casper on the same machine) is kept: offering it would be a downgrade.
+ * Any other entry (your own, or `uv run --directory <checkout>`) is never updated. */
+async function availableUpdate(homeDir: string, configured: readonly MCPServerDefinition[], releases?: NetworkReleaseOptions): Promise<{ name: string; from: string; to: string } | undefined> {
   const ours = configured.find((definition) => isCaspersEntry(definition, homeDir));
   if (!ours) return undefined;
   const installed = await installedVersion(homeDir, NETWORK_SERVER);
-  return installed && olderThan(installed, NETWORK_SERVER.version) ? { name: ours.name, from: installed, to: NETWORK_SERVER.version } : undefined;
+  if (!installed) return undefined;
+  const target = await networkUpdateTarget(homeDir, installed, releases);
+  return olderThan(installed, target) ? { name: ours.name, from: installed, to: target } : undefined;
 }
 
 /** An update to ask about at start: there is one, and the person hasn't said Not now to this version. */
-export async function shouldOfferNetworkUpdate(homeDir: string, configured: readonly MCPServerDefinition[]): Promise<{ from: string; to: string } | undefined> {
-  const update = await availableUpdate(homeDir, configured);
+export async function shouldOfferNetworkUpdate(homeDir: string, configured: readonly MCPServerDefinition[], releases?: NetworkReleaseOptions): Promise<{ from: string; to: string } | undefined> {
+  const update = await availableUpdate(homeDir, configured, releases);
   if (!update || (await readSetupState(homeDir)).updateNotNow === update.to) return undefined;
   return { from: update.from, to: update.to };
 }
 
 /** The one /mcp line about Casper's network server, or undefined when there's nothing to say. */
-export async function networkSetupLine(homeDir: string, configured: readonly MCPServerDefinition[]): Promise<string | undefined> {
-  const update = await availableUpdate(homeDir, configured);
+export async function networkSetupLine(homeDir: string, configured: readonly MCPServerDefinition[], releases?: NetworkReleaseOptions): Promise<string | undefined> {
+  const update = await availableUpdate(homeDir, configured, releases);
   if (update) return `${update.name}: update ready (${update.from} → ${update.to}) — /mcp setup network`;
   const ours = configured.find((definition) => isCaspersEntry(definition, homeDir));
   if (ours) return await installedVersion(homeDir, NETWORK_SERVER) ? undefined : `${ours.name}: not installed — /mcp setup network`;
@@ -163,10 +188,29 @@ async function ask(host: SetupHost, question: NumberedQuestion): Promise<string 
   return host.chooseAnswer(`${question.text}\n${numberedLines(question.choices)}`, "Type 1 or 2: ", ["1", "2"]);
 }
 
-function install(host: SetupHost, swap?: (renames: () => Promise<void>) => Promise<void>) {
-  return (host.installer ?? installLockedSpec)(NETWORK_SERVER, {
+function installSpec(host: SetupHost, spec: LockedSpec, swap?: (renames: () => Promise<void>) => Promise<void>) {
+  return (host.installer ?? installLockedSpec)(spec, {
     homeDir: host.homeDir, write: (text) => host.write(text), uvMissing: UV_MISSING_NETWORK, ...host.install, ...(swap ? { swap } : {}),
   });
+}
+
+/**
+ * Installs `version`: a newer release from the lock attached to it on GitHub (checked first), or the bundled pin.
+ * A release lock that can't be fetched or fails the check is said plainly, and the bundled pin is installed instead
+ * when it is newer than what is there (`from`); otherwise nothing changes (`kept`). A lock that fails the check is
+ * remembered like Not now, so that release isn't offered again at start.
+ */
+async function install(host: SetupHost, version: string, from: string | undefined, swap?: (renames: () => Promise<void>) => Promise<void>): Promise<{ ok: boolean; message: string; version: string; kept?: boolean }> {
+  if (version !== NETWORK_SERVER.version) {
+    const fetched = await fetchReleaseLock(version, releaseOptions(host.releases));
+    if (fetched.ok) return { ...await installSpec(host, releaseSpec(version, fetched.lock), swap), version };
+    host.write(`${NETWORK_SERVER.label} ${version} wasn't installed: ${fetched.reason}.\n`);
+    // A lock that fails the check stays bad: it isn't offered again at start (/mcp setup network can still retry it).
+    if (fetched.failedCheck) await writeSetupState(host.homeDir, { updateNotNow: version }).catch(() => {});
+    if (from && !olderThan(from, NETWORK_SERVER.version)) return { ok: false, message: `The network server keeps ${from}.`, version: from, kept: true };
+    host.write(`Casper installs the version it ships with, ${NETWORK_SERVER.version}, instead.\n`);
+  }
+  return { ...await installSpec(host, NETWORK_SERVER, swap), version: NETWORK_SERVER.version };
 }
 
 /**
@@ -180,7 +224,7 @@ export async function runNetworkSetup(host: SetupHost, _options: { explicit: boo
   const ours = configured.find((definition) => isCaspersEntry(definition, host.homeDir));
   if (ours) {
     const installed = await installedVersion(host.homeDir, NETWORK_SERVER);
-    if (installed && olderThan(installed, NETWORK_SERVER.version)) {
+    if (installed && olderThan(installed, await networkUpdateTarget(host.homeDir, installed, host.releases))) {
       const updated = await runNetworkUpdate(host, { explicit: true });
       return updated === "current" ? "exists" : updated;
     }
@@ -194,7 +238,9 @@ export async function runNetworkSetup(host: SetupHost, _options: { explicit: boo
   }
   // No uv: the question says so and 2 installs it first, so the setup never dead-ends.
   const needsUv = !await hasUv(host);
-  const answer = await ask(host, needsUv ? networkSetupUvQuestion(host.install?.platform) : networkSetupQuestion());
+  const target = await networkUpdateTarget(host.homeDir, undefined, host.releases);
+  const setupQuestion = needsUv ? networkSetupUvQuestion(host.install?.platform, target) : networkSetupQuestion(target);
+  const answer = await ask(host, { ...setupQuestion, text: `${fromReleaseNote(target)}${setupQuestion.text}` });
   if (answer !== "2") {
     // The person's 1, Enter or any other answer is kept, so the offer never nags; nobody answering (closed,
     // cancelled) keeps nothing.
@@ -212,7 +258,7 @@ export async function runNetworkSetup(host: SetupHost, _options: { explicit: boo
       return "failed";
     }
   }
-  const installed = await install(host);
+  const installed = await install(host, target, undefined);
   if (!installed.ok) { host.write(`${installed.message}\n`); return "failed"; }
   const name = ours?.name ?? NETWORK_SERVER_NAME;
   if (!ours) {
@@ -235,33 +281,33 @@ export async function runNetworkSetup(host: SetupHost, _options: { explicit: boo
 }
 
 /**
- * When this Casper pins a newer version than the one installed: 1 Not now · 2 Update it. On 2 the new version is
+ * When this Casper pins, or a release on GitHub is, a newer version than the one installed: 1 Not now · 2 Update it. On 2 the new version is
  * built beside the old one while it runs; then, once its running calls finish, the server stops, the folders are
  * swapped (the command in ~/.casper/mcp.json, its hash and its remembered approval stay) and it starts again. A swap
  * that fails (Windows keeps a running program's folder locked) puts the old folder back and starts that. Not now is
  * kept per version.
  */
 export async function runNetworkUpdate(host: SetupHost, options: { explicit: boolean }): Promise<UpdateResult> {
-  const update = await availableUpdate(host.homeDir, await host.configured());
+  const update = await availableUpdate(host.homeDir, await host.configured(), host.releases);
   if (!update) return "current";
   if (!options.explicit && (await readSetupState(host.homeDir)).updateNotNow === update.to) return "not-now";
   if (!host.canAsk()) { host.write(`${CANT_ASK_UPDATE}\n`); return "cant-ask"; }
-  const answer = await ask(host, updateQuestion(update.from));
+  const answer = await ask(host, updateQuestion(update.from, update.to));
   if (answer !== "2") {
     if (answer !== undefined) await writeSetupState(host.homeDir, { updateNotNow: update.to });
     if (answer !== undefined) host.write(`Not updated. The network server keeps ${update.from}. Type /mcp setup network to update.\n`);
     return "not-now";
   }
   let swapFailed = false;
-  const installed = await install(host, (renames) => host.restart(update.name, async () => {
+  const installed = await install(host, update.to, update.from, (renames) => host.restart(update.name, async () => {
     try { await renames(); } catch (error) { swapFailed = true; throw error; }
   }));
   if (!installed.ok) {
     host.write(swapFailed
       ? `Casper couldn't swap in the new version (its files are in use). The network server keeps ${update.from} and is running again. Close any other Casper window, then type /mcp setup network.\n`
-      : `${installed.message}\nThe network server keeps ${update.from}.\n`);
+      : installed.kept ? `${installed.message}\n` : `${installed.message}\nThe network server keeps ${update.from}.\n`);
     return "failed";
   }
-  host.write(`Network server updated to ${update.to}.\n`);
+  host.write(`Network server updated to ${installed.version}.\n`);
   return "updated";
 }

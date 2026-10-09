@@ -66,6 +66,8 @@ export interface ProjectContext {
   sshLogin?: boolean;
   /** `other_logins: off` in the user's config: /login never looks for other tools' sign-ins. Unset: on. */
   otherLogins?: boolean;
+  /** `network_updates: off` in the user's config: no casper-network-mcp releases newer than the pin are looked for. Unset: on. */
+  networkUpdates?: boolean;
   /** `telemetry: off` in the user's config: no OpenRouter app-name headers. Unset: on. */
   telemetry?: boolean;
   rules: {
@@ -167,6 +169,7 @@ export async function loadProjectContext(
     ...(configuration.telemetry !== undefined ? { telemetry: configuration.telemetry } : {}),
     ...(configuration.sshLogin !== undefined ? { sshLogin: configuration.sshLogin } : {}),
     ...(configuration.otherLogins !== undefined ? { otherLogins: configuration.otherLogins } : {}),
+    ...(configuration.networkUpdates !== undefined ? { networkUpdates: configuration.networkUpdates } : {}),
     ...(configuration.toolDownloads !== undefined ? { toolDownloads: configuration.toolDownloads } : {}),
     rules: {
       profile: configuration.profileRules,

@@ -8,8 +8,9 @@ import networkLock from "./casper-network-mcp.lock.txt" with { type: "text" };
 /**
  * The network server Casper sets up for you: casper-network-mcp, pinned to one release and installed
  * from that release's hash lock (every package pinned by sha256) into ~/.casper/tools/casper-network-mcp.
- * Bumping it is a manual step: `bun scripts/update-network-lock.ts <version>` rewrites the version below
- * and the lock next to this file.
+ * That pin is the floor and the offline fallback: a newer release on GitHub is offered between Casper releases and
+ * installed from the lock attached to it, checked first (releases.ts). Bumping the pin is a manual step:
+ * `bun scripts/update-network-lock.ts <version>` rewrites the version below and the lock next to this file.
  */
 
 /** The server's name in ~/.casper/mcp.json. */
@@ -36,7 +37,7 @@ export function networkServerEntry(homeDir: string, platform: NodeJS.Platform = 
 export interface NetworkSetupState {
   /** "not-now": don't offer setup again; /mcp setup network still works. */
   answer?: "not-now";
-  /** "Not now" to the update to this pinned version: not asked again for it. */
+  /** "Not now" to the update to this version (pinned or a release): not asked again for it. */
   updateNotNow?: string;
 }
 
@@ -49,7 +50,7 @@ export async function readSetupState(homeDir: string): Promise<NetworkSetupState
     const record = parsed as Record<string, unknown>;
     return {
       ...(record.answer === "not-now" ? { answer: "not-now" as const } : {}),
-      ...(typeof record.updateNotNow === "string" && /^\d+\.\d+\.\d+$/.test(record.updateNotNow) ? { updateNotNow: record.updateNotNow } : {}),
+      ...(typeof record.updateNotNow === "string" && /^\d{1,6}(?:\.\d{1,6}){1,3}$/.test(record.updateNotNow) ? { updateNotNow: record.updateNotNow } : {}),
     };
   } catch {
     return {};

@@ -740,7 +740,8 @@ says where it reaches: `Mist login: can change Branch-12 (checked)`. Mist and Cl
 Central shows `saved (not checked)`, and means new Central (GreenLake) only for now. When the
 product turns a saved login down, Casper asks `1 Not now · 2 Replace the login`. `/mcp login`
 changes or forgets one. When Casper pins a newer server version it asks `1 Not now · 2 Update it`;
-a failed update keeps the old one running.
+a failed update keeps the old one running. (Since then a newer casper-network-mcp release is offered
+the same way between Casper releases; see [MCP.md](MCP.md).)
 
 **One box for every yes.** Every approval is the same numbered panel: `1 No · 2 Yes, this once ·
 3 Yes, for this session · 4 Yes, always for this project`, offering only the answers that fit. One

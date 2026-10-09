@@ -186,20 +186,45 @@ test("network server: not installed is something to fix; installed shows the ver
   const entry = lockedEntryPath(dir, NETWORK_SERVER);
   const ours = { name: "network", source: path.join(dir, ".casper", "mcp.json"), cwd: dir, disabled: false, scope: "user" as const,
     transport: { type: "stdio" as const, command: entry, args: [], env: {} } };
-  const missing = await checkNetworkServer(context(dir), [ours]);
+  const missing = await checkNetworkServer(context(dir), [ours], {});
   expect(missing[0]).toMatchObject({ status: "fail", fix: "network", next: "/mcp setup network" });
 
   await mkdir(path.dirname(entry), { recursive: true });
   await writeFile(entry, "");
   await writeFile(path.join(dir, ".casper", "tools", NETWORK_SERVER.id, ".casper-installed.json"), JSON.stringify({ id: NETWORK_SERVER.id, version: NETWORK_SERVER.version }));
   await writeFile(path.join(dir, ".casper", "network-logins.json"), JSON.stringify({ mist: { MIST_API_TOKEN: "secret-token-value", MIST_HOST: "api.mist.com" } }), { mode: 0o600 });
-  const fine = await checkNetworkServer(context(dir), [ours]);
+  const fine = await checkNetworkServer(context(dir), [ours], {});
   expect(fine[0]!.status).toBe("ok");
   expect(fine[0]!.text).toContain(`Network server: ${NETWORK_SERVER.version}; logins saved: Mist`);
   expect(JSON.stringify(fine)).not.toContain("secret-token-value");
 
-  const none = await checkNetworkServer(context(dir), []);
+  const none = await checkNetworkServer(context(dir), [], {});
   expect(none[0]).toMatchObject({ status: "note", fix: "network" });
+});
+
+test("network server: settings that don't load count as off, so a project file never undoes your network_updates: off", async () => {
+  const dir = await home();
+  const project = path.join(dir, "project");
+  await mkdir(path.join(project, ".casper"), { recursive: true });
+  const entry = lockedEntryPath(dir, NETWORK_SERVER);
+  const ours = { name: "network", source: path.join(dir, ".casper", "mcp.json"), cwd: dir, disabled: false, scope: "user" as const,
+    transport: { type: "stdio" as const, command: entry, args: [], env: {} } };
+  await mkdir(path.dirname(entry), { recursive: true });
+  await writeFile(entry, "");
+  await writeFile(path.join(dir, ".casper", "tools", NETWORK_SERVER.id, ".casper-installed.json"), JSON.stringify({ id: NETWORK_SERVER.id, version: NETWORK_SERVER.version }));
+  const parts = NETWORK_SERVER.version.split(".").map(Number); parts[2]! += 1;
+  const next = parts.join(".");
+  await writeFile(path.join(dir, ".casper", "network-releases.json"), JSON.stringify({ checkedAt: Date.now(), releases: [{ version: next, prerelease: false }] }));
+  await writeFile(path.join(dir, ".casper", "config.yaml"), "network_updates: off\n");
+  await writeFile(path.join(project, ".casper", "project.yaml"), "network_updates: on\n");
+  const ctx = context(dir, { projectRoot: project });
+  const config = await checkConfig(ctx);
+  expect(config.loaded).toBeUndefined();
+  const lines = await checkNetworkServer(ctx, [ours], config.loaded);
+  expect(lines[0]).toMatchObject({ status: "ok" });
+  expect(JSON.stringify(lines)).not.toContain("update ready");
+  // Settings that load and leave it on: the release is offered.
+  expect((await checkNetworkServer(ctx, [ours], {}))[0]!.text).toContain(`update ready (${next})`);
 });
 
 test("runDoctor: exit 1 only for something to fix; each fix asks with 1 Not now first and only 2 acts", async () => {

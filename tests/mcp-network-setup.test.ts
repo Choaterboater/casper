@@ -19,6 +19,7 @@ import type { ToolRunner } from "../src/security/spawn";
 import type { LockedSpec } from "../src/security/tools";
 import { SkillRegistry } from "../src/skills/registry";
 import { allowSlowServerStopsOnWindows, fakeProgram, fakeServerProgram } from "./support/fake-program";
+import { waitForFile } from "./support/wait";
 import { removeTempDir } from "./support/temp-dir";
 
 allowSlowServerStopsOnWindows();
@@ -407,7 +408,9 @@ async function appFixture() {
 }
 
 /** An interactive session: `lines` are typed at each prompt (with any type-ahead), `answers` at each numbered box. */
-async function session(home: string, project: string, lines: string[], answers: string[] = [], options: { interactive?: boolean; onApp?: (app: CasperApp) => void; onPrompt?: () => Promise<void> } = {}) {
+async function session(home: string, project: string, lines: string[], answers: string[] = [], options: {
+  interactive?: boolean; onApp?: (app: CasperApp) => void; onPrompt?: () => Promise<void>; releases?: NonNullable<NonNullable<ConstructorParameters<typeof CasperApp>[0]>["networkSeams"]>["releases"];
+} = {}) {
   let turns = 0;
   const runtime: AgentRuntime = {
     async start(start: RuntimeStartOptions) {
@@ -427,7 +430,7 @@ async function session(home: string, project: string, lines: string[], answers: 
     loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
     loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
     loadMCPConfiguration: () => discoverMCPConfiguration({ projectRoot: project, homeDir: home, platform: "linux" }),
-    networkSeams: { install: { env: install.env, run: install.run } },
+    networkSeams: { install: { env: install.env, run: install.run }, ...(options.releases ? { releases: options.releases } : {}) },
     output: { write: (text) => {
       output += text;
       if (text === "> ") queueMicrotask(async () => { await options.onPrompt?.(); input.write(`${pending.shift() ?? "/exit"}\n`); });
@@ -526,4 +529,42 @@ test("app: an older installed server is asked about once, before the first reque
   const once = await session(other.home, other.project, ["add a test for parseConfig"], [], { interactive: false });
   expect(once.output).not.toContain(question);
   expect(await installedVersion(other.home, NETWORK_SERVER)).toBe("0.0.9");
+});
+
+test("app: a session with Casper's entry asks GitHub for newer releases in the background; the next session offers one; network_updates: off asks nothing", async () => {
+  const { home, project } = await appFixture();
+  const install = await fakeInstall();
+  const { installLockedSpec } = await import("../src/security/install");
+  expect((await installLockedSpec(pinned(NETWORK_SERVER.version), { homeDir: home, env: install.env, run: install.run })).ok).toBe(true);
+  await writeMcp(home, { network: networkServerEntry(home) });
+  const next = NETWORK_SERVER.version.replace(/\d+$/, (last) => String(Number(last) + 1));
+  const requests: string[] = [];
+  const github = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: (request) => {
+    requests.push(new URL(request.url).pathname);
+    return Response.json([{ tag_name: `v${next}`, draft: false, prerelease: false, assets: [{ name: "casper-network-mcp.lock.txt" }] }]);
+  } });
+  cleanup.push(async () => github.stop(true));
+  const releases = { apiUrl: `http://127.0.0.1:${github.port}/releases`, fetch: (url: string, init?: RequestInit) => fetch(url, init) };
+  const saved = path.join(home, ".casper/network-releases.json");
+
+  // network_updates: off in your own config: no request at all.
+  await writeFile(path.join(home, ".casper/config.yaml"), "network_updates: off\n");
+  await session(home, project, ["add a test"], [], { releases });
+  expect(requests).toEqual([]);
+  expect(await exists(saved)).toBe(false);
+
+  await writeFile(path.join(home, ".casper/config.yaml"), "");
+  // The check runs in the background: the start never waits on it (this fake answers at once, so the session may
+  // already offer what it found).
+  await session(home, project, ["/status"], [], { releases });
+  expect(await waitForFile(saved)).toBe(true);
+  expect(requests).toEqual(["/releases"]);
+  const second = await session(home, project, ["/mcp"], [], { releases });
+  expect(second.output).toContain(`network: update ready (${NETWORK_SERVER.version} → ${next}) — /mcp setup network`);
+  await writeFile(path.join(home, ".casper/network-setup.json"), "{}\n");
+  const third = await session(home, project, ["add a test"], ["1"], { releases });
+  expect(third.output).toContain(`${next} is newer than the one this Casper ships with (${NETWORK_SERVER.version}); its hash lock comes from that release on github.com and is checked first.\nCasper's network server has an update (${NETWORK_SERVER.version} → ${next}`);
+  expect(third.output).toContain("pypi.org). → Not now\n");
+  // Asked once today.
+  expect(requests).toEqual(["/releases"]);
 });
