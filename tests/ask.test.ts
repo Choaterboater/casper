@@ -63,14 +63,14 @@ test("pressing a choice's number picks it at once; a digit after typed text stay
     session.terminal.setStatus("fixture"); session.terminal.start();
     const byNumber = session.terminal.ask("Which database?", OPTIONS, false, undefined, "ai");
     await session.screen.until(output => output.includes("2 Postgres"));
-    expect(Bun.stripANSI(session.screen.output)).toContain("Press 1-2 or Up/Down + Enter · type to answer · Esc skip");
+    expect(Bun.stripANSI(session.screen.output)).toContain("  3 Other — type your own answer\r\nPress 1-3 or Up/Down + Enter · Esc skip");
     session.input.write("2");
     expect(await byNumber).toEqual(["Postgres"]);
-    // A digit past the last choice is ordinary text.
+    // A digit past the last row (the Other row is 3) is ordinary text.
     const outOfRange = session.terminal.ask("Replicas?", OPTIONS, false, undefined, "ai");
     await session.screen.until(output => output.includes("Replicas?"));
-    session.input.write("3 replicas\r");
-    expect(await outOfRange).toEqual(["3 replicas"]);
+    session.input.write("4 replicas\r");
+    expect(await outOfRange).toEqual(["4 replicas"]);
     const typed = session.terminal.ask("Which version?", OPTIONS, false, undefined, "ai");
     await session.screen.until(output => output.includes("Which version?"));
     session.input.write("v1\r");

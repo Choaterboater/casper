@@ -440,14 +440,20 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   would be taller than the screen, only the highlighted option shows its description,
   so the question stays in view. Each choice shows its number: press 1-9 to pick it
   (or toggle it in a multi-select), or use Up/Down and Enter; Space also toggles.
-  Typing still accepts a custom answer, and Esc skips. A number picks a choice only
-  while nothing is typed, so a custom answer cannot start with a choice's number
-  (type a letter first); a digit past the last choice is ordinary text. A list longer
+  Esc skips. A question that takes a typed answer (the AI's, a new project's name) ends
+  with one more numbered row that Casper adds, never the AI: `Other — type your own answer`.
+  Picking it (its number, or Up/Down and Enter) highlights it and the hint becomes
+  `Type your answer below · Enter send · Esc back to the list`; the answer goes on the
+  `?` line under the box, Enter sends it, and Esc (or Up/Down on an empty line) goes back
+  to the list. Typing letters straight into the box works too and highlights the same row.
+  Approvals and pickers that take keys only have no Other row. A number picks a row only
+  while nothing is typed, so a custom answer cannot start with a row's number unless
+  Other is picked first (or a letter is typed first); a digit past the last row is ordinary text. A list longer
   than nine (`/settings`) numbers every row: type the number and press Enter
   (`Type 1-23 + Enter or Up/Down + Enter`).
 - Every numbered list draws the same way and ends with the same hint, `Press 1-4 or
-  Up/Down + Enter`, followed by what else it takes: `type to answer · Esc skip` for a
-  question that takes a typed answer (the AI's, a project name), `Esc skip` for a picker,
+  Up/Down + Enter`, followed by what else it takes: `Esc skip` for a question or picker
+  (a question that takes a typed answer shows that with its Other row, not in the hint),
   `Esc is No` for an approval, `Esc cancels` for `/login`, and `Ctrl+S this
   session only · Esc cancels` for `/effort`. Keys are spelled one way everywhere: `Ctrl+O`,
   `Ctrl+T`, `Ctrl+C`.
@@ -473,7 +479,8 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   typed mid-sentence never answers a box that just appeared.
 - Casper's own numbered questions and approvals also work on the plain terminal: it prints the
   choices as numbered lines and reads `Type 1, 2 or 3:` (`Type 1-23:` past nine); a number or
-  a choice's words pick it. `/settings`, `/preview` and the question after a check times out
+  a choice's words pick it. A question that takes a typed answer lists `Other — type your own answer`
+  as its last number; picking it asks `Your answer: `. `/settings`, `/preview` and the question after a check times out
   ask there too, as numbered lines. Enter picks choice 1, and at every Casper question choice 1 is the one that does nothing
   risky (Stop, Not now, Use this folder, Leave it, No, Keep writes off, Keep the
   default): building, installing, downloading, spending tokens, running a check again, saving a
