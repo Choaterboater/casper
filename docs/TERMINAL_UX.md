@@ -316,6 +316,10 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
   next, and the line under the list sums up the highlighted one. Tab moves to the providers on the
   left (`All models`, then each provider): Up/Down there picks whose models show, and Enter or
   typing goes back to the list. `/model <part of a name>` opens it already searched.
+  It refreshes the provider lists in the background and keeps the saved rows when that fails,
+  saying why in a few words: `Your anthropic sign-in expired. Run /login to sign in again; showing
+  saved models.`, or `Could not refresh openrouter (HTTP 503); showing saved models.`, never the
+  provider's URL or stack.
   **Enter remembers globally** in Casper's settings; **Ctrl+S selects for this session
   only**. Esc cancels. `/effort` with no level is the same numbered list as every other
   choice: press a level's number (or Up/Down and Enter) to remember it; Ctrl+S picks it for

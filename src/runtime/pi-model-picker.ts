@@ -1,6 +1,7 @@
 import type { AgentSession, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { getKeybindings, KeybindingsManager, setKeybindings, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { terminalText } from "../tui/format";
+import { errorText } from "./model-errors";
 import type { RuntimePickerView } from "./types";
 import { ModelBrowser } from "./pi-model-browser";
 
@@ -44,9 +45,9 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
           // allowNetwork override: Pi's default fetches unless PI_OFFLINE is set.
           const result = await target.refresh(options);
           return { ...result, errors: new Map([...result.errors].map(([provider, error]) =>
-            [terminalText(provider), new Error(terminalText(error.message))])) };
+            [terminalText(provider), new Error(terminalText(errorText(error)))])) };
         } catch (error) {
-          throw new Error(terminalText(error instanceof Error ? error.message : String(error)));
+          throw new Error(terminalText(errorText(error)));
         }
       };
       if (key === "getAvailableSnapshot") return () => target.getAvailableSnapshot()
