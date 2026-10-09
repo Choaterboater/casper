@@ -61,7 +61,7 @@ test("/verify with nothing to run says so in one line and points at the folder w
     const report = await casper.runOnce("/verify", docs);
     // Nothing ran: a script still gets exit 2 (a CI gate never passes on nothing), in plain words, not "Incomplete".
     expect(taskExitCode(report, casper.getLastTaskResult())).toBe(2);
-    expect(receiptEvent(report, undefined, 2).verdict).toBe('• Not checked — no tests yet. Say "add tests".');
+    expect(receiptEvent(report, undefined, 2).verdict).toBe('– Not checked — no tests yet. Say "add tests".');
     const text = output();
     expect(text).toContain("[verify] No checks found in Documents. Tests found in sample-tools: /project sample-tools\n");
     expect(text).not.toContain("has no command");

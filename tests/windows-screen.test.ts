@@ -104,7 +104,7 @@ const quietFooter = (s: ConptySession) => !/\d+s │/.test(footer(s)) && !footer
 /** Casper waits for a line: the idle footer (no state mark, │ between parts; the first frame's "Casper · / for
  * commands" comes before Casper reads keys) and an empty editor. Wait for a command's own output first: just after
  * Enter the footer still shows the idle from before. */
-const idle = (s: ConptySession) => s.waitFor("idle footer", () => quietFooter(s) && footer(s).includes(" │ ") && /^❯\s*$/m.test(s.visible()));
+const idle = (s: ConptySession) => s.waitFor("idle footer", () => quietFooter(s) && footer(s).includes(" │ ") && /^[❯>]\s*$/m.test(s.visible()));
 /** A choice box ignores keys for a moment after it opens, so a key typed early can't answer it. */
 const boxReady = () => Bun.sleep(600);
 /** Separator lines drawn across the whole screen at this width. */
@@ -177,10 +177,11 @@ conpty("ConPTY: numbered sign-in with hidden key entry, /settings, /resume picke
   s.send("/settings\n");
   await s.until("Pick one to change:");
   await s.waitFor("row 1 highlighted", () => /→ +1 Done/.test(s.visible()));
-  // Past nine rows every row keeps its number: the last one is typed, then Enter.
-  await s.waitFor("the last row numbered", () => /\b\d\d Private ssh passwords/.test(s.visible()));
-  expect(s.visible()).toMatch(/Type 1-\d\d \+ Enter or Up\/Down \+ Enter · type to answer · Esc skip/);
-  const last = /\b(\d\d) Private ssh passwords/.exec(s.visible())![1]!;
+  // Past nine rows every row keeps its number: the last one (Private ssh passwords) is typed, then Enter. A list taller
+  // than the window shows the rows around the highlighted one and counts the rest.
+  await s.waitFor("the list's hint", () => /Type 1-\d\d \+ Enter/.test(s.visible()));
+  expect(s.visible()).toMatch(/Type 1-\d\d \+ Enter or Up\/Down \+ Enter · Esc skip/);
+  const last = /Type 1-(\d\d) \+ Enter/.exec(s.visible())![1]!;
   await boxReady();
   s.send(`${last}\n`);
   await s.until("When ssh you allowed asks for a password");
@@ -189,7 +190,8 @@ conpty("ConPTY: numbered sign-in with hidden key entry, /settings, /resume picke
   await s.untilNew("Pick one to change:");
   await boxReady();
   s.press("escape");
-  await s.until("(skipped)");
+  // A closed list leaves one line, never its rows.
+  await s.until("(saved in ~/.casper/config.yaml for you) — skipped");
   await idle(s);
 
   s.send("hello one\n");
@@ -222,6 +224,8 @@ conpty("ConPTY: Enter during a task steers it, Ctrl+C stops a task, and Ctrl+C t
   s.send("slow one\n");
   // Steering needs the model call under way; a line typed before that is queued (the next test).
   await s.waitFor("the model call", () => requests.includes("slow one"));
+  // The model has not answered at all yet: the box still says what Casper waits for.
+  await s.until("Waiting for fixture/fixture");
   s.send("also this\n");
   await s.until("↳ sent to Casper");
   release();
@@ -255,7 +259,7 @@ conpty("ConPTY: a resize redraws at the new width, also with a choice box open",
   expect(s.visible()).toContain("Up/Down + Enter");
   await boxReady();
   s.press("escape");
-  await s.until("(skipped)");
+  await s.until("— skipped");
   await idle(s);
 
   s.resize(40, 15);
@@ -288,6 +292,23 @@ conpty("ConPTY: Windows Terminal gets rounded corners and color, the old console
     expect(await exitWith(s, () => s.send("/exit\n"))).toBe(0);
   }
 }, 180_000);
+
+conpty("ConPTY: the old console draws every mark in ASCII, not only the spinner", async () => {
+  const { s } = await startCasper({ terminal: "old-console" });
+  s.send("make hello\n");
+  await s.until("+ write · hello.txt");
+  await idle(s);
+  s.send("run mkdir\n");
+  await s.until("> 1 No");
+  await boxReady();
+  s.press("escape");
+  await s.until("o bash · mkdir made — not run");
+  await idle(s);
+  // Live, the old console showed ❯ → ✓ ▌ • ↳ ○ … while only the spinner fell back.
+  expect(s.visible()).toMatch(/^> make hello/m);
+  for (const mark of ["❯", "✓", "✗", "→", "↳", "▌", "•", "○", "…", "–", "⠋"]) expect(s.raw).not.toContain(mark);
+  expect(await exitWith(s, () => s.send("/exit\n"))).toBe(0);
+}, 120_000);
 
 conpty("ConPTY: a line typed during work is queued, and Esc stops the task and gives it back", async () => {
   // The scripted app (tests/fixtures/terminal-app.ts): its runtime can't steer, so a line during work is queued.

@@ -107,7 +107,7 @@ test("casper \"/security-review ai\" runs one read-only review child on the revi
   expect(out).toContain("It runs on fixture/reviewer (your review model): at least about");
   expect(out).toContain("Running it because you asked with /security-review ai.");
   expect(out).toContain(`app/extra.py:4  cmd goes into a shell command. Example input: cmd = "ls; id"  ${MODEL_FINDING_LABEL}`);
-  expect(out).toContain("The AI review used about 4k tokens (≈ $0.01, the catalog's estimate).");
+  expect(out).toContain("The AI review used about 4.3k tokens (≈ $0.01, the catalog's estimate).");
   // --json: the receipt carries what the review spent, never "no usage".
   expect(f.app.getLastTaskResult()).toBeUndefined();
   expect(receiptEvent(undefined, undefined, 0, undefined, f.app.commandUsage()).usage).toEqual({ turns: 1, tokens: 4_321, estimatedCost: 0.0123 });

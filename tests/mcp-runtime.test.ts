@@ -67,7 +67,7 @@ test("each progress message restarts the call clock; a silent call still times o
   const done = await mcp.call("generic", "progress_read", {});
   expect(JSON.stringify(done)).toContain('\\"job\\":\\"done\\"');
   const started = performance.now();
-  expect((await rejection(mcp.call("generic", "slow_read", {}))).message).toContain("No answer from generic in 0.5 s. It may have run. Do not retry on your own; tell the user.");
+  expect((await rejection(mcp.call("generic", "slow_read", {}))).message).toContain("No answer from generic in 0.5s. It may have run. Do not retry on your own; tell the user.");
   expect(performance.now() - started).toBeLessThan(1500);
 });
 
@@ -79,7 +79,7 @@ test("the hard cap stops a call that reports progress forever", async () => {
   const failure = await mcp.call("generic", "progress_forever", {}, undefined, { onClock: (value) => { clock = value; } })
     .then(() => undefined, (error: Error) => error);
   const took = performance.now() - started;
-  expect(failure?.message).toBe("generic was still working after 1 s and was stopped. It may have run. Do not retry on your own; tell the user.");
+  expect(failure?.message).toBe("generic was still working after 1s and was stopped. It may have run. Do not retry on your own; tell the user.");
   expect(clock?.reason()).toBe("hard");
   expect(took).toBeGreaterThanOrEqual(950);
   expect(took).toBeLessThan(2000);
@@ -92,7 +92,7 @@ test("each server has its own call limit", async () => {
   const started = performance.now();
   const quick = mcp.call("quick", "slow_read", {}).then(() => "done", (error: Error) => error.message);
   const patient = mcp.call("patient", "slow_read", {}).then(() => "done", (error: Error) => error.message);
-  expect(await quick).toContain("No answer from quick in 0.4 s");
+  expect(await quick).toContain("No answer from quick in 0.4s");
   expect(performance.now() - started).toBeLessThan(1000);
   expect(await Promise.race([patient, Bun.sleep(600).then(() => "still waiting")])).toBe("still waiting");
 });
@@ -271,8 +271,8 @@ test("/mcp shows each server's limits and, for a failed start, the server's last
   const error = await app.runOnce("/mcp connect broken", project).then(() => undefined, (caught: Error) => caught);
   expect(output).not.toContain("limits:");
   await app.runOnce("/mcp detail");
-  expect(output).toContain("  limits: start 20 s · call 90 s");
-  expect(output).toContain("  limits: start 20 s · call 400 s");
+  expect(output).toContain("  limits: start 20s · call 1m30s");
+  expect(output).toContain("  limits: start 20s · call 6m40s");
   expect(output).toContain("  Last lines from the server:\n");
   // The reason comes once, after the server's own lines, as the command's error.
   expect(error?.message).toBe("broken did not start: The server stopped while starting (exit code 1).");
@@ -446,7 +446,7 @@ test("a timeout after progress names the last progress message, with secrets hid
   const mcp = manager([definition()], { callTimeoutMs: 400 });
   await mcp.connect("generic");
   const failure = await mcp.call("generic", "progress_then_silent_read", {}).then(() => undefined, (error: Error) => error.message);
-  expect(failure).toStartWith("No answer from generic in 0.4 s. It may have run. Do not retry on your own; tell the user. Last progress: waiting for token=");
+  expect(failure).toStartWith("No answer from generic in 0.4s. It may have run. Do not retry on your own; tell the user. Last progress: waiting for token=");
   expect(failure).toEndWith(" on router1.");
   expect(failure).not.toContain("abc123");
 });
@@ -455,7 +455,7 @@ test("/mcp says plainly when a server gives no answer while starting, or stops a
   // Only the stalling server gets the short start limit: the other must start (on a loaded machine too) to show a stop.
   const mcp = manager([definition("stall", "stall", { limits: { connectMs: 400 } }), definition()]);
   await mcp.connect("stall");
-  expect(mcp.status()[0]).toMatchObject({ state: "failed", error: "No answer in 0.4 s while starting." });
+  expect(mcp.status()[0]).toMatchObject({ state: "failed", error: "No answer in 0.4s while starting." });
   await mcp.connect("generic");
   await mcp.call("generic", "crash_read", {}).catch(() => {});
   expect(mcp.status()[1]?.error).toBe("The server stopped (exit code 0). Next task may restart it.");

@@ -11,7 +11,7 @@ import { ignoreState, missingSecurityTools, readRepoText, SecurityCheck, type Se
 import { approveIgnore, approveIgnoreFile, removeApproval, removeFileApproval } from "../security/suppressions";
 import { SECURITY_TOOLS } from "../security/tools";
 import type { IgnoreEntry, SecurityFinding } from "../security/types";
-import { redactPreview, terminalText } from "../tui/format";
+import { formatCost, formatTokens, redactPreview, terminalText } from "../tui/format";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 import type { SubagentResult, SecurityReviewRunOptions } from "../agents/manager";
@@ -247,7 +247,7 @@ async function aiReview(host: SecurityReviewHost, report: SecurityReport, explic
     return;
   }
   const spent = result.usage
-    ? `The AI review used about ${result.usage.tokens >= 1000 ? `${Math.round(result.usage.tokens / 1000)}k` : result.usage.tokens} tokens${result.usage.estimatedCost > 0 ? ` (≈ $${result.usage.estimatedCost < 0.01 ? result.usage.estimatedCost.toFixed(4) : result.usage.estimatedCost.toFixed(2)}, the catalog's estimate)` : ""}.`
+    ? `The AI review used about ${formatTokens(result.usage.tokens)} tokens${result.usage.estimatedCost > 0 ? ` (≈ ${formatCost(result.usage.estimatedCost)}, the catalog's estimate)` : ""}.`
     : "The AI review used tokens; the provider did not report how many.";
   if (result.status === "cancelled") { host.write(`AI review stopped before it finished. Nothing it found is shown. ${spent}\n`); return; }
   const raw = parseModelFindings(result.response);

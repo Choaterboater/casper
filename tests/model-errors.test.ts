@@ -64,17 +64,17 @@ test("the [error] line says the cause in plain words; Ctrl+T shows the provider'
 test("the receipt's next step follows the cause, not always another model", () => {
   const next = (modelError: Parameters<typeof formatReceipt>[0]["modelError"], surface: "interactive" | "one-shot") =>
     formatReceipt({ execution: "failed", changedPaths: [], ...(modelError ? { modelError } : {}) }, { surface }).split("\n").at(-1);
-  expect(next("key", "interactive")).toBe("• Next: /login to sign in again");
-  expect(next("key", "one-shot")).toBe("• Next: run casper and type /login");
-  expect(next("credits", "interactive")).toBe("• Next: add credits on the provider's site, or /model to pick another model");
-  expect(next("rate", "interactive")).toBe("• Next: wait a minute, then ask again");
-  expect(next("rate", "one-shot")).toBe("• Next: wait a minute, then run it again");
-  expect(next("offline", "interactive")).toBe("• Next: check your internet connection, then ask again");
-  expect(next("refused", "interactive")).toBe("• Next: check the key with /login, or /model to pick a model your account can use");
-  expect(next("refused", "one-shot")).toBe("• Next: run casper and type /login to check the key, or casper --model <provider/id> \"…\" to use another model");
-  expect(next("context", "interactive")).toBe("• Next: /compact, then ask again");
-  expect(next("model", "interactive")).toBe("• Next: /model to try another model, then ask again");
-  expect(next(undefined, "interactive")).toBe("• Next: /model to try another model, then ask again");
+  expect(next("key", "interactive")).toBe("– Next: /login to sign in again");
+  expect(next("key", "one-shot")).toBe("– Next: run casper and type /login");
+  expect(next("credits", "interactive")).toBe("– Next: add credits on the provider's site, or /model to pick another model");
+  expect(next("rate", "interactive")).toBe("– Next: wait a minute, then ask again");
+  expect(next("rate", "one-shot")).toBe("– Next: wait a minute, then run it again");
+  expect(next("offline", "interactive")).toBe("– Next: check your internet connection, then ask again");
+  expect(next("refused", "interactive")).toBe("– Next: check the key with /login, or /model to pick a model your account can use");
+  expect(next("refused", "one-shot")).toBe("– Next: run casper and type /login to check the key, or casper --model <provider/id> \"…\" to use another model");
+  expect(next("context", "interactive")).toBe("– Next: /compact, then ask again");
+  expect(next("model", "interactive")).toBe("– Next: /model to try another model, then ask again");
+  expect(next(undefined, "interactive")).toBe("– Next: /model to try another model, then ask again");
 });
 
 test("a run that fails on a rejected key ends with /login as the next step", async () => {

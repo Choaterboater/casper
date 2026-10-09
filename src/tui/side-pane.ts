@@ -32,8 +32,12 @@ export interface SidePaneOptions {
 const HEADER = "Casper · steps and helpers (view only; closes when Casper exits)\n";
 /** A long session's log starts over past this size; the pane shows only its end anyway. */
 const MAX_LOG_BYTES = 2 * 1024 * 1024;
-/** "Waiting for model · 12s": the running timer is not news. */
-const TIMER = / · \d+(?:m\d{2})?s$/;
+/** "Waiting for model · 12s", "Reasoning · 3.0k chars": a running timer or a growing size is not news. */
+const TIMER = / · (?:\d+(?:\.\d)?s|\d+m(?:\d{2}s)?|\d+h(?:\d{2}m)?|\d+(?:\.\d)?k? chars)$/;
+/** A running command's latest output line (the Working box's "↳ " line). */
+const TAIL = "↳ ";
+/** Output lines remembered for one command at most; past it the pane forgets them (a long build's log). */
+const MAX_REMEMBERED = 1000;
 
 /** POSIX single quotes: the pane's script runs under /bin/sh, never the user's own shell. */
 function quote(text: string): string { return `'${text.replaceAll("'", "'\\''")}'`; }
@@ -88,15 +92,17 @@ export class SidePane implements ActivityPane {
   }
 
   show(lines: readonly string[]): void {
-    for (const line of lines) {
-      const key = line.replace(TIMER, "");
+    const keys = lines.map(line => line.replace(TIMER, ""));
+    for (const key of keys) {
       if (this.shown.has(key)) continue;
       this.shown.add(key);
       this.log(key);
     }
-    // Only the box's current lines matter for what is new next time.
-    const current = new Set(lines.map(line => line.replace(TIMER, "")));
-    for (const key of this.shown) if (!current.has(key)) this.shown.delete(key);
+    // Only the box's current lines matter for what is new next time. Output lines are kept while a command still
+    // shows output, so a line that comes back (a repeated ping reply) is not logged twice.
+    const current = new Set(keys);
+    const output = keys.some(key => key.startsWith(TAIL)) && this.shown.size < MAX_REMEMBERED;
+    for (const key of this.shown) if (!current.has(key) && !(output && key.startsWith(TAIL))) this.shown.delete(key);
   }
 
   log(line: string): void {

@@ -84,7 +84,7 @@ test("on iTerm2 Casper asks once before the first task (1 keeps one window) and 
     app.input.write("say hi\r");
     await app.until(text => text.includes("Show Casper's steps in a split"));
     app.input.write("1");
-    await app.until(text => text.includes("✓ No, keep one window"));
+    await app.until(text => text.includes("→ No, keep one window"));
     await waitUntil(async () => await readPaneSetting(app.home) !== undefined);
     expect(await readPaneSetting(app.home)).toBe("off");
     const asked = app.screen().split("Show Casper's steps in a split").length;

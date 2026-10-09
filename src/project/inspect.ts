@@ -37,10 +37,18 @@ export async function inspectProject(cwd: string): Promise<ProjectInfo> {
   return {
     cwd: resolvedCwd,
     root,
-    name: path.basename(root),
+    name: folderName(root),
     gitBranch,
     isGit: Boolean(gitRoot),
   };
+}
+
+/** The folder's name as the banner, footer and title show it, never empty: "~" for the home folder, and the root
+ * itself ("C:\\", "/") for the top of a drive. */
+export function folderName(root: string, home = os.homedir()): string {
+  const resolved = path.resolve(root);
+  if (home && resolved === path.resolve(home)) return "~";
+  return path.basename(resolved) || resolved;
 }
 
 /** True when the directory carries a project marker (git or any recognized project file). */

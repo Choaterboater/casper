@@ -15,7 +15,7 @@ export const LOOK_PAGES = 2;
 export const SHOW_PAGES_QUESTION = "Casper took screenshots of the changed pages. Show them to the AI so it can check how they look?";
 export const SHOW_PAGES_CHOICES = [
   { label: "No", description: "the screenshots stay on the receipt; no tokens" },
-  { label: "Yes, show the AI the pages", description: "for this session; each look uses tokens (/settings changes it)" },
+  { label: "Yes, show the AI the pages", description: "for this session (/settings changes it)" },
 ] as const;
 
 export interface PageLook { images: RuntimeImage[]; shown: Array<{ path: string; views: string[] }> }

@@ -102,7 +102,7 @@ test("the AI review's ask comes after the tools, shows the cost with Stop first,
   const ask = s.asked.find((question) => question.startsWith("Next: the AI can read"));
   expect(ask).toBeDefined();
   expect(ask).toContain("(changes since main");
-  expect(ask).toMatch(/It runs on fixture\/reviewer: at least about \d+k? tokens, ≈ \$[\d.]+, up to 30 steps and 10 minutes\./);
+  expect(ask).toMatch(/It runs on fixture\/reviewer: at least about [\d.]+k? tokens, ≈ \$[\d.]+, up to 30 steps and 10 minutes\./);
   expect(ask).toContain("Key and .env files and files gitleaks flagged are kept from it");
   expect(ask).toContain("Its findings are its opinion, not checked by a tool.");
   expect(ask!.endsWith("1 Stop here · 2 Run the AI review")).toBe(true);
@@ -136,7 +136,7 @@ test("Run the AI review: one bounded child reads the changed files; only real fi
   expect(out).toContain(`  app/extra.py:4  cmd goes into a shell command. Example input: cmd = "ls; cat /etc/passwd"  ${MODEL_FINDING_LABEL}`);
   expect(out).toContain("3 AI findings not shown: no real file:line here or no example input.");
   expect(out).not.toContain("a secret file");
-  expect(out).toContain("The AI review used about 23k tokens (≈ $0.07, the catalog's estimate).");
+  expect(out).toContain("The AI review used about 23.5k tokens (≈ $0.07, the catalog's estimate).");
   expect(out).toContain(AI_REVIEW_TAIL);
   expect(out).not.toMatch(/\bsecure\b|\bsafe\b/i);
 });

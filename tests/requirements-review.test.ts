@@ -106,25 +106,25 @@ const task = (review: TaskResult["review"]): TaskResult => ({ execution: "comple
   proof: { status: "proven", check: "test", command: "bun test", testsChanged: true, without: { exitCode: 1, ended: "fail" } } });
 
 test("the receipt reports the review as the model's own claim, and admitted gaps are not verified", () => {
-  expect(formatReceipt(task({ done: ["a", "b"], open: [] }))).toContain("• The model's review: all 2 requirements covered (its own claim, not checked by Casper)");
+  expect(formatReceipt(task({ done: ["a", "b"], open: [] }))).toContain("– The model's review: all 2 requirements covered (its own claim, not checked by Casper)");
   expect(formatReceipt(task({ done: ["a"], open: ["handshake timeout — not implemented"] })))
     .toContain("⚠ The model's review says not done: handshake timeout — not implemented");
-  expect(formatReceipt(task({ missing: true }))).toContain("• The model's review returned no checklist");
+  expect(formatReceipt(task({ missing: true }))).toContain("– The model's review returned no checklist");
   // With a count, the delta answer reports all m requirements and how many gaps the review fixed.
   expect(formatReceipt(task({ fixed: [], open: [], covered: 7, total: 7 })))
-    .toContain("• The model's review: all 7 requirements covered (no gaps found; its own claim, not checked by Casper)");
+    .toContain("– The model's review: all 7 requirements covered (no gaps found; its own claim, not checked by Casper)");
   expect(formatReceipt(task({ fixed: ["a — t"], open: [], covered: 4, total: 4 })))
-    .toContain("• The model's review: all 4 requirements covered (1 gap fixed; its own claim, not checked by Casper)");
+    .toContain("– The model's review: all 4 requirements covered (1 gap fixed; its own claim, not checked by Casper)");
   expect(formatTaskResult(task({ fixed: ["a — t", "b — t"], open: [], covered: 4, total: 4 })))
-    .toContain("review       • The model's review: all 4 requirements covered (2 gaps fixed; its own claim, not checked by Casper)");
+    .toContain("review       – The model's review: all 4 requirements covered (2 gaps fixed; its own claim, not checked by Casper)");
   // A count short of the total is not "all covered", even with no open line listed; open lines still decide the outcome.
   const short = formatReceipt(task({ fixed: ["a — t"], open: [], covered: 5, total: 6 }));
-  expect(short).toContain("• The model's review: 5 of 6 requirements covered (1 gap fixed; its own claim, not checked by Casper)");
+  expect(short).toContain("– The model's review: 5 of 6 requirements covered (1 gap fixed; its own claim, not checked by Casper)");
   expect(short).not.toContain("all 6");
   expect(taskOutcome(undefined, task({ fixed: [], open: [], covered: 5, total: 6 }))).toBe("verified");
   // "all covered" without a count: all covered, no number.
   expect(formatReceipt(task({ fixed: [], open: [] })))
-    .toContain("• The model's review: all requirements covered (no gaps found; its own claim, not checked by Casper)");
+    .toContain("– The model's review: all requirements covered (no gaps found; its own claim, not checked by Casper)");
   expect(formatReceipt(task({ fixed: [], open: ["b — no option"], covered: 3, total: 4 }))).toContain("⚠ The model's review says not done: b — no option");
   expect(taskOutcome(undefined, task({ fixed: [], open: ["b"], covered: 3, total: 4 }))).toBe("not_verified");
   expect(taskOutcome(undefined, task({ fixed: [], open: [], covered: 4, total: 4 }))).toBe("verified");
@@ -134,7 +134,7 @@ test("the receipt reports the review as the model's own claim, and admitted gaps
 });
 
 test("a review stopped at its own turn budget is reported as such; only open items make the change not verified", () => {
-  const budget = "• The model's review stopped at its 12-turn budget (its own claim so far, not checked by Casper)";
+  const budget = "– The model's review stopped at its 12-turn budget (its own claim so far, not checked by Casper)";
   expect(formatReceipt(task({ missing: true, incomplete: true }))).toContain(budget);
   expect(formatReceipt(task({ missing: true, incomplete: true }))).not.toContain("returned no checklist");
   const partial = formatReceipt(task({ done: ["a"], open: ["b — not tested yet"], incomplete: true }));

@@ -16,10 +16,10 @@ import type { ChildProject } from "../project/child";
 import type { RuntimeImage, RuntimeSession } from "../runtime/types";
 import { formatSelectedSkills } from "../skills/registry";
 import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "../task/classify";
-import { answerClaimsBrowserPass, formatShortReceipt, undoPathsShown, formatTaskResult, type TaskResult } from "../task/result";
+import { answerClaimsBrowserPass, formatShortReceipt, undoPathsShown, formatTaskResult, UNDO_NOT_PROJECT, type TaskResult } from "../task/result";
 import { TaskObservations } from "../task/observations";
 import { isToolCallAsText, TOOL_CALL_AS_TEXT_LINE } from "../task/text-tool-call";
-import { diffSnapshots, type TreeChanges } from "../task/changes";
+import { diffSnapshots, tooManyFiles, type TreeChanges } from "../task/changes";
 import type { CheckName, VerificationReport } from "../verify/evidence";
 import { VerifierRegistry } from "../verify/registry";
 import { PLAN_CHOICES, PLAN_CHOICES_EDIT, PLAN_QUESTION } from "./safe-choices";
@@ -157,8 +157,18 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   // alongside, with the conversation's position (the plan turn and repairs are part of the task).
   app.snapshotFailure = undefined;
   app.snapshotBase = undefined;
-  const [before, undoStart] = await Promise.all([app.snapshotWorkspace(workspaceRoot, app.commandAbort?.signal),
-    app.taskUndo.begin(workspaceRoot, session, app.commandAbort?.signal)]);
+  // A folder too big to list (a drive's top, a home folder) is not a project: the undo copy stops at once instead of
+  // running into its time limit, and the receipt says so once.
+  const notProject = new AbortController();
+  const undoSignal = app.commandAbort ? AbortSignal.any([app.commandAbort.signal, notProject.signal]) : notProject.signal;
+  const [before, undoStart] = await Promise.all([
+    app.snapshotWorkspace(workspaceRoot, app.commandAbort?.signal).then((snapshot) => {
+      if (!snapshot && app.snapshotFailure && tooManyFiles(app.snapshotFailure)) notProject.abort();
+      return snapshot;
+    }),
+    app.taskUndo.begin(workspaceRoot, session, undoSignal)]);
+  // An undo copy that finished before the snapshot failed is kept: only a copy that was not made says why this way.
+  if (notProject.signal.aborted && "unavailable" in undoStart.snapshot) undoStart.snapshot = { unavailable: UNDO_NOT_PROJECT };
   edits.before = before;
   app.snapshotBase = before;
   // What the test command means before the change (package.json scripts, runner settings): a change that rewrites
@@ -187,7 +197,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     // Editing needs the rich editor; the plain terminal offers the other two.
     if (!app.terminal.rich) panel.options = panel.options.filter((option) => option.choice !== "edit");
     app.events.ensureLineBreak();
-    const picked = await app.terminal.pick(panel.question, panel.options.map(({ label, description }) => ({ label, description })), app.commandAbort?.signal);
+    const picked = await app.terminal.pick(panel.question, panel.options.map(({ label, description }) => ({ label, description })), app.commandAbort?.signal, { typed: true });
     if (app.closing || app.commandAbort?.signal.aborted) return;
     const answer = readBeforeWorkAnswer(panel, picked === undefined ? undefined : [picked]);
     if (answer.kind === "plan-first") { planFirst = true; await planState.recordChosen(planOffer.id).catch(() => {}); }
@@ -297,7 +307,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         scopes: context.model.verificationScopes, named: context.model.namedChecks, detected: autoDetectedChecks(context.model), changedPaths: edited, root: workspaceRoot }).run : [];
       if (failedChecks.length) {
         app.events.ensureLineBreak();
-        app.output.write(`… Casper checking the edits the model made before it failed: ${failedChecks.join(", ")}\n`);
+        app.output.write(`• Casper checking the edits the model made before it failed: ${failedChecks.join(", ")}\n`);
         verification = await runVerification(app, failedChecks, false, prompt, app.checkTask);
       }
     }
@@ -319,7 +329,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       if (autoChecks.run.length || app.checkTask.checks.length || smokeDue || pagesDue) {
         const pending = [...new Set([...autoChecks.run, ...app.checkTask.checks]), ...(smokeDue ? ["smoke"] : []), ...(pagesDue ? ["pages"] : [])];
         app.events.ensureLineBreak();
-        app.output.write(`… Casper checking: ${pending.join(", ")}\n`);
+        app.output.write(`• Casper checking: ${pending.join(", ")}\n`);
         verification = await runVerification(app, autoChecks.run, true, prompt, app.checkTask);
         // A model that sees pictures may look at the changed pages once (showPages); its fixes are checked again.
         let afterLook: Map<string, string> | undefined;
@@ -422,8 +432,10 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       app.terminal.endAssistant();
       app.events.ensureLineBreak();
       if (wroteToolCall) app.output.write(`${TOOL_CALL_AS_TEXT_LINE}\n`);
-      // A question that changed nothing and ran no tests gets no receipt, like a general one.
-      const answeredOnly = changedPaths?.length === 0 && !app.lastTaskResult.testRunner;
+      // A question that changed nothing and ran no tests gets no receipt, like a general one: also in a folder too big
+      // to compare, when no tool that could change a file ran.
+      const answeredOnly = (changedPaths?.length === 0 || (!changedPaths && !observations.possibleMutations && !observations.observedEdits.length))
+        && !app.lastTaskResult.testRunner;
       // A stop at --max-turns or at the spend limit is always said on a receipt.
       if ((classification.intent !== "general" && !answeredOnly) || execution !== "completed" || wroteToolCall || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
         || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand) {
@@ -465,7 +477,7 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
   const flow = await loadFlow(app, "plan-first");
   if (!flow) { app.output.write("[plan] The plan-first flow could not be loaded; nothing was built.\n"); return "stop"; }
   app.events.ensureLineBreak();
-  app.output.write("… Casper planning first: the model reads and writes a plan; Casper blocks the file changes it can see until you choose Build\n");
+  app.output.write("• Casper planning first: the model reads and writes a plan; Casper blocks the file changes it can see until you choose Build\n");
   const before = await app.snapshotWorkspace(root, signal);
   app.lastAnswer = "";
   app.planning = true;
@@ -480,7 +492,7 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
   const after = before && !app.closing ? await app.snapshotWorkspace(root) : undefined;
   const diff = before && after ? diffSnapshots(before, after) : undefined;
   const changed = diff ? [...diff.added, ...diff.modified, ...diff.removed].sort() : undefined;
-  if (changed?.length) app.output.write(`• Changed while planning: ${changed.map((file) => terminalText(file)).join(", ")}\n`);
+  if (changed?.length) app.output.write(`– Changed while planning: ${changed.map((file) => terminalText(file)).join(", ")}\n`);
   if (app.taskRuntimeFailed) { app.output.write("[plan] The model failed while planning; nothing was built.\n"); return "stop"; }
   const parsed = extractPlan(app.lastAnswer);
   if (!parsed.steps.length) {
@@ -547,7 +559,7 @@ export async function makeChecklist(app: CasperApp, complete: NonNullable<Runtim
   if (app.closing || app.commandAbort?.signal.aborted) return undefined;
   if ("error" in result) {
     app.events.ensureLineBreak();
-    app.output.write(`• Checklist not made: ${lineText(result.error)}\n`);
+    app.output.write(`– Checklist not made: ${lineText(result.error)}\n`);
     app.steps.skip("checklist"); app.terminal.setSteps(app.steps.text());
     return undefined;
   }
@@ -561,7 +573,7 @@ export async function makeChecklist(app: CasperApp, complete: NonNullable<Runtim
   // Made quietly: the cases are not printed before work. The receipt names one only when it is not met, and
   // /receipt lists them all. A list cut short still says so.
   if (!options.cases) {
-    if (result.dropped) { app.events.ensureLineBreak(); app.output.write(`• Checklist kept ${result.cases.length} cases; ${result.dropped} more ${result.dropped === 1 ? "was" : "were"} left out\n`); }
+    if (result.dropped) { app.events.ensureLineBreak(); app.output.write(`– Checklist kept ${result.cases.length} cases; ${result.dropped} more ${result.dropped === 1 ? "was" : "were"} left out\n`); }
     return result.cases;
   }
   // "Edit the cases first" on the plan-first panel: the user corrects the list before the model sees it.
@@ -590,7 +602,7 @@ export async function acceptChange(app: CasperApp, input: { session: RuntimeSess
   const now = await app.snapshotWorkspace(input.root);
   if (!now) return { status: "error", reason: "Casper could not compare the workspace", mode };
   app.events.ensureLineBreak();
-  app.output.write("… Casper checking the change against tests written from the request alone\n");
+  app.output.write("• Casper checking the change against tests written from the request alone\n");
   phase(app, "acceptance", "start");
   try {
     app.events.labelChecks("tests written from the request alone");
@@ -674,7 +686,7 @@ export async function proveChange(app: CasperApp, input: {
         ? { status: "unavailable", check: "test", reason: input.baselineUnavailable ?? "Casper could not copy the workspace" } : undefined;
     }
     app.events.ensureLineBreak();
-    app.output.write("… Casper checking that the tests fail without the change\n");
+    app.output.write("• Casper checking that the tests fail without the change\n");
     app.events.labelChecks("tests fail without the change");
     try {
       return await input.baseline.prove({ root: input.root, changes, check: "test", command: input.command,

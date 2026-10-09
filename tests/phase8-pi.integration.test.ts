@@ -12,7 +12,9 @@ test("OpenRouter traffic carries Casper's app attribution while other providers 
   const f = await fixture(() => answer("ATTRIBUTION_FIXTURE"));
   const unattributed = await f.run([cli, "Answer without tools"]);
   expect({ exit: unattributed.exit, stderr: unattributed.stderr }).toEqual({ exit: 0, stderr: "" });
-  expect(unattributed.stdout).toContain("[model] fixture/fixture");
+  // The banner names the saved model; the first request adds no [model] line that would only repeat it.
+  expect(unattributed.stdout).toContain(" model     fixture/fixture (starts on your first request");
+  expect(unattributed.stdout).not.toContain("[model]");
   expect(f.headers).toHaveLength(1);
   expect([f.headers[0]!.get("http-referer"), f.headers[0]!.get("x-openrouter-title")]).toEqual([null, null]);
 
@@ -28,7 +30,7 @@ test("OpenRouter traffic carries Casper's app attribution while other providers 
 
   const attributed = await f.run([cli, "Answer without tools"]);
   expect({ exit: attributed.exit, stderr: attributed.stderr }).toEqual({ exit: 0, stderr: "" });
-  expect(attributed.stdout).toContain("[model] openrouter/fixture");
+  expect(attributed.stdout).toContain(" model     openrouter/fixture (starts on your first request");
   expect(f.headers).toHaveLength(2);
   const sent = f.headers[1]!;
   expect([sent.get("http-referer"), sent.get("x-openrouter-title"), sent.get("x-openrouter-categories"), sent.get("x-openrouter-app-visibility")])
@@ -162,8 +164,8 @@ needsSymlinks("ordinary parent Pi startup remains allowed when state is inside i
   const result = await f.run([cli, "Inspect this project without edits"]);
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
   expect(result.stdout).toContain("ORDINARY_PARENT_UNCHANGED");
-  expect(result.stdout).toContain("[model] fixture/fixture");
-  expect(result.stdout).toContain(" · credentials configured");
+  expect(result.stdout).toContain(" model     fixture/fixture (starts on your first request");
+  expect(result.stdout).not.toContain("credentials missing");
   expect(result.stdout).not.toContain("local-fixture-not-a-secret");
   expect(f.payloads).toHaveLength(1);
   expect(f.payloads[0]?.tools.map((tool) => tool.function.name)).toContain("bash");

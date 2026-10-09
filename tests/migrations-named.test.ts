@@ -114,7 +114,7 @@ test("after the AI adds a broken migration, Casper runs the migrations check and
   await app.start(f.dir);
   await app.runOnce("Add a ports table");
   const text = output.join("");
-  expect(text).toContain("… Casper checking: migrations\n");
+  expect(text).toContain("• Casper checking: migrations\n");
   expect(text).toContain("✗ migrations · 002_ports.sql failed — no such table: switches");
   expect(runtime.prompts[1]).toContain("Casper verification repair 1/1.");
   expect(runtime.prompts[1]).toContain("002_ports.sql failed — no such table: switches");

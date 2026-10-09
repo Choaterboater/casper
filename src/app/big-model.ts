@@ -2,7 +2,7 @@
  * answer, and the user's big model for one more repair (asked first; only a person says yes). Moved from src/app.ts. */
 
 import type { CasperApp } from "../app";
-import { terminalText } from "../tui/format";
+import { formatCost, formatTokens, terminalText } from "../tui/format";
 import type { RuntimeSession, RuntimeImage, RuntimeModelInfo, RuntimeStatus } from "../runtime/types";
 import type { TaskResult } from "../task/result";
 import type { VerificationResult } from "../verify/evidence";
@@ -209,9 +209,9 @@ export function bigModelCost(app: CasperApp, session: RuntimeSession, info?: Run
   try { tokens = session.getUsage?.().context?.tokens; } catch { tokens = undefined; }
   if (typeof tokens !== "number" || !Number.isFinite(tokens) || tokens <= 0) return { words: "uses tokens", fits: true };
   const fits = !info?.contextWindow || tokens < info.contextWindow;
-  const count = tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : String(tokens);
+  const count = formatTokens(tokens);
   const price = info?.inputCostPerMillion ? tokens * info.inputCostPerMillion / 1e6 : undefined;
-  return { fits, words: `about ${count} tokens${price !== undefined ? `, at least ≈ $${price < 0.01 ? price.toFixed(4) : price.toFixed(2)}` : ""}` };
+  return { fits, words: `about ${count} tokens${price !== undefined ? `, at least ≈ ${formatCost(price)}` : ""}` };
 }
 
 /**
@@ -233,18 +233,18 @@ export async function askBigModelRetry(app: CasperApp, failures: VerificationRes
   const picker = !big ? app.terminal.modelPickerHost() : undefined;
   if (!big && !picker) {
     app.events.ensureLineBreak();
-    app.output.write("• /model big <provider/model> sets a big model Casper can offer when repairs run out\n");
+    app.output.write("– /model big <provider/model> sets a big model Casper can offer when repairs run out\n");
     return 0;
   }
   const cost = big ? bigModelCost(app, session, big.info) : undefined;
   if (big && cost && !cost.fits) {
     app.events.ensureLineBreak();
-    app.output.write(`• Your big model ${terminalText(big.label)} can't hold this conversation (${cost.words}), so it was not offered\n`);
+    app.output.write(`– Your big model ${terminalText(big.label)} can't hold this conversation (${cost.words}), so it was not offered\n`);
     return 0;
   }
   const retry = big
     ? { label: "Retry with your big model", description: `${terminalText(big.label)} reads this conversation (${cost!.words}), then tries 1 more fix` }
-    : { label: "Retry with a bigger model", description: "pick one (uses tokens); Casper can remember it as your big model" };
+    : { label: "Retry with a bigger model", description: "pick one; Casper can remember it as your big model" };
   app.events.ensureLineBreak();
   const answer = await app.terminal.pick(question, [stop, retry], signal);
   if (answer !== retry.label || signal.aborted || app.closing) return 0;
@@ -268,7 +268,7 @@ export async function askBigModelRetry(app: CasperApp, failures: VerificationRes
   const pickedCost = bigModelCost(app, session, pickedInfo);
   if (!pickedCost.fits) {
     app.events.ensureLineBreak();
-    app.output.write(`• ${terminalText(picked)} can't hold this conversation (${pickedCost.words}), so Casper stopped here\n`);
+    app.output.write(`– ${terminalText(picked)} can't hold this conversation (${pickedCost.words}), so Casper stopped here\n`);
     return 0;
   }
   const remember = await app.terminal.pick(`Use ${terminalText(picked)} as your big model from now on?`,

@@ -142,3 +142,19 @@ test("the host command runner never goes through a shell", () => {
   const out = hostCommand()([process.execPath, "-e", "process.stdout.write(process.argv.at(-1))", "$HOME;echo x %PATH%"]);
   expect(out.stdout).toBe("$HOME;echo x %PATH%");
 });
+
+test("the pane logs each step once: a growing size, a timer or an output line that comes back is not a new line", () => {
+  const run: HostCommand = () => ({ status: 0, stdout: "%7\n" });
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "casper-pane-"));
+  cleanups.push(() => rmSync(tempDir, { recursive: true, force: true }));
+  let second = 0;
+  const pane = SidePane.open({ host: { tmux: true, tmuxPane: "%1", iterm: false }, run, tempDir, now: () => new Date(2026, 0, 1, 12, 0, ++second) })!;
+  cleanups.push(() => pane.close());
+  // Working-box frames as Casper draws them during one task.
+  const ping = "• bash · ping 15 …";
+  const less = "↳ Reply from 127.0.0.1: bytes=32 time<1ms TTL=128", one = "↳ Reply from 127.0.0.1: bytes=32 time=1ms TTL=128";
+  for (const frame of [["Reasoning"], ["Reasoning · 1.5k chars"], ["Reasoning · 3.0k chars"], ["Preparing write · 4.0k chars"], ["Preparing write · 512 chars"],
+    [ping], [ping, less], [`${ping} · 11s`, one], [`${ping} · 12s`, less], [`${ping} · 1m05s`, one], ["Waiting for fixture/fixture · 14s"]]) pane.show(frame);
+  const lines = readFileSync(pane.file, "utf8").trim().split("\n").slice(1).map(line => line.slice(9));
+  expect(lines).toEqual(["Reasoning", "Preparing write", ping, less, one, "Waiting for fixture/fixture"]);
+});

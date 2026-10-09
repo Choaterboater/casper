@@ -83,7 +83,7 @@ declared scope (see [Configuration](#configuration)) contains none of the change
 Casper could not compare the workspace, it runs every selected check.
 
 **No checks set up.** If files changed but there are no checks, the change is `not_verified`
-(`• Not checked — no tests yet. Say "add tests".`), and the model writes tests and the check when
+(`– Not checked — no tests yet. Say "add tests".`), and the model writes tests and the check when
 you ask. The startup banner shows no checks line until there is something to check; `/status`
 says `none yet; say "add tests" and Casper writes some`. The one-shot
 exit code depends on who asked for checking:
@@ -95,7 +95,7 @@ exit code depends on who asked for checking:
 **Work in a project inside the folder (from v0.2.19).** When every changed file sits in one project
 folder inside the open folder (Casper open in `~/Documents`, the work in `~/Documents/sample-tools`), and
 the open folder is not a project or git repository itself, that project's own checks run for the
-receipt: `… Casper checking: test (checks from sample-tools)` and
+receipt: `• Casper checking: test (checks from sample-tools)` and
 `✓ test passed (checks from sample-tools · python3 -m unittest discover -s tests)`. They run in the
 sandbox, once, with no repair round. Then Casper asks `The work is in ~/Documents/sample-tools.` with
 `1 Stay here · 2 Switch there`; Enter stays, and after Stay it doesn't ask about that folder again this
@@ -105,12 +105,12 @@ session. A one-shot run prints `[folder] The work is in ~/Documents/sample-tools
 **`/verify` with nothing to run (from v0.2.19)** prints one line instead of one line per check:
 `[verify] No checks found in Documents. Tests found in sample-tools: /project sample-tools`, or
 `[verify] No tests in Documents yet. Say "add tests" and Casper writes some.` when no folder inside
-has tests. The receipt says `• Not checked — no tests yet. Say "add tests".` and a one-shot run exits 2, so a script never
+has tests. The receipt says `– Not checked — no tests yet. Say "add tests".` and a one-shot run exits 2, so a script never
 passes with nothing checked. In a project that has only tests, `/verify` says
 `[verify] No typecheck, lint or build command here, so Casper runs test.` and runs that.
 
 **Bash runs do not count.** When the model runs a test through its own bash tool, Casper reports
-it but never counts it as verification (`• Not verified — test ran via bash only …`).
+it but never counts it as verification (`– Not verified — test ran via bash only …`).
 
 ## Exit codes
 
@@ -121,7 +121,7 @@ A one-shot run exits:
 | 0 | Done. A pass that later went stale, checks that passed without proving the change, or changes nobody verified, still exit 0 and the receipt says why. |
 | 1 | A check failed, checks were blocked, or the model run failed. |
 | 2 | Incomplete: a selected check was skipped (it has no command), a smoke check could not run, `--max-turns` stopped the run, Casper stopped commands to another machine, or checking was asked for and no check exists. |
-| 3 | Only with `--require-verification` (which implies `--verify`): the change was not verified. From v0.2.17 that includes checks that passed without a proof (`• Checks passed — not proven`). |
+| 3 | Only with `--require-verification` (which implies `--verify`): the change was not verified. From v0.2.17 that includes checks that passed without a proof (`– Checks passed — not proven`). |
 | 130 / 143 | Cancelled (Ctrl-C) / terminated (SIGTERM). |
 
 See [SCRIPTING.md](SCRIPTING.md#exit-codes) for the full table and the `--json` events.
@@ -140,7 +140,7 @@ check, why the change is not verified, a file undo can't put back); what went we
 line, for example:
 
 ```
-• Not verified — no configured check covers the changed files.
+– Not verified — no configured check covers the changed files.
 ✓ changed README.md
 ```
 
@@ -152,12 +152,12 @@ The full form's line 1 is the verdict, one of:
 ```
 ✓ Verified — the checks pass, and the tests fail without the change
 ✓ Verified — the checks pass; without the change the tests could not even load
-• Checks passed — not proven: a refactor should not change behavior, so no test is expected to fail without it
+– Checks passed — not proven: a refactor should not change behavior, so no test is expected to fail without it
 ✓ Checks passed — no files changed
 ✗ Failed — test failed
-✗ Not checked — test timed out, so the change was not tested
-• Incomplete — stopped after 3 turns (--max-turns); changes so far are kept; send another request to go on
-• Not verified — the tests pass without the change too
+✗ Not checked — test timed out after 10m, so the change was not tested; /verify test runs it again
+– Incomplete — stopped after 3 turns (--max-turns); changes so far are kept; send another request to go on
+– Not verified — the tests pass without the change too
 ✗ Stopped — cancelled; changes already made are kept
 ```
 
@@ -180,29 +180,29 @@ The lines below the verdict give the evidence:
 ✗ test failed (exit 1) — log above; /verify repair test to fix
 ✗ test timed out after 10m — it did not finish, so it was not checked; /verify test to run it again (a session offers more time)
 ✗ lint could not start (exit 127) — check verify.lint in .casper/project.yaml
-• Not verified — test ran via bash only (npm test: passed). Run /verify test to record a check.
-• Not checked — no tests yet. Say "add tests".
-• Not verified — stale: files changed after the last passing test. Run /verify test.
-• No files changed, so Casper ran no checks
+– Not verified — test ran via bash only (npm test: passed). Run /verify test to record a check.
+– Not checked — no tests yet. Say "add tests".
+– Not verified — stale: files changed after the last passing test. Run /verify test.
+– No files changed, so Casper ran no checks
 ✓ Proven: test fails without this change (exit 1) and passes with it
 ✓ Proven, weakly: test passes with this change; without it test crashed or was killed (exit 139) instead of failing
 ⚠ Not proven: test passes without this change too, and no test was added or changed
 ✓ Service api at 127.0.0.1:53121; smoke 2/2 passed (model-declared, run by Casper: create note failed before the change)
 ✗ Service api at 127.0.0.1:53121; smoke 0/1 passed; failed: create note (status 404, expected 201)
-• Changes unknown: this folder has over 20,000 files; open a project folder
-• Changed (seen by Casper's edit and write tools): lab.md
-• Changed on 198.51.100.20 (build-server) (from the commands Casper saw): made an API token (pveum user token add …); installed a service (/etc/systemd/system/sampleapp.service)
-• Ran commands on build-server over ssh; Casper can't tell from the command text whether they changed anything there
-• Not run on 198.51.100.20 (build-server): 3 commands Casper stopped before they reached it
-• Incomplete — commands to 198.51.100.20 (build-server) did not run
-• A secret appeared in a command; change it after this task.
+– Changes unknown: not a project folder (over 20,000 files)
+– Changed (seen by Casper's edit and write tools): lab.md
+– Changed on 198.51.100.20 (build-server) (from the commands Casper saw): made an API token (pveum user token add …); installed a service (/etc/systemd/system/sampleapp.service)
+– Ran commands on build-server over ssh; Casper can't tell from the command text whether they changed anything there
+– Not run on 198.51.100.20 (build-server): 3 commands Casper stopped before they reached it
+– Incomplete — commands to 198.51.100.20 (build-server) did not run
+– A secret appeared in a command; change it after this task.
 ```
 
 From v0.2.19 a check's time shows only from one second up (`✓ test passed (npm run test)` for a
 quick one). The lines about other machines come from the text of the AI's ssh and scp commands, not
 from the machine itself: Casper never logs in to check. They are there so a model's "nothing changed
 on the server" never stands alone. When Casper stopped commands to another machine, the task is
-never a clean pass: the verdict is `• Incomplete — commands to 198.51.100.20 (build-server) did not run`
+never a clean pass: the verdict is `– Incomplete — commands to 198.51.100.20 (build-server) did not run`
 (exit 2), even when the local checks passed.
 
 A pass marked `reused` did not run again: its declared inputs are unchanged since it passed
@@ -251,7 +251,7 @@ again, an interactive terminal asks `1 Stop · 2 Retry` (Enter stops; before v0.
 last. When the model run fails after it edited
 files, Casper still runs the checks on those edits, without a repair, and the verdict says how
 they fared (`✗ Failed — the model run failed; changes already made are kept; the checks pass on
-those changes`), followed by a `• Next:` line for the cause.
+those changes`), followed by a `– Next:` line for the cause.
 
 The `[error]` line names the cause in plain words with one next step, and Ctrl+T shows the
 provider's own message (a plain terminal prints it on the next line):
@@ -300,7 +300,7 @@ How it works:
 ✓ Independent acceptance: tests written from the request alone pass
 ✗ Independent acceptance: tests written from the request alone fail: "rejects the 6th call"
 ⚠ Not confirmed by tests written from the request: "rejects the 6th call"; "counts per key"
-• Independent acceptance not run: the acceptance answer had no test file
+– Independent acceptance not run: the acceptance answer had no test file
 ```
 
 - With `true`, a failure makes the change `not_verified` (exit 3 with `--require-verification`).
@@ -353,7 +353,7 @@ did not pass or did not run. `/receipt` lists every case.
 
 ```
 ⚠ 1 requirement not met, the model says: the 6th call within a minute is rejected — not implemented
-• 26 cases from your request not confirmed: the checks did not pass (/receipt lists them)
+– 26 cases from your request not confirmed: the checks did not pass (/receipt lists them)
 ```
 
 **Editing the list.** When Casper suggests planning first (a request with several asks), the same
@@ -371,7 +371,7 @@ Edited lines get the same limits as the model's. One-shot runs, `--json` and pla
 the cases as listed, without a pause.
 
 If the call fails or its answer has no list of cases, Casper prints one line
-(`• Checklist not made: <reason>`) and the task runs unchanged. The checklist is guidance, not
+(`– Checklist not made: <reason>`) and the task runs unchanged. The checklist is guidance, not
 evidence: the outcome and the JSON receipt's `text` do not change. The call's tokens join the task's usage,
 the JSON stream marks it with a `checklist` phase, and the JSON receipt carries `checklist` (the
 cases) or `null`.
@@ -414,11 +414,11 @@ review changed files. The receipt shows the review as **the model's own claim**,
 Casper's evidence:
 
 ```
-• The model's review: all 6 requirements covered (1 gap fixed; its own claim, not checked by Casper)
-• The model's review: 5 of 6 requirements covered (1 gap fixed; its own claim, not checked by Casper)
+– The model's review: all 6 requirements covered (1 gap fixed; its own claim, not checked by Casper)
+– The model's review: 5 of 6 requirements covered (1 gap fixed; its own claim, not checked by Casper)
 ⚠ The model's review says not done: handshake timeout — not implemented
-• The model's review returned no checklist
-• The model's review stopped at its 12-turn budget (its own claim so far, not checked by Casper)
+– The model's review returned no checklist
+– The model's review stopped at its 12-turn budget (its own claim so far, not checked by Casper)
 ```
 
 How the answer is read:
@@ -544,7 +544,7 @@ smoke runs inside the same check-and-repair loop as the command checks, after th
   a proof repair.
 - A standalone `/verify` runs only commands.
 - When the command checks still fail after the last repair, smoke never ran, and the receipt says
-  `• Smoke not run: command checks failed`.
+  `– Smoke not run: command checks failed`.
 
 **What counts.**
 
@@ -601,10 +601,10 @@ it restart before the next check. The first start in a session prints the comman
 the project's own code:
 
 ```text
-… Casper checking: typecheck, pages
-… Starting dev server: bun run dev (it runs your project's code)
+• Casper checking: typecheck, pages
+• Starting dev server: bun run dev (it runs your project's code)
 Dev server: bun run dev · http://127.0.0.1:41733 (stops when you leave Casper)
-… Casper opening changed pages: /dashboard
+• Casper opening changed pages: /dashboard
 ```
 
 The banner and `/status` name it too: `checks    typecheck, pages (bun run dev) — run after each change`.
@@ -616,7 +616,7 @@ Each page gets one receipt line:
 ✗ /dashboard · 2 console errors: TypeError: Cannot read properties of undefined (reading 'map')
 ✗ /dashboard returned 500
 ✗ /dashboard shows an error: KeyError: 'site'
-• /devices/[id] not opened: it needs a value for [id] (a fixed path can be set in .casper/project.yaml pages:)
+– /devices/[id] not opened: it needs a value for [id] (a fixed path can be set in .casper/project.yaml pages:)
 ```
 
 A page fails on a console error or an uncaught page error, an HTTP status of 400 or more, a failed
@@ -627,7 +627,7 @@ failing page is the receipt's first line (`✗ Failed — /dashboard has 2 conso
 repair as page evidence (the console text, the error line and the server's last log lines, bounded and
 with secrets hidden); the pages are planned and opened again after each repair. A page that loads says
 **loads**, never "works": a pass never makes a change **Verified**. With only page checks, the receipt
-says `• Checks passed — not proven: pages load, but no test fails without the change`; without Chrome it
+says `– Checks passed — not proven: pages load, but no test fails without the change`; without Chrome it
 says `pages answer, but their console was not checked` instead.
 
 **Screenshots.** With Chrome, Casper also saves a picture of each opened page at desktop width
@@ -648,7 +648,7 @@ first time in a session Casper asks: `1 No · 2 Yes, show the AI the pages`. The
 session; `/settings` (Show the AI the pages) makes it always or never, written as `showPages: ask|on|off`
 in `~/.casper/config.yaml` (a project file can't set it). A one-shot run never asks, so by default it
 never looks. A fix made while looking goes through the checks again, with the repairs left. The
-receipt says `• The AI looked at 2 screenshots of the pages (advice, not a check)`: what the model
+receipt says `– The AI looked at 2 screenshots of the pages (advice, not a check)`: what the model
 thinks of a picture is never evidence and never makes a change **Verified**. A model that can't see
 pictures is never sent them. The prompt names them `[screenshot 1]`, `[screenshot 2]`, apart from any
 `[image N]` you sent. Pictures are sent as they are: Casper can't hide a secret the page shows (a debug
@@ -673,10 +673,10 @@ Chrome or Chromium; Casper never downloads one). Without Chrome, Casper only fet
 CASPER_BROWSER_EXECUTABLE)`. That is never a failure.
 
 **When pages are not checked.** A project Casper can't start is a note, never a failure:
-`• Pages not checked: node_modules is missing. Run bun install first (Casper doesn't install packages)`.
+`– Pages not checked: node_modules is missing. Run bun install first (Casper doesn't install packages)`.
 A dev server that stops before it is ready, or doesn't answer on its port in time (45 s for one Casper found), makes the check
 incomplete, with the server's last lines. When the command checks still fail after the last repair, the
-pages never opened: `• Pages not checked: command checks failed`.
+pages never opened: `– Pages not checked: command checks failed`.
 
 **Turning them off for every project.** Pick **Page checks** in `/settings` (it writes `pages: off`
 in `~/.casper/config.yaml`). In your own config `pages:` is only on or off. A project file can still
@@ -735,7 +735,7 @@ checks, and with `/verify migrations` or the AI's `casper_check`.
 - The database type comes only from the project: `schema.prisma`'s provider, `drizzle.config`'s dialect,
   or a SQLite driver dependency. Casper never guesses. Postgres (including `supabase/migrations`), MySQL
   or an unknown database is never run after changes; `/verify migrations` says why:
-  `• Not verified — migrations not run: these are Postgres migrations (supabase/migrations), and Casper only has a throwaway SQLite`.
+  `– Not verified — migrations not run: these are Postgres migrations (supabase/migrations), and Casper only has a throwaway SQLite`.
 - Prisma runs `prisma migrate deploy` from the project's `node_modules` only when the schema reads its
   address from a variable; Casper points that variable at the throwaway file. Like every check, it runs
   in the shell sandbox where one runs, with no network.

@@ -228,7 +228,7 @@ test("interactive approval shows exact arguments and permits only an explicit ye
   expect(output).toContain("  1 No\n  2 Yes, this once\n  3 Yes, for this session\n  4 Yes to everything on fixture this session");
   expect(output).toContain("Type 1, 2, 3 or 4: ");
   expect(output).toContain("  site             lab\n");
-  expect(output).toContain("[approval] allowed\n");
+  expect(output).toContain("Make this change? → Yes, this once\n");
   expect(runtime.result).toContain('"site":"lab"');
   expect(runtime.result).not.toContain('"isError":true');
 });
@@ -291,14 +291,14 @@ test("interactive run: the server's question about an approved call is answered 
   expect(output).toContain("Confirm PORT BOUNCE on SG1 ports [1/1/1]?");
   // The server's question is numbered like every box: 1 No, 2 Yes.
   expect(output.slice(question)).toContain("  1 No\n  2 Yes\n");
-  expect(output).toContain("[approval] allowed");
-  expect(output).toContain("[server question] yes");
+  expect(output).toContain("Make this change? → Yes, this once\n");
+  expect(output).toContain("Confirm PORT BOUNCE on SG1 ports [1/1/1]? → Yes\n");
   expect(result).toContain("bounced");
 });
 
 test("interactive run: no to the server's question cancels the approved call", async () => {
   const { output, result } = await networkRun(["2", "1"], { id: "mcp:net:port_bounce", arguments: { serial_number: "SG1" } });
-  expect(output).toContain("[server question] no");
+  expect(output).toContain("Confirm PORT BOUNCE on SG1 ports [1/1/1]? → No\n");
   expect(result).toContain("CANCELLED");
   expect(result).not.toContain("bounced");
 });
@@ -306,7 +306,7 @@ test("interactive run: no to the server's question cancels the approved call", a
 test("interactive run: p previews first, then the box shows the preview with the PSK hidden", async () => {
   const { output, result } = await networkRun(["4", "2"], { id: "mcp:net:set_ssid", arguments: { ssid: "corp", wpa_passphrase: "hunter2hunter" } });
   expect(output).toContain("  1 No\n  2 Yes, this once\n  3 Yes, for this session\n  4 Preview first\n");
-  expect(output).toContain("[approval] preview first");
+  expect(output).toContain("Make this change? → Preview first\n");
   expect(output).toContain("Last preview (just now):");
   expect(output).toContain("  wpa_passphrase   ••• 13 chars\n");
   expect(output).not.toContain("hunter2hunter");
@@ -505,7 +505,7 @@ test("interactive run: a digit typed before the change box appeared does not ans
   // "2" (Yes, this once) is typed together with the request, before the box exists; the box is then answered 1.
   const { output, result } = await networkRun(["1"], { id: "mcp:net:set_ssid", arguments: { ssid: "corp" } }, "2\n");
   expect(output).toMatch(/\[input\] Discarded 1 line\(s\) entered before this question appeared\./);
-  expect(output).toContain("[approval] denied");
+  expect(output).toContain("Make this change? → No\n");
   expect(result).not.toContain("applied");
 });
 
@@ -514,7 +514,7 @@ test("interactive run: a server's pick-one question lists its options after 1 No
   const question = output.indexOf("net asks about the pick_question call you approved:");
   expect(question).toBeGreaterThanOrEqual(0);
   expect(output.slice(question)).toContain("  1 No\n  2 1/1/1\n  3 1/1/2\n");
-  expect(output).toContain("[server question] 1/1/2");
+  expect(output).toMatch(/\? → 1\/1\/2\n/);
   expect(result).toContain("1/1/2");
 });
 
@@ -523,7 +523,7 @@ test("interactive run: a risky kind asks first (1 No · 2 Yes, this once · 3 Ye
   const kind = output.indexOf("Admin and account changes are off by default on HPE networking.");
   expect(kind).toBeGreaterThanOrEqual(0);
   expect(output.slice(kind)).toContain("  Runs: invite user\nAllow admin and account changes on HPE networking?\n  1 No\n  2 Yes, this once\n  3 Yes, for this session\n");
-  expect(output).toContain("[approval] allowed admin and account changes on net for this session");
+  expect(output).toContain("Allow admin and account changes on HPE networking? → Yes, for this session\n");
   expect(output.indexOf("Change in HPE networking: invite user")).toBeGreaterThan(kind);
   expect(result).toContain("invite_user");
 });
@@ -534,7 +534,7 @@ test("review: the real change box for a tool the server tags as firmware offers 
   expect(box).toBeGreaterThanOrEqual(0);
   expect(output.slice(box)).toContain("  1 No\n  2 Yes, this once\n");
   expect(output.slice(box)).not.toContain("for this session");
-  expect(output).toContain("[approval] allowed\n");
+  expect(output).toContain("Make this change? → Yes, this once\n");
   expect(result).toContain("update_device_settings");
 });
 
@@ -550,14 +550,14 @@ test("interactive run: the last choice allows everything on that server this ses
   // A digit typed from habit can't grant it: it asks once more.
   expect(output).toContain("No box will ask about any change on HPE networking until Ctrl+O or the session ends.\nYes to everything on HPE networking?\n  1 No\n  2 Yes to everything\nType 1 or 2: ");
   expect(output).toContain("  5 Yes to everything on HPE networking this session (no more asking, even reboots, deletes or an AI-set confirm)\n");
-  expect(output).toContain("[approval] allowed (allow all)\n");
+  expect(output).toContain("Yes to everything on HPE networking? → Yes to everything\n");
   expect(result).toContain("applied");
   expect(app.terminal.badge).toMatch(/^ALLOW ALL: net · /);
 });
 
 test("interactive run: 1 at the allow-all check denies the change and allows nothing", async () => {
   const { output, result, app } = await networkRun(["5", "1"], { id: "mcp:net:set_ssid", arguments: { ssid: "corp" } });
-  expect(output).toContain("[approval] denied\n");
+  expect(output).toContain("Yes to everything on HPE networking? → No\n");
   expect(result).toContain("you said no");
   expect(app.allowances!.allowAllOn("net")).toBe(false);
 });

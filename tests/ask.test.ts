@@ -51,7 +51,9 @@ test("a question from the AI opens with \"The AI asks:\"; Casper's own questions
     session.input.write("2");
     expect(await fromCasper).toEqual(["Postgres"]);
     expect(Bun.stripANSI(session.screen.output)).toContain("Which database?");
-    expect(Bun.stripANSI(session.screen.output)).not.toMatch(/The AI asks:[^\r\n]*\r?\n(?:\S[^\r\n]*\r?\n)?[^\r\n]*Which database\?/);
+    // The AI's question and its record carry the label; Casper's never do.
+    expect(Bun.stripANSI(session.screen.output)).toContain("The AI asks: Casper wants to reach collector.example. Allow? → SQLite");
+    expect(Bun.stripANSI(session.screen.output)).not.toMatch(/The AI asks:[^\r\n]*Which database\?|The AI asks:\s*\r?\nWhich database\?/);
   } finally { session.close(); }
 });
 
@@ -59,17 +61,17 @@ test("pressing a choice's number picks it at once; a digit after typed text stay
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
-    const byNumber = session.terminal.ask("Which database?", OPTIONS, false);
+    const byNumber = session.terminal.ask("Which database?", OPTIONS, false, undefined, "ai");
     await session.screen.until(output => output.includes("2 Postgres"));
-    expect(Bun.stripANSI(session.screen.output)).toContain("Press 1-2 or Up/Down + Enter · type to answer · Esc skip");
+    expect(Bun.stripANSI(session.screen.output)).toContain("  3 Other — type your own answer\r\nPress 1-3 or Up/Down + Enter · Esc skip");
     session.input.write("2");
     expect(await byNumber).toEqual(["Postgres"]);
-    // A digit past the last choice is ordinary text.
-    const outOfRange = session.terminal.ask("Replicas?", OPTIONS, false);
+    // A digit past the last row (the Other row is 3) is ordinary text.
+    const outOfRange = session.terminal.ask("Replicas?", OPTIONS, false, undefined, "ai");
     await session.screen.until(output => output.includes("Replicas?"));
-    session.input.write("3 replicas\r");
-    expect(await outOfRange).toEqual(["3 replicas"]);
-    const typed = session.terminal.ask("Which version?", OPTIONS, false);
+    session.input.write("4 replicas\r");
+    expect(await outOfRange).toEqual(["4 replicas"]);
+    const typed = session.terminal.ask("Which version?", OPTIONS, false, undefined, "ai");
     await session.screen.until(output => output.includes("Which version?"));
     session.input.write("v1\r");
     expect(await typed).toEqual(["v1"]);
@@ -83,11 +85,11 @@ test("pressing a choice's number picks it at once; a digit after typed text stay
   } finally { session.close(); }
 });
 
-test("a non-numeric reply is a free-text answer", async () => {
+test("a non-numeric reply is a free-text answer to the AI's question", async () => {
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
-    const answer = session.terminal.ask("Which database?", OPTIONS, false);
+    const answer = session.terminal.ask("Which database?", OPTIONS, false, undefined, "ai");
     await session.screen.until(output => output.includes("SQLite"));
     session.input.write("SQLite with litestream\r");
     expect(await answer).toEqual(["SQLite with litestream"]);
@@ -253,7 +255,7 @@ test("a question taller than the screen stays on screen: only the highlighted op
   } finally { session.close(); }
 });
 
-test("an asked question is recorded once: the answered box stays, with no [ask] line and no ask step under it", async () => {
+test("an asked question is recorded once: one line with its answer, no [ask] line and no ask step under it", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-ask-record-"));
   const home = path.join(root, "home");
   const project = path.join(root, "project");
@@ -297,15 +299,15 @@ test("an asked question is recorded once: the answered box stays, with no [ask] 
     await screen.until(output => output.includes("Which database?"));
     input.write("\r");
     // Idle after the task, not the idle from before it: /exit typed while the task is finishing stays a draft.
-    await screen.until(output => { const text = Bun.stripANSI(output); const done = text.lastIndexOf("✓ SQLite"); return done >= 0 && text.lastIndexOf("idle") > done; });
+    await screen.until(output => { const text = Bun.stripANSI(output); const done = text.lastIndexOf("Which database? → SQLite"); return done >= 0 && text.lastIndexOf("idle") > done; });
     const repaints = screen.output.split(REPAINT).length;
     screen.writer.columns = 90; screen.writer.emit("resize");
-    await screen.until(() => screen.output.split(REPAINT).length > repaints && lastFrame(screen.output).some(line => line.startsWith("✓ SQLite")));
+    await screen.until(() => screen.output.split(REPAINT).length > repaints && lastFrame(screen.output).some(line => line.endsWith("→ SQLite")));
     const frame = lastFrame(screen.output);
-    const asked = frame.indexOf("The AI asks:");
-    // The model's own question carries "The AI asks:", so it never looks like a Casper approval. The answered box
-    // is the one record: no "[ask] SQLite" line and no ask step (running or finished) is left on the main screen.
-    expect(frame.slice(asked, asked + 4)).toEqual(["The AI asks:", "Which database?", "✓ SQLite  file-based", "• Postgres"]);
+    // The model's own question carries "The AI asks:", so it never looks like a Casper approval. Its one line is the
+    // one record: no "[ask] SQLite" line, no choices left behind and no ask step (running or finished) on the main screen.
+    expect(frame.filter(line => line.includes("Which database?"))).toEqual(["The AI asks: Which database? → SQLite"]);
+    expect(frame).not.toContain("  Postgres");
     expect(frame).not.toContain("[ask] SQLite");
     expect(frame.some(line => /^[•✓] ask(?: |$)/.test(line))).toBe(false);
   } finally {
@@ -390,13 +392,13 @@ test("an under-specified modify request carries the clarification hint, others d
   expect(inspection).not.toContain("under-specified");
 });
 
-test("an answered question's record shows the choice: a ✓ on the option, → a typed answer, or skipped", async () => {
+test("an answered question leaves one line: → the choice or the typed answer, or skipped", async () => {
   const { interactiveTerminal } = await import("./support/tty");
   process.env.TERM = "xterm-256color";
   const session = interactiveTerminal();
   try {
     session.terminal.start();
-    const typed = session.terminal.ask("Name?", [{ label: "Ann" }, { label: "Bo" }], false);
+    const typed = session.terminal.ask("Name?", [{ label: "Ann" }, { label: "Bo" }], false, undefined, "ai");
     await session.screen.until(output => output.includes("Name?"));
     session.input.write("Cy\r");
     expect(await typed).toEqual(["Cy"]);
@@ -404,9 +406,9 @@ test("an answered question's record shows the choice: a ✓ on the option, → a
     await session.screen.until(output => output.includes("Colour?"));
     session.input.write("\x1b");
     expect(await skipped).toBeUndefined();
-    await session.screen.until(output => Bun.stripANSI(output).includes("(skipped)"));
+    await session.screen.until(output => Bun.stripANSI(output).includes("Colour? — skipped"));
     const text = Bun.stripANSI(session.screen.output);
-    expect(text).toContain("→ Cy");
-    expect(text).toContain("• Red");
+    expect(text).toContain("The AI asks: Name? → Cy");
+    expect(text).not.toMatch(/^ {2}Red$/m);
   } finally { session.close(); }
 });

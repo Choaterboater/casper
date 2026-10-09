@@ -62,7 +62,7 @@ export function labCheckRunner(host: LabCheckHost, origin: "user" | "ai" = "user
 /** What each choice after a lab failure does; the repair costs tokens, and it says so before it is chosen. */
 export const LAB_FAILURE_WHY: Record<string, string> = {
   "Stop": "keep the files as they are; nothing more runs on the lab",
-  "Ask the model to fix it": "the model changes the files (uses tokens), then the check runs on the lab again",
+  "Ask the model to fix it": "the model changes the files, then the check runs on the lab again",
 };
 
 /**

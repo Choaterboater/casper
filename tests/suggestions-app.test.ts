@@ -73,7 +73,7 @@ async function fixture(options: { projectYaml: string; shell?: string }) {
     await until(() => done.test(output.slice(from)));
     return output.slice(from);
   };
-  const receipt = /(?:✓ Verified|• Not verified|• Not checked|• Checks passed|✗ Failed|• No files changed|✓ Changed)[\s\S]*\n> $/;
+  const receipt = /(?:✓ Verified|– Not verified|– Not checked|– Checks passed|✗ Failed|– No files changed|✓ Changed)[\s\S]*\n> $/;
   return { app, project, home, prompts, send, receipt, output: () => output, close: async () => {
     input.end(); await interactive; await app.close(); await removeTempDir(root);
   } };

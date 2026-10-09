@@ -87,12 +87,12 @@ test("an edited page is opened on the dev server after the change; a load is nev
   f.runtime.turns.push(async runtime => { await runtime.write(f.page, "export default function Page() { return <main>Dashboard</main>; }\n"); });
   await f.app.runOnce("Add a dark mode toggle to the dashboard");
   const receipt = f.text();
-  expect(receipt).toContain("… Casper checking: pages\n");
-  expect(receipt).toContain("… Starting dev server: ");
+  expect(receipt).toContain("• Casper checking: pages\n");
+  expect(receipt).toContain("• Starting dev server: ");
   expect(receipt).toMatch(/Dev server: .*server\.ts · http:\/\/127\.0\.0\.1:\d+ \(stops when you leave Casper\)/);
-  expect(receipt).toContain("… Casper opening changed pages: /dashboard");
+  expect(receipt).toContain("• Casper opening changed pages: /dashboard");
   expect(receipt).toContain("✓ /dashboard loads · 0 console errors");
-  expect(receipt).toContain("• Checks passed — not proven: pages load, but no test fails without the change");
+  expect(receipt).toContain("– Checks passed — not proven: pages load, but no test fails without the change");
   expect(receipt).not.toContain("✓ Verified");
   expect(f.opener.urls).toEqual([expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/dashboard$/)]);
   expect(f.phases()).toEqual(["task:start", "task:end", "checks:start", "pages:start", "pages:end", "checks:end"]);
@@ -151,7 +151,7 @@ test("a web project Casper can't start says why the pages were not checked, with
   const f = await fixture({}, { declare: false, manifest: { name: "web", scripts: { dev: "vite --open" }, devDependencies: { vite: "6.0.0", react: "19.0.0" } } });
   f.runtime.turns.push(async runtime => { await runtime.write(path.join(f.project, "src/App.tsx"), "export default 1;\n"); });
   await f.app.runOnce("Make the sidebar collapse on small screens");
-  expect(f.text()).toContain("• Pages not checked: node_modules is missing. Run npm install first (Casper doesn't install packages)");
+  expect(f.text()).toContain("– Pages not checked: node_modules is missing. Run npm install first (Casper doesn't install packages)");
   expect(f.text()).not.toContain("✗ Failed");
   expect(f.opener.urls).toEqual([]);
 }, 30_000);
@@ -160,7 +160,7 @@ test("a changed page that needs a value is listed, not opened", async () => {
   const f = await fixture();
   f.runtime.turns.push(async runtime => { await runtime.write(path.join(f.project, "app/devices/[id]/page.tsx"), "export default 1;\n"); });
   await f.app.runOnce("Show the device name on its page");
-  expect(f.text()).toContain("• /devices/[id] not opened: it needs a value for [id] (a fixed path can be set in .casper/project.yaml pages:)");
+  expect(f.text()).toContain("– /devices/[id] not opened: it needs a value for [id] (a fixed path can be set in .casper/project.yaml pages:)");
   expect(f.opener.urls).toEqual([]);
 }, 30_000);
 
@@ -212,7 +212,7 @@ Bun.serve({ hostname: process.env.HOST, port: Number(process.env.PORT), fetch() 
   await app.runOnce("Show the site name on the summary page");
   const text = output.join("");
   expect(settles[0]).toBe("streamlit");
-  expect(text).toContain("… Casper opening changed pages: /");
+  expect(text).toContain("• Casper opening changed pages: /");
   expect(text).toContain("✗ / shows an error: KeyError: 'site'");
   expect(text.split("\n").find(line => line.startsWith("✗ Failed"))).toBe("✗ Failed — / shows an error");
   expect(runtime.prompts[1]).toContain("Page check evidence");
@@ -247,6 +247,6 @@ test("without Chrome, a page that answers is never said to load: the verdict say
   f.runtime.turns.push(async runtime => { await runtime.write(f.page, "export default function Page() { return <main>Dashboard</main>; }\n"); });
   await f.app.runOnce("Add a dark mode toggle to the dashboard");
   expect(f.text()).toContain("✓ /dashboard answers (HTTP 200) · console not checked");
-  expect(f.text()).toContain("• Checks passed — not proven: pages answer, but their console was not checked and no test fails without the change");
+  expect(f.text()).toContain("– Checks passed — not proven: pages answer, but their console was not checked and no test fails without the change");
   expect(f.text()).not.toContain("pages load");
 }, 30_000);

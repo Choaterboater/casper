@@ -671,7 +671,7 @@ bill. By default a task only gets notes and never stops for money:
 - Want a limit? Say it in your request ("keep it under $2"), or set `spend.pauseAt`. Then the task
   pauses before its next step and asks `This task has used $5.02.` with `1 Stop here · 2 Keep
   going`. Stop here is first, so Enter stops; the work so far is kept and the receipt says
-  `• Incomplete — stopped at $5.02, the $5 limit for one task`. Keep going asks again at the next
+  `– Incomplete — stopped at $5.02, the $5 limit for one task`. Keep going asks again at the next
   multiple.
 - With `spend.pauseAt` set, one-shot runs and `--json` never wait: they stop at the same point, say
   so on one line, and the receipt says it (exit 2, JSON `spendLimit`).

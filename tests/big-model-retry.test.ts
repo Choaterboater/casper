@@ -133,7 +133,7 @@ async function fixture(options: Options = {}) {
 
 /** The question is on screen and ready for a key (the footer says so after the panel is drawn). */
 const waiting = (question: string) => (output: string) => output.includes(question) && output.slice(output.lastIndexOf(question)).includes("? waiting for you");
-const idle = (text: string) => /(?:↻ Casper tried|✓ Verified|• Checks passed|✗ Failed|• Not verified|• No files changed)[\s\S]*idle/.test(text);
+const idle = (text: string) => /(?:↻ Casper tried|✓ Verified|– Checks passed|✗ Failed|– Not verified|– No files changed)[\s\S]*idle/.test(text);
 
 test("at the repair limit Casper offers one more try on the big model; choosing it repairs there and switches back", async () => {
   const f = await fixture({ reason: "fixture/big", tokens: 48_000, price: 15 });
@@ -194,10 +194,10 @@ test("no offer when the conversation is already on the big model, or when it wou
     try {
       await f.screen.until((output) => output.includes("idle"));
       f.input.write("fix the add function in calc.py\r");
-      await f.screen.until((output) => /↻ Casper tried|✓ Verified|• Checks passed/.test(output));
+      await f.screen.until((output) => /↻ Casper tried|✓ Verified|– Checks passed/.test(output));
       await f.screen.until(idle);
       expect(f.text()).not.toContain("What now?");
-      if (options.tokens) expect(f.text()).toContain("• Your big model fixture/big can't hold this conversation (about 150k tokens), so it was not offered");
+      if (options.tokens) expect(f.text()).toContain("– Your big model fixture/big can't hold this conversation (about 150k tokens), so it was not offered");
       expect(f.selections).toEqual([]);
     } finally {
       f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
@@ -267,7 +267,9 @@ test("\"The model failed again\" offers the big model, which goes on there and t
     await f.screen.until((output) => output.includes("idle"));
     f.input.write("fix the add function in calc.py\r");
     await f.screen.until(waiting("The model failed again. What now?"));
-    expect(f.text()).toContain("go on from where it stopped on fixture/big (uses tokens)");
+    // The label and its words say the model does it; no "(uses tokens)" tag repeats that.
+    expect(f.text()).toContain("go on from where it stopped on fixture/big");
+    expect(f.text()).not.toContain("on fixture/big (uses tokens)");
     f.input.write("3");
     await f.screen.until((output) => /Back on fixture\/demo[\s\S]*idle/.test(output) && idle(output));
     expect(f.text()).toContain("[model] Trying again on your big model fixture/big.");
@@ -332,7 +334,7 @@ test("a model picked at the repair limit is saved as your big model on Yes, and 
     small.input.write("2");
     await small.screen.until(idle);
     expect(small.text()).not.toContain("from now on?");
-    expect(small.text()).toContain("• fixture/big can't hold this conversation (about 150k tokens), so Casper stopped here");
+    expect(small.text()).toContain("– fixture/big can't hold this conversation (about 150k tokens), so Casper stopped here");
     expect(small.promptModels).not.toContain("fixture/big");
     expect(second.getLastTaskResult()?.bigModel).toBeUndefined();
   } finally {

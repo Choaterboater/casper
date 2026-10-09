@@ -2,7 +2,9 @@ import { afterAll, afterEach, expect, spyOn, test } from "bun:test";
 import { RuntimeEventView } from "../src/app/events";
 import { RuntimeEventMapper } from "../src/app/json-events";
 import type { RuntimeEvent } from "../src/runtime/types";
-import { lastOutputLine, runningElapsed } from "../src/tui/format";
+import { formatCost, formatDuration, formatElapsed, formatTokens, lastOutputLine, runningElapsed } from "../src/tui/format";
+import { formatTokenSplit } from "../src/tui/usage";
+import { formatTaskSpend } from "../src/task/spend";
 import type { InteractiveTerminal } from "../src/tui/terminal";
 import type { DisplayLevel } from "../src/tui/display";
 
@@ -31,6 +33,19 @@ test("elapsed time shows only after 10 seconds", () => {
   expect(runningElapsed(59_900)).toBe(" · 59s");
   expect(runningElapsed(252_000)).toBe(" · 4m12s");
   expect(runningElapsed(Number.NaN)).toBe("");
+});
+
+test("one way to say a time, a token count and a cost, everywhere", () => {
+  // Live, the same screen said '2.0s', '16.5s', '14s', '1m', '1m 5s', '90 s' and '10 min'.
+  expect([400, 2_000, 5_940, 9_960, 14_300, 16_500, 59_900, 60_000, 65_000, 90_000, 600_000, 3_720_000, 7_200_000].map(formatDuration))
+    .toEqual(["0.4s", "2s", "5.9s", "10s", "14s", "16s", "59s", "1m", "1m05s", "1m30s", "10m", "1h02m", "2h"]);
+  // A ticking clock shows whole seconds.
+  expect([0, 3_400, 9_999, 95_000].map(formatElapsed)).toEqual(["0s", "3s", "9s", "1m35s"]);
+  // The footer said '2.6k tok' while /status said '2k new' for the same count.
+  expect([950, 2_600, 48_213, 312_400, 4_856_497].map(formatTokens)).toEqual(["950", "2.6k", "48.2k", "312k", "4.9M"]);
+  expect(formatTokenSplit({ input: 2_600, output: 112, cacheRead: 0, cacheWrite: 0, total: 2_712 })).toBe("112 out · 2.6k new");
+  expect(formatTaskSpend({ tokens: 2_600, cost: 0 }, false)).toBe("task 2.6k tok");
+  expect([0.004, 0.314, 5.0231, 123.4].map(formatCost)).toEqual(["$0.004", "$0.31", "$5.02", "$123"]);
 });
 
 test("the running line gains its elapsed time on a later redraw, and becomes the finished line when it ends", () => {

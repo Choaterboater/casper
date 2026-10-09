@@ -166,7 +166,7 @@ test("in the terminal, a timed-out check asks what to do instead of starting a p
     expect(Bun.stripANSI(screen.output)).toContain("5 Allow more time from now on");
     input.write("\r"); // Enter picks 1 Stop: nothing runs again and no repair starts.
     // Wait for idle after the receipt: /exit typed while the task is still finishing is kept as a draft.
-    await screen.until((output) => { const text = Bun.stripANSI(output); const receipt = text.lastIndexOf("✗ Not checked — test timed out, so the change was not tested");
+    await screen.until((output) => { const text = Bun.stripANSI(output); const receipt = text.lastIndexOf("✗ Not checked — test timed out after 0.3s, so the change was not tested");
       return receipt >= 0 && text.lastIndexOf("idle") > receipt; });
     expect(prompts).toBe(1);
     expect(app.getLastTaskResult()?.verification?.repairAttempts).toBe(0);
@@ -222,7 +222,7 @@ test("on a plain terminal (TERM=dumb) a timed-out check asks the same question a
     expect(visible).toContain("  1 Stop");
     expect(visible).toContain("  4 Allow more time");
     input.write("1\r"); // 1 Stop: nothing runs again and no repair starts.
-    await screen.until((output) => output.includes("✗ Not checked — test timed out, so the change was not tested"));
+    await screen.until((output) => output.includes("✗ Not checked — test timed out after 0.3s, so the change was not tested"));
     expect(prompts).toBe(1);
     expect(app.getLastTaskResult()?.verification?.repairAttempts).toBe(0);
   } finally {

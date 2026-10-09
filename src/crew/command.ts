@@ -11,9 +11,8 @@ import { randomBytes } from "node:crypto";
 import type { BuilderRunOptions, SubagentResult } from "../agents/manager";
 import type { Choice } from "../app/safe-choices";
 import type { RuntimeShell } from "../runtime/types";
-import { formatCost } from "../task/spend";
 import type { PartNotReviewed } from "../task/result";
-import { redactPreview, terminalText } from "../tui/format";
+import { formatCost, formatTokens, redactPreview, terminalText } from "../tui/format";
 import { GitWorktreeManager, type WorktreePatch, type WorktreeRelation } from "../workspace/worktree";
 import { linkDependencies, unlinkDependencies } from "./copies";
 
@@ -67,7 +66,7 @@ const shown = (text: string) => redactPreview(text).replace(/\s+/g, " ").trim();
 
 export function costText(result: Pick<SubagentResult, "usage">): string {
   if (!result.usage) return "cost not reported";
-  return `${result.usage.tokens.toLocaleString("en-US")} tokens${result.usage.estimatedCost > 0 ? ` · about ${formatCost(result.usage.estimatedCost)}` : ""}`;
+  return `${formatTokens(result.usage.tokens)} tokens${result.usage.estimatedCost > 0 ? ` · about ${formatCost(result.usage.estimatedCost)}` : ""}`;
 }
 
 async function readWork(manager: GitWorktreeManager, copy: WorktreeRelation): Promise<WorktreePatch> {

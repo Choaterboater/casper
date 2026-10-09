@@ -54,7 +54,7 @@ test("normal folds steps into one summary line and keeps failures (today's scree
     const s = view(rich, "normal");
     s.handle(...work);
     expect(s.screen.some(line => line.startsWith("✗ bash · bun test"))).toBe(true);
-    expect(s.screen.some(line => /^• 1 edit · 1 command · 1 read · 1 failed/.test(line))).toBe(true);
+    expect(s.screen.some(line => /^– 1 edit · 1 command · 1 read · 1 failed/.test(line))).toBe(true);
     expect(s.screen.some(line => line.includes("export const b"))).toBe(false);
   }
 });

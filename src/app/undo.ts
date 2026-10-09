@@ -263,9 +263,9 @@ export class TaskUndo {
     }
     const lines = [applied.restored.length
       ? `✓ Undone — ${files(applied.restored.length)} ${applied.restored.length === 1 ? "is" : "are"} back as ${applied.restored.length === 1 ? "it was" : "they were"} before task ${n}: ${names(applied.restored)}`
-      : `• Nothing was put back for task ${n}.`];
-    for (const skipped of applied.skipped) lines.push(`• Not put back: ${terminalText(skipped.path)} (${terminalText(skipped.why)})`);
-    if (plan.changedSince.length) lines.push(`• Left as you changed them: ${names(plan.changedSince)}`);
+      : `– Nothing was put back for task ${n}.`];
+    for (const skipped of applied.skipped) lines.push(`– Not put back: ${terminalText(skipped.path)} (${terminalText(skipped.why)})`);
+    if (plan.changedSince.length) lines.push(`– Left as you changed them: ${names(plan.changedSince)}`);
     lines.push(...this.limits(undo, plan.blocked));
     if (applied.restored.length) lines.push(await this.tellConversation(receipt, applied.restored, "undo"));
     this.write(`${lines.join("\n")}\n`);
@@ -294,9 +294,9 @@ export class TaskUndo {
     }
     const lines = [applied.restored.length
       ? `✓ Redone — ${files(applied.restored.length)} ${applied.restored.length === 1 ? "is" : "are"} back as task ${n} left ${applied.restored.length === 1 ? "it" : "them"}: ${names(applied.restored)}`
-      : `• Nothing was put back for task ${n}.`];
-    for (const skipped of applied.skipped) lines.push(`• Not put back: ${terminalText(skipped.path)} (${terminalText(skipped.why)})`);
-    if (plan.changedSince.length) lines.push(`• Left as you changed them: ${names(plan.changedSince)}`);
+      : `– Nothing was put back for task ${n}.`];
+    for (const skipped of applied.skipped) lines.push(`– Not put back: ${terminalText(skipped.path)} (${terminalText(skipped.why)})`);
+    if (plan.changedSince.length) lines.push(`– Left as you changed them: ${names(plan.changedSince)}`);
     if (applied.restored.length) lines.push(await this.tellConversation(receipt, applied.restored, "redo"));
     this.write(`${lines.join("\n")}\n`);
     if (applied.restored.length) this.offer(buildNextRow({ undo: { label: "Undo", command: `/undo ${n}` } }));
@@ -320,8 +320,8 @@ export class TaskUndo {
   private limits(undo: ReceiptUndo, blocked: ReadonlyArray<{ path: string; why: string }>): string[] {
     const lines: string[] = [];
     const left = [...undo.left.map((entry) => ({ path: entry.path, why: leftOutWhy(entry) })), ...blocked];
-    if (left.length) lines.push(`• Undo can't put back: ${left.slice(0, MAX_NAMES).map((entry) => `${terminalText(entry.path)} (${entry.why})`).join(", ")}${left.length > MAX_NAMES ? ` … +${left.length - MAX_NAMES} more` : ""}`);
-    for (const server of undo.servers ?? []) lines.push(`• Undo only puts back files in this folder; it can't undo changes made through ${terminalText(server)}.`);
+    if (left.length) lines.push(`– Undo can't put back: ${left.slice(0, MAX_NAMES).map((entry) => `${terminalText(entry.path)} (${entry.why})`).join(", ")}${left.length > MAX_NAMES ? ` … +${left.length - MAX_NAMES} more` : ""}`);
+    for (const server of undo.servers ?? []) lines.push(`– Undo only puts back files in this folder; it can't undo changes made through ${terminalText(server)}.`);
     return lines;
   }
 
@@ -329,18 +329,18 @@ export class TaskUndo {
    * model in one short note. A one-shot `casper /undo` has no conversation to change. */
   private async tellConversation(receipt: StoredReceipt, restored: readonly string[], kind: "undo" | "redo"): Promise<string> {
     const session = this.host.liveSession;
-    if (!session) return "• The conversation is not changed: only files were put back.";
+    if (!session) return "– The conversation is not changed: only files were put back.";
     const same = receipt.sessionId !== null && sessionIdOf(session) === receipt.sessionId;
     if (kind === "undo" && same && receipt.conversation && session.rewindTo && markOf(session) === receipt.conversation.after) {
-      try { if (await session.rewindTo(receipt.conversation.before, receipt.conversation.after)) return `• Conversation rewound to before task ${receipt.n}.`; } catch { /* keep it, with a note */ }
+      try { if (await session.rewindTo(receipt.conversation.before, receipt.conversation.after)) return `– Conversation rewound to before task ${receipt.n}.`; } catch { /* keep it, with a note */ }
     }
-    if (!session.appendContext) return "• The conversation is not changed: only files were put back.";
+    if (!session.appendContext) return "– The conversation is not changed: only files were put back.";
     const note = kind === "undo"
       ? `The user undid task ${receipt.n}. These files are back as they were before it: ${restored.join(", ")}.`
       : `The user redid task ${receipt.n}. These files are back as the task left them: ${restored.join(", ")}.`;
-    try { await session.appendContext(note); } catch { return "• The conversation is not changed: only files were put back."; }
-    return kind === "undo" ? `• Conversation kept — ${same ? "you've talked since, so " : ""}Casper told the model the files were put back.`
-      : "• Casper told the model the files are back.";
+    try { await session.appendContext(note); } catch { return "– The conversation is not changed: only files were put back."; }
+    return kind === "undo" ? `– Conversation kept — ${same ? "you've talked since, so " : ""}Casper told the model the files were put back.`
+      : "– Casper told the model the files are back.";
   }
 
   private async undoSetting(receipt: StoredReceipt, kind: "undo" | "redo"): Promise<void> {
@@ -415,7 +415,7 @@ export class TaskUndo {
     const patch = await this.store(receipt.root)!.diff(receipt.undo.before, receipt.undo.after);
     if (!patch.trim()) { this.write(`No changes in task ${receipt.n}.\n`); return; }
     this.host.terminal.writePanel(`Changes in task ${receipt.n}`, patch, { diff: true });
-    const notes = [receipt.undo.undone ? `• Task ${receipt.n} is undone; this is what it changed.` : "", ...this.limits(receipt.undo, [])].filter(Boolean);
+    const notes = [receipt.undo.undone ? `– Task ${receipt.n} is undone; this is what it changed.` : "", ...this.limits(receipt.undo, [])].filter(Boolean);
     if (notes.length) this.write(`${notes.join("\n")}\n`);
   }
 
@@ -439,7 +439,7 @@ export class TaskUndo {
     if (found === "unreadable") { this.refuse(`Receipt ${Number(argument)} can't be read.`); return true; }
     this.write(`Task ${found.n} · ${time(found.createdAt)} · ${terminalText(found.request).replace(/\s+/g, " ")}\n${summary(found)}\n`);
     if (found.task) this.write(`${formatTaskResult({ ...found.task, receipt: found.n })}\n`);
-    if (found.undo && "undone" in found.undo && found.undo.undone) this.write(`• Undone at ${time(found.undo.undone.at)}; /redo ${found.n} puts the files back.\n`);
+    if (found.undo && "undone" in found.undo && found.undo.undone) this.write(`– Undone at ${time(found.undo.undone.at)}; /redo ${found.n} puts the files back.\n`);
     return true;
   }
 }
@@ -453,5 +453,5 @@ function time(iso: string): string {
 function summary(receipt: StoredReceipt): string {
   if (receipt.setting) return `✓ Saved ${terminalText(receipt.setting.line)} in ${receipt.setting.file}${receipt.setting.undone ? " (undone)" : ""}`;
   const verdict = receipt.task ? receiptVerdict(receipt.task) : undefined;
-  return terminalText(verdict ?? "• No receipt text");
+  return terminalText(verdict ?? "– No receipt text");
 }

@@ -71,7 +71,7 @@ posixOnly("with --no-sandbox nothing is wrapped, and the receipt and JSON say so
   expect(engine.wrapped).toEqual([]);
   expect(sandbox.state).toEqual({ kind: "off", reason: "--no-sandbox" });
   const task: TaskResult = { execution: "completed", changedPaths: [], sandbox: { held: false, reason: "--no-sandbox" } };
-  expect(formatReceipt(task)).toContain("• Shell commands and checks were not sandboxed (--no-sandbox)");
+  expect(formatReceipt(task)).toContain("– Shell commands and checks were not sandboxed (--no-sandbox)");
   expect(receiptEvent(undefined, task, 0).sandbox).toEqual({ held: false, reason: "--no-sandbox" });
   expect(permissionsText(sandbox)).toContain("not sandboxed here (--no-sandbox)");
 });
@@ -267,7 +267,7 @@ test("with the sandbox on, a receipt whose lab check ran says it ran outside the
   const lab = { name: "aoscx-check", status: "pass", kind: "lab", label: "dry run not guaranteed", durationMs: 1000 };
   const ran: TaskResult = { execution: "completed", changedPaths: ["site.yml"], sandbox: { held: true },
     verification: { status: "pass", results: [lab], repairAttempts: 0 } as never };
-  expect(formatReceipt(ran)).toContain("• Lab checks ran outside the sandbox (they log in to your lab devices with your own keys)");
+  expect(formatReceipt(ran)).toContain("– Lab checks ran outside the sandbox (they log in to your lab devices with your own keys)");
   expect(formatTaskResult(ran)).toContain("shell commands and checks held; lab checks ran outside it (they log in to your lab devices with your own keys)");
   const skipped: TaskResult = { ...ran, verification: { status: "pass", results: [{ ...lab, status: "skip" }], repairAttempts: 0 } as never };
   expect(formatReceipt(skipped)).not.toContain("outside the sandbox");

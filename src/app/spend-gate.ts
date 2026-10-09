@@ -4,7 +4,8 @@
 import type { CasperApp } from "../app";
 import { spendChoices } from "./safe-choices";
 import { oneAtATime } from "./approvals";
-import { formatCost, formatLimit, formatTokens, SPEND_STOP_REASON } from "../task/spend";
+import { formatLimit, SPEND_STOP_REASON } from "../task/spend";
+import { formatCost, formatTokens, NOTE_GLYPH } from "../tui/format";
 
 /** Whether the task's cost is money you pay: not for a free model, and not on a subscription (ChatGPT, Claude),
  * where the catalog price is only what the tokens would cost pay-per-token ("sub ≈$X" in the footer). */
@@ -22,7 +23,7 @@ export function spendNote(app: CasperApp): void {
   // After the model's words from this response, not above them.
   app.terminal.endAssistant();
   app.events.ensureLineBreak();
-  app.output.write(`… This task has used ${formatCost(spent.cost)} so far (${formatTokens(spent.tokens)}).\n`);
+  app.output.write(`${NOTE_GLYPH} This task has used ${formatCost(spent.cost)} so far (${formatTokens(spent.tokens)} tok).\n`);
 }
 
 /** The task's spend so far, with what helpers still working have spent (each joins the task's total when it ends). */

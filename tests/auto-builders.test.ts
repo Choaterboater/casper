@@ -114,7 +114,7 @@ flakyOn("win32")("the AI starts two builders at once; both changes land, count a
   for (const result of results) expect(result.isError).toBeUndefined();
   const reports = results.map((result) => data(result.text));
   expect(reports.map((report) => report.applied)).toEqual([["b.txt"], ["c.txt"]]);
-  expect(reports[0].cost).toBe("1,000 tokens · about $0.02");
+  expect(reports[0].cost).toBe("1k tokens · about $0.02");
   expect(reports[0].report).toBe("Wrote b.txt.");
   expect(await readFile(path.join(repo, "b.txt"), "utf8")).toBe("from the builder\n");
   expect(await readFile(path.join(repo, "c.txt"), "utf8")).toBe("from the builder\n");

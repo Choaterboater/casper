@@ -86,14 +86,6 @@ export interface VerificationReport {
   repairModels?: string[];
 }
 
-/** A plain duration: "0.3s", "1m 5s", "10m". */
-export function formatDuration(ms: number): string {
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1000);
-  return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
-}
-
 export function verificationStatus(all: VerificationResult[]): VerificationReport["status"] {
   // A report (a diff) never makes a run pass, fail or incomplete.
   const results = countedResults(all);
@@ -145,7 +137,7 @@ function formatQualification(check: VerificationCheckSummary): string {
 const terminalText = lineText;
 
 export function formatVerificationResult(result: VerificationResult): string {
-  if (result.kind === "report") return `• ${result.name}  ${reportText(result)} (a diff, not a pass/fail check)`;
+  if (result.kind === "report") return `– ${result.name}  ${reportText(result)} (a diff, not a pass/fail check)`;
   // Nothing ran for a skip, so input freshness and scope carry no information.
   if (result.status === "skip") return `– ${result.name}  ${result.kind || result.label ? "not run" : "skipped"}${result.reason ? `: ${terminalText(result.reason)}` : ""}`;
   const mark = result.status === "pass" ? "✓" : "✗";

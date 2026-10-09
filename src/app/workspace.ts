@@ -38,7 +38,7 @@ export function queueTypedRequest(app: CasperApp, text: string, pasted: readonly
 /** The new-project questions go through Casper's own numbered question, on the rich or the plain terminal. */
 export function newProjectFlow(app: CasperApp): NewProjectFlow {
   return {
-    pick: (question, options, signal) => app.terminal.pick(question, options, signal),
+    pick: (question, options, signal) => app.terminal.pick(question, options, signal, { typed: true }),
     write: (line) => { if (!app.closing) app.output.write(`${line}\n`); },
     homeDir: app.sessionHomeDir ?? os.homedir(),
     ...(app.createProjectFn ? { create: app.createProjectFn } : {}),
@@ -267,7 +267,7 @@ export async function runChildChecks(app: CasperApp, child: ChildProject, change
   if (!plan.run.length) return undefined;
   const label = `checks from ${child.relative}`;
   app.events.ensureLineBreak();
-  app.output.write(`… Casper checking: ${plan.run.join(", ")} (${terminalText(label)})\n`);
+  app.output.write(`• Casper checking: ${plan.run.join(", ")} (${terminalText(label)})\n`);
   const registry = VerifierRegistry.forProject(child.model, app.projectContext!.verification.timeoutMs, app.blockOnCleanupFailure, networkOptions(app));
   phase(app, "checks", "start");
   try {

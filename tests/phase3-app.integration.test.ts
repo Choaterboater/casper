@@ -651,7 +651,7 @@ posixOnly("one-shot CLI returns meaningful exit codes without model credentials"
   await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  build: ${JSON.stringify(checkCommand("write:source.ts=after"))}\nverification:\n  scopes:\n    build:\n      inputs: [source.ts]\n`);
   const stale = await run("/verify build");
   expect(stale.code).toBe(0); // Exit status describes execution, not input currency.
-  expect(stale.stdout).toContain("• Not verified — stale: files changed after the last passing build. Run casper \"/verify build\".");
+  expect(stale.stdout).toContain("– Not verified — stale: files changed after the last passing build. Run casper \"/verify build\".");
   const staleDetail = await run("/verify build", "--verbose");
   expect(staleDetail.stdout).toContain("inputs stale");
   expect(staleDetail.stdout).toContain("current files unverified");

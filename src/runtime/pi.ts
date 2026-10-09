@@ -428,6 +428,9 @@ class PiRuntimeSession implements RuntimeSession {
     this.writes.clear();
     this.unsubscribePi = session.subscribe((event) => {
       switch (event.type) {
+        case "turn_start":
+          this.emit({ type: "assistant_request_start", provider: session.model?.provider, model: session.model?.id });
+          break;
         case "message_start":
           if (event.message.role === "assistant") this.emit({
             type: "assistant_response_start", provider: session.model?.provider, model: session.model?.id,

@@ -44,10 +44,10 @@ export function approveChoice(app: CasperApp, preview: string, question: string,
   return oneAtATime(app, () => approveBox(app, preview, question, options, signal));
 }
 
-/** The outcome line after a box. On the rich terminal the answered box stays in the transcript with a ✓ on the choice,
- * so the line is written only where nothing else records it: the plain terminal, or a box closed without an answer. */
-function recordOutcome(app: CasperApp, line: string, answered: boolean): void {
-  if (app.closing || (answered && app.terminal.rich)) return;
+/** The outcome line after a box, written only where the box left no record of its own. A box that was shown leaves one
+ * line on both terminals ("Make this change? → No", "… — skipped (No)"), so this is for a box that could not show. */
+function recordOutcome(app: CasperApp, line: string, recorded: boolean): void {
+  if (app.closing || recorded) return;
   app.output.write(line);
 }
 
@@ -81,25 +81,26 @@ export async function confirmCapability(app: CasperApp, ...[call, signal]: Param
       ...(call.showOnly ? { showOnly: true } : {}),
     });
     // The same channel as /mcp writes: only a key pressed after the box appeared answers it.
-    const picked = await approveBox(app, box.preview, box.question, box.labels, signal);
+    const first = await recordedBox(app, box.preview, box.question, box.labels, signal);
+    const picked = first.answer;
     if (picked === undefined && approvalStopped(app, signal)) throw new NotExecutedError("cancelled");
     const index = picked === undefined ? -1 : box.labels.indexOf(picked);
     let result = index < 0 ? "no" : box.answers[String(index + 1)] ?? "no";
-    let answered = picked !== undefined;
+    let recorded = first.recorded;
     // "Yes to everything" asks once more, so a key pressed from habit (3 or 4 in another box) never grants it.
     if (result === "allow-all") {
       const product = app.mcp?.productLabel(call.plan.server) ?? call.plan.server;
-      const sure = await approveBox(app, `No box will ask about any change on ${terminalText(product)} until Ctrl+O or the session ends.\n`,
+      const sure = await recordedBox(app, `No box will ask about any change on ${terminalText(product)} until Ctrl+O or the session ends.\n`,
         `Yes to everything on ${terminalText(product)}?`, ["No", "Yes to everything"], signal);
-      if (sure === undefined && approvalStopped(app, signal)) throw new NotExecutedError("cancelled");
-      if (sure !== "Yes to everything") result = "no";
-      answered = sure !== undefined;
+      if (sure.answer === undefined && approvalStopped(app, signal)) throw new NotExecutedError("cancelled");
+      if (sure.answer !== "Yes to everything") result = "no";
+      recorded = sure.recorded;
     }
     // A call you allowed that can change things: undo can't reach it, and /undo says so.
     if ((result === "yes" || result === "yes-session" || result === "allow-all") && planLabel(call.plan) !== "read") app.taskChangeServers.add(call.plan.server);
     const said = { yes: "allowed", "yes-session": "allowed for this session", "allow-all": "allowed (allow all)", preview: "preview first", no: "denied",
       "show-session": `allowed show commands on ${terminalText(call.plan.server)} for this session` }[result];
-    recordOutcome(app, `[approval] ${said}\n`, answered);
+    recordOutcome(app, `[approval] ${said}\n`, recorded);
     return result;
   });
 }
@@ -111,12 +112,12 @@ export async function confirmKind(app: CasperApp, ...[ask, signal]: Parameters<C
   return oneAtATime(app, async () => {
     if (approvalStopped(app, signal)) throw new NotExecutedError("cancelled");
     const box = kindBox(ask.kind, app.mcp?.productLabel(ask.server) ?? ask.server, ask.realTool);
-    const picked = await approveBox(app, box.preview, box.question, box.labels, signal);
+    const { answer: picked, recorded } = await recordedBox(app, box.preview, box.question, box.labels, signal);
     if (picked === undefined && approvalStopped(app, signal)) throw new NotExecutedError("cancelled");
     const answer = picked === YES_SESSION ? true : picked === YES_ONCE ? "once" as const : false;
     const kind = KIND_TEXT[ask.kind].toLowerCase();
     recordOutcome(app, `[approval] ${answer === true ? `allowed ${kind} on ${terminalText(ask.server)} for this session`
-      : answer ? `allowed ${kind} on ${terminalText(ask.server)} for this change` : "denied"}\n`, picked !== undefined);
+      : answer ? `allowed ${kind} on ${terminalText(ask.server)} for this change` : "denied"}\n`, recorded);
     return answer;
   });
 }
@@ -142,18 +143,18 @@ export async function answerServerQuestion(app: CasperApp, ...[question, signal]
     // Numbered like every box: 1 is always No; a yes/no question is 1 No · 2 Yes, a pick-one lists its options after No.
     const labels = question.kind === "boolean" ? ["No", "Yes"] : ["No", ...options];
     const preview = `${shown(question.server)} asks about the ${shown(question.realTool)} call you approved:\n`;
-    const chosen = await approveBox(app, preview, cut, labels, signal);
+    const { answer: chosen, recorded } = await recordedBox(app, preview, cut, labels, signal);
     if (chosen === undefined) {
-      recordOutcome(app, "[server question] no\n", false);
+      recordOutcome(app, "[server question] no\n", recorded);
       return { action: "cancel" as const };
     }
     const picked = labels.indexOf(chosen);
     if (picked < 1) {
-      recordOutcome(app, "[server question] no\n", true);
+      recordOutcome(app, "[server question] no\n", recorded);
       return { action: "decline" as const };
     }
     const answer = question.kind === "boolean" ? "yes" : options[picked - 1]!;
-    recordOutcome(app, `[server question] ${answer}\n`, true);
+    recordOutcome(app, `[server question] ${answer}\n`, recorded);
     return { action: "accept" as const, value: question.kind === "boolean" ? true : answer };
   });
 }
@@ -176,7 +177,7 @@ export function askToolFor(app: CasperApp): RuntimeTool {
       // "ai": the question is labelled "The AI asks:", so it never looks like Casper's own approval.
       return app.terminal.ask(question, options, multi, signals.length ? AbortSignal.any(signals) : undefined, "ai");
     }),
-    // The answered box stays in the transcript with the answer (✓, → typed, or skipped): no second line.
+    // The closed box leaves one line, "<question> → <answer>" or "— skipped": no second line.
     record: () => { app.asksThisTask++; },
   });
 }
@@ -188,18 +189,25 @@ export async function confirmYes(app: CasperApp, preview: string, question: stri
 
 /** An approval box whose outcome the transcript records: allowed (any yes) or denied. */
 export async function recordedApproval(app: CasperApp, preview: string, question: string, options: Array<{ label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined> {
-  const answer = await approveChoice(app, preview, question, options, signal);
+  const { answer, recorded } = await oneAtATime(app, () => recordedBox(app, preview, question, options, signal));
   // The answer itself is never echoed (it is a fresh keystroke, not a draft); record the outcome where the box doesn't.
-  if (app.interactive) recordOutcome(app, `[approval] ${answer === YES_SESSION ? "allowed for this session" : answer?.startsWith("Yes") ? "allowed" : "denied"}\n`, answer !== undefined);
+  if (app.interactive) recordOutcome(app, `[approval] ${answer === YES_SESSION ? "allowed for this session" : answer?.startsWith("Yes") ? "allowed" : "denied"}\n`, recorded);
   return answer;
 }
 
-/** One approval box from the user (undefined when nobody could answer). The caller records it. */
+/** One approval box from the user (undefined when nobody could answer). The box leaves its own one-line record. */
 export async function approveBox(app: CasperApp, preview: string, question: string, options: ReadonlyArray<string | { label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined> {
-  if (!app.interactive || approvalStopped(app, signal)) return undefined;
+  return (await recordedBox(app, preview, question, options, signal)).answer;
+}
+
+/** approveBox, and whether the box left its record ("Make this change? → No"): when it did, no outcome line follows. */
+async function recordedBox(app: CasperApp, preview: string, question: string, options: ReadonlyArray<string | { label: string; description?: string }>, signal?: AbortSignal): Promise<{ answer?: string; recorded: boolean }> {
+  if (!app.interactive || approvalStopped(app, signal)) return { recorded: false };
   const signals = [signal, app.commandAbort?.signal].filter((value): value is AbortSignal => Boolean(value));
   app.output.write("");
-  return app.terminal.approve(preview, question, options, signals.length ? AbortSignal.any(signals) : undefined);
+  const before = app.terminal.records;
+  const answer = await app.terminal.approve(preview, question, options, signals.length ? AbortSignal.any(signals) : undefined);
+  return { ...(answer !== undefined ? { answer } : {}), recorded: typeof before === "number" && app.terminal.records > before };
 }
 
 /**

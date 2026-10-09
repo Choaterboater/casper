@@ -316,5 +316,5 @@ function fileLabel(file: string): string {
 export function formatMigrationsLine(report: MigrationsReport): string {
   if (report.status === "pass") return `✓ migrations apply · ${report.files} file${report.files === 1 ? "" : "s"} · throwaway SQLite`;
   if (report.status === "fail") return report.blocked ? `✗ migrations — ${report.blocked}` : `✗ migrations: ${report.failed?.file} failed — ${report.failed?.error}`;
-  return `• migrations not checked: ${report.reason}`;
+  return `– migrations not checked: ${report.reason}`;
 }

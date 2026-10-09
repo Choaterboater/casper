@@ -87,7 +87,7 @@ export class PageChecks {
     let restarted: boolean;
     try {
       const before = manager.ensureSlot(name, spec);
-      if (!notice.shown && before.state !== "ready") this.options.announce?.(`… Starting dev server: ${label} (it runs your project's code)`);
+      if (!notice.shown && before.state !== "ready") this.options.announce?.(`• Starting dev server: ${label} (it runs your project's code)`);
       ({ restarted } = await manager.ensureFresh(name, signal));
     } catch (error) {
       signal.throwIfAborted();

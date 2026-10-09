@@ -87,7 +87,7 @@ def exercise_saved_snapshot(bun, repo, root):
         (home / ".casper/settings.json").write_text(json.dumps({"defaultProvider": "fixture", "defaultModel": "second", "defaultThinkingLevel": "high"}))
     s = Session(bun, repo, root, app="src/cli.ts", setup=setup, extra_env={"CASPER_OFFLINE": "1", "PI_TELEMETRY": "0"})
     try:
-        s.until("default fixture/second")
+        s.until("fixture/second · effort high")
         assert "high" in s.screen.text(), s.screen.text()
         assert not (s.root / "home/.pi/agent/auth.json").exists(), "footer snapshot initialized auth"
         # Enter before Casper reads commands keeps /exit as a draft: wait until it is idle.

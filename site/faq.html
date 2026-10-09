@@ -62,8 +62,9 @@
           and charges still apply. There is no hard spending cap in Casper.</p>
           <p>Lots of things cost zero tokens: the checks Casper runs, <code>/verify</code>,
           <code>/mcp</code>, <code>/diff</code>, <code>/receipt</code> and local reference search make
-          no model call. When a choice will spend tokens, Casper's question says so, for example
-          <code>Fix it anyway … (uses tokens)</code>.</p>
+          no model call. When a choice will spend tokens, it says the model does it, for example
+          <code>Fix it anyway · ask the model to make it pass</code>; a suggestion whose words don't say so ends in
+          <code>(uses tokens)</code>.</p>
         </details>
 
         <details>
@@ -154,7 +155,7 @@
           off again at once.</p>
           <figure class="capture">
             <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">set the lab site on the fixture server</span>
-<span class="dim">[model]</span> scripted/site-capture · off · credentials configured
+<span class="dim">[model]</span> scripted/site-capture · effort off
 I will ask the fixture server to change the site.
 Change in fixture: set site
   site             lab
@@ -168,14 +169,9 @@ Make this change?
   confirm)
 Press 1-4 or Up/Down + Enter · Esc is No
 
-<span class="dim"># (pressed 1: the box stays as the record of the answer)</span>
+<span class="dim"># (pressed 1: the box closes into one line, the record of the answer)</span>
 
-Make this change?
-<span class="ok">✓</span> No
-• Yes, this once
-• Yes, for this session
-• Yes to everything on fixture this session (no more asking, even reboots, deletes or an AI-set
-  confirm)
+Make this change? → No
 The change was not made.
 
 <span class="dim"># (pressed Ctrl+O)</span>
@@ -250,17 +246,17 @@ The change was not made.
           the change counts as not verified.</p>
           <figure class="capture">
             <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">let sum take numeric strings too</span>
-<span class="dim">[model]</span> scripted/site-capture · off · credentials configured
+<span class="dim">[model]</span> scripted/site-capture · effort off
 <span class="ok">✓</span> edit · src/sum.js
 sum now turns its inputs into numbers first.
-<span class="dim">… Casper checking: test</span>
+<span class="dim">• Casper checking: test</span>
 <span class="ok">✓</span> test
-<span class="dim">… Casper checking that the tests fail without the change</span>
+<span class="dim">• Casper checking that the tests fail without the change</span>
 <span class="accent">↻</span> repair 1/1: add a test that fails without the change
 (scripted model) No more changes.
 <span class="ok">✓</span> test
-<span class="dim">… Casper checking that the tests fail without the change</span>
-▌ <span class="dim">•</span> Not verified — the tests pass without the change too
+<span class="dim">• Casper checking that the tests fail without the change</span>
+▌ <span class="dim">–</span> Not verified — the tests pass without the change too
 ▌ <span class="ok">✓</span> test passed · changed src/sum.js
 ▌ <span class="accent">↻</span> Casper tried 1 repair
 ▌ <span class="warn">⚠</span> Not proven: test passes without this change too, and no test was added or changed
@@ -290,7 +286,7 @@ Next: 1 Show diff · 2 Undo</pre>
             <li>connecting an MCP server the first time, or turning its writes on;</li>
             <li>setting up Casper's network server, and a product's login the first time the AI uses it;</li>
             <li>a device check, before anything is sent to a device;</li>
-            <li>a check that timed out or could not start: stop, retry, fix it anyway (uses tokens), or
+            <li>a check that timed out or could not start: stop, retry, have the model fix it anyway, or
             allow more time;</li>
             <li>a test that was <em>already</em> failing before the change, before paying to fix
             it;</li>
@@ -324,15 +320,12 @@ Next: 1 Show diff · 2 Undo</pre>
 lint could not start. Casper did not try to fix it. What now?
 <span class="accent">→</span> 1 Stop  keep the changes; the receipt says it did not finish
   <span class="accent">2</span> Retry  run it again with the same limit
-  <span class="accent">3</span> Fix it anyway  ask the model to fix why it could not start (uses tokens)
-Press 1-3 or Up/Down + Enter · type to answer · Esc skip
+  <span class="accent">3</span> Fix it anyway  ask the model to fix why it could not start
+Press 1-3 or Up/Down + Enter · Esc skip
 
 <span class="dim"># (Esc pressed: skip)</span>
 
-<span class="dim">•</span> Stop  keep the changes; the receipt says it did not finish
-<span class="dim">•</span> Retry  run it again with the same limit
-<span class="dim">•</span> Fix it anyway  ask the model to fix why it could not start (uses tokens)
-  (skipped)
+lint could not start. Casper did not try to fix it. What now? — skipped
 <span class="bad">✗</span> Not checked — lint could not start, so the change was not tested
 <span class="bad">✗</span> lint could not start (exit 127) — check verify.lint in .casper/project.yaml
 <span class="ok">✓</span> test passed (bun test)

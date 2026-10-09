@@ -31,7 +31,7 @@ test("the receipt says the model did not act, and the run is not a success", () 
   const task: TaskResult = { execution: "completed", changedPaths: [], wroteToolCallAsText: true };
   expect(taskOutcome(undefined, task)).toBe("incomplete");
   expect(taskExitCode(undefined, task)).toBe(2);
-  expect(receiptVerdict(task)).toBe("• Did not act — the model wrote a tool call as text instead of using it");
+  expect(receiptVerdict(task)).toBe("– Did not act — the model wrote a tool call as text instead of using it");
   expect(formatShortReceipt(task)).toContain("Did not act");
   expect(formatReceipt({ execution: "completed", changedPaths: [] })).not.toContain("Did not act");
 });

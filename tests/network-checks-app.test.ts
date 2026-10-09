@@ -222,9 +222,9 @@ test("on the plain terminal the AOS-CX lab check asks with no Always choice, run
     await t.until((text) => text.includes("failed on the lab. Casper did not ask the model to fix it"));
     expect(await ran(f, "ansible-playbook")).toBe(true);
     expect(t.visible()).toContain("✗ aoscx-check · dry run not guaranteed ·");
-    // The paid choice says it uses tokens before it is chosen.
+    // The paid choice says the model does it before it is chosen.
     expect(t.visible()).toContain("  1 Stop · keep the files as they are; nothing more runs on the lab\n"
-      + "  2 Ask the model to fix it · the model changes the files (uses tokens), then the check runs on the lab again\n");
+      + "  2 Ask the model to fix it · the model changes the files, then the check runs on the lab again\n");
     // Enter picks Stop: no repair prompt reaches the model.
     t.input.write("\n");
     await t.until((text) => text.includes("✗ Failed — aoscx-check failed"));
