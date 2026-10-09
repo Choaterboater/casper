@@ -4,11 +4,111 @@
 published, and what the installers promise. **When you'd use it:** to see what is new
 before you upgrade, or when you build or publish a release yourself.
 
-Casper distributes an unsigned **v0.2.27 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.27`,
+Casper distributes an unsigned **v0.2.28 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.28`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.28: one table of commands, screens that say things once, and `git push` with your GitHub login
+
+Commands now do what `/help` says, the names you know from other coding tools work, and every box,
+picker and footer says each thing once, in one style. With the sandbox on, a plain `git push` or `gh pr`
+can run with your own GitHub login after you say yes. `/permissions` is one screen, and a check the
+sandbox blocked is no longer "fixed" in your code.
+
+- One table of commands: the menu, completion, help and what runs during work all read it
+- The peers' names: `/new`, `/theme`, `/hotkeys`, `/copy`, `/export`, `/rename`, `/logout`, and `/config`, `/cost`, `/thinking`
+- A closed box leaves one line, `question → answer`; one picker style; each mark means one thing
+- An Other row in the AI's questions, and the AI asks with the picker instead of in prose
+- `git push`/`pull`/`fetch` and `gh pr`/`issue`/`run` with your GitHub login, after a yes
+- `/permissions` on one screen; checks the sandbox blocked say "could not check"
+- ripgrep inside the release program
+
+**One table of commands.** The `/` menu, Tab completion, `/help`, the "Did you mean" hint and the rule for
+what runs during a task now read one list. The menu shows each command once; typing another name finds it
+(`/cost` shows `usage (cost)`), and a long label ends with `…`. A command that takes nothing after its name says so
+(`Usage: /settings, with nothing after it.`) instead of suggesting itself. The menu lists `/quit`, shows what
+can follow each name, completes subcommands (`/mcp ` lists `detail [name]`, `connect <name>` …) and dims the
+ones that wait for the task. An unknown command during work is refused at once instead of waiting.
+
+**The names you know from other tools.** `/new` starts a new conversation, like `/clear`; new projects are
+now `/project new [template] [name]` (and `/new <name>` says so). `/config`, `/cost` and `/thinking` run
+`/settings`, `/usage` and `/effort`. New: `/theme` (the Theme row of `/settings`), `/hotkeys` (the keys),
+`/copy [n]` (the last answer, or its code block n), `/export [file]` (the conversation as Markdown, or every
+message with a `.jsonl` name; with no name it goes to `~/.casper/exports` and says the whole path; it never
+writes over a file), `/rename <title>`, and `/logout [provider]` (lists
+or removes a sign-in `/login` saved; environment variables are left alone). Bare `/branch` lists the
+workspaces; `/tree` still works.
+
+**Commands do what the help says.** `/login codex` and `/login copilot` sign in. `/exit` or `/quit` during a
+task stops it and leaves. `/browser`, `/services`, `/debug`, `/lab`, `/memory`, `/references` and `/visualize`
+alone run during work, and `/doctor` during work reports without fixing. `--session` goes before or after the
+value for `/model`, `/effort` and `/details`. Every usage error reads `[error] Usage: …`. `forget` and `remove`
+mean the same everywhere, and `list` is the command alone. Bare `/details` shows the level instead of
+changing it; `/model` with an id no model matches and `/effort` with a level the model lacks say so and
+change nothing; `/project` alone is `/status`.
+
+**Screens say things once.** A picker, question or approval you answered leaves one line,
+`Run this command? → Yes, this once`, or `— skipped` on Esc; there is no extra `[approval]` or `[ask]` line.
+`/mcp` is the picker alone: each server says where it came from (`from ~/.claude.json`, `from VS Code`,
+`from this project`), and Casper's network server says what it covers. The footer names the folder (and the
+branch only when there is one) and the model once, and its time sits right after the spinner. A turn that
+only answered a question has no receipt. A check that timed out is said once, in the receipt. A line typed
+during work is echoed once, a provider retry is one amber line, and a paste never lands in an open picker:
+it waits as your draft.
+
+**One picker style.** The AI's questions, approvals, `/login`, `/effort` and the plain terminal share one
+numbered style and one hint. A list longer than nine numbers every row (type `12` and Enter), so every
+`/settings` row has a number. `/settings`, `/preview` and the question after a timed-out check work on a plain
+terminal. Keys are spelled one way (`Ctrl+O`, `Ctrl+C`), and a list taller than the window scrolls.
+
+**Each mark means one thing.** `•` is running, `○` did not run, `–` is a note, and an answered box marks only
+the choice. On the old Windows console (outside Windows Terminal) every mark is ASCII. Times, tokens and
+costs have one format everywhere (`1m05s`, `2.6k`, `$0.31`), and the Working box says `Waiting for
+<model>` as soon as a request goes out.
+
+**The AI's questions.** Its question box ends with `Other — type your own answer`. The AI now asks with the
+picker whenever it needs a choice or a yes, before, during or at the end of a task, instead of ending its
+reply with a question in prose, and after your answer it says only what is new.
+
+**`git push` with your GitHub login.** With the sandbox on, your GitHub login (`~/.config/gh` and git's
+saved logins) is hidden from the AI's commands, so a `git push` failed. Now a plain `git push`, `pull`,
+`fetch`, `clone` or `ls-remote`, or `gh pr`, `issue`, `run`, `repo`, `api` (reads only) or `auth status`, asks
+`Run outside the sandbox with your GitHub login?` (`1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes,
+always for this project`; a command that types its own address offers only 1 and 2). A command that changes
+something on GitHub (`gh pr merge`, `close`, `reopen`, `ready`, `review` or `checkout`, `gh issue close` or
+`reopen`, `gh run rerun` or `cancel`) offers only 1 and 2, every time: no earlier "session" or "always" answer
+covers it. After a yes Casper runs
+exactly that command outside the sandbox. The AI reads only its output and never your token, and GitHub
+tokens are hidden in what it reads. A command with a pipe, `;`, `-c`, a local remote and the like stays in the
+sandbox, and a git or gh command that failed for want of the login tells the AI how to run it. On Windows,
+which has no sandbox, nothing changes. See [SECURITY.md](SECURITY.md).
+
+**`/permissions` on one screen.** It says what Casper may do, what you said yes to, and for each one how to
+be asked less, and what stays protected whatever you pick. `/permissions all` (a box; `1 Keep asking` is
+first) answers the shell's four questions (a command, a host, a write outside the project, another machine)
+with "Yes, for this session" until you quit; the footer shows `ASKING OFF · /permissions ask`. A write
+outside the project can be allowed for good (`4 Yes, always for this project`, kept in `~/.casper`, never in
+the repo; `/permissions forget <folder>` takes it back).
+
+**Checks the sandbox blocked.** A project check that fails because the sandbox blocked it (`EPERM`,
+`Operation not permitted`) now reads "could not check", and Casper no longer tries to repair your code for
+it. It asks `Run this project's checks outside the sandbox?`; `sandbox: { checks: ask | outside | inside }`
+in your own config sets the answer (a project file can't). An edit to documentation only runs no checks.
+
+**ripgrep inside the release program.** The release program now carries the pinned official ripgrep for its
+own system and unpacks it once, after its sha256 matches the pin, so a normal install downloads nothing. A
+source checkout still downloads the same pinned release.
+
+**Smaller fixes.** `/plan` shows the plan once, with a summary line and `1 Stop · 2 Build · 3 Edit the plan`
+(3 on a rich terminal), and a call blocked while planning reads "not run". When an ssh login is refused, the AI is told to run plain
+`ssh` so Casper can ask for the password, and `ssh.exe` counts as `ssh` on Windows. On Windows the
+`casper update` helper writes `~/.casper/update.log`, and a failed update is said by `casper update`,
+`casper doctor` and the start of a session. The Mist skill reads RF and DFS settings the right way and finds
+the org first.
+
+**Not done yet.** `/login` has no "a model on this computer" choice.
 
 ## v0.2.27: skill packs, colour themes, checking pull requests, `/mcp` you can click through, and nothing extra to install
 

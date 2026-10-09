@@ -57,6 +57,7 @@
         <ul>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0228">v0.2.28: one table of commands, screens that say things once, git push with your login</a></li>
               <li><a href="#v0227">v0.2.27: skill packs, colour themes, a clickable /mcp, pasted pictures and files</a></li>
               <li><a href="#v0226">v0.2.26: local models, updating on Windows, opening where you launched</a></li>
               <li><a href="#v0225">v0.2.25: a stricter plain-read check, reviewers for builders, a calmer start</a></li>
@@ -102,8 +103,38 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <article class="card" id="v0228" aria-labelledby="v0228-h">
+          <h3 id="v0228-h">v0.2.28 · One table of commands, screens that say things once, git push with your login <span class="badge ok">current preview</span></h3>
+          <p>Commands do what the help says, the names from other tools work, every box and picker says each
+          thing once in one style, and a plain <code>git push</code> can use your GitHub login after a yes.</p>
+          <ul>
+            <li><strong>One table of commands.</strong> The menu, completion, <code>/help</code> and what runs during
+            work read one list; the menu completes subcommands and lists <code>/quit</code>; usage errors all read
+            <code>[error] Usage</code>.</li>
+            <li><strong>The peers' names.</strong> <code>/new</code> starts a new conversation (new projects are
+            <code>/project new</code>); <code>/theme</code>, <code>/hotkeys</code>, <code>/copy</code>, <code>/export</code>,
+            <code>/rename</code>, <code>/logout</code>; <code>/config</code>, <code>/cost</code> and <code>/thinking</code>; <code>/export</code> saves to <code>~/.casper/exports</code>.</li>
+            <li><strong>Commands do what the help says.</strong> <code>/login codex</code> and <code>copilot</code>,
+            <code>/exit</code> during a task, view-only commands during work, <code>--session</code> on either side.</li>
+            <li><strong>Said once.</strong> An answered box leaves one line, <code>question → answer</code>;
+            <code>/mcp</code> is the picker alone with each server's source; no receipt after a question-only turn.</li>
+            <li><strong>One picker style.</strong> Every row numbered (also past 9), plain terminals work,
+            <code>Ctrl+O</code> spelled one way, tall lists scroll; each mark means one thing, ASCII on the old Windows console.</li>
+            <li><strong>The AI's questions.</strong> An Other row for your own answer, and the AI asks with the picker
+            instead of a question in prose.</li>
+            <li><strong>git and gh with your login.</strong> With the sandbox on, a plain <code>git push</code>,
+            <code>pull</code> or <code>fetch</code>, or <code>gh pr</code>, <code>issue</code> or <code>run</code>, runs outside the
+            sandbox with your GitHub login after a yes (a change on GitHub, such as <code>gh pr merge</code>, asks every time); the AI never sees the token.</li>
+            <li><strong><code>/permissions</code> on one screen</strong>, with <code>/permissions all</code> to stop
+            asking until you quit; a check the sandbox blocked says "could not check" and can run outside after a yes.</li>
+            <li><strong>ripgrep inside the release program.</strong> Nothing to download.</li>
+            <li><strong>A Windows update that says what happened.</strong> <code>~/.casper/update.log</code>, and a
+            failed update is said by <code>casper update</code>, <code>casper doctor</code> and the session start.</li>
+          </ul>
+        </article>
+
         <article class="card" id="v0227" aria-labelledby="v0227-h">
-          <h3 id="v0227-h">v0.2.27 · Skill packs, colour themes, pull requests and CI, a clickable /mcp, nothing extra to install <span class="badge ok">current preview</span></h3>
+          <h3 id="v0227-h">v0.2.27 · Skill packs, colour themes, pull requests and CI, a clickable /mcp, nothing extra to install <span class="badge">released</span></h3>
           <p>Packs of skills you add after seeing every file, colour themes, one line per MCP server with an
           arrow-key picker, pasted pictures and copied files, and a leaner network server.</p>
           <ul>
@@ -538,18 +569,15 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>These are on the main branch but not in v0.2.27. They ship with the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.28. New work shows here before the next preview.</p>
         </aside>
-        <ul>
-          <li><strong>A Windows update that says what happened.</strong> The hidden helper behind <code>casper update</code> writes <code>~/.casper/update.log</code>; when an update did not finish, <code>casper update</code>, <code>casper doctor</code> and the start of a session say so and show the install one-liner. The wording no longer says the update finishes "when this window closes".</li>
-        </ul>
       </section>
 
       <section id="coming" aria-labelledby="coming-h">
         <h2 id="coming-h">Planned, not started</h2>
         <aside class="callout soon">
           <strong class="callout-title">Not in any release yet</strong>
-          <p>Nothing else in this section is in v0.2.27: the first part of Crews shipped in v0.2.23, AI-started
+          <p>Nothing else in this section is in v0.2.28: the first part of Crews shipped in v0.2.23, AI-started
           builders in v0.2.24, reviewers and a fix round in v0.2.25, and the rest has not been started. Names, commands and details may change, or move to a later version, before
           they ship.</p>
         </aside>
@@ -729,7 +757,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.27</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.28</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

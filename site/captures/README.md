@@ -1,6 +1,6 @@
 # Terminal captures
 
-Plain-text copies of real Casper 0.2.27 runs, for the site's `<pre>` blocks.
+Plain-text copies of real Casper 0.2.28 runs, for the site's `<pre>` blocks.
 Nothing here used a model API key or the network.
 
 ## Rules used for every file
