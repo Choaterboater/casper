@@ -185,12 +185,13 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
   const githubLogin = async (command: string, signal?: AbortSignal): Promise<string | undefined> => {
     const found = githubPlain(command, sandbox.root);
     if (!found) return undefined;
-    // A command that types its own address could send the project anywhere: it asks every time.
-    if (!found.address && (store.sessionGithub.has(found.action) || await store.allowsGithub(found.action))) { githubCleared.add(command); return undefined; }
+    // A command that types its own address could send the project anywhere, and a merge, close or rerun can't be taken
+    // back: they ask every time, whatever was remembered for another kind.
+    if (!found.once && (store.sessionGithub.has(found.action) || await store.allowsGithub(found.action))) { githubCleared.add(command); return undefined; }
     if (!host.canAsk()) { githubUnasked.add(command); return undefined; }
-    const answer = await host.pick(githubLoginQuestion(command), githubLoginChoices(found.action, !found.address), signal);
-    if (answer === YES_SESSION && !found.address) store.sessionGithub.add(found.action);
-    else if (answer === YES_ALWAYS && !found.address) {
+    const answer = await host.pick(githubLoginQuestion(command), githubLoginChoices(found.action, !found.once), signal);
+    if (answer === YES_SESSION && !found.once) store.sessionGithub.add(found.action);
+    else if (answer === YES_ALWAYS && !found.once) {
       try { await store.addGithub(found.action); }
       catch (error) { store.sessionGithub.add(found.action); host.write(`[sandbox] Not saved (${terminalText(error instanceof Error ? error.message : String(error))}); ${found.action} doesn't ask again this session.\n`); }
     } else if (answer !== YES_ONCE) return GITHUB_LOGIN_DECLINED;

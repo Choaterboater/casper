@@ -56,7 +56,7 @@ export function permissionsScreen(view: PermissionsView): string {
     "  To stop being asked: answer 4 at the box, or --allow-reach <host> for one run. A password ssh asks for goes in Casper's own hidden box"
       + `${view.sshLogin ? "" : " (off now)"}; ssh_login: off in ~/.casper/config.yaml turns that box off.`,
     view.sandboxOn
-      ? `GitHub login: the sandbox hides it; a plain git push/pull/fetch/clone/ls-remote or gh pr/issue/run/repo/api/auth status asks 'Run outside the sandbox with your GitHub login?' (not answered by /permissions all). Allowed: ${list(view.githubLogin ?? [])} (/allowed forget <n>).`
+      ? `GitHub login: the sandbox hides it; a plain git push/pull/fetch/clone/ls-remote or gh pr/issue/run/repo/api/auth status asks 'Run outside the sandbox with your GitHub login?' (not answered by /permissions all; a merge, close, reopen, ready, review, checkout, rerun or cancel asks every time). Allowed: ${list(view.githubLogin ?? [])} (/allowed forget <n>).`
       : "GitHub login: not sandboxed here, so git and gh use it as they always do.",
     "",
     view.sandboxOn

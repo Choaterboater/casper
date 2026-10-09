@@ -61,11 +61,25 @@ test("plain git and gh commands that use your GitHub login are recognised", asyn
     "gh api repos/example/app/pulls", "gh api -X GET /user --jq .login", "gh api --paginate 'repos/example/app/issues?state=open'",
     "gh auth status", "gh auth status --hostname github.com",
   ]) expect([command, githubLoginCommand(command, places(root))]).toEqual([command, expect.objectContaining({ tool: command.split(" ")[0] })]);
-  expect(githubLoginCommand("git push -u origin fix/tool-ergonomics", places(root))).toEqual({ tool: "git", action: "git push", address: false });
+  expect(githubLoginCommand("git push -u origin fix/tool-ergonomics", places(root))).toEqual({ tool: "git", action: "git push", once: false });
   expect(githubLoginCommand("gh pr create -t Fix -F body.md", places(root))?.action).toBe("gh pr create");
   // A command that types its own address names where it goes: a yes covers that command only.
-  expect(githubLoginCommand("git push https://github.com/example/app.git main", places(root))).toEqual({ tool: "git", action: "git push", address: true });
-  expect(githubLoginCommand("git clone https://github.com/example/lib.git", places(root))?.address).toBe(true);
+  expect(githubLoginCommand("git push https://github.com/example/app.git main", places(root))).toEqual({ tool: "git", action: "git push", once: true });
+  expect(githubLoginCommand("git clone https://github.com/example/lib.git", places(root))?.once).toBe(true);
+});
+
+test("gh subcommands that change state on GitHub or the checkout are once-only; reads and writes you can edit keep all four answers", async () => {
+  const { root } = await project();
+  for (const command of [
+    "gh pr merge 12 --squash", "gh pr close 12", "gh pr reopen 12", "gh pr ready 12", "gh pr review 12 --approve", "gh pr checkout 12",
+    "gh issue close 7", "gh issue reopen 7", "gh run rerun 123 --failed", "gh run cancel 123",
+  ]) expect([command, githubLoginCommand(command, places(root))?.once]).toEqual([command, true]);
+  for (const command of [
+    "gh pr list", "gh pr view 12", "gh pr status", "gh pr checks 12", "gh pr diff 12", "gh pr create -t Fix", "gh pr comment 12 --body ok", "gh pr edit 12 --title New",
+    "gh issue list", "gh issue view 7", "gh issue create --title Bug", "gh issue comment 7 --body ok", "gh issue edit 7 --title New",
+    "gh run list", "gh run view 123", "gh run watch 123", "gh repo view", "gh api repos/example/app/pulls", "gh auth status",
+    "git push", "git pull", "git fetch", "git ls-remote origin",
+  ]) expect([command, githubLoginCommand(command, places(root))?.once]).toEqual([command, false]);
 });
 
 test("anything more than one plain command stays in the sandbox: operators, substitutions, overrides, programs, files and places", async () => {
@@ -218,7 +232,7 @@ test("Yes, always for this project is kept in ~/.casper, listed by /allowed and 
   await allowedCommand("/allowed", store, (chunk) => { text += chunk; });
   expect(text).toContain("1. git push commands, outside the sandbox with your GitHub login");
   const view = { githubLogin: ["git push"], sandboxOn: true } as Partial<PermissionsView>;
-  expect(permissionsScreen({ ...BASE_VIEW, ...view })).toContain("GitHub login: the sandbox hides it; a plain git push/pull/fetch/clone/ls-remote or gh pr/issue/run/repo/api/auth status asks 'Run outside the sandbox with your GitHub login?' (not answered by /permissions all). Allowed: git push (/allowed forget <n>).");
+  expect(permissionsScreen({ ...BASE_VIEW, ...view })).toContain("GitHub login: the sandbox hides it; a plain git push/pull/fetch/clone/ls-remote or gh pr/issue/run/repo/api/auth status asks 'Run outside the sandbox with your GitHub login?' (not answered by /permissions all; a merge, close, reopen, ready, review, checkout, rerun or cancel asks every time). Allowed: git push (/allowed forget <n>).");
   text = "";
   await allowedCommand("/allowed forget 1", store, (chunk) => { text += chunk; });
   expect(text).toContain("Forgot 1: git push commands");
@@ -226,6 +240,27 @@ test("Yes, always for this project is kept in ~/.casper, listed by /allowed and 
   next.value.pick = async () => undefined;
   expect(await nextShell.approve!("git push origin main")).toBe(GITHUB_LOGIN_DECLINED);
   await sandbox.close(); await later.close();
+});
+
+test("gh pr merge and the like offer No and Yes, this once only, and a remembered answer for another kind never skips their box", async () => {
+  const { shell, sandbox, context, root, terminal } = await shellFor(["Yes, always for this project", "Yes, for this session", "Yes, this once", undefined, undefined]);
+  expect(await shell.approve!("gh pr create -t Fix")).toBeUndefined();
+  expect(await shell.approve!("gh pr comment 12 --body ok")).toBeUndefined();
+  expect(JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8")).github).toEqual(["gh pr create"]);
+  // Already answered: gh pr create and gh pr comment don't ask again.
+  expect(await shell.approve!("gh pr create -t Again")).toBeUndefined();
+  expect(await shell.approve!("gh pr comment 13 --body ok")).toBeUndefined();
+  expect(await shell.approve!("gh pr merge 12 --squash")).toBeUndefined();
+  expect((await shell.wrap("gh pr merge 12 --squash", root)).env).toBeDefined();
+  // The yes covered that one command: the same merge asks again, and so does a close.
+  expect(await shell.approve!("gh pr merge 12 --squash")).toBe(GITHUB_LOGIN_DECLINED);
+  expect(await shell.approve!("gh pr close 12")).toBe(GITHUB_LOGIN_DECLINED);
+  const twoAnswers = ["No", "Yes, this once"], four = ["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"];
+  expect(terminal.asked.map((entry) => entry.options)).toEqual([four, four, twoAnswers, twoAnswers, twoAnswers]);
+  // A saved answer for a once-only kind (an older Casper, or a hand-edited file) does not skip the box either.
+  await sandbox.store!.addGithub("gh pr merge");
+  expect(await shell.approve!("gh pr merge 12 --squash")).toBe(GITHUB_LOGIN_DECLINED);
+  await sandbox.close();
 });
 
 const BASE_VIEW: PermissionsView = {

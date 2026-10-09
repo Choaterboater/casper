@@ -403,7 +403,9 @@ setting that opens it. Instead the AI's plain `git push`, `pull`, `fetch`, `clon
 `run`, `repo view|clone`, `api` (GET) or `auth status`, asks `Run outside the sandbox with your GitHub login?` and, after
 your yes, runs as typed outside the sandbox with your own login; the AI reads only its output. 3 and 4 at that box cover
 that kind of command (`git push`) for the session or for this project; `/allowed` lists a saved one and
-`/allowed forget <n>` takes it back. Nothing to configure; see [SECURITY.md](SECURITY.md) for what counts as plain.
+`/allowed forget <n>` takes it back. A command that types its own address, and `gh pr merge`, `close`, `reopen`, `ready`,
+`review` or `checkout`, `gh issue close` or `reopen`, and `gh run rerun` or `cancel`, offer only No and Yes, this once,
+every time. Nothing to configure; see [SECURITY.md](SECURITY.md) for what counts as plain.
 
 `sandbox: off` turns it off for every run (like `--no-sandbox` for one run); the receipt then
 says shell commands and checks were not sandboxed. A project's `.casper/project.yaml` can only

@@ -230,7 +230,9 @@ export const REACH_CHOICES = [
 
 /** "Run outside the sandbox with your GitHub login?  git push -u origin main": a plain git push, pull, fetch, clone or
  * ls-remote, or gh pr, issue, run, repo, api (GET) or auth status, that the sandbox would run without your login. Enter
- * runs nothing. 3 and 4 cover that kind of command (`git push`); a command that types its own address gets 1 and 2 only. */
+ * runs nothing. 3 and 4 cover that kind of command (`git push`); a command that types its own address, or changes things
+ * on GitHub or your checkout (gh pr merge, close, reopen, ready, review, checkout; gh issue close, reopen; gh run rerun,
+ * cancel), gets 1 and 2 only, every time. */
 export function githubLoginChoices(action: string, remember = true): Choice[] {
   return [
     { label: NO, description: "the command does not run" },

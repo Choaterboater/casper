@@ -20,8 +20,9 @@ export interface GithubLoginCommand {
   tool: "git" | "gh";
   /** What a "for this session" or "always" answer covers: `git push`, `gh pr create`, `gh api`. */
   action: string;
-  /** The command names an address itself (not a remote of this repo): a yes covers this command only. */
-  address: boolean;
+  /** A yes covers this command only, and no remembered answer skips its box: it names an address itself (not a remote
+   * of this repo), or it changes things on GitHub or your checkout (see GH_ONCE). */
+  once: boolean;
 }
 
 export interface GithubLoginPlaces {
@@ -237,18 +238,18 @@ function gitCommand(words: string[], places: GithubLoginPlaces): GithubLoginComm
   if (sub === "clone") {
     if (!first || !networkAddress(first) || more.length > 1) return undefined;
     if (more[0] !== undefined && (more[0].startsWith("-") || /^~/.test(more[0]))) return undefined;
-    return cloneTargetOk(first, more[0], places) ? { tool: "git", action, address: true } : undefined;
+    return cloneTargetOk(first, more[0], places) ? { tool: "git", action, once: true } : undefined;
   }
   if (more.some((word) => !REFSPEC.test(word))) return undefined;
   const remotes = (places.remotes ?? (() => readRemotes(places.root)))();
   if (first === undefined) {
     // No remote named: git picks one from the repo's settings, so every remote must be a plain one.
     if (!remotes?.size || ![...remotes].every(([name, settings]) => plainRemote(name, settings))) return undefined;
-    return { tool: "git", action, address: false };
+    return { tool: "git", action, once: false };
   }
   // A remote of this repo by name (git looks names up first), or a network address typed in the command.
-  if (REMOTE_NAME.test(first) && remotes?.has(first)) return plainRemote(first, remotes.get(first)) ? { tool: "git", action, address: false } : undefined;
-  if (networkAddress(first)) return { tool: "git", action, address: true };
+  if (REMOTE_NAME.test(first) && remotes?.has(first)) return plainRemote(first, remotes.get(first)) ? { tool: "git", action, once: false } : undefined;
+  if (networkAddress(first)) return { tool: "git", action, once: true };
   // Anything else (a folder, ../other.git, a name that is no remote) is a local path to git: its hooks would run here.
   return undefined;
 }
@@ -261,6 +262,11 @@ const GH_SUBCOMMANDS: Record<string, readonly string[]> = {
   repo: ["view", "clone"],
   auth: ["status"],
 };
+/** gh subcommands that change state on GitHub or the local checkout: each asks every time, "Yes, this once" at most. */
+export const GH_ONCE: ReadonlySet<string> = new Set([
+  "gh pr merge", "gh pr close", "gh pr reopen", "gh pr ready", "gh pr review", "gh pr checkout",
+  "gh issue close", "gh issue reopen", "gh run rerun", "gh run cancel",
+]);
 /** gh options that open a browser or an editor, read stdin or a recovery file, or reach submodules: never outside. */
 const GH_NEVER = new Set(["-w", "--web", "-e", "--editor", "--recover", "--recurse-submodules", "--"]);
 const GH_FILE = new Set(["-F", "--body-file"]);
@@ -278,7 +284,7 @@ function ghCommand(words: string[], places: GithubLoginPlaces): GithubLoginComma
     const endpoint = split.rest[0]!;
     // graphql is a POST that can change things; a method other than GET changes things too.
     if (/^\/?graphql\b/i.test(endpoint) || split.options.some(([name, value]) => (name === "-X" || name === "--method") && value?.toUpperCase() !== "GET")) return undefined;
-    return { tool: "gh", action: "gh api", address: false };
+    return { tool: "gh", action: "gh api", once: false };
   }
   const sub = words[2];
   if (!sub || !GH_SUBCOMMANDS[group]?.includes(sub)) return undefined;
@@ -286,7 +292,7 @@ function ghCommand(words: string[], places: GithubLoginPlaces): GithubLoginComma
   const action = `gh ${group} ${sub}`;
   if (group === "auth") {
     const split = splitOptions(args, { flags: ["-a", "--active"], valued: ["-h", "--hostname"] });
-    return split && !split.rest.length ? { tool: "gh", action, address: false } : undefined;
+    return split && !split.rest.length ? { tool: "gh", action, once: false } : undefined;
   }
   // gh repo clone's own options (-u <name>) and the git options after -- would hide which folder it makes.
   if (group === "repo" && sub === "clone" && args.some((word) => word.startsWith("-"))) return undefined;
@@ -306,9 +312,9 @@ function ghCommand(words: string[], places: GithubLoginPlaces): GithubLoginComma
   if (group === "repo" && sub === "clone") {
     const [repo, dir, ...extra] = rest;
     if (!repo || extra.length || !/^(?:[\w.-]+\/)?[\w.-]+(?:\/[\w.-]+)?$|^https:\/\/\S+$/.test(repo)) return undefined;
-    return cloneTargetOk(repo, dir, places) ? { tool: "gh", action, address: true } : undefined;
+    return cloneTargetOk(repo, dir, places) ? { tool: "gh", action, once: true } : undefined;
   }
-  return { tool: "gh", action, address: false };
+  return { tool: "gh", action, once: GH_ONCE.has(action) };
 }
 
 /**
