@@ -94,6 +94,15 @@ test("Ollama's window: a loaded model's, then its num_ctx, then OLLAMA_CONTEXT_L
   expect(found.problems).toEqual([]);
 });
 
+test("CASPER_LOCAL_MODELS=off looks for nothing, even where a server's variable is set", async () => {
+  let asked = 0;
+  const spy = (() => { asked++; return Promise.reject(new Error("refused")); }) as unknown as typeof fetch;
+  for (const off of ["off", "0", "false", "OFF"]) {
+    expect(await discoverLocalServers({ env: { CASPER_LOCAL_MODELS: off, OLLAMA_HOST: "127.0.0.1:11434" }, fetch: spy })).toEqual({ servers: [], problems: [] });
+  }
+  expect(asked).toBe(0);
+});
+
 test("a server that is not running is skipped without a word; one whose variable is set says so", async () => {
   const refused = (() => Promise.reject(new Error("refused"))) as unknown as typeof fetch;
   expect(await discoverLocalServers({ env: {}, fetch: refused })).toEqual({ servers: [], problems: [] });

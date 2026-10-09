@@ -442,6 +442,7 @@ Any other `sandbox` or `shell` key in a project file is named at startup and ign
 | `CASPER_TUI_WRITE_LOG` | Optional log file of raw terminal output, or an existing folder for timestamped logs. It can contain sensitive output, so `/login` is refused while it is set. |
 | `CASPER_PROFILE` | Picks the profile; see [Profiles](#profiles). |
 | `CASPER_BROWSER_EXECUTABLE` | Absolute path to the Chrome/Chromium/Edge program for browser tasks, instead of auto-detection. See [BROWSER.md](BROWSER.md). |
+| `CASPER_LOCAL_MODELS` | `off` (or `0`, `false`, `no`) looks for no model server on this computer (Ollama, LM Studio, llama.cpp, vLLM) for this run, like `localModels: false`. See [Local models](#local-models). |
 | `CASPER_NETCONAN` | `off` turns the extra netconan secret check off; a path picks the netconan program. See [SECRETS.md](SECRETS.md). |
 
 Set these in your shell, not in a repository `.env` file (Casper does not read it). At startup
@@ -524,7 +525,8 @@ on this computer:
 - **No key leaves for it.** A found server is sent the word `local` as its key, and nothing else: keys
   are kept per provider, so no other provider's key is ever sent to it. The look itself sends no key.
 - **Off switch.** `/settings` **Local models** (it writes `localModels: false` in `~/.casper/config.yaml`;
-  a project file can't change it). A change applies from the next start.
+  a project file can't change it). A change applies from the next start. `CASPER_LOCAL_MODELS=off` in the
+  environment does the same for one run (a script or CI).
 
 **Your models.json still works, and wins.** A provider you set up yourself in `models.json` with the
 same name (`ollama`), or one that points at the same address under another name, is used as you wrote

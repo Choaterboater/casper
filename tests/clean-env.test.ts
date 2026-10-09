@@ -52,3 +52,8 @@ test("the search path has one key, PATH, whatever case the host or the test uses
   expect(pathKeys(set)).toEqual(["PATH"]);
   expect(set.PATH).toBe("C:\\fixture-bin");
 });
+
+test("a spawned Casper looks for no model server on this computer unless the test asks for one", () => {
+  expect(cleanEnv().CASPER_LOCAL_MODELS).toBe("off");
+  expect(cleanEnv({ CASPER_LOCAL_MODELS: undefined }).CASPER_LOCAL_MODELS).toBeUndefined();
+});
