@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs";
 import os from "node:os";
 import { CredentialSynchronizationError, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { tildePath } from "../new/scaffold";
 import { privateFileProblem } from "../platform/private-file";
 import { withLoginDisplay } from "../tui/login";
 import { openRouterAttribution } from "./openrouter-attribution";
+import { COPILOT_POLICIES, NOT_SHARED, copilotFromGithub, copilotTokenKind, findOtherLogins, ghToken, readOtherKey, saveCredential, type OtherLogin } from "./other-logins";
 import type { RuntimeAuthenticationOptions, RuntimeAuthenticationResult, RuntimeAuthProvider } from "./types";
 
 /** The home folder now (tests and wrappers change HOME after start). */
@@ -66,10 +68,11 @@ const KEY_VERIFICATION_TIMEOUT_MS = 10_000;
 
 type KeyVerification = { ok: true } | { ok: false; rejected: true; status: number } | { ok: false; rejected: false; reason: string };
 
-async function verifyProviderKey(provider: "anthropic" | "openrouter", key: string, signal: AbortSignal): Promise<KeyVerification> {
-  const url = provider === "openrouter" ? "https://openrouter.ai/api/v1/auth/key" : "https://api.anthropic.com/v1/models";
-  const headers: Record<string, string> = provider === "openrouter"
-    ? { authorization: `Bearer ${key}`, ...openRouterAttribution() }
+async function verifyProviderKey(provider: "anthropic" | "openrouter" | "openai", key: string, signal: AbortSignal): Promise<KeyVerification> {
+  const url = provider === "openrouter" ? "https://openrouter.ai/api/v1/auth/key"
+    : provider === "openai" ? "https://api.openai.com/v1/models" : "https://api.anthropic.com/v1/models";
+  const headers: Record<string, string> = provider === "openrouter" ? { authorization: `Bearer ${key}`, ...openRouterAttribution() }
+    : provider === "openai" ? { authorization: `Bearer ${key}` }
     : { "x-api-key": key, "anthropic-version": "2023-06-01" };
   try {
     const response = await fetch(url, {
@@ -95,9 +98,59 @@ function failureDetail(error: unknown, timedOut: boolean, name: string): string 
   return undefined;
 }
 
+/** Key variables that already sign a provider in, so a found sign-in for it is not offered. */
+const SIGNED_IN_BY_ENV: Record<string, readonly string[]> = {
+  anthropic: ["ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN"], openai: ["OPENAI_API_KEY"], "github-copilot": ["COPILOT_GITHUB_TOKEN"],
+};
+
+/** Providers with a sign-in already: named in Casper's login file or set by a key variable. Only the names are kept,
+ * and nothing is created: a missing login file stays missing. */
+function signedInHere(destination: string): Set<string> {
+  const names = new Set<string>();
+  for (const [provider, variables] of Object.entries(SIGNED_IN_BY_ENV)) if (variables.some((name) => process.env[name])) names.add(provider);
+  try {
+    const saved: unknown = JSON.parse(readFileSync(destination, "utf8").replace(/^\uFEFF/, ""));
+    if (saved && typeof saved === "object") for (const name of Object.keys(saved)) names.add(name);
+  } catch { /* none yet, or unreadable: nothing counts as signed in */ }
+  return names;
+}
+
+/** Save a sign-in another tool left here, after you picked it: an API key verified with its provider, or GitHub CLI's
+ * token exchanged for Copilot. Never the other tool's refresh token. Failures are plain words, never provider text. */
+async function useOtherLogin(login: OtherLogin, destination: string, signal: AbortSignal): Promise<RuntimeAuthenticationResult> {
+  const failed = (detail: string): RuntimeAuthenticationResult => ({ status: "failed", effect: "none", reason: "provider", detail });
+  let credential: Record<string, unknown>;
+  if (login.use === "api_key") {
+    const key = readOtherKey(login);
+    // Stored Pi keys are configuration expressions; accept only literal keys.
+    if (!key || key.startsWith("!") || key.includes("$")) return failed(`${login.tool}'s key isn't there any more`);
+    const verification = await verifyProviderKey(login.provider as "anthropic" | "openai", key, signal);
+    if (!verification.ok) return failed(verification.rejected ? `${login.provider === "openai" ? "OpenAI" : "Anthropic"} refused ${login.tool}'s key (HTTP ${verification.status})`
+      : `couldn't check ${login.tool}'s key (${verification.reason})`);
+    credential = { type: "api_key", key };
+  } else {
+    const token = await ghToken(signal);
+    if (!token) return failed("GitHub CLI gave no sign-in (gh auth token); run gh auth login, or pick Sign in separately");
+    const kind = copilotTokenKind(token);
+    if (kind !== "ok") return failed(kind === "classic" ? "GitHub CLI is signed in with a classic token, which Copilot doesn't take; pick Sign in separately"
+      : "GitHub CLI's sign-in isn't a kind Copilot takes; pick Sign in separately");
+    const exchanged = await copilotFromGithub(token, signal);
+    if (!exchanged.ok) return failed(exchanged.detail);
+    credential = exchanged.credential;
+  }
+  const problem = await privateFileProblem(destination, signal);
+  if (problem) return { status: "failed", effect: "none", reason: "destination", detail: problem };
+  try { await saveCredential(destination, login.provider, credential, signal); }
+  catch (error) {
+    if (signal.aborted) return { status: "cancelled", effect: "unknown" };
+    return { status: "failed", effect: "unknown", reason: "destination", detail: error instanceof Error && /^(another Casper|the login file)/.test(error.message) ? error.message : "Casper couldn't write the login file" };
+  }
+  return { status: "saved" };
+}
+
 /** Dedicated builtin-only runtime: no sessions, extensions, model config or network catalog refresh. */
 export async function authenticatePi(options: RuntimeAuthenticationOptions, destination: string,
-  lifetime: AbortSignal): Promise<RuntimeAuthenticationResult & { provider?: RuntimeAuthProvider }> {
+  lifetime: AbortSignal): Promise<RuntimeAuthenticationResult & { provider?: string }> {
   const signal = AbortSignal.any([lifetime, ...(options.signal ? [options.signal] : [])]);
   if (signal.aborted) return { status: "cancelled", effect: "none" };
   if (options.provider !== undefined && !Object.hasOwn(providerNames, options.provider)) return { status: "failed", effect: "none", reason: "unavailable" };
@@ -105,6 +158,8 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
   if (process.env.CASPER_TUI_WRITE_LOG || process.env.PI_TUI_WRITE_LOG) return { status: "failed", effect: "none", reason: "unavailable", detail: "CASPER_TUI_WRITE_LOG is set" };
   let invoked = false;
   let provider = options.provider;
+  /** The provider a found sign-in was saved for (it may be one /login has no row for, such as openai). */
+  let imported: string | undefined;
   try {
     // Refuse an unusable destination before the picker, naming the component to fix.
     const early = await privateFileProblem(destination, signal);
@@ -112,9 +167,26 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
     return await options.terminalHost.run((io) => withLoginDisplay(io, signal, async (display): Promise<RuntimeAuthenticationResult> => {
       const saved = `Saved in ${tildePath(destination, home())}, only on this computer.`;
       display.setNote(saved);
+      // Sign-ins other tools left here come first: 1 use one, then Sign in separately, then Not now.
+      const found = options.others === false ? []
+        : findOtherLogins(signedInHere(destination)).filter((login) => !provider || login.provider === provider);
+      let pickedId: string | undefined;
+      if (found.length) {
+        const notes = [...found.some((login) => login.use === "own") ? [NOT_SHARED] : [], ...found.some((login) => login.use === "github") ? [COPILOT_POLICIES] : []];
+        if (notes.length) display.setNote([saved, ...notes].join("\n"));
+        const answer = await display.choose(found.length === 1 ? `Found a ${found[0]!.tool} sign-in on this computer` : "Found sign-ins on this computer",
+          [...found.map(({ id, label }) => ({ id, label })), { id: "separately", label: "Sign in separately" }, { id: "later", label: "Not now" }]);
+        const login = found.find((item) => item.id === answer);
+        if (!answer || answer === "later" || display.signal.aborted) return { status: "cancelled", effect: "none" };
+        if (login?.use === "own") pickedId = `${login.provider}:oauth`;
+        else if (login) {
+          imported = login.provider;
+          return useOtherLogin(login, destination, display.signal);
+        }
+      }
       // One numbered list (provider and method together); /login <provider> with one way skips it.
       const ways = signInWays(provider);
-      const pickedId = ways.length === 1 && !options.list ? ways[0]!.id
+      pickedId ??= ways.length === 1 && !options.list ? ways[0]!.id
         : await display.choose(provider ? `Sign in to ${providerNames[provider]}` : "Sign in", ways);
       const way = ways.find((item) => item.id === pickedId);
       if (!way) return { status: "cancelled", effect: "none" };
@@ -219,10 +291,10 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
         const detail = failureDetail(error, timedOut, providerNames[selected]);
         return { status: "failed", effect: invoked ? "unknown" : "none", reason: "provider", ...(detail ? { detail } : {}) };
       } finally { active = false; clearTimeout(timer); deadline.abort(); }
-    })).then(result => ({ ...result, provider }));
+    })).then(result => ({ ...result, provider: imported ?? provider }));
   } catch {
     // Never expose SDK error objects: synchronization errors contain the credential itself.
-    return signal.aborted ? { status: "cancelled", effect: invoked ? "unknown" : "none", provider }
-      : { status: "failed", effect: invoked ? "unknown" : "none", reason: "unavailable", provider };
+    return signal.aborted ? { status: "cancelled", effect: invoked ? "unknown" : "none", provider: imported ?? provider }
+      : { status: "failed", effect: invoked ? "unknown" : "none", reason: "unavailable", provider: imported ?? provider };
   }
 }

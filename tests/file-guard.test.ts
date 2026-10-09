@@ -4,7 +4,7 @@ import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { classifyPath, fileToolGate, gitInternalsCommand, hooksPathTargets, PRIVATE_PATHS, privatePathCommand, windowsShellPath } from "../src/platform/project-paths";
+import { classifyPath, fileToolGate, gitInternalsCommand, hooksPathTargets, otherLoginFiles, PRIVATE_PATHS, privatePathCommand, windowsShellPath } from "../src/platform/project-paths";
 import { POSIX } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -252,6 +252,25 @@ test("a project's sandbox.denyRead is private to the file tools too, not only to
   expect(fileToolGate("read", { path: path.join(logs, "secret.txt") }, denied)).toContain("is private");
   expect(fileToolGate("grep", { pattern: "x", path: root }, denied)).toContain("holds private files");
   expect(fileToolGate("read", { path: path.join(logs, "secret.txt") }, context)).toBeUndefined();
+});
+
+test("other tools' sign-ins moved by their folder setting, or in Windows' %APPDATA%, are private too; the folders are not", () => {
+  const moved = { CLAUDE_CONFIG_DIR: path.join(root, "claude-dir"), CODEX_HOME: path.join(root, "codex-dir"), GH_CONFIG_DIR: path.join(root, "gh-dir") };
+  const saved = Object.fromEntries(Object.keys(moved).map((name) => [name, process.env[name]]));
+  try {
+    Object.assign(process.env, moved);
+    for (const file of ["claude-dir/.credentials.json", "claude-dir/.claude.json", "codex-dir/auth.json", "gh-dir/hosts.yml"]) {
+      expect(fileToolGate("read", { path: path.join(root, file) }, context)).toContain("is private (keys and logins)");
+    }
+    // Only the sign-in file: the rest of the folder, and a project named as the folder, stay readable.
+    expect(fileToolGate("read", { path: path.join(root, "codex-dir/config.toml") }, context)).toBeUndefined();
+    expect(otherLoginFiles(home, { GH_CONFIG_DIR: project })).toContain(path.join(project, "hosts.yml"));
+    expect(fileToolGate("read", { path: path.join(project, "src/a.ts") }, context)).toBeUndefined();
+  } finally { for (const [name, value] of Object.entries(saved)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; } }
+  // gh on Windows keeps hosts.yml in %APPDATA%\GitHub CLI; the home places already private are not listed twice.
+  const appData = path.join(root, "AppData", "Roaming");
+  expect(otherLoginFiles(home, { USERPROFILE: home, APPDATA: appData }, "win32")).toEqual([path.join(appData, "GitHub CLI", "hosts.yml")]);
+  expect(otherLoginFiles(home, { HOME: home }, "linux")).toEqual([]);
 });
 
 test("review: a denyRead folder inside the project blocks reads of it, not a search of the project", async () => {

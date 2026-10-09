@@ -152,6 +152,29 @@ test("ssh_login: off loads from your own config; a project file can't set it", a
   await expect(load()).rejects.toThrow("ssh_login must be on or off");
 });
 
+test("Sign-ins from other tools row: on by default, says nothing is taken without a pick, a pick writes other_logins: false", async () => {
+  const { home, project, config } = await folders();
+  const label = "Sign-ins from other tools";
+  const host = fakeHost(home, project, [label, "Keep it on", label, "Turn it off", "Done"]);
+  await runSettings(host);
+  expect(host.asked[1]!.split("\n").slice(1)).toEqual(["1 Keep it on", "2 Turn it off"]);
+  expect(host.asked[1]).toContain("Claude Code, Codex CLI or GitHub CLI");
+  expect(host.asked[1]).toContain("Nothing is taken without your pick");
+  expect(await readFile(config, "utf8")).toBe("other_logins: false\n");
+  expect((await host.context())!.otherLogins).toBe(false);
+  expect(await valueOf(home, project, label)).toBe("off");
+});
+
+test("other_logins: off loads from your own config; a project file can't set it", async () => {
+  const { home, project, config, projectFile } = await folders();
+  const load = () => loadConfiguration({ projectRoot: project, homeDir: home });
+  expect((await load()).otherLogins).toBeUndefined();
+  await writeFile(config, "other_logins: off\n");
+  expect((await load()).otherLogins).toBe(false);
+  await writeFile(projectFile, "other_logins: on\n");
+  await expect(load()).rejects.toThrow("other_logins is a user setting");
+});
+
 test("page checks off in your config: no page check after a UI change, and a project file can't turn them back on", async () => {
   const { home, project, config, projectFile } = await folders();
   await writeFile(path.join(project, "package.json"), JSON.stringify({ scripts: { dev: "vite" }, dependencies: { react: "18", vite: "5" } }));

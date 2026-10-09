@@ -398,6 +398,22 @@ terminal with nothing signed in says `Not signed in yet. Run casper in a termina
 A one-shot run with a key set but no model Casper can pick says
 `No Casper model selected. Pass --model <provider/model>, or run casper and type /model.`
 
+**Sign-ins from other tools.** On a new computer where Claude Code, Codex CLI or GitHub CLI is
+already signed in, `/login` (and the sign-in Casper opens by itself) first says
+`Found a Codex CLI sign-in on this computer` and offers `1 Use it`, `Sign in separately` and `Not now`
+(with several found, one row each). Only providers with no sign-in yet are offered, and
+`/login <provider>` offers only that provider's sign-ins. Finding one reads no key; the key is read only after you
+pick it. Claude Code's or Codex CLI's API key is checked with Anthropic or OpenAI first, then copied (a key
+works in both tools). GitHub CLI's sign-in (`gh auth token`) is used for GitHub Copilot the same way
+Copilot's own sign-in is: exchanged for a Copilot token, then the models your plan offers but hasn't turned
+on yet are turned on (the list says it may turn on model policies on your GitHub account). gh stays signed
+in; a classic `ghp_` token is refused, because Copilot doesn't take it. A Claude or ChatGPT plan sign-in is never copied: its refresh token changes on use, so
+a shared copy would sign the other tool out. Picking it starts Casper's own sign-in to the same
+account instead. Casper looks in `~/.claude.json`, `~/.claude/.credentials.json` (`CLAUDE_CONFIG_DIR`),
+`~/.codex/auth.json` (`CODEX_HOME`) and gh's `hosts.yml` (`GH_CONFIG_DIR`, `%APPDATA%\GitHub CLI` on
+Windows). The AI's tools can't read any of these, moved or not. **Sign-ins from other tools** in `/settings`
+(`other_logins: off`) turns the offer off.
+
 If you skip `/login`, Casper opens sign-in on your first request and picks that provider's
 default model (OpenRouter: `deepseek/deepseek-v4.1-flash`). `/model` picks another; Casper never
 replaces a model you chose. Type keys or codes only in the private login prompt, never in chat.
@@ -473,7 +489,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   while nothing is typed, so a custom answer cannot start with a row's number unless
   Other is picked first (or a letter is typed first); a digit past the last row is ordinary text. A list longer
   than nine (`/settings`) numbers every row: type the number and press Enter
-  (`Type 1-24 + Enter or Up/Down + Enter`).
+  (`Type 1-25 + Enter or Up/Down + Enter`).
 - Every numbered list draws the same way and ends with the same hint, `Press 1-4 or
   Up/Down + Enter`, followed by what else it takes: `Esc skip` for a question or picker
   (a question that takes a typed answer shows that with its Other row, not in the hint),

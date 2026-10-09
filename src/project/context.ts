@@ -64,6 +64,8 @@ export interface ProjectContext {
   toolDownloads?: boolean;
   /** `ssh_login: off` in the user's config: no private password box for ssh. Unset: on. */
   sshLogin?: boolean;
+  /** `other_logins: off` in the user's config: /login never looks for other tools' sign-ins. Unset: on. */
+  otherLogins?: boolean;
   /** `telemetry: off` in the user's config: no OpenRouter app-name headers. Unset: on. */
   telemetry?: boolean;
   rules: {
@@ -164,6 +166,7 @@ export async function loadProjectContext(
     ...(configuration.pageChecks !== undefined ? { pageChecks: configuration.pageChecks } : {}),
     ...(configuration.telemetry !== undefined ? { telemetry: configuration.telemetry } : {}),
     ...(configuration.sshLogin !== undefined ? { sshLogin: configuration.sshLogin } : {}),
+    ...(configuration.otherLogins !== undefined ? { otherLogins: configuration.otherLogins } : {}),
     ...(configuration.toolDownloads !== undefined ? { toolDownloads: configuration.toolDownloads } : {}),
     rules: {
       profile: configuration.profileRules,

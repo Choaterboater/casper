@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { CASPER_PRIVATE_PATHS, gitDirs, hooksPathTargets, PRIVATE_PATHS, PROTECTED_WRITE_PATHS, realpathLongest, within } from "../platform/project-paths";
+import { CASPER_PRIVATE_PATHS, gitDirs, hooksPathTargets, otherLoginFiles, PRIVATE_PATHS, PROTECTED_WRITE_PATHS, realpathLongest, within } from "../platform/project-paths";
 
 /**
  * What the shell sandbox lets a command touch. One policy feeds every shell path (the AI's bash, checks,
@@ -251,6 +251,7 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
   const home = input.home ?? os.homedir();
   const root = path.resolve(input.root);
   const inHome = (entries: readonly string[]) => entries.flatMap((entry) => spellings(path.join(home, entry)));
+  const otherLogins = otherLoginFiles(home, process.env, input.platform).flatMap(spellings);
   const git = gitDirs(root);
   const hooks = hooksPathTargets(root, home);
   // A worktree's own git folder comes first, then the one it shares (see gitDirs).
@@ -284,6 +285,7 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
     ...submodules.flatMap((found) => found.pointers).flatMap(spellings),
     ...inHome(PROTECTED_WRITE_PATHS),
     ...inHome(PRIVATE_PATHS),
+    ...otherLogins,
     ...inHome(RUNTIME_EXTRA_WRITES),
     // A store moved with CASPER_AGENT_DIR is held like ~/.casper: its settings pick the model, its sessions are replayed.
     // Not when it is home, / or holds the project: that would make them read-only too.
@@ -298,6 +300,8 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
     : denied;
   const denyRead = unique([
     ...inHome(PRIVATE_PATHS),
+    // Other tools' sign-ins a folder setting moved (CODEX_HOME, GH_CONFIG_DIR...) or Windows keeps in %APPDATA%.
+    ...otherLogins,
     ...inHome(CASPER_PRIVATE_PATHS),
     ...["auth.json", "models.json", "sessions"].flatMap((name) => input.agentDir ? spellings(path.join(input.agentDir, name)) : []),
     ...(input.project?.denyRead ?? []).map((entry) => resolveEntry(entry, root, home)).flatMap(spellings),

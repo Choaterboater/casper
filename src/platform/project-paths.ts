@@ -15,7 +15,7 @@ import { isOutside } from "./inside";
 /** Private places under your home folder: keys, logins and cloud credentials. */
 export const PRIVATE_PATHS: readonly string[] = [
   ".ssh", ".aws", ".gnupg", ".config/gh", ".kube", ".docker/config.json", ".netrc", ".git-credentials", ".claude.json", ".mcp.json",
-  ".claude/.credentials.json", ".casper/agent/auth.json", ".casper/mcp-consent.key", ".casper/packs.key", ".casper/network-logins.json", ".pi/agent/auth.json", "Library/Keychains",
+  ".claude/.credentials.json", ".codex/auth.json", ".casper/agent/auth.json", ".casper/mcp-consent.key", ".casper/packs.key", ".casper/network-logins.json", ".pi/agent/auth.json", "Library/Keychains",
   ".config/gcloud", ".azure", ".oci", ".terraform.d/credentials.tfrc.json", ".pgpass", ".npmrc", ".pypirc", ".config/hub",
   ".password-store", ".local/share/keyrings",
   // Casper's own: MCP servers (their tokens), profiles (each may hold an mcp.json) and every project's saved conversations.
@@ -25,6 +25,30 @@ export const PRIVATE_PATHS: readonly string[] = [
   // Provider settings, which may hold provider keys.
   ".casper/agent/models.json", ".pi/agent/models.json",
 ];
+
+/** Where Claude Code, Codex CLI and GitHub CLI keep a sign-in, each tool's own folder setting first. /login offers
+ * them (src/runtime/other-logins.ts); the AI's tools may not read them. */
+export function otherLoginPaths(env: Record<string, string | undefined> = process.env, platform: NodeJS.Platform = process.platform,
+  home = env.HOME || env.USERPROFILE || os.homedir()) {
+  const claudeDir = env.CLAUDE_CONFIG_DIR || path.join(home, ".claude");
+  const ghDir = env.GH_CONFIG_DIR || (env.XDG_CONFIG_HOME ? path.join(env.XDG_CONFIG_HOME, "gh")
+    : platform === "win32" && env.APPDATA ? path.join(env.APPDATA, "GitHub CLI") : path.join(home, ".config", "gh"));
+  return {
+    claudeCredentials: path.join(claudeDir, ".credentials.json"),
+    // Claude Code keeps its settings file beside the folder, or in CLAUDE_CONFIG_DIR when that is set.
+    claudeConfig: env.CLAUDE_CONFIG_DIR ? path.join(env.CLAUDE_CONFIG_DIR, ".claude.json") : path.join(home, ".claude.json"),
+    codexAuth: path.join(env.CODEX_HOME || path.join(home, ".codex"), "auth.json"),
+    ghHosts: path.join(ghDir, "hosts.yml"),
+  };
+}
+
+/** Those sign-in files where a folder setting or Windows (%APPDATA%\GitHub CLI) puts them outside the home places
+ * above: private too. Files, never their folder, so a setting that names the project or home never hides it. */
+export function otherLoginFiles(home: string, env: Record<string, string | undefined> = process.env, platform: NodeJS.Platform = process.platform): string[] {
+  const where = otherLoginPaths(env, platform, home);
+  return [...new Set([where.claudeCredentials, where.claudeConfig, where.codexAuth, where.ghHosts].map((file) => path.resolve(file)))]
+    .filter((file) => !PRIVATE_PATHS.some((entry) => within(path.join(home, entry), file)));
+}
 
 /** Casper's own records: approvals, lab answers, remembered hosts, undo copies; MCP consent and skill trust; the packs
  * you added and their record. */
@@ -142,6 +166,9 @@ export function privatePlaces(context: PathContext): PrivatePlace[] {
     const absolute = path.join(home, entry);
     places.push({ shown: `~/${entry}`, paths: variants(absolute), why: "Casper's own records", below: true,
       ...(entry === ".casper/projects" ? { open: browserPictures } : {}) });
+  }
+  for (const file of otherLoginFiles(home)) {
+    places.push({ shown: within(home, file) ? `~/${path.relative(home, file).split(path.sep).join("/")}` : file, paths: variants(file), why, below: true });
   }
   if (context.agentDir) {
     places.push({ shown: "Casper's login file (auth.json)", paths: variants(path.join(context.agentDir, "auth.json")), why, below: true });

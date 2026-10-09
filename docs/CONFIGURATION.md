@@ -20,7 +20,8 @@ Settings (saved in ~/.casper/config.yaml for you):
   Local models: on · Page checks: on · Show the AI the pages: ask once a session
   Work shown: normal · Theme: default · Untrusted-text reader: on
   Helpers that build: on · Playwright tests: on
-  Send Casper's name to OpenRouter: on · Private ssh passwords: on
+  Send Casper's name to OpenRouter: on · Sign-ins from other tools: on
+  Private ssh passwords: on
 Pick one to change:
   1 Done                              nothing changes
   2 Web lookups                       on (DuckDuckGo)
@@ -45,12 +46,13 @@ Pick one to change:
  21 Helpers that build                on
  22 Playwright tests                  on
  23 Send Casper's name to OpenRouter  on
- 24 Private ssh passwords             on
+ 24 Sign-ins from other tools         on
+ 25 Private ssh passwords             on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
-Every row has its number: past 9, type it and press Enter (`Type 1-24 + Enter or Up/Down + Enter`).
+Every row has its number: past 9, type it and press Enter (`Type 1-25 + Enter or Up/Down + Enter`).
 A plain terminal (`TERM=dumb`) asks the same list as numbered lines.
 A change applies from now on (built-in skills, packs, the prompt cache and local models from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Changed while a task runs, it also says when the
@@ -287,7 +289,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
-`showPages`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `telemetry`, `ssh_login`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
+`showPages`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `telemetry`, `ssh_login`, `other_logins`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
@@ -464,6 +466,13 @@ keys (from `auth.json`) and `models.json` are copied once (the originals stay un
 sign-ins are not copied: their refresh tokens change on use, so a shared copy would let Pi and
 Casper sign each other out. Casper names those providers once on stderr; run `/login <provider>` to
 give Casper its own sign-in. The two stores are separate after the import.
+
+**Sign-ins from other tools.** `/login` offers sign-ins that Claude Code, Codex CLI or GitHub CLI
+left on this computer: API keys are checked, then copied. GitHub CLI's sign-in is used for Copilot.
+A Claude or ChatGPT plan sign-in is never copied, and Casper starts its own sign-in instead.
+Nothing is taken without your pick (see [Provider login](TERMINAL_UX.md#provider-login)).
+`other_logins: off` in your own config, or **Sign-ins from other tools** in `/settings`, turns
+the offer off. A project file can't change it.
 
 **Repository Pi files are ignored.** A repository's own Pi project folder is never trusted:
 `<project>/.pi/` extensions (program code), `SYSTEM.md`, `APPEND_SYSTEM.md`, prompt templates,
@@ -679,6 +688,7 @@ localModels: false   # don't look for Ollama, LM Studio, llama.cpp or vLLM on th
 pages: off           # no page checks after a UI change, in any project
 telemetry: off       # don't send Casper's name to OpenRouter (same as CASPER_TELEMETRY=0)
 ssh_login: off       # ssh never gets Casper's hidden password box (see Private ssh passwords)
+other_logins: off    # /login never offers sign-ins from Claude Code, Codex CLI or GitHub CLI
 ```
 
 A session checks for a newer Casper at most once a day, in the background (no model, no

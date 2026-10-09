@@ -70,7 +70,8 @@ casper
 ```
 
 Type `/login` and press a number: OpenRouter is first (Enter picks it), then Anthropic, OpenAI
-Codex and GitHub Copilot. If you skip it, Casper opens sign-in on your first request. Then ask for what you want, for example `Fix the failing test in sum.js`.
+Codex and GitHub Copilot. Already signed in to Claude Code, Codex CLI or GitHub CLI on this computer?
+`/login` offers that first (`1 Use it`); a plan sign-in is never copied, so the other tool stays signed in. If you skip it, Casper opens sign-in on your first request. Then ask for what you want, for example `Fix the failing test in sum.js`.
 Casper works, runs the checks, and ends with a receipt:
 
 ```text

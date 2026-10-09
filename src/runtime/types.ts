@@ -181,6 +181,8 @@ export interface RuntimeAuthenticationOptions {
   /** Show the numbered list even when the provider has one way (Casper opened sign-in by itself, so the
    * user sees what is about to happen). /login <provider> leaves it off and a single way starts at once. */
   list?: boolean;
+  /** false (/settings: Sign-ins from other tools off): never look for sign-ins Claude Code, Codex CLI or GitHub CLI left here. */
+  others?: boolean;
   terminalHost: RuntimeModelPickerHost;
   signal?: AbortSignal;
 }
