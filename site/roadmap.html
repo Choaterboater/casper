@@ -77,7 +77,11 @@
               <li><a href="#v010">v0.1.0: the first preview</a></li>
             </ul>
           </li>
-          <li><a href="#next">Next release, built, not released</a></li>
+          <li><a href="#next">Next release, built, not released</a>
+            <ul>
+              <li><a href="#network-releases">Network server updates between Casper releases</a></li>
+            </ul>
+          </li>
           <li><a href="#coming">Planned, not started</a>
             <ul>
               <li><a href="#v030">v0.3: crews</a></li>
@@ -604,8 +608,18 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.29. New work shows here before the next preview.</p>
+          <p>Built on the main branch after v0.2.29; it ships with the next preview.</p>
         </aside>
+        <article class="card" id="network-releases" aria-labelledby="network-releases-h">
+          <h3 id="network-releases-h">Network server updates between Casper releases · a network fix reaches you without a new Casper <span class="badge soon">built, not released</span></h3>
+          <p>Once a day Casper asks GitHub whether <a href="https://github.com/Choaterboater/casper-network-mcp">casper-network-mcp</a>
+          has a release newer than the one installed, and offers it the usual way:
+          <code>network: update ready (0.1.2 → 0.1.3)</code> and <code>1 Not now · 2 Update it</code>. It installs from the
+          hash lock attached to that release, checked first, with the same <code>uv</code> hash-locked install as the version
+          Casper ships with, which stays the floor and the offline fallback. Only the server Casper set up is updated, never
+          one you run from your own checkout. <strong>Network server updates</strong> in <code>/settings</code>,
+          <code>tools: { downloads: off }</code> or <code>CASPER_OFFLINE=1</code> turns it off.</p>
+        </article>
       </section>
 
       <section id="coming" aria-labelledby="coming-h">

@@ -1,6 +1,8 @@
 import path from "node:path";
 import readline from "node:readline";
+import { loadConfiguration } from "../config/load";
 import { discoverMCPConfiguration } from "../mcp/config";
+import { networkReleasesOff } from "../mcp/network/releases";
 import { runNetworkSetup, isCaspersEntry, type SetupHost } from "../mcp/network/setup";
 import { installTools } from "../security/install";
 import { terminalText } from "../tui/format";
@@ -43,8 +45,11 @@ export async function runDoctorCommand(options: { cwd: string; signal: AbortSign
         write("To set up the network server, open Casper and type /mcp setup network.\n");
         return false;
       }
+      // Settings that don't load count as off, so a broken file never skips your own off switch.
+      const settings = await loadConfiguration({ projectRoot: ctx.projectRoot ?? ctx.homeDir, homeDir: ctx.homeDir }).catch(() => undefined);
+      const off = networkReleasesOff(ctx.env, settings);
       const host: SetupHost = {
-        homeDir: ctx.homeDir, canAsk: () => canAsk, write,
+        homeDir: ctx.homeDir, canAsk: () => canAsk, write, releases: { signal: options.signal, ...(off ? { off } : {}) },
         chooseAnswer: (preview, _question, choices) => choose(preview, choices),
         configured: async () => servers,
         // Casper's entry is already in ~/.casper/mcp.json and connects in your next session as before.

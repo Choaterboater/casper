@@ -333,3 +333,30 @@ test("localModels: off loads from your own config; a project file can't set it",
   await writeFile(config, "localModels: maybe\n");
   await expect(load()).rejects.toThrow("localModels must be true or false");
 });
+
+test("Network server updates row: on by default, says how a release is checked, a pick writes network_updates: off", async () => {
+  const { home, project, config } = await folders();
+  const label = "Network server updates";
+  const host = fakeHost(home, project, [label, "Turn it off", "Done"]);
+  await runSettings(host);
+  expect(host.asked[1]!.split("\n").slice(1)).toEqual(["1 Keep it on", "2 Turn it off"]);
+  expect(host.asked[1]).toContain("hash lock after a check");
+  expect(await readFile(config, "utf8")).toBe("network_updates: false\n");
+  expect((await host.context())!.networkUpdates).toBe(false);
+  expect(await valueOf(home, project, label)).toBe("off");
+});
+
+test("network_updates: off loads from your own config; a project file can't set it", async () => {
+  const { home, project, config, projectFile } = await folders();
+  const load = () => loadConfiguration({ projectRoot: project, homeDir: home });
+  expect((await load()).networkUpdates).toBeUndefined();
+  await writeFile(config, "network_updates: off\n");
+  expect((await load()).networkUpdates).toBe(false);
+  await writeFile(config, "network_updates: on\n");
+  expect((await load()).networkUpdates).toBe(true);
+  await writeFile(projectFile, "network_updates: on\n");
+  await expect(load()).rejects.toThrow("network_updates is a user setting");
+  await writeFile(projectFile, "");
+  await writeFile(config, "network_updates: maybe\n");
+  await expect(load()).rejects.toThrow("network_updates must be on or off");
+});

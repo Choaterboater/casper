@@ -1,18 +1,16 @@
 // Move Casper's pinned network server to another casper-network-mcp release:
 //   bun scripts/update-network-lock.ts 0.2.0
 // Downloads that release's casper-network-mcp.lock.txt from GitHub and writes it, plus the version, into
-// src/mcp/network/. Run by a person when bumping the pin; Casper never runs it.
+// src/mcp/network/. Run by a person when bumping the pin (the floor every Casper starts from); a running Casper
+// fetches newer releases' locks itself and checks them with the same checkLock (src/mcp/network/releases.ts).
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { checkLock } from "../src/mcp/network/releases";
+
+export { checkLock };
 
 const REPO = "https://github.com/Choaterboater/casper-network-mcp";
 const DIR = path.resolve(import.meta.dir, "../src/mcp/network");
-
-export function checkLock(lock: string, version: string): void {
-  const escaped = version.replace(/\./g, "\\.");
-  if (!new RegExp(`^casper-network-mcp==${escaped} .*--hash=sha256:[0-9a-f]{64}`, "m").test(lock)) throw new Error(`the lock has no hashed casper-network-mcp==${version} line`);
-  if (lock.split("\n").some((line) => /^(-e\s|\.\s*$|\.\/)/.test(line.trim()))) throw new Error("the lock has a local project line");
-}
 
 if (import.meta.main) {
   const version = process.argv[2] ?? "";

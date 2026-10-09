@@ -976,7 +976,7 @@ async function writeMCPList(host: CommandHost, picker: boolean): Promise<void> {
 
 async function writeNetworkSetupLine(host: CommandHost): Promise<void> {
   const network = host.networkSetupHost();
-  const line = await networkSetupLine(network.homeDir, await network.configured());
+  const line = await networkSetupLine(network.homeDir, await network.configured(), network.releases);
   if (line) host.output.write(`${line}\n`);
 }
 

@@ -130,10 +130,34 @@ file and set no variable.
    If the AI calls `access_check` first, it is told that a product with no login is
    asked for when it calls that product's tool, so it never asks you in chat.
 
-When Casper ships a newer pinned version, it asks before your first request in a session:
+When a newer version is out, Casper asks before your first request in a session:
 `Casper's network server has an update (0.1.0 → 0.2.0 …)` with `1 Not now · 2 Update it`
-(`1` is kept for that version). A newer version that another, newer Casper on the same
+(`1` is kept for that version), and `/mcp` shows `network: update ready (0.1.0 → 0.2.0) — /mcp setup network`.
+A newer version that another, newer Casper on the same
 computer installed is kept as it is: Casper never offers to go back.
+
+**Updates between Casper releases.** The network server can update without a new Casper. Each
+Casper ships one pinned version with its hash lock; that version is the floor and what is installed
+offline. On top of it, a session that has Casper's own `network` entry asks GitHub's releases API
+(`api.github.com`, no login, a short timeout, in the background) at most once a day which
+casper-network-mcp releases exist, and keeps the answer in `~/.casper/network-releases.json`; the
+offer reads that file, so starting never waits on GitHub. A release newer than both the installed
+version and the pin is offered the same way; a pre-release only when the installed version is one
+already, and a draft or a release without its lock never. A version that isn't digits and dots
+is ignored. `2 Update it` downloads `casper-network-mcp.lock.txt` from that release on `github.com`
+(GitHub sends the file from `objects.githubusercontent.com` or `release-assets.githubusercontent.com`)
+and checks it before anything installs: it must pin `casper-network-mcp==<that version>` by sha256,
+and every other line must be a package pinned to one version, a hash or a comment (no local folder,
+other index or file). Then uv installs it with `--require-hashes` from pypi.org, exactly like the
+pinned version. A lock that can't be downloaded or fails the check is said plainly
+(`casper-network-mcp 0.1.3 wasn't installed: its lock failed Casper's check: …`), and Casper installs
+the version it ships with instead when that one is newer than yours; otherwise nothing changes.
+A release whose lock failed the check isn't offered again at start (`/mcp setup network` still tries it).
+Only the entry Casper wrote (its installed program in `~/.casper/tools`) is ever updated: a server
+you added yourself, or one you run from a checkout (`uv run --directory <checkout> casper-network-mcp`),
+is never checked for or touched. **Network server updates** in `/settings` (`network_updates: off`),
+`tools: { downloads: off }` or `CASPER_OFFLINE=1` turns the check off; then only a new Casper brings
+a new version. A project file can't change it, and settings that don't load count as off.
 The new version is built beside the old one while it runs; then, once its running calls
 finish, the server stops, the folders are swapped and it starts again. A failed update
 keeps the old version running. Your `network` entry and what you remembered stay as they are.

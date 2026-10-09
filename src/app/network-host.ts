@@ -11,7 +11,8 @@ import { terminalText } from "../tui/format";
 import type { LoginHost } from "../mcp/network/ask-login";
 import { loginFile } from "../mcp/network/logins";
 import { withLoginDisplay } from "../tui/login";
-import { namesNetworkProduct, runNetworkSetup, runNetworkUpdate, shouldOfferNetworkSetup, shouldOfferNetworkUpdate, type SetupHost } from "../mcp/network/setup";
+import { isCaspersEntry, namesNetworkProduct, runNetworkSetup, runNetworkUpdate, shouldOfferNetworkSetup, shouldOfferNetworkUpdate, type SetupHost } from "../mcp/network/setup";
+import { networkReleasesOff, refreshNetworkReleases, type NetworkReleaseOptions } from "../mcp/network/releases";
 import { oneAtATime, chooseAnswer, chooseNumbered } from "./approvals";
 import { updateFooter } from "./footer";
 
@@ -47,7 +48,27 @@ export function networkSetupHost(app: CasperApp): SetupHost {
       else await whileStopped?.();
     },
     ...(app.networkSeams?.install ? { install: app.networkSeams.install } : {}),
+    releases: networkReleaseOptions(app),
   };
+}
+
+/** Whether releases newer than the pin are looked for (CASPER_OFFLINE=1, tools.downloads: off and network_updates: off
+ * turn it off; a project file can't change it), with the session's abort signal and any test seams. */
+function networkReleaseOptions(app: CasperApp): NetworkReleaseOptions {
+  const off = networkReleasesOff(process.env, app.projectContext);
+  return { ...app.networkSeams?.releases, signal: app.updateCheckAbort.signal, ...(off ? { off } : {}) };
+}
+
+/** At the start of a session, for someone who has Casper's own network entry: ask GitHub for newer casper-network-mcp
+ * releases in the background, at most once a day. Never waits on it; the offer reads what the last check saved. */
+export async function refreshNetworkReleaseCheck(app: CasperApp): Promise<void> {
+  if (!app.mcp) return;
+  const home = app.sessionHomeDir ?? os.homedir();
+  const options = networkReleaseOptions(app);
+  if (options.off) return;
+  const configured = app.mcp.status().map((status) => app.mcp!.definition(status.name));
+  if (!configured.some((definition) => definition && isCaspersEntry(definition, home))) return;
+  void refreshNetworkReleases(home, options);
 }
 
 /** Before the AI's turn: an update to Casper's network server (asked once a session), and setup on the first request
@@ -59,7 +80,7 @@ export async function offerNetworkServer(app: CasperApp, prompt: string): Promis
   const configured = await host.configured();
   if (!app.networkUpdateAsked) {
     app.networkUpdateAsked = true;
-    if (await shouldOfferNetworkUpdate(host.homeDir, configured)) await runNetworkUpdate(host, { explicit: false });
+    if (await shouldOfferNetworkUpdate(host.homeDir, configured, host.releases)) await runNetworkUpdate(host, { explicit: false });
   }
   if (app.networkSetupOffered || !namesNetworkProduct(prompt) || app.closing) return;
   if (!await shouldOfferNetworkSetup(host.homeDir, configured)) return;

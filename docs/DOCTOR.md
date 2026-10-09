@@ -49,7 +49,7 @@ Casper doctor · no model, no tokens
 | Security tools | The pinned tools this project uses (as `/security-review` picks them): not installed yet, or your own copy of another version than Casper pins |
 | Sandbox | Whether the sandbox can hold commands on this machine: on Linux, bubblewrap and socat, and ripgrep when Casper has none of its own (with the `sudo apt install` line) and Ubuntu's AppArmor rule; on macOS, `sandbox-exec`. Windows has no sandbox yet (`!`) |
 | Disk | Free space where `~/.casper` lives: under 2 GB is `!`, under 512 MB is `✗` |
-| Network server | Casper's network server: installed version against the one this Casper pins, and which products have a saved login (Mist, Central, ClearPass). Your own network server is named. Not set up is `!`, and not shown once you said Not now to setup |
+| Network server | Casper's network server: installed version against the one this Casper pins (or a newer release the daily check found), and which products have a saved login (Mist, Central, ClearPass). Your own network server is named. Not set up is `!`, and not shown once you said Not now to setup |
 
 The project checks (language servers, security tools, project config files) run
 when you start the doctor in a project folder.

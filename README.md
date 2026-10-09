@@ -124,7 +124,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 - **Casper's network server.** Ask about Mist, Central or ClearPass (or type `/mcp setup network`)
   and Casper offers `1 Not now · 2 Set it up` once. It installs a pinned, hash-locked
   [casper-network-mcp](https://github.com/Choaterboater/casper-network-mcp) with writes off. You
-  type each login yourself. [Casper's network server](docs/MCP.md#caspers-network-server)
+  type each login yourself. A newer casper-network-mcp release is offered between Casper releases,
+  installed from that release's checked hash lock. [Casper's network server](docs/MCP.md#caspers-network-server)
 - **Change boxes and change kinds.** Each change says what changes and where the login reaches.
   Firmware, deletes and admin changes stay off until you allow them. [Change kinds](docs/MCP.md#change-kinds-and-mcp-allow)
 - **Device checks and `/lab`.** Device checks can reach any device, only after your answer; the box

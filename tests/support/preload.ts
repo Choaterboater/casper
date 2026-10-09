@@ -34,6 +34,10 @@ browserDefaults.installed = async () => false;
 const { localModelDefaults } = await import("../../src/runtime/local-models");
 localModelDefaults.discover = async () => ({ servers: [], problems: [] });
 
+// No test asks GitHub for casper-network-mcp releases: tests of releases pass their own fetch and a fake server.
+const { networkReleaseDefaults } = await import("../../src/mcp/network/releases");
+networkReleaseDefaults.fetch = async () => { throw new Error("tests never reach GitHub for network server releases"); };
+
 // A session's sandbox becomes the process-wide one (useSandbox) until its app closes. One a test leaves open
 // changes later tests in the same run (their checks, the security header), and a real one keeps its network
 // relays running after the suite: bun test runs no exit handlers. Close every app and sandbox a test opens.

@@ -8,7 +8,8 @@ import { discoverMCPConfiguration, MissingEnvironmentError, resolveEnvironment, 
 import type { MCPStatus } from "../mcp/manager";
 import { readLogins, PRODUCT_LABELS } from "../mcp/network/logins";
 import { NETWORK_SERVER, NETWORK_SERVER_NAME, readSetupState } from "../mcp/network/server";
-import { isCaspersEntry, isNetworkServer } from "../mcp/network/setup";
+import { networkReleasesOff } from "../mcp/network/releases";
+import { isCaspersEntry, isNetworkServer, networkUpdateTarget } from "../mcp/network/setup";
 import { installHint } from "../mcp/server-output";
 import { tildePath } from "../new/scaffold";
 import { isModelProviderKeyName } from "../platform/environment";
@@ -412,7 +413,10 @@ export async function checkDisk(ctx: DoctorContext): Promise<DoctorLine[]> {
 
 // --- Network server ---
 
-export async function checkNetworkServer(ctx: DoctorContext, servers: readonly MCPServerDefinition[]): Promise<DoctorLine[]> {
+/** The network server line: an update is a release newer than the pin that the last daily check found (unless
+ * CASPER_OFFLINE=1, tools.downloads: off, network_updates: off, or settings that didn't load), or else the pin.
+ * Nothing is fetched here. */
+export async function checkNetworkServer(ctx: DoctorContext, servers: readonly MCPServerDefinition[], settings: Pick<LoadedConfiguration, "networkUpdates" | "toolDownloads"> | undefined): Promise<DoctorLine[]> {
   const ours = servers.find((definition) => isCaspersEntry(definition, ctx.homeDir));
   if (!ours) {
     const other = servers.find((definition) => definition.name === NETWORK_SERVER_NAME || isNetworkServer(definition));
@@ -424,8 +428,10 @@ export async function checkNetworkServer(ctx: DoctorContext, servers: readonly M
   if (!installed) return [fail(`Network server: in ${shown(ctx, ours.source)} but not installed`, "/mcp setup network", "network")];
   const logins = Object.keys(await readLogins(ctx.homeDir)) as Array<keyof typeof PRODUCT_LABELS>;
   const saved = logins.length ? `logins saved: ${logins.map((product) => PRODUCT_LABELS[product]).join(", ")}` : "no logins saved yet (asked the first time)";
-  if (compareVersions(installed, NETWORK_SERVER.version) < 0) {
-    return [note(`Network server: ${installed}, update ready (${NETWORK_SERVER.version}); ${saved}`, "/mcp setup network", "network")];
+  const off = networkReleasesOff(ctx.env, settings);
+  const target = await networkUpdateTarget(ctx.homeDir, installed, off ? { off } : {});
+  if (compareVersions(installed, target) < 0) {
+    return [note(`Network server: ${installed}, update ready (${target}); ${saved}`, "/mcp setup network", "network")];
   }
   return [ok(`Network server: ${installed}; ${saved}`)];
 }

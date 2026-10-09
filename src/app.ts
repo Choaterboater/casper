@@ -77,9 +77,10 @@ import type { ShellSandbox, ShellSandboxOptions } from "./sandbox/manager";
 import type { LoginHost } from "./mcp/network/ask-login";
 import type { NetworkProduct } from "./mcp/network/logins";
 import type { SetupHost } from "./mcp/network/setup";
+import type { NetworkReleaseOptions } from "./mcp/network/releases";
 import type { NewProjectOptions, NewProjectResult } from "./new/scaffold";
 import { chooseAnswer, approveChoice, confirmYes, recordedApproval } from "./app/approvals";
-import { networkSetupHost, networkLoginHost, networkLoginFile, revertWrites, reportImports } from "./app/network-host";
+import { networkSetupHost, networkLoginHost, networkLoginFile, revertWrites, reportImports, refreshNetworkReleaseCheck } from "./app/network-host";
 import { updateFooter, displayLevel, expandLastStep } from "./app/footer";
 import { submitDuringWork, cycleEffort } from "./app/during-work";
 import { browserSession, serviceManager, stopDebugger, backgroundTasks } from "./app/task-tools";
@@ -150,7 +151,7 @@ export interface CasperAppOptions {
   /** Fake security tools and downloads for /security-review (tests). */
   securitySeams?: Pick<SecurityReviewHost, "check" | "install">;
   /** A fake uv and runner for the network server's install (tests). */
-  networkSeams?: { install?: SetupHost["install"] };
+  networkSeams?: { install?: SetupHost["install"]; releases?: Omit<NetworkReleaseOptions, "off" | "signal"> };
   /** --no-sandbox: the shell sandbox is off for this run, and the receipt says so. */
   noSandbox?: boolean;
   /** --allow-host, --allow-write (absolute folders) and --allow-reach: allowed for this run without asking. */
@@ -547,6 +548,7 @@ export class CasperApp {
     for (const diagnostic of mcp.diagnostics) this.output.write(`[mcp] ${terminalText(diagnostic)}\n`);
     if (this.interactive) await reportImports(this);
     if (this.interactive) await reportNewerCasper(this, context);
+    if (this.interactive) await refreshNetworkReleaseCheck(this);
     for (const diagnostic of lspConfiguration.diagnostics) this.output.write(`[lsp] ${diagnostic}\n`);
     for (const diagnostic of visualization.diagnostics) this.output.write(`[visualize] ${diagnostic}\n`);
     if (this.interactive) this.output.write("\n");
