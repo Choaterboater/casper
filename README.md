@@ -36,20 +36,20 @@ Casper itself is free and open source. A task spends money only with your own mo
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.28/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.29/install.sh | sh
 ```
 
 Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.28/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.29/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
 [release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.2.28**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.28`,
+if anything is wrong. These commands pin **v0.2.29**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.29`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 Use the one-line command above rather than downloading a program in your browser: the installer
@@ -71,7 +71,7 @@ casper
 
 Type `/login` and press a number: OpenRouter is first (Enter picks it), then Anthropic, OpenAI
 Codex and GitHub Copilot. Already signed in to Claude Code, Codex CLI or GitHub CLI on this computer?
-`/login` offers that first (`1 Use it`); a plan sign-in is never copied, so the other tool stays signed in. If you skip it, Casper opens sign-in on your first request. Then ask for what you want, for example `Fix the failing test in sum.js`.
+`/login` offers that first; a plan sign-in is never copied, so the other tool stays signed in. If you skip it, Casper opens sign-in on your first request. Then ask for what you want, for example `Fix the failing test in sum.js`.
 Casper works, runs the checks, and ends with a receipt:
 
 ```text
@@ -83,7 +83,7 @@ From the shell:
 ```sh
 casper "Explain this project"
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.2.28 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.2.29 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
@@ -167,8 +167,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 
 ## What's new
 
-v0.2.28: one table of commands (the menu completes subcommands, and every command does what `/help` says), the names you know from other tools (`/new`, `/theme`, `/copy`, `/export`, `/rename`, `/logout`, `/config`, `/cost`, `/thinking`), screens that say each thing once (an answered box leaves one line), one picker style with an Other row in the AI's questions, a plain `git push` or `gh pr` with your GitHub login after a yes when the sandbox is on, `/permissions` on one screen, checks the sandbox blocked reported as "could not check", and ripgrep inside the release program.
-[Release notes](docs/RELEASE.md#v0228-one-table-of-commands-screens-that-say-things-once-and-git-push-with-your-github-login) ·
+v0.2.29: every command runs during a task (only the few that would change the task wait), `/btw` for a side question, Ollama, LM Studio, llama.cpp and vLLM in `/model` with no sign-in or setup, `/login` offering a sign-in Claude Code, Codex CLI or GitHub CLI left on this computer, fewer questions with no sandbox (a `cd` into the project, globs and `2>&1` are plain reads, and a yes covers a line's one real command), a short `/permissions`, plain words when a sign-in can't be renewed, and helpers that always report what they found.
+[Release notes](docs/RELEASE.md#v0229-commands-during-a-task-models-on-this-computer-with-no-setup-and-sign-ins-from-other-tools) ·
 [Roadmap](https://choaterboater.github.io/casper/roadmap.html).
 
 ## Contributing

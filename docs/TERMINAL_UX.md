@@ -400,8 +400,8 @@ A one-shot run with a key set but no model Casper can pick says
 
 **Sign-ins from other tools.** On a new computer where Claude Code, Codex CLI or GitHub CLI is
 already signed in, `/login` (and the sign-in Casper opens by itself) first says
-`Found a Codex CLI sign-in on this computer` and offers `1 Use it`, `Sign in separately` and `Not now`
-(with several found, one row each). Only providers with no sign-in yet are offered, and
+`Found a Codex CLI sign-in on this computer` and offers one row per sign-in found (such as
+`1 Codex CLI · use its OpenAI API key`), then `Sign in separately` and `Not now`. Only providers with no sign-in yet are offered, and
 `/login <provider>` offers only that provider's sign-ins. Finding one reads no key; the key is read only after you
 pick it. Claude Code's or Codex CLI's API key is checked with Anthropic or OpenAI first, then copied (a key
 works in both tools). GitHub CLI's sign-in (`gh auth token`) is used for GitHub Copilot the same way

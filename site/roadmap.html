@@ -57,6 +57,7 @@
         <ul>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0229">v0.2.29: commands during a task, models on this computer, sign-ins from other tools</a></li>
               <li><a href="#v0228">v0.2.28: one table of commands, screens that say things once, git push with your login</a></li>
               <li><a href="#v0227">v0.2.27: skill packs, colour themes, a clickable /mcp, pasted pictures and files</a></li>
               <li><a href="#v0226">v0.2.26: local models, updating on Windows, opening where you launched</a></li>
@@ -76,12 +77,7 @@
               <li><a href="#v010">v0.1.0: the first preview</a></li>
             </ul>
           </li>
-          <li><a href="#next">Next release, built, not released</a>
-            <ul>
-              <li><a href="#next-commands">Commands any time during a task</a></li>
-              <li><a href="#other-logins">Sign-ins from other tools</a></li>
-            </ul>
-          </li>
+          <li><a href="#next">Next release, built, not released</a></li>
           <li><a href="#coming">Planned, not started</a>
             <ul>
               <li><a href="#v030">v0.3: crews</a></li>
@@ -108,8 +104,42 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <article class="card" id="v0229" aria-labelledby="v0229-h">
+          <h3 id="v0229-h">v0.2.29 · Commands during a task, models on this computer, sign-ins from other tools <span class="badge ok">current preview</span></h3>
+          <p>Every command runs during a task, a model server on your own computer shows in <code>/model</code> by
+          itself, and <code>/login</code> offers a sign-in another coding tool left on this computer.</p>
+          <ul>
+            <li><strong>Every command runs at once during a task</strong>, with whatever follows it:
+            <code>/permissions all</code>, <code>/settings</code>, <code>/login</code>, <code>/memory remember</code>
+            and the rest. A change applies from the task's next step, or from your next request for a tool the
+            task already has. A picker or question the command opens
+            closes when the task asks you something; a box where you type a key waits for you.</li>
+            <li><strong>Only a few wait:</strong> the ones that would change the task's conversation, workspace or
+            files, or start model work of their own (<code>/clear</code>, <code>/resume</code>, <code>/compact</code>,
+            <code>/undo</code>, <code>/switch</code>, <code>/plan</code>, <code>/verify</code> …).</li>
+            <li><strong><code>/btw &lt;question&gt;</code></strong> asks a side question, like a line you start with
+            <code>?</code>, and still works with side questions off.</li>
+            <li><strong>Models on this computer.</strong> Start Ollama, LM Studio, llama.cpp or vLLM and its models
+            show in <code>/model</code>, with no sign-in and no <code>models.json</code>; <strong>Local models</strong>
+            in <code>/settings</code> turns it off.</li>
+            <li><strong>Sign-ins from other tools.</strong> <code>/login</code> offers what Claude Code, Codex CLI or
+            GitHub CLI left on this computer, one row each (such as <code>1 Codex CLI · use its OpenAI API key</code>),
+            then <code>Sign in separately</code> and <code>Not now</code>. An API key is
+            checked with its provider, then copied; GitHub CLI's sign-in works for GitHub Copilot, and gh stays signed
+            in. A Claude or ChatGPT plan sign-in is never copied, because sharing it would sign the other tool out:
+            Casper starts its own sign-in to the same account instead.</li>
+            <li><strong>Fewer questions with no sandbox.</strong> A <code>cd</code> into the project, <code>*</code>
+            globs, <code>2&gt;&amp;1</code> and <code>--version</code> are plain reads; a yes to <code>npm test</code> covers
+            <code>cd app &amp;&amp; npm test 2&gt;&amp;1 | tail -25</code>; a yes leaves no extra line.</li>
+            <li><strong>A short <code>/permissions</code></strong> with the Stop asking box under it;
+            <code>/permissions details</code> is the full screen, and a mistyped word runs nothing.</li>
+            <li><strong>Plain words.</strong> A sign-in that can't be renewed says <code>/login</code>, a refresh
+            failure says why in a few words, and a helper stopped by its limit hands back what it found, marked partial.</li>
+          </ul>
+        </article>
+
         <article class="card" id="v0228" aria-labelledby="v0228-h">
-          <h3 id="v0228-h">v0.2.28 · One table of commands, screens that say things once, git push with your login <span class="badge ok">current preview</span></h3>
+          <h3 id="v0228-h">v0.2.28 · One table of commands, screens that say things once, git push with your login <span class="badge">released</span></h3>
           <p>Commands do what the help says, the names from other tools work, every box and picker says each
           thing once in one style, and a plain <code>git push</code> can use your GitHub login after a yes.</p>
           <ul>
@@ -574,38 +604,15 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>On the main branch, not in v0.2.28 yet.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.29. New work shows here before the next preview.</p>
         </aside>
-        <article class="card" id="next-commands" aria-labelledby="next-commands-h">
-          <h3 id="next-commands-h">Commands any time during a task <span class="badge soon">built, not released</span></h3>
-          <ul>
-            <li><strong>Every command runs at once during a task</strong>, with whatever follows it:
-            <code>/permissions all</code>, <code>/settings</code>, <code>/login</code>, <code>/memory remember</code>
-            and the rest. A change applies from the task's next step, or from your next request for a tool the
-            task already has. A picker or question the command opens
-            closes when the task asks you something; a box where you type a key waits for you.</li>
-            <li><strong>Only a few wait:</strong> the ones that would change the task's conversation, workspace or
-            files, or start model work of their own (<code>/clear</code>, <code>/resume</code>, <code>/compact</code>,
-            <code>/undo</code>, <code>/switch</code>, <code>/plan</code>, <code>/verify</code> …).</li>
-            <li><strong><code>/btw &lt;question&gt;</code></strong> asks a side question, like a line you start with
-            <code>?</code>, and still works with side questions off.</li>
-          </ul>
-        </article>
-        <article class="card" id="other-logins" aria-labelledby="other-logins-h">
-          <h3 id="other-logins-h">Sign-ins from other tools · a new computer needs no second sign-in <span class="badge soon">built, not released</span></h3>
-          <p><code>/login</code> offers what Claude Code, Codex CLI or GitHub CLI left on this computer:
-          <code>1 Use it · 2 Sign in separately · 3 Not now</code>. An API key is checked with its provider, then
-          copied. GitHub CLI's sign-in works for GitHub Copilot, and gh stays signed in. A Claude or ChatGPT plan
-          sign-in is never copied, because sharing it would sign the other tool out. Casper starts its own sign-in
-          to the same account instead. <strong>Sign-ins from other tools</strong> in <code>/settings</code> turns the offer off.</p>
-        </article>
       </section>
 
       <section id="coming" aria-labelledby="coming-h">
         <h2 id="coming-h">Planned, not started</h2>
         <aside class="callout soon">
           <strong class="callout-title">Not in any release yet</strong>
-          <p>Nothing else in this section is in v0.2.28: the first part of Crews shipped in v0.2.23, AI-started
+          <p>Nothing else in this section is in v0.2.29: the first part of Crews shipped in v0.2.23, AI-started
           builders in v0.2.24, reviewers and a fix round in v0.2.25, and the rest has not been started. Names, commands and details may change, or move to a later version, before
           they ship.</p>
         </aside>
@@ -785,7 +792,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.28</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.29</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
