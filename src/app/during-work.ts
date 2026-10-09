@@ -1,5 +1,5 @@
 /** Typing while a task runs: lines the AI reads at its next step or that queue as the next request, commands that
- * run now, and the model and effort (/model, Shift+Tab, /effort). Moved from src/app.ts. */
+ * run now, side questions, and the model and effort (/model, Shift+Tab, /effort). Moved from src/app.ts. */
 
 import type { CasperApp } from "../app";
 import { effortProblem, nextEffort } from "../tui/effort";
@@ -14,7 +14,8 @@ import { backgroundTasks } from "./task-tools";
 import { handleSlashCommand } from "./command-loop";
 import { runMCPListDuringWork, runPermissionsDuringWork } from "./commands";
 import { ensureRuntime } from "./runtime-start";
-import { askSideQuestion, sideQuestionsOn, sideQuestionText } from "./side-question";
+import { askSideQuestion, BTW_USAGE, btwQuestion, sideQuestionsOn, sideQuestionText } from "./side-question";
+import { duringTask } from "../tui/give-way";
 
 /** After a task: lines the AI never read join the queue. A stopped task runs nothing more: its queued lines go
  * back into the prompt (the rich terminal) for you to send or clear. */
@@ -38,50 +39,22 @@ function takeLinePastes(app: CasperApp, lines: readonly string[]): string[] {
   return pasted;
 }
 
-/** Enter while a task runs. Commands that only show something, and /effort, run now; other commands keep their
- * draft with the reason. Anything else goes to the AI: it reads the line at its next step, or, when it is not working
- * right now (checks, a receipt), the line is queued and runs as the next request. */
+/** Enter while a task runs. A command runs now, with whatever follows it, except the few that would change the
+ * task's conversation, workspace or files, or start model work of their own: those keep their draft with the reason.
+ * Its pickers and questions give way to the task's (src/tui/give-way.ts). Anything else goes to the AI: it reads the
+ * line at its next step, or, when it is not working right now (checks, a receipt), the line is queued and runs as the
+ * next request. */
 export function submitDuringWork(app: CasperApp, line: string, plain = false): true | string {
   if (app.closing) return "Casper is closing";
   // No task yet: Casper is still opening a folder or project. Nothing is loaded to show, so the line waits.
   if (!app.commandActive || !app.projectContext) return "draft kept · Enter again once Casper has opened the project";
-  if (runsDuringWork(line)) {
-    // An alias runs as its command: /thinking high is /effort high, /quit is /exit.
-    line = canonicalLine(line);
-    // /exit stops the task and leaves, as Ctrl+C twice does: nothing waits for the task to end first.
-    if (line === "/exit") { app.output.write("[exit] Stopping this task and leaving Casper.\n"); void app.close().catch(() => {}); return true; }
-    const effort = /^\/effort\s+(.+)$/.exec(line);
-    if (effort) { const { rest, session } = sessionFlag(effort[1]!); void setEffortDuringWork(app, rest, !session); return true; }
-    const model = /^\/model(?:\s+(.+))?$/.exec(line);
-    if (model && line !== "/model roles") { void setModelDuringWork(app, (model[1] ?? "").trim()); return true; }
-    const failed = (error: unknown) => { app.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); };
-    // /doctor only reports during a task: its fixes ask, and a question of its own would stand in the way of the task's.
-    if (line === "/doctor") {
-      void import("../doctor/session").then(({ runDoctorInSession }) => runDoctorInSession(app, true)).catch(failed);
-      return true;
-    }
-    if (line === "/tasks") {
-      void runTasksCommand({ tasks: () => backgroundTasks(app), write: text => app.output.write(text), canAsk: () => false,
-        pick: async () => undefined, duringWork: true }).catch(failed);
-      return true;
-    }
-    // A picker would sit in the way of any approval the task asks; the list prints instead.
-    if (/^\/diff\s+list$/.test(line)) {
-      void app.taskUndo.diff("list", undefined, true).catch(failed);
-      return true;
-    }
-    // The same for /mcp: its picker would hold the question slot and its actions would run mid-task.
-    if (line === "/mcp") { void runMCPListDuringWork(app).catch(failed); return true; }
-    if (line === "/permissions" || line === "/permissions details") { void runPermissionsDuringWork(app, line).catch(failed); return true; }
-    void handleSlashCommand(app, line).catch(failed);
-    return true;
-  }
   if (line.startsWith("/") && leadingImagePath(line) === undefined) {
     // A command Casper doesn't know, or words one doesn't take: said now, as when idle, not after the task.
     const problem = commandProblem(line);
     if (problem) { app.output.write(`[error] ${terminalText(problem)}\n`); return true; }
   }
-  if (line.startsWith("/")) return `${terminalText(line.split(/\s+/)[0]!)} waits until this task ends${plain ? "; type it again then" : " · draft kept"}`;
+  if (runsDuringWork(line)) { duringTask(() => runCommandDuringWork(app, canonicalLine(line))); return true; }
+  if (line.startsWith("/")) return `${terminalText(line.split(/\s+/)[0]!)} waits until this task ends${plain ? "; type it again then" : " · draft kept · Esc stops the task"}`;
   const pasted = app.terminal.takeSubmittedPastes();
   // A side question gets its own answer now; the working AI never sees it.
   const side = sideQuestionsOn(app) ? sideQuestionText(line, pasted) : undefined;
@@ -90,6 +63,37 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
   if (pasted.length) app.linePastes.set(line, pasted);
   void steerOrQueue(app, line);
   return true;
+}
+
+/** One command typed during a task (an alias already spelled as its command). Its outcome and errors are written as
+ * they come; the task goes on. */
+function runCommandDuringWork(app: CasperApp, line: string): void {
+  // /exit stops the task and leaves, as Ctrl+C twice does: nothing waits for the task to end first.
+  if (line === "/exit") { app.output.write("[exit] Stopping this task and leaving Casper.\n"); void app.close().catch(() => {}); return; }
+  const btw = btwQuestion(line);
+  if (btw !== undefined) { if (btw) void askSideQuestion(app, btw); else app.output.write(`${BTW_USAGE}\n`); return; }
+  const effort = /^\/effort\s+(.+)$/.exec(line);
+  if (effort) { const { rest, session } = sessionFlag(effort[1]!); void setEffortDuringWork(app, rest, !session); return; }
+  // The picker or one model; /model roles, role and big go to the command (they never change the model in use).
+  const model = /^\/model(?:\s+(.+))?$/.exec(line);
+  if (model && !/^(?:roles?|big)(?:\s|$)/.test((model[1] ?? "").trim())) { void setModelDuringWork(app, (model[1] ?? "").trim()); return; }
+  const failed = (error: unknown) => { app.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); };
+  // /doctor only reports during a task: its fixes ask after the task, so its questions never queue up behind the task's.
+  if (line === "/doctor") {
+    void import("../doctor/session").then(({ runDoctorInSession }) => runDoctorInSession(app, true)).catch(failed);
+    return;
+  }
+  if (line === "/tasks") {
+    void runTasksCommand({ tasks: () => backgroundTasks(app), write: text => app.output.write(text), canAsk: () => false,
+      pick: async () => undefined, duringWork: true }).catch(failed);
+    return;
+  }
+  // The list prints instead of a picker, so a long look never sits in front of the task's next box.
+  if (/^\/diff\s+list$/.test(line)) { void app.taskUndo.diff("list", undefined, true).catch(failed); return; }
+  if (line === "/mcp") { void runMCPListDuringWork(app).catch(failed); return; }
+  // /permissions shows its screen without the stop-asking box, which would stand in front of the task's own boxes.
+  if (line === "/permissions" || line === "/permissions details") { void runPermissionsDuringWork(app, line).catch(failed); return; }
+  void handleSlashCommand(app, line).catch(failed);
 }
 
 export async function steerOrQueue(app: CasperApp, line: string): Promise<void> {

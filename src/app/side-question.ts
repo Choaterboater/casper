@@ -3,7 +3,8 @@
  * task, goes to one separate model call (the fast model, else the conversation's) with no tools. It gets a short
  * summary of the session (project name, the task's first line, recent tool names: no file contents, no secrets). The
  * answer shows as a side answer and is never added to the conversation, so the working AI never sees it. Its cost shows
- * in /usage. `sideQuestions: false` (/settings) makes such lines ordinary requests.
+ * in /usage. `sideQuestions: false` (/settings) makes such lines ordinary requests. `/btw <question>` asks the same
+ * way, idle or during a task, and stays on with `sideQuestions: false` (it can't be meant as a request).
  */
 
 import path from "node:path";
@@ -26,6 +27,15 @@ export function sideQuestionText(line: string, pasted: readonly string[] = []): 
   const question = line.slice(1).trim();
   return question || undefined;
 }
+
+/** `/btw <question>`: the question ("" when none follows); undefined for any other line. It is a side question even
+ * with `sideQuestions: false`, which only stops a leading `?` from being one: /btw is typed on purpose. */
+export function btwQuestion(line: string): string | undefined {
+  const match = /^\/btw(?:\s+([\s\S]*))?$/.exec(line.trim());
+  return match ? (match[1] ?? "").trim() : undefined;
+}
+
+export const BTW_USAGE = "Type /btw and your question, for example /btw what does ECONNRESET mean. The answer is not part of the conversation.";
 
 /** Side questions are on unless the person turned them off. */
 export function sideQuestionsOn(app: CasperApp): boolean {

@@ -58,6 +58,7 @@ import { tildePath } from "../new/scaffold";
 import { conversationLabel, matchConversation, recentTurnLines } from "../sessions/resume";
 import { readFile, stat } from "node:fs/promises";
 import type { SessionWorkspaceManager } from "../sessions/manager";
+import { typedDuringTask } from "../tui/give-way";
 import { formatProjectContext } from "../project/context";
 import { runSecurityReview, type SecurityAIReview, type SecurityReviewHost } from "./security-review";
 import { runCrewCommand } from "../crew/command";
@@ -518,9 +519,13 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     // The list only reads (it also runs during a task, whose own outcome write is the memoryWork to wait for).
     if (prompt === "/memory") { await handleMemoryCommand(host, prompt); return; }
     if (/^\/memory(?:\s|$)/.test(prompt)) {
-      host.memoryWork = handleMemoryCommand(host, prompt);
-      try { await host.memoryWork; }
-      finally { host.memoryWork = undefined; }
+      // During a task its own outcome write may be the memoryWork already: closing waits for both.
+      const work = handleMemoryCommand(host, prompt);
+      const before = host.memoryWork;
+      const both = before ? Promise.all([before, work.catch(() => {})]).then(() => {}) : work;
+      host.memoryWork = both;
+      try { await work; }
+      finally { if (host.memoryWork === both) host.memoryWork = undefined; }
       return;
     }
     if (/^\/references(?:\s|$)/.test(prompt)) {
@@ -1520,22 +1525,26 @@ async function handlePermissions(host: CommandHost, prompt: string, duringWork =
   const sandbox = host.sandbox;
   const root = host.activeWorkspaceRoot();
   const home = host.homeDir();
+  // Typed during a task: every question is decided when it comes, so the change holds from the task's next one.
+  const task = typedDuringTask() ? " The running task too, from its next question.\n" : "\n";
   if (command.kind === "ask") {
     host.stopAsking = false;
     host.updateFooter();
-    host.output.write("[permissions] Asking is on again.\n");
+    host.output.write(`[permissions] Asking is on again.${task}`);
     return;
   }
   if (command.kind === "all") {
     // A run that can't ask has no person to answer: --no-sandbox is the flag for one run.
     if (!host.interactive) throw new Error("/permissions all needs a terminal where you can answer. For one run, use --no-sandbox.");
     if (host.stopAsking) { host.output.write("[permissions] Asking is already off. /permissions ask turns it back on.\n"); return; }
-    await stopAskingBox(host);
+    await stopAskingBox(host, true, task);
     return;
   }
   if (command.kind === "write" || command.kind === "forget") {
     if (!sandbox) throw new Error("The shell sandbox starts with the project.");
-    host.output.write(command.kind === "write" ? await allowFolder(sandbox, command.folder, root, home) : await forgetFolder(sandbox, command.folder, root, home));
+    const said = command.kind === "write" ? await allowFolder(sandbox, command.folder, root, home) : await forgetFolder(sandbox, command.folder, root, home);
+    // Only a change gets the task's note, not a refusal or a folder that was never allowed.
+    host.output.write(/^(?:Allowed:|Forgot )/.test(said) ? said.replace(/\n$/, task) : said);
     return;
   }
   await sandbox?.loadRemembered();
@@ -1567,12 +1576,12 @@ async function handlePermissions(host: CommandHost, prompt: string, duringWork =
 }
 
 /** The /permissions all box: 1 Keep asking · 2 Stop asking until I quit. Only the person's answer sets the switch. */
-async function stopAskingBox(host: CommandHost, sayStill = true): Promise<void> {
+async function stopAskingBox(host: CommandHost, sayStill = true, task = "\n"): Promise<void> {
   const answer = await host.approveChoice("", PERMISSIONS_ALL_QUESTION, PERMISSIONS_ALL_CHOICES, host.commandAbort?.signal);
   if (answer !== PERMISSIONS_ALL_CHOICES[1].label) { if (sayStill) host.output.write("[permissions] Still asking.\n"); return; }
   host.stopAsking = true;
   host.updateFooter();
-  host.output.write("[permissions] Not asking until you quit: shell commands, hosts, writes outside the project and other machines are answered Yes for this session. Protected places, secrets, device writes and the spend pause stay as they are. /permissions ask turns asking back on.\n");
+  host.output.write(`[permissions] Not asking until you quit: shell commands, hosts, writes outside the project and other machines are answered Yes for this session. Protected places, secrets, device writes and the spend pause stay as they are. /permissions ask turns asking back on.${task}`);
 }
 
 /** The lines /permissions shows about the shell, from the state it is in now. */

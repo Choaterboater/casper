@@ -82,7 +82,8 @@ test("the menu dims exactly what waits during work: the same table as the check 
       expect([line, menuRunsDuringWork(command.name, sub.name)]).toEqual([line, runsDuringWork(line)]);
     }
   }
-  for (const line of ["/mcp detail", "/skills diagnostics", "/model role fast fixture/fixture", "/model big clear"]) expect([line, runsDuringWork(line)]).toEqual([line, false]);
+  for (const line of ["/mcp detail", "/skills diagnostics", "/model role fast fixture/fixture", "/model big clear"]) expect([line, runsDuringWork(line)]).toEqual([line, true]);
+  for (const line of ["/verify repair", "/project new", "/crew apply 1", "/clear"]) expect([line, runsDuringWork(line)]).toEqual([line, false]);
   // /exit and /quit run during a task: they stop it and leave.
   expect(runsDuringWork("/quit")).toBe(true);
 });
@@ -177,7 +178,13 @@ test("while working, the subcommands that wait are dimmed in the menu, the same 
     input.write("\x15/mcp ");
     from = mark();
     await Bun.sleep(150);
-    expect(since(from)).toMatch(/detail \[name\]\s+waits for this task/);
+    expect(since(from)).toContain("detail [name]");
+    expect(since(from)).not.toContain("waits for this task");
+    input.write("\x15/verify ");
+    from = mark();
+    await Bun.sleep(150);
+    expect(since(from)).toMatch(/repair \[checks \.\.\.\]\s+waits for this task/);
+    expect(since(from)).not.toMatch(/add <name>\s+waits for this task/);
   } finally { s.close(); input.destroy(); }
 });
 

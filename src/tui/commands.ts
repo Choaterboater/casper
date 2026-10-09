@@ -10,10 +10,12 @@ export interface Subcommand {
   readonly aliases?: readonly string[];
   /** The word is another way to type the command alone (`/memory list` is `/memory`). */
   readonly bare?: true;
-  /** The words after this subcommand that run while a task works; without it the subcommand waits for the task. */
-  readonly duringWork?: RegExp;
-  /** It still runs after a failed cleanup: it inspects or stops what may still be running. */
-  readonly afterCleanupError?: true;
+  /** It waits for a running task: it would change what the task works on (its conversation, workspace or files) or
+   * start model work of its own. Every other subcommand runs at once, also during a task. */
+  readonly waits?: true;
+  /** It still runs after a failed cleanup: with true, whatever follows (it inspects or stops what may still be
+   * running); with a pattern, only the words after it that match (it only shows something). */
+  readonly afterCleanupError?: true | RegExp;
 }
 
 /** One local command. The menu, autocomplete, the during-work and cleanup rules, the did-you-mean and the check for
@@ -28,9 +30,11 @@ export interface CommandSpec {
   /** What may follow the name. With no hint and no subcommands the command takes nothing after its name. */
   readonly argumentHint?: string;
   readonly subcommands?: readonly Subcommand[];
-  /** The words after the name ("" for none) that run while a task works, when they start with no subcommand. */
-  readonly duringWork?: RegExp;
-  /** More forms, beyond the during-work ones, that still run after a failed cleanup. */
+  /** The words after the name ("" for none), when they start with no subcommand, that wait for a running task (see
+   * Subcommand.waits). Without it the command runs at once, also during a task. */
+  readonly waits?: RegExp;
+  /** The words after the name ("" for none), when they start with no subcommand, that still run after a failed
+   * cleanup: they only show something, or change a session choice (/model, /effort). */
   readonly afterCleanupError?: RegExp;
 }
 
@@ -43,68 +47,73 @@ const ONE_WORD_SESSION = /^(?:[^\s-]\S*(?:\s+--session)?|--session\s+[^\s-]\S*)?
 const FORGET_ALIASES = ["remove"] as const;
 /** Other spellings of `/permissions all`. Safe to accept: `all` changes nothing until you pick 2 in its own box. */
 export const PERMISSIONS_ALL_ALIASES = ["allowall", "allow-all"] as const;
-const LIST = (what: string): Subcommand => ({ name: "list", description: what, bare: true, duringWork: NONE });
+/** Words after a name that is a new place to go (a branch, a project folder); bare, the command only lists. */
+const SOMETHING = /\S/;
+const LIST = (what: string): Subcommand => ({ name: "list", description: what, bare: true, afterCleanupError: NONE });
 
 export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   { name: "model", description: "Change model (remembered globally; --session for temporary)", argumentHint: "[provider/id]",
-    // The picker or one model (--session before or after it); role and big-model changes wait (they save settings).
-    duringWork: ONE_WORD_SESSION, subcommands: [
-      { name: "--session", args: "[model]", description: "Select without changing the startup default", duringWork: /^(?:[^\s-]\S*)?$/ },
-      { name: "roles", description: "Show fast/build/reason/review role mappings", duringWork: NONE },
+    // During a task the picker or one model (--session before or after it) applies from the model's next step.
+    afterCleanupError: ONE_WORD_SESSION, subcommands: [
+      { name: "--session", args: "[model]", description: "Select without changing the startup default", afterCleanupError: /^(?:[^\s-]\S*)?$/ },
+      { name: "roles", description: "Show fast/build/reason/review role mappings", afterCleanupError: NONE },
       { name: "role", args: "<fast|build|reason|review> <selector|clear>", description: "Save or clear a role mapping" },
       { name: "big", args: "<selector|clear>", description: "Set or clear your big model (the reason role)" },
     ] },
   { name: "effort", description: "Reasoning effort, including auto; Shift+Tab cycles and remembers it", aliases: ["thinking"], argumentHint: "[level|auto] [--session]",
-    duringWork: ONE_WORD_SESSION },
-  { name: "status", description: "Inspect project, model, auth and integrations", duringWork: NONE },
-  { name: "help", description: "Find a command; /help all shows the full reference", argumentHint: "[word|all]", duringWork: ANY,
-    subcommands: [{ name: "all", description: "The full reference", duringWork: ANY }] },
-  { name: "context", description: "Inspect context estimates and capability counts", duringWork: NONE },
-  { name: "usage", description: "Inspect session tokens and available cost estimates", aliases: ["cost"], duringWork: NONE },
-  { name: "compact", description: "The model summarizes the conversation so far", argumentHint: "[instructions]" },
-  { name: "clear", description: "Start a fresh conversation; keep files and saved conversations", aliases: ["new"] },
-  { name: "resume", description: "Go back to a saved conversation (a numbered list)", argumentHint: "[id]" },
-  { name: "diff", description: "The last task's changes: /diff 12, /diff list", argumentHint: "[n|list]", duringWork: /^(?:\d+)?$/,
-    subcommands: [{ name: "list", description: "Pick a task's changes from a list", duringWork: NONE }] },
-  { name: "undo", description: "Put the last task's files back (no model)", argumentHint: "[n]" },
-  { name: "redo", description: "Put an undone task's files back again", argumentHint: "[n]" },
-  { name: "plan", description: "Plan first: the model writes a plan and cases to test, then you build", argumentHint: "<request>" },
+    afterCleanupError: ONE_WORD_SESSION },
+  { name: "status", description: "Inspect project, model, auth and integrations", afterCleanupError: NONE },
+  { name: "help", description: "Find a command; /help all shows the full reference", argumentHint: "[word|all]", afterCleanupError: ANY,
+    subcommands: [{ name: "all", description: "The full reference", afterCleanupError: ANY }] },
+  { name: "context", description: "Inspect context estimates and capability counts", afterCleanupError: NONE },
+  { name: "usage", description: "Inspect session tokens and available cost estimates", aliases: ["cost"], afterCleanupError: NONE },
+  // `waits`: these wait for a running task, since they would change its conversation, workspace or files under it, or
+  // start model work of their own (one at a time). Every other command runs at once, also during a task.
+  { name: "compact", description: "The model summarizes the conversation so far", argumentHint: "[instructions]", waits: ANY },
+  { name: "clear", description: "Start a fresh conversation; keep files and saved conversations", aliases: ["new"], waits: ANY },
+  { name: "resume", description: "Go back to a saved conversation (a numbered list)", argumentHint: "[id]", waits: ANY },
+  { name: "diff", description: "The last task's changes: /diff 12, /diff list", argumentHint: "[n|list]", afterCleanupError: /^(?:\d+)?$/,
+    subcommands: [{ name: "list", description: "Pick a task's changes from a list", afterCleanupError: NONE }] },
+  { name: "undo", description: "Put the last task's files back (no model)", argumentHint: "[n]", waits: ANY },
+  { name: "redo", description: "Put an undone task's files back again", argumentHint: "[n]", waits: ANY },
+  { name: "plan", description: "Plan first: the model writes a plan and cases to test, then you build", argumentHint: "<request>", waits: ANY },
+  { name: "btw", description: "A side question: your fast model answers with no tools; the conversation never sees it", argumentHint: "<question>" },
   { name: "suggestions", description: "Suggested next steps: list, or turn on or off", subcommands: [
     { name: "on", args: "[name]", description: "Turn every suggestion, or one, on" },
     { name: "off", args: "[name]", description: "Turn every suggestion, or one, off" },
   ] },
-  { name: "pane", description: "Steps in a split beside Casper (tmux, iTerm2): /pane on or /pane off, saved", duringWork: NONE, subcommands: [
-    { name: "on", description: "Show the steps beside Casper; saved", duringWork: NONE },
-    { name: "off", description: "No split; saved", duringWork: NONE },
+  { name: "pane", description: "Steps in a split beside Casper (tmux, iTerm2): /pane on or /pane off, saved", afterCleanupError: NONE, subcommands: [
+    { name: "on", description: "Show the steps beside Casper; saved", afterCleanupError: NONE },
+    { name: "off", description: "No split; saved", afterCleanupError: NONE },
   ] },
   { name: "details", description: "How much work shows: quiet, normal or detailed, remembered (Ctrl+T: the last step in full)",
-    argumentHint: "[quiet|normal|detailed] [--session]", duringWork: /^(?:--session\s+\S+)?$/, subcommands: [
-      { name: "quiet", args: "[--session]", description: "Failures only", duringWork: SESSION },
-      { name: "normal", args: "[--session]", description: "Steps folded (the default)", duringWork: SESSION },
-      { name: "detailed", args: "[--session]", description: "Every step with small diffs", duringWork: SESSION },
+    argumentHint: "[quiet|normal|detailed] [--session]", afterCleanupError: /^(?:--session\s+\S+)?$/, subcommands: [
+      { name: "quiet", args: "[--session]", description: "Failures only", afterCleanupError: SESSION },
+      { name: "normal", args: "[--session]", description: "Steps folded (the default)", afterCleanupError: SESSION },
+      { name: "detailed", args: "[--session]", description: "Every step with small diffs", afterCleanupError: SESSION },
     ] },
   { name: "settings", description: "Turn web lookups, spend notes, built-in skills and more on or off by number", aliases: ["config"] },
   { name: "theme", description: "Pick the screen's colours (the Theme row of /settings)" },
-  { name: "hotkeys", description: "The keys Casper uses (Esc, Ctrl+T, Shift+Tab ...)", duringWork: NONE },
+  { name: "hotkeys", description: "The keys Casper uses (Esc, Ctrl+T, Shift+Tab ...)", afterCleanupError: NONE },
   { name: "copy", description: "Copy the last answer, or its code block n, to the clipboard", argumentHint: "[n]" },
   { name: "export", description: "Save this conversation to a file (.md, or .jsonl for every message)", argumentHint: "[file]" },
   { name: "rename", description: "Name this conversation (the window title and /resume)", argumentHint: "<title>" },
-  { name: "output", description: "Full command and output of a recent tool call (/output [n|all])", argumentHint: "[n|all]", duringWork: /^(?:\d+)?$/,
-    subcommands: [{ name: "all", description: "Every tool call of the last task on its own line", duringWork: NONE }] },
-  { name: "verify", description: "Run repository verification checks", argumentHint: "[checks ...]", subcommands: [
-    { name: "repair", args: "[checks ...]", description: "Run checks and authorize bounded repair" },
+  { name: "output", description: "Full command and output of a recent tool call (/output [n|all])", argumentHint: "[n|all]", afterCleanupError: /^(?:\d+)?$/,
+    subcommands: [{ name: "all", description: "Every tool call of the last task on its own line", afterCleanupError: NONE }] },
+  { name: "verify", description: "Run repository verification checks", argumentHint: "[checks ...]", waits: ANY, subcommands: [
+    { name: "repair", args: "[checks ...]", description: "Run checks and authorize bounded repair", waits: true },
     { name: "add", args: "<name>", description: "Save a ready-made check Casper found" },
   ] },
-  { name: "security-review", description: "Run the pinned security tools here, then offer an AI review (asks first)", subcommands: [
-    { name: "ai", description: "The same; where Casper can't ask, runs the AI review" },
+  { name: "security-review", description: "Run the pinned security tools here, then offer an AI review (asks first)", waits: ANY, subcommands: [
+    { name: "ai", description: "The same; where Casper can't ask, runs the AI review", waits: true },
     { name: "update", description: "Download osv-scanner's advisory data (asks first)" },
     { name: "ignores", description: "List ignores you approved; approve or remove them" },
   ] },
-  { name: "receipt", description: "A saved receipt: /receipt 12, /receipt list", argumentHint: "[n|list]", duringWork: /^(?:\d+)?$/,
-    subcommands: [{ name: "list", description: "The last 10 saved receipts", duringWork: NONE }] },
-  { name: "project", description: "Open a project folder here, or /project new to start one (alone: the same as /status)", argumentHint: "[name]", duringWork: NONE,
-    subcommands: [{ name: "new", args: "[template] [name]", description: "Start a new project in ~/Projects (no model)" }] },
-  { name: "skills", description: "Inspect skill metadata, trust and warnings", duringWork: NONE, subcommands: [
+  { name: "receipt", description: "A saved receipt: /receipt 12, /receipt list", argumentHint: "[n|list]", afterCleanupError: /^(?:\d+)?$/,
+    subcommands: [{ name: "list", description: "The last 10 saved receipts", afterCleanupError: NONE }] },
+  { name: "project", description: "Open a project folder here, or /project new to start one (alone: the same as /status)", argumentHint: "[name]", afterCleanupError: NONE,
+    waits: SOMETHING, subcommands: [{ name: "new", args: "[template] [name]", description: "Start a new project in ~/Projects (no model)", waits: true }] },
+  { name: "skills", description: "Inspect skill metadata, trust and warnings", afterCleanupError: NONE, subcommands: [
     { name: "diagnostics", description: "Why a skill was skipped or warned about" },
     { name: "inspect", args: "<id>", description: "A skill and its fingerprint (sha256)" },
     { name: "trust", args: "<id>", description: "Show a skill, then 1 No · 2 Trust it" },
@@ -115,7 +124,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     { name: "list", description: "The packs you added" },
     { name: "remove", args: "<name>", description: "Take a pack out", aliases: ["forget"] },
   ] },
-  { name: "mcp", description: "MCP status; connect, disconnect, writes on/off, forget, docs servers", duringWork: NONE, subcommands: [
+  { name: "mcp", description: "MCP status; connect, disconnect, writes on/off, forget, docs servers", afterCleanupError: NONE, subcommands: [
     { name: "detail", args: "[name]", description: "The full status of every server, or one (no connection)" },
     { name: "setup", args: "network|ssh", description: "Set up Casper's network server, or a server over ssh" },
     { name: "login", args: "[mist|central|clearpass] [forget]", description: "Add, replace or forget a network login" },
@@ -130,18 +139,18 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     { name: "docs", description: "Docs servers; add a docs-only copy" },
     LIST("The same as /mcp"),
   ] },
-  { name: "lsp", description: "Inspect language-server status; connect or disconnect", duringWork: NONE, subcommands: [
+  { name: "lsp", description: "Inspect language-server status; connect or disconnect", afterCleanupError: NONE, subcommands: [
     { name: "connect", args: "<name>", description: "Authorize this language server for this process" },
     { name: "disconnect", args: "<name>", description: "Stop this language server", afterCleanupError: true },
   ] },
-  { name: "browser", description: "Inspect a disposable browser; capture a screenshot", duringWork: NONE, subcommands: [
+  { name: "browser", description: "Inspect a disposable browser; capture a screenshot", afterCleanupError: NONE, subcommands: [
     { name: "open", args: "<url>", description: "Open an HTTP(S) page in a disposable browser" },
     { name: "inspect", description: "What the page shows now" },
     { name: "diagnostics", description: "What the page shows now, with its problems" },
     { name: "screenshot", description: "Save a viewport PNG" },
     { name: "close", description: "Close the browser", afterCleanupError: true },
   ] },
-  { name: "services", description: "Declared services: status, logs, start, restart, stop", duringWork: NONE, subcommands: [
+  { name: "services", description: "Declared services: status, logs, start, restart, stop", afterCleanupError: NONE, subcommands: [
     { name: "logs", args: "<name>", description: "Recent log lines of a service", afterCleanupError: true },
     { name: "start", args: "<name>", description: "Start it and wait for readiness" },
     { name: "restart", args: "<name>", description: "Restart it" },
@@ -149,9 +158,9 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   ] },
   { name: "preview", description: "Open your web app on a phone on the same Wi-Fi; a public link only after a yes",
     subcommands: [{ name: "stop", description: "Stop sharing it" }] },
-  { name: "tasks", description: "What runs in the background (dev servers, helpers, checks); stop one", duringWork: NONE,
-    subcommands: [{ name: "stop", args: "<n>|all", description: "Stop one of them, or all", duringWork: /^(?:\d+|all)$/, afterCleanupError: true }] },
-  { name: "debug", description: "Inspect local targets; approve launch and debug code", duringWork: NONE, subcommands: [
+  { name: "tasks", description: "What runs in the background (dev servers, helpers, checks); stop one", afterCleanupError: NONE,
+    subcommands: [{ name: "stop", args: "<n>|all", description: "Stop one of them, or all", afterCleanupError: true }] },
+  { name: "debug", description: "Inspect local targets; approve launch and debug code", afterCleanupError: NONE, subcommands: [
     { name: "start", args: "<target>", description: "Start the debugger and your program (asks first)" },
     { name: "breakpoints", args: "<path> <lines|clear>", description: "Replace one file's breakpoint lines" },
     { name: "threads", description: "Show threads" },
@@ -162,50 +171,51 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     { name: "stop", description: "End the debug session", afterCleanupError: true },
   ] },
   // After a failed cleanup /doctor is how you look into it. During a task it only reports; its fixes ask after the task.
-  { name: "doctor", description: "Check Casper's own setup and fix what it can (no model, asks first)", duringWork: NONE },
-  { name: "permissions", description: "Whether Casper asks, and a box to stop asking until you quit", duringWork: NONE, subcommands: [
-    { name: "details", description: "Everything allowed, and every way to be asked less", duringWork: NONE },
+  { name: "doctor", description: "Check Casper's own setup and fix what it can (no model, asks first)", afterCleanupError: NONE },
+  { name: "permissions", description: "Whether Casper asks, and a box to stop asking until you quit", afterCleanupError: NONE, subcommands: [
+    { name: "details", description: "Everything allowed, and every way to be asked less", afterCleanupError: NONE },
     { name: "all", description: "Stop the asking until you quit (asks first)", aliases: PERMISSIONS_ALL_ALIASES },
     { name: "ask", description: "Ask again" },
     { name: "write", args: "<folder>", description: "Allow a folder for this project" },
     { name: "forget", args: "<folder>", description: "Take a folder back", aliases: FORGET_ALIASES },
   ] },
-  { name: "sandbox", description: "What the shell sandbox holds here; forget a remembered host", duringWork: NONE, subcommands: [
+  { name: "sandbox", description: "What the shell sandbox holds here; forget a remembered host", afterCleanupError: NONE, subcommands: [
     { name: "forget", args: "<host>", description: "Forget a host you allowed for this project", aliases: FORGET_ALIASES },
     LIST("The same as /sandbox"),
   ] },
-  { name: "allowed", description: "The shell commands you said yes to for this project; forget one", duringWork: NONE, subcommands: [
+  { name: "allowed", description: "The shell commands you said yes to for this project; forget one", afterCleanupError: NONE, subcommands: [
     { name: "forget", args: "<n>", description: "Forget one by its number or words, or all of them", aliases: FORGET_ALIASES },
     LIST("The same as /allowed"),
   ] },
-  { name: "lab", description: "Your lab devices; /lab import <file> marks more; /lab ssh off makes ssh to them ask", duringWork: NONE, subcommands: [
+  { name: "lab", description: "Your lab devices; /lab import <file> marks more; /lab ssh off makes ssh to them ask", afterCleanupError: NONE, subcommands: [
     { name: "import", args: "<file>", description: "Add devices to your lab list from a file (asks first)" },
     { name: "ssh", args: "on|off", description: "Whether ssh and scp to lab devices ask first" },
   ] },
   // /branch <name> and /switch <name> run when typed (you asked for them); only /switch main apply|discard asks.
-  { name: "branch", description: "Named conversations and workspaces; /branch <name> makes one and moves there", argumentHint: "[name]", duringWork: NONE },
-  { name: "switch", description: "Go to a named conversation; /switch main apply|discard asks first", argumentHint: "<branch> [apply|discard]" },
-  { name: "memory", description: "Manage explicit project facts and inspect task outcomes", duringWork: NONE, subcommands: [
+  { name: "branch", description: "Named conversations and workspaces; /branch <name> makes one and moves there", argumentHint: "[name]", afterCleanupError: NONE, waits: SOMETHING },
+  { name: "switch", description: "Go to a named conversation; /switch main apply|discard asks first", argumentHint: "<branch> [apply|discard]", waits: ANY },
+  { name: "memory", description: "Manage explicit project facts and inspect task outcomes", afterCleanupError: NONE, subcommands: [
     { name: "remember", args: "<fact>", description: "Save a project fact (no model)" },
     { name: "forget", args: "<id>", description: "Remove a fact", aliases: FORGET_ALIASES },
     { name: "outcomes", description: "The latest 20 task outcomes" },
     { name: "accept", args: "<id> <yes|no>", description: "Record whether you accept a task's result" },
     LIST("The facts you saved"),
   ] },
-  { name: "references", description: "Search local reference projects; add a vendor spec repo", duringWork: NONE, subcommands: [
+  { name: "references", description: "Search local reference projects; add a vendor spec repo", afterCleanupError: NONE, subcommands: [
     { name: "search", args: "<id|*> <query>", description: "Search reference text locally (no model)" },
     { name: "add", args: "[name] [release]", description: "Download a vendor spec repo (asks first)" },
   ] },
-  { name: "secrets", description: "Show what Casper hides from the AI", duringWork: NONE,
+  { name: "secrets", description: "Show what Casper hides from the AI", afterCleanupError: NONE,
     subcommands: [{ name: "files", args: "on|off", description: "Scrub config files and command output" }] },
-  { name: "visualize", description: "Inspect providers or render repository dependencies", duringWork: NONE,
+  { name: "visualize", description: "Inspect providers or render repository dependencies", afterCleanupError: NONE,
     subcommands: [{ name: "repo", args: "[dir]", description: "Render repository dependencies locally (no model)" }] },
-  { name: "delegate", description: "Ask a read-only helper AI one bounded question", subcommands: [
-    { name: "explorer", args: "<goal>", description: "A read-only helper that explores" },
-    { name: "reviewer", args: "<goal>", description: "A read-only helper that reviews" },
+  // /delegate stops the debugger the task may be using; /crew's list offers to apply a copy to your folder.
+  { name: "delegate", description: "Ask a read-only helper AI one bounded question", waits: ANY, subcommands: [
+    { name: "explorer", args: "<goal>", description: "A read-only helper that explores", waits: true },
+    { name: "reviewer", args: "<goal>", description: "A read-only helper that reviews", waits: true },
   ] },
-  { name: "crew", description: "A builder AI does a job in its own copy of the project; you apply it", argumentHint: "[job]", subcommands: [
-    { name: "apply", args: "<n>", description: "Apply a crew copy to your folder" },
+  { name: "crew", description: "A builder AI does a job in its own copy of the project; you apply it", argumentHint: "[job]", waits: ANY, subcommands: [
+    { name: "apply", args: "<n>", description: "Apply a crew copy to your folder", waits: true },
     { name: "drop", args: "<n>", description: "Throw a crew copy away" },
   ] },
   { name: "logout", description: "Remove a sign-in Casper saved (/logout lists them)", argumentHint: "[provider]" },
@@ -216,11 +226,11 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     { name: "openrouter", description: "Sign in to OpenRouter" },
   ] },
   // During a task it stops the task and leaves, like Ctrl+C twice (src/app/during-work.ts).
-  { name: "exit", description: "Leave Casper (stops a task that is running)", aliases: ["quit"], duringWork: NONE },
+  { name: "exit", description: "Leave Casper (stops a task that is running)", aliases: ["quit"], afterCleanupError: NONE },
   // A receipt's numbered suggestion: Casper types it when you pick one (src/app/suggestions.ts).
-  { name: "suggestion", description: "Run a suggested next step", argumentHint: "<id>", hidden: true },
+  { name: "suggestion", description: "Run a suggested next step", argumentHint: "<id>", hidden: true, waits: ANY },
   // The old name of bare /branch: still works, no longer in the menu or the help.
-  { name: "tree", description: "Named conversations and workspaces (now /branch)", hidden: true, duringWork: NONE },
+  { name: "tree", description: "Named conversations and workspaces (now /branch)", hidden: true, afterCleanupError: NONE },
 ];
 
 /** The command a typed name runs (its own name or an alias), with or without the leading "/". */
@@ -265,29 +275,29 @@ export function parseCommandLine(line: string): { command: CommandSpec; typed: s
   return { command, typed: match[1]!, args, ...(subcommand ? { subcommand } : {}), rest: subcommand ? (first![2] ?? "").trim() : args };
 }
 
-/** This line runs now during a task; every other line waits for the task to end. */
+/** This command line runs now during a task, with whatever follows it; only the few that `waits` names wait for the
+ * task to end. Not a command: false. */
 export function runsDuringWork(line: string): boolean {
   const parsed = parseCommandLine(line);
   if (!parsed) return false;
-  return parsed.subcommand ? Boolean(parsed.subcommand.duringWork?.test(parsed.rest)) : Boolean(parsed.command.duringWork?.test(parsed.args));
+  return parsed.subcommand ? !parsed.subcommand.waits : !parsed.command.waits?.test(parsed.args);
 }
 
-/** This line still runs after a failed cleanup: what runs during work (it only shows something), and the forms that
- * inspect or stop what may still be running. */
+/** This line still runs after a failed cleanup: the forms that only show something or change a session choice, and
+ * the ones that inspect or stop what may still be running. */
 export function runsAfterCleanupError(line: string): boolean {
   const parsed = parseCommandLine(line);
   if (!parsed) return false;
-  if (runsDuringWork(line)) return true;
-  return parsed.subcommand ? Boolean(parsed.subcommand.afterCleanupError) : Boolean(parsed.command.afterCleanupError?.test(parsed.args));
+  const rule = parsed.subcommand ? parsed.subcommand.afterCleanupError : parsed.command.afterCleanupError;
+  return rule === true || Boolean(rule?.test(parsed.subcommand ? parsed.rest : parsed.args));
 }
 
-/** For the menu during a task: whether `/name` alone, or `/name subcommand`, runs now (one with words after it runs
- * when they fit its rule). */
+/** For the menu during a task: whether `/name` alone, or `/name subcommand`, runs now. */
 export function menuRunsDuringWork(name: string, subcommand?: string): boolean {
   const command = findCommand(name);
   if (!command) return false;
-  if (subcommand === undefined) return Boolean(command.duringWork?.test(""));
-  return Boolean(command.subcommands?.find((sub) => sub.name === subcommand)?.duringWork);
+  if (subcommand === undefined) return !command.waits?.test("");
+  return !command.subcommands?.find((sub) => sub.name === subcommand)?.waits;
 }
 
 /** The subcommands that complete what is typed after `/name `; none once a whole word or more is typed. */

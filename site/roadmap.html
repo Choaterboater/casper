@@ -76,7 +76,11 @@
               <li><a href="#v010">v0.1.0: the first preview</a></li>
             </ul>
           </li>
-          <li><a href="#next">Next release, built, not released</a></li>
+          <li><a href="#next">Next release, built, not released</a>
+            <ul>
+              <li><a href="#next-commands">Commands any time during a task</a></li>
+            </ul>
+          </li>
           <li><a href="#coming">Planned, not started</a>
             <ul>
               <li><a href="#v030">v0.3: crews</a></li>
@@ -569,8 +573,23 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.28. New work shows here before the next preview.</p>
+          <p>On the main branch, not in v0.2.28 yet.</p>
         </aside>
+        <article class="card" id="next-commands" aria-labelledby="next-commands-h">
+          <h3 id="next-commands-h">Commands any time during a task <span class="badge soon">built, not released</span></h3>
+          <ul>
+            <li><strong>Every command runs at once during a task</strong>, with whatever follows it:
+            <code>/permissions all</code>, <code>/settings</code>, <code>/login</code>, <code>/memory remember</code>
+            and the rest. A change applies from the task's next step, or from your next request for a tool the
+            task already has. A picker or question the command opens
+            closes when the task asks you something; a box where you type a key waits for you.</li>
+            <li><strong>Only a few wait:</strong> the ones that would change the task's conversation, workspace or
+            files, or start model work of their own (<code>/clear</code>, <code>/resume</code>, <code>/compact</code>,
+            <code>/undo</code>, <code>/switch</code>, <code>/plan</code>, <code>/verify</code> …).</li>
+            <li><strong><code>/btw &lt;question&gt;</code></strong> asks a side question, like a line you start with
+            <code>?</code>, and still works with side questions off.</li>
+          </ul>
+        </article>
       </section>
 
       <section id="coming" aria-labelledby="coming-h">

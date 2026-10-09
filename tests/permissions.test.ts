@@ -14,6 +14,7 @@ import { inspectProject } from "../src/project/inspect";
 import { SandboxStore } from "../src/sandbox/store";
 import { SkillRegistry } from "../src/skills/registry";
 import { fakeEngine } from "./support/sandbox-fakes";
+import { duringTask } from "../src/tui/give-way";
 import { posixOnly } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -164,7 +165,8 @@ test("only the person's typed command can set the switch: nothing the AI can cal
   expect(found.sort()).toEqual(["app.ts", "app/commands.ts", "app/footer.ts", "app/sandbox.ts", "app/wiring.ts"]);
 });
 
-async function session(d: Awaited<ReturnType<typeof dirs>>, commands: string[], answers: string[]) {
+/** `typed`: each command runs as if typed while a task runs. */
+async function session(d: Awaited<ReturnType<typeof dirs>>, commands: string[], answers: string[], typed = false) {
   const input = new PassThrough();
   let output = "";
   const pending = [...commands];
@@ -181,7 +183,7 @@ async function session(d: Awaited<ReturnType<typeof dirs>>, commands: string[], 
   });
   const set = app.terminal.setBadge.bind(app.terminal);
   app.terminal.setBadge = (text?: string) => { badges.push(text); set(text); };
-  try { await app.runInteractive(d.project); } finally { await app.close(); }
+  try { await (typed ? duringTask(() => app.runInteractive(d.project)) : app.runInteractive(d.project)); } finally { await app.close(); }
   return { output, badges: badges.filter((badge) => badge !== undefined) as string[] };
 }
 
@@ -355,4 +357,14 @@ test("/permissions write and forget say what happened in plain words, in a sessi
   expect(output).toContain("Forgot");
   expect(output).toContain("was not allowed. /permissions shows what is.");
   await writeFile(path.join(d.base, "unused"), "");
+});
+
+test("/permissions write and forget typed during a task say the running task has the change from its next question; a refusal doesn't", async () => {
+  const d = await dirs();
+  const { output } = await session(d, [`/permissions write ${d.app}`, `/permissions write ${path.join(d.home, ".ssh")}`, `/permissions forget ${d.app}`, `/permissions forget ${d.app}`], [], true);
+  const note = " The running task too, from its next question.\n";
+  expect(output).toMatch(/Allowed: the AI's edits[^\n]* takes it back\. The running task too, from its next question\.\n/);
+  expect(output).toContain(`Forgot ${d.app}: Casper asks before writes there again.${note}`);
+  expect(output.split(note)).toHaveLength(3);
+  expect(output).toContain("was not allowed. /permissions shows what is.\n");
 });

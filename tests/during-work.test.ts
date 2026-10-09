@@ -1,7 +1,9 @@
 import { afterAll, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import type { AgentRuntime, RuntimeStatus } from "../src/runtime/types";
+import { approveChoice } from "../src/app/approvals";
 import { runsDuringWork } from "../src/tui/commands";
+import { duringTask } from "../src/tui/give-way";
 import { TerminalSurface } from "../src/tui/surface";
 import { richApp } from "./support/app";
 
@@ -9,15 +11,25 @@ const ambientTerm = process.env.TERM;
 process.env.TERM = "xterm-256color";
 afterAll(() => { if (ambientTerm === undefined) delete process.env.TERM; else process.env.TERM = ambientTerm; });
 
-test("commands that only show something run during a task; ones that change things wait", () => {
-  for (const line of ["/help", "/help all", "/status", "/usage", "/context", "/permissions", "/diff", "/diff 12", "/diff list",
-    "/tasks", "/tasks stop 2", "/tasks stop all", "/details", "/details quiet", "/receipt", "/receipt 3", "/receipt list",
-    "/output", "/output 2", "/output all", "/mcp", "/tree", "/project", "/sandbox", "/allowed", "/secrets", "/skills", "/lsp",
-    "/effort", "/effort low", "/effort high --session", "/thinking low", "/cost", "/branch", "/hotkeys", "/pane", "/pane off",
-    "/model", "/model --session", "/model fixture/other", "/model --session fixture/other", "/model @reason", "/model roles"]) expect([line, runsDuringWork(line)]).toEqual([line, true]);
-  for (const line of ["/undo", "/redo", "/clear", "/new", "/branch x", "/copy", "/export", "/rename x", "/logout", "/theme", "/config", "/resume", "/model role fast x", "/model big x", "/model a b", "/mcp connect x", "/mcp writes on", "/sandbox forget h", "/allowed forget 1", "/allowed forget all",
-    "/secrets files off", "/skills trust a b", "/lsp connect x", "/project other", "/compact", "/verify", "/details loud"])
+test("every command runs during a task, with any words after it; only the few that change what the task works on wait", () => {
+  for (const line of ["/help", "/help all", "/status", "/usage", "/context", "/permissions", "/permissions all", "/permissions ask",
+    "/permissions write ../shared", "/diff", "/diff 12", "/diff list", "/tasks", "/tasks stop 2", "/tasks stop all", "/details", "/details quiet",
+    "/receipt", "/receipt 3", "/receipt list", "/output", "/output 2", "/output all", "/mcp", "/tree", "/project", "/sandbox", "/allowed",
+    "/secrets", "/skills", "/lsp", "/effort", "/effort low", "/effort high --session", "/thinking low", "/cost", "/branch", "/hotkeys",
+    "/pane", "/pane off", "/model", "/model --session", "/model fixture/other", "/model --session fixture/other", "/model @reason",
+    "/model roles", "/model role fast x", "/model big x", "/copy", "/export", "/rename x", "/logout", "/login", "/login codex", "/theme",
+    "/config", "/settings", "/mcp connect x", "/mcp writes on", "/sandbox forget h", "/allowed forget 1", "/allowed forget all",
+    "/secrets files off", "/skills trust a b", "/lsp connect x", "/memory remember x", "/references add", "/visualize repo",
+    "/browser open https://example.com", "/services start web", "/debug start app", "/lab import hosts.txt", "/suggestions off",
+    "/verify add ansible", "/security-review update", "/crew drop 1", "/btw what is this", "/doctor", "/exit", "/quit"])
+    expect([line, runsDuringWork(line)]).toEqual([line, true]);
+  for (const line of ["/undo", "/undo 2", "/redo", "/clear", "/new", "/resume", "/resume abc", "/compact", "/compact keep it short",
+    "/branch x", "/switch main", "/project other", "/project new", "/project new web app", "/plan add a flag", "/verify", "/verify test",
+    "/verify repair", "/security-review", "/security-review ai", "/delegate explorer find it", "/crew", "/crew build it", "/crew apply 1",
+    "/suggestion 2"])
     expect([line, runsDuringWork(line)]).toEqual([line, false]);
+  // Not a command: never "runs" as one.
+  expect(runsDuringWork("/bogus")).toBe(false);
 });
 
 const prompts = { count: 0, started: false };
@@ -62,7 +74,48 @@ test("during a task: /project and /tasks run, a bare /effort opens its picker, /
     await app.until(text => text.includes("[effort] low from the model's next step (this conversation)"));
     expect(changes.at(-1)).toEqual({ level: "low", persist: false });
     app.input.write("/undo\r");
-    await app.until(text => text.includes("/undo waits until this task ends"));
+    await app.until(text => text.includes("/undo waits until this task ends · draft kept · Esc stops the task"));
+    gate.resolve();
+  } finally { gate.resolve(); await app.close(); }
+}, 30_000);
+
+test("during a task: /permissions all asks, runs now and says the task asks no more from its next question", async () => {
+  const gate = Promise.withResolvers<void>();
+  prompts.count = 0; prompts.started = false;
+  const app = await richApp(() => workingRuntime(gate.promise, []));
+  try {
+    await app.until(text => text.includes("idle"));
+    app.input.write("write a poem\r");
+    await app.until(() => prompts.started);
+    app.input.write("/permissions all\r");
+    await app.until(text => text.includes("Stop asking until you quit?"));
+    await Bun.sleep(400);
+    app.input.write("2");
+    await app.until(text => text.includes("The running task too, from its next question."));
+    expect(app.app.stopAsking).toBe(true);
+    expect(app.screen()).not.toContain("/permissions waits until this task ends");
+    gate.resolve();
+  } finally { gate.resolve(); await app.close(); }
+}, 30_000);
+
+test("during a task: a typed command's box (/permissions all) closes for the task's queued approval, which never waits behind it", async () => {
+  const gate = Promise.withResolvers<void>();
+  prompts.count = 0; prompts.started = false;
+  const app = await richApp(() => workingRuntime(gate.promise, []));
+  try {
+    await app.until(text => text.includes("idle"));
+    app.input.write("write a poem\r");
+    await app.until(() => prompts.started);
+    app.input.write("/permissions all\r");
+    await app.until(text => text.includes("Stop asking until you quit?"));
+    // The task's own approval, through the same one-at-a-time queue the task uses.
+    const answer = approveChoice(app.app, "Reach example.com?\n", "Allow it?", ["No", "Yes, this once"]);
+    await app.until(text => text.includes("Allow it?") && text.includes("closed for the task's question; type the command again"));
+    await app.until(text => text.includes("[permissions] Still asking."));
+    await Bun.sleep(400);
+    app.input.write("2");
+    expect(await answer).toBe("Yes, this once");
+    expect(app.app.stopAsking).toBe(false);
     gate.resolve();
   } finally { gate.resolve(); await app.close(); }
 }, 30_000);
@@ -109,8 +162,10 @@ test("during a task: /model <id> and the /model picker apply from the model's ne
     await app.until(text => text.includes("[model] fixture/picked from the model's next step; saved"));
     expect(selections).toEqual([{ query: "fixture/other", persist: true, picker: false }, { query: "cloud/big", persist: true, picker: false }, { query: "fixture/third", persist: false, picker: false },
       { query: undefined, persist: true, picker: true }]);
+    // A role mapping runs now too, as the command (it never changes the model in use): this runtime has no roles.
     app.input.write("/model role fast fixture/x\r");
-    await app.until(text => text.includes("/model waits until this task ends"));
+    await app.until(text => text.includes("This runtime does not support model roles."));
+    expect(selections).toHaveLength(4);
     gate.resolve();
   } finally { gate.resolve(); await app.close(); }
 }, 30_000);
@@ -136,6 +191,57 @@ test("an approval that arrives while a picker is open closes the picker and asks
     const answer = s.approve("Reach example.com?\n", "Allow it?", [{ label: "No" }, { label: "Yes, this once" }]);
     expect(await picked).toBe("yielded");
     await Bun.sleep(20);
+    input.write("2");
+    expect(await answer).toBe("Yes, this once");
+  } finally { s.close(); input.destroy(); }
+});
+
+test("a question a command typed during a task opened closes for the task's approval or question, and says so", async () => {
+  const { s, input, screen } = surface();
+  try {
+    s.start();
+    // /settings typed during a task: its question is open when the task asks for an approval.
+    const settings = duringTask(() => s.ask("Pick one to change:", [{ label: "Done" }, { label: "Theme" }], false));
+    await Bun.sleep(20);
+    const answer = s.approve("Reach example.com?\n", "Allow it?", [{ label: "No" }, { label: "Yes, this once" }]);
+    expect(await settings).toBeUndefined();
+    await Bun.sleep(100);
+    expect(screen()).toContain("Pick one to change — closed for the task's question; type the command again");
+    await Bun.sleep(400);
+    input.write("2");
+    expect(await answer).toBe("Yes, this once");
+    // The AI's question closes it too.
+    const again = duringTask(() => s.ask("Pick one to change:", [{ label: "Done" }, { label: "Theme" }], false));
+    await Bun.sleep(20);
+    const asked = s.ask("Which file?", [{ label: "a.ts" }, { label: "b.ts" }], false, undefined, "ai");
+    expect(await again).toBeUndefined();
+    await Bun.sleep(400);
+    input.write("1");
+    expect(await asked).toEqual(["a.ts"]);
+    // A question asked outside a typed command (the task's own) is never closed by another.
+    const own = s.ask("Fix it anyway?", [{ label: "No" }, { label: "Yes" }], false);
+    await Bun.sleep(20);
+    expect(await s.ask("Which file?", [{ label: "a.ts" }], false, undefined, "ai")).toBeUndefined();
+    await Bun.sleep(400);
+    input.write("2");
+    expect(await own).toEqual(["Yes"]);
+  } finally { s.close(); input.destroy(); }
+});
+
+test("a private box a command typed during a task opened (a key) is never closed: the task's approval waits for it", async () => {
+  const { s, input } = surface();
+  try {
+    s.start();
+    const typing = Promise.withResolvers<string>();
+    const login = duringTask(() => s.exclusiveHost()!.run(() => typing.promise));
+    await Bun.sleep(20);
+    let shown = false;
+    const answer = s.approve("Reach example.com?\n", "Allow it?", [{ label: "No" }, { label: "Yes, this once" }]).then((value) => { shown = true; return value; });
+    await Bun.sleep(50);
+    expect(shown).toBe(false);
+    typing.resolve("key typed");
+    expect(await login).toBe("key typed");
+    await Bun.sleep(400);
     input.write("2");
     expect(await answer).toBe("Yes, this once");
   } finally { s.close(); input.destroy(); }
@@ -248,15 +354,14 @@ test("/mcp during a task prints the list with its command hints and no picker, s
     await Bun.sleep(400);
     app.input.write("2");
     expect(await answer).toBe("Yes, this once");
-    // The typed forms that change things still wait for the task.
-    app.input.write("/mcp disconnect demo-server\r");
-    await app.until(text => text.slice(from).includes("waits until this task ends"), 15_000);
+    // The typed forms that change things run now too.
+    const writesFrom = app.screen().length;
+    app.input.write("/mcp writes off\r");
+    await app.until(text => text.slice(writesFrom).includes("[mcp]"), 15_000);
+    expect(app.screen().slice(writesFrom)).not.toContain("waits until this task ends");
     const doneFrom = app.screen().length;
     gate.resolve();
     await app.until(text => text.slice(doneFrom).includes("idle"), 15_000);
-    // The refused line stayed as a draft; clear it, then ask for the list again.
-    app.input.write("\x15");
-    await Bun.sleep(100);
     const idleFrom = app.screen().length;
     app.input.write("/mcp\r");
     await app.until(text => text.slice(idleFrom).includes("Pick a server"), 15_000);

@@ -70,8 +70,8 @@ test("one verb takes things back: forget, with remove as the same word; list is 
   }
   // A word after list is no list: the command's own usage error says so.
   expect(canonicalLine("/memory list x")).toBe("/memory list x");
-  // Changes still wait for the task, whichever word is typed.
-  for (const line of ["/memory remove abc", "/allowed remove 2", "/mcp remove nope"]) expect([line, runsDuringWork(line)]).toEqual([line, false]);
+  // Taking something back runs during a task too, whichever word is typed.
+  for (const line of ["/memory remove abc", "/allowed remove 2", "/mcp remove nope"]) expect([line, runsDuringWork(line)]).toEqual([line, true]);
 });
 
 test("--session goes before or after the value", () => {
@@ -110,9 +110,9 @@ test("during a task, the bare forms that only show something run now and the men
   for (const name of ["browser", "services", "debug", "lab", "memory", "references", "visualize", "doctor", "exit", "quit"]) {
     expect([name, runsDuringWork(`/${name}`), menuRunsDuringWork(name)]).toEqual([name, true, true]);
   }
-  // What they change still waits.
+  // What they change runs now too.
   for (const line of ["/browser open https://example.com", "/services start web", "/debug start app", "/lab import hosts.txt",
-    "/memory remember x", "/references add", "/visualize repo"]) expect([line, runsDuringWork(line)]).toEqual([line, false]);
+    "/memory remember x", "/references add", "/visualize repo"]) expect([line, runsDuringWork(line)]).toEqual([line, true]);
   const gate = Promise.withResolvers<void>();
   const state = seen();
   const app = await richApp(() => fixtureRuntime(gate.promise, state));

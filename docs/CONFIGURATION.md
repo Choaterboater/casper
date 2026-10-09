@@ -53,7 +53,9 @@ The first lines show every setting and where it stands at a glance; the numbered
 Every row has its number: past 9, type it and press Enter (`Type 1-24 + Enter or Up/Down + Enter`).
 A plain terminal (`TERM=dumb`) asks the same list as numbered lines.
 A change applies from now on (built-in skills, packs, the prompt cache and local models from the next start) and says so:
-`[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` A switch turned off is written as
+`[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Changed while a task runs, it also says when the
+task gets it: from its next step, or, for a tool the task already has (web lookups, the reader, the browser,
+builders, the spend limits), `The running task keeps what it had; your next request uses it.` A switch turned off is written as
 `false` (`packs: false`). In a config you write yourself, `off` works the same for every switch
 except `suggestions`, `skills.bundled` and `verification.e2e`, which take only `true` or `false`,
 and `spend.noteAt`, which takes a dollar amount or `false`. Where Casper can't ask (a one-shot
@@ -77,7 +79,7 @@ your `fast` model (the session's model when none is set or signed in), with no t
 a task. The answer shows as a side answer; it is never added to the conversation, so the AI that
 works on your task never sees it. Each one uses a few tokens, shown in `/usage`. They are on; turn
 them off with `/settings` (it writes `sideQuestions: false`), and a `?` line goes to the AI as an
-ordinary request. A project file can't change `sideQuestions:`. See
+ordinary request; `/btw <question>` still asks on the side, since it is typed on purpose. A project file can't change `sideQuestions:`. See
 [TERMINAL_UX.md](TERMINAL_UX.md#words-you-can-use) for the words a request can start with.
 
 ### Untrusted-text reader
