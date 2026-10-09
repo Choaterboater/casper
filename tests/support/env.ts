@@ -37,7 +37,8 @@ export function cleanEnv(extra: Record<string, string | undefined> = {}): Record
   for (const [name, value] of Object.entries(process.env)) {
     if (!name.startsWith("PI_") && !name.startsWith("CASPER_") && !CREDENTIAL.test(name)) env[canonical(name)] = value;
   }
-  const changes = { ...extra };
+  // A model server on the developer's computer (Ollama and the like) never answers a test's Casper; `extra` may undo it.
+  const changes: Record<string, string | undefined> = { CASPER_LOCAL_MODELS: "off", ...extra };
   const given = (name: string) => Object.keys(extra).some(key => key.toUpperCase() === name);
   if (WINDOWS && extra.HOME !== undefined) {
     if (!given("USERPROFILE")) changes.USERPROFILE = extra.HOME;

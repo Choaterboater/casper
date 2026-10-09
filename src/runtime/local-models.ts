@@ -142,6 +142,8 @@ async function llamaCpp(fetcher: typeof fetch, root: string, signal: AbortSignal
  * after seconds on Windows: the runtime never waits for this at its start). */
 export async function discoverLocalServers(options: DiscoverOptions = {}): Promise<LocalDiscovery> {
   const env = options.env ?? process.env;
+  // CASPER_LOCAL_MODELS=off (a script, CI, the test suite's spawned Casper): no probe at all, like localModels: false.
+  if (/^(?:off|0|false|no)$/i.test(env.CASPER_LOCAL_MODELS?.trim() ?? "")) return { servers: [], problems: [] };
   const fetcher = options.fetch ?? fetch;
   const found = await Promise.all(LOCAL_SERVERS.map(async (kind) => {
     const variable = kind.variables.find((name) => env[name]?.trim());
