@@ -10,8 +10,8 @@
  */
 import { StringDecoder } from "node:string_decoder";
 import type { Readable } from "node:stream";
-import { redactPreview } from "../tui/format";
-import { CallClockTimeout, formatDuration, type ClockReason } from "./clock";
+import { formatDuration, redactPreview } from "../tui/format";
+import { CallClockTimeout, type ClockReason } from "./clock";
 import { MissingEnvironmentError } from "./config";
 
 export { MissingEnvironmentError };

@@ -1,5 +1,5 @@
 import type { InteractiveTerminal } from "../tui/terminal";
-import { BUSY_GLYPH, displayPath, formatToolActivity, lastOutputLine, redactPreview, runningElapsed, terminalText } from "../tui/format";
+import { BUSY_GLYPH, displayPath, formatDuration, formatElapsed, formatToolActivity, lastOutputLine, NOT_RUN_GLYPH, NOTE_GLYPH, redactPreview, runningElapsed, terminalText } from "../tui/format";
 import type { RuntimeEvent } from "../runtime/types";
 import type { OutputWriter } from "./commands";
 import { SPEND_STOP_REASON } from "../task/spend";
@@ -130,7 +130,7 @@ export function buildersLine(goals: readonly string[], reviewers = 0): string | 
   return `${who} working${short.length ? `: ${short.join(", ")}` : ""}${more}`;
 }
 
-/** One line for a finished group of steps: "✓ 14 edits · 6 commands", or "• 14 edits · 6 commands · 1 failed"
+/** One line for a finished group of steps: "✓ 14 edits · 6 commands", or "– 14 edits · 6 commands · 1 failed"
  * (never a green ✓ over a failure). No time: the footer and the Working box show how long work takes. */
 export function stepSummary(steps: ReadonlyArray<{ kind: StepKind; failed?: boolean }>): string {
   const counts = new Map<StepKind, number>();
@@ -141,7 +141,7 @@ export function stepSummary(steps: ReadonlyArray<{ kind: StepKind; failed?: bool
   });
   const failed = steps.filter(step => step.failed).length;
   if (failed) parts.push(`${failed} failed`);
-  return `${failed ? "•" : "✓"} ${parts.join(" · ")}`;
+  return `${failed ? NOTE_GLYPH : "✓"} ${parts.join(" · ")}`;
 }
 
 /** Renders runtime events onto the terminal. On the rich terminal the main screen keeps the model's words,
@@ -314,13 +314,10 @@ export class RuntimeEventView {
 
   private renderResponseActivity(): void {
     if (!this.responseActivity || this.responseStartedAt === undefined) return;
-    const seconds = Math.floor((performance.now() - this.responseStartedAt) / 1000);
-    const minutes = Math.floor(seconds / 60);
     // Nothing heard for 10 s: say plainly what Casper is waiting for, counting from the last word.
     const silent = this.heardAt === undefined ? 0 : performance.now() - this.heardAt;
     if (runningElapsed(silent)) { this.status = `Waiting for ${this.waitingFor}${runningElapsed(silent)}`; this.renderBox(); return; }
-    const elapsed = minutes ? `${minutes}m${String(seconds % 60).padStart(2, "0")}s` : `${seconds}s`;
-    this.status = `${this.responseActivity} · ${elapsed}`;
+    this.status = `${this.responseActivity} · ${formatElapsed(performance.now() - this.responseStartedAt)}`;
     this.renderBox();
   }
 
@@ -443,12 +440,16 @@ export class RuntimeEventView {
         }
         break;
       }
+      case "assistant_request_start":
       case "assistant_response_start": {
-        this.clearResponseActivity();
         const model = [event.provider, event.model].filter((part): part is string => Boolean(part)).map(terminalText).join("/");
+        const waiting = `Waiting for ${model || "model response"}`;
+        // The request went out before the answer started: the wait goes on, so its time keeps counting.
+        const same = event.type === "assistant_response_start" && this.responseActivity === waiting;
+        if (!same) this.clearResponseActivity();
         this.waitingFor = model || "model response";
         this.heardAt = performance.now();
-        this.setResponseActivity(`Waiting for ${this.waitingFor}`);
+        this.setResponseActivity(waiting);
         break;
       }
       case "assistant_progress": {
@@ -465,8 +466,8 @@ export class RuntimeEventView {
         this.terminal.endAssistant();
         this.ensureLineBreak();
         const provider = terminalText(event.provider ?? "the model provider");
-        const wait = `${Math.max(1, Math.ceil(event.delayMs / 1000))}s`;
-        this.output.write(`… Can't reach ${provider} · trying again in ${wait} (${event.attempt} of ${event.maxAttempts})${this.terminal.rich ? " · Esc stops" : ""}\n`);
+        const wait = formatDuration(Math.max(1, Math.ceil(event.delayMs / 1000)) * 1000);
+        this.output.write(`${NOTE_GLYPH} Can't reach ${provider} · trying again in ${wait} (${event.attempt} of ${event.maxAttempts})${this.terminal.rich ? " · Esc stops" : ""}\n`);
         // Said once, by that line (in the warning colour): the Working box drops what it showed instead of repeating it.
         this.setStaticActivity();
         this.endedWithNewline = true;
@@ -507,7 +508,7 @@ export class RuntimeEventView {
           // or a long test run looks hung; a quick one still gets its end line alone.
           const kind = stepKind(event.toolName);
           if (event.toolCallId && kind !== "edit" && kind !== "read" && !["web_search", "web_fetch"].includes(event.toolName)) {
-            const line = `${BUSY_GLYPH} ${formatToolActivity(event, undefined, this.fit()).replace(/^• /, "")}\n`;
+            const line = `${formatToolActivity(event, undefined, this.fit())}\n`;
             // The call starts before Casper's own questions about it ("Reach <host>?", a write outside the project).
             // A question shown since then already named the command, and an open one is being answered: no line.
             const asked = this.terminal.questionsShown ?? 0;
@@ -560,11 +561,12 @@ export class RuntimeEventView {
         const notRun = spendStop || refusal !== undefined;
         const suffix = spendStop ? NOT_RUN : REFUSED;
         // `timed`: with the step's time. The rich terminal's folded lines leave it out (the footer and box show time).
+        // Never ran: ○, not the running •.
         const endLine = (inset: number, detail: boolean, timed = true) => notRun
-          ? `${formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}) }, undefined, this.fit(inset + suffix.length))}${suffix}`
+          ? `${NOT_RUN_GLYPH}${formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}) }, undefined, this.fit(inset + suffix.length)).slice(BUSY_GLYPH.length)}${suffix}`
             + (detail && refusal ? `\n  ${redactPreview(refusal).slice(0, 240)}` : "")
           : formatToolActivity(detail ? shown : { ...shown, output: undefined }, timed ? elapsed : undefined, this.fit(inset));
-        const label = formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}) }, undefined, this.fit()).replace(/^• /, "");
+        const label = formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}) }, undefined, this.fit()).slice(BUSY_GLYPH.length + 1);
         this.expanded = event.diff && !event.isError ? { title: label, body: event.diff, diff: true }
           : { title: `${label}${notRun ? " · not run" : event.isError ? " · failed" : ""}`, body: (refusal ?? event.output?.text ?? "").replace(/\n$/, "") || "(no output text)", diff: false };
         if (!this.terminal.rich) {

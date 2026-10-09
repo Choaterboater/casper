@@ -20,9 +20,10 @@ export async function modelPreference(home: string): Promise<string | undefined>
       const value = JSON.parse(buffer.subarray(0, bytesRead).toString("utf8"));
       if (typeof value?.defaultProvider !== "string" || typeof value?.defaultModel !== "string") return;
       const identity = `${value.defaultProvider}/${value.defaultModel}`;
+      // "fixture/demo · effort auto": the model and its effort, nothing more (the banner adds when it starts).
       const effort = Array.isArray(value.autoEffortModels) && value.autoEffortModels.includes(identity)
-        ? "effort auto (set on your first request)" : typeof value.defaultThinkingLevel === "string" ? `effort ${value.defaultThinkingLevel}` : "effort default";
-      return `default ${identity} · ${effort}`;
+        ? "auto" : typeof value.defaultThinkingLevel === "string" ? value.defaultThinkingLevel : undefined;
+      return effort ? `${identity} · effort ${effort}` : identity;
     } finally { await file.close(); }
   } catch { return undefined; }
 }

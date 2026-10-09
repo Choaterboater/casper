@@ -1,4 +1,4 @@
-import { formatDuration, formatVerificationReport, reportText, type VerificationReport, type VerificationResult } from "../verify/evidence";
+import { formatVerificationReport, reportText, type VerificationReport, type VerificationResult } from "../verify/evidence";
 import { modelErrorNext, type ModelErrorCause } from "../runtime/model-errors";
 import type { RiskyLine } from "../network/risky-receipt";
 import { isBuiltinCheck } from "../verify/named";
@@ -12,8 +12,8 @@ import type { AutoCheckSkip, VerificationMode } from "../verify/mode";
 import type { ChangeProof } from "../verify/proof";
 import type { AcceptanceResult } from "../verify/acceptance";
 import { ROUND_MAX_TURNS, type RequirementsReview } from "./review";
-import { formatCost, formatLimit } from "./spend";
-import { lineText } from "../tui/format";
+import { formatLimit } from "./spend";
+import { formatCost, formatDuration, lineText } from "../tui/format";
 
 /** Tool-reported diagnostics, not process exit evidence or a reusable check pass. */
 export interface ObservedCheck {
@@ -57,7 +57,7 @@ export interface TaskResult {
   changedDuringChecks?: string[];
   /** A mutation-capable tool ran but no workspace snapshot could confirm or refute writes. */
   possibleMutations?: boolean;
-  /** Why Casper could not compare the folder ("this folder has over 20,000 files; open a project folder"), and
+  /** Why Casper could not compare the folder ("not a project folder (over 20,000 files)"), and
    * the files Casper's own edit and write tools changed meanwhile, relative to the folder when inside it. */
   snapshotFailure?: { reason: string; edited: string[] };
   observedChecks?: ObservedCheck[];
@@ -101,7 +101,7 @@ export interface TaskResult {
   /** This task's saved receipt number (/receipt <n>), when receipts are kept. */
   receipt?: number;
   /** Why the task's changed pages were not opened, as plain receipt lines: the dev server can't start (a missing
-   * install), or every changed page needs a value ("• /devices/[id] not opened: …"). Never a failure. */
+   * install), or every changed page needs a value ("– /devices/[id] not opened: …"). Never a failure. */
   pageNotes?: string[];
   /** How many page screenshots the AI was shown to check the look (showPages). Advice, never a check. */
   pagesShown?: number;
@@ -222,7 +222,7 @@ export const NO_CHECKS_FOUND = "no checks found";
 /** "3 commands Casper stopped before they reached it": nothing the AI says about that machine happened through them. */
 export const remoteNotRunText = (commands: number) => `${commands} ${commands === 1 ? "command" : "commands"} Casper stopped before ${commands === 1 ? "it" : "they"} reached it`;
 /** The incomplete verdict's words when Casper stopped commands to other machines ("commands to build-server did not run");
- * the receipt's "• Not run on …" lines below it give each machine's count. */
+ * the receipt's "– Not run on …" lines below it give each machine's count. */
 function remoteNotRunVerdict(remotes: NonNullable<TaskResult["remoteNotRun"]>, safe: (text: string) => string): string {
   const count = remotes.reduce((sum, remote) => sum + remote.commands, 0);
   return `${count === 1 ? "a command" : "commands"} to ${remotes.map((remote) => safe(remote.host)).join(", ")} did not run`;
@@ -267,7 +267,7 @@ export function formatTaskResult(task: TaskResult): string {
       + `${check.status !== "pass" && check.reason ? ` — ${safe(check.reason)}` : ""}`).join("; ")}.${report.smoke.reason ? ` ${safe(report.smoke.reason)}` : ""}${crashNotes(report.smoke, safe).map((note) => ` ${note}.`).join("")} Model checks are the model's expectations, run by Casper.`));
   }
   if (report?.pages) lines.push(receiptLine("pages", `${report.pages.status}: ${report.pages.pages.map((page) => `${safe(page.path)} ${page.status}${page.httpStatus !== null ? ` (${page.httpStatus})` : ""}`).join("; ") || "none opened"}${report.pages.reason ? `. ${safe(report.pages.reason)}` : ""}`));
-  else if (task.pageNotes?.length) lines.push(receiptLine("pages", task.pageNotes.map((note) => safe(note.replace(/^• /, ""))).join("; ")));
+  else if (task.pageNotes?.length) lines.push(receiptLine("pages", task.pageNotes.map((note) => safe(note.replace(/^– /, ""))).join("; ")));
   if (task.partsNotReviewed?.length) lines.push(receiptLine("not reviewed", formatNotReviewed(task.partsNotReviewed, safe)));
   if (task.pagesShown) lines.push(receiptLine("look", pagesShownText(task.pagesShown)));
   if (task.bigModel) lines.push(receiptLine("big model", `${safe(task.bigModel.model)} for ${task.bigModel.attempts} ${task.bigModel.attempts === 1 ? "repair" : "repairs"}`));
@@ -358,9 +358,9 @@ export function formatShortReceipt(task: TaskResult, options: ReceiptOptions = {
   if (!lines.length) return undo.join("\n");
   const [verdict, ...body] = lines;
   // Repairs and "no files changed" are news only beside a pass; with a problem they keep their own line.
-  const folded = (line: string) => folds.has(line) && (short !== undefined || !(line.startsWith("↻ ") || line === "• No files changed"));
+  const folded = (line: string) => folds.has(line) && (short !== undefined || !(line.startsWith("↻ ") || line === "– No files changed"));
   // Checks first, then the files, then repairs: "✓ Verified · test passed · 3 files changed · after 1 repair".
-  const rank = (line: string) => line.startsWith("↻ ") ? 2 : line.startsWith("✓ Changed ") || line === "• No files changed" ? 1 : 0;
+  const rank = (line: string) => line.startsWith("↻ ") ? 2 : line.startsWith("✓ Changed ") || line === "– No files changed" ? 1 : 0;
   const parts = body.filter(folded).sort((a, b) => rank(a) - rank(b)).map((line) => folds.get(line)!).filter(Boolean);
   // All well: one line. Otherwise the verdict says what is wrong, and what went well shares one line under it.
   // Check names stay as typed: "✓ test passed", never "Test".
@@ -385,7 +385,7 @@ function checklistLines(task: TaskResult, safe: (text: string) => string): strin
   if (!changed || checksPassed(task.verification, task)) return [];
   const why = task.execution !== "completed" || task.turnLimit !== undefined || task.spendLimit !== undefined ? "the task did not finish" : !task.verification ? "no checks ran"
     : task.verification.status === "pass" ? "the checks do not prove the change" : "the checks did not pass";
-  return [`• ${cases} ${cases === 1 ? "case" : "cases"} from your request not confirmed: ${why} (/receipt lists them)`];
+  return [`– ${cases} ${cases === 1 ? "case" : "cases"} from your request not confirmed: ${why} (/receipt lists them)`];
 }
 
 /** The receipt's lines (verdict first), its undo lines, and the short form's pieces: `folds` maps a line that
@@ -398,10 +398,10 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
   const folds = new Map<string, string>();
   const fold = (line: string, short: string) => { lines.push(line); folds.set(line, short); };
   if (task.changedPaths?.length) fold(`✓ Changed ${pathList(task.changedPaths, safe)}`, changedShort(task.changedPaths, safe));
-  else if (task.changedPaths && task.autoSkipped === "no-changes" && !task.verification) lines.push("• No files changed, so Casper ran no checks");
-  else if (task.changedPaths) fold("• No files changed", "no files changed");
-  else if (task.possibleMutations) lines.push(task.snapshotFailure ? `• Changes unknown: ${safe(task.snapshotFailure.reason)}` : "• Changes unknown — Casper could not compare the workspace");
-  if (!task.changedPaths && task.snapshotFailure?.edited.length) lines.push(`• Changed (seen by Casper's edit and write tools): ${pathList(task.snapshotFailure.edited, safe, false)}`);
+  else if (task.changedPaths && task.autoSkipped === "no-changes" && !task.verification) lines.push("– No files changed, so Casper ran no checks");
+  else if (task.changedPaths) fold("– No files changed", "no files changed");
+  else if (task.possibleMutations) lines.push(task.snapshotFailure ? `– Changes unknown: ${safe(task.snapshotFailure.reason)}` : "– Changes unknown — Casper could not compare the workspace");
+  if (!task.changedPaths && task.snapshotFailure?.edited.length) lines.push(`– Changed (seen by Casper's edit and write tools): ${pathList(task.snapshotFailure.edited, safe, false)}`);
 
   const report = task.verification;
   if (report?.repairAttempts) {
@@ -418,7 +418,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
   const recorded = new Set(report?.results.map((result) => result.name));
   for (const observed of task.observedChecks ?? []) {
     if (recorded.has(observed.name)) continue;
-    lines.push(`• Not verified — ${observed.name} ran via bash only (${safe(observed.command)}: ${observed.toolStatus === "success" ? "passed" : "failed"}). Run ${slash(`/verify ${observed.name}`)} to record a check.`);
+    lines.push(`– Not verified — ${observed.name} ran via bash only (${safe(observed.command)}: ${observed.toolStatus === "success" ? "passed" : "failed"}). Run ${slash(`/verify ${observed.name}`)} to record a check.`);
   }
 
   // A strong proof is what "Verified" says; a weak one keeps its line.
@@ -435,42 +435,42 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
   if (task.review) {
     const line = reviewLine(task.review, safe);
     const asCases = Boolean(task.checklist?.length && !task.review.incomplete && "open" in task.review && task.review.open.length);
-    if (line.startsWith("• The model's review: all ") || asCases) fold(line, ""); else lines.push(line);
+    if (line.startsWith("– The model's review: all ") || asCases) fold(line, ""); else lines.push(line);
   }
-  if (task.changedDuringChecks?.length) lines.push(`• Changed while checking: ${pathList(task.changedDuringChecks, safe, false)}`);
-  if (task.changedWhilePlanning?.length) lines.push(`• Changed while planning: ${pathList(task.changedWhilePlanning, safe, false)}`);
+  if (task.changedDuringChecks?.length) lines.push(`– Changed while checking: ${pathList(task.changedDuringChecks, safe, false)}`);
+  if (task.changedWhilePlanning?.length) lines.push(`– Changed while planning: ${pathList(task.changedWhilePlanning, safe, false)}`);
 
   const changed = Boolean(task.changedPaths?.length || (!task.changedPaths && task.possibleMutations));
   if (!report && !task.observedChecks?.length && task.execution === "completed") {
-    if (task.autoSkipped === "no-checks") lines.push(options.checksHintShown ? "• Not verified — no checks set up" : NO_CHECKS_LINE);
-    else if (task.autoSkipped === "docs-only") lines.push(`• Checks skipped — only documentation changed${task.changedPaths?.length ? ` (${pathList(task.changedPaths, safe, false)})` : ""}; ${slash("/verify")} runs them anyway.`);
-    else if (task.autoSkipped === "not-covered") lines.push("• Not verified — no configured check covers the changed files.");
+    if (task.autoSkipped === "no-checks") lines.push(options.checksHintShown ? "– Not verified — no checks set up" : NO_CHECKS_LINE);
+    else if (task.autoSkipped === "docs-only") lines.push(`– Checks skipped — only documentation changed${task.changedPaths?.length ? ` (${pathList(task.changedPaths, safe, false)})` : ""}; ${slash("/verify")} runs them anyway.`);
+    else if (task.autoSkipped === "not-covered") lines.push("– Not verified — no configured check covers the changed files.");
     else if (changed && task.verificationMode === "off") {
-      lines.push(`• Not verified — checks are off for this run. ${options.surface === "one-shot" ? "Run casper --verify to have Casper check." : "Run /verify to check these changes."}`);
-    } else if (changed && task.verificationMode === "offer") lines.push(`• Not verified — run ${slash("/verify")} to check these changes.`);
+      lines.push(`– Not verified — checks are off for this run. ${options.surface === "one-shot" ? "Run casper --verify to have Casper check." : "Run /verify to check these changes."}`);
+    } else if (changed && task.verificationMode === "offer") lines.push(`– Not verified — run ${slash("/verify")} to check these changes.`);
   }
 
   if (report?.smoke) lines.push(smokeLine(report.smoke, task.services, safe));
-  else if (report?.smokeSkipped) lines.push(`• Smoke not run: ${report.smokeSkipped}`);
+  else if (report?.smokeSkipped) lines.push(`– Smoke not run: ${report.smokeSkipped}`);
   // Page text is already scrubbed and cut short by the page check.
   if (report?.pages) lines.push(...formatPageReport(report.pages).flatMap((line) => line.split("\n")).map(safe));
-  else if (report?.pagesSkipped) lines.push(`• Pages not checked: ${report.pagesSkipped}`);
+  else if (report?.pagesSkipped) lines.push(`– Pages not checked: ${report.pagesSkipped}`);
   for (const note of task.pageNotes ?? []) lines.push(safe(note));
-  if (task.pagesShown) lines.push(`• ${pagesShownText(task.pagesShown)}`);
-  if (task.partsNotReviewed?.length) lines.push(`• Not reviewed: ${formatNotReviewed(task.partsNotReviewed, safe)}`);
-  if (task.security) lines.push(`• Security tools: ${securityText(task.security)} (what the tools found; not proof the code has no problems)`);
+  if (task.pagesShown) lines.push(`– ${pagesShownText(task.pagesShown)}`);
+  if (task.partsNotReviewed?.length) lines.push(`– Not reviewed: ${formatNotReviewed(task.partsNotReviewed, safe)}`);
+  if (task.security) lines.push(`– Security tools: ${securityText(task.security)} (what the tools found; not proof the code has no problems)`);
   for (const remote of task.remoteChanges ?? []) lines.push(remote.changes.length
-    ? `• Changed on ${safe(remote.host)} (from the commands Casper saw): ${remote.changes.map(safe).join("; ")}`
-    : `• Ran commands on ${safe(remote.host)} over ssh; ${REMOTE_UNKNOWN}`);
-  for (const remote of task.remoteNotRun ?? []) lines.push(`• Not run on ${safe(remote.host)}: ${remoteNotRunText(remote.commands)}`);
-  if (task.secretInCommand) lines.push(`• ${SECRET_IN_COMMAND}`);
+    ? `– Changed on ${safe(remote.host)} (from the commands Casper saw): ${remote.changes.map(safe).join("; ")}`
+    : `– Ran commands on ${safe(remote.host)} over ssh; ${REMOTE_UNKNOWN}`);
+  for (const remote of task.remoteNotRun ?? []) lines.push(`– Not run on ${safe(remote.host)}: ${remoteNotRunText(remote.commands)}`);
+  if (task.secretInCommand) lines.push(`– ${SECRET_IN_COMMAND}`);
   // Only the exception is said: a task whose shell commands and checks ran with your own permissions.
-  if (task.sandbox && !task.sandbox.held) lines.push(`• Shell commands and checks were not sandboxed (${safe(task.sandbox.reason)})`);
-  else if (task.sandbox && labRan(report)) lines.push(`• Lab checks ran outside the sandbox (${LAB_OUTSIDE_WHY})`);
-  for (const folder of task.outsideWrites ?? []) lines.push(`• Wrote outside the project: ${safe(folder)} (you allowed it; no undo copy)`);
-  for (const folder of task.outsideAllowed ?? []) lines.push(`• Allowed writes outside the project: ${safe(folder)} (no undo copy)`);
-  for (const risky of task.riskyLines ?? []) lines.push(`• Risky config lines (not a check): ${safe(risky.file)}:${risky.line} ${safe(risky.text)} — ${risky.reason}`);
-  if (task.riskyMore) lines.push(`• Risky config lines (not a check): and ${task.riskyMore} more`);
+  if (task.sandbox && !task.sandbox.held) lines.push(`– Shell commands and checks were not sandboxed (${safe(task.sandbox.reason)})`);
+  else if (task.sandbox && labRan(report)) lines.push(`– Lab checks ran outside the sandbox (${LAB_OUTSIDE_WHY})`);
+  for (const folder of task.outsideWrites ?? []) lines.push(`– Wrote outside the project: ${safe(folder)} (you allowed it; no undo copy)`);
+  for (const folder of task.outsideAllowed ?? []) lines.push(`– Allowed writes outside the project: ${safe(folder)} (no undo copy)`);
+  for (const risky of task.riskyLines ?? []) lines.push(`– Risky config lines (not a check): ${safe(risky.file)}:${risky.line} ${safe(risky.text)} — ${risky.reason}`);
+  if (task.riskyMore) lines.push(`– Risky config lines (not a check): and ${task.riskyMore} more`);
   if (task.browser) {
     const failed = task.browser.checks.filter((check) => check.status === "fail").map((check) => safe(check.name));
     // The answer may say the checks passed; the receipt is Casper's record, so it says where they differ.
@@ -481,8 +481,8 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
       // Incomplete: count what passed, and name what did not finish (a check that went stale or never ran).
       const passed = task.browser.checks.filter((check) => check.status === "pass").length;
       const open = task.browser.checks.filter((check) => check.status !== "pass").map((check) => safe(check.name));
-      if (passed) lines.push(`• Browser checks: ${passed} of ${task.browser.checks.length} passed; not finished: ${open.join(", ")}`);
-      else lines.push(claimed ? `• Browser checks did not finish${claimed}; Casper saw no passing browser check` : "• Browser checks incomplete");
+      if (passed) lines.push(`– Browser checks: ${passed} of ${task.browser.checks.length} passed; not finished: ${open.join(", ")}`);
+      else lines.push(claimed ? `– Browser checks did not finish${claimed}; Casper saw no passing browser check` : "– Browser checks incomplete");
     }
   }
   const verdict = withVerdict(task, lines, options);
@@ -495,10 +495,13 @@ function changedShort(paths: string[], safe: (text: string) => string): string {
 }
 
 /** The full no-checks line, shown once per session; later receipts say it short. */
-export const NO_CHECKS_LINE = '• Not checked — no tests yet. Say "add tests".';
+export const NO_CHECKS_LINE = '– Not checked — no tests yet. Say "add tests".';
 
 /** The undo reason when a task changed nothing: nothing to say on the receipt. */
 export const UNDO_NOTHING_CHANGED = "no files changed";
+
+/** The undo reason in a folder too big to list: the "Changes unknown: not a project folder" line already says it. */
+export const UNDO_NOT_PROJECT = "not a project folder";
 
 /** The files undo can't put back that a receipt names: ones not named before, up to the limit. */
 export function undoPathsShown(task: Pick<TaskResult, "undo">, undoNamed?: ReadonlySet<string>): string[] {
@@ -511,10 +514,11 @@ export function undoPathsShown(task: Pick<TaskResult, "undo">, undoNamed?: Reado
 function undoLines(task: TaskResult, options: ReceiptOptions, safe: (text: string) => string): string[] {
   const undo = task.undo;
   if (!undo) return [];
-  if (!undo.available) return undo.reason === UNDO_NOTHING_CHANGED ? [] : [`• Undo not available: ${safe(undo.reason).replace(/\.$/, "")}`];
+  // A folder that is not a project is said once, on the "Changes unknown" line.
+  if (!undo.available) return undo.reason === UNDO_NOTHING_CHANGED || undo.reason === UNDO_NOT_PROJECT ? [] : [`– Undo not available: ${safe(undo.reason).replace(/\.$/, "")}`];
   const lines: string[] = [];
   const left = undo.left?.filter((entry) => !options.undoNamed?.has(entry.path)) ?? [];
-  if (left.length) lines.push(`• Undo can't put back: ${left.slice(0, RECEIPT_PATH_LIMIT).map((entry) => `${safe(entry.path)} (${safe(entry.why)})`).join(", ")}${left.length > RECEIPT_PATH_LIMIT ? ` … +${left.length - RECEIPT_PATH_LIMIT} more` : ""}`);
+  if (left.length) lines.push(`– Undo can't put back: ${left.slice(0, RECEIPT_PATH_LIMIT).map((entry) => `${safe(entry.path)} (${safe(entry.why)})`).join(", ")}${left.length > RECEIPT_PATH_LIMIT ? ` … +${left.length - RECEIPT_PATH_LIMIT} more` : ""}`);
   if (options.surface === "one-shot") {
     const cd = options.folder ? `--cd ${shellFolder(safe(options.folder))} ` : "";
     const n = task.receipt ? ` ${task.receipt}` : "";
@@ -538,7 +542,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
   };
   const report = task.verification;
   // The verdict lines for checks that passed are the same whatever the outcome calls them: "✓ Verified" only with
-  // proof, "✓ Checks passed" with nothing changed, "• Checks passed — not proven" otherwise.
+  // proof, "✓ Checks passed" with nothing changed, "– Checks passed — not proven" otherwise.
   const outcome = report?.status === "pass" && checksPassed(report, task) && !["cancelled", "failed", "incomplete"].includes(taskOutcome(report, task))
     ? "passed" : taskOutcome(report, task);
   const changed = Boolean(task.changedPaths?.length || task.changedDuringChecks?.length || (!task.changedPaths && task.possibleMutations));
@@ -553,7 +557,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
       if (task.execution === "failed") {
         // Casper checked the edits the model left: say how they fared, then what to do next.
         const checked = !report?.results.length ? "" : failedChecks.length ? `; on those changes ${failedChecks.join(", ")}` : "; the checks pass on those changes";
-        const next = `• Next: ${modelErrorNext(task.modelError, options.surface === "one-shot")
+        const next = `– Next: ${modelErrorNext(task.modelError, options.surface === "one-shot")
           ?? (options.surface === "one-shot" ? "casper --model <provider/id> \"…\" to try another model" : "/model to try another model, then ask again")}`;
         const verdict = task.changedPaths?.length === 0 && !task.possibleMutations
           ? "✗ Failed — the model run failed before changing any files" : `✗ Failed — the model run failed; changes already made are kept${checked}`;
@@ -561,7 +565,16 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
       }
       // Only unfinished checks: the change was not tested, which is not the same as the code being wrong.
       else if (failedChecks.length && report!.results.every((result) => result.status !== "fail" || result.kind === "report" || result.ended)) {
-        lines = [`✗ Not checked — ${failedChecks.join(", ")}, so the change was not tested`, ...body];
+        // A timeout is said once here, with its limit and how to run it again; its own check line is left out.
+        const failing = report!.results.filter((result) => result.status === "fail" && result.kind !== "report");
+        const timedOut = failing.filter((result) => result.ended === "timeout");
+        const what = failing.map((result, index) => {
+          const limit = result.ended === "timeout" ? /^Timed out after (\d+)ms$/.exec(result.reason ?? "") : null;
+          return limit ? `${result.name} timed out after ${duration(Number(limit[1]))}` : failedChecks[index]!;
+        });
+        const again = timedOut.length ? `; ${timedOut.map((result) => options.surface === "one-shot" ? `casper "/verify ${result.name}"` : `/verify ${result.name}`).join(", ")} runs it again` : "";
+        lines = [`✗ Not checked — ${what.join(", ")}, so the change was not tested${again}`,
+          ...body.filter((line) => !timedOut.some((result) => line.startsWith(`✗ ${result.name} timed out`)))];
       } else if (failedChecks.length) lines = [`✗ Failed — ${failedChecks.join(", ")}`, ...body];
       else if (report?.pages?.status === "fail") lines = [`✗ Failed — ${safe(pageFailureSummary(report.pages) ?? "a page failed")}`, ...body];
       else if (report?.status === "blocked") lines = [`✗ Failed — checks stopped${report.reason ? `: ${safe(report.reason).replace(/\.$/, "").toLowerCase()}` : ""}`, ...body];
@@ -569,13 +582,13 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
       break;
     case "incomplete":
       lines = [task.spendLimit !== undefined
-        ? `• Incomplete — stopped at ${formatCost(task.spendLimit.spent)}, the ${formatLimit(task.spendLimit.limit)} limit for one task (spend.pauseAt); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
+        ? `– Incomplete — stopped at ${formatCost(task.spendLimit.spent)}, the ${formatLimit(task.spendLimit.limit)} limit for one task (spend.pauseAt); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
         : task.turnLimit !== undefined
-        ? `• Incomplete — stopped after ${task.turnLimit} ${task.turnLimit === 1 ? "turn" : "turns"} (--max-turns); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
-        : task.remoteNotRun?.length ? `• Incomplete — ${remoteNotRunVerdict(task.remoteNotRun, safe)}`
-        : task.wroteToolCallAsText ? "• Did not act — the model wrote a tool call as text instead of using it"
+        ? `– Incomplete — stopped after ${task.turnLimit} ${task.turnLimit === 1 ? "turn" : "turns"} (--max-turns); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
+        : task.remoteNotRun?.length ? `– Incomplete — ${remoteNotRunVerdict(task.remoteNotRun, safe)}`
+        : task.wroteToolCallAsText ? "– Did not act — the model wrote a tool call as text instead of using it"
         : report?.reason === NO_CHECKS_FOUND && !report.results.length ? NO_CHECKS_LINE
-        : "• Incomplete — not every check ran", ...body];
+        : "– Incomplete — not every check ran", ...body];
       break;
     case "verified":
     case "passed": {
@@ -588,14 +601,14 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
       } else if (!changed) { lines = [task.changedPaths ? "✓ Checks passed — no files changed" : "✓ Checks passed", ...body]; short = "✓ Checks passed"; }
       else {
         const why = proof?.status === "unavailable" ? proof.reason : task.proofSkipped ?? "Casper did not compare the tests with and without the change";
-        lines = [`• Checks passed — not proven: ${safe(why).replace(/\.$/, "")}`, ...body];
+        lines = [`– Checks passed — not proven: ${safe(why).replace(/\.$/, "")}`, ...body];
       }
       break;
     }
     case "not_verified":
-      lines = body.includes(NO_CHECKS_LINE) ? promote(NO_CHECKS_LINE, NO_CHECKS_LINE) : promote("• Not verified", `• Not verified — ${notVerifiedReason(task)}`); break;
+      lines = body.includes(NO_CHECKS_LINE) ? promote(NO_CHECKS_LINE, NO_CHECKS_LINE) : promote("– Not verified", `– Not verified — ${notVerifiedReason(task)}`); break;
     case "unchanged":
-      lines = body.length ? promote("• No files changed", "• No files changed") : body; break;
+      lines = body.length ? promote("– No files changed", "– No files changed") : body; break;
   }
   return { lines, ...(short ? { short } : {}) };
 }
@@ -634,7 +647,7 @@ function smokeLine(smoke: SmokeReport, services: TaskResult["services"], safe: (
     ? `${safe(check.name)} ${verb(check)} when recorded, after edits — an observation, not proof`
     : check.baseline === "pass" ? `${safe(check.name)} passed before the change too — an observation, not proof`
     : `${safe(check.name)} ${verb(check)} before the change`);
-  const mark = smoke.status === "fail" ? "✗" : smoke.status === "pass" && smoke.checks.some((check) => check.evidence) ? "✓" : "•";
+  const mark = smoke.status === "fail" ? "✗" : smoke.status === "pass" && smoke.checks.some((check) => check.evidence) ? "✓" : "–";
   return `${mark} ${names.length === 1 ? "Service" : "Services"} ${where}; smoke ${passed}/${smoke.checks.length} passed`
     + `${failed ? `; failed: ${failed}` : ""}${incomplete ? `; incomplete: ${incomplete}` : ""}${smoke.reason ? `; ${safe(smoke.reason).replace(/\.$/, "")}` : ""}${crashNotes(smoke, safe).map((note) => `; ${note}`).join("")}${model.length ? ` (model-declared, run by Casper: ${model.join("; ")})` : ""}`;
 }
@@ -643,9 +656,9 @@ function reviewLine(review: RequirementsReview, safe: (text: string) => string):
   const open = "open" in review && review.open.length ? `⚠ The model's review says not done: ${review.open.map(safe).join("; ")}` : "";
   // A review cut off by its own budget claims nothing complete; admitted gaps still stand.
   if (review.incomplete) {
-    return [`• The model's review stopped at its ${ROUND_MAX_TURNS}-turn budget (its own claim so far, not checked by Casper)`, open].filter(Boolean).join("\n");
+    return [`– The model's review stopped at its ${ROUND_MAX_TURNS}-turn budget (its own claim so far, not checked by Casper)`, open].filter(Boolean).join("\n");
   }
-  if ("missing" in review) return "• The model's review returned no checklist";
+  if ("missing" in review) return "– The model's review returned no checklist";
   if (open) return open;
   // The delta answer: fixed holds only the gaps the review added tests or fixes for. A count short of
   // its total is not "all covered", even with no open line listed (the open lines still decide the outcome).
@@ -653,9 +666,9 @@ function reviewLine(review: RequirementsReview, safe: (text: string) => string):
     const fixed = review.fixed.length ? `${review.fixed.length} ${review.fixed.length === 1 ? "gap" : "gaps"} fixed` : "no gaps found";
     const count = review.total === undefined ? "all requirements" : review.covered !== undefined && review.covered < review.total
       ? `${review.covered} of ${review.total} requirements` : `all ${review.total} requirements`;
-    return `• The model's review: ${count} covered (${fixed}; its own claim, not checked by Casper)`;
+    return `– The model's review: ${count} covered (${fixed}; its own claim, not checked by Casper)`;
   }
-  return `• The model's review: all ${review.done.length} requirements covered (its own claim, not checked by Casper)`;
+  return `– The model's review: all ${review.done.length} requirements covered (its own claim, not checked by Casper)`;
 }
 
 function acceptanceLine(acceptance: NonNullable<TaskResult["acceptance"]>, safe: (text: string) => string): string {
@@ -665,7 +678,7 @@ function acceptanceLine(acceptance: NonNullable<TaskResult["acceptance"]>, safe:
     return names ? `⚠ Not confirmed by tests written from the request: ${names}` : "⚠ Independent acceptance: tests written from the request alone fail";
   }
   if (acceptance.status === "fail") return `✗ Independent acceptance: tests written from the request alone fail${names ? `: ${names}` : ""}`;
-  return `• Independent acceptance not run: ${safe(acceptance.reason ?? "unknown reason")}`;
+  return `– Independent acceptance not run: ${safe(acceptance.reason ?? "unknown reason")}`;
 }
 
 /** The error that kept the tests from loading without the change (an import of what the change adds). */
@@ -692,20 +705,20 @@ function proofLine(proof: ChangeProof, safe: (text: string) => string): string {
   if (proof.status === "unproven") {
     return `⚠ Not proven: ${proof.check} passes without this change too${proof.testsChanged ? "; the changed tests do not check it" : ", and no test was added or changed"}`;
   }
-  return `• Not proven — ${safe(proof.reason).replace(/\.$/, "")}`;
+  return `– Not proven — ${safe(proof.reason).replace(/\.$/, "")}`;
 }
 
 function checkLine(result: VerificationResult, safe: (text: string) => string, slash: (command: string) => string, repaired = false): string {
   const name = result.name;
   // A report is shown for reading: never a pass, a fail or a reason the change is not verified.
-  if (result.kind === "report") return `• ${name}  ${reportText(result)} (a diff, not a pass/fail check)`;
+  if (result.kind === "report") return `– ${name}  ${reportText(result)} (a diff, not a pass/fail check)`;
   // A named check that could not run (a missing tool, a lab check) says why in its own words.
-  if (result.status === "skip" && !isBuiltinCheck(name)) return `• Not verified — ${name} not run: ${safe(result.reason ?? "skipped").replace(/\.$/, "")}`;
+  if (result.status === "skip" && !isBuiltinCheck(name)) return `– Not verified — ${name} not run: ${safe(result.reason ?? "skipped").replace(/\.$/, "")}`;
   if (result.status === "skip") {
-    return result.command ? `• Not verified — ${name} was skipped.` : `• Not verified — ${name} has no command here. Say ${name === "test" ? '"add tests"' : `"set up ${name}"`}.`;
+    return result.command ? `– Not verified — ${name} was skipped.` : `– Not verified — ${name} has no command here. Say ${name === "test" ? '"add tests"' : `"set up ${name}"`}.`;
   }
   if (result.status === "pass") {
-    if (result.freshness === "stale") return `• Not verified — stale: files changed after the last passing ${name}. Run ${slash(`/verify ${name}`)}.`;
+    if (result.freshness === "stale") return `– Not verified — stale: files changed after the last passing ${name}. Run ${slash(`/verify ${name}`)}.`;
     // A reused pass did not run again: the time shown is the earlier run's, so the receipt says so.
     const how = [result.label ? safe(result.label) : "", result.command ? safe(result.command) : ""].filter(Boolean).join(" · ");
     const took = elapsed(result.durationMs);
@@ -744,7 +757,7 @@ const elapsed = (ms: number) => ms < 1000 ? "" : formatDuration(ms);
 /** The line shown the moment a check Casper runs finishes, before the receipt: "✓ typecheck · 5.9s". */
 export function liveCheckLine(result: VerificationResult): string {
   const name = result.name;
-  if (result.kind === "report") return `• ${name} · ${reportText(result)} (a diff, not a pass/fail check)`;
+  if (result.kind === "report") return `– ${name} · ${reportText(result)} (a diff, not a pass/fail check)`;
   if (result.status === "skip" && !isBuiltinCheck(name)) return `– ${name} · not run${result.reason ? `: ${lineText(result.reason)}` : ""}`;
   if (result.status === "skip") return `– ${name} · skipped${result.command ? "" : ", no command"}`;
   // A lab check's own label ("dry run not guaranteed") stays beside its result.

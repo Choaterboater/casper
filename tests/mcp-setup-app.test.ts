@@ -85,8 +85,10 @@ test("after /mcp connect, 1 remembers nothing; 2 remembers it, and the next sess
   const { home, project } = await fixture({ casper: { mcpServers: { lab: entry({ FIXTURE_MODE: "access-bad" }) } } });
   const consentFile = path.join(home, ".casper/mcp-consent.json");
   const declined = await session(home, project, ["/mcp connect lab"], ["1"]);
-  expect(declined.output).toContain("Next time it connects on its own, with writes off. Every change still asks you.\nRemember lab?\n  1 No\n  2 Yes\n");
-  expect(declined.output).toContain("[mcp] Not remembered. lab is connected for this session only.");
+  expect(declined.output).toContain("Remember lab?\n  1 No · connected for this session only\n  2 Yes · it connects on its own next time, with writes off; every change still asks you\n");
+  // The box's one-line record is the whole outcome of a No.
+  expect(declined.output).toContain("Remember lab? → No\n");
+  expect(declined.output).not.toContain("Not remembered");
   expect(await Bun.file(consentFile).exists()).toBe(false);
   const remembered = await session(home, project, ["/mcp connect lab"], ["2"]);
   expect(remembered.output).toContain("[mcp] Remembered lab. It connects on its own next time, with writes off. /mcp forget lab undoes this.");
@@ -123,7 +125,7 @@ test("writes on takes /mcp writes and then 2; 1 changes nothing; 2 drops the pin
     "/mcp connect aruba-central", "/mcp writes aruba-central", "read env", "/mcp writes aruba-central", "read env", "/mcp writes off", "read env",
   ], ["1", "1", "2"], readEnv);
   expect(output).toContain("Central writes are off.\n  1 Keep writes off\n  2 Enable for this server\nType 1 or 2: ");
-  expect(output).toContain("[mcp] Writes stay off for aruba-central.");
+  expect(output).toContain("Central writes are off. → Keep writes off\n");
   expect(output).toContain("[mcp] Writes on for aruba-central. Each change still asks you. /mcp writes off turns writes off.");
   expect(output).toContain("[mcp] Writes off for aruba-central. Every change asks you again.");
   const readOnly = envSeen.map((text) => (JSON.parse(text) as { data: { content: { data: { env: Record<string, string> } }[] } }).data.content[0]!.data.env.CENTRALMCP_READONLY);
@@ -149,7 +151,7 @@ test("the model's ask tool can't turn writes on or approve a change: the change 
   expect(app.mcp!.writesOn()).toEqual([]);
   // Whatever the AI's own question said, the change went to the user's box, and their 1 (No) kept it from running.
   expect(output).toContain("Change in lab: set config");
-  expect(output).toContain("[approval] denied");
+  expect(output).toContain("Make this change? → No\n");
   expect(asked).toContain("Not executed (you said no)");
   expect(output).not.toContain("[mcp] Writes on");
 });
@@ -238,13 +240,13 @@ test("a Junos show command offers 3 Yes, show commands on <server> for this sess
   });
   const box = output.indexOf("Change in");
   expect(output.slice(box)).toContain("  1 No\n  2 Yes, this once\n  3 Yes, show commands on junos for this session\n");
-  expect(output).toContain("[approval] allowed show commands on junos for this session");
+  expect(output).toContain("Make this change? → Yes, show commands on junos for this session\n");
   // The second show ran with no box; the change asked (and 1 said no).
-  expect(output.split("Make this change?").length - 1).toBe(2);
+  expect(output.split("Make this change?\n").length - 1).toBe(2);
   expect(results[1]).not.toContain("Not executed");
   expect(results[2]).toContain("you said no");
   // A change box never offers it.
-  expect(output.slice(output.lastIndexOf("Make this change?"))).not.toContain("show commands on junos");
+  expect(output.slice(output.lastIndexOf("Make this change?\n"))).not.toContain("show commands on junos");
 });
 
 // --- /mcp sandbox <server> on|off ----------------------------------------------------------------
@@ -297,7 +299,7 @@ test("/mcp is one line per server plus a Details line; connect prints one result
   expect(cold.output).not.toContain("Heads up");
   expect(cold.output).not.toContain("source:");
   const run = await session(home, project, ["/mcp connect lab", "/mcp"], ["1"]);
-  expect(run.output).toMatch(/> \[mcp\] lab connected · \d+ tools · writes off\nNext time it connects/);
+  expect(run.output).toMatch(/> \[mcp\] lab connected · \d+ tools · writes off\nRemember lab\?/);
   expect(run.output.split("[mcp] lab connected").length - 1).toBe(1);
   const lines = lastPrinted(run.output).trimEnd().split("\n").filter((line) => !line.startsWith("network:"));
   expect(lines).toHaveLength(4);
@@ -317,17 +319,23 @@ test("a warning line names servers with writes on", async () => {
   expect(lastPrinted(output)).toContain("Heads up: writes are on for lab;");
 });
 
-function rich(app: CasperApp, picks: (string | undefined)[], asked: { question: string; labels: string[] }[]) {
+function rich(app: CasperApp, picks: (string | undefined)[], asked: { question: string; labels: string[] }[], rows: string[] = []) {
   Object.defineProperty(app.terminal, "rich", { get: () => true });
   Object.defineProperty(app.terminal, "canAsk", { get: () => true });
-  app.terminal.pick = async (question, options) => { asked.push({ question, labels: options.map((option) => option.label) }); return picks.shift(); };
+  app.terminal.pick = async (question, options) => {
+    asked.push({ question, labels: options.map((option) => option.label) });
+    rows.push(...options.map((option) => `${option.label}  ${option.description ?? ""}`.trimEnd()));
+    return picks.shift();
+  };
 }
 
-test("rich terminal: /mcp prints the list without command hints and opens the picker; Esc changes nothing", async () => {
+test("rich terminal: /mcp opens the picker with no list before it; each row says where the server came from; Esc changes nothing", async () => {
   const { home, project } = await fixture({ claude: { mcpServers: { lab: entry({ FIXTURE_MODE: "access-bad" }) } } });
   const asked: { question: string; labels: string[] }[] = [];
-  const { output, app } = await session(home, project, ["/mcp"], [], undefined, (a) => rich(a, [undefined], asked));
-  expect(output).toContain("lab  not connected · from ~/.claude.json\n");
+  const rows: string[] = [];
+  const { output, app } = await session(home, project, ["/mcp"], [], undefined, (a) => rich(a, [undefined], asked, rows));
+  expect(output).not.toContain("lab  not connected");
+  expect(rows).toEqual(["lab  not connected · from ~/.claude.json", "Done"]);
   expect(output).not.toContain("/mcp connect lab");
   expect(output).not.toContain("Details: /mcp detail");
   expect(asked).toEqual([{ question: "Pick a server", labels: ["lab", "Done"] }]);
@@ -337,13 +345,13 @@ test("rich terminal: /mcp prints the list without command hints and opens the pi
 test("rich terminal: Connect runs the same path as /mcp connect, then returns to the servers; Details prints the full block; Forget uses /mcp forget", async () => {
   const { home, project } = await fixture({ casper: { mcpServers: { lab: entry({ FIXTURE_MODE: "access-bad" }) } } });
   const asked: { question: string; labels: string[] }[] = [];
-  const { output, app } = await session(home, project, ["/mcp"], [], undefined,
-    (a) => rich(a, ["lab", "Connect", "Yes", "lab", "Details", "lab", "Forget", "Done"], asked));
+  const { output, app } = await session(home, project, ["/mcp"], ["2"], undefined,
+    (a) => rich(a, ["lab", "Connect", "lab", "Details", "lab", "Forget", "Done"], asked));
   expect(asked[1]).toEqual({ question: "lab", labels: ["Details", "Connect", "Back"] });
   expect(output).toMatch(/\[mcp\] lab connected · \d+ tools · writes off/);
-  // Connecting asks the same remember box as the typed command (2 remembers).
-  expect(asked[2]!.question).toBe("Remember lab?");
-  expect(asked[4]).toEqual({ question: "lab", labels: ["Details", "Reconnect", "Disconnect", "Forget", "Writes on", "Back"] });
+  // Connecting asks the same remember box as the typed command (2 remembers), and its record is its outcome.
+  expect(output).toContain("Remember lab? → Yes\n");
+  expect(asked[3]).toEqual({ question: "lab", labels: ["Details", "Reconnect", "Disconnect", "Forget", "Writes on", "Back"] });
   expect(output).toContain("lab [stdio; ready]");
   expect(output).toContain("[mcp] Forgot lab. Casper asks again before it connects next time.");
   expect(asked.filter((entry) => entry.question === "Pick a server")).toHaveLength(4);

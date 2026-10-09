@@ -1,13 +1,13 @@
 # Casper 0.2.27 · ✓ Verified: the tests fail without the change and pass with it; /receipt has the detail
 
 ❯ fix the sum bug in src/sum.js
-[model] scripted/site-capture · off · credentials configured
+[model] scripted/site-capture · effort off
 ✓ 2 edits
   changed src/sum.js, tests/sum.test.js
 Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
-… Casper checking: test
+• Casper checking: test
 ✓ test
-… Casper checking that the tests fail without the change
+• Casper checking that the tests fail without the change
 ▌ ✓ Verified · test passed · changed src/sum.js, tests/sum.test.js
 Next: 1 Show diff · 2 Undo
 

@@ -85,7 +85,8 @@ test("two of the AI's shell commands that need your OK at once are both asked, o
     input.write("2\n");
     // Both ran on your Yes, this once; neither was refused in your name.
     expect(await results).toEqual([undefined, undefined]);
-    expect(screen.match(/Run this command\?/g)).toHaveLength(2);
+    // Two boxes, each closed into its one-line record.
+    expect(screen.match(/Run this command\?[^\n]* → Yes, this once\n/g)).toHaveLength(2);
   } finally {
     terminal.close();
     input.destroy();

@@ -61,7 +61,7 @@ too, and "Stop here" stops them, each copy kept.
 
 **Not reviewed.** A part counts as reviewed only when its reviewer finished. If a
 reviewer timed out, failed or was cut off, or none was started, the receipt says
-so in one line: `• Not reviewed: part 2 (a.ts, b.ts; the reviewer timed out)`.
+so in one line: `– Not reviewed: part 2 (a.ts, b.ts; the reviewer timed out)`.
 `/crew` lists those parts too. It is a note, not a failure: nothing is undone,
 no check changes, and nothing waits on you.
 

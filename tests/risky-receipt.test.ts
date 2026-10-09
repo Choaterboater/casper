@@ -28,7 +28,7 @@ test("dangerous lines in the config files a task changed are listed with their r
 test("the receipt shows them as a report line, never a pass or a fail", () => {
   const task = { riskyLines: [{ file: "configs/sw1.cfg", line: 6, text: "reload", reason: "reboots the switch" }] } as unknown as TaskResult;
   expect(formatTaskResult(task)).toContain("configs/sw1.cfg:6 reload (reboots the switch)");
-  expect(formatReceipt(task)).toContain("• Risky config lines (not a check): configs/sw1.cfg:6 reload — reboots the switch");
+  expect(formatReceipt(task)).toContain("– Risky config lines (not a check): configs/sw1.cfg:6 reload — reboots the switch");
 });
 
 test("review: only risky lines the task added are listed; comments never count; more than 20 says how many more", async () => {

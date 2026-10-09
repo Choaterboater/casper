@@ -73,7 +73,7 @@ test.skipIf(!python)("work that lands in a project inside the folder runs that p
   const app = new CasperApp({ ...options(home, runtime), output: { write: (text: string) => { output += text; } } });
   try {
     await app.runOnce("build a mist tool that counts sites, with tests", docs);
-    expect(output).toContain("… Casper checking: test (checks from sample-tools)");
+    expect(output).toContain("• Casper checking: test (checks from sample-tools)");
     expect(output).toMatch(/✓ test passed \(checks from sample-tools · python3? -m unittest discover -s tests|✓ test passed \(checks from sample-tools · .*-m unittest discover -s tests/);
     expect(output).not.toContain("Not verified");
     // One-shot can't ask: it says the command to use.
@@ -137,7 +137,7 @@ test.skipIf(!python)("Enter at \"The work is in ...\" stays in the folder and ke
     await harness.until((text) => Bun.stripANSI(text).includes("The work is in ~/Documents/sample-tools."));
     harness.input.write("\r");
     await harness.until((text) => /\bidle\b/.test(Bun.stripANSI(text).split("The work is in").at(-1) ?? ""));
-    expect(harness.output()).toContain("✓ Stay here");
+    expect(Bun.stripANSI(harness.output())).toContain("The work is in ~/Documents/sample-tools. → Stay here");
     expect(harness.output()).not.toContain("[folder] Working in");
     expect(disposed()).toBe(0);
     expect(starts).toEqual([docs]);

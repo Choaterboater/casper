@@ -27,13 +27,13 @@ test("page checks get a line each, and a failing page is the receipt's verdict",
   expect(text).toContain("✗ /dashboard · 2 console errors: Error: api_key=abc123secret rejected");
   expect(taskOutcome(undefined, failed)).toBe("failed");
   const skipped: TaskResult = { execution: "completed", changedPaths: ["a"], verification: report({ status: "fail", results: [check({ status: "fail", exitCode: 1 })], pagesSkipped: "command checks failed" }) };
-  expect(formatReceipt(skipped)).toContain("• Pages not checked: command checks failed");
+  expect(formatReceipt(skipped)).toContain("– Pages not checked: command checks failed");
 });
 
 test("security tools show as counts only", () => {
   const task: TaskResult = { execution: "completed", changedPaths: [], verification: report(),
     security: { problems: 2, notes: 0, notRun: 1, tools: [{ id: "gitleaks", status: "problems" }, { id: "semgrep", status: "not-run" }] } };
-  expect(formatReceipt(task)).toContain("• Security tools: 2 problems, 1 check not run (what the tools found; not proof the code has no problems)");
+  expect(formatReceipt(task)).toContain("– Security tools: 2 problems, 1 check not run (what the tools found; not proof the code has no problems)");
   expect(receiptEvent(undefined, task, 0).security).toEqual(task.security!);
 });
 
@@ -42,7 +42,7 @@ test("checksPassed keeps the pass test; the outcome is verified only with a prov
   expect(checksPassed(undefined, passed)).toBe(true);
   expect(taskOutcome(undefined, passed)).toBe("not_verified");
   expect(receiptEvent(undefined, passed, 3)).toMatchObject({ outcome: "not_verified", checksPassed: true });
-  expect(receiptEvent(undefined, passed, 3).verdict).toStartWith("• Checks passed — not proven");
+  expect(receiptEvent(undefined, passed, 3).verdict).toStartWith("– Checks passed — not proven");
   expect(taskOutcome(undefined, { ...passed, changedPaths: [] })).toBe("unchanged");
   const stale: TaskResult = { ...passed, verification: report({ results: [check({ freshness: "stale" })] }) };
   expect(checksPassed(undefined, stale)).toBe(false);
@@ -65,7 +65,7 @@ test("the JSON receipt adds the new fields without changing the old ones", () =>
 
 test("the JSON receipt names files changed while planning and why pages were not opened", () => {
   const task: TaskResult = { execution: "completed", changedPaths: [], verification: report(), changedWhilePlanning: ["notes.md"],
-    pageNotes: ["• /devices/[id] not opened: it needs a value", "• node_modules is missing token=abc123secret"] };
+    pageNotes: ["– /devices/[id] not opened: it needs a value", "– node_modules is missing token=abc123secret"] };
   const event = receiptEvent(undefined, task, 0);
   expect(event.changedWhilePlanning).toEqual(["notes.md"]);
   expect(event.pageNotes![0]).toBe("/devices/[id] not opened: it needs a value");
@@ -91,21 +91,21 @@ test("a stored task keeps no check output and hides secrets in page text", () =>
 test("pages the check did not open are listed, and a dev server that did not start shows its last lines", () => {
   const withSkipped: TaskResult = { execution: "completed", changedPaths: ["app/devices/[id]/page.tsx", "app/page.tsx"],
     verification: report({ pages: { ...pages("pass"), skipped: [{ path: "/devices/[id]", why: "it needs a value for [id]" }] } }) };
-  expect(formatReceipt(withSkipped)).toContain("• /devices/[id] not opened: it needs a value for [id] (a fixed path can be set in .casper/project.yaml pages:)");
+  expect(formatReceipt(withSkipped)).toContain("– /devices/[id] not opened: it needs a value for [id] (a fixed path can be set in .casper/project.yaml pages:)");
   const notStarted: TaskResult = { execution: "completed", changedPaths: ["app/page.tsx"], verification: report({ status: "incomplete",
     pages: { status: "incomplete", pages: [], skipped: [], server: { name: "web", label: "bun run dev", command: "next dev" },
       reason: "the dev server stopped before it was ready (exit 1)", logTail: "Error: Cannot find module 'next'" } }) };
   const text = formatReceipt(notStarted);
-  expect(text).toContain("• Pages not checked: the dev server stopped before it was ready (exit 1). Last lines:\n    Error: Cannot find module 'next'");
-  expect(text.split("\n")[0]).toBe("• Incomplete — not every check ran");
-  const noted: TaskResult = { execution: "completed", changedPaths: ["src/App.tsx"], pageNotes: ["• Pages not checked: node_modules is missing. Run bun install first (Casper doesn't install packages)"] };
-  expect(formatReceipt(noted)).toContain("• Pages not checked: node_modules is missing.");
+  expect(text).toContain("– Pages not checked: the dev server stopped before it was ready (exit 1). Last lines:\n    Error: Cannot find module 'next'");
+  expect(text.split("\n")[0]).toBe("– Incomplete — not every check ran");
+  const noted: TaskResult = { execution: "completed", changedPaths: ["src/App.tsx"], pageNotes: ["– Pages not checked: node_modules is missing. Run bun install first (Casper doesn't install packages)"] };
+  expect(formatReceipt(noted)).toContain("– Pages not checked: node_modules is missing.");
   expect(formatTaskResult(noted)).toContain("pages        Pages not checked: node_modules is missing.");
 });
 
 test("files a plan turn changed anyway are named on the receipt", () => {
   expect(formatReceipt({ execution: "completed", changedPaths: ["notes.md"], changedWhilePlanning: ["notes.md"] }))
-    .toContain("• Changed while planning: notes.md");
+    .toContain("– Changed while planning: notes.md");
   expect(formatReceipt({ execution: "completed", changedPaths: ["notes.md"] })).not.toContain("while planning");
 });
 
@@ -114,8 +114,8 @@ test("landed parts no reviewer finished are one plain line on the receipt, and /
     { part: 1, files: ["a.ts", "b.ts"], why: "the reviewer timed out" },
     { part: 2, files: ["c.ts"], why: "no reviewer looked at it" },
   ] };
-  expect(formatReceipt(task)).toContain("• Not reviewed: part 1 (a.ts, b.ts; the reviewer timed out), part 2 (c.ts; no reviewer looked at it)");
-  expect(formatShortReceipt(task)).toContain("• Not reviewed: part 1 (a.ts, b.ts; the reviewer timed out)");
+  expect(formatReceipt(task)).toContain("– Not reviewed: part 1 (a.ts, b.ts; the reviewer timed out), part 2 (c.ts; no reviewer looked at it)");
+  expect(formatShortReceipt(task)).toContain("– Not reviewed: part 1 (a.ts, b.ts; the reviewer timed out)");
   expect(formatTaskResult(task)).toContain("not reviewed part 1 (a.ts, b.ts; the reviewer timed out), part 2 (c.ts; no reviewer looked at it)");
   const many: TaskResult = { execution: "completed", changedPaths: ["a.ts"], partsNotReviewed: [{ part: 1, files: ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"], why: "the reviewer failed" }] };
   expect(formatReceipt(many)).toContain("part 1 (a.ts, b.ts, c.ts and 2 more; the reviewer failed)");

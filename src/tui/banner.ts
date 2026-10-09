@@ -60,7 +60,8 @@ export function renderProjectSummary(context: ProjectContext): string {
 export function renderBanner(context: ProjectContext, options: { wordmark?: boolean; interactive?: boolean; checks?: string; shell?: string; model?: string } = {}): string {
   return [
     ...(options.wordmark ? [] : [TEXT_HEADER]),
-    ` project   ${one(context.model.project.name)} · branch ${context.info.gitBranch ? one(context.info.gitBranch) : "(no git branch)"} · profile ${context.profileName}`,
+    // The folder's name (never blank: "C:\", "~"), and the branch only when there is one.
+    ` project   ${one(context.model.project.name || context.info.root)}${context.info.gitBranch ? ` · branch ${one(context.info.gitBranch)}` : ""} · profile ${context.profileName}`,
     ...(options.checks ? [` checks    ${options.checks}`] : []),
     ...(options.shell ? [` shell     ${options.shell}`] : []),
     ...(options.model ? [options.model] : []),

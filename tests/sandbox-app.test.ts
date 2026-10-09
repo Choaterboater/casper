@@ -78,7 +78,7 @@ test("--no-sandbox: the one-shot banner, the receipt and the JSON say shell comm
   try {
     await f.app.runOnce("Write the notes", f.project);
     expect(f.text()).toContain(" shell     not sandboxed (--no-sandbox)\n");
-    expect(f.text()).toContain("• Shell commands and checks were not sandboxed (--no-sandbox)");
+    expect(f.text()).toContain("– Shell commands and checks were not sandboxed (--no-sandbox)");
     expect(f.app.getLastTaskResult()?.sandbox).toEqual({ held: false, reason: "--no-sandbox" });
     const wrapped = await f.started()!.shell!.wrap("npm test", f.project);
     expect(wrapped).toEqual({ command: "npm test" });
@@ -148,7 +148,7 @@ test("--no-sandbox with /verify alone: the receipt and the JSON say the checks w
     await writeFile(path.join(f.project, ".casper", "project.yaml"), "commands:\n  test: \"true\"\n");
     const report = await f.app.runOnce("/verify", f.project);
     expect(f.app.getLastTaskResult()).toBeUndefined();
-    expect(f.text()).toContain("• Shell commands and checks were not sandboxed (--no-sandbox)");
+    expect(f.text()).toContain("– Shell commands and checks were not sandboxed (--no-sandbox)");
     const event = receiptEvent(report, undefined, 0, f.app.sandboxReceipt());
     expect(event.sandbox).toEqual({ held: false, reason: "--no-sandbox" });
     expect(event.text).toContain("Shell commands and checks were not sandboxed (--no-sandbox)");

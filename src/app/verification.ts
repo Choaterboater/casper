@@ -4,10 +4,10 @@
 
 import type { CasperApp } from "../app";
 import { detectWebService, isDetectedWebService } from "../services/detect";
-import { redactPreview, terminalText } from "../tui/format";
+import { formatDuration, redactPreview, terminalText } from "../tui/format";
 import type { ProjectContext } from "../project/context";
 import { formatReceipt, liveCheckLine } from "../task/result";
-import { type CheckName, formatDuration, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "../verify/evidence";
+import { type CheckName, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "../verify/evidence";
 import { VerifierRegistry } from "../verify/registry";
 import { longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } from "../verify/repair-loop";
 import { ALREADY_FAILING_CHOICES, unfinishedChoices } from "./safe-choices";
@@ -145,8 +145,11 @@ export function writeCheckResult(app: CasperApp, result: VerificationResult): vo
   app.events.ensureLineBreak();
   // Each check Casper runs shows as it finishes; verbose output keeps the per-run evidence line
   // instead. A check the model ran with casper_check already has its tool line.
+  // A timeout where someone can answer: the question that follows says it ("test timed out after 10m. … What now?"),
+  // so no ✗ line before it; the receipt says it once more.
+  const asked = result.ended === "timeout" && app.interactive && app.terminal.canAsk;
   if (app.verbose) app.output.write(`${formatVerificationResult(result)}\n`);
-  else if (app.modelCheckCalls === 0) app.output.write(`${liveCheckLine(result)}\n`);
+  else if (app.modelCheckCalls === 0 && !asked) app.output.write(`${liveCheckLine(result)}\n`);
   if (result.status !== "fail") return;
   if (result.ended === "blocked") app.output.write(`${SANDBOX_CHECK_BLOCKED}\n`);
   for (const [stream, text] of [["stderr", result.stderr], ["stdout", result.stdout]] as const) {
@@ -248,7 +251,7 @@ export async function repairPreexisting(app: CasperApp, failures: VerificationRe
   const names = failures.map((failure) => failure.name).filter((name): name is ProjectCommand => isBuiltinCheck(name) && Boolean(context.model.commands[name]?.trim()));
   if (!names.length) return true;
   app.events.ensureLineBreak();
-  app.output.write(`… Casper checking whether ${names.join(", ")} failed before this change too\n`);
+  app.output.write(`• Casper checking whether ${names.join(", ")} failed before this change too\n`);
   const before: string[] = [];
   for (const name of names) {
     const result = await held.baseline.before({ root: held.root, check: name, command: context.model.commands[name]!.trim(),
@@ -257,7 +260,7 @@ export async function repairPreexisting(app: CasperApp, failures: VerificationRe
   }
   if (!before.length || signal.aborted) return true;
   const which = before.join(", ");
-  app.output.write(`• ${which} was already failing before this change (Casper ran it on the files from before)\n`);
+  app.output.write(`– ${which} was already failing before this change (Casper ran it on the files from before)\n`);
   if (!app.interactive || !app.terminal.rich) return true;
   // Leave it comes first, so Enter never starts a repair that uses tokens.
   const answer = await app.terminal.ask(`${which} was already failing before this change. Fix it anyway?`,

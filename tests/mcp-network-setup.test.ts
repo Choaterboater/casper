@@ -508,7 +508,9 @@ test("app: an older installed server is asked about once, before the first reque
   await writeMcp(home, { network: networkServerEntry(home) });
   const question = `Casper's network server has an update (0.0.9 → ${NETWORK_SERVER.version}`;
   const first = await session(home, project, ["add a test for parseConfig", "rename a variable"], ["1"]);
-  expect(first.output.split(question).length - 1).toBe(1);
+  // Asked once: the question, then its one-line record.
+  expect(first.output.split(question).length - 1).toBe(2);
+  expect(first.output).toContain("pypi.org). → Not now\n");
   const prompts = [...first.output.matchAll(/> /g)].map((match) => match.index!);
   // Asked after the first request was typed and before its turn ended (the next prompt).
   expect(first.output.indexOf(question)).toBeGreaterThan(prompts[0]!);

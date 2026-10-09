@@ -273,7 +273,7 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     sandbox: held ? { held: held.held, reason: held.held ? null : redactPreview(held.reason) } : null,
     undo: task?.undo ? { available: task.undo.available, reason: task.undo.available ? null : redactPreview(task.undo.reason) } : null,
     changedWhilePlanning: task?.changedWhilePlanning?.length ? task.changedWhilePlanning.map(redactPreview) : null,
-    pageNotes: task?.pageNotes?.length ? task.pageNotes.map((note) => redactPreview(note.replace(/^• /, ""))) : null,
+    pageNotes: task?.pageNotes?.length ? task.pageNotes.map((note) => redactPreview(note.replace(/^– /, ""))) : null,
     // The text quotes review items, acceptance gaps and bash commands the model ran: redact it too.
     verdict: receipt ? redactPreview(receiptVerdict(receipt, { surface: "one-shot" }) ?? "") : "",
     text: receipt ? redactPreview(formatReceipt(receipt, { surface: "one-shot" })) : "",

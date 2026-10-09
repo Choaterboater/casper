@@ -259,6 +259,8 @@ export interface RuntimeSwitchOptions {
 
 export type RuntimeEvent =
   | { type: "model_controls_changed"; status: RuntimeStatus }
+  /** A request to the model is about to be sent: before any answer comes back (a slow provider may say nothing for a while). */
+  | { type: "assistant_request_start"; provider?: string; model?: string }
   | { type: "assistant_response_start"; provider?: string; model?: string }
   /** `usage` is what the provider reported for this response (the SDK's catalog cost estimate,
    * never an invoice); absent when the runtime has no report. */

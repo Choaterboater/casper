@@ -157,10 +157,16 @@ async function digestEntry(target: string, chunk: Buffer): Promise<string | unde
 /** Why a snapshot failed, in plain words for the receipt. */
 export function snapshotFailureReason(error: unknown): string {
   const over = error instanceof RangeError ? /exceeds (\d+) files/.exec(error.message) : null;
-  if (over) return `this folder has over ${Number(over[1]).toLocaleString("en-US")} files; open a project folder`;
+  if (over) return `${NOT_A_PROJECT} (over ${Number(over[1]).toLocaleString("en-US")} files)`;
   const code = errorCode(error);
   return code ? `Casper could not read this folder (${code})` : "Casper could not read this folder";
 }
+
+/** Said once on a receipt for a folder too big to list (the top of a drive, a home folder): no change list, no undo. */
+export const NOT_A_PROJECT = "not a project folder";
+
+/** The reason snapshotFailureReason gives for a folder with too many files to list. */
+export function tooManyFiles(reason: string): boolean { return reason.startsWith(NOT_A_PROJECT); }
 
 function errorCode(error: unknown): string | undefined {
   return error && typeof error === "object" && "code" in error ? String(error.code) : undefined;

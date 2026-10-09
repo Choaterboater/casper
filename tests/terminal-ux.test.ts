@@ -37,7 +37,7 @@ test("tool display gives targets/status, redacts common credentials and never in
 test("a casper_check skip shows neither ✓ nor ✗", () => {
   const skipped = formatToolActivity({ type: "tool_end", toolName: "casper_check", input: { check: "junos" },
     output: { text: JSON.stringify({ name: "junos", cwd: "/p", status: "skip", reason: "no device" }), truncated: false }, isError: false }, 300);
-  expect(skipped).toBe("• casper_check · junos — skipped");
+  expect(skipped).toBe("○ casper_check · junos — skipped");
   const passed = formatToolActivity({ type: "tool_end", toolName: "casper_check", input: { check: "test" },
     output: { text: JSON.stringify({ name: "test", cwd: "/p", status: "pass", stdout: '{"status":"skip"}' }), truncated: false }, isError: false });
   expect(passed).toBe("✓ casper_check · test");
@@ -176,8 +176,8 @@ test("with no sign-in, the banner says so in one line and how to start; the foot
 }, 180_000);
 
 test("the startup banner names a saved default model instead of saying no model is set up", async () => {
-  expect(formatRuntimeStatus(undefined, "default fixture/first · high")).toBe(
-    " model     default fixture/first · high (starts on your first prompt; /model to change)");
+  expect(formatRuntimeStatus(undefined, "fixture/first · effort high")).toBe(
+    " model     fixture/first · effort high (starts on your first request; /model to change)");
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-banner-")); roots.push(root);
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await Promise.all([mkdir(path.join(home, ".casper"), { recursive: true }), mkdir(project)]);
@@ -190,7 +190,7 @@ test("the startup banner names a saved default model instead of saying no model 
     });
     const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
     expect(code).toBe(0);
-    expect(stdout).toContain(" model     default fixture/first · effort high (starts on your first prompt");
+    expect(stdout).toContain(" model     fixture/first · effort high (starts on your first request; /model to change)");
     expect(stdout).not.toContain("none saved yet");
     expect(stdout).not.toContain("/login to set up a provider");
   }

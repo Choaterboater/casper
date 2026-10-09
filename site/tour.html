@@ -73,13 +73,13 @@
         ran, what it covered, the proof, the sandbox and whether you can undo.</p>
         <figure class="capture">
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">fix the sum bug in src/sum.js</span>
-<span class="dim">[model]</span> scripted/site-capture · off · credentials configured
+<span class="dim">[model]</span> scripted/site-capture · effort off
 <span class="ok">✓</span> 2 edits
   changed src/sum.js, tests/sum.test.js
 Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
-<span class="dim">… Casper checking: test</span>
+<span class="dim">• Casper checking: test</span>
 <span class="ok">✓</span> test
-<span class="dim">… Casper checking that the tests fail without the change</span>
+<span class="dim">• Casper checking that the tests fail without the change</span>
 ▌ <span class="ok">✓ Verified · test passed · changed src/sum.js, tests/sum.test.js</span>
 Next: 1 Show diff · 2 Undo
 
@@ -102,7 +102,7 @@ independently certified.
             <h3>What you see</h3>
             <p>A green <code>✓ Verified</code> only when the checks pass <em>and</em> a test fails
             without the change. Anything less says so, in words:</p>
-            <p class="verdict warn">• Not verified — the tests pass without the change too</p>
+            <p class="verdict warn">– Not verified — the tests pass without the change too</p>
             <p class="verdict bad">✗ Failed — test failed</p>
             <p class="verdict bad">✗ Not checked — test timed out, so the change was not tested</p>
           </article>
@@ -131,17 +131,17 @@ independently certified.
         </ol>
         <figure class="capture">
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">let sum take numeric strings too</span>
-<span class="dim">[model]</span> scripted/site-capture · off · credentials configured
+<span class="dim">[model]</span> scripted/site-capture · effort off
 <span class="ok">✓</span> edit · src/sum.js
 sum now turns its inputs into numbers first.
-<span class="dim">… Casper checking: test</span>
+<span class="dim">• Casper checking: test</span>
 <span class="ok">✓</span> test
-<span class="dim">… Casper checking that the tests fail without the change</span>
+<span class="dim">• Casper checking that the tests fail without the change</span>
 <span class="accent">↻</span> repair 1/1: add a test that fails without the change
 (scripted model) No more changes.
 <span class="ok">✓</span> test
-<span class="dim">… Casper checking that the tests fail without the change</span>
-▌ <span class="dim">•</span> Not verified — the tests pass without the change too
+<span class="dim">• Casper checking that the tests fail without the change</span>
+▌ <span class="dim">–</span> Not verified — the tests pass without the change too
 ▌ <span class="ok">✓</span> test passed · changed src/sum.js
 ▌ <span class="accent">↻</span> Casper tried 1 repair
 ▌ <span class="warn">⚠</span> Not proven: test passes without this change too, and no test was added or changed
@@ -171,10 +171,10 @@ Next: 1 Show diff · 2 Undo</pre>
         tries: 3 by default, set with <code>repair.maxAttempts</code> (0 to 10).</p>
         <figure class="capture">
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">speed up sum in src/sum.js</span>
-<span class="dim">[model]</span> scripted/site-capture · off · credentials configured
+<span class="dim">[model]</span> scripted/site-capture · effort off
 <span class="ok">✓</span> edit · src/sum.js
 Changed sum.
-<span class="dim">… Casper checking: test</span>
+<span class="dim">• Casper checking: test</span>
 <span class="bad">✗</span> test · exit 1
 <span class="dim">╭─ test: stderr ───────────────────────────────────────────────────────────────────────────────────╮</span>
 │                                                                                                  │
@@ -195,7 +195,7 @@ Changed sum.
 <span class="dim">╭─ test: stdout ───────────────────────────────────────────────────────────────────────────────────╮</span>
 │ bun test v1.4.0 (1381054db)                                                                      │
 <span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
-<span class="dim">… Casper checking whether test failed before this change too</span>
+<span class="dim">• Casper checking whether test failed before this change too</span>
 <span class="accent">↻</span> repair 1/1
 (scripted model) No more changes.
 <span class="bad">✗</span> test · exit 1
@@ -326,34 +326,29 @@ Next: 1 Show diff · 2 Undo</pre>
         In Casper every server starts with <strong>writes off</strong>: every change asks you
         first, in plain words, and only your answer lets it run.</p>
         <figure class="capture">
-          <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="dim"># (typed answers: 1 and 2 in the picker, 1 for "Remember", then 2 for writes)</span>
+          <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="dim"># (typed answers: 1 and 2 in the picker, 1 for "Remember", Esc back at the servers, then 2 for writes)</span>
 
 <span class="prompt">❯</span> <span class="you">/mcp</span>
-fixture  not connected
 network: not set up — /mcp setup network
-
 Pick a server
 <span class="accent">→</span> 1 fixture  not connected
   <span class="accent">2</span> Done
-Press 1-2 or Up/Down + Enter · type to answer · Esc skip
+Press 1-2 or Up/Down + Enter · Esc skip
 
 <span class="dim"># (pressed 1, then 2 = Connect under "fixture": Details / Connect / Back)</span>
 
+Pick a server → fixture
+fixture → Connect
 <span class="dim">[mcp]</span> fixture connected · 340 tools · writes off
-Next time it connects on its own, with writes off. Every change still asks you.
 Remember fixture?
-<span class="accent">→</span> 1 No
-  <span class="accent">2</span> Yes
+<span class="accent">→</span> 1 No  connected for this session only
+  <span class="accent">2</span> Yes  it connects on its own next time, with writes off; every change still asks you
 Press 1-2 or Up/Down + Enter · Esc is No
 
-<span class="dim"># (pressed 1)</span>
+<span class="dim"># (pressed 1; the servers come back, and Esc closes them)</span>
 
-<span class="dim">[mcp]</span> Not remembered. fixture is connected for this session only.
-
-<span class="prompt">❯</span> <span class="you">/mcp</span>
-fixture  ready · 340 tools · writes off · not sandboxed
-Heads up: fixture runs outside the sandbox.
-network: not set up — /mcp setup network
+Remember fixture? → No
+Pick a server — skipped
 
 <span class="prompt">❯</span> <span class="you">/mcp writes fixture</span>
 fixture writes are off.
@@ -363,6 +358,7 @@ Press 1-2 or Up/Down + Enter · Esc is No
 
 <span class="dim"># (pressed 2)</span>
 
+fixture writes are off. → Enable for this server
 <span class="dim">[mcp]</span> Writes on for fixture. Each change still asks you. Ctrl+O turns writes off.</pre>
           <figcaption>Connecting a local test server (it never talks to a device). <code>/mcp</code> is one
           line per server, with an arrow-key picker under it on a normal terminal; each choice runs the
@@ -371,7 +367,7 @@ Press 1-2 or Up/Down + Enter · Esc is No
         </figure>
         <figure class="capture">
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">set the lab site on the fixture server</span>
-<span class="dim">[model]</span> scripted/site-capture · off · credentials configured
+<span class="dim">[model]</span> scripted/site-capture · effort off
 I will ask the fixture server to change the site.
 Change in fixture: set site
   site             lab
@@ -385,14 +381,9 @@ Make this change?
   confirm)
 Press 1-4 or Up/Down + Enter · Esc is No
 
-<span class="dim"># (pressed 1: the box stays as the record of the answer)</span>
+<span class="dim"># (pressed 1: the box closes into one line, the record of the answer)</span>
 
-Make this change?
-<span class="ok">✓</span> No
-• Yes, this once
-• Yes, for this session
-• Yes to everything on fixture this session (no more asking, even reboots, deletes or an AI-set
-  confirm)
+Make this change? → No
 The change was not made.
 
 <span class="dim"># (pressed Ctrl+O)</span>
@@ -655,7 +646,8 @@ receipt
       <section id="choices" aria-labelledby="choices-h">
         <h2 id="choices-h">Numbered choices</h2>
         <p>When Casper needs a decision, it shows numbered answers. Press the number. Or use Up/Down
-        and Enter, type your own answer, or press Esc to skip.</p>
+        and Enter, or press Esc to skip. When the AI asks, the last row is
+        <code>Other — type your own answer</code>: pick it and type yours.</p>
         <figure class="capture">
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">/verify</span>
 <span class="dim">[verify]</span> No typecheck command here, so Casper runs lint, test and build.
@@ -669,15 +661,12 @@ receipt
 lint could not start. Casper did not try to fix it. What now?
 <span class="accent">→</span> 1 Stop  keep the changes; the receipt says it did not finish
   <span class="accent">2</span> Retry  run it again with the same limit
-  <span class="accent">3</span> Fix it anyway  ask the model to fix why it could not start (uses tokens)
-Press 1-3 or Up/Down + Enter · type to answer · Esc skip
+  <span class="accent">3</span> Fix it anyway  ask the model to fix why it could not start
+Press 1-3 or Up/Down + Enter · Esc skip
 
 <span class="dim"># (Esc pressed: skip)</span>
 
-<span class="dim">•</span> Stop  keep the changes; the receipt says it did not finish
-<span class="dim">•</span> Retry  run it again with the same limit
-<span class="dim">•</span> Fix it anyway  ask the model to fix why it could not start (uses tokens)
-  (skipped)
+lint could not start. Casper did not try to fix it. What now? — skipped
 <span class="bad">✗</span> Not checked — lint could not start, so the change was not tested
 <span class="bad">✗</span> lint could not start (exit 127) — check verify.lint in .casper/project.yaml
 <span class="ok">✓</span> test passed (bun test)

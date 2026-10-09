@@ -2,7 +2,7 @@
  * stay Casper's, and no colour ever reaches the model.
  * accent: the prompt, headings, links, Casper's boxes and the wordmark. muted: hints, the footer, secondary text.
  * border: rules, the input box and code block lines. selection: the highlighted choice in a list or question.
- * success, warning, error: ✓, • and ✗ lines, a result's edge and boxes of that kind. diffAdded, diffRemoved, diffHunk:
+ * success, warning, error: ✓, – (a note) and ✗ lines, a result's edge and boxes of that kind. diffAdded, diffRemoved, diffHunk:
  * a diff's + and - lines and its @@ headers. */
 export const THEME_ROLES = ["accent", "muted", "border", "selection", "success", "warning", "error", "diffAdded", "diffRemoved", "diffHunk"] as const;
 export type ThemeRole = typeof THEME_ROLES[number];

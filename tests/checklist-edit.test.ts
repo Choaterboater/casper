@@ -224,7 +224,7 @@ test("a list cut at 80 cases says how many were left out, in one line", async ()
   const fixture = await checklistApp(undefined, many);
   try {
     const shown = await fixture.plain("add a rate limiter");
-    expect(shown).toContain("• Checklist kept 80 cases; 3 more were left out\n");
+    expect(shown).toContain("– Checklist kept 80 cases; 3 more were left out\n");
     expect(shown).not.toContain("case 0");
   } finally { await fixture.close(); }
 });

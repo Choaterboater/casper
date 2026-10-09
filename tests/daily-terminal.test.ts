@@ -256,7 +256,7 @@ test("a rows-only resize writes every visible row again in place, so the prompt 
     expect(repaint).not.toContain("\x1b[3J");
     const rule = "─".repeat(60);
     expect(plainLines(repaint).map(line => line.replace(/^\r/, "").trimEnd()))
-      .toEqual(["line 16", "line 17", "line 18", "line 19", rule, "❯", rule, "fixture │ idle"]);
+      .toEqual(["line 16", "line 17", "line 18", "line 19", rule, "❯", rule, "type / for commands │ fixture │ idle"]);
   } finally { terminal.close(); input.destroy(); }
 });
 

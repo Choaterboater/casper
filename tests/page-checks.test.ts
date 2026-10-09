@@ -56,15 +56,15 @@ test("a clean page passes with exactly the loads line, and the dev server lines 
   expect(report.status).toBe("pass");
   expect(formatPageReport(report)).toEqual(["✓ /dashboard loads · 0 console errors"]);
   expect(opener.urls[0]).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/dashboard$/);
-  expect(lines[0]).toBe("… Starting dev server: bun run dev (it runs your project's code)");
+  expect(lines[0]).toBe("• Starting dev server: bun run dev (it runs your project's code)");
   expect(lines[1]).toMatch(/^Dev server: bun run dev · http:\/\/127\.0\.0\.1:\d+ \(stops when you leave Casper\)$/);
-  expect(lines[2]).toBe("… Casper opening changed pages: /dashboard");
+  expect(lines[2]).toBe("• Casper opening changed pages: /dashboard");
   // The next task reuses the running server: no start lines again.
   lines.length = 0;
   const again = await new PageChecks(() => f.manager, f.service, opener, { open: ["/"], skipped: [] }, { announce: line => lines.push(line), notice }).run(signal());
   expect(again.status).toBe("pass");
   expect(again.server.origin).toBe(report.server.origin);
-  expect(lines).toEqual(["… Casper opening changed pages: /"]);
+  expect(lines).toEqual(["• Casper opening changed pages: /"]);
   expect(f.manager.status().map(({ name, state }) => ({ name, state }))).toEqual([{ name: "web", state: "ready" }]);
 }, 30_000);
 
@@ -121,7 +121,7 @@ test("accessibility findings are notes under the page line; they never fail the 
   expect(report.pages[0]!.a11y).toEqual(["2 inputs have no label", "1 button has no name", "1 image has no alt text", "3 text items have very low contrast (2.1:1)", "the page has no lang"]);
   expect(formatPageReport(report)).toEqual([
     "✓ /signup loads · 0 console errors",
-    "  • /signup: 2 inputs have no label · 1 button has no name · 1 image has no alt text · 3 text items have very low contrast (2.1:1) · the page has no lang",
+    "  – /signup: 2 inputs have no label · 1 button has no name · 1 image has no alt text · 3 text items have very low contrast (2.1:1) · the page has no lang",
     "✓ /ok loads · 0 console errors",
   ]);
   expect(pageFailureSummary(report)).toBeUndefined();
@@ -160,14 +160,14 @@ test("a dev server that exits is an incomplete report with its last lines, never
   expect(report.pages).toEqual([]);
   expect(report.reason).toBe("the dev server stopped before it was ready (exit 1)");
   expect(report.logTail).toContain("Cannot find module vite");
-  expect(formatPageReport(report)[0]).toStartWith("• Pages not checked: the dev server stopped before it was ready (exit 1). Last lines:\n    Error: Cannot find module vite");
+  expect(formatPageReport(report)[0]).toStartWith("– Pages not checked: the dev server stopped before it was ready (exit 1). Last lines:\n    Error: Cannot find module vite");
 }, 30_000);
 
 test("a dev server that never answers on its port says how to tell Casper how to start it", async () => {
   const f = await fixture({ command: `"${process.execPath}" -e "setInterval(() => {}, 1000)"`, timeoutMs: 1500 });
   const report = await new PageChecks(() => f.manager, f.service, fakeOpener(), { open: ["/"], skipped: [] }).run(signal());
   expect(report.status).toBe("incomplete");
-  expect(formatPageReport(report)).toEqual(["• Pages not checked: the dev server didn't answer on its port within 2 s. Tell Casper how to start it: services.web in .casper/project.yaml"]);
+  expect(formatPageReport(report)).toEqual(["– Pages not checked: the dev server didn't answer on its port within 2 s. Tell Casper how to start it: services.web in .casper/project.yaml"]);
 }, 30_000);
 
 test("without Chrome the HTTP-only line says the console was not checked", async () => {
@@ -176,7 +176,7 @@ test("without Chrome the HTTP-only line says the console was not checked", async
   expect(formatPageReport(report)).toEqual([
     "✓ /dashboard answers (HTTP 200) · console not checked: no Chrome found (install Chrome or set CASPER_BROWSER_EXECUTABLE)",
     "✗ /broken returned 500",
-    "• /devices/[id] not opened: it needs a value for [id] (a fixed path can be set in .casper/project.yaml pages:)",
+    "– /devices/[id] not opened: it needs a value for [id] (a fixed path can be set in .casper/project.yaml pages:)",
   ]);
   expect(report.pages[0]!.consoleChecked).toBe(false);
 }, 30_000);

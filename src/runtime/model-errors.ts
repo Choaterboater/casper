@@ -36,7 +36,7 @@ export function explainModelError(message: string): { cause: ModelErrorCause; li
   return rule && { cause: rule.cause, line: rule.line };
 }
 
-/** The receipt's "• Next:" for a failed model run, by cause; undefined keeps the usual "try another model". */
+/** The receipt's "– Next:" for a failed model run, by cause; undefined keeps the usual "try another model". */
 export function modelErrorNext(cause: ModelErrorCause | undefined, oneShot: boolean): string | undefined {
   switch (cause) {
     case "key": return oneShot ? "run casper and type /login" : "/login to sign in again";

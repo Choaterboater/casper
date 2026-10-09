@@ -64,14 +64,14 @@ test("Postgres and unknown databases are not checked, with the reason from the p
   const supabase = await project({ "supabase/migrations/20240101_init.sql": "create extension if not exists pgcrypto;" });
   const plan = (await detectMigrations(supabase))!;
   expect(plan.dialect).toBe("postgres");
-  expect(formatMigrationsLine(await runMigrationsCheck(supabase, plan, signal()))).toBe("• migrations not checked: these are Postgres migrations (supabase/migrations), and Casper only has a throwaway SQLite");
+  expect(formatMigrationsLine(await runMigrationsCheck(supabase, plan, signal()))).toBe("– migrations not checked: these are Postgres migrations (supabase/migrations), and Casper only has a throwaway SQLite");
   const pg = await project({ "package.json": JSON.stringify({ dependencies: { pg: "8" } }), "migrations/001.sql": SITES });
   expect(formatMigrationsLine(await runMigrationsCheck(pg, (await detectMigrations(pg))!, signal()))).toContain("Postgres migrations (the pg dependency)");
   // Both drivers, or none: Casper never guesses.
   const both = await project({ "package.json": JSON.stringify({ dependencies: { pg: "8", "better-sqlite3": "11" } }), "migrations/001.sql": SITES });
   expect((await detectMigrations(both))!.dialect).toBe("unknown");
   const none = await project({ "migrations/001.sql": SITES });
-  expect(formatMigrationsLine(await runMigrationsCheck(none, (await detectMigrations(none))!, signal()))).toStartWith("• migrations not checked: Casper can't tell which database these are for");
+  expect(formatMigrationsLine(await runMigrationsCheck(none, (await detectMigrations(none))!, signal()))).toStartWith("– migrations not checked: Casper can't tell which database these are for");
   // Python's sqlite3 counts only with no other database driver.
   const py = await project({ "requirements.txt": "flask\n", "app/db.py": "import sqlite3\n", "migrations/001.sql": SITES });
   expect((await detectMigrations(py))!).toMatchObject({ dialect: "sqlite", dialectSource: "a Python sqlite3 import" });
@@ -82,7 +82,7 @@ test("Postgres and unknown databases are not checked, with the reason from the p
 test("statements that reach outside the throwaway database are refused, not run", async () => {
   const root = await project({ "package.json": sqlitePkg, "migrations/001.sql": "ATTACH DATABASE 'app.db' AS real; DROP TABLE real.keep;" });
   expect(formatMigrationsLine(await runMigrationsCheck(root, (await detectMigrations(root))!, signal())))
-    .toBe("• migrations not checked: 001.sql uses ATTACH, VACUUM INTO or load_extension, which can reach files outside the throwaway database");
+    .toBe("– migrations not checked: 001.sql uses ATTACH, VACUUM INTO or load_extension, which can reach files outside the throwaway database");
   // A comment or a string that mentions it is fine.
   const ok = await project({ "package.json": sqlitePkg, "migrations/001.sql": "-- never ATTACH here\nCREATE TABLE notes (body TEXT DEFAULT 'attach later');" });
   expect((await runMigrationsCheck(ok, (await detectMigrations(ok))!, signal())).status).toBe("pass");
@@ -92,7 +92,7 @@ test("a Prisma schema with a literal url is refused; an env url gets only a thro
   const literal = await project({ "prisma/schema.prisma": 'datasource db {\n  provider = "sqlite"\n  url      = "file:./dev.db"\n}\n', "prisma/migrations/20240101_init/migration.sql": SITES });
   const plan = (await detectMigrations(literal))!;
   expect(plan).toMatchObject({ kind: "prisma", dialect: "sqlite", literalUrl: true, files: ["prisma/migrations/20240101_init/migration.sql"] });
-  expect(formatMigrationsLine(await runMigrationsCheck(literal, plan, signal()))).toBe("• migrations not checked: schema.prisma writes the database address directly, so Casper can't point it at a throwaway copy");
+  expect(formatMigrationsLine(await runMigrationsCheck(literal, plan, signal()))).toBe("– migrations not checked: schema.prisma writes the database address directly, so Casper can't point it at a throwaway copy");
   if (process.platform === "win32") return;
   const env = await project({ "prisma/schema.prisma": 'datasource db {\n  provider = "sqlite"\n  url      = env("DATABASE_URL")\n}\n', "prisma/migrations/20240101_init/migration.sql": SITES,
     // A stand-in for the prisma CLI that records what it was given; no real prisma runs.

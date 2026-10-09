@@ -59,7 +59,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     subcommands: [{ name: "all", description: "The full reference", duringWork: ANY }] },
   { name: "context", description: "Inspect context estimates and capability counts", duringWork: NONE },
   { name: "usage", description: "Inspect session tokens and available cost estimates", aliases: ["cost"], duringWork: NONE },
-  { name: "compact", description: "Summarize context (sends a model request)", argumentHint: "[instructions]" },
+  { name: "compact", description: "The model summarizes the conversation so far", argumentHint: "[instructions]" },
   { name: "clear", description: "Start a fresh conversation; keep files and saved conversations", aliases: ["new"] },
   { name: "resume", description: "Go back to a saved conversation (a numbered list)", argumentHint: "[id]" },
   { name: "diff", description: "The last task's changes: /diff 12, /diff list", argumentHint: "[n|list]", duringWork: /^(?:\d+)?$/,
@@ -197,11 +197,11 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     subcommands: [{ name: "files", args: "on|off", description: "Scrub config files and command output" }] },
   { name: "visualize", description: "Inspect providers or render repository dependencies", duringWork: NONE,
     subcommands: [{ name: "repo", args: "[dir]", description: "Render repository dependencies locally (no model)" }] },
-  { name: "delegate", description: "Ask a bounded read-only subagent (uses a model)", subcommands: [
+  { name: "delegate", description: "Ask a read-only helper AI one bounded question", subcommands: [
     { name: "explorer", args: "<goal>", description: "A read-only helper that explores" },
     { name: "reviewer", args: "<goal>", description: "A read-only helper that reviews" },
   ] },
-  { name: "crew", description: "A builder does a job in its own copy of the project; you apply it (uses a model)", argumentHint: "[job]", subcommands: [
+  { name: "crew", description: "A builder AI does a job in its own copy of the project; you apply it", argumentHint: "[job]", subcommands: [
     { name: "apply", args: "<n>", description: "Apply a crew copy to your folder" },
     { name: "drop", args: "<n>", description: "Throw a crew copy away" },
   ] },

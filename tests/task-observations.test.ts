@@ -230,8 +230,8 @@ test("changes the AI made on another machine over ssh reach the receipt, marked 
     "made an API token (pveum user token add root@pam sampleapp --privs…)", "turned a service on or off at boot (systemctl enable --now sampleapp)"] }]);
   expect(snapshot.secretInCommand).toBe(true);
   const receipt = formatReceipt({ execution: "completed", ...snapshot });
-  expect(receipt).toContain("• Changed on build-server (from the commands Casper saw): made an API token (pveum user token add root@pam sampleapp --privs…); turned a service on or off at boot (systemctl enable --now sampleapp)");
-  expect(receipt).toContain(`• ${SECRET_IN_COMMAND}`);
+  expect(receipt).toContain("– Changed on build-server (from the commands Casper saw): made an API token (pveum user token add root@pam sampleapp --privs…); turned a service on or off at boot (systemctl enable --now sampleapp)");
+  expect(receipt).toContain(`– ${SECRET_IN_COMMAND}`);
   expect(SECRET_IN_COMMAND).toBe("A secret appeared in a command; change it after this task.");
   expect(formatTaskResult({ execution: "completed", ...snapshot })).toContain("(from the commands Casper saw)");
   // Nothing remote, nothing said.
@@ -255,9 +255,9 @@ test("commands to another machine that Casper stopped are said on the receipt: n
   expect(snapshot.remoteChanges).toEqual([{ host: "sw2", changes: [] }]);
   const receipt = formatReceipt({ execution: "completed", ...snapshot });
   // Never a clean pass: the verdict is Incomplete and names the machine; the line below gives the count.
-  expect(receipt.split("\n")[0]).toBe("• Incomplete — commands to sw1 did not run");
-  expect(formatReceipt({ execution: "completed", ...snapshot }, { surface: "interactive" }).split("\n")[0]).toBe("• Incomplete — commands to sw1 did not run");
-  expect(receipt).toContain("• Not run on sw1: 2 commands Casper stopped before they reached it");
+  expect(receipt.split("\n")[0]).toBe("– Incomplete — commands to sw1 did not run");
+  expect(formatReceipt({ execution: "completed", ...snapshot }, { surface: "interactive" }).split("\n")[0]).toBe("– Incomplete — commands to sw1 did not run");
+  expect(receipt).toContain("– Not run on sw1: 2 commands Casper stopped before they reached it");
   expect(full({ execution: "completed", ...snapshot })).toContain("2 commands Casper stopped before they reached it");
   expect(new TaskObservations().snapshot([]).remoteNotRun).toBeUndefined();
 });
@@ -292,7 +292,7 @@ test("a question-only task that changed another machine over ssh still prints th
     });
     try {
       await app.runOnce("check the lab host uptime", root);
-      expect(written).toContain("• Changed on build-server (from the commands Casper saw): turned a service on or off at boot (systemctl enable --now sampleapp)");
+      expect(written).toContain("– Changed on build-server (from the commands Casper saw): turned a service on or off at boot (systemctl enable --now sampleapp)");
     } finally { await app.close(); }
   } finally { await removeTempDir(root); }
 });
@@ -306,12 +306,12 @@ test("commands run over ssh with no change Casper can read still get a receipt l
   const snapshot = observations.snapshot([]);
   expect(snapshot.remoteChanges).toEqual([{ host: "build-server", changes: [] }, { host: "sw1", changes: ["started or stopped a service (systemctl restart sampleapp)"] }]);
   const receipt = formatReceipt({ execution: "completed", ...snapshot });
-  expect(receipt).toContain(`• Ran commands on build-server over ssh; ${REMOTE_UNKNOWN}`);
+  expect(receipt).toContain(`– Ran commands on build-server over ssh; ${REMOTE_UNKNOWN}`);
   expect(REMOTE_UNKNOWN).toBe("Casper can't tell from the command text whether they changed anything there");
-  expect(receipt).toContain("• Changed on sw1 (from the commands Casper saw): started or stopped a service (systemctl restart sampleapp)");
+  expect(receipt).toContain("– Changed on sw1 (from the commands Casper saw): started or stopped a service (systemctl restart sampleapp)");
   expect(receipt).not.toMatch(/(?:Changed on|Ran commands on) core1/);
   // The blocked one is said as not run there.
-  expect(receipt).toContain("• Not run on core1: 1 command Casper stopped before it reached it");
+  expect(receipt).toContain("– Not run on core1: 1 command Casper stopped before it reached it");
 });
 
 test("an approved MCP change or a powershell command leaves writes open when the tree can't be compared", () => {

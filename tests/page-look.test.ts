@@ -115,7 +115,7 @@ test("showPages: on and a model that sees pictures: it looks once at the desktop
   expect(receipt).toContain("↻ look: the AI looks at 2 screenshots of /dashboard");
   expect(receipt).toContain("✓ /dashboard loads · 0 console errors · 2 screenshots");
   expect(receipt).toContain(`  desktop ${f.desktop} · phone ${f.phone}`);
-  expect(receipt).toContain("• The AI looked at 2 screenshots of the pages (advice, not a check)");
+  expect(receipt).toContain("– The AI looked at 2 screenshots of the pages (advice, not a check)");
   expect(f.app.getLastTaskResult()?.pagesShown).toBe(2);
 }, 30_000);
 

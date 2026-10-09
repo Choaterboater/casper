@@ -522,7 +522,7 @@ test("the receipt says which landed parts were not reviewed when the reviewer fa
     { part: 1, files: ["b.txt"], why: "the reviewer failed" },
     { part: 2, files: ["c.txt"], why: "no reviewer looked at it" },
   ]);
-  expect(formatReceipt(task)).toContain("• Not reviewed: part 1 (b.txt; the reviewer failed), part 2 (c.txt; no reviewer looked at it)");
+  expect(formatReceipt(task)).toContain("– Not reviewed: part 1 (b.txt; the reviewer failed), part 2 (c.txt; no reviewer looked at it)");
 
   const reviewed = await app(repo, home, new Main(async (delegate) => { await review(delegate, (await build(delegate, "b.txt")).part); }));
   await reviewed.runOnce("Split this up", repo);

@@ -257,7 +257,7 @@ export function beforeWorkPanel(suggestion: BeforeWorkSuggestion, cases: readonl
     question: `Suggested: plan first — ${suggestion.reason}`,
     options: [
       { label: "Plan first", choice: "plan-first",
-        description: "the model reads and writes a plan and the cases to test; Casper blocks file changes it can see until you choose Build (uses tokens)" },
+        description: "the model reads and writes a plan and the cases to test; Casper blocks file changes it can see until you choose Build" },
       { label: "Just build", choice: "build",
         description: !cases.length ? "start now" : cases.length === 1 ? `with this case: ${shown}` : `with these ${cases.length} cases: ${shown}${more}` },
       ...(cases.length ? [{ label: "Edit the cases first", choice: "edit" as const, description: "change, add or delete cases, then build" }] : []),

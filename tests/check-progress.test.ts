@@ -153,20 +153,35 @@ test("a provider retry is said once, by its line; the box doesn't repeat it", ()
   const s = view();
   s.handle(begin, { type: "retry", provider: "openrouter", attempt: 2, maxAttempts: 3, delayMs: 2000 } as RuntimeEvent);
   expect(s.last()).toBeUndefined();
-  expect(s.written.join("")).toContain("… Can't reach openrouter · trying again in 2s (2 of 3)");
+  expect(s.written.join("")).toContain("– Can't reach openrouter · trying again in 2s (2 of 3)");
 });
 
-test("the retry line is drawn in the warning colour, not dim like other … lines", () => {
+test("the box says what Casper waits for as soon as the request goes out, before the provider answers at all", () => {
+  const s = view();
+  // A provider that holds the request: no response has started yet (live: 13 s with no box at all).
+  s.handle({ type: "assistant_request_start", provider: "openrouter", model: "kimi-k2" });
+  expect(s.last()).toEqual(["Waiting for openrouter/kimi-k2 · 0s"]);
+  clock += 13_000;
+  s.tick();
+  expect(s.last()).toEqual(["Waiting for openrouter/kimi-k2 · 13s"]);
+  // The answer starts: the same wait goes on, so the time keeps counting from the request.
+  s.handle(begin);
+  clock += 1_000;
+  s.tick();
+  expect(s.last()).toEqual(["Waiting for openrouter/kimi-k2 · 14s"]);
+});
+
+test("the retry line is drawn in the warning colour, not dim like a running line", () => {
   const ambient = { term: process.env.TERM, noColor: process.env.NO_COLOR };
   process.env.TERM = "xterm-256color"; delete process.env.NO_COLOR;
   let screen = "";
   try {
     // Input that is not a TTY: the plain terminal, still coloured because the output is one.
     const terminal = new InteractiveTerminal(new PassThrough(), { isTTY: true, columns: 80, write: (text: string) => { screen += text; return true; } } as never, () => {}, () => {});
-    terminal.write("… Can't reach openrouter · trying again in 2s (2 of 3)\n");
-    terminal.write("… bash · bun test\n");
-    expect(screen).toContain(tint("… Can't reach openrouter · trying again in 2s (2 of 3)", "warning", true));
-    expect(screen).toContain(tint("… bash · bun test", "muted", true));
+    terminal.write("– Can't reach openrouter · trying again in 2s (2 of 3)\n");
+    terminal.write("• bash · bun test\n");
+    expect(screen).toContain(tint("– Can't reach openrouter · trying again in 2s (2 of 3)", "warning", true));
+    expect(screen).toContain(tint("• bash · bun test", "muted", true));
   } finally {
     if (ambient.term === undefined) delete process.env.TERM; else process.env.TERM = ambient.term;
     if (ambient.noColor !== undefined) process.env.NO_COLOR = ambient.noColor;
