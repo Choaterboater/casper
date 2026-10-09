@@ -61,8 +61,10 @@ the operating system, not a list of words:
   `gh auth status`, asks `Run outside the sandbox with your GitHub login?  git push -u origin main` with
   `1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project` (3 and 4 cover that kind of
   command, such as `git push`; 4 is kept in `~/.casper`, never in the repo, and `/allowed forget` takes it back; a
-  command that types its own address offers 1 and 2 only). Enter runs nothing, and `/permissions all` does not answer
-  it. After a yes Casper runs exactly that command outside the sandbox, with your own environment and login; the AI
+  command that types its own address offers 1 and 2 only, and so does one that changes things on GitHub or your
+  checkout: `gh pr merge`, `close`, `reopen`, `ready`, `review` or `checkout`, `gh issue close` or `reopen`, `gh run
+  rerun` or `cancel`; those ask every time, and no remembered answer for another kind, such as `gh pr create`, skips
+  their box). Enter runs nothing, and `/permissions all` does not answer it. After a yes Casper runs exactly that command outside the sandbox, with your own environment and login; the AI
   reads its output with secrets hidden (GitHub tokens too), never the login, and `~/.config/gh` and git's saved logins
   stay hidden from every sandboxed command. Plain means: the bare `git` or `gh` found on your PATH outside every folder
   a sandboxed command may write, run in the project (no other repo in between), one command with no pipe, `;`, `&&`,
