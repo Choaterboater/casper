@@ -85,6 +85,7 @@ Local commands:
   /model role <fast|build|reason|review> <selector|clear>  Save or clear a role mapping
   /model big <selector|clear>       Set or clear your big model (the reason role); asked for when repairs run out
   /plan <request>                   Plan first: blocks changes Casper can see while the model plans; you edit, then build
+  /btw <question>                   A side question, idle or during a task, like a line you start with ? (works with side questions off)
   /suggestions                      List suggested next steps: on, off or faded (hidden after 3 ignores, 14 days)
   /suggestions on|off [name]        Turn every suggestion, or one, on or off (suggestions: false in config.yaml too)
   /effort [level|auto] [--session]  The model's supported levels or auto (Casper picks per request); --session before or after; Shift+Tab cycles; /thinking is the same
@@ -202,8 +203,9 @@ Local commands:
 Unknown slash commands are rejected locally, never sent to a model.
 /model: Enter selects and saves ~/.casper/settings.json; Ctrl+S selects for this session only. Exact IDs are remembered too; /model --session <id> opts out.
 During a task, /model and /effort apply from the model's next step; the step already running keeps its model and effort.
+During a task every command runs at once, with whatever follows it (/permissions all, /settings, /login, /memory remember ...); a picker or question it opens closes when the task asks you something. Only the ones that would change the task's conversation, workspace or files, or start model work of their own, wait for it: /clear, /new, /resume, /compact, /undo, /redo, /branch <name>, /switch, /project <name>, /project new, /plan, /verify, /security-review, /delegate, /crew. Esc stops the task.
 Words you type at the start of a request, then : , or a new line, set that task only and are not sent to the model: think hard (top effort), quick (low effort), big model or use the big model (your big model, the reason role), fast model or use the fast model (your fast role), plan first (like /plan). ultrathink anywhere in your line is top effort too. Casper says what each word did in one line, and again when it goes back. Pasted text never counts, and words never grant permission.
-Side questions: a line you start with ? (? what does ECONNRESET mean) goes to your fast model on the side with no tools, idle or during a task. The answer shows as a side answer; it is not added to the conversation and the AI never sees it. /usage counts its cost; /settings turns side questions off.
+Side questions: a line you start with ? (? what does ECONNRESET mean) goes to your fast model on the side with no tools, idle or during a task. The answer shows as a side answer; it is not added to the conversation and the AI never sees it. /usage counts its cost; /settings turns side questions off. /btw <question> asks the same way and still works with them off, since it is typed on purpose.
 /effort remembers supported levels per model; /effort <level> --session opts out.
 Shift+Tab cycles auto and the model's supported levels and saves the level it stops at, like /effort. One-off --effort never saves.
 /effort auto lets Casper pick per request: low for reading/explaining/diagrams, medium for tests and configuration, high for fixes, features and refactors, from the model's supported levels.

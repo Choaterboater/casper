@@ -29,8 +29,8 @@ takes nothing after its name says so (`Usage: /settings, with nothing after it.`
 
 ### Commands
 
-These commands run on your machine. Only `/compact`, `/delegate`, `/crew <job>` and
-`/verify repair` send a model request. `/model` may fetch provider model lists
+These commands run on your machine. Only `/compact`, `/delegate`, `/crew <job>`,
+`/verify repair` and `/btw` send a model request. `/model` may fetch provider model lists
 over the network, and `/references add` downloads files after asking you.
 
 | Command | What it does |
@@ -48,6 +48,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/diff [n\|list]` | The last task's changes (also outside git), task n's, or a list to pick from; before any task, git's view |
 | `/undo [n]`, `/redo [n]` | Put the last task's (or task n's) files back, or back again (no model; [UNDO.md](UNDO.md)) |
 | `/plan <request>` | Plan first: the model writes a plan and cases to test, you edit it, then build |
+| `/btw <question>` | A side question, idle or during a task: your fast model answers with no tools, and the conversation never sees it (like a line you start with `?`; works with side questions off) |
 | `/suggestions [on\|off]` | List the suggested next steps, or turn them on or off |
 | `/details [quiet\|normal\|detailed]` | How much work shows, remembered like `/effort` (`--session` for this session only); alone, the level now; Ctrl+T shows the last step in full |
 | `/settings`, `/config` | Shows every switch and where it stands at a glance, then changes one by number: web lookups, the AI's browser and diagram tools, the new-version notice, suggestions, side questions with ?, built-in skills, spend notes and pause, the prompt cache, page checks, showing the AI the pages, the work shown, the untrusted-text reader, helpers that build, Playwright tests and sending Casper's name to OpenRouter ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
@@ -522,17 +523,31 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   empty editor the first Ctrl+C only shows `Ctrl+C again to exit`; a second within two
   seconds exits, any other key disarms it. Ctrl+D exits an empty editor at once.
   Ctrl+L forces a redraw.
-- Enter during work runs a command that only shows something at once: `/help` (and `/help <word>`, `/help all`), `/status`,
-  `/usage`, `/context`, `/permissions` (and `/permissions details`), `/allowed`, `/pane` (and `/pane on|off`), `/diff`, `/receipt`, `/output`, `/tasks` (and
-  `/tasks stop <n>`), `/details`, `/mcp`, `/lsp`, `/skills`, `/sandbox`, `/secrets`, `/branch`, `/hotkeys`,
-  `/project`, `/browser`, `/services`, `/debug`, `/lab`, `/memory`, `/references`, `/visualize` (each alone),
-  `/doctor` (it reports; its fixes ask after the task), `/exit` and `/quit` (they stop the task and leave), `/effort` (a bare `/effort` opens its picker; an approval that arrives closes
-  it first) and `/model` (the picker, `/model <provider/id>` or `/model --session <provider/id>`:
-  the model's next step uses it, `[model] <provider/id> from the model's next step; saved`; the step
-  already running keeps its model; an approval that arrives closes the picker first, and so does
-  the end of the model's work). `/model role` and `/model big` wait for the task. Typing `/` keeps the command menu; the commands and subcommands that must wait are dimmed and say
-  `waits for this task` (one table, `src/tui/commands.ts`, decides both the menu and what runs). Any other command keeps its draft and says why for a moment
-  (`/undo waits until this task ends · draft kept`).
+- Enter during work runs any command at once, with whatever follows it, as when idle:
+  `/permissions all`, `/settings`, `/login`, `/memory remember …`, `/mcp writes …`, `/details quiet`,
+  `/tasks stop 2` and the rest. A setting or permission you change applies from the task's next
+  step or question, and the command says so (`The running task uses it from its next step.`); a tool
+  the task already has (web lookups, the reader, builders) changes from your next request
+  (`The running task keeps what it had; your next request uses it.`).
+  `/doctor` only reports during a task (its fixes ask after it); `/exit` and `/quit` stop the
+  task and leave; `/mcp`, `/tasks` and `/diff list` print their lists instead of a picker, and
+  `/permissions` (and `/permissions details`) shows its screen without the stop-asking box.
+  `/effort` and `/model` (the picker, `/model <provider/id>` or `/model --session <provider/id>`)
+  apply from the model's next step (`[model] <provider/id> from the model's next step; saved`); the
+  step already running keeps its model; the `/model` picker also closes when the model's work ends.
+  A picker, question or numbered box (`/permissions all`, `/mcp writes`) a command opens during a task
+  gives way: when the task asks you something (an approval or the AI's question) it never waits behind
+  the command's box, which closes first and leaves
+  `… — closed for the task's question; type the command again`. A private box for a key or a
+  password (`/login`, `/mcp login`) is never closed under you: the task's box waits until it is done.
+- Only the commands that would change what the task works on, or start model work of their own
+  (one at a time), wait: `/clear` and `/new`, `/resume`, `/compact`, `/undo`, `/redo`,
+  `/branch <name>`, `/switch`, `/project <name>`, `/project new`, `/plan`, `/verify`,
+  `/security-review`, `/delegate` (it stops the debugger the task may use), `/crew` (its list
+  applies copies to your folder; `/crew drop` runs) and a picked suggestion. They keep their draft
+  and say why for a moment (`/undo waits until this task ends · draft kept · Esc stops the task`).
+  Typing `/` keeps the command menu; the commands and subcommands that wait are dimmed and say
+  `waits for this task` (one table, `src/tui/commands.ts`, decides both the menu and what runs).
 - A line you start with `?` (`? what does ECONNRESET mean`), idle or during work, is a side
   question: one separate call to your fast model (or your model when no fast one is set up) with no
   tools. It gets a short summary of the session (the project name, the task's first line and the
@@ -541,7 +556,8 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   is not added to the conversation, so the working AI never sees it. `/usage` counts its tokens
   and cost. A bare `?`, a `?` inside text and a pasted `?` line are ordinary requests, and so is
   every line of a one-shot run. Esc stops one asked while idle. `/settings` → "Side questions
-  with ?" turns them off (`sideQuestions: false`).
+  with ?" turns them off (`sideQuestions: false`). `/btw <question>` asks the same way, idle or
+  during work, and still works with side questions off: it can't be meant as a request.
 - Words at the start of a request (`think hard:`, `quick:`, `big model:`, `fast model:`,
   `plan first:`) and `ultrathink` anywhere in it set that task only; see
   [Words you can use](#words-you-can-use).

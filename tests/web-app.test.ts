@@ -11,6 +11,9 @@ import { SkillRegistry } from "../src/skills/registry";
 import { formatToolActivity } from "../src/tui/format";
 import type { WebHttpRequest } from "../src/web/lookup";
 import { removeTempDir } from "./support/temp-dir";
+import { settingsCommand } from "../src/app/command-loop";
+import { duringTask } from "../src/tui/give-way";
+import { useTheme } from "../src/tui/theme";
 
 /** Web lookups as a session offers them: on by default with no question, off with web: off in your own config. */
 
@@ -77,6 +80,33 @@ test("web_search and web_fetch are offered by default, never ask, and read throu
   await run.app.runOnce("/status");
   expect(run.text()).toContain(" web       on (DuckDuckGo) · /settings turns it off\n");
   await run.app.close();
+});
+
+test("/settings typed during a task never stops that task's web lookups: the theme leaves them alone, web off waits for the next task", async () => {
+  const { home, project } = await folders();
+  const results: { text: string; isError?: boolean }[] = [];
+  let answers: string[] = [];
+  const run = await session(home, project, async (tools) => {
+    const fetch = tools.find((tool) => tool.name === "web_fetch")!;
+    // /theme, then /settings web off, typed while this task runs; its web tool keeps working until it ends.
+    run.app.interactive = true;
+    Object.defineProperty(run.app.terminal, "canAsk", { get: () => true, configurable: true });
+    run.app.terminal.pick = async () => answers.shift();
+    answers = ["Light"];
+    await duringTask(() => settingsCommand(run.app, "Theme"));
+    results.push(await fetch.execute({ url: "http://docs.example.com/install" }));
+    answers = ["Web lookups", "Turn them off", "Done"];
+    await duringTask(() => settingsCommand(run.app));
+    results.push(await fetch.execute({ url: "http://docs.example.com/install" }));
+    run.app.interactive = false;
+  });
+  try {
+    await run.app.runOnce("How do I install x? Look it up.", project);
+    expect(results.map((result) => result.isError)).toEqual([undefined, undefined]);
+    expect(results.every((result) => result.text.includes("Install with bun add x"))).toBe(true);
+    expect(run.text()).toContain("[settings] Web lookups: off. Saved in ~/.casper/config.yaml. The running task keeps what it had; your next request uses it.\n");
+    expect(run.app.web).toBeUndefined();
+  } finally { useTheme(undefined); await run.app.close(); }
 });
 
 test("web: off in your own config takes both tools away", async () => {

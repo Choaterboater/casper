@@ -8,6 +8,7 @@ import { readClipboardFiles } from "./clipboard-files";
 import { commandMenu, COMMANDS, findCommand, fitDescriptions, menuRunsDuringWork } from "./commands";
 import { BUSY_GLYPH, formatElapsed, hasLineControls, hasTerminalControls, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
 import { answerRecord, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, OTHER_CHOICE, typedChoice, type PickRecord } from "./choices";
+import { typedDuringTask } from "./give-way";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
 import { renderPanel } from "./presentation";
@@ -194,6 +195,11 @@ export class TerminalSurface {
   private slotYield?: () => void;
   /** Raw input is on loan to a line-oriented flow; the surface keeps rendering. */
   private lending = false;
+  /** A private box (a key, a password) a command typed during a task holds: the task's boxes wait until it closes. */
+  private held?: Promise<void>;
+  /** The open question or list edit came from a command typed during a task: the task's boxes close it (yieldSlot). */
+  private askGivesWay = false;
+  private editGivesWay = false;
   private command?: (text?: string) => void;
   private pendingAsk?: (answer: string[] | undefined) => void;
   /** The open question and its options sanitized for display; an answer is the caller's own label. */
@@ -713,7 +719,9 @@ private updateSpinner(): void {
    * This channel is the user's alone: the model's ask tool never reaches it.
    */
   async approve(preview: string, question: string, options: { label: string; description?: string }[], signal?: AbortSignal): Promise<string | undefined> {
-    this.yieldSlot();
+    // An approval always comes first: it waits only for a private box, and closes any other command's question.
+    if (this.held && !typedDuringTask()) { await this.held; return this.approve(preview, question, options, signal); }
+    this.yieldSlot(true);
     if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || signal?.aborted || !options.length) return undefined;
     this.endAssistant();
     if (preview.trim()) this.write(`${terminalText(preview.replace(/\n+$/, ""))}\n`);
@@ -726,6 +734,7 @@ private updateSpinner(): void {
    * (or pasted) answer; a picker or an approval doesn't, so keys go to it and a paste waits as the draft for after. */
   ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal, from: AskOrigin = "casper",
     typed = from !== "approval", ownRecord?: PickRecord["record"]): Promise<string[] | undefined> {
+    if (this.held && !typedDuringTask()) return this.held.then(() => this.ask(question, options, multi, signal, from, typed, ownRecord));
     this.yieldSlot();
     if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant(); this.activity = undefined;
@@ -742,6 +751,8 @@ private updateSpinner(): void {
     let chosen: string[] | undefined;
     // The box's own record (a muted line, or none) for a chosen label.
     let own: string | undefined;
+    // Closed for the task's own box: the record says so, and the command can be typed again.
+    let gaveWay = false;
     const record: Component = { render: width => {
       if (own) return [this.muted(truncateToWidth(terminalText(own), width, "…"))];
       // The answer as the box showed it: a choice by its shown label, typed words as typed.
@@ -752,7 +763,7 @@ private updateSpinner(): void {
       const { question: asked, answer } = answerRecord(safeQuestion, said);
       const lead = from === "ai" ? `${AI_ASKS_LABEL} ` : "";
       // An approval nobody answered is a No; the record says both.
-      const tail = answer !== undefined ? ` → ${answer}` : from === "approval" ? ` — skipped (${shown[0]?.label ?? "No"})` : " — skipped";
+      const tail = answer !== undefined ? ` → ${answer}` : gaveWay ? " — closed for the task's question; type the command again" : from === "approval" ? ` — skipped (${shown[0]?.label ?? "No"})` : " — skipped";
       const paint = (question: string) => `${this.muted(lead)}${this.accent(question)}${answer !== undefined ? `${this.accent(" →")} ${this.selected(answer)}` : this.muted(tail)}`;
       // The answer is never cut: a long question is cut short with "…" to leave it room, and a long answer wraps.
       const room = width - visibleWidth(lead) - visibleWidth(tail);
@@ -765,6 +776,8 @@ private updateSpinner(): void {
     const finish = (answer: string[] | undefined) => {
       if (settled) return; settled = true;
       signal?.removeEventListener("abort", cancel);
+      gaveWay = this.askGivesWay && answer === undefined && this.yielding;
+      this.askGivesWay = false;
       this.pendingAsk = undefined; this.askQuestion = undefined; this.askOptions = undefined; this.askLabels = []; this.askFrom = "casper";
       this.askMulti = false; this.askSelections.clear(); this.askActiveIndex = 0; this.askSetAside = undefined; this.askTyped = false;
       this.askOther = false;
@@ -777,6 +790,8 @@ private updateSpinner(): void {
     const cancel = () => finish(undefined);
     this.attention();
     this.pendingAsk = finish; this.askQuestion = safeQuestion; this.askOptions = shown; this.askFrom = from;
+    // The task's approvals and questions are never closed for another box; a box a command typed during it opened is.
+    this.askGivesWay = typedDuringTask();
     this.askLabels = options.map(option => option.label); this.askMulti = multi; this.askTyped = typed && from !== "approval";
     this.askSelections.clear(); this.askActiveIndex = 0; this.askOpenedAt = Date.now();
     this.configureAutocomplete(); this.updateSpinner(); this.render();
@@ -795,6 +810,7 @@ private updateSpinner(): void {
    * returns the editor's lines as they stand (blank ones included); Esc, Ctrl+C, abort or close return
    * undefined. A pretyped draft is set aside and restored. The caller records the outcome. */
   editLines(heading: string, hint: string, lines: readonly string[], signal?: AbortSignal): Promise<string[] | undefined> {
+    if (this.held && !typedDuringTask()) return this.held.then(() => this.editLines(heading, hint, lines, signal));
     this.yieldSlot();
     if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant(); this.activity = undefined;
@@ -806,12 +822,12 @@ private updateSpinner(): void {
     const finish = (edited: string[] | undefined) => {
       if (settled) return; settled = true;
       signal?.removeEventListener("abort", cancel);
-      this.pendingEdit = undefined; this.editHeading = [];
+      this.pendingEdit = undefined; this.editHeading = []; this.editGivesWay = false;
       this.restoreSetAside(draft, draftPastes); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(edited);
     };
     const cancel = () => finish(undefined);
     this.attention();
-    this.pendingEdit = finish;
+    this.pendingEdit = finish; this.editGivesWay = typedDuringTask();
     this.editHeading = [this.accent(terminalText(heading)), this.muted(terminalText(hint))];
     this.editor.setText(lines.map(line => terminalText(line).replace(/\s+/g, " ")).join("\n"));
     this.configureAutocomplete(); this.updateSpinner(); this.render();
@@ -910,8 +926,15 @@ private updateSpinner(): void {
     if (text) this.pendingAsk?.([text]);
   }
 
-  /** A picker that gives way: an approval or question that opens while it is mounted closes it first. */
-  private yieldSlot(): void {
+  /** A picker that gives way: an approval or question that opens while it is mounted closes it first. So does a question
+   * or list edit a command typed during a task opened, for any box but that command's own. */
+  private yieldSlot(always = false): void {
+    if (!always && typedDuringTask()) return;
+    this.yielding = true;
+    try {
+      if (this.pendingAsk && this.askGivesWay) this.pendingAsk(undefined);
+      if (this.pendingEdit && this.editGivesWay) this.pendingEdit(undefined);
+    } finally { this.yielding = false; }
     const close = this.slotYield;
     if (!this.slot || !close) return;
     this.slotYield = undefined; this.slot = undefined;
@@ -919,10 +942,21 @@ private updateSpinner(): void {
     this.updateSpinner();
     this.tui.setFocus(this.editor);
   }
+  /** yieldSlot is closing a command's question for the task's box. */
+  private yielding = false;
 
-  /** `onYield`: the picker gives way to an approval or question (it must then close itself); see yieldSlot. */
+  /** A command typed during a task holds the screen for a private box: the task's boxes wait for `release`. */
+  private hold(): () => void {
+    const { promise, resolve } = Promise.withResolvers<void>();
+    this.held = promise;
+    return () => { if (this.held === promise) this.held = undefined; resolve(); };
+  }
+
+  /** `onYield`: the picker gives way to an approval or question (it must then close itself); see yieldSlot. One that
+   * can't give way (a private box for a key), opened by a command typed during a task, makes the task's boxes wait. */
   exclusiveHost(options: { onYield?: () => void } = {}): RuntimeModelPickerHost | undefined {
     if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || !this.started) return undefined;
+    const holds = typedDuringTask() && !options.onYield;
     const claim = () => {
       if (this.closed || this.slot || this.lending || this.approvalOpen) throw new Error("Terminal input is unavailable.");
       this.endAssistant();
@@ -930,6 +964,7 @@ private updateSpinner(): void {
     return {
       run: async operation => {
         claim();
+        const release = holds ? this.hold() : undefined;
         this.lending = true; this.terminal.suspendInput(); this.updateSpinner(); this.render();
         try {
           return await operation({ input: this.io.input, color: this.io.color, onEOF: () => this.close(),
@@ -937,16 +972,19 @@ private updateSpinner(): void {
             show: component => { this.slot = component; this.updateSpinner(); this.render(); },
             requestRender: () => this.render() });
         } finally {
+          release?.();
           this.slot = undefined; this.lending = false; this.updateSpinner();
           if (!this.closed) { this.terminal.resumeInput(); this.tui.setFocus(this.editor); this.render(); }
         }
       },
       mount: async operation => {
         claim();
+        const release = holds ? this.hold() : undefined;
         const view: RuntimePickerView = { tui: this.tui, color: this.io.color, onEOF: () => this.close(),
           show: component => { this.slot = component; this.slotYield = options.onYield; this.updateSpinner(); this.render(); } };
         try { return await operation(view); }
         finally {
+          release?.();
           this.slot = undefined; this.slotYield = undefined; this.updateSpinner();
           if (!this.closed) { this.tui.setFocus(this.editor); this.render(); }
         }

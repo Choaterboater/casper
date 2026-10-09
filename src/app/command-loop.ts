@@ -23,8 +23,9 @@ import { newProjectFlowWithAbort, openProjectFolder, newProjectCommand } from ".
 import { rebindWorkspace } from "./session-branches";
 import { runModelTask, runSuggestion } from "./task-run";
 import { parseRequestWords } from "./request-words";
-import { askSideQuestion, sideQuestionsOn, sideQuestionText } from "./side-question";
+import { askSideQuestion, BTW_USAGE, btwQuestion, sideQuestionsOn, sideQuestionText } from "./side-question";
 import { applyWeb } from "./wiring";
+import { typedDuringTask } from "../tui/give-way";
 import { checkSignIn } from "./runtime-start";
 import { reloadProject } from "./project-file";
 
@@ -85,7 +86,9 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promi
     }
 
     // A side question ("? what does ECONNRESET mean"): a separate answer, never part of the conversation.
-    const side = sideQuestionsOn(app) ? sideQuestionText(prompt, pasted) : undefined;
+    // /btw <question> is the same, and asks even with side questions off (it is typed on purpose).
+    const side = btwQuestion(prompt) ?? (sideQuestionsOn(app) ? sideQuestionText(prompt, pasted) : undefined);
+    if (side === "") { app.output.write(`${BTW_USAGE}\n`); continue; }
     if (side !== undefined) {
       await askSideQuestion(app, side);
       continue;
@@ -195,6 +198,8 @@ export function handleSlashCommand(app: CasperApp, typed: string): Promise<Verif
   if (/^\/suggestions(?:\s|$)/.test(prompt)) {
     return app.suggestions.command(prompt.slice(12).trim(), app.projectContext).then((text) => { app.output.write(text); return undefined; });
   }
+  const btw = btwQuestion(prompt);
+  if (btw !== undefined) { if (btw) return askSideQuestion(app, btw).then(() => undefined); app.output.write(`${BTW_USAGE}\n`); return Promise.resolve(undefined); }
   if (prompt.startsWith(`${SUGGESTION_COMMAND} `) || prompt === SUGGESTION_COMMAND) return runSuggestion(app, prompt.slice(SUGGESTION_COMMAND.length).trim());
   const undoCommand = /^\/(undo|redo|diff|receipt)(?:\s+(.*))?$/.exec(prompt);
   if (undoCommand) return runUndoCommand(app, undoCommand[1] as "undo" | "redo" | "diff" | "receipt", (undoCommand[2] ?? "").trim());
@@ -225,14 +230,16 @@ export async function runUndoCommand(app: CasperApp, command: "undo" | "redo" | 
  * `only` (/theme): that one row's question. */
 export function settingsCommand(app: CasperApp, only?: string): Promise<void> {
   return runSettings({
-    output: app.output, homeDir: () => app.homeDir(), canAsk: app.interactive && app.terminal.canAsk,
+    output: app.output, homeDir: () => app.homeDir(), canAsk: app.interactive && app.terminal.canAsk, duringTask: typedDuringTask(),
     context: async () => app.projectContext, mcp: () => app.mcp,
     reload: async () => {
       const before = app.projectContext;
       if (!before) return;
       try { await reloadProject(app, { own: true }); } catch { return; }
       if (!app.projectContext) return;
-      applyWeb(app, app.projectContext);
+      // Web lookups are made again only when their settings changed. A running task's web tools keep the old lookup
+      // (it closes when Casper quits), so changing the theme mid-task never stops the task's web lookups.
+      if (JSON.stringify(app.projectContext.web) !== JSON.stringify(before.web)) applyWeb(app, app.projectContext, { keepOld: typedDuringTask() });
       // A new default for the work shown replaces this session's /details choice.
       if (app.projectContext.display !== before.display) app.displayChoice = undefined;
     },

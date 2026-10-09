@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { CasperApp } from "../src/app";
-import { sideQuestionText } from "../src/app/side-question";
+import { btwQuestion, sideQuestionText } from "../src/app/side-question";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEventListener, RuntimeSession } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
@@ -160,6 +160,34 @@ test("off switch: sideQuestions: false makes a ? line an ordinary request", asyn
     await f.idleAfter("Done.");
     expect(f.prompts[0]).toContain("? what does ECONNRESET mean");
     expect(f.asked).toEqual([]);
+  } finally { await f.cleanup(); }
+});
+
+test("/btw <question> is a side question; bare /btw says how to ask; other lines are not", () => {
+  expect(btwQuestion("/btw what does ECONNRESET mean")).toBe("what does ECONNRESET mean");
+  expect(btwQuestion("  /btw   why  ")).toBe("why");
+  expect(btwQuestion("/btw")).toBe("");
+  for (const line of ["/btwx", "btw why", "? why", "/help btw"]) expect(btwQuestion(line)).toBeUndefined();
+});
+
+test("/btw asks the side model idle and during work, and still does with sideQuestions: false (it is typed on purpose)", async () => {
+  const f = await fixture("sideQuestions: false\n");
+  try {
+    f.input.write("/btw what does ECONNRESET mean\r");
+    await f.until((text) => text.includes("The other end closed the connection."));
+    expect(f.asked.map((call) => call.user)).toEqual(["what does ECONNRESET mean"]);
+    expect(f.prompts).toEqual([]);
+    f.hold();
+    f.input.write("fix the login bug\r");
+    await f.until(() => f.prompts.length === 1);
+    f.input.write("/btw is ECONNRESET a server error\r");
+    await f.until(() => f.asked.some((call) => call.user === "is ECONNRESET a server error"));
+    expect(f.steered).toEqual([]);
+    f.input.write("/btw\r");
+    await f.until((text) => text.includes("Type /btw and your question"));
+    f.release();
+    await f.idleAfter("Done.");
+    expect(f.prompts.join("\n")).not.toContain("ECONNRESET");
   } finally { await f.cleanup(); }
 });
 

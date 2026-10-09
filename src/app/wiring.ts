@@ -154,9 +154,10 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   return { project, context, registry, mcp: app.mcp, visualization: app.visualization, lspConfiguration, referenceConfiguration };
 }
 
-/** Web lookups never ask: the checks in src/web/url.ts hold instead. Off only with your own setting (/settings). */
-export function applyWeb(app: CasperApp, context: ProjectContext): void {
-  app.web?.close();
+/** Web lookups never ask: the checks in src/web/url.ts hold instead. Off only with your own setting (/settings).
+ * `keepOld`: a running task's tools still use the old lookup; it closes with the session instead of now. */
+export function applyWeb(app: CasperApp, context: ProjectContext, options: { keepOld?: boolean } = {}): void {
+  if (!options.keepOld) app.web?.close();
   const web = context.web ?? DEFAULT_WEB;
   const loginFile = path.join(casperAgentDir(), "auth.json");
   app.web = web.enabled ? new WebLookup({ provider: webProvider(web, loginFile), loginValues: loginValuesFrom(loginFile), ...app.webSeams }) : undefined;

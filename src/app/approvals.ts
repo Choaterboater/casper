@@ -13,11 +13,19 @@ import type { ConfirmCapability, ConfirmKind } from "../capabilities/broker";
 import type { RuntimeTool } from "../runtime/types";
 import { NO, YES_ONCE, YES_SESSION } from "./safe-choices";
 import { PRODUCT_LABELS } from "../mcp/network/logins";
+import { typedDuringTask } from "../tui/give-way";
 
+/** Boxes one at a time. A command typed during a task waits for the boxes already queued, then asks outside the queue,
+ * so the task's next approval or question is never stuck behind it: that box closes the command's (src/tui/surface.ts). */
 export function oneAtATime<T>(app: CasperApp, work: () => Promise<T>): Promise<T> {
+  if (typedDuringTask()) return queueIdle(app).then(work);
   const next = app.approvalQueue.then(work, work);
   app.approvalQueue = next.catch(() => {});
   return next;
+}
+
+async function queueIdle(app: CasperApp): Promise<void> {
+  for (let queue = app.approvalQueue; ; queue = app.approvalQueue) { await queue; if (queue === app.approvalQueue) return; }
 }
 
 /** One numbered answer from the user (never the model), in the same one-at-a-time queue as approvals. */

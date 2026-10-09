@@ -17,6 +17,8 @@ export interface SettingsHost {
   homeDir(): string;
   /** A person can answer a numbered question here (an interactive session). */
   readonly canAsk: boolean;
+  /** /settings was typed while a task runs. */
+  readonly duringTask?: boolean;
   context(): Promise<ProjectContext | undefined>;
   /** The MCP servers, for the sandbox line of each one Casper has a profile for. */
   mcp?(): Pick<MCPManager, "status" | "setSandbox"> | undefined;
@@ -31,7 +33,16 @@ interface Choice { label: string; keys: string[] | ((home: string) => Promise<st
   description?: string;
   /** Saved some other way than in config.yaml (the MCP sandbox, in ~/.casper/mcp-sandbox.json). */
   apply?: () => Promise<unknown> }
-interface Setting { label: string; value: string; question: string; keep: string; choices: Choice[]; savedIn?: string }
+/** When a change reaches a running task: its next step, or only the next task (the tools are made once per task).
+ * Unset: it applies now and has nothing to do with the task, or its question says from the next start. */
+type Applies = "step" | "task";
+interface Setting { label: string; value: string; question: string; keep: string; choices: Choice[]; savedIn?: string; applies?: Applies }
+
+/** The note after a change typed during a task. */
+const DURING_TASK: Record<Applies, string> = {
+  step: " The running task uses it from its next step.",
+  task: " The running task keeps what it had; your next request uses it.",
+};
 
 const SPEND_AMOUNTS = [2, 5, 20];
 const DISPLAY_WORDS: Record<DisplayLevel, string> = {
@@ -54,10 +65,10 @@ async function visualizeKeys(home: string): Promise<string[]> {
 }
 
 /** A plain on/off row: 1 keeps it as it is, 2 flips it. `them` for a plural (suggestions, page checks). */
-function onOffRow(label: string, on: boolean, question: string, keys: Choice["keys"], them = false): Setting {
+function onOffRow(label: string, on: boolean, question: string, keys: Choice["keys"], them = false, applies?: Applies): Setting {
   const now = on ? "on" : "off";
   const it = them ? "them" : "it";
-  return { label, value: now, question: `${question} ${them ? "They are" : "It is"} ${now}.`, keep: `Keep ${it} ${now}`,
+  return { label, value: now, ...(applies ? { applies } : {}), question: `${question} ${them ? "They are" : "It is"} ${now}.`, keep: `Keep ${it} ${now}`,
     choices: [{ label: on ? `Turn ${it} off` : `Turn ${it} on`, keys, value: !on, shown: on ? "off" : "on" }] };
 }
 
@@ -85,7 +96,7 @@ const SHOW_PAGES_WORDS: Record<ShowPagesSetting, { value: string; choice: string
 
 /** After a UI change Casper saves page screenshots (no tokens); this says whether a model that sees pictures gets them. */
 function showPagesRow(now: ShowPagesSetting): Setting {
-  return { label: "Show the AI the pages", value: SHOW_PAGES_WORDS[now].value,
+  return { label: "Show the AI the pages", value: SHOW_PAGES_WORDS[now].value, applies: "step",
     question: `Showing the AI the page screenshots after a UI change: ${SHOW_PAGES_WORDS[now].value}. Only a model that sees pictures gets them, and each look uses tokens.`,
     keep: `Keep ${SHOW_PAGES_WORDS[now].value}`,
     choices: SHOW_PAGES_SETTINGS.filter((setting) => setting !== now)
@@ -126,21 +137,21 @@ export function settingRows(context: ProjectContext): Setting[] {
   const amount = (dollars: number | undefined) => dollars === undefined ? "off" : `at ${formatLimit(dollars)} a task`;
   const money = (key: "noteAt" | "pauseAt", label: string, verbs: [off: string, on: string], about: string): Setting => {
     const now = spend[key];
-    return { label, value: amount(now), question: `${label} ${now === undefined ? verbs[0] : verbs[1]} ${amount(now)}. ${about}`,
+    return { label, value: amount(now), applies: "task", question: `${label} ${now === undefined ? verbs[0] : verbs[1]} ${amount(now)}. ${about}`,
       keep: `Keep ${now === undefined ? "it off" : `${formatLimit(now)}`}`,
       choices: [...(now === undefined ? [] : [{ label: "Turn it off", keys: ["spend", key], value: false, shown: "off" }]),
         ...SPEND_AMOUNTS.filter((dollars) => dollars !== now).map((dollars) => ({ label: `${formatLimit(dollars)} a task`, keys: ["spend", key], value: dollars, shown: amount(dollars) }))] };
   };
   return [
-    { label: "Web lookups", value: web.enabled ? `on (${PROVIDER_LABELS[web.provider]})` : "off",
+    { label: "Web lookups", value: web.enabled ? `on (${PROVIDER_LABELS[web.provider]})` : "off", applies: "task",
       question: `Web lookups are ${web.enabled ? `on (${PROVIDER_LABELS[web.provider]})` : "off"}.`, keep: `Keep them ${web.enabled ? "on" : "off"}`,
       choices: [web.enabled ? { label: "Turn them off", keys: webKeys, value: false, shown: "off" } : { label: "Turn them on", keys: webKeys, value: true, shown: "on" }] },
     onOffRow("Browser tool", context.browser !== false,
-      "The AI's own browser opens pages and reads them when a task needs it. The page checks after a change still run when it is off.", ["browser"]),
+      "The AI's own browser opens pages and reads them when a task needs it. The page checks after a change still run when it is off.", ["browser"], false, "task"),
     onOffRow("Starter templates", context.templates !== false,
-      "In an empty folder, a first request that fits a template (a NOC dashboard, an MCP server) is built from it for you, with one line saying so. Off: the AI builds it from scratch.", ["templates"]),
+      "In an empty folder, a first request that fits a template (a NOC dashboard, an MCP server) is built from it for you, with one line saying so. Off: the AI builds it from scratch.", ["templates"], false, "task"),
     onOffRow("Diagram tool", context.diagrams !== false,
-      "The AI draws a diagram when you ask for a map, chart or flow. /visualize, typed by you, still works when it is off.", visualizeKeys),
+      "The AI draws a diagram when you ask for a map, chart or flow. /visualize, typed by you, still works when it is off.", visualizeKeys, false, "task"),
     { label: "New-version notice", value: context.updates === false ? "off" : "on",
       question: `The line that says a newer Casper is out is ${context.updates === false ? "off" : "on"}.`, keep: `Keep it ${context.updates === false ? "off" : "on"}`,
       choices: [context.updates === false ? { label: "Turn it on", keys: ["updates"], value: true, shown: "on" } : { label: "Turn it off", keys: ["updates"], value: false, shown: "off" }] },
@@ -158,7 +169,7 @@ export function settingRows(context: ProjectContext): Setting[] {
       choices: [context.skills.bundled === false ? { label: "Turn them on", keys: ["skills", "bundled"], value: true, shown: "on" }
         : { label: "Turn them off", keys: ["skills", "bundled"], value: false, shown: "off" }] },
     onOffRow("GitHub tool", context.github !== false,
-      "The AI reads this repo's pull requests and CI through GitHub's gh tool when you ask, after your yes for the repo. It never sees your GitHub login. It re-runs failed checks only after another yes.", ["github"]),
+      "The AI reads this repo's pull requests and CI through GitHub's gh tool when you ask, after your yes for the repo. It never sees your GitHub login. It re-runs failed checks only after another yes.", ["github"], false, "task"),
     onOffRow("Packs", context.packs !== false,
       "Skill packs you added with /pack add. Their skills cost no tokens until a request fits one. A change applies from the next start.", ["packs"], true),
     money("noteAt", "Spend notes", ["are", "come"], "A quiet line says what a task has spent; it never stops the task."),
@@ -169,32 +180,32 @@ export function settingRows(context: ProjectContext): Setting[] {
       ["localModels"], true),
     onOffRow("Page checks", context.pageChecks !== false,
       "After a UI change Casper opens the changed pages in its own browser and checks they load, in every project. A project file can turn them off for itself, not back on.",
-      ["pages"], true),
+      ["pages"], true, "task"),
     showPagesRow(context.showPages ?? "ask"),
     { label: "Work shown", value: display, question: `Work shown: ${display} (${DISPLAY_WORDS[display]}).`, keep: `Keep ${display}`,
       choices: (["quiet", "normal", "detailed"] as const).filter((level) => level !== display)
         .map((level) => ({ label: `${level[0]!.toUpperCase()}${level.slice(1)}`, keys: ["display"], value: level, shown: level })) },
     themeRow(context.theme),
-    { label: "Untrusted-text reader", value: reader.enabled ? "on" : "off",
+    { label: "Untrusted-text reader", value: reader.enabled ? "on" : "off", applies: "task",
       question: `The untrusted-text reader (casper_read_untrusted) is ${reader.enabled ? "on" : "off"}. It reads logs, mail and forms with a separate model that has no tools, and costs tokens only when the AI uses it.`,
       keep: `Keep it ${reader.enabled ? "on" : "off"}`,
       choices: [reader.enabled ? { label: "Turn it off", keys: readerKeys, value: false, shown: "off" } : { label: "Turn it on", keys: readerKeys, value: true, shown: "on" }] },
-    { label: "Helpers that build", value: build ? "on" : "off",
+    { label: "Helpers that build", value: build ? "on" : "off", applies: "task",
       question: `Helpers that build are ${build ? "on" : "off"}. For a big job with separate parts the AI may start up to 3 builders; each works in its own copy of the project and its change lands in your folder when it ends. They use tokens.`,
       keep: `Keep them ${build ? "on" : "off"}`,
       choices: [build ? { label: "Turn them off", keys: ["delegate", "build"], value: false, shown: "off" }
         : { label: "Turn them on", keys: ["delegate", "build"], value: true, shown: "on" }] },
-    { label: "Playwright tests", value: e2e ? "on" : "off",
+    { label: "Playwright tests", value: e2e ? "on" : "off", applies: "task",
       question: `Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are ${e2e ? "on" : "off"}.`,
       keep: `Keep them ${e2e ? "on" : "off"}`,
       choices: [e2e ? { label: "Turn them off", keys: ["verification", "e2e"], value: false, shown: "off" }
         : { label: "Turn them on", keys: ["verification", "e2e"], value: true, shown: "on" }] },
     onOffRow("Send Casper's name to OpenRouter", context.telemetry !== false,
       "On OpenRouter requests Casper sends only the app name and site, so OpenRouter files the use under Casper (kept out of its public rankings for now); nothing about your code. CASPER_TELEMETRY=0 turns it off too.",
-      ["telemetry"]),
+      ["telemetry"], false, "step"),
     onOffRow("Private ssh passwords", context.sshLogin !== false,
       "When ssh you allowed asks for a password or key passphrase, Casper shows its own hidden box (1 No, 2 Yes once, 3 Yes for this session). The AI never sees what you type. Off: ssh gets no box and a login that needs a password fails.",
-      ["ssh_login"]),
+      ["ssh_login"], false, "step"),
   ];
 }
 
@@ -258,7 +269,9 @@ export async function runSettings(host: SettingsHost, signal?: AbortSignal, only
       return;
     }
     await host.reload();
-    host.output.write(`[settings] ${row.label}: ${choice.shown}. Saved in ${row.savedIn ?? USER_CONFIG}.\n`);
+    // Typed during a task: says when the change reaches it (nothing for one that applies now or from the next start).
+    const task = host.duringTask && row.applies ? DURING_TASK[row.applies] : "";
+    host.output.write(`[settings] ${row.label}: ${choice.shown}. Saved in ${row.savedIn ?? USER_CONFIG}.${task}\n`);
     if (only) return;
   }
 }
