@@ -17,13 +17,13 @@ bun, root = sys.argv[1:]
 repo = pathlib.Path(__file__).resolve().parents[2]
 s = module.Session(bun, repo, root, app="tools/terminal-demo.ts")
 try:
-    s.until("ctx 28% (fixture)")
+    s.until("ctx 28%~")
     s.send("/model\n")
-    s.until("Model · offline synthetic choices")
+    s.until("All models")
     s.send("\x1b[B\n")
     s.until("Demo state: model=fixture/beta")
     s.send("/effort\n")
-    s.until("Effort · offline synthetic choices")
+    s.until("Reasoning effort")
     s.send("\x1b[B\n")
     s.until("effort=high")
     # Real terminal resize, not just a callback on an in-memory writer.
@@ -32,7 +32,7 @@ try:
     os.kill(s.process.pid, signal.SIGWINCH)
     s.pump(0.2)
     s.send("try the fixture\n")
-    s.until("synthetic")
+    s.until("src/example.ts")
     s.send("\x1b")
     s.until("Synthetic work cancelled")
     # Enter while the cancelled work still winds down only keeps a draft: wait for the prompt first.

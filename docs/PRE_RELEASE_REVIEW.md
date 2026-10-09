@@ -46,6 +46,9 @@ judgement calls:
    documented as Pi-0.85.1-specific. Existing production picker regressions remain;
    an upstream upgrade requires layout revalidation. No speculative wrapper or
    plugin framework was added merely to relocate those same assumptions.
+   **Later:** `/model` became Casper's own model browser (`src/runtime/pi-model-browser.ts`).
+   It no longer edits a Pi selector's children; `tests/pi-picker-coupling.test.ts` pins its
+   rows and keys and the Pi keybindings and catalog refresh result it uses.
 
 ## Spec
 
@@ -132,7 +135,8 @@ Raw diagnostic evidence remains local rather than entering release assets.
   and effort, allowance, credential/configuration isolation and authorization.
 - The evaluation preparation-cleanup leak was reserved for a frozen repair pilot
   at the time of this review. That reservation is closed; do not refreeze it.
-- Pi's version-specific picker integration remains an upgrade revalidation point.
+- Pi's version-specific picker integration remains an upgrade revalidation point (now the
+  keybindings, search and catalog refresh that `tests/pi-picker-coupling.test.ts` pins).
 - Select a new version and validate its rebuilt assets before any release. Published
   v0.1.0 binaries/tags remain unchanged; there was no commit, push or publication.
 

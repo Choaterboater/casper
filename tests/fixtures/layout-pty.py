@@ -186,7 +186,7 @@ def main():
     s = Session([bun, str(repo / "tools/terminal-demo.ts")], str(repo), env)
     ok = True
     try:
-        s.until("ctx 28% (fixture)")
+        s.until("ctx 28%~")
         ok &= check("startup", s, [one_prompt_box(s), ("CASPER · OFFLINE" in s.vt.everything(), "banner visible")])
         # The startup viewport clear is Casper's own; every later phase must emit none.
         startup_clears = s.vt.clear_screen_count
@@ -206,9 +206,9 @@ def main():
         ok &= check("command popup opened and closed three times", s, settle(s, lambda: [one_prompt_box(s),
             (s.footer_row() == footer, f"footer moved {footer} -> {s.footer_row()}: content crept upward"),
             ("Change model" not in s.vt.screen(), "popup rows restored to transcript")]))
-        s.send("/effort\n"); s.until("Effort · offline synthetic choices")
+        s.send("/effort\n"); s.until("Reasoning effort")
         ok &= check("picker open", s, [
-            ("Effort · offline synthetic choices" in s.vt.screen(), "picker visible"),
+            ("Reasoning effort" in s.vt.screen(), "picker visible"),
             ("prompt 0" in s.vt.everything(), "transcript retained while picker is open"),
             # Casper clears the viewport once at startup; pickers must never clear mid-session.
             (s.vt.clear_screen_count == startup_clears, "opening a picker must not clear the screen")])
