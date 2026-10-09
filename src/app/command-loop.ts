@@ -236,7 +236,7 @@ export function settingsCommand(app: CasperApp, only?: string): Promise<void> {
       // A new default for the work shown replaces this session's /details choice.
       if (app.projectContext.display !== before.display) app.displayChoice = undefined;
     },
-    ask: async (question, options, signal) => (await app.terminal.ask(question, options, false, signal))?.[0],
+    ask: (question, options, signal) => app.terminal.pick(question, options, signal),
   }, app.commandAbort?.signal, only);
 }
 
@@ -245,7 +245,7 @@ export async function previewCommand(app: CasperApp, args: string): Promise<void
   const context = app.projectContext;
   return runPreview({
     output: app.output, canAsk: app.interactive && app.terminal.canAsk,
-    ask: async (question, options, signal) => (await app.terminal.ask(question, options, false, signal))?.[0],
+    ask: (question, options, signal) => app.terminal.pick(question, options, signal),
     manager: () => serviceManager(app),
     webService: async () => {
       const found = context ? await detectWebService(app.activeWorkspaceRoot(), { frameworks: context.model.frameworks,

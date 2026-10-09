@@ -17,12 +17,12 @@ test("the WRITES badge leads the footer and is never cut off, even 30 columns wi
     surface.start();
     surface.setStatus("project/main │ provider/model · effort high │ ctx 12% │ idle", process.cwd());
     expect(surface.footerLine(80)).not.toContain("WRITES");
-    surface.setBadge("WRITES: aruba-central · ctrl+o");
-    expect(surface.footerLine(80)).toStartWith("WRITES: aruba-central · ctrl+o project/main");
+    surface.setBadge("WRITES: aruba-central · Ctrl+O");
+    expect(surface.footerLine(80)).toStartWith("WRITES: aruba-central · Ctrl+O project/main");
     expect(surface.footerLine(30)).toContain("WRITES");
-    expect(surface.footerLine(30)).toContain("ctrl+o");
+    expect(surface.footerLine(30)).toContain("Ctrl+O");
     const answer = surface.approve("Run it?\n", "Make this change?", [{ label: "No" }, { label: "Yes, this once" }]);
-    expect(surface.footerLine(80)).toStartWith("WRITES: aruba-central · ctrl+o ? waiting for you");
+    expect(surface.footerLine(80)).toStartWith("WRITES: aruba-central · Ctrl+O ? waiting for you");
     surface.setBadge(undefined);
     expect(surface.footerLine(80)).not.toContain("WRITES");
     surface.close();

@@ -26,7 +26,7 @@ Never paste keys or tokens into chat.
 `;
 
 /** The keys, in /help all and /hotkeys. */
-export const KEYS_HELP = "Esc stops work. Ctrl-C cancels work; idle, it clears a draft; twice on empty exits. Shift+Tab cycles effort. Ctrl+T shows the last step in full (an edit's diff, a command's output). Ctrl+O turns MCP writes off. Ctrl+L redraws the screen. Ctrl+V (Alt+V on Windows) pastes a picture from the clipboard as [image 1], or the path of a file you copied in Finder, Explorer or a file manager (a picture file goes with the request); a dropped picture file works too. Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history. Tab completes commands and file paths (@). Enter during work sends your line to the AI (it reads it at its next step) or queues it for after the task; Esc gives queued lines back. A queued line never answers an approval.";
+export const KEYS_HELP = "Esc stops work. Ctrl+C cancels work; idle, it clears a draft; twice on empty exits. Shift+Tab cycles effort. Ctrl+T shows the last step in full (an edit's diff, a command's output). Ctrl+O turns MCP writes off. Ctrl+L redraws the screen. Ctrl+V (Alt+V on Windows) pastes a picture from the clipboard as [image 1], or the path of a file you copied in Finder, Explorer or a file manager (a picture file goes with the request); a dropped picture file works too. Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history. Tab completes commands and file paths (@). Enter during work sends your line to the AI (it reads it at its next step) or queues it for after the task; Esc gives queued lines back. A queued line never answers an approval.";
 
 /** /hotkeys: the keys, one sentence a line. */
 export const HOTKEYS_TEXT = `Keys:\n${KEYS_HELP.split(/(?<=\.) (?=[A-Z])/).map((sentence) => `  ${sentence}`).join("\n")}\n`;
@@ -157,7 +157,7 @@ Local commands:
   /mcp disconnect <name>            Disconnect and revoke consent for this process
   /mcp reload                       Re-read MCP files; changed servers need consent again
   /mcp writes <name>                Turn writes on for one server (you pick 2 in the box)
-  /mcp writes off                   Writes off for every server (ctrl+o does the same)
+  /mcp writes off                   Writes off for every server (Ctrl+O does the same)
   /mcp allow <name> [off]           Pick which risky change kinds (firmware, delete, admin) a server may make; off goes back to the defaults
   /mcp forget <name>                Forget a remembered server; Casper asks again next time (remove is the same)
   /mcp junos-show <name> on|off     Let plain Junos show commands run without asking
@@ -207,7 +207,7 @@ Shift+Tab cycles auto and the model's supported levels and saves the level it st
 /effort auto lets Casper pick per request: low for reading/explaining/diagrams, medium for tests and configuration, high for fixes, features and refactors, from the model's supported levels.
 Context is estimated and may be unavailable; cost estimates are not subscription billing.
 /clear keeps saved conversations and workspace files. /resume takes the start of an ID; /switch uses workspace names.
-Esc/Ctrl-C cancel the picker. Plain/redirected terminals list models; use an exact ID to select.
+Esc or Ctrl+C cancels the picker. Plain/redirected terminals list models; use an exact ID to select.
 Restored conversations keep their model; a missing or unavailable model blocks sending.
 Without a restored selection or Casper default, choose with /model; there is no other fallback.
 Switching provider sends the rest of the conversation to that provider.
@@ -223,7 +223,7 @@ Exit 0 does not certify behavior beyond the checks; /receipt shows scope and fre
 MCP connection runs a configured program or contacts its URL. Review its source first.
 Casper's network server runs in the sandbox where one runs: it reaches only your login hosts, writes only its cache, and can't read your keys, ~/.casper or projects (/mcp sandbox network off). Other servers run as they are; /mcp says which.
 Servers from ~/.claude.json, ~/.mcp.json and VS Code are listed too; each needs /mcp connect once.
-Every MCP server starts with writes off. ${WRITES_OFF_MEANING} /mcp writes <name> turns writes on; ctrl+o turns them off again. A remembered server always starts with writes off.
+Every MCP server starts with writes off. ${WRITES_OFF_MEANING} /mcp writes <name> turns writes on; Ctrl+O turns them off again. A remembered server always starts with writes off.
 A login is read-only only when the product says so (access_check); labels only make things stricter.
 MCP changes ask you in a numbered box; one-shot runs can't ask, so they are refused. The AI can't approve.
 Known device secrets (passwords, keys, SNMP communities) in MCP results, config files and config-like command output are shown to the AI as <secret hidden> (best effort, known formats only); a change that carries the marker back is refused. See docs/SECRETS.md.

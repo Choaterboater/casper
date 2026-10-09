@@ -36,4 +36,4 @@ Press 1-2 or Up/Down + Enter · Esc is No
 
 # (pressed 2)
 
-[mcp] Writes on for fixture. Each change still asks you. ctrl+o turns writes off.
+[mcp] Writes on for fixture. Each change still asks you. Ctrl+O turns writes off.

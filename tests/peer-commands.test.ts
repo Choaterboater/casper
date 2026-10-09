@@ -40,7 +40,7 @@ test("the names every peer uses run here: /new is a new conversation, and the al
     "/logout [provider]", "/project new [name]", "/branch                           Show named conversations"]) expect(FULL_HELP_TEXT).toContain(entry);
   expect(FULL_HELP_TEXT).not.toContain("  /tree ");
   expect(FULL_HELP_TEXT).toContain(`Keys: ${KEYS_HELP}`);
-  expect(HOTKEYS_TEXT).toContain("\n  Esc stops work.\n  Ctrl-C cancels work; idle, it clears a draft; twice on empty exits.\n  Shift+Tab cycles effort.\n");
+  expect(HOTKEYS_TEXT).toContain("\n  Esc stops work.\n  Ctrl+C cancels work; idle, it clears a draft; twice on empty exits.\n  Shift+Tab cycles effort.\n");
 });
 
 test("code blocks of an answer, in order, without their fences", () => {

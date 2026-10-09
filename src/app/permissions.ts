@@ -67,7 +67,7 @@ export function permissionsScreen(view: PermissionsView): string {
     "  A check the sandbox blocks asks 'Run this project's checks outside the sandbox?' (not answered by /permissions all). To undo \"always\": /allowed forget <n>.",
     "",
     `Network devices (MCP): every server starts with writes off and each change asks. Writes on now: ${list(view.mcpWritesOn)}. Yes to everything on a product: ${list(view.mcpAllowAll)}.`,
-    "  To allow changes: answer 2, 3 or 4 in the change box, or /mcp writes <server> and /mcp allow <server> ahead of time. ctrl+o turns writes off everywhere.",
+    "  To allow changes: answer 2, 3 or 4 in the change box, or /mcp writes <server> and /mcp allow <server> ahead of time. Ctrl+O turns writes off everywhere.",
     "",
     `Switches (/settings): web lookups ${view.web ? "on" : "off"}, GitHub tool ${view.github ? "on" : "off"}. Fetching ripgrep ${view.downloads ? "on" : "off"} (tools: downloads: off in config).`,
     "",
