@@ -1487,7 +1487,7 @@ export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider
     const runtime = await host.acquireRuntime();
     host.commandAbort?.signal.throwIfAborted();
     if (!runtime.authenticate) { host.output.write("[login] This runtime does not support login.\n"); return false; }
-    const result = await runtime.authenticate({ provider, ...(list ? { list } : {}),
+    const result = await runtime.authenticate({ provider, ...(list ? { list } : {}), ...(host.projectContext?.otherLogins === false ? { others: false } : {}),
       terminalHost: picker, signal: host.commandAbort?.signal });
     if (result.status === "saved") {
       // Login never starts a conversation: with none open yet, the first request picks the model.

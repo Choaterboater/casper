@@ -79,6 +79,7 @@
           <li><a href="#next">Next release, built, not released</a>
             <ul>
               <li><a href="#next-commands">Commands any time during a task</a></li>
+              <li><a href="#other-logins">Sign-ins from other tools</a></li>
             </ul>
           </li>
           <li><a href="#coming">Planned, not started</a>
@@ -589,6 +590,14 @@
             <li><strong><code>/btw &lt;question&gt;</code></strong> asks a side question, like a line you start with
             <code>?</code>, and still works with side questions off.</li>
           </ul>
+        </article>
+        <article class="card" id="other-logins" aria-labelledby="other-logins-h">
+          <h3 id="other-logins-h">Sign-ins from other tools · a new computer needs no second sign-in <span class="badge soon">built, not released</span></h3>
+          <p><code>/login</code> offers what Claude Code, Codex CLI or GitHub CLI left on this computer:
+          <code>1 Use it · 2 Sign in separately · 3 Not now</code>. An API key is checked with its provider, then
+          copied. GitHub CLI's sign-in works for GitHub Copilot, and gh stays signed in. A Claude or ChatGPT plan
+          sign-in is never copied, because sharing it would sign the other tool out. Casper starts its own sign-in
+          to the same account instead. <strong>Sign-ins from other tools</strong> in <code>/settings</code> turns the offer off.</p>
         </article>
       </section>
 

@@ -27,6 +27,20 @@ async function fixture() {
   return { base, home, root };
 }
 
+test("the policy hides other tools' sign-in files that a folder setting moved out of home", async () => {
+  const { base, home, root } = await fixture();
+  const saved = { CODEX_HOME: process.env.CODEX_HOME, GH_CONFIG_DIR: process.env.GH_CONFIG_DIR };
+  try {
+    process.env.CODEX_HOME = path.join(base, "codex"); process.env.GH_CONFIG_DIR = path.join(base, "gh");
+    const policy = sandboxPolicy({ root, home, tempDirs: [TMP], platform: "linux" });
+    for (const file of [path.join(base, "codex", "auth.json"), path.join(base, "gh", "hosts.yml")]) {
+      expect(policy.denyRead).toContain(file);
+      expect(policy.denyWrite).toContain(file);
+    }
+    expect(policy.denyRead).not.toContain(path.join(base, "gh"));
+  } finally { for (const [name, value] of Object.entries(saved)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; } }
+});
+
 test("the policy hides every private place, writes only the project, temp and caches, and keeps git's own files read-only", async () => {
   const { home, root } = await fixture();
   const policy = sandboxPolicy({ root, home, tempDirs: [TMP], platform: "linux" });

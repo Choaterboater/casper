@@ -50,6 +50,7 @@ export const DEFAULT_MODELS: ReadonlyArray<{ provider: string; id: string }> = [
   { provider: "anthropic", id: "claude-opus-4-8" },
   { provider: "openai-codex", id: "gpt-5.5" },
   { provider: "github-copilot", id: "gpt-5.4" },
+  { provider: "openai", id: "gpt-5.5" },
 ];
 
 
