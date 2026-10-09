@@ -51,12 +51,14 @@ test("/allowed lists the saved prefixes, the exact commands and the session ones
   ]);
   expect(text).toContain("/allowed forget 3");
   expect(text).toContain("/allowed forget all");
+  expect(text).toContain("/permissions details shows everything Casper may do here");
 });
 
 test("with nothing allowed, /allowed says so and says how a yes gets here", async () => {
   const { store } = await fixture();
   const text = await run(store)("/allowed");
   expect(text).toContain("Nothing is allowed yet");
+  expect(text).toContain("/permissions details shows everything Casper may do here.");
   expect(text).not.toMatch(/^\s+1\. /m);
 });
 

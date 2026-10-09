@@ -5,7 +5,8 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import { CasperApp } from "../src/app";
 import { updateFooter } from "../src/app/footer";
-import { parsePermissions } from "../src/app/permissions";
+import { parsePermissions, permissionsScreen, permissionsSummary, type PermissionsView } from "../src/app/permissions";
+import { canonicalLine } from "../src/tui/commands";
 import { createSessionSandbox, runtimeShell, type SandboxHost } from "../src/app/sandbox";
 import { sandboxHost } from "../src/app/wiring";
 import { loadProjectContext } from "../src/project/context";
@@ -184,13 +185,52 @@ async function session(d: Awaited<ReturnType<typeof dirs>>, commands: string[], 
   return { output, badges: badges.filter((badge) => badge !== undefined) as string[] };
 }
 
-test("/permissions shows one screen: what is allowed, how to be asked less, how to turn everything on, what stays protected", async () => {
+test("/permissions is short: the state first, one line per kind, what stays protected, then the stop-asking box", async () => {
   const d = await dirs();
   const { output } = await session(d, ["/permissions"], []);
+  const screen = output.slice(output.indexOf("Asking is on:"), output.indexOf("Stop asking until you quit?"));
+  for (const line of ["Asking is on: Casper asks before", "  Shell: ", "  Other machines (ssh, scp): asks", "  Writes outside the project: asks · allowed: none · /permissions write <folder>",
+    "  Network devices (MCP): writes off", "Protected whatever you pick: ~/.ssh, ~/.casper", "/permissions details shows everything"]) {
+    expect(screen).toContain(line);
+  }
+  expect(screen.trim().split("\n").length).toBeLessThanOrEqual(12);
+  expect(screen).not.toContain("To turn everything on");
+  // The box follows, Keep asking first: Enter changes nothing, and the view says nothing more.
+  expect(output).toContain("1 Keep asking");
+  expect(output).toContain("Stop asking until you quit? → Keep asking");
+  expect(output).not.toContain("[permissions] Still asking.");
+});
+
+test("the short screen's Network devices line says which servers have writes on and which say Yes to everything", () => {
+  const view: PermissionsView = {
+    shell: "", scripts: "", asking: true, sandboxOn: false, outsideWritesAsk: true, commandsSession: 0, commandsSaved: 0, listedHosts: 0, rememberedHosts: [], reachHosts: [],
+    labDevices: 0, labAsks: undefined, checks: "ask", checksRemembered: false, writesForGood: [], writesSession: [], mcpWritesOn: [], mcpAllowAll: [],
+    web: true, github: true, sshLogin: true, downloads: true, show: (folder) => folder,
+  };
+  expect(permissionsSummary(view)).toContain("  Network devices (MCP): writes off · each change asks · /mcp writes <server>");
+  const on = permissionsSummary({ ...view, mcpWritesOn: ["central", "mist"], mcpAllowAll: ["central"] });
+  expect(on).toContain("  Network devices (MCP): writes on: central, mist · Yes to everything: central; other changes ask · /mcp writes <server>");
+  expect(on).not.toContain("writes off");
+  expect(permissionsSummary({ ...view, mcpWritesOn: ["central"] })).toContain("writes on: central · each change asks");
+});
+
+test("/permissions details is the full screen: every fact and every way to be asked less, with no box", async () => {
+  const d = await dirs();
+  const { output } = await session(d, ["/permissions details"], []);
   for (const line of ["What Casper may do here, and how to change it. Asking is on.", "To stop being asked about one command: answer 3", "Writes outside the project: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project)",
     "/permissions write <folder>", "To turn everything on: there is no single switch, on purpose.", "Protected whatever you pick: ~/.ssh, ~/.casper", "/verify and /services may execute project scripts"]) {
     expect(output).toContain(line);
   }
+  expect(output).not.toContain("Stop asking until you quit?");
+});
+
+test("answering 2 in the /permissions box stops asking, as /permissions all does", async () => {
+  const d = await dirs();
+  const { output, badges } = await session(d, ["/permissions", "/permissions"], ["2"]);
+  expect(output).toContain("[permissions] Not asking until you quit");
+  expect(output).toContain("Asking is OFF until you quit: shell commands, hosts, writes outside the project and other machines are answered Yes. /permissions ask turns it back on.");
+  expect(output.match(/Stop asking until you quit\?\n/g)).toHaveLength(1);
+  expect(badges.some((badge) => badge.includes("ASKING OFF · /permissions ask"))).toBe(true);
 });
 
 test("/permissions all asks 1 Keep asking · 2 Stop asking until I quit; 1 changes nothing, 2 turns it on with a marker, /permissions ask ends it", async () => {
@@ -199,16 +239,16 @@ test("/permissions all asks 1 Keep asking · 2 Stop asking until I quit; 1 chang
   expect(kept.output).toContain("Stop asking until you quit?");
   expect(kept.output).toContain("1 Keep asking");
   expect(kept.output).toContain("[permissions] Still asking.");
-  expect(kept.output).toContain("Asking is on.");
+  expect(kept.output).toContain("Asking is on:");
   expect(kept.badges.join("\n")).not.toContain("ASKING OFF");
   const on = await session(d, ["/permissions all", "/permissions", "/permissions ask", "/permissions"], ["2"]);
   expect(on.output).toContain("[permissions] Not asking until you quit");
-  expect(on.output).toContain("OFF until you quit (/permissions ask turns it back on)");
+  expect(on.output).toContain("Asking is OFF until you quit");
   expect(on.output).toContain("[permissions] Asking is on again.");
   expect(on.badges.some((badge) => badge.includes("ASKING OFF · /permissions ask"))).toBe(true);
   // It is memory only: a new session starts with asking on, and nothing was written.
   const again = await session(d, ["/permissions"], []);
-  expect(again.output).toContain("Asking is on.");
+  expect(again.output).toContain("Asking is on:");
   expect(await readdir(d.context.stateDirectory).catch(() => [])).not.toContain("permissions.json");
 });
 
@@ -236,13 +276,74 @@ test("the footer marker says asking is off and how to end it", async () => {
   await app.close();
 });
 
+test("asking off with the sandbox on: the Shell line says Yes until you quit too, not that other folders ask", () => {
+  const view: PermissionsView = {
+    shell: "", scripts: "", asking: false, sandboxOn: true, outsideWritesAsk: true, commandsSession: 0, commandsSaved: 0, listedHosts: 0, rememberedHosts: [], reachHosts: [],
+    labDevices: 0, labAsks: undefined, checks: "ask", checksRemembered: false, writesForGood: [], writesSession: [], mcpWritesOn: [], mcpAllowAll: [],
+    web: true, github: true, sshLogin: true, downloads: true, show: (folder) => folder,
+  };
+  const off = permissionsSummary(view);
+  expect(off).toContain("  Shell: in the sandbox (the project, temp and caches; other folders and hosts: Yes until you quit)");
+  expect(off).not.toContain("hosts ask)");
+  expect(permissionsSummary({ ...view, asking: true })).toContain("other folders and hosts: asks)");
+});
+
+test("with --no-sandbox or sandbox: off, writes outside the project don't ask, and the short and full screens say so", () => {
+  const view: PermissionsView = {
+    shell: "", scripts: "", asking: true, sandboxOn: false, sandboxReason: "--no-sandbox", shellAsks: false, outsideWritesAsk: false, commandsSession: 0, commandsSaved: 0, listedHosts: 0,
+    rememberedHosts: [], reachHosts: [], labDevices: 0, labAsks: undefined, checks: "ask", checksRemembered: false, writesForGood: [], writesSession: [], mcpWritesOn: [], mcpAllowAll: [],
+    web: true, github: true, sshLogin: true, downloads: true, show: (folder) => folder,
+  };
+  const short = permissionsSummary(view);
+  expect(short).toContain("Asking is on: Casper asks before other machines.");
+  expect(short).toContain("  Writes outside the project: doesn't ask (no sandbox)");
+  expect(short).not.toContain("Writes outside the project: asks");
+  const full = permissionsScreen(view);
+  expect(full).toContain("Writes outside the project: with the sandbox off they don't ask.");
+  expect(full).not.toContain("Writes outside the project: Casper asks");
+  // Where writes do ask (Windows, no sandbox but the file tools still ask), the line lists them.
+  expect(permissionsSummary({ ...view, shellAsks: true, outsideWritesAsk: true })).toContain("Asking is on: Casper asks before shell commands, writes outside the project and other machines.");
+});
+
+test("/permissions allow <folder> suggests write <folder>, and write and forget are any case", () => {
+  for (const typed of ["allow ~/apps/x", "Allow ~/apps/x", "allowall ~/apps/x", "allow-all ~/apps/x", "all ~/apps/x"]) {
+    expect(() => parsePermissions(`/permissions ${typed}`)).toThrow("Did you mean /permissions write ~/apps/x?");
+  }
+  expect(() => parsePermissions("/permissions allow ~/apps/x")).not.toThrow("/permissions all (it asks first)");
+  expect(parsePermissions("/permissions Write ~/apps/SomeApp")).toEqual({ kind: "write", folder: "~/apps/SomeApp" });
+  expect(parsePermissions("/permissions FORGET ~/apps/SomeApp")).toEqual({ kind: "forget", folder: "~/apps/SomeApp" });
+});
+
 test("the typed words parse, and anything else gets the usage line", () => {
   expect(parsePermissions("/permissions")).toEqual({ kind: "show" });
+  expect(parsePermissions("/permissions details")).toEqual({ kind: "details" });
   expect(parsePermissions("/permissions all")).toEqual({ kind: "all" });
   expect(parsePermissions("/permissions ask")).toEqual({ kind: "ask" });
   expect(parsePermissions("/permissions write ~/apps/SomeApp")).toEqual({ kind: "write", folder: "~/apps/SomeApp" });
   expect(parsePermissions('/permissions forget "my folder"')).toEqual({ kind: "forget", folder: "my folder" });
-  expect(() => parsePermissions("/permissions everything")).toThrow("Usage: /permissions | /permissions all|ask");
+  expect(() => parsePermissions("/permissions bogus")).toThrow("Usage: /permissions [details] | /permissions all|ask | /permissions write|forget <folder>");
+  expect(() => parsePermissions("/permissions bogus")).not.toThrow("Did you mean");
+});
+
+test("allowall and allow-all are /permissions all, which still asks first; a near word is suggested, never run", () => {
+  for (const typed of ["allowall", "allow-all", "AllowAll"]) expect(parsePermissions(`/permissions ${typed}`)).toEqual({ kind: "all" });
+  expect(canonicalLine("/permissions allowall")).toBe("/permissions all");
+  for (const typed of ["allo", "al", "yolo", "everything", "allow", "stop"]) {
+    expect(() => parsePermissions(`/permissions ${typed}`)).toThrow("Usage: /permissions [details] | /permissions all|ask | /permissions write|forget <folder>. Did you mean /permissions all (it asks first)?");
+  }
+  expect(() => parsePermissions("/permissions aks")).toThrow("Did you mean /permissions ask?");
+  expect(() => parsePermissions("/permissions detail")).toThrow("Did you mean /permissions details?");
+  expect(() => parsePermissions("/permissions forgot ~/x")).toThrow("Did you mean /permissions forget?");
+});
+
+test("a typo in a session prints the suggestion and changes nothing", async () => {
+  const d = await dirs();
+  const { output, badges } = await session(d, ["/permissions allo", "/permissions details"], []);
+  expect(output).toContain("[error] Usage: /permissions [details]");
+  expect(output).toContain("Did you mean /permissions all (it asks first)?");
+  expect(output).not.toContain("[permissions] Not asking");
+  expect(output).toContain("Asking is on.");
+  expect(badges.join("\n")).not.toContain("ASKING OFF");
 });
 
 test("/permissions write and forget say what happened in plain words, in a session", async () => {

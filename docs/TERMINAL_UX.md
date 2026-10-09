@@ -61,7 +61,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/verify [checks]`, `/verify repair`, `/verify add <name>` | Run the project's checks; repair failures; save a check Casper found ([VERIFICATION.md](VERIFICATION.md)) |
 | `/security-review` | Run the pinned security tools here, then offer an AI review (asks first; [SECURITY_CHECKS.md](SECURITY_CHECKS.md)) |
 | `/project <name>`, `/project new [name]` | Open a project folder inside this one; start a new project in ~/Projects (no model; [NEW.md](NEW.md)); `/project` alone is `/status` |
-| `/permissions` | What Casper may do here and how to be asked less. `/permissions all` stops the shell's questions until you quit (`1 Keep asking · 2 Stop asking until I quit`), `ask` turns them back on, `write <folder>` allows a folder outside the project, `forget <folder>` takes it back |
+| `/permissions` | A short screen: whether Casper is asking, one line per kind (state · how to change it) and what stays protected, then the box `Stop asking until you quit?` (`1 Keep asking · 2 Stop asking until I quit`; Enter keeps asking; no box during a task). `details` is the full screen. `all` (or `allowall`, `allow-all`) is the same box on its own, `ask` turns the questions back on, `write <folder>` allows a folder outside the project, `forget <folder>` takes it back. A mistyped word gets `Did you mean /permissions all (it asks first)?` and runs nothing |
 | `/sandbox`, `/sandbox forget <host>` | What the shell sandbox holds; forget a host you allowed |
 | `/allowed`, `/allowed forget <n, command or all>` | The shell commands you said yes to for this project (saved, and for this session); take one back |
 | `/lab`, `/lab import <file>` | Your lab devices; add more from a file ([NETWORK-CHECKS.md](NETWORK-CHECKS.md)) |
@@ -523,7 +523,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   seconds exits, any other key disarms it. Ctrl+D exits an empty editor at once.
   Ctrl+L forces a redraw.
 - Enter during work runs a command that only shows something at once: `/help` (and `/help <word>`, `/help all`), `/status`,
-  `/usage`, `/context`, `/permissions`, `/allowed`, `/pane` (and `/pane on|off`), `/diff`, `/receipt`, `/output`, `/tasks` (and
+  `/usage`, `/context`, `/permissions` (and `/permissions details`), `/allowed`, `/pane` (and `/pane on|off`), `/diff`, `/receipt`, `/output`, `/tasks` (and
   `/tasks stop <n>`), `/details`, `/mcp`, `/lsp`, `/skills`, `/sandbox`, `/secrets`, `/branch`, `/hotkeys`,
   `/project`, `/browser`, `/services`, `/debug`, `/lab`, `/memory`, `/references`, `/visualize` (each alone),
   `/doctor` (it reports; its fixes ask after the task), `/exit` and `/quit` (they stop the task and leave), `/effort` (a bare `/effort` opens its picker; an approval that arrives closes
@@ -582,14 +582,14 @@ back and `/redo` undoes that (see [UNDO.md](UNDO.md)).
 After a task that changed files, the receipt names the changed paths (from a before/after
 tree digest), or how many past three. The per-file table (a bounded `git diff --stat`) is shown
 with `--verbose`; `/diff` shows the task's full changes.
-`/permissions` explains actual boundaries from the state Casper is in: whether the shell
+`/permissions details` explains actual boundaries from the state Casper is in: whether the shell
 sandbox holds shell commands and checks here, or (without it) that the AI's shell asks
 before each command that changes something (reads like `ls` don't). `/sandbox` lists what it holds and `/allowed` the commands you said yes to.
 With the sandbox on, a plain `git push` or `gh pr create` the AI runs asks `Run outside the sandbox with your GitHub
 login?  git push -u origin main` (1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project;
 Enter or Esc is No; a `gh pr merge`, `close`, `reopen`, `ready`, `review` or `checkout`, `gh issue close` or `reopen`,
 `gh run rerun` or `cancel`, or a command that types its own address, offers 1 and 2 only, every time), and
-`/permissions` shows that rule in one line. Existing integration-specific
+`/permissions details` shows that rule in one line. Existing integration-specific
 approvals remain in force. Verification is still separate from tool completion.
 
 ### Local debugger

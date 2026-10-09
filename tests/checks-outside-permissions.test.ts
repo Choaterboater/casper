@@ -43,7 +43,7 @@ test("a remembered 'always' for checks sits beside the remembered write folders 
 });
 
 test("/permissions lists the checks setting and the remembered 'always' with the way to forget it", () => {
-  const view = { shell: "shell", scripts: "scripts", asking: true, sandboxOn: true, commandsSession: 0, commandsSaved: 0, listedHosts: 0, rememberedHosts: [], reachHosts: [],
+  const view = { shell: "shell", scripts: "scripts", asking: true, sandboxOn: true, outsideWritesAsk: true, commandsSession: 0, commandsSaved: 0, listedHosts: 0, rememberedHosts: [], reachHosts: [],
     labDevices: 0, labAsks: undefined, writesForGood: [], writesSession: [], mcpWritesOn: [], mcpAllowAll: [], web: true, github: true, sshLogin: true, downloads: true, show: (x: string) => x };
   expect(permissionsScreen({ ...view, checks: "ask", checksRemembered: false })).toContain("only if you say so when a check is blocked");
   const remembered = permissionsScreen({ ...view, checks: "ask", checksRemembered: true });
