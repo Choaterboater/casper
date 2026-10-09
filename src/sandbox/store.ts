@@ -8,13 +8,14 @@ import { matchesPrefix } from "./read-only";
  * What you told the sandbox to remember for one project, kept in Casper's own folder
  * (~/.casper/projects/<id>/), never in the repo: hosts ("Yes, always for this project"), machines the AI's ssh may
  * reach without asking (the same answer in the Reach box), whether ssh to your lab devices asks (/lab ssh off|on)
- * and, when no sandbox can run, exact shell commands you said not to ask about again. Private (0600), written only from your
+ * and, when no sandbox can run, exact shell commands you said not to ask about again; the kinds of plain git and gh command
+ * (`git push`, `gh pr create`) that run outside the sandbox with your GitHub login without asking. Private (0600), written only from your
  * own answer to a numbered question. The sandbox keeps the AI's shell from reading or writing this folder.
  */
-interface StoreFile { version: 1; hosts: string[]; commands: string[]; prefixes?: string[]; reach?: string[]; labReach?: false; writes?: string[]; checksOutside?: true }
+interface StoreFile { version: 1; hosts: string[]; commands: string[]; prefixes?: string[]; reach?: string[]; labReach?: false; writes?: string[]; checksOutside?: true; github?: string[] }
 
 /** One thing you said yes to: a command and anything after it (prefix) or exactly that command. */
-export interface AllowedEntry { kind: "prefix" | "command" | "checks"; value: string; session: boolean }
+export interface AllowedEntry { kind: "prefix" | "command" | "checks" | "github"; value: string; session: boolean }
 
 /** The /allowed line for "Yes, always for this project" to running its checks outside the sandbox. */
 export const CHECKS_OUTSIDE_ENTRY = "run this project's checks outside the sandbox";
@@ -45,6 +46,7 @@ export class SandboxStore {
         ...(value.labReach === false ? { labReach: false as const } : {}),
         ...(Array.isArray(value.writes) ? { writes: value.writes.filter((folder): folder is string => typeof folder === "string").slice(0, MAX_ENTRIES) } : {}),
         ...(value.checksOutside === true ? { checksOutside: true as const } : {}),
+        ...(Array.isArray(value.github) ? { github: value.github.filter((action): action is string => typeof action === "string").slice(0, MAX_ENTRIES) } : {}),
       };
     } catch { /* none yet, or unreadable: nothing is remembered */ }
     return this.cached = data;
@@ -89,6 +91,21 @@ export class SandboxStore {
     return this.update((data) => { if (on) data.checksOutside = true; else delete data.checksOutside; });
   }
 
+  /** Kinds of plain git and gh command (`git push`, `gh pr create`) you said "Yes, always for this project" to: they run
+   * outside the sandbox with your GitHub login without asking. Only your own answer adds one. */
+  async allowsGithub(action: string): Promise<boolean> { return Boolean((await this.load()).github?.includes(action)); }
+  addGithub(action: string): Promise<void> {
+    return this.update((data) => { data.github = [...new Set([...data.github ?? [], action])]; });
+  }
+  /** Take back one, saved or for this session. False when it was not there. */
+  async removeGithub(action: string): Promise<boolean> {
+    let found = this.sessionGithub.delete(action);
+    await this.update((data) => {
+      if (data.github?.includes(action)) { found = true; data.github = data.github.filter((entry) => entry !== action); if (!data.github.length) delete data.github; }
+    });
+    return found;
+  }
+
   addHost(host: string): Promise<void> { return this.update((data) => { const name = hostName(host); if (!data.hosts.includes(name)) data.hosts.push(name); }); }
   forgetHost(host: string): Promise<boolean> {
     let found = false;
@@ -104,6 +121,8 @@ export class SandboxStore {
   /** What you said "Yes, for this session" to: kept only in memory, gone when Casper exits. */
   readonly sessionCommands = new Set<string>();
   readonly sessionPrefixes = new Set<string>();
+  /** The same for git and gh commands with your GitHub login (`git push`). */
+  readonly sessionGithub = new Set<string>();
   /** Everything allowed for this project, in the order /allowed numbers it: saved prefixes, saved commands, then the
    * session ones that are not also saved. */
   async allowed(): Promise<AllowedEntry[]> {
@@ -113,6 +132,8 @@ export class SandboxStore {
       ...data.commands.map((value) => ({ kind: "command" as const, value, session: false })),
     ];
     if (data.checksOutside) entries.push({ kind: "checks", value: CHECKS_OUTSIDE_ENTRY, session: false });
+    for (const value of data.github ?? []) entries.push({ kind: "github", value, session: false });
+    for (const value of this.sessionGithub) if (!data.github?.includes(value)) entries.push({ kind: "github", value, session: true });
     for (const value of this.sessionPrefixes) if (!data.prefixes?.includes(value)) entries.push({ kind: "prefix", value, session: true });
     for (const value of this.sessionCommands) if (!data.commands.includes(value)) entries.push({ kind: "command", value, session: true });
     return entries;
@@ -138,10 +159,12 @@ export class SandboxStore {
     let count = 0;
     await this.update((data) => {
       if (data.checksOutside) { delete data.checksOutside; count++; }
+      count += new Set([...data.github ?? [], ...this.sessionGithub]).size;
+      delete data.github;
       count += new Set([...data.commands, ...this.sessionCommands].map((v) => `c:${v}`).concat([...data.prefixes ?? [], ...this.sessionPrefixes].map((v) => `p:${v}`))).size;
       data.commands = []; delete data.prefixes;
     });
-    this.sessionCommands.clear(); this.sessionPrefixes.clear();
+    this.sessionCommands.clear(); this.sessionPrefixes.clear(); this.sessionGithub.clear();
     return count;
   }
 
@@ -153,6 +176,7 @@ export class SandboxStore {
       data.hosts = data.hosts.slice(-MAX_ENTRIES); data.commands = data.commands.slice(-MAX_ENTRIES);
       if (data.reach) data.reach = data.reach.slice(-MAX_ENTRIES);
       if (data.prefixes) data.prefixes = data.prefixes.slice(-MAX_ENTRIES);
+      if (data.github) data.github = data.github.slice(-MAX_ENTRIES);
       await mkdir(this.directory, { recursive: true, mode: 0o700 });
       const temporary = path.join(this.directory, `.sandbox.${randomUUID()}.tmp`);
       try {

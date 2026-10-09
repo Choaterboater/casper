@@ -967,7 +967,8 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
       };
       try {
         // The private ssh login's pointer goes to this one command, after the shell's environment was cleaned.
-        const env = wrapped.ssh?.env ? { ...(options.env ?? withoutProviderKeys(process.env, shell?.keepEnv ?? [])), ...wrapped.ssh.env } : options.env;
+        const env = wrapped.ssh?.env || wrapped.env
+          ? { ...(options.env ?? withoutProviderKeys(process.env, shell?.keepEnv ?? [])), ...wrapped.env, ...wrapped.ssh?.env } : options.env;
         const result = await local.exec(wrapped.command, cwd, { ...options, ...(env ? { env } : {}), onData });
         if (wrapped.id && result.exitCode !== 0 && shell?.refused) {
           const line = await shell.refused(wrapped.id, tail);

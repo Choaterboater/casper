@@ -29,6 +29,8 @@ export interface PermissionsView {
   /** `sandbox.checks` (your config) and whether you said "always for this project" to running its checks outside the sandbox. */
   checks: "ask" | "outside" | "inside";
   checksRemembered: boolean;
+  /** Kinds of git and gh command that use your GitHub login outside the sandbox without asking (`git push`, `gh pr create (this session)`). */
+  githubLogin?: readonly string[];
   writesForGood: readonly string[];
   writesSession: readonly string[];
   mcpWritesOn: readonly string[];
@@ -53,6 +55,9 @@ export function permissionsScreen(view: PermissionsView): string {
     `Other machines (ssh, scp): Casper asks. Remembered for this project: ${list(view.reachHosts)}. Your ${view.labDevices} lab device${view.labDevices === 1 ? "" : "s"}: ${view.labDevices ? (view.labAsks === false ? "ssh to them doesn't ask" : "ssh to them asks first") : "none"} (/lab ssh on|off).`,
     "  To stop being asked: answer 4 at the box, or --allow-reach <host> for one run. A password ssh asks for goes in Casper's own hidden box"
       + `${view.sshLogin ? "" : " (off now)"}; ssh_login: off in ~/.casper/config.yaml turns that box off.`,
+    view.sandboxOn
+      ? `GitHub login: the sandbox hides it; a plain git push/pull/fetch/clone/ls-remote or gh pr/issue/run/repo/api/auth status asks 'Run outside the sandbox with your GitHub login?' (not answered by /permissions all). Allowed: ${list(view.githubLogin ?? [])} (/allowed forget <n>).`
+      : "GitHub login: not sandboxed here, so git and gh use it as they always do.",
     "",
     view.sandboxOn
       ? `Hosts commands reach: ${view.listedHosts} listed, remembered for this project: ${list(view.rememberedHosts)}. Others ask.`

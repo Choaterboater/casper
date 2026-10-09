@@ -316,6 +316,9 @@ const WRITE_WORDS = /(?:^|[\s;&|(`])(?:tee|cp|mv|ln|install|chmod|chown|touch|dd
 const REDIRECT = /(?:^|[^<>&\d])>{1,2}(?!&)|&>/;
 /** git config keys that make git run a program, or point it somewhere else. */
 const RISKY_GIT_KEY = /^(?:core\.(?:hookspath|fsmonitor|sshcommand|pager|editor|askpass|gitproxy|worktree|attributesfile|excludesfile)$|alias\.|filter\.|pager\.|diff\.external$|diff\..+\.(?:textconv|command)$|merge\..+\.driver$|(?:difftool|mergetool|browser|man)\..+\.(?:cmd|path)$|interactive\.difffilter$|credential(?:\.|$)|include\.|includeif\.|gpg\.|sequence\.editor$|uploadpack\.|receivepack\.|protocol\.|url\.|remote\..+\.(?:uploadpack|receivepack|proxy)$)/i;
+/** Whether setting this git config key makes git run a program or point somewhere else (`remote.origin.uploadpack`,
+ * `credential.helper`, `core.sshCommand` ...): `git config` refuses them, and a remote with one set is not plain. */
+export function gitKeyRunsProgram(key: string): boolean { return RISKY_GIT_KEY.test(key); }
 /** git options before the command word that take the next word as their value. */
 const GIT_VALUE_OPTIONS = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--exec-path", "--super-prefix"]);
 /** git config options that take the next word as their value. */
