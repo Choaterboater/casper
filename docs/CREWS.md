@@ -148,9 +148,11 @@ commit since. `/undo` does not cover `/crew apply`.
 | Report size | 16 KiB |
 | Size of one builder's change | 512 KiB and 200 files, like experiments |
 
-When a builder uses up its turns or tool calls, it gets one last turn with no
-tools to report what it did. Esc stops running builders; their copies are kept
-for `/crew`.
+When a builder uses up its turns or tool calls, or is 30 seconds from its time
+limit, it gets one last turn with no tools to report what it did, marked
+partial, if the step it is on finishes in time. Otherwise it is stopped at the
+limit and the main AI still gets its last words or where it looked. Esc stops
+running builders; their copies are kept for `/crew`.
 
 ## Not a Git repository?
 

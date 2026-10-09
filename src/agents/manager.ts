@@ -62,9 +62,8 @@ export interface SubagentRunOptions {
   context?: string;
   /** Casper's own cap for `context` when it adds a landed part's diff to it; unset: the usual limit. */
   contextBytes?: number;
-  /** Spend one tool-free turn after the budget is exhausted so the caller receives what the
-   * child found instead of an empty report. Callers that reject a limited run anyway, such as
-   * learn, leave it off and get budgets exactly as asked. */
+  /** On by default: when a limit stops its work the child gets one tool-free turn to report what it found. A caller
+   * that rejects a limited run anyway (learn) turns it off and gets the whole budget and deadline exactly as asked. */
   reportTurn?: boolean;
   signal?: AbortSignal;
 }
@@ -204,7 +203,8 @@ interface ChildSpec {
   timeoutMs: number;
   responseBytes: number;
   totalTextBytes: number;
-  reportTurn?: boolean;
+  /** Off only for a caller that rejects a limited run anyway (see SubagentRunOptions). */
+  reportTurn: boolean;
   scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
   beforeToolGate?: RuntimeStartOptions["beforeToolGate"];
   /** A builder: writable tools in its copy, with this shell. */
@@ -234,10 +234,21 @@ function validateRole(value: unknown): SubagentRole {
   throw new Error("role must be explorer or reviewer");
 }
 
-function prompt(options: SubagentRunOptions): string {
-  const budget = options.reportTurn
-    ? `- budget: ${SUBAGENT_LIMITS.maxTurns} model turns, ${SUBAGENT_LIMITS.maxToolCalls} tool calls, then one tool-free turn to report; return a concise report before then`
-    : `- budget: ${SUBAGENT_LIMITS.maxTurns} model turns, ${SUBAGENT_LIMITS.maxToolCalls} tool calls; return a concise report before exhausting it`;
+/** Every helper kind (explorer, reviewer, security review, builder) gets one tool-free turn to report when a limit
+ * stops its work: its turns, its tool calls, or its deadline less this reserve (at most a quarter of the deadline). */
+export const REPORT_RESERVE_MS = 30_000;
+
+/** A deadline as the child is told it: whole minutes, or seconds. */
+function duration(ms: number): string {
+  return ms >= 60_000 && ms % 60_000 === 0 ? `${ms / 60_000} minutes` : `${ms / 1000} seconds`;
+}
+
+/** `timeoutMs` is the deadline actually enforced, which a manager may set below the usual limit. */
+function prompt(options: SubagentRunOptions, timeoutMs: number): string {
+  const limits = `${SUBAGENT_LIMITS.maxTurns} model turns, ${SUBAGENT_LIMITS.maxToolCalls} tool calls, ${duration(timeoutMs)}`;
+  const budget = options.reportTurn === false
+    ? `- budget: ${limits}; return a concise report before exhausting it`
+    : `- budget: ${limits}, then one tool-free turn to report; return a concise report before then`;
   return [
     "Casper subagent task (a fresh context, not the parent conversation):",
     `- role: ${options.role}`,
@@ -253,7 +264,7 @@ function prompt(options: SubagentRunOptions): string {
   ].filter(Boolean).join("\n\n");
 }
 
-function builderPrompt(options: BuilderRunOptions): string {
+function builderPrompt(options: BuilderRunOptions, timeoutMs: number): string {
   return [
     "Casper crew builder task (a fresh context, not the parent conversation):",
     `- your copy of the project: ${options.cwd}`,
@@ -262,7 +273,7 @@ function builderPrompt(options: BuilderRunOptions): string {
     "- do not install or add dependencies; if one is missing, say so in your report",
     "- anything that needs the person's OK is not run; you are told why. Go on without it and list it in your report",
     "- run the project's fast checks for what you changed when it has them",
-    `- budget: ${BUILDER_LIMITS.maxTurns} model turns, ${BUILDER_LIMITS.maxToolCalls} tool calls`,
+    `- budget: ${BUILDER_LIMITS.maxTurns} model turns, ${BUILDER_LIMITS.maxToolCalls} tool calls, ${duration(timeoutMs)}, then one tool-free turn to report`,
     "End with a short report: what you changed (files), which checks you ran and their results, and what is left or was skipped. Do not claim checks you did not run.",
     options.context ? `Context:\n${options.context}` : undefined,
     `Job:\n${options.goal}`,
@@ -403,7 +414,7 @@ export class SubagentManager {
           let result: SubagentResult;
           // run() throws only before a child starts (busy, closed, bad context): that call is not
           // spent, so a third parallel delegate turned away as busy can be sent again later.
-          try { result = await this.run({ ...getContext(), role, goal, context, signal, reportTurn: true }); }
+          try { result = await this.run({ ...getContext(), role, goal, context, signal }); }
           catch (error) { dispatched--; throw error; }
           onUsage?.(result.usage, result.known);
           const isError = result.status !== "completed";
@@ -435,7 +446,7 @@ export class SubagentManager {
       // rule needs a file path and does nothing without one; the command-output rule works on any text.
       const scrubbed = await this.options.scrubToolOutput?.("bash", {}, [part.context], signal);
       const given = scrubbed?.texts[0] ?? part.context;
-      result = await this.run({ ...getContext(), role: "reviewer", goal, signal, reportTurn: true,
+      result = await this.run({ ...getContext(), role: "reviewer", goal, signal,
         context: context ? `${given}\n\nThe lead's own context:\n${context}` : given, contextBytes: SUBAGENT_LIMITS.partContextBytes });
     } catch (error) { builders.parts.release(n, part.version); throw error; }
     onUsage?.(result.usage, result.known);
@@ -507,12 +518,12 @@ export class SubagentManager {
     requireString(options.projectContext, "projectContext", SUBAGENT_LIMITS.projectContextBytes);
     requireString(options.cwd, "cwd", 4096);
     return this.runChild({
-      role: options.role, goal: options.goal, cwd: options.cwd, prompt: prompt(options), signal: options.signal,
+      role: options.role, goal: options.goal, cwd: options.cwd, prompt: prompt(options, this.timeoutMs), signal: options.signal,
       systemPromptAppend: `You are Casper ${options.role}, a bounded read-only subagent. Be concise.\n\n${options.projectContext}`,
       modelRole: options.role === "explorer" ? "fast" : "review",
       maxTurns: SUBAGENT_LIMITS.maxTurns, maxToolCalls: SUBAGENT_LIMITS.maxToolCalls, timeoutMs: this.timeoutMs,
       responseBytes: SUBAGENT_LIMITS.responseBytes, totalTextBytes: SUBAGENT_LIMITS.totalTextBytes,
-      reportTurn: options.reportTurn, scrubToolOutput: this.options.scrubToolOutput,
+      reportTurn: options.reportTurn ?? true, scrubToolOutput: this.options.scrubToolOutput,
     });
   }
 
@@ -544,7 +555,7 @@ export class SubagentManager {
     const cwd = path.resolve(requireString(input.cwd, "cwd", 4096));
     const options = { ...input, cwd, goal, context, projectContext };
     return this.runChild({
-      role: "builder", goal, cwd, prompt: builderPrompt(options), signal: input.signal,
+      role: "builder", goal, cwd, prompt: builderPrompt(options, this.builderTimeoutMs), signal: input.signal,
       systemPromptAppend: `You are a Casper crew builder: you do one job in your own copy of the project. Be concise.\n\n${projectContext}`,
       maxTurns: BUILDER_LIMITS.maxTurns, maxToolCalls: BUILDER_LIMITS.maxToolCalls, timeoutMs: this.builderTimeoutMs,
       responseBytes: BUILDER_LIMITS.responseBytes, totalTextBytes: BUILDER_LIMITS.totalTextBytes,
@@ -597,6 +608,14 @@ export class SubagentManager {
     const report = (activity: HelperActivity) => { try { this.options.onActivity?.(activity); } catch { /* display only */ } };
     options.signal?.addEventListener("abort", onCancel, { once: true });
     const timer = setTimeout(() => stop("timed_out", `Delegation exceeded ${options.timeoutMs} ms`), options.timeoutMs);
+    // Near the deadline the child stops working and reports, so the time limit hands back findings like the others.
+    const reserve = Math.min(REPORT_RESERVE_MS, Math.floor(options.timeoutMs / 4));
+    const seconds = options.timeoutMs / 1000;
+    const nearDeadline = options.reportTurn && setTimeout(() => { try { session?.wrapUp?.(`Stopped near its ${seconds}-second time limit`); } catch { /* the deadline still holds */ } },
+      options.timeoutMs - reserve);
+    /** What the child looked at (paths and patterns), for a run that ends with no report at all. */
+    const lookedAt: string[] = [];
+    const nothingWritten = () => `Partial: no report was written before the limit.${lookedAt.length ? ` It looked at: ${lookedAt.join(", ")}.` : ""}`;
     /** A model response has started and not yet ended. A limit notice from the runtime is an end
      * with no start: it closes no response and carries no usage. */
     let streaming = false;
@@ -640,6 +659,10 @@ export class SubagentManager {
         if (!result.toolsUsed.includes(name) && result.toolsUsed.length < 16) result.toolsUsed.push(name);
       }
       if (event.type === "tool_end") report({ kind: "tool", run: info, event });
+      if (event.type === "tool_end" && !event.isError && lookedAt.length < 20) {
+        const seen = event.input?.path ?? event.input?.pattern;
+        if (seen && !lookedAt.includes(seen)) lookedAt.push(prefix(seen, 256));
+      }
       if (event.type === "tool_end" && event.isError && result.toolErrors.length < 8) {
         // Pi's own first line (EISDIR, ENOENT, a cut-off call), which the child also saw, so the
         // caller can tell a misdirected read from a broken tool.
@@ -711,6 +734,17 @@ export class SubagentManager {
           result.response = fallback;
           result.truncated = fallbackTruncated;
         }
+        // Nothing written at all: the parent still learns where the child looked, so it need not start over.
+        if (result.status === "limited" && !result.response.trim()) {
+          result.response = nothingWritten();
+        }
+        // A limited child that handed something back is partial, not dead: say so where the parent reads first.
+        if (result.status === "limited" && result.reason && !result.reason.startsWith("partial: ")) {
+          const fromProvider = result.reason === providerReason;
+          result.reason = prefix(`partial: ${result.reason.charAt(0).toLowerCase()}${result.reason.slice(1)}`, 1024);
+          // Provider text stays marked as such, so callers that hide it (learn) still do.
+          if (fromProvider) providerReason = result.reason;
+        }
         if (!controller.signal.aborted && !result.response.trim() && result.status === "completed") {
           result.status = "failed"; result.reason = "Subagent returned no report";
         }
@@ -733,11 +767,17 @@ export class SubagentManager {
       // The responses that did report are known even when the total is not (the same as the main conversation's).
       const known = { tokens: info.spent?.tokens ?? 0, estimatedCost: info.spent?.estimatedCost ?? 0 };
       if (pending) active.handedOver = known;
-      return { ...result, ...(pending ? { cleanupPending: true } : {}), toolsUsed: [...result.toolsUsed], toolErrors: [...result.toolErrors],
+      // A step still running at the hard deadline (a long command or response) never reached the report turn: the
+      // parent still gets the child's last words or where it looked. Copied, since the work may still be settling.
+      const timedOut = result.status === "timed_out" && options.reportTurn && !result.response.trim()
+        ? fallback.trim() ? { response: fallback, truncated: fallbackTruncated } : { response: nothingWritten(), truncated: false }
+        : {};
+      return { ...result, ...timedOut, ...(pending ? { cleanupPending: true } : {}), toolsUsed: [...result.toolsUsed], toolErrors: [...result.toolErrors],
         usage: pending || streaming || !result.usage ? null : { ...result.usage }, known, turns,
         ...(result.reason !== undefined && result.reason === providerReason ? { providerReason: true } : {}) };
     } finally {
       clearTimeout(timer);
+      if (nearDeadline) clearTimeout(nearDeadline);
       options.signal?.removeEventListener("abort", onCancel);
     }
   }

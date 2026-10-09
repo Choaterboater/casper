@@ -856,7 +856,6 @@ async function handleDelegateCommand(host: CommandHost, prompt: string): Promise
       signal: host.commandAbort?.signal,
       cwd: host.activeWorkspaceRoot(),
       projectContext: formatProjectContext(host.projectContext!),
-      reportTurn: true,
     });
     if (!host.closing) host.output.write(formatSubagentReport(result));
     if (result.status !== "completed") throw new Error(`Delegation ${result.status}; see the bounded report above`);
