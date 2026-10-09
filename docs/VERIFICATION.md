@@ -43,7 +43,7 @@ checks again outside the sandbox. "Always" is kept privately in `~/.casper` (nev
 by `/allowed` and taken back with `/allowed forget`. A result that ran outside shows `outside the sandbox`.
 You can decide ahead of time in your own `~/.casper/config.yaml`: `sandbox: { checks: outside }` always
 runs the checks outside, `inside` never does and never asks; the default is `ask`. A repository's
-`.casper/project.yaml` cannot set it. `/permissions` shows the setting and a remembered "always";
+`.casper/project.yaml` cannot set it. `/permissions details` shows the setting and a remembered "always";
 `/permissions all` ("stop asking until I quit") never answers this question for you. Outside the sandbox the checks run the AI's edits with your
 permissions, so say yes only for a project you trust.
 

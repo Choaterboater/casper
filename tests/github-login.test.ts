@@ -264,7 +264,7 @@ test("gh pr merge and the like offer No and Yes, this once only, and a remembere
 });
 
 const BASE_VIEW: PermissionsView = {
-  shell: "shell", scripts: "scripts", asking: true, sandboxOn: true, commandsSession: 0, commandsSaved: 0, listedHosts: 0, rememberedHosts: [], reachHosts: [],
+  shell: "shell", scripts: "scripts", asking: true, sandboxOn: true, outsideWritesAsk: true, commandsSession: 0, commandsSaved: 0, listedHosts: 0, rememberedHosts: [], reachHosts: [],
   labDevices: 0, labAsks: undefined, checks: "ask", checksRemembered: false, writesForGood: [], writesSession: [], mcpWritesOn: [], mcpAllowAll: [],
   web: true, github: true, sshLogin: true, downloads: true, show: (folder) => folder,
 };

@@ -41,6 +41,8 @@ const SESSION = /^(?:--session)?$/;
 const ONE_WORD_SESSION = /^(?:[^\s-]\S*(?:\s+--session)?|--session\s+[^\s-]\S*)?$/;
 /** Forgetting what Casper remembered: `forget`, with `remove` as the same word. */
 const FORGET_ALIASES = ["remove"] as const;
+/** Other spellings of `/permissions all`. Safe to accept: `all` changes nothing until you pick 2 in its own box. */
+export const PERMISSIONS_ALL_ALIASES = ["allowall", "allow-all"] as const;
 const LIST = (what: string): Subcommand => ({ name: "list", description: what, bare: true, duringWork: NONE });
 
 export const COMMAND_REGISTRY: readonly CommandSpec[] = [
@@ -161,8 +163,9 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   ] },
   // After a failed cleanup /doctor is how you look into it. During a task it only reports; its fixes ask after the task.
   { name: "doctor", description: "Check Casper's own setup and fix what it can (no model, asks first)", duringWork: NONE },
-  { name: "permissions", description: "What Casper may do here, and how to be asked less", duringWork: NONE, subcommands: [
-    { name: "all", description: "Stop the asking until you quit (session only)" },
+  { name: "permissions", description: "Whether Casper asks, and a box to stop asking until you quit", duringWork: NONE, subcommands: [
+    { name: "details", description: "Everything allowed, and every way to be asked less", duringWork: NONE },
+    { name: "all", description: "Stop the asking until you quit (asks first)", aliases: PERMISSIONS_ALL_ALIASES },
     { name: "ask", description: "Ask again" },
     { name: "write", args: "<folder>", description: "Allow a folder for this project" },
     { name: "forget", args: "<folder>", description: "Take a folder back", aliases: FORGET_ALIASES },

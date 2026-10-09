@@ -100,10 +100,10 @@ test("/services lists, starts, shows logs, restarts and stops a declared service
   expect(f.runtime.starts).toBe(0);
 }, 30_000);
 
-test("/permissions says /services runs the project's declared commands", async () => {
+test("/permissions details says /services runs the project's declared commands", async () => {
   const f = await fixture();
   await f.app.start(f.project);
-  await f.app.runOnce("/permissions");
+  await f.app.runOnce("/permissions details");
   expect(f.text()).toContain("/verify and /services may execute project scripts");
   expect(f.runtime.starts).toBe(0);
 });

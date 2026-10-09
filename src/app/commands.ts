@@ -63,7 +63,7 @@ import { runSecurityReview, type SecurityAIReview, type SecurityReviewHost } fro
 import { runCrewCommand } from "../crew/command";
 import { crewShell } from "../crew/shell";
 import { allowedCommand } from "./allowed";
-import { allowFolder, forgetFolder, parsePermissions, permissionsScreen } from "./permissions";
+import { allowFolder, forgetFolder, parsePermissions, permissionsScreen, permissionsSummary, type PermissionsView } from "./permissions";
 import { sandboxReport, sandboxStatusLine } from "./sandbox";
 import type { SessionYes } from "./session-yes";
 import { webStatusLine } from "../web/tools";
@@ -957,6 +957,11 @@ export async function runMCPListDuringWork(host: CommandHost): Promise<void> {
   await writeMCPList(host, false);
 }
 
+/** /permissions or /permissions details during a task: the screen only; its box would stand in the way of the task's questions. */
+export async function runPermissionsDuringWork(host: CommandHost, line: string): Promise<void> {
+  await handlePermissions(host, line, true);
+}
+
 async function writeMCPList(host: CommandHost, picker: boolean): Promise<void> {
   // With the picker the servers are its rows (with where each came from): no list before it, only the heads-up.
   const statuses = host.mcp!.status();
@@ -1511,7 +1516,7 @@ async function undoCopiesLine(stateDirectory: string, home: string): Promise<str
 }
 
 /** /permissions and its four switches. Only the person's typed command and numbered answer reach them; the AI has no tool for them. */
-async function handlePermissions(host: CommandHost, prompt: string): Promise<void> {
+async function handlePermissions(host: CommandHost, prompt: string, duringWork = false): Promise<void> {
   const command = parsePermissions(prompt);
   const sandbox = host.sandbox;
   const root = host.activeWorkspaceRoot();
@@ -1526,11 +1531,7 @@ async function handlePermissions(host: CommandHost, prompt: string): Promise<voi
     // A run that can't ask has no person to answer: --no-sandbox is the flag for one run.
     if (!host.interactive) throw new Error("/permissions all needs a terminal where you can answer. For one run, use --no-sandbox.");
     if (host.stopAsking) { host.output.write("[permissions] Asking is already off. /permissions ask turns it back on.\n"); return; }
-    const answer = await host.approveChoice("", PERMISSIONS_ALL_QUESTION, PERMISSIONS_ALL_CHOICES, host.commandAbort?.signal);
-    if (answer !== PERMISSIONS_ALL_CHOICES[1].label) { host.output.write("[permissions] Still asking.\n"); return; }
-    host.stopAsking = true;
-    host.updateFooter();
-    host.output.write("[permissions] Not asking until you quit: shell commands, hosts, writes outside the project and other machines are answered Yes for this session. Protected places, secrets, device writes and the spend pause stay as they are. /permissions ask turns asking back on.\n");
+    await stopAskingBox(host);
     return;
   }
   if (command.kind === "write" || command.kind === "forget") {
@@ -1545,9 +1546,10 @@ async function handlePermissions(host: CommandHost, prompt: string): Promise<voi
   const context = host.projectContext;
   const reach = await sandbox?.store?.reachHosts() ?? [];
   const forGood = sandbox?.rememberedWriteFolders() ?? [];
-  host.output.write(`${permissionsScreen({
+  const view: PermissionsView = {
     shell: basics[0]!, scripts: basics.at(-1)!,
-    asking: !host.stopAsking, sandboxOn: Boolean(sandbox?.on),
+    sandboxReason: sandbox?.failure ?? sandbox?.state.reason, shellAsks: Boolean(sandbox?.asksFirst),
+    asking: !host.stopAsking, sandboxOn: Boolean(sandbox?.on), outsideWritesAsk: sandbox?.asksOutsideWrites !== false,
     commandsSession: entries.filter((entry) => entry.session).length, commandsSaved: entries.filter((entry) => !entry.session).length,
     listedHosts: sandbox?.on ? sandbox.allowedHosts().length : 0, rememberedHosts: sandbox?.rememberedHosts() ?? [], reachHosts: reach,
     labDevices: context?.lab?.hosts?.length ?? 0, labAsks: sandbox?.store ? !(await sandbox.store.labReach()) : undefined,
@@ -1557,7 +1559,21 @@ async function handlePermissions(host: CommandHost, prompt: string): Promise<voi
     mcpWritesOn: host.mcp?.writesOn() ?? [], mcpAllowAll: host.allowances?.allowAllServers() ?? [],
     web: context?.web?.enabled !== false, github: context?.github !== false, sshLogin: context?.sshLogin !== false, downloads: context?.toolDownloads !== false,
     show: (folder) => displayPath(folder, { root, home }),
-  })}\n`);
+  };
+  if (command.kind === "details") { host.output.write(`${permissionsScreen(view)}\n`); return; }
+  host.output.write(`${permissionsSummary(view)}\n`);
+  // The one thing most people came for, as its own box (Keep asking first, so Enter changes nothing).
+  if (!host.stopAsking && host.interactive && !duringWork) await stopAskingBox(host, false);
+  else if (!host.stopAsking) host.output.write(duringWork ? "/permissions all, after this task, stops asking until you quit (it asks first).\n" : "In a terminal, /permissions all stops asking until you quit (it asks first).\n");
+}
+
+/** The /permissions all box: 1 Keep asking · 2 Stop asking until I quit. Only the person's answer sets the switch. */
+async function stopAskingBox(host: CommandHost, sayStill = true): Promise<void> {
+  const answer = await host.approveChoice("", PERMISSIONS_ALL_QUESTION, PERMISSIONS_ALL_CHOICES, host.commandAbort?.signal);
+  if (answer !== PERMISSIONS_ALL_CHOICES[1].label) { if (sayStill) host.output.write("[permissions] Still asking.\n"); return; }
+  host.stopAsking = true;
+  host.updateFooter();
+  host.output.write("[permissions] Not asking until you quit: shell commands, hosts, writes outside the project and other machines are answered Yes for this session. Protected places, secrets, device writes and the spend pause stay as they are. /permissions ask turns asking back on.\n");
 }
 
 /** The lines /permissions shows about the shell, from the state it is in now. */

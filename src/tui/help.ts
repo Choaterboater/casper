@@ -1,3 +1,4 @@
+import { closestWord } from "./closest";
 import { COMMAND_REGISTRY, parseCommandLine, takesArguments } from "./commands";
 import { WRITES_OFF_MEANING } from "../mcp/presets";
 import { DOCTOR_HELP, UPDATE_HELP } from "../cli-args";
@@ -106,8 +107,9 @@ Local commands:
   /rename <title>                   Name this conversation (the window title and /resume)
   /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
-  /permissions                      What Casper may do here and how to be asked less
-  /permissions all|ask              Stop the shell's questions until you quit (asks first), or ask them again
+  /permissions                      Whether Casper asks, one line per kind, and a box to stop asking until you quit
+  /permissions details              Everything allowed here, where it came from and every way to be asked less
+  /permissions all|ask              Stop the shell's questions until you quit (asks first; allowall is the same), or ask them again
   /permissions write|forget <folder>  Allow a folder outside the project for this project, or take it back (remove is the same as forget)
   /sandbox, /sandbox list           What the shell sandbox holds: write folders, private folders, hosts
   /sandbox forget <host>            Forget a host or machine you allowed for this project (Yes, always); remove is the same
@@ -278,32 +280,9 @@ function helpEntries(): string[][] {
 
 /** The command closest to a mistyped one, when it is close enough to be a typo. */
 function closestCommand(word: string): string | undefined {
-  const typed = word.replace(/^\//, "").toLowerCase();
-  if (!typed) return undefined;
   const names = COMMAND_REGISTRY.filter((command) => !command.hidden).flatMap((command) => [command.name, ...command.aliases ?? []]);
-  // The start of exactly one command ("/q" for /quit) is that command.
-  const started = names.includes(typed) ? [] : names.filter((name) => name.startsWith(typed));
-  if (started.length === 1) return `/${started[0]}`;
-  let best: { name: string; distance: number } | undefined;
-  for (const name of names) {
-    const distance = editDistance(typed, name);
-    // Distance 0 is the command itself: never "Did you mean" the name that was typed.
-    if (distance > 0 && distance <= Math.max(1, Math.min(2, Math.floor(name.length / 3))) && (!best || distance < best.distance)) best = { name, distance };
-  }
-  return best && `/${best.name}`;
-}
-
-function editDistance(a: string, b: string): number {
-  // Damerau (one swap of neighbours counts as one edit): "sttaus" is one edit from "status".
-  const d = Array.from({ length: a.length + 1 }, (_, i) => Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)));
-  for (let i = 1; i <= a.length; i++) {
-    for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      d[i]![j] = Math.min(d[i - 1]![j]! + 1, d[i]![j - 1]! + 1, d[i - 1]![j - 1]! + cost);
-      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i]![j] = Math.min(d[i]![j]!, d[i - 2]![j - 2]! + 1);
-    }
-  }
-  return d[a.length]![b.length]!;
+  const near = closestWord(word.replace(/^\//, ""), names);
+  return near && `/${near}`;
 }
 
 /** `/help <word>`: the lines of the full reference that mention the word, or a plain "nothing" with a did-you-mean. */
