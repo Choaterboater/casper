@@ -19,7 +19,8 @@ import { removeTempDir } from "./support/temp-dir";
 const BUDGET = {
   fixed: 12_200,
   preamble: 1_200,
-  tools: { browser: 3_500, casper_read_untrusted: 1_100, casper_check: 950, delegate: 950, casper_session: 350 } as Record<string, number>,
+  /** casper_page is one short line: its guide comes back from the tool, never in the fixed prompt. */
+  tools: { browser: 3_500, casper_read_untrusted: 1_100, casper_check: 950, delegate: 950, casper_session: 350, casper_page: 400 } as Record<string, number>,
   /** In a Git repository delegate also offers builders (about 50 tokens more). */
   delegateWithBuilders: 1_150,
 };
@@ -84,7 +85,7 @@ async function firstRequest(task: string, options: { git?: boolean } = {}) {
 test("the fixed part of a request stays small: system prompt plus Casper's tools for a small project", async () => {
   const { system, names, toolText, preamble } = await firstRequest("Add a sum function to src/math.ts and use it in src/index.ts");
   // Every tool the first request needs is still there; a diagram tool waits for a diagram word.
-  expect(names).toEqual(["delegate", "ask", "casper_session", "casper_check", "web_search", "web_fetch", "casper_read_untrusted", "browser"]);
+  expect(names).toEqual(["delegate", "ask", "casper_session", "casper_check", "web_search", "web_fetch", "casper_read_untrusted", "casper_page", "browser"]);
   expect(system.length + toolText.length).toBeLessThan(BUDGET.fixed);
   expect(preamble.length).toBeLessThan(BUDGET.preamble);
 });

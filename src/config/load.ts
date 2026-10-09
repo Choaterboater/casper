@@ -121,6 +121,10 @@ export interface LoadedConfiguration {
   otherLogins?: boolean;
   /** `network_updates: off` in your own config: Casper doesn't look for casper-network-mcp releases newer than its pin. Unset: on. */
   networkUpdates?: boolean;
+  /** `ai_pages: off` in your own config: the AI is never offered casper_page (pages in your browser). Unset: on. */
+  aiPages?: boolean;
+  /** `open_pages: off` in your own config: a page the AI makes is not opened in your browser; its link is printed. Unset: on. */
+  openPages?: boolean;
   /** The user's lab devices (lab.hosts), from ~/.casper/config.yaml or the profile only; never a project file. */
   lab?: LabSettings;
   /** The profile whose own lab list replaces yours (~/.casper/profiles/<name>/config.yaml), when it has one. */
@@ -277,7 +281,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -908,6 +912,11 @@ export async function loadConfiguration(
   // Which network server version is offered to your computer is yours too.
   if (projectDocument.network_updates !== undefined) throw new Error("network_updates is a user setting (~/.casper/config.yaml); a project cannot turn network server updates on or off");
   let networkUpdates: boolean | undefined;
+  // Pages the AI makes are shown on your screen, at your cost: whether it makes them, and whether they open, is yours.
+  if (projectDocument.ai_pages !== undefined) throw new Error("ai_pages is a user setting (~/.casper/config.yaml); a project cannot turn the AI's pages on or off");
+  if (projectDocument.open_pages !== undefined) throw new Error("open_pages is a user setting (~/.casper/config.yaml); a project cannot open pages in your browser or stop them opening");
+  let aiPages: boolean | undefined;
+  let openPages: boolean | undefined;
   for (const [document, label] of [[globalDocument, labels.global], [userProfileDocument, labels.userProfile]] as const) {
     toolDownloads = toolsLayer(document, label, sandboxWarnings) ?? toolDownloads;
     browser = onOffLayer(document.browser, label, "browser") ?? browser;
@@ -918,6 +927,8 @@ export async function loadConfiguration(
     sshLogin = onOffLayer(document.ssh_login, label, "ssh_login") ?? sshLogin;
     otherLogins = onOffLayer(document.other_logins, label, "other_logins") ?? otherLogins;
     networkUpdates = onOffLayer(document.network_updates, label, "network_updates") ?? networkUpdates;
+    aiPages = onOffLayer(document.ai_pages, label, "ai_pages") ?? aiPages;
+    openPages = onOffLayer(document.open_pages, label, "open_pages") ?? openPages;
     diagrams = diagramLayer(document, label, sandboxWarnings, false) ?? diagrams;
   }
   if (pickedByProject) diagramLayer(profileDocument, labels.profile, sandboxWarnings, true);
@@ -960,6 +971,8 @@ export async function loadConfiguration(
     ...(sshLogin !== undefined ? { sshLogin } : {}),
     ...(otherLogins !== undefined ? { otherLogins } : {}),
     ...(networkUpdates !== undefined ? { networkUpdates } : {}),
+    ...(aiPages !== undefined ? { aiPages } : {}),
+    ...(openPages !== undefined ? { openPages } : {}),
     ...(pageChecks !== undefined ? { pageChecks } : {}),
     profileName: selectedProfile,
     policy: mergePolicy(

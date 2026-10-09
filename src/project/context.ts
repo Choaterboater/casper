@@ -68,6 +68,10 @@ export interface ProjectContext {
   otherLogins?: boolean;
   /** `network_updates: off` in the user's config: no casper-network-mcp releases newer than the pin are looked for. Unset: on. */
   networkUpdates?: boolean;
+  /** `ai_pages: off` in the user's config: the AI is never offered casper_page. Unset: on. */
+  aiPages?: boolean;
+  /** `open_pages: off` in the user's config: pages the AI makes are not opened in the browser. Unset: on. */
+  openPages?: boolean;
   /** `telemetry: off` in the user's config: no OpenRouter app-name headers. Unset: on. */
   telemetry?: boolean;
   rules: {
@@ -170,6 +174,8 @@ export async function loadProjectContext(
     ...(configuration.sshLogin !== undefined ? { sshLogin: configuration.sshLogin } : {}),
     ...(configuration.otherLogins !== undefined ? { otherLogins: configuration.otherLogins } : {}),
     ...(configuration.networkUpdates !== undefined ? { networkUpdates: configuration.networkUpdates } : {}),
+    ...(configuration.aiPages !== undefined ? { aiPages: configuration.aiPages } : {}),
+    ...(configuration.openPages !== undefined ? { openPages: configuration.openPages } : {}),
     ...(configuration.toolDownloads !== undefined ? { toolDownloads: configuration.toolDownloads } : {}),
     rules: {
       profile: configuration.profileRules,

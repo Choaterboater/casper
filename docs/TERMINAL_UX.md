@@ -74,6 +74,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/services` | Dev servers the project declares ([SERVICES.md](SERVICES.md)) |
 | `/preview` | Your web app on a phone on the same Wi-Fi; a public link only after a yes ([SERVICES.md](SERVICES.md#preview-on-your-phone)) |
 | `/tasks [stop <n>\|all]` | What runs in the background; stop one |
+| `/pages [open\|remove <name>]` | Pages the AI made for this project, with their links ([Pages the AI makes](#pages-the-ai-makes)) |
 | `/pane [on\|off]` | The steps split beside Casper inside tmux or iTerm2 (only on a window 120+ columns wide); saved for every session. See [TMUX.md](TMUX.md) |
 | `/debug` | The local debugger ([DEBUGGER.md](DEBUGGER.md)) |
 | `/branch`, `/branch <name>`, `/switch <name>` | Named conversations, each with its own workspace: list them, make one, switch ([SESSIONS.md](SESSIONS.md)) |
@@ -669,6 +670,45 @@ Enter or Esc is No; a `gh pr merge`, `close`, `reopen`, `ready`, `review` or `ch
 `gh run rerun` or `cancel`, or a command that types its own address, offers 1 and 2 only, every time), and
 `/permissions details` shows that rule in one line. Existing integration-specific
 approvals remain in force. Verification is still separate from tool completion.
+
+### Pages the AI makes
+
+When a picture answers better than text (options side by side, a mock-up, a dashboard of
+results, a report someone else will read), the AI makes a page by itself with its
+`casper_page` tool, and you see it in your browser at once. You don't have to ask for one.
+Plain answers stay in the terminal, and so does a Mermaid diagram from the diagram tool.
+
+```text
+[page] db-options → http://127.0.0.1:52144/db-options.html
+[page] db-options updated → http://127.0.0.1:52144/db-options.html
+```
+
+- **One file per page**, in `~/.casper/pages/<project>/<name>.html` (the same project key as
+  Casper's state folder, `~/.casper/projects/<project>`). Names are short: `a-z`, `0-9` and `-`,
+  up to 40; a near miss from the AI is fixed, not refused (`Ghost_Options` is saved as
+  `ghost-options`). The same name again replaces the page, and its open tab reloads itself.
+- **Opening.** The first time a page is made in a session, Casper opens it in your default browser
+  (`open` on macOS, the URL handler on Windows, `xdg-open` on Linux). Later changes reload the
+  tab instead of opening another one. Over SSH, in CI, or on Linux with no display, Casper prints
+  the link only (the address is on that computer: forward the port to see it). **Open pages in
+  the browser** in `/settings` (`open_pages: off`) prints the link only everywhere.
+- **The page server** starts with the first page of a session: `127.0.0.1` only, on a free port,
+  and it stops when Casper quits. A one-shot run (`casper "<request>"`) starts no server: the page
+  is saved and its file address printed; `/pages open <name>` in a session shows it.
+- **`/pages`** lists this project's pages with their links; `/pages open <name>` shows one (also
+  with opening turned off: you asked); `/pages remove <name>` deletes one, and its open tab says
+  `(removed)`. They run at once, also during a task. No model.
+- **Cost.** The tool is one short line in each request. How to build a good page (one
+  self-contained file, light and dark, phone width, real data, nothing private) comes back from
+  the tool itself the first time it is used in a conversation (again after `/clear` or `/resume`),
+  so it costs nothing until a page is made.
+  **Pages the AI makes** in `/settings` (`ai_pages: off`) takes the tool away; `/pages` still
+  lists the pages already made.
+- **What a page can do** is held tight: it can't fetch, post, or load images from other sites, it
+  runs with an origin of its own (no cookies or storage shared with other apps on `127.0.0.1`), and
+  the server serves nothing outside the pages folder. WebRTC is taken away too, best effort (see
+  [SECURITY.md](SECURITY.md#pages-the-ai-makes)). Sharing a page beyond this computer is not
+  part of Casper yet.
 
 ### Local debugger
 
