@@ -265,6 +265,6 @@ test("suggestions: false from /settings applies in the session without a restart
 
 test("the long help's /settings line lists every switch", async () => {
   const { home, project } = await folders();
-  const line = FULL_HELP_TEXT.split("\n").find((entry) => entry.trimStart().startsWith("/settings "))!.toLowerCase();
+  const line = FULL_HELP_TEXT.split("\n").find((entry) => entry.trimStart().startsWith("/settings, /config "))!.toLowerCase();
   for (const row of await rowsFor(home, project)) expect(line).toContain(row.label.toLowerCase());
 });

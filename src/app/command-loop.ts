@@ -8,7 +8,7 @@ import type { VerificationReport } from "../verify/evidence";
 import { ProcessCleanupError } from "../platform/processes";
 import { SUGGESTION_COMMAND } from "./suggestions";
 import { runSlashCommand } from "./commands";
-import { findCommand, runsAfterCleanupError } from "../tui/commands";
+import { canonicalLine, findCommand, runsAfterCleanupError } from "../tui/commands";
 import { commandProblem } from "../tui/help";
 import { newProjectFromQuestions, opened } from "./new-project";
 import { runSettings } from "./settings";
@@ -115,7 +115,8 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
     if (app.cleanupError) throw app.cleanupError;
     app.browser?.assertCleanup(); app.mcp?.assertCleanup(); app.lsp?.assertCleanup(); app.services?.assertCleanup();
   }
-  const transition = /^\/(?:branch|switch)(?:\s|$)/.test(prompt);
+  // Bare /branch only lists them.
+  const transition = /^\/(?:branch\s+\S|switch(?:\s|$))/.test(prompt);
   if (transition && app.subagents.isBusy) throw new Error("Wait for active subagents before changing workspaces");
   // /receipt, /undo, /redo and /diff read the last task; every other command starts without it.
   if (!/^\/(?:receipt|undo|redo|diff)(?:\s|$)/.test(prompt)) app.lastTaskResult = undefined;
@@ -176,15 +177,19 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
 }
 
 /** Local command dispatch moved to app/commands.ts; the app is the command host. */
-export function handleSlashCommand(app: CasperApp, prompt: string): Promise<VerificationReport | undefined> {
+export function handleSlashCommand(app: CasperApp, typed: string): Promise<VerificationReport | undefined> {
   // One table (src/tui/commands.ts) knows every command and which take words after the name.
-  const problem = commandProblem(prompt);
+  const problem = commandProblem(typed);
   if (problem) return Promise.reject(new Error(problem));
+  // The handlers below match command names: an alias (/cost, /config, /new) runs as its command.
+  const prompt = canonicalLine(typed);
   if (/^\/pane(?:\s|$)/.test(prompt)) return paneCommand(app, prompt.slice(5).trim()).then(() => undefined);
   if (/^\/details(?:\s|$)/.test(prompt)) return detailsCommand(app, prompt.slice(8).trim()).then(() => undefined);
   if (prompt.trim() === "/settings") return settingsCommand(app).then(() => undefined);
+  if (prompt.trim() === "/theme") return settingsCommand(app, "Theme").then(() => undefined);
   if (/^\/preview(?:\s|$)/.test(prompt)) return previewCommand(app, prompt.slice(8).trim()).then(() => undefined);
-  if (/^\/new(?:\s|$)/.test(prompt)) return newProjectCommand(app, prompt.slice(4).trim()).then(() => undefined);
+  const newProject = /^\/project\s+new(?:\s+([\s\S]*))?$/.exec(prompt.trim());
+  if (newProject) return newProjectCommand(app, (newProject[1] ?? "").trim()).then(() => undefined);
   if (/^\/suggestions(?:\s|$)/.test(prompt)) {
     return app.suggestions.command(prompt.slice(12).trim(), app.projectContext).then((text) => { app.output.write(text); return undefined; });
   }
@@ -214,8 +219,9 @@ export async function runUndoCommand(app: CasperApp, command: "undo" | "redo" | 
   return undefined;
 }
 
-/** /settings: the off switches by number; a change is written to ~/.casper/config.yaml and applies from now on. */
-export function settingsCommand(app: CasperApp): Promise<void> {
+/** /settings: the off switches by number; a change is written to ~/.casper/config.yaml and applies from now on.
+ * `only` (/theme): that one row's question. */
+export function settingsCommand(app: CasperApp, only?: string): Promise<void> {
   return runSettings({
     output: app.output, homeDir: () => app.homeDir(), canAsk: app.interactive && app.terminal.canAsk,
     context: async () => app.projectContext, mcp: () => app.mcp,
@@ -229,7 +235,7 @@ export function settingsCommand(app: CasperApp): Promise<void> {
       if (app.projectContext.display !== before.display) app.displayChoice = undefined;
     },
     ask: async (question, options, signal) => (await app.terminal.ask(question, options, false, signal))?.[0],
-  }, app.commandAbort?.signal);
+  }, app.commandAbort?.signal, only);
 }
 
 /** /preview [stop]: the web app on your network, and a public link only after a numbered yes. No model call. */

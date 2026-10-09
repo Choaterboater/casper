@@ -14,6 +14,7 @@ import {
   createAgentSessionServices,
   createBashToolDefinition,
   createLocalBashOperations,
+  CredentialSynchronizationError,
   getAgentDir,
   ModelRuntime,
   SessionManager,
@@ -126,6 +127,10 @@ class PiRuntimeSession implements RuntimeSession {
 
   setSessionName(name: string): void {
     this.runtime.session.setSessionName(name);
+  }
+
+  exportJsonl(file: string): void {
+    this.runtime.session.exportToJsonl(file);
   }
 
   async forkSession(options: RuntimeForkOptions): Promise<RuntimeSessionInfo> {
@@ -630,6 +635,30 @@ export class PiRuntime implements AgentRuntime {
     });
     try { return await this.authWork; }
     finally { this.authWork = undefined; this.models?.setAuthenticating(false); }
+  }
+
+  /** Casper's login file, read the way /login writes it: builtins only, no model catalog, no network. */
+  private credentials(signal?: AbortSignal): Promise<ModelRuntime> {
+    return ModelRuntime.create({ authPath: path.resolve(getAgentDir(), "auth.json"), modelsPath: null, refreshOnCreate: false, allowModelNetwork: false, signal });
+  }
+
+  async savedSignIns(signal?: AbortSignal): Promise<Array<{ provider: string; type: "api_key" | "oauth" }>> {
+    const credentials = await (await this.credentials(signal)).listCredentials({ signal });
+    return credentials.map((credential) => ({ provider: credential.providerId, type: credential.type }));
+  }
+
+  async signOut(provider: string, signal?: AbortSignal): Promise<boolean> {
+    if (this.readOnly || this.authWork || this.wrapper?.busy || this.models?.busy) throw new Error("Wait for active work before signing out.");
+    const runtime = await this.credentials(signal);
+    if (!(await runtime.listCredentials({ signal })).some((credential) => credential.providerId === provider)) return false;
+    try { await runtime.logout(provider, { signal }); }
+    catch (error) {
+      // Removed, but the snapshot of that runtime lagged: the live one is refreshed below. Never show SDK errors: they can hold the credential.
+      if (!(error instanceof CredentialSynchronizationError)) throw new Error("Casper couldn't remove that sign-in; the login file is unchanged.");
+    }
+    this.models?.invalidateAuth(provider);
+    await this.models?.refreshAuth(provider, AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(15_000)]));
+    return true;
   }
 
   start(options: RuntimeStartOptions): Promise<RuntimeSession> {

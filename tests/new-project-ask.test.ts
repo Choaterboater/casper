@@ -477,18 +477,18 @@ test("casper new at a terminal builds the project and opens Casper there; Esc bu
   } finally { await esc.app.close(); esc.input.destroy(); await dirs.cleanup(); }
 });
 
-test("/new lists the templates, and once the model has started it builds but keeps this conversation's folder", async () => {
+test("/project new lists the templates, and once the model has started it builds but keeps this conversation's folder", async () => {
   const dirs = await setup("casper-new-slash-");
   const h = harness(dirs.home);
   const running = h.app.runInteractive(dirs.work);
   try {
     await h.until(text => text.includes("idle"));
-    h.input.write("/new --list\r");
+    h.input.write("/project new --list\r");
     await h.until(text => text.includes("python-cli ") && settled(text));
     h.input.write("hello there\r");
     await h.until(() => h.prompts.length === 1);
     await h.until(settled);
-    h.input.write("/new python-cli ping-tool\r");
+    h.input.write("/project new python-cli ping-tool\r");
     await h.until(text => text.includes("To work in it, run: casper ~/Projects/ping-tool"));
     expect(h.visible()).toContain(`[folder] This conversation stays in ${dirs.work}.`);
     expect(h.created.map(entry => entry.name)).toEqual(["ping-tool"]);
@@ -497,7 +497,7 @@ test("/new lists the templates, and once the model has started it builds but kee
   } finally { await finish(h, running); await dirs.cleanup(); }
 });
 
-test("/new after the model started never drops a typed request silently: it says it didn't run and how to run it", async () => {
+test("/project new after the model started never drops a typed request silently: it says it didn't run and how to run it", async () => {
   const dirs = await setup("casper-new-slash-typed-");
   const h = harness(dirs.home);
   const running = h.app.runInteractive(dirs.work);
@@ -506,7 +506,7 @@ test("/new after the model started never drops a typed request silently: it says
     h.input.write("hello there\r");
     await h.until(() => h.prompts.length === 1);
     await h.until(settled);
-    h.input.write("/new\r");
+    h.input.write("/project new\r");
     await h.until(text => text.includes("What are you building?"));
     h.input.write("a nightly backup of my switch configs\r");
     await h.until(text => text.includes("Name it? (Enter for "));
@@ -519,13 +519,13 @@ test("/new after the model started never drops a typed request silently: it says
   } finally { await finish(h, running); await dirs.cleanup(); }
 });
 
-test("/new before the model starts opens the new project as the workspace", async () => {
+test("/project new before the model starts opens the new project as the workspace", async () => {
   const dirs = await setup("casper-new-slash-open-");
   const h = harness(dirs.home);
   const running = h.app.runInteractive(dirs.work);
   try {
     await h.until(text => text.includes("idle"));
-    h.input.write("/new mist-python aps\r");
+    h.input.write("/project new mist-python aps\r");
     await h.until(text => text.includes("[folder] Working in ~/Projects/aps"));
     await h.until(settled);
     h.input.write("hello there\r");
@@ -543,11 +543,13 @@ test("casper new opens the app only for a person at a terminal; --list and scrip
   expect(terminalNewProject(parseCliArgs(["build", "a", "tool"]), true)).toBeUndefined();
 });
 
-test("/new is in the command palette and the full help; casper new is in the short help", () => {
-  expect(COMMANDS.find(command => command.name === "new")?.description).toBe("Start a new project in ~/Projects (no model)");
+test("/project new is in the command palette and the full help; casper new is in the short help; /new is a new conversation", () => {
+  const project = COMMANDS.find(command => command.name === "project");
+  expect(project?.getArgumentCompletions?.("n")).toEqual([{ value: "new ", label: "new [template] [name]", description: "Start a new project in ~/Projects (no model)" }]);
+  expect(COMMANDS.find(command => command.name === "new")?.description).toBe("Start a fresh conversation; keep files and saved conversations (same as /clear)");
   expect(HELP_TEXT).toContain("casper new [name]");
-  expect(FULL_HELP_TEXT).toContain("/new [name]                       Start a new project in ~/Projects (no model)");
-  expect(FULL_HELP_TEXT).toContain("/new <template> <name>");
+  expect(FULL_HELP_TEXT).toContain("/project new [name]               Start a new project in ~/Projects (no model)");
+  expect(FULL_HELP_TEXT).toContain("/project new <template> <name>");
   expect(FULL_HELP_TEXT).toContain("casper new [kind] [name]");
 });
 

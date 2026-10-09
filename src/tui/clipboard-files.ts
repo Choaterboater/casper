@@ -122,3 +122,9 @@ export async function readClipboardFiles(options: ClipboardFilesOptions = {}): P
   }
   return undefined;
 }
+
+/** Text to the system clipboard (/copy): the platform's own writer, or the terminal's (OSC 52) over ssh. */
+export async function copyText(text: string): Promise<void> {
+  const { copyToClipboard } = await import("@earendil-works/pi-coding-agent");
+  await copyToClipboard(text);
+}

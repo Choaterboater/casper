@@ -1,4 +1,4 @@
-/** Which folder Casper works in: the question at startup from home or a folder of projects, /project, /new and the
+/** Which folder Casper works in: the question at startup from home or a folder of projects, /project, /project new and the
  * build-request offer, and "The work is in ..." after a task in a project inside this folder. Moved from src/app.ts. */
 
 import type { CasperApp } from "../app";
@@ -132,7 +132,7 @@ export async function openProjectCommand(app: CasperApp, name: string): Promise<
   }
   if (target) { await openWorkspaceBeforeRuntime(app, target); return; }
   if (!canMoveWorkspace(app) || !app.interactive || !app.terminal.canAsk) {
-    app.output.write(`[folder] ${typed} isn't a folder in ${terminalText(folder)}. To start it as a new project: ${app.interactive ? "/new" : "casper new"} ${typed}\n`);
+    app.output.write(`[folder] ${typed} isn't a folder in ${terminalText(folder)}. To start it as a new project: ${app.interactive ? "/project new" : "casper new"} ${typed}\n`);
     return;
   }
   const result = await offerMissingFolder(newProjectFlow(app), typed, root, terminalText(folder));
@@ -178,10 +178,10 @@ export async function openWorkspaceBeforeRuntime(app: CasperApp, dir: string): P
   updateFooter(app);
 }
 
-/** /new [name] | /new <template> <name> | /new --list: the same local build as `casper new`, no model. */
+/** /project new [name] | /project new <template> <name> | /project new --list: the same local build as `casper new`, no model. */
 export async function newProjectCommand(app: CasperApp, args: string): Promise<void> {
   const words = args ? args.split(/\s+/) : [];
-  const usage = NEW_USAGE.replace(/casper new/g, "/new");
+  const usage = NEW_USAGE.replace(/casper new/g, "/project new");
   const command = parseNewArgs(words);
   if (!command) { app.output.write(`${usage}\n`); return; }
   if (command.help) {
@@ -193,7 +193,7 @@ export async function newProjectCommand(app: CasperApp, args: string): Promise<v
   // A lone kind word where nobody can be asked the name: the kind's usual name, like casper new.
   if (!canAsk && command.template && !command.name) command.name = defaultNameFor(command.template);
   if (!canAsk && (!command.template || !command.name)) {
-    app.output.write(`/new needs a template and a name when Casper can't ask. ${usage}\n`);
+    app.output.write(`/project new needs a template and a name when Casper can't ask. ${usage}\n`);
     return;
   }
   // A request typed at "What are you building?" runs next, in the new project when the conversation can move there.

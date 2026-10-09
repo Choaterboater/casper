@@ -10,7 +10,7 @@ import { missingFolderChoices } from "./safe-choices";
 /**
  * The new-project questions inside an app session: `casper new` on a terminal, the quiet build in an empty folder,
  * the question before the model starts on a build
- * request outside a project, and /new. All local: numbered choices, no model call, zero tokens. The
+ * request outside a project, and /project new. All local: numbered choices, no model call, zero tokens. The
  * answer is always the user's own (Casper's questions never reach the AI's ask tool).
  */
 
@@ -163,7 +163,7 @@ export function opened(result: NewProjectResult | undefined): result is NewProje
   return result !== undefined && result.status !== "not_created";
 }
 
-/** The full question set for `casper new` and /new: the kind and the name when missing, then the build
+/** The full question set for `casper new` and /project new: the kind and the name when missing, then the build
  * in `parent` (~/Projects by default). Undefined when the user stopped at a question. A request typed at
  * "What are you building?" (three words or more) picks the kind and the name, and goes to `request` to run
  * as the first request in the new project. */
@@ -267,7 +267,7 @@ export function buildRequestNote(prompt: string): string | undefined {
 
 /**
  * A folder name typed to /project that isn't there: "sample-tools isn't a folder in Documents.
- * 1 Stay in Documents · 2 Make sample-tools here". Enter stays. Choice 2 runs the /new questions with that name in
+ * 1 Stay in Documents · 2 Make sample-tools here". Enter stays. Choice 2 runs the /project new questions with that name in
  * `parent`. Undefined when nothing was made.
  */
 export async function offerMissingFolder(flow: NewProjectFlow, typed: string, parent: string | undefined, folder: string, where = "here"): Promise<NewProjectResult | undefined> {

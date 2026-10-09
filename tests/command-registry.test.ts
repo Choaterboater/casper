@@ -70,7 +70,7 @@ test("a command that takes nothing after its name says so; it never asks whether
   expect(commandProblem("/qiut")).toContain("Did you mean /quit?");
   // No hint and no subcommands means no words after the name: the table says which.
   expect(COMMAND_REGISTRY.filter((command) => !takesArguments(command)).map((command) => command.name))
-    .toEqual(["status", "context", "usage", "clear", "settings", "doctor", "tree", "exit"]);
+    .toEqual(["status", "context", "usage", "clear", "settings", "theme", "hotkeys", "doctor", "exit", "tree"]);
 });
 
 test("the menu dims exactly what waits during work: the same table as the check that runs the line", () => {

@@ -5,7 +5,7 @@ import type { CasperApp } from "../app";
 import { nextEffort } from "../tui/effort";
 import { formatEffort, terminalText } from "../tui/format";
 import { runTasksCommand } from "./background";
-import { runsDuringWork } from "../tui/commands";
+import { canonicalLine, runsDuringWork } from "../tui/commands";
 import { commandProblem } from "../tui/help";
 import { leadingImagePath } from "./images";
 import { opened } from "./new-project";
@@ -46,6 +46,8 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
   // No task yet: Casper is still opening a folder or project. Nothing is loaded to show, so the line waits.
   if (!app.commandActive || !app.projectContext) return "draft kept · Enter again once Casper has opened the project";
   if (runsDuringWork(line)) {
+    // An alias runs as its command: /thinking high is /effort high.
+    line = canonicalLine(line);
     const effort = /^\/effort\s+(\S+)(?:\s+(--session))?$/.exec(line);
     if (effort) { void setEffortDuringWork(app, effort[1]!, !effort[2]); return true; }
     const model = /^\/model(?:\s+(.+))?$/.exec(line);

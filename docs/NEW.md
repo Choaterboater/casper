@@ -14,7 +14,8 @@ project's own checks once, and makes a first commit with your own git identity.
 | `casper` in any other folder | Opens exactly there, with no question. A folder that only holds projects prints one line, such as "This folder holds 5 projects (aibot, casper, and 3 more). To work in one: casper aibot", when it holds two or more. |
 | A build request in a folder that holds other things | In a folder that is not a project and not empty (Documents, say), "build a tool that lists Mist APs per site" asks once, before any model call: "Build this as a new Mist Python project in ~/Projects/mist-aps? 1 Use this folder · 2 Yes · 3 Other kind". Enter keeps this folder, and Other kind lists the kinds after "Use this folder". Typing a name instead of a number uses that name; typing "yes" builds it and "no" keeps this folder, and a number that isn't a choice asks again. Yes builds it, opens it, and your request goes on there, so its checks and proof run in the new project. It is asked at most once a session, and only before the model has started: a conversation's folder is fixed once it exists. |
 
-`/new [name]`, `/new <template> <name>` and `/new --list` do the same inside a session. Before the
+`/project new [name]`, `/project new <template> <name>` and `/project new --list` do the same inside a
+session (`/new` starts a new conversation, as in other coding agents). Before the
 model starts, Casper opens the new project; after, it builds the project and tells you how to open
 it (`casper ~/Projects/<name>`), because this conversation stays where it is.
 
@@ -31,7 +32,7 @@ request: the plan-first panel doesn't follow it, and no checklist is made.
 The quiet build is on by default. Pick **Starter templates** in `/settings` (it writes
 `templates: off` in `~/.casper/config.yaml`) and a request in an empty folder goes straight to the
 model, with no template built for you. A project file can't turn it on or off. Say "from scratch" in
-a request to skip it for that request only. `casper new`, `/new` and the question above are your own
+a request to skip it for that request only. `casper new`, `/project new` and the question above are your own
 commands and still work when it is off.
 
 ## Scripts and CI
