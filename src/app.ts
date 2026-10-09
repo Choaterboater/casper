@@ -87,6 +87,7 @@ import type { BigModelChoice } from "./app/big-model";
 import { openProjectCommand, offerWorkFolder } from "./app/workspace";
 import { ensureSessionWorkspace, handleBranchCommand, handleSwitchCommand } from "./app/session-branches";
 import { setCheckProgress } from "./verify/progress";
+import type { PageSession } from "./pages/session";
 import { runVerification, checksPlan, saveFoundCheck } from "./app/verification";
 import { runInteractive, handlePrompt, handleSlashCommand, cancelCurrent, writePrompt } from "./app/command-loop";
 import { loadWorkspace, reloadReferences, reloadSkills, projectPrivatePaths, reportSkillWarnings, bannerChecks, reportNewerCasper } from "./app/wiring";
@@ -143,6 +144,8 @@ export interface CasperAppOptions {
   newProject?: { template?: string; name?: string };
   /** Builds a new project (casper new, the new-project questions and /project new); tests pass a fake. */
   createProject?: (options: NewProjectOptions) => Promise<NewProjectResult>;
+  /** Tests: whether this computer has a desktop, and the browser opener, for the pages the AI makes. */
+  pageSeams?: { desktop?: () => boolean; open?: (url: string) => boolean };
   /** Opens pages for the page check: Chrome when installed, else HTTP only. Tests pass a fake. */
   pageOpener?: (options: { projectRoot: string; stateDirectory: string }) => Promise<PageOpener>;
   /** Where network checks find their tools (PATH), temp folders and home; tests point these at fakes. */
@@ -288,6 +291,10 @@ export class CasperApp {
   /** The page opener of the current task (one disposable browser per task), closed when the task ends. */
   taskPageOpener?: PageOpener;
   readonly pageOpenerFn: NonNullable<CasperAppOptions["pageOpener"]>;
+  /** The pages the AI makes for this session's project (src/app/pages.ts), and its casper_page tool. */
+  pages?: PageSession;
+  pageTool?: RuntimeTool;
+  readonly pageSeams?: CasperAppOptions["pageSeams"];
   /** The dev-server lines are printed once per session. */
   readonly pageNotice: DevServerNotice = { shown: false };
   /** What may have changed this task's code since it started: a check the model records after that has no
@@ -407,6 +414,7 @@ export class CasperApp {
     };
     this.runtimeFactory = options.runtimeFactory ?? freshPiRuntime;
     this.pageOpenerFn = options.pageOpener ?? pageOpener;
+    this.pageSeams = options.pageSeams;
     this.networkTools = options.networkTools;
     this.securitySeams = options.securitySeams;
     this.networkSeams = options.networkSeams;
@@ -741,8 +749,10 @@ export class CasperApp {
   /** Looked up once: the answer decides whether the browser tool is there from the first turn. */
   browserInstalled?: Promise<boolean>;
 
+  /** A new conversation (/clear, /resume): tools picked for the old one go, and casper_page sends its guide again. */
   resetToolPicks(): void {
     this.broker?.resetPicks();
+    this.pageTool = undefined;
   }
 
   async stopDebugger(): Promise<void> { return stopDebugger(this); }

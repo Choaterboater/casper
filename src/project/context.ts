@@ -66,6 +66,10 @@ export interface ProjectContext {
   sshLogin?: boolean;
   /** `other_logins: off` in the user's config: /login never looks for other tools' sign-ins. Unset: on. */
   otherLogins?: boolean;
+  /** `ai_pages: off` in the user's config: the AI is never offered casper_page. Unset: on. */
+  aiPages?: boolean;
+  /** `open_pages: off` in the user's config: pages the AI makes are not opened in the browser. Unset: on. */
+  openPages?: boolean;
   /** `telemetry: off` in the user's config: no OpenRouter app-name headers. Unset: on. */
   telemetry?: boolean;
   rules: {
@@ -167,6 +171,8 @@ export async function loadProjectContext(
     ...(configuration.telemetry !== undefined ? { telemetry: configuration.telemetry } : {}),
     ...(configuration.sshLogin !== undefined ? { sshLogin: configuration.sshLogin } : {}),
     ...(configuration.otherLogins !== undefined ? { otherLogins: configuration.otherLogins } : {}),
+    ...(configuration.aiPages !== undefined ? { aiPages: configuration.aiPages } : {}),
+    ...(configuration.openPages !== undefined ? { openPages: configuration.openPages } : {}),
     ...(configuration.toolDownloads !== undefined ? { toolDownloads: configuration.toolDownloads } : {}),
     rules: {
       profile: configuration.profileRules,

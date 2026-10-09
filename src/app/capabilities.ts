@@ -26,6 +26,8 @@ export interface TaskCapabilitySource {
   reader?: RuntimeTool;
   /** web_search and web_fetch; unset when web lookups are off (web: off). */
   web?: RuntimeTool[];
+  /** casper_page (pages in the user's browser); unset when ai_pages is off, so it costs nothing. */
+  page?: RuntimeTool;
   visualization: VisualizationRouter;
   /** Workspace root for repo-scoped visualization. */
   projectRoot: string;
@@ -66,7 +68,7 @@ export function diagramRequested(task: string): boolean {
 }
 
 /** The complete custom tool surface for one task, in the established order: MCP capabilities,
- * delegation, clarification, Casper's own state, managed checks, LSP, references, web lookups, the untrusted-text reader, browser, services, visualization.
+ * delegation, clarification, Casper's own state, managed checks, LSP, references, web lookups, the untrusted-text reader, pages, browser, services, visualization.
  * Casper's own tools, once offered, stay offered for the session: a changed tool list throws away
  * the provider's prompt cache. The direct MCP tools are picked once per session (again when a server
  * connects or disconnects); find_capability reaches the rest. */
@@ -86,6 +88,7 @@ export async function assembleTaskTools(task: string, source: TaskCapabilitySour
     ...source.references.tools(),
     ...(source.web ?? []),
     ...(source.reader ? [source.reader] : []),
+    ...(source.page ? [source.page] : []),
     ...(browser ? [browserTool(source.browser, source.browserSignal)] : []),
     ...(service ? [source.serviceTool()] : []),
     ...(github ? [source.githubTool!()] : []),

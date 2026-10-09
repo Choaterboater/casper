@@ -21,11 +21,11 @@ export function askTool(channel: AskChannel): RuntimeTool {
   return {
     name: "ask",
     sequential: true,
-    description: `Ask the human to choose or confirm something at any point (unclear requirements, "shall I do X next?") instead of ending a reply with a question in prose. Give 2–4 concrete options (labels plus short descriptions), the safe choice first; the human picks one, types an answer, or skips. After the answer, reply with only what is new: don't repeat what you showed before asking. Budget: ${ASK_BUDGET} questions per task — when it runs out, state your assumptions in the reply instead.`,
+    description: `Ask the human to choose or confirm something at any point (unclear requirements, "shall I do X next?") instead of ending a reply with a question in prose. Give 2–4 concrete options (labels plus short descriptions), the safe choice first; the human picks one, types an answer, or skips. After the answer, reply with only what is new: don't repeat what you showed before asking. Budget: ${ASK_BUDGET} questions per task.`,
     inputSchema: {
       type: "object", additionalProperties: false, required: ["question", "options"],
       properties: {
-        question: { type: "string", description: "One specific question; never ask what the repository already answers." },
+        question: { type: "string", description: "One specific question." },
         options: {
           type: "array", minItems: 2, maxItems: 4,
           items: { type: "object", additionalProperties: false, required: ["label"], properties: { label: { type: "string" }, description: { type: "string" } } },

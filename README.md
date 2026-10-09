@@ -106,6 +106,10 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
   saved task, also outside git. [Undo](docs/UNDO.md)
 - **Sessions.** Pick up a past chat (`--continue`, `/resume`), or try an idea in a named branch with
   its own folder. [Sessions](docs/SESSIONS.md)
+- **Pages in your browser.** When seeing beats reading (options side by side, a mock-up, a
+  dashboard, a report for others), the AI makes a page by itself and it opens in your
+  browser; a change reloads it. Local only, with an off switch in `/settings`.
+  [Pages](docs/TERMINAL_UX.md#pages-the-ai-makes)
 - **Services, browser, LSP, debugger.** Run your dev server, debug in Chrome or Edge, use a language
   server or a step debugger. [Services](docs/SERVICES.md) · [Browser](docs/BROWSER.md) · [LSP](docs/LSP.md) · [Debugger](docs/DEBUGGER.md)
 - **Scripting.** `--json` streams events, and exit codes tell a script what happened (3 = not proven

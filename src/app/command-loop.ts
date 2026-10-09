@@ -28,6 +28,7 @@ import { applyWeb } from "./wiring";
 import { typedDuringTask } from "../tui/give-way";
 import { checkSignIn } from "./runtime-start";
 import { reloadProject } from "./project-file";
+import { pagesCommand } from "./pages";
 
 export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promise<void> {
   // Own the terminal before the banner so startup output is transcript, not
@@ -192,6 +193,7 @@ export function handleSlashCommand(app: CasperApp, typed: string): Promise<Verif
   if (/^\/details(?:\s|$)/.test(prompt)) return detailsCommand(app, prompt.slice(8).trim()).then(() => undefined);
   if (prompt.trim() === "/settings") return settingsCommand(app).then(() => undefined);
   if (prompt.trim() === "/theme") return settingsCommand(app, "Theme").then(() => undefined);
+  if (/^\/pages(?:\s|$)/.test(prompt)) return pagesCommand(app, prompt.slice(6).trim()).then(() => undefined);
   if (/^\/preview(?:\s|$)/.test(prompt)) return previewCommand(app, prompt.slice(8).trim()).then(() => undefined);
   const newProject = /^\/project\s+new(?:\s+([\s\S]*))?$/.exec(prompt.trim());
   if (newProject) return newProjectCommand(app, (newProject[1] ?? "").trim()).then(() => undefined);

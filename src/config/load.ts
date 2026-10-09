@@ -119,6 +119,10 @@ export interface LoadedConfiguration {
   sshLogin?: boolean;
   /** `other_logins: off` in your own config: /login never looks for sign-ins Claude Code, Codex CLI or GitHub CLI left. Unset: on. */
   otherLogins?: boolean;
+  /** `ai_pages: off` in your own config: the AI is never offered casper_page (pages in your browser). Unset: on. */
+  aiPages?: boolean;
+  /** `open_pages: off` in your own config: a page the AI makes is not opened in your browser; its link is printed. Unset: on. */
+  openPages?: boolean;
   /** The user's lab devices (lab.hosts), from ~/.casper/config.yaml or the profile only; never a project file. */
   lab?: LabSettings;
   /** The profile whose own lab list replaces yours (~/.casper/profiles/<name>/config.yaml), when it has one. */
@@ -275,7 +279,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "ai_pages", "open_pages", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -903,6 +907,11 @@ export async function loadConfiguration(
   let sshLogin: boolean | undefined;
   if (projectDocument.other_logins !== undefined) throw new Error("other_logins is a user setting (~/.casper/config.yaml); a project cannot change what /login looks for");
   let otherLogins: boolean | undefined;
+  // Pages the AI makes are shown on your screen, at your cost: whether it makes them, and whether they open, is yours.
+  if (projectDocument.ai_pages !== undefined) throw new Error("ai_pages is a user setting (~/.casper/config.yaml); a project cannot turn the AI's pages on or off");
+  if (projectDocument.open_pages !== undefined) throw new Error("open_pages is a user setting (~/.casper/config.yaml); a project cannot open pages in your browser or stop them opening");
+  let aiPages: boolean | undefined;
+  let openPages: boolean | undefined;
   for (const [document, label] of [[globalDocument, labels.global], [userProfileDocument, labels.userProfile]] as const) {
     toolDownloads = toolsLayer(document, label, sandboxWarnings) ?? toolDownloads;
     browser = onOffLayer(document.browser, label, "browser") ?? browser;
@@ -912,6 +921,8 @@ export async function loadConfiguration(
     telemetry = onOffLayer(document.telemetry, label, "telemetry") ?? telemetry;
     sshLogin = onOffLayer(document.ssh_login, label, "ssh_login") ?? sshLogin;
     otherLogins = onOffLayer(document.other_logins, label, "other_logins") ?? otherLogins;
+    aiPages = onOffLayer(document.ai_pages, label, "ai_pages") ?? aiPages;
+    openPages = onOffLayer(document.open_pages, label, "open_pages") ?? openPages;
     diagrams = diagramLayer(document, label, sandboxWarnings, false) ?? diagrams;
   }
   if (pickedByProject) diagramLayer(profileDocument, labels.profile, sandboxWarnings, true);
@@ -953,6 +964,8 @@ export async function loadConfiguration(
     ...(toolDownloads !== undefined ? { toolDownloads } : {}),
     ...(sshLogin !== undefined ? { sshLogin } : {}),
     ...(otherLogins !== undefined ? { otherLogins } : {}),
+    ...(aiPages !== undefined ? { aiPages } : {}),
+    ...(openPages !== undefined ? { openPages } : {}),
     ...(pageChecks !== undefined ? { pageChecks } : {}),
     profileName: selectedProfile,
     policy: mergePolicy(

@@ -91,7 +91,7 @@ test("acceptance: 'map out the authentication flow' yields a visual, saves artif
   const before = await snapshot(project);
 
   await app.runOnce("map out the authentication flow");
-  expect(runtime.surfaces).toEqual([["delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted", "visualize"]]);
+  expect(runtime.surfaces).toEqual([["delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted", "casper_page", "visualize"]]);
   expect(runtime.prompts[0]).toContain("- intent: visualize");
   expect(runtime.prompts[0]).toContain("- mode: read");
   const result = JSON.parse(runtime.results[0]!.text);

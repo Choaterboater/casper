@@ -77,7 +77,11 @@
               <li><a href="#v010">v0.1.0: the first preview</a></li>
             </ul>
           </li>
-          <li><a href="#next">Next release, built, not released</a></li>
+          <li><a href="#next">Next release, built, not released</a>
+            <ul>
+              <li><a href="#ai-pages">Pages the AI makes</a></li>
+            </ul>
+          </li>
           <li><a href="#coming">Planned, not started</a>
             <ul>
               <li><a href="#v030">v0.3: crews</a></li>
@@ -604,8 +608,21 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.29. New work shows here before the next preview.</p>
+          <p>On the main branch, in the next preview after v0.2.29.</p>
         </aside>
+        <div class="stack">
+        <article class="card" id="ai-pages" aria-labelledby="ai-pages-h">
+          <h3 id="ai-pages-h">Pages the AI makes · see it, don't read it <span class="badge soon">built, not released</span></h3>
+          <p>When a picture answers better than text (options side by side, a mock-up, a dashboard of results, a
+          report someone else will read), the AI makes a page by itself and it opens in your browser at
+          once: <code>[page] db-options → http://127.0.0.1:52144/db-options.html</code>. A change reloads the open tab.
+          <code>/pages</code> lists them, <code>/pages open</code> and <code>/pages remove</code> work during a task.
+          Pages stay on this computer: a local server on <code>127.0.0.1</code>, a strict policy that keeps a page
+          from fetching from other sites, and nothing served outside the pages folder. Over SSH or with no desktop Casper
+          prints the link. <strong>Pages the AI makes</strong> and <strong>Open pages in the browser</strong> in
+          <code>/settings</code> turn them off. Sharing a page beyond your computer comes later, and will ask first.</p>
+        </article>
+        </div>
       </section>
 
       <section id="coming" aria-labelledby="coming-h">

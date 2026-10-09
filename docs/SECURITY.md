@@ -336,6 +336,7 @@ Each row names the test that fails without it.
 | A pack from GitHub is one full commit over https from github.com, and that commit must be on one of the repository's own branches or tags (GitHub serves a fork's commits at the original's address too); git runs with none of your or the system's settings, hooks pointed at an empty folder, and every protocol but https refused. | `[pack] Casper fetches packs over https only. …` | `tests/packs-git.test.ts` › “a pack link must be https://github.com/owner/repo@<full commit>; branches, tags, other hosts and http are refused”; `tests/packs-git.test.ts` › “pack git runs with no settings of yours or the system's, hooks off, and refuses every protocol but https”; `tests/packs-git.test.ts` › “a commit that isn't on the repository's own branches or tags, like a fork's served at its address, is refused” |
 | A pack's skills come last: a name already used by any skill, an MCP server, another pack or Casper's built-in skills refuses the add, and a pack's skill is never used in place of another of the same name. Packs add nothing to a request no skill fits, a project file can't set `packs:`, and the AI's tools and shell can't read or change `~/.casper/packs`. | `[pack] Pack writing-basics can't be added: the name drafting is already used by a user skill.` | `tests/packs.test.ts` › “a pack whose name or skill name is already taken by your skill, an MCP server, another pack or a built-in skill is refused”; `tests/packs-app.test.ts` › “in a session, a pack with your skill's name or an MCP server's name is refused before any box”; `tests/packs.test.ts` › “a pack's skills rank below every other source, a name another skill has is never used, and its folder stays out of the request”; `tests/packs-app.test.ts` › “a 20-skill pack with a theme adds 0 bytes to the fixed part of a request, its theme in use or not”; `tests/packs.test.ts` › “packs: off in your config turns packs off; a project file can't set packs or add one”; `tests/packs.test.ts` › “~/.casper/packs, its record and its key are private to the AI's tools and the shell sandbox” |
 | A pack's theme is colours only: its one theme file is read with the strict theme-file parser when you add the pack (an escape, control or other hidden character, a field or role it doesn't have, a file over 8 KiB, a path out of the pack or a link refuses the whole pack), is shown in full with the other files, and a changed theme file asks again like any changed file. Its name can't be a built-in theme's or another pack's. It is on the theme list only while packs are on and the pack is exactly as you saw it, a project file still can't set `theme:`, and nothing of it reaches the model. | `[pack] Pack writing-basics can't be added: its theme is named light, and that name is already used by a theme built into Casper.` | `tests/packs.test.ts` › “a pack whose theme isn't colours only is refused whole, with a plain reason: escapes, controls, other fields, a big file, a path out”; `tests/packs.test.ts` › “a pack whose theme file is a link is refused”; `tests/packs.test.ts` › “a pack's one theme is counted in the box from its file, shown in full, and a changed theme file asks again”; `tests/packs.test.ts` › “a pack's theme can't take the name of a built-in theme or another pack's theme”; `tests/packs-app.test.ts` › “a pack's theme is on the list at start only while packs are on: theme: in your config picks it, a project file can't, and packs off or /pack remove goes back to default with the note”; `tests/packs-app.test.ts` › “a 20-skill pack with a theme adds 0 bytes to the fixed part of a request, its theme in use or not” |
+| Pages the AI makes are served from `127.0.0.1` only, on a free port, from the project's pages folder alone: a name is `a-z`, `0-9` and `-`, so `..`, slashes, other files and links in the folder get `404`, and a request naming another host (DNS rebinding) gets `403`. Every page carries a policy that blocks fetches to other sites (`connect-src 'self'`), forms, frames and outside images, and is served sandboxed in an origin of its own. WebRTC and moving the tab are not held back (a guard script takes WebRTC away, best effort). | `Not found`; the browser's console names the blocked request | `tests/ai-pages.test.ts` › “the server sends a page with the strict policy and the reload script, and nothing outside the folder”; `tests/ai-pages.test.ts` › “a saved page starts with the policy and the WebRTC guard, once each, after any doctype”; `tests/ai-pages.test.ts` › “a page name is short, lower case, digits and dashes: never a path, a dot or a Windows device name” |
 
 ## What is not held back
 
@@ -406,6 +407,39 @@ Each row names the test that fails without it.
 - **A pack you added is its author's words.** Casper shows every file before you say yes and stops the
   pack if a file changes, but a skill is instructions the AI reads when a request fits it, so read a
   pack before you add it as you would any instructions you give the AI.
+
+## Pages the AI makes
+
+The AI's `casper_page` tool writes one HTML file a page to `~/.casper/pages/<project>/`. The AI's
+own `edit` and `write` can't change `~/.casper`, nor can its shell in the sandbox, so pages get
+there through the tool.
+A page is untrusted text the model wrote, so Casper holds it as such:
+
+- **Local only.** The page server listens on `127.0.0.1` alone, on a free port picked at start, and
+  stops when Casper quits. It answers only requests that name `127.0.0.1` or `localhost` with its
+  port, so a web page elsewhere can't reach it through a name of its own. Nothing is shared beyond
+  this computer.
+- **The pages folder and nothing else.** A page name is `a-z`, `0-9` and `-` (up to 40, never a
+  Windows device name), checked again with `isOutside`; links, hidden and other files in the folder
+  are not served. Casper writes a page to a temporary file and renames it into place, and refuses a
+  pages folder that is a link to somewhere else.
+- **A strict policy.** Every page is served with `Content-Security-Policy: default-src 'none'`,
+  inline script and style allowed for the page itself, scripts and styles from `cdn.jsdelivr.net`,
+  `cdnjs.cloudflare.com` and `unpkg.com`, fonts from Google Fonts, images only inline, and
+  `connect-src 'self'` (the reload stream): a page can't fetch, post, frame or send a form anywhere.
+  The same policy (less `frame-ancestors`, which a tag in the page can't carry) is written into the
+  file, so it holds when the file is opened directly.
+- **An origin of its own.** The served policy adds `sandbox allow-scripts allow-popups allow-modals
+  allow-downloads`, so a page runs in an opaque origin: it can't read or set the cookies, storage
+  or data of other apps on `127.0.0.1` (browsers share cookies across a host's ports).
+- **Not held back:** a page can still move its own tab to another address, which a policy can't
+  stop. No policy covers WebRTC either: Casper puts a script ahead of the page's own that takes
+  `RTCPeerConnection` and its kin away, but a page can get them back through a frame of its own, and
+  then reach any host and port by UDP or TCP (STUN and TURN), with DNS lookups, without the user
+  seeing it. A library from one of those CDNs runs in the page. The guide the AI gets tells it to keep
+  secrets, keys and file contents the user didn't ask for out of pages.
+- **Off switches.** `ai_pages: off` takes the tool away; `open_pages: off` stops pages opening
+  (both in [CONFIGURATION.md](CONFIGURATION.md#settings), yours only: a project file can't set them).
 
 ## Asking less
 
