@@ -78,7 +78,7 @@ Local commands:
   /help <word>                      Only the lines that mention that word, like /help mcp
   /status, /project                 Project, model, sign-in and integration status
   /doctor                           Check Casper's own setup (no model): version, config files, sign-in, MCP and language servers, security tools, sandbox, disk, network server; fixes it can make ask first (1 Not now); during a task it only reports
-  /model [id or provider/id]        Model browser; select and remember globally; an id no model matches is an error
+  /model [provider/id | words]      Model browser; select and remember globally; words pick the model they name (/model opus 5.5), several ask which, none name the closest
   /model --session [model]          Select without changing the startup default (--session also goes after the model)
   /model @role[:effort]             Select the model a configured role points to
   /model roles                      Show fast/build/reason/review role mappings

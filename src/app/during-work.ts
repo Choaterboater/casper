@@ -16,6 +16,7 @@ import { runMCPListDuringWork, runPermissionsDuringWork } from "./commands";
 import { ensureRuntime } from "./runtime-start";
 import { askSideQuestion, BTW_USAGE, btwQuestion, sideQuestionsOn, sideQuestionText } from "./side-question";
 import { duringTask } from "../tui/give-way";
+import { chooseModel, handledHere, modelChangeRequest, namesModel, severalModelsMessage } from "./model-words";
 
 /** After a task: lines the AI never read join the queue. A stopped task runs nothing more: its queued lines go
  * back into the prompt (the rich terminal) for you to send or clear. */
@@ -61,6 +62,17 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
   if (side !== undefined) { void askSideQuestion(app, side); return true; }
   // A line that runs later as a request keeps what was pasted into it, so its words count only where typed.
   if (pasted.length) app.linePastes.set(line, pasted);
+  // "switch to sonnet 5": changed from the model's next step, as /model would, and never sent to the AI.
+  const target = modelChangeRequest(line, pasted);
+  if (target) {
+    // No wait for local servers: the line is steered (or not) at once, before any line typed after it.
+    void namesModel(app.session, target, false).then(names => {
+      if (!names || app.closing) return steerOrQueue(app, line);
+      app.output.write(handledHere(target));
+      return duringTask(() => setModelDuringWork(app, target));
+    });
+    return true;
+  }
   void steerOrQueue(app, line);
   return true;
 }
@@ -143,7 +155,10 @@ export async function setModelDuringWork(app: CasperApp, argument: string): Prom
     if (picker) app.openModelPicker = handle;
     if (picker) watch = setInterval(() => { if (!app.commandActive || !session.getState().isStreaming) yielded.abort(); }, 200);
     const signal = app.commandAbort ? AbortSignal.any([yielded.signal, app.commandAbort.signal]) : yielded.signal;
-    const result = await session.selectModel({ ...(query ? { query } : {}), persist: !sessionOnly, signal, ...(picker ? { picker } : {}) });
+    // Words that name several models: the numbered question, which gives way to the task's own boxes like the picker.
+    const choose = query && app.interactive ? chooseModel(app.terminal, query, signal) : undefined;
+    const result = await session.selectModel({ ...(query ? { query } : {}), persist: !sessionOnly, signal, ...(picker ? { picker } : {}), ...(choose ? { choose } : {}) });
+    if (result.candidates) { app.output.write(`[model] ${terminalText(severalModelsMessage(query, result.candidates))}\n`); return; }
     if (!result.selected) {
       app.output.write(result.models ? `[model] No model ${terminalText(query)}; model unchanged. /model lists them when this task ends.\n` : "[model] Model unchanged.\n");
       return;
@@ -151,7 +166,8 @@ export async function setModelDuringWork(app: CasperApp, argument: string): Prom
     const label = `${result.status.provider}/${result.status.model}`;
     // One line; it names where the context goes only when that is a different provider.
     const moved = result.status.provider !== before ? ` · this conversation's context goes to ${terminalText(result.status.provider ?? "its provider")}` : "";
-    app.output.write(`[model] ${terminalText(label)} from the model's next step${result.savedDefault ? "; saved" : " (this conversation)"}${moved}\n`);
+    const from = result.from !== undefined ? ` (from ${terminalText(JSON.stringify(result.from))})` : "";
+    app.output.write(`[model] ${terminalText(label)}${from} from the model's next step${result.savedDefault ? "; saved" : " (this conversation)"}${moved}\n`);
     updateFooter(app);
   } catch (error) {
     if (yielded.signal.aborted) app.output.write("[model] Model unchanged.\n");

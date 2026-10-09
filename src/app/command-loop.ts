@@ -26,7 +26,8 @@ import { parseRequestWords } from "./request-words";
 import { askSideQuestion, BTW_USAGE, btwQuestion, sideQuestionsOn, sideQuestionText } from "./side-question";
 import { applyWeb } from "./wiring";
 import { typedDuringTask } from "../tui/give-way";
-import { checkSignIn } from "./runtime-start";
+import { checkSignIn, ensureRuntime } from "./runtime-start";
+import { handledHere, modelChangeRequest, namesModel } from "./model-words";
 import { reloadProject } from "./project-file";
 
 export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promise<void> {
@@ -151,6 +152,12 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
     // Commands go straight on (no wait, so a close that arrives with the line still finds the command running).
     if (command && leadingImagePath(prompt) !== undefined) command = !await startsWithImageFile(prompt, { cwd: app.activeWorkspaceRoot() });
     if (command) return await handleSlashCommand(app, prompt);
+    // "change model to opus 5.5": Casper changes it as /model would, with no model call (src/app/model-words.ts).
+    const target = typed && !app.pastedImages?.size ? modelChangeRequest(prompt, typed.pasted) : undefined;
+    if (target && await namesModel(await ensureRuntime(app), target)) {
+      app.output.write(handledHere(target));
+      return await handleSlashCommand(app, `/model ${target}`);
+    }
     const words = typed ? parseRequestWords(prompt, typed.pasted) : undefined;
     return await runModelTask(app, words?.text ?? prompt, words ? { words } : {});
   } catch (error) {

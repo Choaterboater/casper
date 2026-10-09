@@ -56,6 +56,8 @@ import type {
   RuntimeUsage,
   RuntimeImage,
   RuntimeModelInfo,
+  RuntimeModelWordsMatch,
+  RuntimeModelWordsOptions,
   RuntimeConversation,
   RuntimeEvent,
 } from "./types";
@@ -232,6 +234,10 @@ class PiRuntimeSession implements RuntimeSession {
 
   describeModel(query: string): RuntimeModelInfo | undefined {
     return this.models.describe(query);
+  }
+
+  matchModel(words: string, options?: RuntimeModelWordsOptions): Promise<RuntimeModelWordsMatch> {
+    return this.models.matchWords(words, this.runtime.session, options);
   }
 
   visionModel(): RuntimeModelInfo | undefined {

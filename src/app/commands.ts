@@ -11,6 +11,7 @@ import { ProjectMemory } from "../memory/store";
 import { modelPreference } from "../tui/model-preference";
 import { HELP_TEXT, FULL_HELP_TEXT, HOTKEYS_TEXT, LOGIN_HELP, helpFor, unknownCommandMessage, wrapHelp } from "../tui/help";
 import { conversationCommand, runLogout } from "./peer-commands";
+import { chooseModel, severalModelsMessage } from "./model-words";
 import { formatTerminalJSON } from "../tui/json";
 import { formatCacheHitRate, formatCostLong, formatCostShort, formatTokenSplit } from "../tui/usage";
 import { effortChoices, effortProblem } from "../tui/effort";
@@ -250,9 +251,13 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       }
       const result = await session.selectModel({ query: query || undefined,
         persist: !sessionOnly, signal: host.commandAbort?.signal,
-        picker: host.interactive ? host.terminal.modelPickerHost() : undefined });
+        picker: host.interactive ? host.terminal.modelPickerHost() : undefined,
+        ...(host.interactive && query ? { choose: chooseModel(host.terminal, query, host.commandAbort?.signal) } : {}) });
+      // Words that name several models and no question to ask: the list, nothing changed.
+      if (result.candidates) throw new Error(severalModelsMessage(query, result.candidates));
       // A cancelled picker changes nothing; the status block was already shown at startup.
       if (!result.selected && !result.models) { host.output.write("[model] Selection cancelled; model unchanged.\n"); return; }
+      if (result.from !== undefined) host.output.write(`[model] ${terminalText(`${result.status.provider}/${result.status.model}`)} (from ${terminalText(JSON.stringify(result.from))})\n`);
       host.output.write(`${formatRuntimeStatus(result.status)}\n`);
       if (result.selected) host.output.write(result.savedDefault
         ? "[model] Selected and saved as the Casper default for new conversations.\n"
