@@ -2,10 +2,10 @@
  * run now, and the model and effort (/model, Shift+Tab, /effort). Moved from src/app.ts. */
 
 import type { CasperApp } from "../app";
-import { nextEffort } from "../tui/effort";
+import { effortProblem, nextEffort } from "../tui/effort";
 import { formatEffort, terminalText } from "../tui/format";
 import { runTasksCommand } from "./background";
-import { canonicalLine, runsDuringWork } from "../tui/commands";
+import { canonicalLine, runsDuringWork, sessionFlag } from "../tui/commands";
 import { commandProblem } from "../tui/help";
 import { leadingImagePath } from "./images";
 import { opened } from "./new-project";
@@ -46,13 +46,20 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
   // No task yet: Casper is still opening a folder or project. Nothing is loaded to show, so the line waits.
   if (!app.commandActive || !app.projectContext) return "draft kept · Enter again once Casper has opened the project";
   if (runsDuringWork(line)) {
-    // An alias runs as its command: /thinking high is /effort high.
+    // An alias runs as its command: /thinking high is /effort high, /quit is /exit.
     line = canonicalLine(line);
-    const effort = /^\/effort\s+(\S+)(?:\s+(--session))?$/.exec(line);
-    if (effort) { void setEffortDuringWork(app, effort[1]!, !effort[2]); return true; }
+    // /exit stops the task and leaves, as Ctrl+C twice does: nothing waits for the task to end first.
+    if (line === "/exit") { app.output.write("[exit] Stopping this task and leaving Casper.\n"); void app.close().catch(() => {}); return true; }
+    const effort = /^\/effort\s+(.+)$/.exec(line);
+    if (effort) { const { rest, session } = sessionFlag(effort[1]!); void setEffortDuringWork(app, rest, !session); return true; }
     const model = /^\/model(?:\s+(.+))?$/.exec(line);
     if (model && line !== "/model roles") { void setModelDuringWork(app, (model[1] ?? "").trim()); return true; }
     const failed = (error: unknown) => { app.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); };
+    // /doctor only reports during a task: its fixes ask, and a question of its own would stand in the way of the task's.
+    if (line === "/doctor") {
+      void import("../doctor/session").then(({ runDoctorInSession }) => runDoctorInSession(app, true)).catch(failed);
+      return true;
+    }
     if (line === "/tasks") {
       void runTasksCommand({ tasks: () => backgroundTasks(app), write: text => app.output.write(text), canAsk: () => false,
         pick: async () => undefined, duringWork: true }).catch(failed);
@@ -105,6 +112,8 @@ export async function setEffortDuringWork(app: CasperApp, level: string, persist
   try {
     const session = app.session;
     if (!session?.setEffort) throw new Error("effort controls unavailable");
+    const problem = effortProblem(level, session.getStatus?.());
+    if (problem) throw new Error(problem);
     const updated = await session.setEffort(level, persist);
     app.output.write(`[effort] ${formatEffort(updated) ?? level} from the model's next step${persist ? "; saved" : " (this conversation)"}\n`);
     updateFooter(app);
@@ -122,8 +131,7 @@ export async function setModelDuringWork(app: CasperApp, argument: string): Prom
   try {
     const session = app.session;
     if (!session?.selectModel) throw new Error("model selection unavailable");
-    const sessionOnly = /^--session(?:\s|$)/.test(argument);
-    const query = (sessionOnly ? argument.slice(9) : argument).trim();
+    const { rest: query, session: sessionOnly } = sessionFlag(argument);
     const picker = query ? undefined : app.terminal.exclusiveHost({ onYield: () => yielded.abort() });
     if (!query && !picker) { app.output.write("[model] The picker needs the full terminal; type /model <provider/id>.\n"); return; }
     if (picker) app.openModelPicker = handle;

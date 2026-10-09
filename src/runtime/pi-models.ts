@@ -7,6 +7,7 @@ import { classifyEffort, nearestEffort, resolveAutoEffort } from "./auto-effort"
 import { isEffortSelection, isModelRole, resolveModelSelection, type ModelReference, type ModelRoles, type ResolvedModelSelection } from "./model-routing";
 import type { RuntimeModelInfo, RuntimeModelSelection, RuntimeModelSelectionOptions, RuntimeReadOnlyStartOptions, RuntimeStatus, RuntimeUsage } from "./types";
 import { pickPiModel } from "./pi-model-picker";
+import { anyModelMatches } from "./pi-model-browser";
 import { openRouterRequestHeaders } from "./openrouter-attribution";
 import { compactionReserveFor, smallWindowWarning } from "./small-window";
 import { lockBusy } from "../platform/files";
@@ -469,6 +470,13 @@ export class PiModels {
       }
       let model = resolved && this.catalog.getModel(resolved.reference.provider, resolved.reference.id);
       let persist = Boolean(options.persist);
+      if (!model && options.picker && options.query) {
+        // A typed id no model matches: one error line, not a picker that only says "No matching models".
+        const available = this.catalog.getAvailableSnapshot();
+        if (available.length && !anyModelMatches(available, options.query, this.defaultReference())) {
+          throw new Error(`No model ${JSON.stringify(options.query)}; /model lists them. Model unchanged.`);
+        }
+      }
       if (!model && options.picker) {
         signal.throwIfAborted();
         const picked = await options.picker.mount(view => pickPiModel(view, this.catalog,

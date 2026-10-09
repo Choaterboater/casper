@@ -6,6 +6,10 @@ export interface Subcommand {
   /** What follows the word, written as in /help all: `<name>`, `[dir]`, `on|off`. */
   readonly args?: string;
   readonly description: string;
+  /** Other words for it (`/memory remove` is `/memory forget`); they run as the subcommand and are not in the menu. */
+  readonly aliases?: readonly string[];
+  /** The word is another way to type the command alone (`/memory list` is `/memory`). */
+  readonly bare?: true;
   /** The words after this subcommand that run while a task works; without it the subcommand waits for the task. */
   readonly duringWork?: RegExp;
   /** It still runs after a failed cleanup: it inspects or stops what may still be running. */
@@ -33,18 +37,23 @@ export interface CommandSpec {
 const NONE = /^$/;
 const ANY = /^[\s\S]*$/;
 const SESSION = /^(?:--session)?$/;
+/** One word (a model or a level), with --session before or after it. */
+const ONE_WORD_SESSION = /^(?:[^\s-]\S*(?:\s+--session)?|--session\s+[^\s-]\S*)?$/;
+/** Forgetting what Casper remembered: `forget`, with `remove` as the same word. */
+const FORGET_ALIASES = ["remove"] as const;
+const LIST = (what: string): Subcommand => ({ name: "list", description: what, bare: true, duringWork: NONE });
 
 export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   { name: "model", description: "Change model (remembered globally; --session for temporary)", argumentHint: "[provider/id]",
-    // The picker or one model; role and big-model changes wait (they save settings).
-    duringWork: /^(?:[^\s-]\S*)?$/, subcommands: [
+    // The picker or one model (--session before or after it); role and big-model changes wait (they save settings).
+    duringWork: ONE_WORD_SESSION, subcommands: [
       { name: "--session", args: "[model]", description: "Select without changing the startup default", duringWork: /^(?:[^\s-]\S*)?$/ },
       { name: "roles", description: "Show fast/build/reason/review role mappings", duringWork: NONE },
       { name: "role", args: "<fast|build|reason|review> <selector|clear>", description: "Save or clear a role mapping" },
       { name: "big", args: "<selector|clear>", description: "Set or clear your big model (the reason role)" },
     ] },
   { name: "effort", description: "Reasoning effort, including auto; Shift+Tab cycles and remembers it", aliases: ["thinking"], argumentHint: "[level|auto] [--session]",
-    duringWork: /^(?:[^\s-]\S*(?:\s+--session)?)?$/ },
+    duringWork: ONE_WORD_SESSION },
   { name: "status", description: "Inspect project, model, auth and integrations", duringWork: NONE },
   { name: "help", description: "Find a command; /help all shows the full reference", argumentHint: "[word|all]", duringWork: ANY,
     subcommands: [{ name: "all", description: "The full reference", duringWork: ANY }] },
@@ -67,7 +76,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     { name: "off", description: "No split; saved", duringWork: NONE },
   ] },
   { name: "details", description: "How much work shows: quiet, normal or detailed, remembered (Ctrl+T: the last step in full)",
-    argumentHint: "[quiet|normal|detailed] [--session]", duringWork: SESSION, subcommands: [
+    argumentHint: "[quiet|normal|detailed] [--session]", duringWork: /^(?:--session\s+\S+)?$/, subcommands: [
       { name: "quiet", args: "[--session]", description: "Failures only", duringWork: SESSION },
       { name: "normal", args: "[--session]", description: "Steps folded (the default)", duringWork: SESSION },
       { name: "detailed", args: "[--session]", description: "Every step with small diffs", duringWork: SESSION },
@@ -91,7 +100,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   ] },
   { name: "receipt", description: "A saved receipt: /receipt 12, /receipt list", argumentHint: "[n|list]", duringWork: /^(?:\d+)?$/,
     subcommands: [{ name: "list", description: "The last 10 saved receipts", duringWork: NONE }] },
-  { name: "project", description: "Inspect project stack, configuration and checks; /project new starts one", argumentHint: "[name]", duringWork: NONE,
+  { name: "project", description: "Open a project folder here, or /project new to start one (alone: the same as /status)", argumentHint: "[name]", duringWork: NONE,
     subcommands: [{ name: "new", args: "[template] [name]", description: "Start a new project in ~/Projects (no model)" }] },
   { name: "skills", description: "Inspect skill metadata, trust and warnings", duringWork: NONE, subcommands: [
     { name: "diagnostics", description: "Why a skill was skipped or warned about" },
@@ -102,7 +111,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   { name: "pack", description: "Skill packs: add one from a folder or GitHub (asks first), list, remove", subcommands: [
     { name: "add", args: "<folder or link>", description: "Add a skill pack (asks first)" },
     { name: "list", description: "The packs you added" },
-    { name: "remove", args: "<name>", description: "Take a pack out" },
+    { name: "remove", args: "<name>", description: "Take a pack out", aliases: ["forget"] },
   ] },
   { name: "mcp", description: "MCP status; connect, disconnect, writes on/off, forget, docs servers", duringWork: NONE, subcommands: [
     { name: "detail", args: "[name]", description: "The full status of every server, or one (no connection)" },
@@ -113,23 +122,24 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     { name: "reload", description: "Re-read MCP files; changed servers need consent again" },
     { name: "writes", args: "<name>|off", description: "Turn writes on for one server, or off for every server" },
     { name: "allow", args: "<name> [off]", description: "Risky change kinds a server may make" },
-    { name: "forget", args: "<name>", description: "Forget a remembered server" },
+    { name: "forget", args: "<name>", description: "Forget a remembered server", aliases: FORGET_ALIASES },
     { name: "junos-show", args: "<name> on|off", description: "Let plain Junos show commands run without asking" },
     { name: "sandbox", args: "<name> on|off", description: "Run a server Casper knows in the sandbox or not" },
     { name: "docs", description: "Docs servers; add a docs-only copy" },
+    LIST("The same as /mcp"),
   ] },
   { name: "lsp", description: "Inspect language-server status; connect or disconnect", duringWork: NONE, subcommands: [
     { name: "connect", args: "<name>", description: "Authorize this language server for this process" },
     { name: "disconnect", args: "<name>", description: "Stop this language server", afterCleanupError: true },
   ] },
-  { name: "browser", description: "Inspect a disposable browser; capture a screenshot", afterCleanupError: NONE, subcommands: [
+  { name: "browser", description: "Inspect a disposable browser; capture a screenshot", duringWork: NONE, subcommands: [
     { name: "open", args: "<url>", description: "Open an HTTP(S) page in a disposable browser" },
     { name: "inspect", description: "What the page shows now" },
     { name: "diagnostics", description: "What the page shows now, with its problems" },
     { name: "screenshot", description: "Save a viewport PNG" },
     { name: "close", description: "Close the browser", afterCleanupError: true },
   ] },
-  { name: "services", description: "Declared services: status, logs, start, restart, stop", afterCleanupError: NONE, subcommands: [
+  { name: "services", description: "Declared services: status, logs, start, restart, stop", duringWork: NONE, subcommands: [
     { name: "logs", args: "<name>", description: "Recent log lines of a service", afterCleanupError: true },
     { name: "start", args: "<name>", description: "Start it and wait for readiness" },
     { name: "restart", args: "<name>", description: "Restart it" },
@@ -139,7 +149,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     subcommands: [{ name: "stop", description: "Stop sharing it" }] },
   { name: "tasks", description: "What runs in the background (dev servers, helpers, checks); stop one", duringWork: NONE,
     subcommands: [{ name: "stop", args: "<n>|all", description: "Stop one of them, or all", duringWork: /^(?:\d+|all)$/, afterCleanupError: true }] },
-  { name: "debug", description: "Inspect local targets; approve launch and debug code", afterCleanupError: NONE, subcommands: [
+  { name: "debug", description: "Inspect local targets; approve launch and debug code", duringWork: NONE, subcommands: [
     { name: "start", args: "<target>", description: "Start the debugger and your program (asks first)" },
     { name: "breakpoints", args: "<path> <lines|clear>", description: "Replace one file's breakpoint lines" },
     { name: "threads", description: "Show threads" },
@@ -149,37 +159,43 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     { name: "continue", args: "<thread>", description: "Resume a thread" },
     { name: "stop", description: "End the debug session", afterCleanupError: true },
   ] },
-  // After a failed cleanup /doctor is how you look into it.
-  { name: "doctor", description: "Check Casper's own setup and fix what it can (no model, asks first)", afterCleanupError: NONE },
+  // After a failed cleanup /doctor is how you look into it. During a task it only reports; its fixes ask after the task.
+  { name: "doctor", description: "Check Casper's own setup and fix what it can (no model, asks first)", duringWork: NONE },
   { name: "permissions", description: "What Casper may do here, and how to be asked less", duringWork: NONE, subcommands: [
     { name: "all", description: "Stop the asking until you quit (session only)" },
     { name: "ask", description: "Ask again" },
     { name: "write", args: "<folder>", description: "Allow a folder for this project" },
-    { name: "forget", args: "<folder>", description: "Take a folder back" },
+    { name: "forget", args: "<folder>", description: "Take a folder back", aliases: FORGET_ALIASES },
   ] },
-  { name: "sandbox", description: "What the shell sandbox holds here; forget a remembered host", duringWork: NONE,
-    subcommands: [{ name: "forget", args: "<host>", description: "Forget a host you allowed for this project" }] },
-  { name: "allowed", description: "The shell commands you said yes to for this project; forget one", duringWork: NONE,
-    subcommands: [{ name: "forget", args: "<n>", description: "Forget one by its number or words, or all of them" }] },
-  { name: "lab", description: "Your lab devices; /lab import <file> marks more; /lab ssh off makes ssh to them ask", subcommands: [
+  { name: "sandbox", description: "What the shell sandbox holds here; forget a remembered host", duringWork: NONE, subcommands: [
+    { name: "forget", args: "<host>", description: "Forget a host you allowed for this project", aliases: FORGET_ALIASES },
+    LIST("The same as /sandbox"),
+  ] },
+  { name: "allowed", description: "The shell commands you said yes to for this project; forget one", duringWork: NONE, subcommands: [
+    { name: "forget", args: "<n>", description: "Forget one by its number or words, or all of them", aliases: FORGET_ALIASES },
+    LIST("The same as /allowed"),
+  ] },
+  { name: "lab", description: "Your lab devices; /lab import <file> marks more; /lab ssh off makes ssh to them ask", duringWork: NONE, subcommands: [
     { name: "import", args: "<file>", description: "Add devices to your lab list from a file (asks first)" },
     { name: "ssh", args: "on|off", description: "Whether ssh and scp to lab devices ask first" },
   ] },
-  { name: "branch", description: "Named conversations and workspaces; /branch <name> makes one (asks first)", argumentHint: "[name]", duringWork: NONE },
-  { name: "switch", description: "Switch named workspace conversation (requires approval)", argumentHint: "<branch> [apply|discard]" },
-  { name: "memory", description: "Manage explicit project facts and inspect task outcomes", subcommands: [
+  // /branch <name> and /switch <name> run when typed (you asked for them); only /switch main apply|discard asks.
+  { name: "branch", description: "Named conversations and workspaces; /branch <name> makes one and moves there", argumentHint: "[name]", duringWork: NONE },
+  { name: "switch", description: "Go to a named conversation; /switch main apply|discard asks first", argumentHint: "<branch> [apply|discard]" },
+  { name: "memory", description: "Manage explicit project facts and inspect task outcomes", duringWork: NONE, subcommands: [
     { name: "remember", args: "<fact>", description: "Save a project fact (no model)" },
-    { name: "forget", args: "<id>", description: "Remove a fact" },
+    { name: "forget", args: "<id>", description: "Remove a fact", aliases: FORGET_ALIASES },
     { name: "outcomes", description: "The latest 20 task outcomes" },
     { name: "accept", args: "<id> <yes|no>", description: "Record whether you accept a task's result" },
+    LIST("The facts you saved"),
   ] },
-  { name: "references", description: "Search local reference projects; add a vendor spec repo", subcommands: [
+  { name: "references", description: "Search local reference projects; add a vendor spec repo", duringWork: NONE, subcommands: [
     { name: "search", args: "<id|*> <query>", description: "Search reference text locally (no model)" },
     { name: "add", args: "[name] [release]", description: "Download a vendor spec repo (asks first)" },
   ] },
   { name: "secrets", description: "Show what Casper hides from the AI", duringWork: NONE,
     subcommands: [{ name: "files", args: "on|off", description: "Scrub config files and command output" }] },
-  { name: "visualize", description: "Inspect providers or render repository dependencies",
+  { name: "visualize", description: "Inspect providers or render repository dependencies", duringWork: NONE,
     subcommands: [{ name: "repo", args: "[dir]", description: "Render repository dependencies locally (no model)" }] },
   { name: "delegate", description: "Ask a bounded read-only subagent (uses a model)", subcommands: [
     { name: "explorer", args: "<goal>", description: "A read-only helper that explores" },
@@ -191,12 +207,13 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   ] },
   { name: "logout", description: "Remove a sign-in Casper saved (/logout lists them)", argumentHint: "[provider]" },
   { name: "login", description: "Set up provider credentials in a private login flow", subcommands: [
-    { name: "openai-codex", description: "Sign in to Codex" },
-    { name: "github-copilot", description: "Sign in to Copilot" },
+    { name: "codex", description: "Sign in to Codex", aliases: ["openai-codex"] },
+    { name: "copilot", description: "Sign in to Copilot", aliases: ["github-copilot"] },
     { name: "anthropic", description: "Sign in to Anthropic" },
     { name: "openrouter", description: "Sign in to OpenRouter" },
   ] },
-  { name: "exit", description: "Leave Casper", aliases: ["quit"], afterCleanupError: NONE },
+  // During a task it stops the task and leaves, like Ctrl+C twice (src/app/during-work.ts).
+  { name: "exit", description: "Leave Casper (stops a task that is running)", aliases: ["quit"], duringWork: NONE },
   // A receipt's numbered suggestion: Casper types it when you pick one (src/app/suggestions.ts).
   { name: "suggestion", description: "Run a suggested next step", argumentHint: "<id>", hidden: true },
   // The old name of bare /branch: still works, no longer in the menu or the help.
@@ -214,11 +231,24 @@ export function takesArguments(command: CommandSpec): boolean {
   return command.argumentHint !== undefined || Boolean(command.subcommands?.length);
 }
 
-/** The line with an alias spelled as the command's own name (`/cost` is `/usage`), for the handlers that match names. */
+/** The line with an alias spelled as the command's own name (`/cost` is `/usage`, `/memory remove` is `/memory forget`,
+ * `/memory list` is `/memory`), for the handlers that match names. */
 export function canonicalLine(line: string): string {
   const parsed = parseCommandLine(line);
-  if (!parsed || parsed.typed === parsed.command.name) return line;
+  if (!parsed) return line;
+  const sub = parsed.subcommand;
+  if (sub?.bare) return parsed.rest ? line : `/${parsed.command.name}`;
+  if (sub && parsed.args.split(/\s+/)[0] !== sub.name) return `/${parsed.command.name} ${sub.name}${parsed.rest ? ` ${parsed.rest}` : ""}`;
+  if (parsed.typed === parsed.command.name) return line;
   return line.trim().replace(`/${parsed.typed}`, `/${parsed.command.name}`);
+}
+
+/** The words after a command with `--session` taken out, before or after the rest (`/effort --session high`). */
+export function sessionFlag(args: string): { rest: string; session: boolean } {
+  const words = args.trim().split(/\s+/).filter(Boolean);
+  const rest = words.filter((word) => word !== "--session");
+  // Only one --session is the flag; more are left in, for the command's usage error.
+  return rest.length === words.length - 1 ? { rest: rest.join(" "), session: true } : { rest: words.join(" "), session: false };
 }
 
 /** A typed line read against the table: the command, the words after its name, and the subcommand they start with. */
@@ -228,7 +258,7 @@ export function parseCommandLine(line: string): { command: CommandSpec; typed: s
   if (!command) return undefined;
   const args = (match[2] ?? "").trim();
   const first = /^(\S+)(?:\s+([\s\S]*))?$/.exec(args);
-  const subcommand = first ? command.subcommands?.find((sub) => sub.name === first[1]) : undefined;
+  const subcommand = first ? command.subcommands?.find((sub) => sub.name === first[1] || sub.aliases?.includes(first[1]!)) : undefined;
   return { command, typed: match[1]!, args, ...(subcommand ? { subcommand } : {}), rest: subcommand ? (first![2] ?? "").trim() : args };
 }
 

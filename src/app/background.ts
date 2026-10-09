@@ -66,14 +66,15 @@ export interface TasksHost {
 
 /** The /tasks command. A one-shot run or a pipe never waits on the question: it lists and stops nothing. */
 export async function runTasksCommand(host: TasksHost, argument = ""): Promise<void> {
+  // "/tasks stop 2" or "/tasks stop all" is the same choice, typed ahead. Anything else is a usage error, even with
+  // nothing running.
+  const typed = /^stop\s+(\d+|all)$/i.exec(argument.trim());
+  if (argument.trim() && !typed) throw new Error("Usage: /tasks | /tasks stop <n> | /tasks stop all");
   const tasks = host.tasks();
   host.write(formatBackgroundTasks(tasks));
   if (!tasks.length) return;
-  // "/tasks stop 2" or "/tasks stop all" is the same choice, typed ahead.
-  const typed = /^stop\s+(\d+|all)$/i.exec(argument.trim());
   let picked: string | undefined;
   if (typed) picked = typed[1]!.toLowerCase() === "all" ? "Stop all" : `Stop ${typed[1]}`;
-  else if (argument.trim()) { host.write("[tasks] Usage: /tasks | /tasks stop <n> | /tasks stop all\n"); return; }
   else if (host.duringWork) { host.write("[tasks] To stop one now: /tasks stop <n> (or /tasks stop all).\n"); return; }
   else if (!host.canAsk()) { host.write("[tasks] Nothing was stopped: nobody is here to answer. To stop one: /tasks stop <n>\n"); return; }
   else picked = await host.pick(TASKS_QUESTION, tasksChoices(tasks), host.signal);

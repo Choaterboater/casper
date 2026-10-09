@@ -208,7 +208,7 @@ export class TaskUndo {
 
   private async pickReceipt(kind: "undo" | "redo", argument: string): Promise<StoredReceipt | undefined> {
     const receipts = this.receipts();
-    if (!/^(?:\d{1,9})?$/.test(argument)) { this.refuse(USAGE[kind]); return undefined; }
+    if (!/^(?:\d{1,9})?$/.test(argument)) throw new Error(USAGE[kind]);
     const root = this.host.activeRoot();
     if (argument) {
       const found = await receipts?.get(Number(argument)) ?? "missing";
@@ -392,7 +392,7 @@ export class TaskUndo {
       await this.showDiff(chosen);
       return true;
     }
-    if (argument && !/^\d{1,9}$/.test(argument)) { this.refuse(USAGE.diff); return true; }
+    if (argument && !/^\d{1,9}$/.test(argument)) throw new Error(USAGE.diff);
     if (argument) {
       const found = await receipts?.get(Number(argument)) ?? "missing";
       if (found === "missing") { this.refuse(`No receipt ${Number(argument)}. /receipt list shows recent ones.`); return true; }
@@ -429,7 +429,7 @@ export class TaskUndo {
         : `  ${n}  ${time(receipt.createdAt)}  ${summary(receipt)}  · ${terminalText(receipt.request).replace(/\s+/g, " ").slice(0, 60)}`).join("\n")}\n/receipt <number> shows one.\n`);
       return true;
     }
-    if (argument && !/^\d{1,9}$/.test(argument)) { this.refuse(USAGE.receipt); return true; }
+    if (argument && !/^\d{1,9}$/.test(argument)) throw new Error(USAGE.receipt);
     const found = argument ? await receipts?.get(Number(argument)) ?? "missing" : await receipts?.latest() ?? "missing";
     if (found === "missing") {
       if (!argument) return false;

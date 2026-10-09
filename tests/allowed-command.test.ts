@@ -148,8 +148,8 @@ test("a number is refused, and the list shown again, when the list changed since
 
 test("anything else after /allowed is a plain usage error", async () => {
   const { store } = await fixture();
-  await expect(allowedCommand("/allowed forget", store, () => {})).rejects.toThrow("Use /allowed or /allowed forget <number, command or all>.");
-  await expect(allowedCommand("/allowed nope", store, () => {})).rejects.toThrow("Use /allowed");
+  await expect(allowedCommand("/allowed forget", store, () => {})).rejects.toThrow("Usage: /allowed | /allowed forget <number, command or all>");
+  await expect(allowedCommand("/allowed nope", store, () => {})).rejects.toThrow("Usage: /allowed");
 });
 
 test("the store's removePrefix, removeCommand and forgetAll say whether anything was there", async () => {

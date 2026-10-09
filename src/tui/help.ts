@@ -75,10 +75,10 @@ Local commands:
   /help                             Short help (no model)
   /help all                         This full reference
   /help <word>                      Only the lines that mention that word, like /help mcp
-  /status                           Model, sign-in and integration status
-  /doctor                           Check Casper's own setup (no model): version, config files, sign-in, MCP and language servers, security tools, sandbox, disk, network server; fixes it can make ask first (1 Not now)
-  /model [id or provider/id]        Model browser; select and remember globally
-  /model --session [model]          Select without changing the startup default
+  /status, /project                 Project, model, sign-in and integration status
+  /doctor                           Check Casper's own setup (no model): version, config files, sign-in, MCP and language servers, security tools, sandbox, disk, network server; fixes it can make ask first (1 Not now); during a task it only reports
+  /model [id or provider/id]        Model browser; select and remember globally; an id no model matches is an error
+  /model --session [model]          Select without changing the startup default (--session also goes after the model)
   /model @role[:effort]             Select the model a configured role points to
   /model roles                      Show fast/build/reason/review role mappings
   /model role <fast|build|reason|review> <selector|clear>  Save or clear a role mapping
@@ -86,7 +86,7 @@ Local commands:
   /plan <request>                   Plan first: blocks changes Casper can see while the model plans; you edit, then build
   /suggestions                      List suggested next steps: on, off or faded (hidden after 3 ignores, 14 days)
   /suggestions on|off [name]        Turn every suggestion, or one, on or off (suggestions: false in config.yaml too)
-  /effort [level|auto] [--session]  Supported levels or auto (Casper picks per request); Shift+Tab cycles; /thinking is the same
+  /effort [level|auto] [--session]  The model's supported levels or auto (Casper picks per request); --session before or after; Shift+Tab cycles; /thinking is the same
   /context                          Estimated context and capability counts
   /usage, /cost                     Session tokens, cache share and optional catalog cost estimate
   /compact [instructions]           Summarize context using the model (not a local-only command)
@@ -97,7 +97,7 @@ Local commands:
   /redo [n]                         Put an undone task's files back as the task left them
   /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
   /output all                       Every tool call of the last task on its own line (the screen folds them into a summary)
-  /details [quiet|normal|detailed] [--session]  Failures only, steps folded (default), or every step with small diffs; remembered like /effort, --session for this session only. Ctrl+T shows the last step in full
+  /details [quiet|normal|detailed] [--session]  Alone: the level now. Failures only, steps folded (default), or every step with small diffs; remembered like /effort, --session (before or after) for this session only. Ctrl+T shows the last step in full
   /settings, /config                Every switch at a glance, then one by number, written to ~/.casper/config.yaml for you: web lookups, browser tool, starter templates, diagram tool, new-version notice, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, page checks, show the AI the pages, work shown, theme, untrusted-text reader, helpers that build, Playwright tests, send Casper's name to OpenRouter, private ssh passwords
   /theme                            Pick the screen's colours (the Theme row of /settings), saved for you
   /hotkeys                          The keys Casper uses
@@ -108,23 +108,22 @@ Local commands:
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
   /permissions                      What Casper may do here and how to be asked less
   /permissions all|ask              Stop the shell's questions until you quit (asks first), or ask them again
-  /permissions write|forget <folder>  Allow a folder outside the project for this project, or take it back
-  /sandbox                          What the shell sandbox holds: write folders, private folders, hosts
-  /sandbox forget <host>            Forget a host or machine you allowed for this project (Yes, always)
-  /allowed                          The shell commands you said yes to for this project (saved, and for this session), numbered
-  /allowed forget <n>               Forget one by its number, its words (git log) or all of them; Casper asks before running it again
+  /permissions write|forget <folder>  Allow a folder outside the project for this project, or take it back (remove is the same as forget)
+  /sandbox, /sandbox list           What the shell sandbox holds: write folders, private folders, hosts
+  /sandbox forget <host>            Forget a host or machine you allowed for this project (Yes, always); remove is the same
+  /allowed, /allowed list           The shell commands you said yes to for this project (saved, and for this session), numbered
+  /allowed forget <n>               Forget one by its number, its words (git log) or all of them; Casper asks before running it again; remove is the same
   /lab                              Your lab devices: lab checks and the lab list use them
   /lab import <file>                Add devices to your lab list from a file (GreenCLI's lab export, or one host per line); asks first
   /lab ssh on|off                   Whether ssh and scp to your lab devices ask first (kept for this project)
-  /login [openai-codex|github-copilot|anthropic|openrouter]  Sign in to Codex, Copilot, Anthropic or OpenRouter (Casper's credential store)
+  /login [codex|copilot|anthropic|openrouter]  Sign in to Codex, Copilot, Anthropic or OpenRouter (Casper's credential store); openai-codex and github-copilot work too
   /logout [provider]                Remove a sign-in Casper saved; /logout alone lists them. Environment variables are unchanged
-  /project                          Show project context
-  /project <name>                   Open a project folder inside this one, or offer to make it (before the model starts)
+  /project <name>                   Open a project folder inside this one, or offer to make it (before the model starts); /project alone is /status
   /project new [name]               Start a new project in ~/Projects (no model); before the model starts, Casper opens it
   /project new <template> <name>    The same without questions; /project new --list shows the templates
-  /memory                           List project facts you saved
+  /memory, /memory list             List project facts you saved
   /memory remember <fact>           Save a project fact (no model)
-  /memory forget <id>               Remove a fact
+  /memory forget <id>               Remove a fact (remove is the same)
   /memory outcomes                  Show the latest 20 task outcomes
   /memory accept <id> <yes|no>      Record whether you accept a task's result (this is not test evidence)
   /references                       List configured local reference sources
@@ -133,10 +132,10 @@ Local commands:
   /secrets                          Show what Casper hides from the AI
   /secrets files on|off             Scrub config files and command output (MCP results always)
   /branch                           Show named conversations and their workspaces
-  /branch <name>                    Copy this conversation into a named one with its own workspace (asks first)
-  /switch <branch>                  Switch to a named conversation and its workspace (asks first)
-  /switch main apply                Check, review and apply that workspace's changes, then clean up
-  /switch main discard              Review and throw away that workspace's changes, then clean up
+  /branch <name>                    Copy this conversation into a named one with its own workspace and move there (you typed it: no box)
+  /switch <branch>                  Switch to a named conversation and its workspace (you typed it: no box)
+  /switch main apply                Check, review and apply that workspace's changes, then clean up (asks first)
+  /switch main discard              Review and throw away that workspace's changes, then clean up (asks first)
   /delegate <explorer|reviewer> <goal>  Run a read-only helper AI on one goal (uses a model)
   /crew <job>                       The manual way: a builder AI does the job in its own copy (uses a model); then 1 Keep the copy · 2 Apply to my folder · 3 Throw it away
   /crew                             Crew copies still here; /crew apply <n> or /crew drop <n>
@@ -147,11 +146,12 @@ Local commands:
   /skills block <id>                Never use this skill
   /pack add <folder or link>        Add a skill pack from a folder or https://github.com/owner/repo@<commit>: shows it, then 1 No · 2 Yes, add it · 3 Show me what's inside
   /pack list                        The packs you added, and any not used because their files changed
-  /pack remove <name>               Take a pack out
+  /pack remove <name>               Take a pack out (forget is the same)
   /mcp                              One line per server; on a normal terminal pick one with the arrow keys to connect, disconnect, forget or see details
+  /mcp list                         The same as /mcp
   /mcp detail [name]                The full status of every server, or one; secrets hidden (no connection)
   /mcp setup network                Set up Casper's network server (Mist, Central, ClearPass): 1 Not now · 2 Set it up
-  /mcp setup ssh [host] [command]   Add an MCP server that runs on another machine over ssh; writes off
+  /mcp setup ssh [--name <name>] [host] [command]  Add an MCP server that runs on another machine over ssh; writes off
   /mcp login [mist|central|clearpass] [forget]  Add, replace or forget a network login; only you type it
   /mcp connect <name>               Connect this server; your own or imported ones can be remembered
   /mcp disconnect <name>            Disconnect and revoke consent for this process
@@ -159,7 +159,7 @@ Local commands:
   /mcp writes <name>                Turn writes on for one server (you pick 2 in the box)
   /mcp writes off                   Writes off for every server (ctrl+o does the same)
   /mcp allow <name> [off]           Pick which risky change kinds (firmware, delete, admin) a server may make; off goes back to the defaults
-  /mcp forget <name>                Forget a remembered server; Casper asks again next time
+  /mcp forget <name>                Forget a remembered server; Casper asks again next time (remove is the same)
   /mcp junos-show <name> on|off     Let plain Junos show commands run without asking
   /mcp sandbox <name> on|off        Run a server Casper knows (its network server) in the sandbox or not; on by default, kept
   /mcp docs                         Docs servers; add a docs-only copy with no credentials
@@ -185,6 +185,7 @@ Local commands:
   /debug scopes <frame>             Show the scopes of a frame from the stack
   /debug variables <handle>         Show values (may contain secrets)
   /debug continue <thread>|stop     Resume, or end the debug session
+  /visualize                        The diagram providers and where pictures are saved (no model)
   /visualize repo [dir]             Render repository dependencies locally (no model)
   /verify [checks ...]              Run this project's checks (in the sandbox), without a model
   /verify repair [checks ...]       Run checks and authorize bounded repair
@@ -194,7 +195,7 @@ Local commands:
   /security-review ai               The same; where Casper can't ask (one-shot, --json), runs the AI review
   /security-review update           Download osv-scanner's advisory data (asks first)
   /security-review ignores          List ignores you approved; approve or remove them
-  /exit, /quit                      Exit interactive mode; no-op in one-shot mode
+  /exit, /quit                      Exit interactive mode (during a task it stops the task first, like Ctrl+C twice); no-op in one-shot mode
 
 Unknown slash commands are rejected locally, never sent to a model.
 /model: Enter selects and saves ~/.casper/settings.json; Ctrl+S selects for this session only. Exact IDs are remembered too; /model --session <id> opts out.
@@ -242,7 +243,7 @@ Task-owned development servers run the project's code in the shell sandbox (file
 Saved screenshots (readable only by you) stay in Casper's project folder until you remove them; they may be sensitive.
 See docs/BROWSER.md for limits, input freshness, supported assertions and remaining caveats.
 Services from .casper/project.yaml run the project's code in the shell sandbox (files held; the network is not limited, so you can reach them); they stay up between prompts and stop on exit, /clear, /resume, /branch and /switch. Ctrl+C cancels only a startup. See docs/SERVICES.md.
-/branch, /switch and making or removing a workspace ask you first.
+/switch main apply and /switch main discard ask you first; /branch <name> and /switch <name> run as typed.
 Helpers from /delegate get read/grep/find/ls only; no edit/write/bash/MCP/LSP and no helpers of their own.
 For a big job with separate parts the AI starts builders itself (up to 3 at once; "run a crew" or "split this up" asks for it, "by yourself" stops it, /settings turns it off).
 A builder edits and runs commands only in its own copy (a Git worktree), in the same sandbox; what would ask you is not run and is listed. No MCP, no helpers.

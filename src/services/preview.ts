@@ -110,7 +110,7 @@ export async function runPreview(host: PreviewHost, args: string, signal?: Abort
     host.output.write(stopped.length ? "[preview] Stopped. Nothing is shared now.\n" : "[preview] Nothing to stop.\n");
     return;
   }
-  if (args) { host.output.write("Usage: /preview | /preview stop\n"); return; }
+  if (args) throw new Error("Usage: /preview | /preview stop");
   const web = await host.webService();
   if ("reason" in web) { host.output.write(`[preview] ${web.reason}\n`); return; }
   const lan = (host.lanAddress ?? lanAddress)();

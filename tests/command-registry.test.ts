@@ -83,7 +83,8 @@ test("the menu dims exactly what waits during work: the same table as the check 
     }
   }
   for (const line of ["/mcp detail", "/skills diagnostics", "/model role fast fixture/fixture", "/model big clear"]) expect([line, runsDuringWork(line)]).toEqual([line, false]);
-  expect(runsDuringWork("/quit")).toBe(false);
+  // /exit and /quit run during a task: they stop it and leave.
+  expect(runsDuringWork("/quit")).toBe(true);
 });
 
 test("after a failed cleanup, /doctor and what only shows something still run; requests and changes wait for it", async () => {
@@ -109,7 +110,7 @@ function surface() {
 }
 
 test("the menu lists /quit, completes a command's subcommands, and shows what follows a name", async () => {
-  expect(COMMANDS.find((command) => command.name === "quit")?.description).toBe("Leave Casper (same as /exit)");
+  expect(COMMANDS.find((command) => command.name === "quit")?.description).toBe("Leave Casper (stops a task that is running) (same as /exit)");
   const { s, input, mark, since } = surface();
   try {
     s.start();

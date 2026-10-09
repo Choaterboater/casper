@@ -765,11 +765,18 @@ test("plain login arguments stay local and never reflect supplied credential-lik
   const output = await f.run(`
     import { CasperApp } from ${JSON.stringify(path.join(repo, "src/app.ts"))};
     const app = new CasperApp({ runtimeFactory() { throw new Error('MUST_NOT_LOAD'); } });
-    try { for (const command of ['/login', '/login openai-codex', '/login github-copilot', '/login anthropic', '/login openrouter', '/login secret-provider', '/login openai-codex SECRET_ARGUMENT']) await app.runOnce(command); }
+    try {
+      for (const command of ['/login', '/login codex', '/login copilot', '/login openai-codex', '/login github-copilot', '/login anthropic', '/login openrouter', '/login secret-provider', '/login openai-codex SECRET_ARGUMENT']) {
+        try { await app.runOnce(command); } catch (error) { console.log('ERROR ' + command.split(' ').length + ' ' + error.message); }
+      }
+    }
     finally { await app.close(); }
   `);
   expect(output).toContain("Run casper and type /login");
-  expect(output).toContain("Usage: /login [openai-codex|github-copilot|anthropic|openrouter]");
+  // The short names /help uses sign in like the long ids; anything else is a usage error, its words never repeated.
+  expect(output.match(/Run casper and type \/login/g)).toHaveLength(7);
+  expect(output).toContain("ERROR 2 Usage: /login [codex|copilot|anthropic|openrouter]");
+  expect(output).toContain("ERROR 3 Usage: /login [codex|copilot|anthropic|openrouter]");
   expect(output).not.toContain("SECRET_ARGUMENT");
   expect(output).not.toContain("secret-provider");
   expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).exists()).toBe(false);

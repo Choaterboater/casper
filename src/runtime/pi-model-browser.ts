@@ -29,6 +29,18 @@ function sameRef(a: ModelRef | undefined, b: ModelRef): boolean {
   return a !== undefined && a.provider === b.provider && a.id === b.id;
 }
 
+/** The words the picker's search matches a model by. */
+function searchText(model: { provider: string; id: string; name?: string }, defaultModel: ModelRef | undefined): string {
+  return `${model.provider} ${model.provider}/${model.id} ${model.provider} ${model.id} ${model.name ?? ""}` + (sameRef(defaultModel, model) ? " default" : "");
+}
+
+/** Whether the picker's search for `query` would show any of these models: /model <id> that matches none is an
+ * error line, not a picker that says "No matching models". */
+export function anyModelMatches(models: readonly { provider: string; id: string; name?: string }[], query: string, defaultModel?: ModelRef): boolean {
+  return fuzzyFilter([...models], query, model => searchText(model, defaultModel)).length > 0
+    || (Boolean(defaultModel) && "default".startsWith(query.trim().toLowerCase()));
+}
+
 /** 1310720 → "1.3m", 262144 → "262k", 944000 → "944k"; empty for unknown sizes. */
 function fmtTokens(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return "";
@@ -213,9 +225,7 @@ export class ModelBrowser {
       return;
     }
     const active = this.scope === undefined ? this.allModels : this.allModels.filter(item => item.provider === this.scope);
-    const filtered = fuzzyFilter(active, query, item =>
-      `${item.provider} ${item.provider}/${item.id} ${item.provider} ${item.id} ${item.model.name}` +
-      (sameRef(this.defaultModel, item) ? " default" : ""));
+    const filtered = fuzzyFilter(active, query, item => searchText({ provider: item.provider, id: item.id, name: item.model.name }, this.defaultModel));
     const normalized = query.trim().toLowerCase();
     if (normalized && "default".startsWith(normalized)) {
       // "default" is a selector, so boost the configured default ahead of fuzzy matches.

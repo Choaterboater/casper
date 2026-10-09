@@ -10,7 +10,7 @@ import { displayPath, terminalText } from "../tui/format";
  * `/permissions write <folder>` and `/permissions forget <folder>`. Only the person's typed command reaches them.
  */
 
-export const PERMISSIONS_USAGE = "Use /permissions, /permissions all, /permissions ask, /permissions write <folder> or /permissions forget <folder>.";
+export const PERMISSIONS_USAGE = "Usage: /permissions | /permissions all|ask | /permissions write|forget <folder>";
 
 export interface PermissionsView {
   /** The shell's own paragraph and the last line of /permissions as it was (permissionsText). */

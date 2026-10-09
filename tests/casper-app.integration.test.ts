@@ -233,7 +233,7 @@ test("local skill commands work without starting an unavailable runtime", async 
       expect(app.getLastTaskResult()).toBeUndefined();
       await expect(app.runOnce("/nope")).rejects.toThrow("Unknown command");
       expect(app.getLastTaskResult()).toBeUndefined();
-      await app.runOnce("/skills nonsense");
+      await expect(app.runOnce("/skills nonsense")).rejects.toThrow("Usage: /skills | /skills diagnostics");
       expect(runtime.prompts).toHaveLength(4);
     } finally {
       await app.close();

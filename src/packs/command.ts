@@ -268,8 +268,8 @@ export async function runPackCommand(host: PackHost, argument: string): Promise<
     if ((action === "list" || action === "") && !rest.length) await listPacks(host);
     else if (action === "add" && remainder) await addPack(host, remainder);
     else if (action === "remove" && rest.length === 1) await removeNamed(host, rest[0]!);
-    else if (host.oneShot) throw new PackError(PACK_USAGE);
-    else host.print(PACK_USAGE);
+    // A usage error, said as every command says one ([error] Usage: …), in a session or a one-shot run.
+    else throw new Error(PACK_USAGE);
   } catch (error) {
     if (error instanceof PackError && !host.oneShot) { host.print(`[pack] ${error.message}`); return; }
     throw error;

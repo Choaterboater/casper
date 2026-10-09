@@ -58,10 +58,11 @@ def exercise(bun, repo, root, no_color=False):
         s.pump(0.2)
         assert json.loads((s.root / "home/.casper/settings.json").read_text())["defaultThinkingLevel"] == "off"
         s.until_ready()
-        # Escape and Ctrl-C cancel the picker without changing model/default.
+        # Escape and Ctrl-C cancel the picker without changing model/default. A partial id opens the picker on it;
+        # an id no model matches is an error line and never reaches the picker.
         for cancel in ("\x1b", "\x03"):
-            s.send("/model cancelneedle\n")
-            s.until("No matching models")
+            s.send("/model fir\n")
+            s.until_new("> fir")  # The picker's search line holds the id.
             s.send(cancel)
             s.until_ready()
             s.send("/status\n")

@@ -216,6 +216,18 @@ posixOnly("production CLI hosts Pi's picker without losing terminal ownership", 
   expect(stdout).toContain("MODEL PTY PASS");
 }, PTY_TEST_MS);
 
+test("/model <id> that no model matches is one error line; a partial id still opens the picker on it", async () => {
+  const f = await fixture();
+  const result = await f.run(`
+let opened = [];
+const picker = query => ({ run: operation => operation({}), mount: async () => { opened.push(query); return undefined; } });
+let error = '';
+try { await session.selectModel({ query: 'nonexistent/model', picker: picker('nonexistent/model') }); } catch (caught) { error = caught.message; }
+const partial = await session.selectModel({ query: 'secon', picker: picker('secon') });
+console.log('RESULT=' + JSON.stringify({ error, opened, partial: partial.selected }));`);
+  expect(result).toEqual({ error: 'No model "nonexistent/model"; /model lists them. Model unchanged.', opened: ["secon"], partial: false });
+}, 90_000);
+
 test("picker catalog diagnostics stay readable without executing terminal controls in color or NO_COLOR", async () => {
   const f = await fixture();
   const provider = "broken\x1b]0;CASPER_DIAGNOSTIC_TITLE\x07\u009b2J\u202e";
