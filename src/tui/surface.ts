@@ -7,7 +7,7 @@ import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } fr
 import { readClipboardFiles } from "./clipboard-files";
 import { commandMenu, COMMANDS, findCommand, fitDescriptions, menuRunsDuringWork } from "./commands";
 import { BUSY_GLYPH, formatElapsed, hasLineControls, hasTerminalControls, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
-import { answerRecord, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, OTHER_CHOICE, typedChoice } from "./choices";
+import { answerRecord, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, OTHER_CHOICE, typedChoice, type PickRecord } from "./choices";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
 import { renderPanel } from "./presentation";
@@ -725,7 +725,7 @@ private updateSpinner(): void {
   /** One structured clarification with a standalone question and navigable choices. `typed`: the box also takes a typed
    * (or pasted) answer; a picker or an approval doesn't, so keys go to it and a paste waits as the draft for after. */
   ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal, from: AskOrigin = "casper",
-    typed = from !== "approval"): Promise<string[] | undefined> {
+    typed = from !== "approval", ownRecord?: PickRecord["record"]): Promise<string[] | undefined> {
     this.yieldSlot();
     if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant(); this.activity = undefined;
@@ -740,7 +740,10 @@ private updateSpinner(): void {
     // A closed box leaves one line, "<question> → <answer>" or "<question> — skipped", re-fitted per width; the
     // choices and the hint go with the box. It commits after any open tail line.
     let chosen: string[] | undefined;
+    // The box's own record (a muted line, or none) for a chosen label.
+    let own: string | undefined;
     const record: Component = { render: width => {
+      if (own) return [this.muted(truncateToWidth(terminalText(own), width, "…"))];
       // The answer as the box showed it: a choice by its shown label, typed words as typed.
       const said = chosen?.map(answer => {
         const index = options.findIndex(option => option.label === answer);
@@ -767,8 +770,8 @@ private updateSpinner(): void {
       this.askOther = false;
       // Typed words in an approval are a No (the first choice): the record says No, since it is the only record.
       chosen = from === "approval" && answer && !options.some(option => option.label === answer[0]) ? [options[0]!.label] : answer;
-      this.writeBlock(record);
-      this.records++;
+      own = chosen?.length === 1 && options.some(option => option.label === chosen![0]) ? ownRecord?.(chosen[0]!) : undefined;
+      if (own !== "") { this.writeBlock(record); this.records++; }
       this.restoreSetAside(setAside.draft, setAside.pasted); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(answer);
     };
     const cancel = () => finish(undefined);

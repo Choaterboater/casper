@@ -114,6 +114,46 @@ test("skipped /settings leaves one line, not its 23 rows; a long question is cut
   } finally { session.close(); }
 });
 
+test("a box with its own record: a yes once leaves nothing, a remembered yes one short line, a No and Esc the usual record", async () => {
+  const session = interactiveTerminal();
+  const record = (answer: string) => answer === YES_ONCE ? "" : answer === "Yes, for this session" ? "✓ allowed until you quit: npm test" : undefined;
+  const choices = [{ label: NO }, { label: YES_ONCE }, { label: "Yes, for this session" }];
+  try {
+    session.terminal.setStatus("fixture"); session.terminal.start();
+    for (const [key, name] of [["2", "a"], ["3", "b"], ["1", "c"], ["\x1b", "d"]] as const) {
+      const before = Bun.stripANSI(session.screen.output).length;
+      const box = session.terminal.pick(`Run this command?  cd app && make ${name} 2>&1 | tail`, choices, undefined, { record });
+      await session.screen.until((output) => output.slice(before).includes(`make ${name} 2>&1`));
+      session.input.write(key);
+      await box;
+    }
+    await settle(30);
+    expect(transcript(session.screen.output)).toEqual(["✓ allowed until you quit: npm test", "Run this command? cd app && make c 2>&1 | tail → No",
+      "Run this command? cd app && make d 2>&1 | tail — skipped"]);
+  } finally { session.close(); }
+});
+
+test("the plain terminal keeps a box's own record too", async () => {
+  const input = Object.assign(new PassThrough(), { isTTY: false });
+  let output = "";
+  const writer = { isTTY: false, write: (text: string) => { output += text; } };
+  const terminal = new InteractiveTerminal(input, writer as never, () => {}, () => {});
+  terminal.start();
+  const record = (answer: string) => answer === YES_ONCE ? "" : answer === "Yes, for this session" ? "✓ allowed until you quit: npm test" : undefined;
+  const choices = [{ label: NO }, { label: YES_ONCE }, { label: "Yes, for this session" }];
+  try {
+    for (const typed of ["2", "3", "1"]) {
+      const box = terminal.pick("Run this command?  npm test 2>&1 | tail", choices, undefined, { record });
+      input.write(`${typed}\n`);
+      await box;
+    }
+    expect(output).not.toContain("→ Yes");
+    expect(output).toContain("✓ allowed until you quit: npm test\n");
+    expect(output).toContain("Run this command? npm test 2>&1 | tail → No\n");
+    expect(terminal.records).toBe(2);
+  } finally { terminal.close(); input.destroy(); }
+});
+
 test("the plain terminal leaves the same one-line record after its numbered lines", async () => {
   // Piped input: the plain terminal reads its numbered answers from lines (an approval needs a terminal that shows it).
   const input = Object.assign(new PassThrough(), { isTTY: false });

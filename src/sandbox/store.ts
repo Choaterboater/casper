@@ -54,10 +54,11 @@ export class SandboxStore {
 
   async hosts(): Promise<string[]> { return [...(await this.load()).hosts]; }
   async hasCommand(command: string): Promise<boolean> { return (await this.load()).commands.includes(command); }
-  /** A command you said "Yes, always for this project" to: the exact command, or one starting with a kept prefix. */
-  async allowsCommand(command: string): Promise<boolean> {
+  /** A command you said "Yes, always for this project" to: the exact command, or one starting with a kept prefix. `core`: the
+   * line's one command that is not a plain read (commandCore), which a kept prefix covers too. */
+  async allowsCommand(command: string, core?: string): Promise<boolean> {
     const data = await this.load();
-    return data.commands.includes(command) || (data.prefixes ?? []).some((prefix) => matchesPrefix(command, prefix));
+    return data.commands.includes(command) || (data.prefixes ?? []).some((prefix) => matchesPrefix(command, prefix) || (core !== undefined && matchesPrefix(core, prefix)));
   }
   addPrefix(prefix: string): Promise<void> {
     return this.update((data) => { data.prefixes = [...new Set([...data.prefixes ?? [], prefix])]; });

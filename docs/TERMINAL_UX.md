@@ -482,10 +482,12 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - A question from the AI's `ask` tool starts with a muted `The AI asks:` line. Casper's own
   questions and approvals never do, so the AI can't pass off a question as a Casper approval.
 - A closed box leaves one line and nothing else: `<question> → <answer>` (`Pick a server → network`,
-  `network → Connect`, `Run this command? → Yes, this once`), or `<question> — skipped` after Esc
+  `network → Connect`, `Make this change? → Yes, this once`), or `<question> — skipped` after Esc
   (`… — skipped (No)` for an approval). The question is its first line; the choices, the hint and the
   lines under the question go with the box, so a skipped `/settings` leaves one line, not its rows. A
-  long question is cut with `…` so the answer always shows. That line is the only record: no `[ask]`,
+  long question is cut with `…` so the answer always shows. One exception: the no-sandbox `Run this command?` box
+  leaves nothing after a yes (the command's own line shows it ran), one muted `✓ allowed until you quit: npm test` or
+  `✓ allowed always in this project: npm test` line after 3 or 4, and the usual line after a No or Esc. That line is the only record: no `[ask]`,
   `[approval]` or `[server question]` line and no `✓ ask` step under it. The plain terminal prints the
   same line after its numbered lines.
 - A list taller than the window shows the rows around the highlighted one, with `… 12 more below`

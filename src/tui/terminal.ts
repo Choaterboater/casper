@@ -9,7 +9,7 @@ import { TerminalSurface, type AskOrigin } from "./surface";
 import type { NextRow } from "./next-row";
 import { bellSequence, hostCommand, prepareTmuxPane, titleSequence, TITLE_RESTORE, TITLE_SAVE, type HostCommand, type HostTerminal } from "./host-terminal";
 import { SidePane, type ActivityPane } from "./side-pane";
-import { answerRecordText, numberPrompt, OTHER_CHOICE } from "./choices";
+import { answerRecordText, numberPrompt, OTHER_CHOICE, type PickRecord } from "./choices";
 
 export { numberPrompt } from "./choices";
 
@@ -320,10 +320,10 @@ export class InteractiveTerminal {
    * a number or a label picks, Enter picks the first, other text comes back as typed. Lines typed before the question
    * appeared never answer it.
    */
-  async pick(question: string, options: { label: string; description?: string }[], signal?: AbortSignal, settings: { typed?: boolean } = {}): Promise<string | undefined> {
+  async pick(question: string, options: { label: string; description?: string }[], signal?: AbortSignal, settings: PickRecord & { typed?: boolean } = {}): Promise<string | undefined> {
     // Rich: a picker takes keys only (a paste waits for after it), unless `typed` says a typed answer means something here.
-    if (this.surface) return (await this.surface.ask(question, options, false, signal, "casper", settings.typed ?? false))?.[0];
-    return this.plainPick(question, options, signal, false, settings.typed ?? false);
+    if (this.surface) return (await this.surface.ask(question, options, false, signal, "casper", settings.typed ?? false, settings.record))?.[0];
+    return this.plainPick(question, options, signal, false, settings.typed ?? false, settings.record);
   }
 
   /** How many closed boxes have left their one-line record ("Pick a server → lab"), on either terminal. */
@@ -331,7 +331,8 @@ export class InteractiveTerminal {
 
   /** The plain terminal's numbered question. `approval`: typed words are a No, and the record says so. `other`: the
    * question takes a typed answer, so its last row is Other, and picking it asks "Your answer: ". */
-  private async plainPick(question: string, options: { label: string; description?: string }[], signal: AbortSignal | undefined, approval: boolean, other: boolean): Promise<string | undefined> {
+  private async plainPick(question: string, options: { label: string; description?: string }[], signal: AbortSignal | undefined, approval: boolean, other: boolean,
+    record?: PickRecord["record"]): Promise<string | undefined> {
     if (this.earlyLines.length) {
       this.write(`[input] Discarded ${this.earlyLines.length} line(s) entered before this question appeared.\n`);
       this.earlyLines.length = 0;
@@ -362,8 +363,9 @@ export class InteractiveTerminal {
         const typed = text === undefined ? undefined : typing ? text : !text ? options[0]!.label : number >= 1 && number <= options.length ? options[number - 1]!.label : named?.label ?? text;
         const picked = approval && typed !== undefined && !options.some(option => option.label === typed) ? options[0]!.label : typed;
         // The same one-line record the rich terminal leaves, so both say what was answered in the same words.
-        if (!this.closed) {
-          this.write(`${picked === undefined && approval ? `${answerRecordText(question, undefined)} (${options[0]!.label})` : answerRecordText(question, picked === undefined ? undefined : [picked])}\n`);
+        const own = picked === undefined ? undefined : record?.(picked);
+        if (!this.closed && own !== "") {
+          this.write(`${own ?? (picked === undefined && approval ? `${answerRecordText(question, undefined)} (${options[0]!.label})` : answerRecordText(question, picked === undefined ? undefined : [picked]))}\n`);
           this.plainRecords += 1;
         }
         resolve(picked);

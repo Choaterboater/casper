@@ -116,7 +116,7 @@ test("a carriage return, no-break space or form feed inside a word is part of th
 test("characters outside the safe set ask: $, backtick, !, ~ at a word start, braces, parentheses, unclosed quotes", async () => {
   const { where } = await area();
   for (const line of ["cat $HOME/x", "cat \"$HOME/x\"", "cat ~/x", "cat a=~/x", "cat a:~/x", "echo (x)", "echo {a,b}", "echo 'a",
-    "echo \"a", "echo 'it'\"s", "cat a*", "echo \"`id`\""]) {
+    "echo \"a", "echo 'it'\"s", "cat a[b]", "echo \"`id`\""]) {
     expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: false });
   }
   // The look-around commands people actually run keep working.

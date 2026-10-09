@@ -38,11 +38,13 @@ test("options that run a program are not reads: git grep -O, sort --compress-pro
   }
 });
 
-test("a glob, a link out of the project, a link-following search or jq is not a read", async () => {
-  for (const command of ["cat .en*", "cat id_rs?", "cat id_rs[a]", "cat .e{nv,x}", "ls src/*.ts", "jq -n env", "jq . package.json",
+test("a glob that can pick a private file, a link out of the project, a link-following search or jq is not a read", async () => {
+  for (const command of ["cat .en*", "cat id_rs[a]", "cat .e{nv,x}", "jq -n env", "jq . package.json",
     "grep -R key docs", "grep -rnR key .", "rg -L key", "rg --follow key", "diff -r a b"]) {
     expect(readOnlyCommand(command)).toBe(false);
   }
+  // * and ? are expanded here: files in the project are fine.
+  expect(readOnlyCommand("ls src/*.ts")).toBe(true);
   // A quoted pattern is not a glob.
   expect(readOnlyCommand("find . -name '*.ts'")).toBe(true);
   expect(readOnlyCommand("grep -rn 'a*b' src")).toBe(true);

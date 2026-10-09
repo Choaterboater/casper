@@ -39,9 +39,9 @@ import { addToPath, keepEngineFromFetchingRipgrep } from "../security/ripgrep";
 export function sandboxHost(app: CasperApp): SandboxHost {
   return {
     canAsk: () => app.interactive && app.terminal.canAsk && !app.closing,
-    pick: (question, options, signal) => {
+    pick: (question, options, signal, settings) => {
       const stop = signal ?? app.commandAbort?.signal;
-      return oneAtATime(app, async () => app.closing ? undefined : app.terminal.pick(question, options, stop));
+      return oneAtATime(app, async () => app.closing ? undefined : app.terminal.pick(question, options, stop, settings?.record ? { record: settings.record } : {}));
     },
     write: (text) => { if (!app.closing) app.output.write(text); },
     planning: () => app.planning,
