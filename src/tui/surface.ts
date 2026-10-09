@@ -7,7 +7,7 @@ import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } fr
 import { readClipboardFiles } from "./clipboard-files";
 import { COMMANDS, fitDescriptions, RUNS_DURING_WORK } from "./commands";
 import { BUSY_GLYPH, formatElapsed, hasLineControls, hasTerminalControls, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
-import { answerRecord, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, typedChoice } from "./choices";
+import { answerRecord, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, OTHER_CHOICE, typedChoice } from "./choices";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
 import { renderPanel } from "./presentation";
@@ -203,6 +203,8 @@ export class TerminalSurface {
   private askOpenedAt = 0;
   /** The open question takes a typed or pasted answer (the AI's questions, a name); a picker or approval takes keys only. */
   private askTyped = false;
+  /** The Other row was picked: the box takes the typed answer, and Esc goes back to the list. */
+  private askOther = false;
   /** The draft the open question set aside, with what is pasted while it is open; back in the prompt when it closes. */
   private askSetAside?: { draft: string; pasted: string[] };
   /** An open list edit: the editor holds the lines; Enter returns them, Esc/Ctrl+C/close return undefined. */
@@ -322,6 +324,11 @@ export class TerminalSurface {
       }
       if (matchesKey(data, "ctrl+c")) { this.interrupt(); return { consume: true }; }
       if (matchesKey(data, "ctrl+d") && !this.editor.getText()) { this.close(); return { consume: true }; }
+      // Esc while typing an answer goes back to the list (the typed words go); Esc at the list skips.
+      if (matchesKey(data, "escape") && this.pendingAsk && this.askTyping()) {
+        this.askOther = false; this.editor.setText(""); this.render();
+        return { consume: true };
+      }
       if (matchesKey(data, "escape") && (this.busy || this.pendingAsk || this.pendingEdit)) {
         if (this.pendingAsk) this.pendingAsk(undefined);
         else if (this.pendingEdit) this.pendingEdit(undefined);
@@ -336,12 +343,15 @@ export class TerminalSurface {
         this.nextKeys = undefined;
         if (offered !== undefined) { this.editor.onSubmit?.(offered); return { consume: true }; }
       }
-      if (this.pendingAsk && this.askOptions && !this.editor.getText()) {
-        const count = this.askOptions.length;
-        if (matchesKey(data, "up") || matchesKey(data, "down")) {
-          this.askActiveIndex = (this.askActiveIndex + (matchesKey(data, "up") ? count - 1 : 1)) % count;
-          this.render(); return { consume: true };
-        }
+      if (this.pendingAsk && this.askOptions && !this.editor.getText() && (matchesKey(data, "up") || matchesKey(data, "down"))) {
+        // On an empty answer line, Up/Down goes back to the list from the Other row.
+        if (this.askOther) { this.askOther = false; this.askActiveIndex = this.askOptions.length; }
+        const count = this.askRows();
+        this.askActiveIndex = (this.askActiveIndex + (matchesKey(data, "up") ? count - 1 : 1)) % count;
+        this.render(); return { consume: true };
+      }
+      if (this.pendingAsk && this.askOptions && !this.askOther && !this.editor.getText()) {
+        const count = this.askRows();
         if (matchesKey(data, "enter")) { this.chooseAsk(); return { consume: true }; }
         // A choice's number picks it (or toggles it) while nothing is typed; a digit past the last
         // choice, after typed text, or in a list past nine rows (typed, then Enter) is ordinary text.
@@ -349,6 +359,7 @@ export class TerminalSurface {
         if (index >= 0) { this.pickAsk(index); return { consume: true }; }
         if (this.askMulti && matchesKey(data, "space")) {
           const index = this.askActiveIndex;
+          if (index === this.askOptions.length) { this.typeAsk(); return { consume: true }; }
           if (this.askSelections.has(index)) this.askSelections.delete(index); else this.askSelections.add(index);
           this.render(); return { consume: true };
         }
@@ -739,6 +750,7 @@ private updateSpinner(): void {
       signal?.removeEventListener("abort", cancel);
       this.pendingAsk = undefined; this.askQuestion = undefined; this.askOptions = undefined; this.askLabels = []; this.askFrom = "casper";
       this.askMulti = false; this.askSelections.clear(); this.askActiveIndex = 0; this.askSetAside = undefined; this.askTyped = false;
+      this.askOther = false;
       // Typed words in an approval are a No (the first choice): the record says No, since it is the only record.
       chosen = from === "approval" && answer && !options.some(option => option.label === answer[0]) ? [options[0]!.label] : answer;
       this.writeBlock(record);
@@ -795,22 +807,25 @@ private updateSpinner(): void {
    * When that is taller than `height` rows, only the highlighted option keeps its description, so the
    * question itself stays on screen instead of scrolling away. */
   private renderAsk(width: number, height: number): string[] {
-    const count = this.askOptions?.length ?? 0;
+    const choices = this.askOptions?.length ?? 0;
+    // A box that takes a typed answer ends with the Other row; while an answer is typed, it stays highlighted.
+    const count = this.askRows();
+    const typing = this.askTyping();
+    const active = typing ? choices : this.askActiveIndex;
     // A multi-select's numbers toggle rather than pick, so its keys say so.
-    // "type to answer" only where a typed answer is taken.
-    const typed = this.askTyped ? ["type to answer"] : [];
-    const hint = this.askMulti ? [`Press 1-${count} or Space to toggle · Up/Down move · Enter answer`, ...typed, "Esc skip"].join(" · ")
+    const hint = typing ? "Type your answer below · Enter send · Esc back to the list"
+      : this.askMulti ? `Press 1-${count} or Space to toggle · Up/Down move · Enter answer · Esc skip`
       : this.askFrom === "approval" ? choiceHint(count, "Esc is No")
-      : choiceHint(count, ...typed, "Esc skip");
+      : choiceHint(count, "Esc skip");
     const head = [
       ...(this.askFrom === "ai" ? [this.muted(AI_ASKS_LABEL)] : []),
       ...wrapTextWithAnsi(this.accent(this.askQuestion ?? ""), width),
     ];
     const tail = wrapTextWithAnsi(this.muted(hint), width);
     const option = (index: number, compact: boolean) => {
-      const entry = this.askOptions![index]!;
-      const selected = index === this.askActiveIndex;
-      const marker = choiceNumber(index, count) + (this.askMulti ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "");
+      const entry = index < choices ? this.askOptions![index]! : { label: OTHER_CHOICE };
+      const selected = index === active;
+      const marker = choiceNumber(index, count) + (this.askMulti && index < choices ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "");
       return askOptionLines(selected ? this.selected("→ ") : "  ",
         { label: marker + entry.label, description: compact && !selected ? undefined : entry.description }, width,
         selected ? { label: this.selected, description: this.selected } : { label: text => text, description: this.muted });
@@ -825,7 +840,7 @@ private updateSpinner(): void {
     const room = height - head.length - tail.length - 2;
     if (compact.length <= height || room < 1 || !count) return compact;
     const rows = Array.from({ length: count }, (_, index) => option(index, true));
-    let start = this.askActiveIndex, end = start + 1, used = rows[start]!.length;
+    let start = active, end = start + 1, used = rows[start]!.length;
     for (let grew = true; grew;) {
       grew = false;
       if (end < count && used + rows[end]!.length <= room) { used += rows[end]!.length; end++; grew = true; }
@@ -837,6 +852,7 @@ private updateSpinner(): void {
 
   /** Enter on the list: the highlighted option, or every toggled option (the highlighted one if none). */
   private chooseAsk(): void {
+    if (this.askActiveIndex === (this.askOptions?.length ?? 0)) { this.typeAsk(); return; }
     if (!this.askMulti) { this.pendingAsk?.([this.askLabels[this.askActiveIndex]!]); return; }
     if (!this.askSelections.size) this.askSelections.add(this.askActiveIndex);
     this.pendingAsk?.([...this.askSelections].sort((a, b) => a - b).map(index => this.askLabels[index]!));
@@ -845,8 +861,25 @@ private updateSpinner(): void {
   /** A digit, or a number typed and sent past nine rows: picks that choice, or toggles it in a multi-select. */
   private pickAsk(index: number): void {
     this.askActiveIndex = index;
+    if (index === (this.askOptions?.length ?? 0)) { this.typeAsk(); return; }
     if (!this.askMulti) { this.chooseAsk(); return; }
     if (this.askSelections.has(index)) this.askSelections.delete(index); else this.askSelections.add(index);
+    this.render();
+  }
+
+  /** The rows of the open box: its choices, then the Other row where a typed answer is taken. */
+  private askRows(): number {
+    return (this.askOptions?.length ?? 0) + (this.askTyped ? 1 : 0);
+  }
+
+  /** An answer is being typed: the Other row was picked, or letters were typed straight into the box. */
+  private askTyping(): boolean {
+    return this.askTyped && (this.askOther || this.editor.getText() !== "");
+  }
+
+  /** The Other row: the box now takes a typed answer on its input line; Enter sends it, Esc goes back to the list. */
+  private typeAsk(): void {
+    this.askOther = true;
     this.render();
   }
 
@@ -854,7 +887,8 @@ private updateSpinner(): void {
    * otherwise picked by number or arrow keys. */
   private answerAsk(value: string): void {
     const text = value.trim();
-    const index = typedChoice(text, this.askOptions?.length ?? 0);
+    // While an answer is typed after picking Other, a number is the answer, not a row.
+    const index = this.askOther ? -1 : typedChoice(text, this.askRows());
     if (index >= 0) { this.pickAsk(index); return; }
     if (text) this.pendingAsk?.([text]);
   }

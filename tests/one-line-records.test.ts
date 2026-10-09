@@ -177,7 +177,7 @@ test("the AI's own question still takes a typed answer, and so does a long list'
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const typed = session.terminal.ask("Name?", [{ label: "Ann" }, { label: "Bo" }], false, undefined, "ai");
-    await session.screen.until((output) => output.includes("type to answer"));
+    await session.screen.until((output) => output.includes("Other — type your own answer"));
     session.input.write("Cy\r");
     expect(await typed).toEqual(["Cy"]);
     const rows = Array.from({ length: 12 }, (_, index) => ({ label: `Row ${index + 1}` }));

@@ -10,13 +10,17 @@ export function choiceNumber(index: number, count: number): string {
   return `${String(index + 1).padStart(String(count).length)} `;
 }
 
+/** The last row of a box that takes a typed answer (the AI's questions, a project name): picking it opens a line to
+ * type the answer in. Casper adds it; it is never one of the asker's choices, and approvals and pickers don't have it. */
+export const OTHER_CHOICE = "Other — type your own answer";
+
 /** The keys part of the hint: "Press 1-4 or Up/Down + Enter", "Press 1 or Enter", or "Type 1-23 + Enter or Up/Down + Enter". */
 export function choiceKeys(count: number): string {
   if (count <= 1) return "Press 1 or Enter";
   return count <= KEY_PICK_MAX ? `Press 1-${count} or Up/Down + Enter` : `Type 1-${count} + Enter or Up/Down + Enter`;
 }
 
-/** The hint under a numbered list: the keys, then what else the box takes ("type to answer", "Esc skip"). */
+/** The hint under a numbered list: the keys, then what else the box takes ("Esc skip", "Esc is No"). */
 export function choiceHint(count: number, ...rest: string[]): string {
   return [choiceKeys(count), ...rest].join(" · ");
 }
