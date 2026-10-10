@@ -39,6 +39,16 @@ test("a test that hit its own time limit makes the check unfinished: asked about
   expect(repairClass(result)).toBe("ask");
 });
 
+test("a test's time limit in the middle of a long run, where the kept output is cut, still makes the check unfinished", async () => {
+  const cwd = await root();
+  const command = checkCommand("pad:20000", "stdout:this test timed out after 30000ms.", "pad:20000", "exit:1");
+  const result = await runCommandCheck({ name: "test", command, cwd, timeoutMs: CHECK_LIMIT_MS });
+  expect(result.truncated).toBe(true);
+  expect(result.stdout).not.toContain("timed out");
+  expect(result).toMatchObject({ status: "fail", ended: "timeout" });
+  expect(repairClass(result)).toBe("ask");
+});
+
 test("each test runner's own per-test timeout is known; a failure that only mentions a timeout is not", () => {
   for (const line of ["  ^ this test timed out after 5000ms.", "thrown: \"Exceeded timeout of 5000 ms for a test.", "Error: Test timed out in 5000ms.",
     "Error: Timeout of 2000ms exceeded.", "E   Failed: Timeout >5.0s"]) expect(testTimedOut(line)).toBe(true);
