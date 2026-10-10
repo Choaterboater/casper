@@ -6,6 +6,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ModelBrowser, refreshErrorMessage, type ModelBrowserCatalog } from "../src/runtime/pi-model-browser";
+import { tint } from "../src/tui/format";
 import { pickPiModel } from "../src/runtime/pi-model-picker";
 import type { RuntimePickerView } from "../src/runtime/types";
 import { removeTempDir } from "./support/temp-dir";
@@ -63,7 +64,10 @@ test("the browser lists provider-prefixed rows with metadata and Casper's footer
     expect(text).toContain("other/second");
     expect(text).toContain("free");
     expect(text).toContain("first · fixture/first · 131k ctx · 4k out · $3/15 per M · reasoning · vision");
-    expect(text).toContain("Enter remember · Ctrl+S this session only · Esc cancels · /effort after selecting");
+    // It opens on the providers on the left; Tab moves to the list, and each side has its own hint.
+    expect(text).toContain("Up/Down providers · Enter or Tab models · type to search · Esc cancels");
+    picker.handleInput("\t");
+    expect(rendered(picker)).toContain("Tab providers · Enter remember · Ctrl+S this session only · Esc cancels · /effort after selecting");
   } finally { picker.dispose(); }
 });
 
@@ -107,6 +111,85 @@ test("Esc cancels and Ctrl+S selects session-only through app.models.save", () =
       expect(cancelled).toBe(1);
     } finally { picker.dispose(); }
   } finally { setKeybindings(previous); }
+});
+
+test("search words open the picker on the model list; without them Esc cancels from the providers in one press", () => {
+  const models = [fakeModel("alpha", "a-model"), fakeModel("beta", "b-model")];
+  const queried = new ModelBrowser({
+    tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false, initialQuery: "b-mod",
+    onSelect: () => {}, onCancel: () => {},
+  });
+  try {
+    const text = rendered(queried);
+    expect(text).not.toContain("> All models");
+    expect(text).toContain("Tab providers · Enter remember");
+  } finally { queried.dispose(); }
+  let cancelled = 0;
+  const plain = new ModelBrowser({
+    tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false,
+    onSelect: () => {}, onCancel: () => { cancelled += 1; },
+  });
+  try {
+    expect(rendered(plain)).toContain("> All models");
+    plain.handleInput("\x1b"); // Esc
+    expect(cancelled).toBe(1);
+  } finally { plain.dispose(); }
+});
+
+test("Right moves from the providers to the list, and a new provider starts at its first model", () => {
+  const models = [fakeModel("alpha", "a1"), fakeModel("alpha", "a2"), fakeModel("beta", "b1"), fakeModel("beta", "b2"), fakeModel("beta", "b3")];
+  const picker = new ModelBrowser({
+    tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false,
+    onSelect: () => {}, onCancel: () => {},
+  });
+  try {
+    picker.handleInput("\x1b[C"); // Right → the list.
+    expect(rendered(picker)).toContain("Tab providers");
+    for (let i = 0; i < 4; i++) picker.handleInput("\x1b[B"); // Down to the 5th row.
+    expect(rendered(picker)).toContain("  b1 · beta/b1"); // Rows sort by provider, newest id first: the 5th is beta/b1.
+    picker.handleInput("\t"); // Back to the providers.
+    picker.handleInput("\x1b[B"); // alpha: its first model is marked, not the clamped 2nd row.
+    expect(rendered(picker)).toContain("  a2 · alpha/a2");
+  } finally { picker.dispose(); }
+});
+
+test("a refresh that adds a provider keeps the provider cursor on the same provider", async () => {
+  const models = [fakeModel("alpha", "a-model"), fakeModel("beta", "b-model")];
+  const refresh = pendingRefresh();
+  const picker = new ModelBrowser({
+    tui: fakeTui(), catalog: fakeCatalog(models, () => refresh.promise), color: false, sessionOnly: false,
+    onSelect: () => {}, onCancel: () => {},
+  });
+  try {
+    picker.handleInput("\x1b[B"); picker.handleInput("\x1b[B"); // All models → alpha → beta.
+    expect(rendered(picker)).toContain("> beta");
+    models.push(fakeModel("aardvark", "x-model")); // Sorts above beta, shifting its row.
+    refresh.settle({ aborted: false, errors: new Map() });
+    await refresh.promise; await Promise.resolve();
+    const text = rendered(picker);
+    expect(text).toContain("> beta");
+    expect(text).toContain("beta/b-model");
+    expect(text).not.toContain("aardvark/x-model");
+  } finally { picker.dispose(); }
+});
+
+test("only the side that has the keys draws a bright cursor; the list's mark stays, muted", () => {
+  const models = [fakeModel("alpha", "a-model"), fakeModel("beta", "b-model")];
+  const picker = new ModelBrowser({
+    tui: fakeTui(), catalog: fakeCatalog(models), color: true, sessionOnly: false,
+    onSelect: () => {}, onCancel: () => {},
+  });
+  try {
+    const bright = tint("> ", "selection", true);
+    const muted = tint("> ", "muted", true);
+    const onProviders = picker.render(120).join("\n");
+    expect(onProviders.split(bright).length - 1).toBe(1); // The provider cursor only.
+    expect(onProviders).toContain(muted); // The list's marked row: what Ctrl+S would pick.
+    picker.handleInput("\t");
+    const onList = picker.render(120).join("\n");
+    expect(onList.split(bright).length - 1).toBe(1); // The list's row only.
+    expect(onList).not.toContain(muted);
+  } finally { picker.dispose(); }
 });
 
 test("the default query boosts the configured default ahead of fuzzy matches", () => {
@@ -186,13 +269,14 @@ test("the scroll cue reports the visible window position in long catalogs", () =
   try {
     const text = rendered(picker);
     expect(text).toContain("(1/30)");
+    picker.handleInput("\t"); // Tab → the model list.
     picker.handleInput("\x1b[B"); // Down past the window edge.
     picker.handleInput("\x1b[B");
     expect(rendered(picker)).toContain("(3/30)");
   } finally { picker.dispose(); }
 });
 
-test("Tab focuses the provider sidebar and Up/Down switch login groups", () => {
+test("with no search words the picker starts on the provider sidebar, where Up/Down switch providers", () => {
   const models = [fakeModel("alpha", "a-model"), fakeModel("beta", "b-model"), fakeModel("beta", "b-model-2")];
   const picker = new ModelBrowser({
     tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false,
@@ -204,8 +288,7 @@ test("Tab focuses the provider sidebar and Up/Down switch login groups", () => {
     expect(sidebar).toContain("All models");
     expect(sidebar).toContain("alpha");
     expect(sidebar).toContain("beta");
-    picker.handleInput("\t"); // Tab → sidebar focus.
-    expect(rendered(picker)).toContain("> All models");
+    expect(sidebar).toContain("> All models"); // No Tab needed: the providers have the keys.
     picker.handleInput("\x1b[B"); // Down → scope to alpha.
     expect(rendered(picker)).toContain("alpha (1)");
     expect(rendered(picker)).toContain("alpha/a-model");
@@ -213,8 +296,10 @@ test("Tab focuses the provider sidebar and Up/Down switch login groups", () => {
     picker.handleInput("\x1b[B"); // Down → scope to beta.
     expect(rendered(picker)).toContain("beta (2)");
     expect(rendered(picker)).toContain("beta/b-model");
-    picker.handleInput("\r"); // Enter → back to the model list.
-    expect(rendered(picker)).not.toContain("> All models");
+    picker.handleInput("\r"); // Enter → the model list.
+    expect(rendered(picker)).not.toContain("> beta");
+    picker.handleInput("\t"); // Tab → back to the providers, still on beta.
+    expect(rendered(picker)).toContain("> beta");
   } finally { picker.dispose(); }
 });
 
@@ -225,8 +310,7 @@ test("typing from the sidebar lands in the search field", () => {
     onSelect: () => {}, onCancel: () => {},
   });
   try {
-    picker.handleInput("\t"); // Tab → sidebar focus.
-    picker.handleInput("b"); // Unbound key → search input, focus returns to the list.
+    picker.handleInput("b"); // From the providers, an unbound key goes to the search input and the list.
     const text = rendered(picker);
     expect(text).toContain("> b");
     expect(text).toContain("beta/b-model");
@@ -278,6 +362,7 @@ test("a catalog refresh keeps the highlighted model by provider and id, with or 
       initialQuery: query || undefined, onSelect: model => { selected = `${model.provider}/${model.id}`; }, onCancel: () => {},
     });
     try {
+      if (!query) picker.handleInput("\t"); // No search words: Tab from the providers to the list first.
       picker.handleInput("\x1b[B"); // Down: m3 → m2 (newest ids sort first).
       models.push(fakeModel("a", "m4")); // Sorts above the highlight, shifting its index.
       refresh.settle({ aborted: false, errors: new Map() });

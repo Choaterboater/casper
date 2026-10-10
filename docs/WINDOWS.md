@@ -158,8 +158,9 @@ bun tools/terminal-demo.ts
 - Resize the window between wide and narrow (for example 100, 40 and 24 columns).
   The footer, input box and cursor should stay usable, with no repeated screens.
   Ctrl+J adds a new line; Up brings back earlier input.
-- `/model` and `/effort` open pickers with made-up choices. The arrow keys must move
-  the highlight in place, Enter picks, Escape cancels.
+- `/model` and `/effort` open pickers with made-up choices. `/model` opens on the
+  providers on the left; Tab moves to the models. The arrow keys must move the highlight
+  in place, Enter picks, Escape cancels.
 - `/exit` quits. Your shell's normal typing and echo must come back. Then do it all
   again with `$env:NO_COLOR = '1'`. Do not use a saved transcript or redirected
   output instead of a real window for this check.

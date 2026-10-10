@@ -1821,10 +1821,11 @@ bun run typecheck && bun test tests/pi-picker-coupling.test.ts tests/ask.test.ts
 
 and confirm, in a real interactive session against a configured provider:
 
-1. `/model` opens the full-screen browser with the provider sidebar (Tab focuses the
-   sidebar; Up/Down switch login groups); the footer ends with Casper's hint line
-   (`Enter: remember globally · Ctrl+S: session only · …`) followed by the selected-model
-   summary. Startup clears the viewport once (a fresh session fills the screen).
+1. `/model` opens the full-screen browser on the provider sidebar (Up/Down switch
+   providers; Enter, Tab or Right moves to the list); the footer shows the selected-model
+   summary, then the hint for the side that has the keys (`Up/Down providers · …` on the
+   left, `Tab providers · Enter remember · Ctrl+S this session only · …` on the list).
+   Startup clears the viewport once (a fresh session fills the screen).
 2. Filtering to one model and pressing Enter selects it; Esc cancels; Ctrl+S selects for
    the session only.
 3. `/effort` opens the effort picker (plain `SelectList`; no Pi internals beyond

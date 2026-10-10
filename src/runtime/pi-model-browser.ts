@@ -1,4 +1,4 @@
-import { fuzzyFilter, getKeybindings, Input, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { fuzzyFilter, getKeybindings, Input, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { TUI } from "@earendil-works/pi-tui";
 import type { Api, Model, ModelsRefreshOptions, ModelsRefreshResult } from "@earendil-works/pi-ai";
 import { terminalText, tint } from "../tui/format";
@@ -102,9 +102,10 @@ export interface ModelBrowserOptions {
 }
 
 /** Casper's full-screen model browser in the spirit of omp's picker: a provider sidebar on the
- * left (Tab focuses it; Up/Down switch login groups), a search-backed model list on the right
- * with context/price/capability columns, and a summary + hint footer. No kind filters. Keys
- * flow through `getKeybindings()`; unbound keys edit the search input. */
+ * left (where it opens, unless search words were given; Up/Down pick whose models show), a
+ * search-backed model list on the right with context/price/capability columns, and a summary +
+ * hint footer. Tab, Enter or Right moves to the list. No kind filters. Keys flow through
+ * `getKeybindings()`; unbound keys edit the search input from either side. */
 export class ModelBrowser {
   private readonly searchInput = new Input();
   private readonly refreshAbortController = new AbortController();
@@ -116,7 +117,7 @@ export class ModelBrowser {
   private readonly defaultModel?: ModelRef;
   private scope: string | undefined; // undefined = all providers
   private sidebarIndex = 0;
-  private focus: "sidebar" | "main" = "main";
+  private focus: "sidebar" | "main";
   private errorMessage?: string;
   private refreshStatusMessage = "Refreshing model catalogs…";
   private refreshStatusSuccess = false;
@@ -126,6 +127,8 @@ export class ModelBrowser {
   constructor(private readonly options: ModelBrowserOptions) {
     this.current = options.current;
     this.defaultModel = options.defaultModel;
+    // Words to search for mean a model is wanted: Enter picks at once. Otherwise "where from" comes first.
+    this.focus = options.initialQuery ? "main" : "sidebar";
     this.searchInput.onSubmit = () => {
       const item = this.filteredModels[this.selectedIndex];
       if (item) this.handleSelect(item.model);
@@ -141,7 +144,13 @@ export class ModelBrowser {
   }
 
   get focused(): boolean { return this._focused; }
-  set focused(value: boolean) { this._focused = value; this.searchInput.focused = value; }
+  set focused(value: boolean) { this._focused = value; this.searchInput.focused = value && this.focus === "main"; }
+
+  /** The search box shows its cursor only while the list side has the keys. */
+  private setFocus(pane: "sidebar" | "main"): void {
+    this.focus = pane;
+    this.searchInput.focused = this._focused && pane === "main";
+  }
 
   /** Component contract for the surface slot and `setFocus`; all width-dependent content
    * rebuilds inside `render`. */
@@ -176,7 +185,8 @@ export class ModelBrowser {
 
   private hintLine(): string {
     // The same words as every other picker's hint: "<key> <what it does>", joined by " · ".
-    return this.muted(`  Tab provider groups · ${this.options.sessionOnly
+    if (this.focus === "sidebar") return this.muted("  Up/Down providers · Enter or Tab models · type to search · Esc cancels");
+    return this.muted(`  Tab providers · ${this.options.sessionOnly
       ? "Enter this session only · Esc cancels · /effort after selecting"
       : "Enter remember · Ctrl+S this session only · Esc cancels · /effort after selecting"}`);
   }
@@ -223,6 +233,14 @@ export class ModelBrowser {
   private sidebarWidth(width: number): number {
     const labelWidth = Math.max(...this.sidebarEntries().map(entry => visibleWidth(terminalText(entry.label))), 10);
     return Math.min(Math.max(14, labelWidth + 6), Math.max(14, Math.floor(width / 4)));
+  }
+
+  /** Keep the provider cursor on the provider in scope after the rows change (a refresh adds or drops one); a
+   * provider that is gone puts it back on "All models". */
+  private syncSidebar(): void {
+    const index = this.sidebarEntries().findIndex(entry => entry.provider === this.scope);
+    if (index >= 0) this.sidebarIndex = index;
+    else { this.scope = undefined; this.sidebarIndex = 0; }
   }
 
   private sidebarLines(height: number, width: number): string[] {
@@ -322,9 +340,10 @@ export class ModelBrowser {
   }
 
   private rowText(item: Item, selected: boolean, width: number): string {
-    const cursor = selected ? this.selected("> ") : "  ";
+    // While the providers have the keys the list's row stays marked, muted: it is what Ctrl+S would pick.
+    const cursor = !selected ? "  " : this.focus === "main" ? this.selected("> ") : this.muted("> ");
     const marker = sameRef(this.current, item) ? this.accent("✓ ") : "  ";
-    const id = this.muted(`${item.provider}/`) + (selected ? this.selected(item.id) : item.id);
+    const id = this.muted(`${item.provider}/`) + (selected && this.focus === "main" ? this.selected(item.id) : item.id);
     const badge = sameRef(this.defaultModel, item) ? this.muted(" · default") : "";
     const meta = this.metaText(item, width);
     const metaWidth = meta ? visibleWidth(meta) + 1 : 0;
@@ -355,7 +374,7 @@ export class ModelBrowser {
   handleInput(keyData: string): void {
     const kb = getKeybindings();
     if (kb.matches(keyData, "tui.input.tab")) {
-      this.focus = this.focus === "sidebar" ? "main" : "sidebar";
+      this.setFocus(this.focus === "sidebar" ? "main" : "sidebar");
       this.options.tui.requestRender();
       return;
     }
@@ -366,13 +385,27 @@ export class ModelBrowser {
         if (entries.length) {
           this.sidebarIndex = (this.sidebarIndex + delta + entries.length) % entries.length;
           this.scope = entries[this.sidebarIndex]!.provider;
+          // A new provider starts at its first model (the current one, when it is there).
+          this.selectedIndex = 0;
           this.filterModels(this.searchInput.getValue());
         }
-      } else if (kb.matches(keyData, "tui.select.confirm")) {
-        this.focus = "main";
+      } else if (kb.matches(keyData, "tui.select.confirm") || matchesKey(keyData, "right")) {
+        this.setFocus("main");
+      } else if (kb.matches(keyData, "tui.select.cancel")) {
+        this.dispose();
+        this.options.onCancel();
+        return;
+      } else if (kb.matches(keyData, "app.models.save") && this.options.onSelectAsDefault) {
+        // Ctrl+S picks the list's marked model for this session, the same from either side.
+        const item = this.filteredModels[this.selectedIndex];
+        if (item) {
+          this.dispose();
+          this.options.onSelectAsDefault(item.model);
+        }
+        return;
       } else {
         // Typing from the sidebar lands in the search field, like omp's unified filter.
-        this.focus = "main";
+        this.setFocus("main");
         this.searchInput.handleInput(keyData);
         this.filterModels(this.searchInput.getValue());
       }
@@ -441,6 +474,7 @@ export class ModelBrowser {
       // provider and id, not position) so Enter still saves what the user was looking at.
       const highlighted = this.filteredModels[this.selectedIndex];
       this.loadModelsFromSnapshot();
+      this.syncSidebar();
       this.filterModels(this.searchInput.getValue());
       const kept = highlighted ? this.filteredModels.findIndex(item => sameRef(highlighted, item)) : -1;
       if (kept >= 0) this.selectedIndex = kept;

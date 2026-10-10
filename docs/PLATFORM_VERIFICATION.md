@@ -149,8 +149,9 @@ change your real accounts, saved settings or installed `casper`.
    - Type any text and press Enter: it prints three fake tool lines, half a second
      apart, then "Demo complete". Type a new draft while they print. Press Escape
      while they print: it should say `[cancel] Synthetic work cancelled.`
-   - `/model` and `/effort` open pickers with made-up choices. Arrow keys should move
-     the highlight in place, Enter picks, Escape cancels.
+   - `/model` and `/effort` open pickers with made-up choices. `/model` opens on the
+     providers on the left; Tab moves to the models. Arrow keys should move the highlight
+     in place, Enter picks, Escape cancels.
    - Ctrl+J adds a new line; Up brings back earlier input; `/` shows the command list.
    - `/exit` quits. Any other `/` command just prints the demo's command list. The
      demo has no approval, error or status screens; test those in the real CLI (item 3).
