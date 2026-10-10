@@ -10,7 +10,7 @@ export interface ToolObservationInput { path?: string; command?: string; operati
   /** The command held a secret the AI typed into it; `command` has it hidden. */
   secretHidden?: true }
 
-/** Pi 0.87.0's native edit/write path syntax (its resolver is not an SDK export).
+/** Pi 1.1.0's native edit/write path syntax (its resolver is not an SDK export).
  * Expand once at the adapter boundary; the result is a literal filesystem path. */
 export function nativeEditPath(input: string): string | undefined {
   const file = input.replace(/[\u00a0\u2000-\u200a\u202f\u205f\u3000]/g, " ").replace(/^@/, "");

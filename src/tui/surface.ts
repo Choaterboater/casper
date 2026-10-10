@@ -23,7 +23,7 @@ const GUTTER = 2;
  * the prompt's lower border and the footer), so no fixed viewport shift is right for all of them. The
  * last `rows` lines are taken as visible and every one is marked changed: Pi's differential pass then
  * moves up from the cursor, which each terminal keeps on its own line, and rewrites the whole screen.
- * The field names below are private in pi-tui's typings; verified against @earendil-works/pi-tui 0.87.0
+ * The field names below are private in pi-tui's typings; verified against @earendil-works/pi-tui 1.1.0
  * (`doRender` in dist/tui-main-screen.js). */
 class StableMainScreen extends TuiMainScreen {
   protected override doRender(): void {

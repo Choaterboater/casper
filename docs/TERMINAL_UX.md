@@ -329,7 +329,7 @@ of those rows again in place. Scrollback is kept; a terminal that neither kept n
 restored those rows may show a few of them twice in scrollback
 (`tests/daily-terminal.test.ts` asserts no `ESC[3J` and a rewrite of every visible
 row for a rows change, and a repaint for a columns change; the field access is
-pinned to `@earendil-works/pi-tui` 0.87.0).
+pinned to `@earendil-works/pi-tui` 1.1.0).
 `tests/fixtures/layout-pty.py` drives the offline demo through a bounded 24x80
 VT emulator that scrolls, and fails on footer creep, scrollback wipes from
 popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test.ts`;

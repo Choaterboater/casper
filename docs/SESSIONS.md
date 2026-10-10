@@ -7,7 +7,7 @@ then either apply the result or throw it away after you look at the diff.
 
 ## Who owns what
 
-- **Pi owns the conversation.** Casper uses Pi SDK 0.87.0 to copy and resume
+- **Pi owns the conversation.** Casper uses Pi SDK 1.1.0 to copy and resume
   Pi's saved conversation files (JSONL). Casper keeps no second copy of the
   messages.
 - **Casper owns the names.** A small file,

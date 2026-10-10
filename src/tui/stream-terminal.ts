@@ -63,6 +63,7 @@ export class StreamTerminal implements Terminal {
   /** OSC 0: the window and tab title. Control characters are dropped so a title can't end the sequence early. */
   setTitle(title: string): void { this.write(`\x1b]0;${title.replace(/[\x00-\x1f\x7f-\x9f]/g, "")}\x07`); }
   setProgress(): void {}
+  setProgramStatus(): void {}
 }
 
 /** NO_COLOR removes colour only. Reverse video, bold and dim stay: reverse video is the editor's
