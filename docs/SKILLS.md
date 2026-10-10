@@ -128,7 +128,9 @@ Site names are <city>-<building>. AP names are <site>-ap<nn>.
 ```
 
 Your own skills load next to the bundled ones, ranked as described in
-[CONFIGURATION.md](CONFIGURATION.md#skills). To use the stricter network picking rule, copy the
+[CONFIGURATION.md](CONFIGURATION.md#skills). Words inside a link in your request (`https://…`, `github.com/owner/repo`)
+don't count toward a skill's name, tags or description: a repository named `casper-network-mcp` doesn't pick a
+skill tagged `mcp`. Keep tags specific; a word as broad as `mcp` matches more requests than you mean. To use the stricter network picking rule, copy the
 `casper-skill` block from a bundled skill into your front-matter.
 
 **Replacing a bundled skill.** A skill in `~/.casper/skills/` with the same name as a bundled one

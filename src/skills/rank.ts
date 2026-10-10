@@ -14,6 +14,12 @@ function words(text: string): Set<string> {
     .filter((word) => word.length > 1 && !STOP_WORDS.has(word)));
 }
 
+/** The request without its links (https://…, www.…, host.tld/path): a word inside one, such as "mcp" in a repository
+ * named casper-network-mcp, says where something is, not what the request is about. A project path has no dotted host. */
+function withoutLinks(text: string): string {
+  return text.replace(/\b(?:https?:\/\/|www\.)\S+/gi, " ").replace(/\b[\w-]+(?:\.[\w-]+)+\/\S*/g, " ");
+}
+
 function overlap(left: Set<string>, right: Set<string>): number {
   return [...left].filter((word) => right.has(word)).length;
 }
@@ -25,7 +31,7 @@ export function scoreSkill(
   classification: TaskClassification,
 ): number {
   if (skill.disableModelInvocation) return 0;
-  const taskWords = words(request);
+  const taskWords = words(withoutLinks(request));
   const stackWords = words([...project.languages, ...project.frameworks].join(" "));
   const declaredStacks = words(skill.stacks.join(" "));
   const stackMatch = overlap(declaredStacks, stackWords);
