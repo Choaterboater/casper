@@ -98,7 +98,9 @@ const IPV6_MISSING = process.platform === "linux" && !existsSync("/proc/net/if_i
 const exists = (file: string) => { try { lstatSync(file); return true; } catch { return false; } };
 
 export class ShellSandbox {
-  readonly state: SandboxState;
+  private readonly detected: SandboxState;
+  /** /sandbox off: commands run with your own permissions until /sandbox on or Casper exits. A crew copy follows its session. */
+  private offForSession = false;
   private readonly engine: SandboxEngine;
   private started?: Promise<void>;
   private tempDir?: string;
@@ -139,7 +141,7 @@ export class ShellSandbox {
 
   constructor(private readonly options: ShellSandboxOptions) {
     this.engine = options.engine ?? sandboxDefaults.engine?.() ?? runtimeEngine();
-    this.state = ShellSandbox.detect(options);
+    this.detected = ShellSandbox.detect(options);
     for (const host of options.allowHosts ?? []) this.sessionHosts.add(hostName(host));
     for (const folder of options.allowWrites ?? []) this.sessionWrites.push(realpathLongest(path.resolve(folder)));
   }
@@ -170,6 +172,20 @@ export class ShellSandbox {
     return problem ? { kind: "missing", reason: problem } : { kind: "on" };
   }
 
+  /** Whether and why the sandbox holds commands now: as detected, unless you said /sandbox off this session. */
+  get state(): SandboxState {
+    return (this.parent ?? this).offForSession ? { kind: "off", reason: "/sandbox off for this session; /sandbox on puts it back" } : this.detected;
+  }
+  /** /sandbox off and /sandbox on: what changed, or why nothing did. Only the session's sandbox, not a crew copy. */
+  setSessionOff(off: boolean): string {
+    if (!off && this.detected.kind !== "on") return `The sandbox can't be turned on here: ${this.detected.kind === "off" ? `it is off (${this.detected.reason})` : `it can't run (${this.detected.reason})`}.`;
+    if (off === this.offForSession) return off ? "The sandbox is already off for this session." : "The sandbox is already on.";
+    if (off && this.detected.kind !== "on") return `The sandbox is not running here already (${this.detected.reason}).`;
+    this.offForSession = off;
+    return off
+      ? "Sandbox off for this session: shell commands and checks run with your own permissions, and writes outside the project don't ask (the receipt says so). /sandbox on puts it back; sandbox: off in ~/.casper/config.yaml keeps it off."
+      : "Sandbox on again: shell commands and checks are held as before.";
+  }
   get on(): boolean { return this.state.kind === "on" && !this.startError; }
   /** Why the sandbox failed to start on first use, if it did. */
   get failure(): string | undefined { return this.startError; }
