@@ -260,6 +260,22 @@ browserTest("the page load notes accessibility basics: alt, labels, button names
   expect((await f.session.load(`${f.url}/`, new AbortController().signal)).a11y).toEqual({ lang: true, images: 0, inputs: 0, buttons: 0, contrast: { count: 0, worst: 0 } });
 }, 30_000);
 
+browserTest("the contrast note reads colors Chrome keeps as oklch (Tailwind v4's palette): text, background and a see-through color", async () => {
+  const f = await fixture();
+  const contrast = async (body: string) => {
+    await writeFile(f.sourceFile, `<!doctype html><html lang="en"><title>oklch</title>${body}</html>`);
+    return (await f.session.load(`${f.url}/`, new AbortController().signal)).a11y?.contrast;
+  };
+  // The expected ratios come from Ottosson's oklch-to-sRGB formula, not from the browser.
+  expect(await contrast(`<p style="color:oklch(0.8 0.02 260);background:oklch(0.95 0.01 260)">faint words</p>`)).toEqual({ count: 1, worst: 1.6 });
+  expect(await contrast(`<p style="color:oklch(0.75 0 0)">faint words</p>`)).toEqual({ count: 1, worst: 2.2 });
+  // The dark oklch box is the background, not the white page behind it (#444 on white would be 9.7:1).
+  expect(await contrast(`<div style="background:oklch(0.25 0.02 260)"><p style="color:#444">dim words</p></div>`)).toEqual({ count: 1, worst: 1.6 });
+  // A see-through color keeps its alpha: opaque, this gray would be 18:1 on white.
+  expect(await contrast(`<p style="color:oklch(0.3 0 0 / 0.3)">faint words</p>`)).toEqual({ count: 1, worst: 1.8 });
+  expect(await contrast(`<p style="color:oklch(0.2 0 0);background:oklch(0.98 0 0)">plain words</p>`)).toEqual({ count: 0, worst: 0 });
+}, 45_000);
+
 browserTest("a page check saves a desktop and a phone picture outside the project, private, and none unless asked", async () => {
   const f = await fixture();
   const plain = await f.session.load(`${f.url}/`, new AbortController().signal);
