@@ -414,8 +414,8 @@ that kind of command (`git push`) for the session or for this project; `/allowed
 `review` or `checkout`, `gh issue close` or `reopen`, and `gh run rerun` or `cancel`, offer only No and Yes, this once,
 every time. Nothing to configure; see [SECURITY.md](SECURITY.md) for what counts as plain.
 
-`sandbox: off` turns it off for every run (like `--no-sandbox` for one run); the receipt then
-says shell commands and checks were not sandboxed. A project's `.casper/project.yaml` can only
+`sandbox: off` turns it off for every run (like `--no-sandbox` for one run, or `/sandbox off` until
+Casper exits; `/sandbox on` puts it back); the receipt then says shell commands and checks were not sandboxed. A project's `.casper/project.yaml` can only
 add denies:
 
 ```yaml

@@ -327,7 +327,9 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         host.output.write(found ? `Forgot ${terminalText(forget[1]!)}: shell commands and ssh ask before reaching it again.\n` : `${terminalText(forget[1]!)} was not remembered for this project.\n`);
         return;
       }
-      if (prompt.trim() !== "/sandbox") throw new Error("Usage: /sandbox | /sandbox forget <host>");
+      const toggle = /^\/sandbox\s+(on|off)\s*$/.exec(prompt);
+      if (toggle) { host.output.write(`${sandbox.setSessionOff(toggle[1] === "off")}\n`); return; }
+      if (prompt.trim() !== "/sandbox") throw new Error("Usage: /sandbox | /sandbox off | /sandbox on | /sandbox forget <host>");
       await sandbox.loadRemembered();
       host.output.write(sandboxReport(sandbox, host.activeWorkspaceRoot(), await sandbox.store?.reachHosts() ?? []));
       return;

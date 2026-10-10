@@ -113,6 +113,7 @@ Local commands:
   /permissions all|ask              Stop the shell's questions until you quit (asks first; allowall is the same), or ask them again
   /permissions write|forget <folder>  Allow a folder outside the project for this project, or take it back (remove is the same as forget)
   /sandbox, /sandbox list           What the shell sandbox holds: write folders, private folders, hosts
+  /sandbox off, /sandbox on         Turn the shell sandbox off for this session (commands and checks run with your permissions), or back on
   /sandbox forget <host>            Forget a host or machine you allowed for this project (Yes, always); remove is the same
   /allowed, /allowed list           The shell commands you said yes to for this project (saved, and for this session), numbered
   /allowed forget <n>               Forget one by its number, its words (git log) or all of them; Casper asks before running it again; remove is the same
