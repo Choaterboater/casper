@@ -5,13 +5,15 @@ import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
 import { SettingsManager, type AgentSession, type ModelRuntime, type SessionManager } from "@earendil-works/pi-coding-agent";
 import { classifyEffort, nearestEffort, resolveAutoEffort } from "./auto-effort";
 import { isEffortSelection, isModelRole, resolveModelSelection, type ModelReference, type ModelRoles, type ResolvedModelSelection } from "./model-routing";
-import type { RuntimeModelInfo, RuntimeModelSelection, RuntimeModelSelectionOptions, RuntimeReadOnlyStartOptions, RuntimeStatus, RuntimeUsage } from "./types";
+import { matchModelWords, noModelMessage } from "./model-words";
+import type { RuntimeModelInfo, RuntimeModelSelection, RuntimeModelSelectionOptions, RuntimeModelWordsMatch, RuntimeModelWordsOptions, RuntimeReadOnlyStartOptions, RuntimeStatus, RuntimeUsage } from "./types";
 import { pickPiModel } from "./pi-model-picker";
 import { anyModelMatches } from "./pi-model-browser";
 import { openRouterRequestHeaders } from "./openrouter-attribution";
 import { compactionReserveFor, smallWindowWarning } from "./small-window";
 import { lockBusy } from "../platform/files";
 import { LOCAL_SERVERS, type LocalDiscovery } from "./local-models";
+import { CLAUDE_SUBSCRIPTION } from "./claude-subscription";
 
 type Selection = { reference?: ModelReference; source: "conversation" | "default" | "none"; role?: string; effort?: string; auto?: RuntimeStatus["autoEffort"] };
 type Settings = ReturnType<SettingsManager["getGlobalSettings"]>;
@@ -64,6 +66,7 @@ const KEY_VARIABLES: Record<string, string> = {
 
 /** What to do when the model's provider has no sign-in: its real name, its /login and its key variable. */
 export function missingSignIn(provider: string, baseUrl?: string): string {
+  if (provider === CLAUDE_SUBSCRIPTION) return "Claude subscription needs native Claude Code installed and signed in to a Pro, Max, Team or Enterprise plan on this OS. Sign in using Claude Code, then restart Casper.";
   if (baseUrl && !SIGN_IN_NAMES[provider] && !KEY_VARIABLES[provider]) return `${provider} at ${baseUrl} needs an apiKey line in models.json (any text works for a local server).`;
   const name = SIGN_IN_NAMES[provider];
   const variable = KEY_VARIABLES[provider];
@@ -192,6 +195,21 @@ export class PiModels {
     const model = this.catalog.getModel(resolved.reference.provider, resolved.reference.id);
     if (!model) return undefined;
     return modelInfo(model);
+  }
+
+  /** The model an exact id (any in the catalog) or loose words (the signed-in ones) name, without selecting it. */
+  async matchWords(words: string, session: AgentSession, options: RuntimeModelWordsOptions = {}): Promise<RuntimeModelWordsMatch> {
+    // A model on a server found on this computer may still be on its way into the catalog.
+    if (options.wait !== false) await this.localWhen(() => this.unresolved(words) && matchModelWords(words, this.catalog.getAvailableSnapshot()).kind === "none");
+    try {
+      const { reference } = resolveModelSelection(words, this.catalog.getModels(), this.getRoles(), this.defaultReference());
+      if (this.catalog.getModel(reference.provider, reference.id)) return { kind: "one", model: reference };
+    } catch { /* not an exact id: loose words */ }
+    const match = matchModelWords(words, this.catalog.getAvailableSnapshot(), { current: this.selections.get(session)?.reference, ...(options.head ? { head: true } : {}) });
+    const plain = ({ provider, id }: ModelReference) => ({ provider, id });
+    if (match.kind === "one") return { kind: "one", model: plain(match.model) };
+    if (match.kind === "several") return { kind: "several", models: match.models.map(plain) };
+    return { kind: "none", closest: match.closest.map(plain) };
   }
 
   /** A signed-in model that can see images: the user's roles first (big model, build, review, fast), then the current
@@ -381,9 +399,9 @@ export class PiModels {
       ? this.catalog.getModel(reference.provider, reference.id) : undefined;
     const stale = reference && this.staleAuth.has(reference.provider);
     const auth = stale ? "unknown" : reference ? this.catalog.hasConfiguredAuth(reference.provider) ? "configured" : "missing" : "unknown";
-    // Claude sign-in is per-token extra usage (see pi-auth), so only other subscription sign-ins count.
+    // The SDK transport uses Claude Code's plan login; direct Anthropic OAuth is a separate route.
     const billing = !reference || auth !== "configured" ? undefined
-      : reference.provider !== "anthropic" && this.catalog.isUsingSubscription(reference.provider) ? "subscription" : "per-token";
+      : reference.provider === CLAUDE_SUBSCRIPTION || (reference.provider !== "anthropic" && this.catalog.isUsingSubscription(reference.provider)) ? "subscription" : "per-token";
     const blocked = !reference ? "No Casper model selected. Use /model to choose one, or /login to sign in."
       : stale ? "Credential state needs local refresh. Restart Casper before using this provider; do not repeat login blindly."
       : !model ? `Model ${reference.provider}/${reference.id} is unavailable. Use /model to choose another; no fallback was selected.`
@@ -500,12 +518,34 @@ export class PiModels {
     this.selectionDone = promise;
     try {
       let resolved: ResolvedModelSelection | undefined;
+      // Loose words (`opus 5.5`) the model was found from, when no exact id or role names it.
+      let from: string | undefined;
       if (options.query) {
         const query = options.query;
         await this.localWhen(() => this.unresolved(query));
         signal.throwIfAborted();
-        try { resolved = resolveModelSelection(options.query, this.catalog.getModels(), this.getRoles(), this.defaultReference()); }
-        catch (error) { if (!options.picker || options.query.startsWith("@") || options.query.includes(":")) throw error; }
+        try { resolved = resolveModelSelection(query, this.catalog.getModels(), this.getRoles(), this.defaultReference()); }
+        catch (error) {
+          if (query.trim().startsWith("@") || !/^Unknown model selector/.test(error instanceof Error ? error.message : "")) {
+            if (!options.picker || query.startsWith("@") || query.includes(":")) throw error;
+          } else {
+            const words = matchModelWords(query, this.catalog.getAvailableSnapshot(), { current: this.selections.get(session)?.reference });
+            const effort = words.kind === "none" ? undefined : words.effort;
+            if (words.kind === "one") { resolved = { reference: words.model, ...(effort ? { effort } : {}) }; from = query.trim(); }
+            else if (words.kind === "several") {
+              const listed = words.models.map(({ provider, id, name }) => ({ provider, id, name: name ?? id }));
+              if (options.choose && listed.length <= 4) {
+                const picked = await options.choose(listed);
+                signal.throwIfAborted();
+                if (!picked) return { status: this.status(session), selected: false, savedDefault: false };
+                resolved = { reference: picked, ...(effort ? { effort } : {}) }; from = query.trim();
+              } else if (!options.picker) return { status: this.status(session), selected: false, savedDefault: false, candidates: listed };
+              // Else the picker opens on the words, below.
+            } else if (!options.picker || !anyModelMatches(this.catalog.getAvailableSnapshot(), query, this.defaultReference())) {
+              throw new Error(noModelMessage(query.trim(), words.closest));
+            }
+          }
+        }
       }
       let model = resolved && this.catalog.getModel(resolved.reference.provider, resolved.reference.id);
       let persist = Boolean(options.persist);
@@ -513,7 +553,8 @@ export class PiModels {
         // A typed id no model matches: one error line, not a picker that only says "No matching models".
         const available = this.catalog.getAvailableSnapshot();
         if (available.length && !anyModelMatches(available, options.query, this.defaultReference())) {
-          throw new Error(`No model ${JSON.stringify(options.query)}; /model lists them. Model unchanged.`);
+          const words = matchModelWords(options.query, available, { current: this.selections.get(session)?.reference });
+          throw new Error(noModelMessage(options.query.trim(), words.kind === "none" ? words.closest : []));
         }
       }
       if (!model && options.picker) {
@@ -548,7 +589,7 @@ export class PiModels {
         if (preferences.drainErrors().length) throw new Error("Model selected for this conversation, but the Casper default could not be saved.");
         await this.saveAuto(model, effort === "auto");
       }
-      return { status: this.status(session), selected: true, savedDefault: persist };
+      return { status: this.status(session), selected: true, savedDefault: persist, ...(from ? { from } : {}) };
     } finally { this.selecting = false; this.selectionSignal = undefined; finish(); }
   }
 

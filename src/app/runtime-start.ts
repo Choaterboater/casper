@@ -24,6 +24,7 @@ import { updateFooter } from "./footer";
 import { spendNote, spendGate } from "./spend-gate";
 import { ensureSessionWorkspace } from "./session-branches";
 import { projectPrivatePaths } from "./wiring";
+import { severalModelsMessage } from "./model-words";
 
 /** One adapter-construction owner, shared by auth and session startup. */
 export function acquireRuntime(app: CasperApp): Promise<AgentRuntime> {
@@ -163,8 +164,13 @@ export async function applyRunSelection(app: CasperApp, session: RuntimeSession)
   if (app.runModel) {
     if (!session.selectModel) throw new UsageError("--model: this runtime does not support model selection.");
     let selected: boolean;
-    try { selected = (await session.selectModel({ query: app.runModel, persist: false })).selected; }
-    catch (error) { throw flagError("--model", error); }
+    try {
+      const result = await session.selectModel({ query: app.runModel, persist: false });
+      if (result.candidates) throw new Error(severalModelsMessage(app.runModel, result.candidates).replace("Type /model", "Pass --model"));
+      selected = result.selected;
+    }
+    // Words that name no model: the flag's own way to see them, not the prompt's /model.
+    catch (error) { throw flagError("--model", error instanceof Error ? new Error(error.message.replace("/model to see all. Model unchanged.", "Run casper /model to list models.")) : error); }
     if (!selected) throw new UsageError(`--model: Unknown model "${app.runModel}". Run casper /model to list models.`);
   }
   if (app.runEffort) {

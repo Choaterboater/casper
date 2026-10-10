@@ -109,6 +109,15 @@ describe("Phase 8 bounded subagents", () => {
     expect(created).toBe(0);
   });
 
+  test("a model that sends unused fields as null (of: null, context: null) still delegates", async () => {
+    let created = 0;
+    const tool = manager(() => { created++; return new ChildRuntime(); }).createTool(() => task);
+    const result = await tool.execute({ role: "explorer", goal: "inspect", context: null, of: null });
+    expect(result.text).not.toContain("whole number");
+    expect(result.isError).toBeUndefined();
+    expect(created).toBe(1);
+  });
+
   test("a child's reported model usage is totalled for the parent; one unreported response makes it unknown", async () => {
     const end = (usage?: { tokens: number; estimatedCost: number }) => ({ type: "assistant_response_end" as const, stopReason: "toolUse", ...(usage ? { usage } : {}) });
     const reported = await manager(() => new ChildRuntime(async (emit) => {
@@ -627,7 +636,7 @@ describe("Phase 8 bounded subagents", () => {
     await expect(app.runOnce("/delegate reviewer")).rejects.toThrow("Usage:");
     expect(parent.starts).toBe(0);
     await app.runOnce("Find the entry point");
-    expect(parent.tools.map((tool) => tool.name)).toEqual(["delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted"]);
+    expect(parent.tools.map((tool) => tool.name)).toEqual(["delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted", "casper_page"]);
     const result = await parent.tools[0]!.execute({ role: "reviewer", goal: "inspect" });
     expect(result.isError).toBe(true);
     await expect(app.runOnce("/delegate reviewer inspect")).rejects.toThrow("Delegation failed");

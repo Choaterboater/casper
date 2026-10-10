@@ -22,7 +22,7 @@ takes nothing after its name says so (`Usage: /settings, with nothing after it.`
 | Esc | Stop the current work |
 | Ctrl+C | Cancel work; when idle, clear the draft; twice on an empty prompt exits |
 | Ctrl+D | Exit when the prompt is empty |
-| Ctrl+T | Show the last step in full: an edit's whole diff, what a command printed, or the provider's own words after an `[error]` (works during work too) |
+| Ctrl+T | Show the last step in full: an edit's whole diff, what a command printed, the provider's own words after an `[error]`, or a plan's cases to test and details (works during work too) |
 | Ctrl+L | Redraw the screen |
 | Ctrl+V (Alt+V on Windows) | Paste a picture from the clipboard; it shows as `[image 1]` and goes with the request. A file you copied in Finder, Explorer or a file manager goes in as its path, and a picture file goes with the request like a dropped one. With neither on the clipboard, its text is pasted |
 | Ctrl+O | Turn MCP writes off for every server at once (see [MCP.md](MCP.md)) |
@@ -38,7 +38,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/help`, `/help <word>`, `/help all` | Short help, the lines that mention a word (`/help mcp`), or the full reference |
 | `/status` | Project, model, sign-in and connections (`/project` alone shows the same) |
 | `/doctor` | Check Casper's own setup and fix what it can, each fix after a question (see [DOCTOR.md](DOCTOR.md)); during a task it only reports |
-| `/model`, `/model big <model>` | Pick a model (remembered; `--session`, before or after the model, for this conversation only; an id no model matches is an error); your big model for when repairs run out |
+| `/model`, `/model <words>`, `/model big <model>` | Pick a model (remembered; `--session`, before or after the model, for this conversation only); words pick the model they name (`/model opus 5.5`), several ask which, none name the closest; your big model for when repairs run out |
 | `/effort [level\|auto]`, `/thinking` | Reasoning effort (the model's own levels; one it lacks is refused), or `auto` per request; Shift+Tab cycles it (see [Model and effort](#model-and-effort)) |
 | `/login [provider]`, `/logout [provider]` | Sign in to a provider: `codex`, `copilot`, `anthropic` or `openrouter` (see [Provider login](#provider-login)); remove a sign-in Casper saved (`/logout` alone lists them; environment variables stay) |
 | `/context`, `/usage`, `/cost` | Context estimate; session tokens and estimated cost (`/cost` is `/usage`) |
@@ -74,6 +74,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/services` | Dev servers the project declares ([SERVICES.md](SERVICES.md)) |
 | `/preview` | Your web app on a phone on the same Wi-Fi; a public link only after a yes ([SERVICES.md](SERVICES.md#preview-on-your-phone)) |
 | `/tasks [stop <n>\|all]` | What runs in the background; stop one |
+| `/pages [open\|remove <name>]` | Pages the AI made for this project, with their links ([Pages the AI makes](#pages-the-ai-makes)) |
 | `/pane [on\|off]` | The steps split beside Casper inside tmux or iTerm2 (only on a window 120+ columns wide); saved for every session. See [TMUX.md](TMUX.md) |
 | `/debug` | The local debugger ([DEBUGGER.md](DEBUGGER.md)) |
 | `/branch`, `/branch <name>`, `/switch <name>` | Named conversations, each with its own workspace: list them, make one, switch ([SESSIONS.md](SESSIONS.md)) |
@@ -271,12 +272,36 @@ is built as asked, with no question. Plan first (or `/plan <request>`) runs a
 plan turn: the model may only read (read, grep, find, ls and look-only shell commands such as `ls`,
 `cat` or `git log`); every other tool, MCP and Casper's own tools included, is refused with "Planning
 only" and shown as `— not run`, not as a failed step (the receipt does not count it). This is Casper's gate, not a
-sandbox, and a file that changed anyway is named on the receipt (`– Changed while planning: …`). The plan is shown
-once, as the model wrote it, then one line (`Casper plan: 9 steps, 9 cases to test.`) and "Build this plan?":
-1 Stop · 2 Build, and on a rich terminal 3 Edit the plan, so Enter builds nothing. 3 opens the plan and its cases
-in the editor: edit the lines, then Enter asks again; Esc stops without building. A plan you changed is listed
-again before it builds. The plain terminal asks the same question without 3, and a run that cannot ask
-stops after showing the plan. `/plan` on its own says what to type, with an example.
+sandbox, and a file that changed anyway is named on the receipt (`– Changed while planning: …`). The plan is
+written for you, not for the code, and shown once by Casper (the model's answer is not streamed as well):
+
+```
+Casper plan · A cleaner, animated header
+
+What you'll see
+  The ghost and the name in one colour, with a short fade-in.
+
+Steps
+  1. Write the tests first, then the change.
+  2. Draw the header in the accent colour.
+
+Tests: 3 cases · Ctrl+T shows them and the details
+```
+
+What you'll see has a small text mock-up when the change shows on screen. The steps are plain words; the
+cases to test are listed once, and the files, functions and exact assertions (the plan's Details) stay one key
+away: Ctrl+T on the rich terminal. Long lines wrap; nothing is cut. Then "Build this plan?": 1 Stop · 2 Build,
+and on a rich terminal 3 Edit the plan, so Enter builds nothing. 3 opens the steps and cases in the editor: edit
+the lines, then Enter shows only what you changed (`Your changes:` with `-` and `+` lines, and the steps' new
+order if you moved any) and asks again. Words typed after a line behind ` - `, ` -- `, ` // `, ` (` or ` note`, or a
+`Note:` line, are your note (`Your note: …`), not part of the step; other words added to a line change it. Esc stops
+without building. Build gives the model the whole plan, the details and your notes included. The plain terminal asks
+without Edit: its tests line ends `choose 3 to see them`, and 3 Show the details lists the cases and the details,
+then asks again; a run that cannot ask lists everything and stops. An answer with only the older `Plan:` and
+`Tests:` sections reads as before, and anything outside the plan's sections (a `Risks:` list, say) goes with the
+details. When no plan comes of the answer (no numbered steps, Esc, a model failure) Casper prints what the model
+wrote, so nothing it said is lost. `/plan`
+on its own says what to type, with an example.
 
 ### Layout stability
 
@@ -336,6 +361,28 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
   `-` for `–`, `|` for `▌`, `└` for `↳`, `~` for `…`. Windows Terminal and other terminals keep the symbols.
 - `/model provider/id`: exact selection, remembered globally. During a task it applies from the
   model's next step, like `/effort` (see Input and commands).
+- `/model <words>` (`/model opus 5.5`, `/model sonnet 5`, `/model opus`, `/model qwen3`): the
+  model the words name among the ones you can pick, with no model call, said in one line
+  (`[model] anthropic/claude-opus-5-5 (from "opus 5.5")`). Case, dots, spaces and a leading provider
+  do not matter. The words must appear whole and in order in the id; the best match wins: the whole
+  id, then an id the words end (`opus 5` is `claude-opus-5`, not `claude-opus-5-5`), then the newest
+  version (`opus` is the newest Opus; a size such as `8b` or `2.4t` is no version). A dated copy ranks
+  below its undated alias, and the provider you are on comes first. Several equally good (`qwen3` with
+  two sizes), words that name several families (`claude`: Opus, Sonnet, Haiku), matches on several
+  other providers, or a better match only on another provider while yours has one too, ask which by
+  number (more than four open the browser on the words); words never move you to another provider
+  by themselves. None says
+  `No model matches "opus 9"; closest: …. /model to see all. Model unchanged.` Part of a word
+  (`/model secon`) opens the browser already searched. Exact ids, `@role`, `:effort` and `--session`
+  work as before, also with words (`/model opus 5.5:high`).
+- A typed line that only asks to change the model (`change model to opus 5.5`, `switch to sonnet 5`,
+  `use opus`, `set model to <id>`) is done the same way, with no model call, idle or during a task,
+  and says so first: `[model] Handled here, no model call: /model opus 5.5 does the same.` It counts
+  only when you typed the whole short line (nothing pasted, no file name, path or code in it) and
+  its words start the name of a model you can pick; without the word "model" in the line they must
+  also be a model family (`opus`, `qwen`, `gpt` …) or carry a version (`sonnet 5`), so `use next`,
+  `switch to main` and `use the 70b model` stay requests. Anything else (`change the model class in
+  models.py to …`) goes to the AI as before. To ask the AI instead, say it another way.
 - `/model --session [provider/id]`: for this conversation only; the browser opens with Enter
   choosing for this session only.
 - `/effort`: automatic or supported fixed-effort picker in an interactive terminal, otherwise a list.
@@ -548,7 +595,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   `/doctor` only reports during a task (its fixes ask after it); `/exit` and `/quit` stop the
   task and leave; `/mcp`, `/tasks` and `/diff list` print their lists instead of a picker, and
   `/permissions` (and `/permissions details`) shows its screen without the stop-asking box.
-  `/effort` and `/model` (the picker, `/model <provider/id>` or `/model --session <provider/id>`)
+  `/effort` and `/model` (the picker, `/model <provider/id>`, `/model <words>` or `/model --session <provider/id>`)
   apply from the model's next step (`[model] <provider/id> from the model's next step; saved`); the
   step already running keeps its model; the `/model` picker also closes when the model's work ends.
   A picker, question or numbered box (`/permissions all`, `/mcp writes`) a command opens during a task
@@ -623,6 +670,45 @@ Enter or Esc is No; a `gh pr merge`, `close`, `reopen`, `ready`, `review` or `ch
 `gh run rerun` or `cancel`, or a command that types its own address, offers 1 and 2 only, every time), and
 `/permissions details` shows that rule in one line. Existing integration-specific
 approvals remain in force. Verification is still separate from tool completion.
+
+### Pages the AI makes
+
+When a picture answers better than text (options side by side, a mock-up, a dashboard of
+results, a report someone else will read), the AI makes a page by itself with its
+`casper_page` tool, and you see it in your browser at once. You don't have to ask for one.
+Plain answers stay in the terminal, and so does a Mermaid diagram from the diagram tool.
+
+```text
+[page] db-options → http://127.0.0.1:52144/db-options.html
+[page] db-options updated → http://127.0.0.1:52144/db-options.html
+```
+
+- **One file per page**, in `~/.casper/pages/<project>/<name>.html` (the same project key as
+  Casper's state folder, `~/.casper/projects/<project>`). Names are short: `a-z`, `0-9` and `-`,
+  up to 40; a near miss from the AI is fixed, not refused (`Ghost_Options` is saved as
+  `ghost-options`). The same name again replaces the page, and its open tab reloads itself.
+- **Opening.** The first time a page is made in a session, Casper opens it in your default browser
+  (`open` on macOS, the URL handler on Windows, `xdg-open` on Linux). Later changes reload the
+  tab instead of opening another one. Over SSH, in CI, or on Linux with no display, Casper prints
+  the link only (the address is on that computer: forward the port to see it). **Open pages in
+  the browser** in `/settings` (`open_pages: off`) prints the link only everywhere.
+- **The page server** starts with the first page of a session: `127.0.0.1` only, on a free port,
+  and it stops when Casper quits. A one-shot run (`casper "<request>"`) starts no server: the page
+  is saved and its file address printed; `/pages open <name>` in a session shows it.
+- **`/pages`** lists this project's pages with their links; `/pages open <name>` shows one (also
+  with opening turned off: you asked); `/pages remove <name>` deletes one, and its open tab says
+  `(removed)`. They run at once, also during a task. No model.
+- **Cost.** The tool is one short line in each request. How to build a good page (one
+  self-contained file, light and dark, phone width, real data, nothing private) comes back from
+  the tool itself the first time it is used in a conversation (again after `/clear` or `/resume`),
+  so it costs nothing until a page is made.
+  **Pages the AI makes** in `/settings` (`ai_pages: off`) takes the tool away; `/pages` still
+  lists the pages already made.
+- **What a page can do** is held tight: it can't fetch, post, or load images from other sites, it
+  runs with an origin of its own (no cookies or storage shared with other apps on `127.0.0.1`), and
+  the server serves nothing outside the pages folder. WebRTC is taken away too, best effort (see
+  [SECURITY.md](SECURITY.md#pages-the-ai-makes)). Sharing a page beyond this computer is not
+  part of Casper yet.
 
 ### Local debugger
 

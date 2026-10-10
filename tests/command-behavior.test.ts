@@ -157,7 +157,7 @@ test("idle: usage errors say [error] Usage: …, the same way for every command"
       ["/skills bogus", "Usage: /skills | /skills diagnostics"], ["/pack bogus", "Usage: /pack add"], ["/diff bogus", "Usage: /diff [task number | list]"],
       ["/undo bogus", "Usage: /undo [task number]"], ["/receipt bogus", "Usage: /receipt [task number | list]"], ["/tasks bogus", "Usage: /tasks | /tasks stop <n>"],
       ["/lab bogus", "Usage: /lab | /lab import <file>"], ["/allowed bogus", "Usage: /allowed | /allowed forget"],
-      ["/permissions bogus", "Usage: /permissions [details] | /permissions all|ask"], ["/sandbox bogus", "Usage: /sandbox | /sandbox forget <host>"],
+      ["/permissions bogus", "Usage: /permissions [details] | /permissions all|ask"], ["/sandbox bogus", "Usage: /sandbox | /sandbox off | /sandbox on | /sandbox forget <host>"],
       ["/memory bogus", "Usage: /memory |"], ["/preview bogus", "Usage: /preview | /preview stop"]] as const) {
       const shown = await typed(app, line, usage);
       expect([line, shown]).toEqual([line, expect.stringContaining(`[error] ${usage}`)]);

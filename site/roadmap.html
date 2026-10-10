@@ -80,6 +80,8 @@
           <li><a href="#next">Next release, built, not released</a>
             <ul>
               <li><a href="#network-releases">Network server updates between Casper releases</a></li>
+              <li><a href="#model-words">A model by its name in words</a></li>
+              <li><a href="#ai-pages">Pages the AI makes</a></li>
             </ul>
           </li>
           <li><a href="#coming">Planned, not started</a>
@@ -609,6 +611,7 @@
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
           <p>Built on the main branch after v0.2.29; it ships with the next preview.</p>
+          <p><code>/plan</code> shows a plan for a person, with what you'll see (a small mock-up when the change is on screen), plain steps and one line for the tests; the files and functions stay one key away (Ctrl+T). After Edit the plan, only what you changed and your note are shown.</p>
         </aside>
         <article class="card" id="network-releases" aria-labelledby="network-releases-h">
           <h3 id="network-releases-h">Network server updates between Casper releases · a network fix reaches you without a new Casper <span class="badge soon">built, not released</span></h3>
@@ -620,6 +623,31 @@
           one you run from your own checkout. <strong>Network server updates</strong> in <code>/settings</code>,
           <code>tools: { downloads: off }</code> or <code>CASPER_OFFLINE=1</code> turns it off.</p>
         </article>
+        <article class="card" id="model-words" aria-labelledby="model-words-h">
+          <h3 id="model-words-h">A model by its name in words <span class="badge soon">built, not released</span></h3>
+          <ul>
+            <li><strong><code>/model opus 5.5</code></strong> picks the model the words name, with no model call:
+            case, dots and spaces do not matter, and <code>/model opus</code> is the newest Opus. Words that name
+            several ask which by number; words that name none list the closest few.</li>
+            <li><strong>A typed line that only asks to change the model</strong>, such as
+            <code>change model to opus 5.5</code> or <code>switch to sonnet 5</code>, is done here with no model call,
+            also during a task, and says so. Anything else, such as
+            <code>change the model class in models.py</code>, goes to the AI as before.</li>
+          </ul>
+        </article>
+        <div class="stack">
+        <article class="card" id="ai-pages" aria-labelledby="ai-pages-h">
+          <h3 id="ai-pages-h">Pages the AI makes · see it, don't read it <span class="badge soon">built, not released</span></h3>
+          <p>When a picture answers better than text (options side by side, a mock-up, a dashboard of results, a
+          report someone else will read), the AI makes a page by itself and it opens in your browser at
+          once: <code>[page] db-options → http://127.0.0.1:52144/db-options.html</code>. A change reloads the open tab.
+          <code>/pages</code> lists them, <code>/pages open</code> and <code>/pages remove</code> work during a task.
+          Pages stay on this computer: a local server on <code>127.0.0.1</code>, a strict policy that keeps a page
+          from fetching from other sites, and nothing served outside the pages folder. Over SSH or with no desktop Casper
+          prints the link. <strong>Pages the AI makes</strong> and <strong>Open pages in the browser</strong> in
+          <code>/settings</code> turn them off. Sharing a page beyond your computer comes later, and will ask first.</p>
+        </article>
+        </div>
       </section>
 
       <section id="coming" aria-labelledby="coming-h">

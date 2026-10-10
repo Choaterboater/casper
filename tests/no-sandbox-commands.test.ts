@@ -18,16 +18,47 @@ import { removeTempDir } from "./support/temp-dir";
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => removeTempDir(root))); });
 
-test("commands that only read are known; anything that writes, runs a program or redirects is not", () => {
+test("commands that only read are known; anything that writes, runs a program or redirects is not", async () => {
+  const { project } = await fixture();
   for (const command of ["ls -la", "pwd", "cat README.md", "git status", "git diff --stat", "git log --oneline -5", "grep -rn TODO src",
     "rg -n foo", "find . -name '*.ts'", "wc -l src/app.ts", "head -20 notes.md | grep x", "git status && git diff", "which bun", "tree src"]) {
-    expect(readOnlyCommand(command)).toBe(true);
+    expect(readOnlyCommand(command, project)).toBe(true);
   }
   for (const command of ["rm -rf build", "npm test", "ls > files.txt", "cat a | tee b", "find . -delete", "find . -exec rm {} \\;",
     "git diff --output=patch.txt", "git commit -m x", "sort -o out.txt in.txt", "echo $(rm -rf /)", "ls `rm x`", "rg --pre ./run.sh foo",
     "python3 -c 'print(1)'", "FOO=1 ls", "ls & rm x", "git branch -D old", "uniq in.txt out.txt", "git -c core.pager=./x log"]) {
-    expect(readOnlyCommand(command)).toBe(false);
+    expect(readOnlyCommand(command, project)).toBe(false);
   }
+});
+
+test("whole-project rg and git grep are reads in a clean fixture and ask when a private file is added", async () => {
+  const { project } = await fixture();
+  for (const command of ["rg -n foo", "git grep -nw todo"]) expect(readOnlyCommand(command, project)).toBe(true);
+  await writeFile(path.join(project, ".env"), "SAMPLE=fixture\n");
+  for (const command of ["rg -n foo", "git grep -nw todo"]) expect(readOnlyCommand(command, project)).toBe(false);
+});
+
+test("omitting the project inspects cwd rather than an unrelated clean fixture", async () => {
+  const { project } = await fixture();
+  // Exercise the default without depending on the developer checkout's contents or changing cwd.
+  const cwd = process.cwd;
+  process.cwd = () => project;
+  try {
+    for (const command of ["rg -n foo", "git grep -nw todo"]) expect(readOnlyCommand(command)).toBe(true);
+    await writeFile(path.join(project, ".env"), "SAMPLE=fixture\n");
+    for (const command of ["rg -n foo", "git grep -nw todo"]) expect(readOnlyCommand(command)).toBe(false);
+  } finally { process.cwd = cwd; }
+});
+
+test("whole-folder content inspection asks beyond its entry budget even with no private filename", async () => {
+  const { project } = await fixture();
+  const folder = path.join(project, "entries"); await mkdir(folder);
+  // Empty directories are entries too: one mkdir per entry, no large file contents.
+  for (let start = 0; start < 20_001; start += 100) {
+    await Promise.all(Array.from({ length: Math.min(100, 20_001 - start) }, (_, index) => mkdir(path.join(folder, `entry-${start + index}`))));
+  }
+  for (const command of ["rg -n foo", "git grep -nw todo"]) expect(readOnlyCommand(command, project)).toBe(false);
+  expect(readOnlyCommand("ls entries", project)).toBe(true);
 });
 
 test("options that run a program are not reads: git grep -O, sort --compress-program, rg --hostname-bin", () => {
@@ -67,7 +98,8 @@ test("a glob that can pick a private file, a link out of the project, a link-fol
   }
 });
 
-test("only known commands with known options are reads: any option, variable or tool that can run a program asks", () => {
+test("only known commands with known options are reads: any option, variable or tool that can run a program asks", async () => {
+  const { project } = await fixture();
   for (const command of ["git grep -O sh x", "git grep --open-files-in-pager=sh x", "git -c core.pager=sh log", "git -c core.fsmonitor=x status",
     "git -c alias.x=!sh x", "git diff --ext-diff", "git log -p --ext-diff", "git diff --textconv", "git show --textconv HEAD", "git -C .. log",
     "git --git-dir=x log", "git grep --no-index key", "git shortlog -c", "git status --ignore-submodules=x", "rg --pre=sh x", "rg --pre sh x",
@@ -78,14 +110,14 @@ test("only known commands with known options are reads: any option, variable or 
     "tail -F log", "date -s 2020-01-01", "hostname evil", "ls -L docs", "cat --follow x", "git branch newb", "git tag v1", "git remote add x y",
     "git stash", "git log --output=x", "git blame --contents=x a.ts", "head -c 10 x --files0-from=list", "wc --files0-from=list", "jq . x.json",
     "md5sum -c sums.txt", "uniq -f 1 in out", "git log -c core.pager=x", "rg --ignore-file x y"]) {
-    expect({ command, read: readOnlyCommand(command) }).toEqual({ command, read: false });
+    expect({ command, read: readOnlyCommand(command, project) }).toEqual({ command, read: false });
   }
   for (const command of ["git log -p -5 --stat", "git log --oneline --graph --all", "git diff --cached --name-only", "git show HEAD~1 --stat",
     "git grep -n -i todo -- src", "git grep -nw todo", "git status -sb", "git rev-parse --show-toplevel", "git branch -a", "git branch --show-current",
     "git ls-files -m", "git blame -L 1,20 README.md", "rg -n --hidden -g '*.ts' foo src", "rg -uu foo", "grep -rn -A3 TODO src", "head -n 20 README.md",
     "tail -50 README.md", "wc -l README.md", "sort -u -k2 README.md", "cut -d: -f1 README.md", "ls -la src", "tree -L 2", "du -sh src", "date +%F",
     "echo hi", "find src -name '*.ts' -type f -maxdepth 2", "diff -u a b", "stat README.md", "uname -a"]) {
-    expect({ command, read: readOnlyCommand(command) }).toEqual({ command, read: true });
+    expect({ command, read: readOnlyCommand(command, project) }).toEqual({ command, read: true });
   }
 });
 

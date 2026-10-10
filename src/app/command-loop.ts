@@ -26,8 +26,10 @@ import { parseRequestWords } from "./request-words";
 import { askSideQuestion, BTW_USAGE, btwQuestion, sideQuestionsOn, sideQuestionText } from "./side-question";
 import { applyWeb } from "./wiring";
 import { typedDuringTask } from "../tui/give-way";
-import { checkSignIn } from "./runtime-start";
+import { checkSignIn, ensureRuntime } from "./runtime-start";
+import { handledHere, modelChangeRequest, namesModel } from "./model-words";
 import { reloadProject } from "./project-file";
+import { pagesCommand } from "./pages";
 
 export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promise<void> {
   // Own the terminal before the banner so startup output is transcript, not
@@ -151,6 +153,12 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
     // Commands go straight on (no wait, so a close that arrives with the line still finds the command running).
     if (command && leadingImagePath(prompt) !== undefined) command = !await startsWithImageFile(prompt, { cwd: app.activeWorkspaceRoot() });
     if (command) return await handleSlashCommand(app, prompt);
+    // "change model to opus 5.5": Casper changes it as /model would, with no model call (src/app/model-words.ts).
+    const target = typed && !app.pastedImages?.size ? modelChangeRequest(prompt, typed.pasted) : undefined;
+    if (target && await namesModel(await ensureRuntime(app), target)) {
+      app.output.write(handledHere(target));
+      return await handleSlashCommand(app, `/model ${target}`);
+    }
     const words = typed ? parseRequestWords(prompt, typed.pasted) : undefined;
     return await runModelTask(app, words?.text ?? prompt, words ? { words } : {});
   } catch (error) {
@@ -192,6 +200,7 @@ export function handleSlashCommand(app: CasperApp, typed: string): Promise<Verif
   if (/^\/details(?:\s|$)/.test(prompt)) return detailsCommand(app, prompt.slice(8).trim()).then(() => undefined);
   if (prompt.trim() === "/settings") return settingsCommand(app).then(() => undefined);
   if (prompt.trim() === "/theme") return settingsCommand(app, "Theme").then(() => undefined);
+  if (/^\/pages(?:\s|$)/.test(prompt)) return pagesCommand(app, prompt.slice(6).trim()).then(() => undefined);
   if (/^\/preview(?:\s|$)/.test(prompt)) return previewCommand(app, prompt.slice(8).trim()).then(() => undefined);
   const newProject = /^\/project\s+new(?:\s+([\s\S]*))?$/.exec(prompt.trim());
   if (newProject) return newProjectCommand(app, (newProject[1] ?? "").trim()).then(() => undefined);

@@ -78,7 +78,7 @@ Local commands:
   /help <word>                      Only the lines that mention that word, like /help mcp
   /status, /project                 Project, model, sign-in and integration status
   /doctor                           Check Casper's own setup (no model): version, config files, sign-in, MCP and language servers, security tools, sandbox, disk, network server; fixes it can make ask first (1 Not now); during a task it only reports
-  /model [id or provider/id]        Model browser; select and remember globally; an id no model matches is an error
+  /model [provider/id | words]      Model browser; select and remember globally; words pick the model they name (/model opus 5.5), several ask which, none name the closest
   /model --session [model]          Select without changing the startup default (--session also goes after the model)
   /model @role[:effort]             Select the model a configured role points to
   /model roles                      Show fast/build/reason/review role mappings
@@ -100,7 +100,7 @@ Local commands:
   /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
   /output all                       Every tool call of the last task on its own line (the screen folds them into a summary)
   /details [quiet|normal|detailed] [--session]  Alone: the level now. Failures only, steps folded (default), or every step with small diffs; remembered like /effort, --session (before or after) for this session only. Ctrl+T shows the last step in full
-  /settings, /config                Every switch at a glance, then one by number, written to ~/.casper/config.yaml for you: web lookups, browser tool, starter templates, diagram tool, new-version notice, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, local models, page checks, show the AI the pages, work shown, theme, untrusted-text reader, helpers that build, Playwright tests, send Casper's name to OpenRouter, sign-ins from other tools, network server updates, private ssh passwords
+  /settings, /config                Every switch at a glance, then one by number, written to ~/.casper/config.yaml for you: web lookups, browser tool, starter templates, diagram tool, pages the AI makes, open pages in the browser, new-version notice, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, local models, page checks, show the AI the pages, work shown, theme, untrusted-text reader, helpers that build, Playwright tests, send Casper's name to OpenRouter, sign-ins from other tools, network server updates, private ssh passwords
   /theme                            Pick the screen's colours (the Theme row of /settings), saved for you
   /hotkeys                          The keys Casper uses
   /copy [n]                         Copy the last answer, or its code block n, to the clipboard
@@ -113,6 +113,7 @@ Local commands:
   /permissions all|ask              Stop the shell's questions until you quit (asks first; allowall is the same), or ask them again
   /permissions write|forget <folder>  Allow a folder outside the project for this project, or take it back (remove is the same as forget)
   /sandbox, /sandbox list           What the shell sandbox holds: write folders, private folders, hosts
+  /sandbox off, /sandbox on         Turn the shell sandbox off for this session (commands and checks run with your permissions), or back on
   /sandbox forget <host>            Forget a host or machine you allowed for this project (Yes, always); remove is the same
   /allowed, /allowed list           The shell commands you said yes to for this project (saved, and for this session), numbered
   /allowed forget <n>               Forget one by its number, its words (git log) or all of them; Casper asks before running it again; remove is the same
@@ -178,6 +179,9 @@ Local commands:
   /services start|restart|stop <name>  Start (waits for readiness; restarts a stale or crashed one), restart or stop
   /preview                          Your web app on your network for a phone; asks 1 No · 2 Yes before a public link
   /preview stop                     Stop sharing it
+  /pages [list]                     Pages the AI made for this project (comparisons, mock-ups, dashboards), with their local links
+  /pages open <name>                Show one in your browser (also with opening off)
+  /pages remove <name>              Delete one; its open tab says (removed)
   /tasks                            What runs in the background, numbered; asks 1 Keep them · 2 Stop 1 ...
   /tasks stop <n>|all               Stop one of them, or all, without the question
   /pane [on|off]                    The steps split beside Casper in tmux or iTerm2 (120+ columns); saved
@@ -217,6 +221,7 @@ Without a restored selection or Casper default, choose with /model; there is no 
 Switching provider sends the rest of the conversation to that provider.
 The picker refreshes provider catalogs over the network when CASPER_OFFLINE=1 is not set; selection does not generate a model response.
 Model servers on this computer (Ollama, LM Studio, llama.cpp, vLLM) show in /model with no sign-in; the picker looks for them again each time it opens. /settings turns that off.
+Claude subscription: /model claude-subscription/claude-opus-4-8 uses an installed native Claude Code and its own plan login (claude.exe on Windows); /login anthropic remains the direct route.
 Provider-defined credential checks may run configured key-resolution commands.
 Keys: ${KEYS_HELP}
 Checks: typecheck lint test build (all configured by default; verification.checks selects).

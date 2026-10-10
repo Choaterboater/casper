@@ -14,46 +14,49 @@ writes your answer into `~/.casper/config.yaml` for you, keeping your comments a
 ```text
 Settings (saved in ~/.casper/config.yaml for you):
   Web lookups: on (DuckDuckGo) · Browser tool: on · Starter templates: on
-  Diagram tool: on · New-version notice: on · Suggestions: on
-  Side questions with ?: on · Built-in skills: on · GitHub tool: on · Packs: on
-  Spend notes: at $1 a task · Spend pause: off · Prompt cache: auto
-  Local models: on · Page checks: on · Show the AI the pages: ask once a session
-  Work shown: normal · Theme: default · Untrusted-text reader: on
-  Helpers that build: on · Playwright tests: on
-  Send Casper's name to OpenRouter: on · Sign-ins from other tools: on
-  Network server updates: on · Private ssh passwords: on
+  Diagram tool: on · Pages the AI makes: on · Open pages in the browser: on
+  New-version notice: on · Suggestions: on · Side questions with ?: on
+  Built-in skills: on · GitHub tool: on · Packs: on · Spend notes: at $1 a task
+  Spend pause: off · Prompt cache: auto · Local models: on · Page checks: on
+  Show the AI the pages: ask once a session · Work shown: normal
+  Theme: default · Untrusted-text reader: on · Helpers that build: on
+  Playwright tests: on · Send Casper's name to OpenRouter: on
+  Sign-ins from other tools: on · Network server updates: on
+  Private ssh passwords: on
 Pick one to change:
   1 Done                              nothing changes
   2 Web lookups                       on (DuckDuckGo)
   3 Browser tool                      on
   4 Starter templates                 on
   5 Diagram tool                      on
-  6 New-version notice                on
-  7 Suggestions                       on
-  8 Side questions with ?             on
-  9 Built-in skills                   on
- 10 GitHub tool                       on
- 11 Packs                             on
- 12 Spend notes                       at $1 a task
- 13 Spend pause                       off
- 14 Prompt cache                      auto
- 15 Local models                      on
- 16 Page checks                       on
- 17 Show the AI the pages             ask once a session
- 18 Work shown                        normal
- 19 Theme                             default
- 20 Untrusted-text reader             on
- 21 Helpers that build                on
- 22 Playwright tests                  on
- 23 Send Casper's name to OpenRouter  on
- 24 Sign-ins from other tools         on
- 25 Network server updates            on
- 26 Private ssh passwords             on
+  6 Pages the AI makes                on
+  7 Open pages in the browser         on
+  8 New-version notice                on
+  9 Suggestions                       on
+ 10 Side questions with ?             on
+ 11 Built-in skills                   on
+ 12 GitHub tool                       on
+ 13 Packs                             on
+ 14 Spend notes                       at $1 a task
+ 15 Spend pause                       off
+ 16 Prompt cache                      auto
+ 17 Local models                      on
+ 18 Page checks                       on
+ 19 Show the AI the pages             ask once a session
+ 20 Work shown                        normal
+ 21 Theme                             default
+ 22 Untrusted-text reader             on
+ 23 Helpers that build                on
+ 24 Playwright tests                  on
+ 25 Send Casper's name to OpenRouter  on
+ 26 Sign-ins from other tools         on
+ 27 Network server updates            on
+ 28 Private ssh passwords             on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
-Every row has its number: past 9, type it and press Enter (`Type 1-26 + Enter or Up/Down + Enter`).
+Every row has its number: past 9, type it and press Enter (`Type 1-28 + Enter or Up/Down + Enter`).
 A plain terminal (`TERM=dumb`) asks the same list as numbered lines.
 A change applies from now on (built-in skills, packs, the prompt cache and local models from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Changed while a task runs, it also says when the
@@ -290,7 +293,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
-`showPages`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
+`showPages`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
@@ -414,8 +417,8 @@ that kind of command (`git push`) for the session or for this project; `/allowed
 `review` or `checkout`, `gh issue close` or `reopen`, and `gh run rerun` or `cancel`, offer only No and Yes, this once,
 every time. Nothing to configure; see [SECURITY.md](SECURITY.md) for what counts as plain.
 
-`sandbox: off` turns it off for every run (like `--no-sandbox` for one run); the receipt then
-says shell commands and checks were not sandboxed. A project's `.casper/project.yaml` can only
+`sandbox: off` turns it off for every run (like `--no-sandbox` for one run, or `/sandbox off` until
+Casper exits; `/sandbox on` puts it back); the receipt then says shell commands and checks were not sandboxed. A project's `.casper/project.yaml` can only
 add denies:
 
 ```yaml
@@ -476,6 +479,13 @@ Nothing is taken without your pick (see [Provider login](TERMINAL_UX.md#provider
 `other_logins: off` in your own config, or **Sign-ins from other tools** in `/settings`, turns
 the offer off. A project file can't change it.
 
+**Pages the AI makes.** When seeing beats reading, the AI makes a page on this computer and it
+opens in your browser (see [Pages the AI makes](TERMINAL_UX.md#pages-the-ai-makes)).
+`ai_pages: off` in your own config, or **Pages the AI makes** in `/settings`, takes the tool away
+from the AI, so it costs no tokens; `/pages` still lists the pages made. `open_pages: off`, or
+**Open pages in the browser**, keeps them from opening: Casper prints the link only. A project
+file can't change either.
+
 **Repository Pi files are ignored.** A repository's own Pi project folder is never trusted:
 `<project>/.pi/` extensions (program code), `SYSTEM.md`, `APPEND_SYSTEM.md`, prompt templates,
 themes and `settings.json` are not loaded. User-level resources in the engine store (for example
@@ -495,6 +505,45 @@ provider receives them. `CASPER_TELEMETRY=0`, or **Send Casper's name to OpenRou
 attribution; `PI_TELEMETRY` has no effect. OpenRouter shows the icon of the referer's site, so the
 referer is Casper's site (its ghost icon) rather than the GitHub page. OpenRouter keys apps by
 referer, so after this change your usage may show under a new Casper app entry.
+
+## Claude subscription through Claude Code
+
+`claude-subscription` is an enabled, separate model provider backed by the official Claude Agent
+SDK. It uses an installed native Claude Code executable and Claude Code's existing Pro, Max,
+Team or Enterprise login. A separate Pi installation is not needed, and no Claude credentials
+are copied into Casper. Claude Code must already be installed and signed in on the same OS:
+a Windows installation and a WSL installation have separate executables and login state.
+
+Select `/model claude-subscription/claude-opus-4-8` to remember this route, or add `--session`
+to try it without changing the default. Other Claude models appear under `claude-subscription`
+in `/model` once Claude Code's `auth status` reports a signed-in subscription on this OS.
+Without that login, the provider remains registered but is not offered as authenticated.
+The existing `anthropic` provider, `/login anthropic`, and saved defaults are
+unchanged. `/logout` in Casper does not sign out Claude Code.
+
+Executable discovery uses `claude` on macOS/Linux and `claude.exe` on native Windows. The Windows
+npm `.cmd` shim is not supported: use the native Claude Code installation. `CASPER_CLAUDE_PATH`
+can name the installed executable explicitly, including a path with spaces. Compiled Casper uses
+this external executable too; it does not rely on finding an SDK binary inside Bun's embedded files.
+
+Casper keeps its exact system instructions, tools, permissions, sandbox, compaction and saved
+conversations. The SDK receives tool declarations through an in-process MCP server, but cannot
+execute them; proposals return to Casper's normal approval/execution path. Each completion starts
+one SDK query with one model turn and replays the visible conversation as labelled text, retaining
+images and actual tool results but not historical thinking. This avoids manipulating Claude Code's
+private session files; it is not native alternating-turn replay and long conversations can increase
+input usage. New instructions and tool lists take effect on the next completion. Steering applies
+at Casper's next tool boundary, not inside an already-running completion.
+
+API keys, endpoint overrides and cloud-provider switches are cleared from the Claude Code child's
+environment; user/project Claude settings and inherited MCP servers are not loaded. The provider
+checks the SDK-reported account before releasing the user prompt and rejects API-key or gateway
+accounts instead of falling back. Claude Code itself owns request identity and billing headers.
+The footer's token cost is an API-equivalent estimate, not a charge. Subscription limits, model
+entitlements and any server-side extra-usage routing remain Anthropic's decisions; this adapter
+cannot guarantee billing or override plan limits. Anthropic's SDK documentation also requires
+approval for third-party products offering Claude plan login/rate limits; technical compatibility
+is not that approval.
 
 ## Local models
 
@@ -693,6 +742,8 @@ telemetry: off       # don't send Casper's name to OpenRouter (same as CASPER_TE
 ssh_login: off       # ssh never gets Casper's hidden password box (see Private ssh passwords)
 other_logins: off    # /login never offers sign-ins from Claude Code, Codex CLI or GitHub CLI
 network_updates: off # only a new Casper brings a new network server version (see MCP.md)
+ai_pages: off        # the AI is never offered casper_page: no pages, and no tokens for it
+open_pages: off      # pages the AI makes are not opened in your browser; Casper prints the link
 ```
 
 `network_updates: off` (or **Network server updates** in `/settings`) stops Casper looking for

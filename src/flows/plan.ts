@@ -11,6 +11,7 @@
  * changes it can see, and the snapshot taken around the plan turn reports any file that changed anyway.
  */
 import os from "node:os";
+import { visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { remoteTargets } from "../sandbox/remote";
 import { formatChecklistPrompt, normalizeCases } from "../task/checklist";
 import { lineText } from "../tui/format";
@@ -165,42 +166,103 @@ export function planToolGate(toolName: string, input: Record<string, unknown> | 
   return `${NOT_RUN}${PLANNING_BLOCKED}. While planning it allows only read, grep, find, ls and web lookups, not ${toolName}.`;
 }
 
+/** A plan for a person first: a title, what they will see, plain steps and the cases to test. `details` (files,
+ * functions, exact assertions) is for the build and shown only when asked for; `note` is the model's one line before
+ * the plan (an unclear request, say); `notes` are the person's own, from the editor. Only steps and tests are always
+ * there: an answer in the older "Plan:"/"Tests:" shape has nothing else. */
 export interface ParsedPlan {
   steps: string[];
   tests: string[];
+  title?: string;
+  see?: string[];
+  details?: string[];
+  note?: string[];
+  notes?: string[];
 }
 
-/** Tidy one step for the editor: no Markdown emphasis or code marks, one line. (Pi's cleanStepText,
- * without its 50-character cut: the user reads and edits the whole step.) */
+/** Tidy one step for the editor: no Markdown emphasis or code marks, one line, never cut: the user reads and edits
+ * the whole step. (Pi's cleanStepText, without its 50-character cut.) */
 function cleanLine(text: string): string {
-  const cleaned = lineText(text
+  return lineText(text
     .replace(/\*{1,2}([^*]+)\*{1,2}/g, "$1")
     .replace(/`([^`]+)`/g, "$1"))
     .replace(/\s+/g, " ")
     .trim();
-  return cleaned.length > 300 ? `${cleaned.slice(0, 297)}...` : cleaned;
 }
 
-function section(message: string, name: string): string | undefined {
-  const header = new RegExp(`^\\s*(?:#{1,6}\\s*)?\\*{0,2}${name}:?\\*{0,2}:?\\s*$`, "im").exec(message);
-  if (!header) return undefined;
-  const rest = message.slice(header.index + header[0].length);
-  // The section ends at the next "Name:" header line.
-  const next = /^\s*(?:#{1,6}\s*)?\*{0,2}[A-Z][A-Za-z ]{1,30}:?\*{0,2}:?\s*$/m.exec(rest);
-  return next ? rest.slice(0, next.index) : rest;
+const HEADER = (name: string) => `^\\s*(?:#{1,6}\\s*)?\\*{0,2}(?:${name}):?\\*{0,2}:?\\s*$`;
+const SEE = "What you(?:'|’| wi)ll see";
+/** "What you'll see:" alone on its line, or with its first words after the colon (captured). */
+const SEE_HEADER = `^[ \\t]*(?:#{1,6}[ \\t]*)?\\*{0,2}${SEE}(?:\\*{0,2}:\\*{0,2}[ \\t]*(\\S.*)|:?\\*{0,2}:?[ \\t]*)$`;
+/** The headers of the plan's own sections: where the newer sections end, whatever lines they hold. */
+const KNOWN = new RegExp(`${HEADER("Steps|Plan|Tests|Details")}|${SEE_HEADER}`, "im");
+/** Any "Name:" header line: where "Plan:" and "Tests:" end, as they always have. */
+const ANY = new RegExp(`${HEADER("[A-Z][A-Za-z ]{1,30}")}|${SEE_HEADER}`, "m");
+const TITLE = /^[ \t]*(?:#{1,6}[ \t]*)?\*{0,2}Title:?\*{0,2}:?[ \t]*(\S.*)$/im;
+
+/** Where a section is in the answer: from its header to the next header, its lines, and words written after the
+ * header's colon. */
+type Span = { start: number; end: number; body: string; inline?: string };
+
+function section(message: string, header: RegExp, end: "any" | "known"): Span | undefined {
+  const match = header.exec(message);
+  if (!match) return undefined;
+  const from = match.index + match[0].length;
+  const rest = message.slice(from);
+  // The newer sections end only at one of the plan's own headers, so a "Files:" line in Details or a "CASPER:" line
+  // in a mock-up stays in.
+  const next = (end === "known" ? KNOWN : ANY).exec(rest);
+  const to = next ? from + next.index : message.length;
+  return { start: match.index, end: to, body: message.slice(from, to), ...(match[1] ? { inline: match[1] } : {}) };
 }
 
-/** The "Plan:" numbered steps and the "Tests:" cases of the model's answer. Missing sections give empty lists. */
+/** A section's lines as written (a mock-up keeps its spacing), without code fences and the blank lines around them. */
+function blockLines(text: string | undefined): string[] | undefined {
+  if (text === undefined) return undefined;
+  const lines = text.split(/\r?\n/).filter((line) => !/^\s*```/.test(line)).map((line) => lineText(line).trimEnd());
+  while (lines.length && !lines[0]!.trim()) lines.shift();
+  while (lines.length && !lines.at(-1)!.trim()) lines.pop();
+  return lines.length ? lines : undefined;
+}
+
+/** The plan in the model's answer: "Title:", "What you'll see:", the numbered "Steps:" (or "Plan:"), the "Tests:"
+ * cases and "Details:". Missing sections give empty lists or nothing; an answer with only "Plan:" and "Tests:" reads
+ * as it always has. A few plain lines before the first section are the model's note; anything longer, and anything
+ * outside the plan's sections (a "Risks:" after the tests, say), goes with the details, so nothing it wrote is lost. */
 export function extractPlan(message: string): ParsedPlan {
-  const plan = section(message, "Plan") ?? "";
-  const tests = section(message, "Tests") ?? "";
-  const steps = [...plan.matchAll(/^\s*\d+[.)]\s+(.+)$/gm)]
+  const plan = section(message, new RegExp(HEADER("Plan|Steps"), "im"), "any");
+  const tests = section(message, new RegExp(HEADER("Tests"), "im"), "any");
+  const steps = [...(plan?.body ?? "").matchAll(/^\s*\d+[.)]\s+(.+)$/gm)]
     .map((match) => cleanLine(match[1]!))
     .filter((text) => text.length > 3);
-  const cases = [...tests.matchAll(/^\s*(?:[-*•]|\d+[.)])\s+(.+)$/gm)]
+  const cases = [...(tests?.body ?? "").matchAll(/^\s*(?:[-*•]|\d+[.)])\s+(.+)$/gm)]
     .map((match) => cleanLine(match[1]!))
     .filter((text) => text.length > 3);
-  return { steps, tests: normalizeCases(cases) };
+  const titleLine = TITLE.exec(message);
+  const title = titleLine ? cleanLine(titleLine[1]!) : undefined;
+  const seen = section(message, new RegExp(SEE_HEADER, "im"), "known");
+  const seeLines = [...seen?.inline ? [cleanLine(seen.inline)] : [], ...blockLines(seen?.body) ?? []];
+  const see = seeLines.length ? seeLines : undefined;
+  const written = section(message, new RegExp(HEADER("Details"), "im"), "known");
+  const first = KNOWN.exec(message);
+  const lead = first ? message.slice(0, first.index).replace(TITLE, "") : "";
+  const before = blockLines(lead);
+  const short = before !== undefined && before.length <= 3 && !/^\s*```/m.test(lead);
+  // What lies outside every section, the title line and the lead.
+  const spans = [plan, tests, seen, written, ...first ? [{ start: 0, end: first.index }] : [],
+    ...titleLine ? [{ start: titleLine.index, end: titleLine.index + titleLine[0].length }] : []]
+    .filter((span): span is { start: number; end: number } => span !== undefined).sort((a, b) => a.start - b.start);
+  const outside: string[] = [];
+  let at = 0;
+  for (const span of spans) {
+    if (span.start > at) outside.push(...blockLines(message.slice(at, span.start)) ?? []);
+    at = Math.max(at, span.end);
+  }
+  if (first && at < message.length) outside.push(...blockLines(message.slice(at)) ?? []);
+  const details = [...(before && !short ? before : []), ...(blockLines(written?.body) ?? []), ...outside];
+  return { steps, tests: normalizeCases(cases),
+    ...(title ? { title } : {}), ...(see ? { see } : {}), ...(short ? { note: before!.map(cleanLine).filter(Boolean) } : {}),
+    ...(details.length ? { details } : {}) };
 }
 
 const TEST_PREFIX = "Test: ";
@@ -210,22 +272,132 @@ export function planEditorLines(plan: ParsedPlan): string[] {
   return [...plan.steps, ...plan.tests.map((item) => `${TEST_PREFIX}${item}`)];
 }
 
+type PlanLine = { kind: "step" | "test"; text: string };
+
+/** One editor line as a step or a case. Blank gives undefined; a leading "1." is removed. */
+function readLine(line: string): PlanLine | undefined {
+  const text = cleanLine(line);
+  if (!text) return undefined;
+  const test = /^tests?:\s*(.*)$/i.exec(text);
+  if (test) return test[1]!.trim() ? { kind: "test", text: test[1]!.trim() } : undefined;
+  const step = text.replace(/^(?:step\s*)?\d+[.):]\s*/i, "").trim();
+  return step ? { kind: "step", text: step } : undefined;
+}
+
 /** The editor's lines back into steps and cases. Blank lines are dropped; a leading "1." is removed. */
 export function parsePlanLines(lines: readonly string[]): ParsedPlan {
-  const steps: string[] = [];
-  const tests: string[] = [];
-  for (const line of lines) {
-    const text = cleanLine(line);
-    if (!text) continue;
-    const test = /^tests?:\s*(.*)$/i.exec(text);
-    if (test) { if (test[1]!.trim()) tests.push(test[1]!.trim()); continue; }
-    const step = text.replace(/^(?:step\s*)?\d+[.):]\s*/i, "").trim();
-    if (step) steps.push(step);
+  const read = lines.map(readLine).filter((line): line is PlanLine => line !== undefined);
+  return { steps: read.filter((line) => line.kind === "step").map((line) => line.text),
+    tests: normalizeCases(read.filter((line) => line.kind === "test").map((line) => line.text)) };
+}
+
+/** What the person changed in the editor, in their words: lines added and removed, their notes, and the steps in
+ * their new order when they moved any. */
+export interface PlanEdit { added: string[]; removed: string[]; notes: string[]; order?: string[] }
+
+/** Words typed after an unchanged line count as a note only after a separator: " - ", " -- ", " – ", " // ", " (",
+ * " [" or " note". Anything else ("... before connecting and before saving") changes the line. */
+const NOTE_AFTER = /^\s+(?:(?:--?|[–—]|\/\/)\s|[([]|note\b)/i;
+
+function appendedNote(text: string): string {
+  const bracketed = /^\s*[([]/.test(text);
+  const words = text.replace(/^\s*(?:--?|[–—]|\/\/|[([])?\s*/, "").replace(/^note\b\s*[:\-–—]?\s*/i, "");
+  return (bracketed ? words.replace(/[)\]]\s*$/, "") : words).trim();
+}
+
+/** The editor's lines read against the plan they started from. A "Note:" line, or words typed after a line that is
+ * otherwise unchanged after a separator (" - this looks confusing"), is the person's note, not part of the step: the
+ * step stays as it was. Steps only moved are a change too (`order`). Everything the plan
+ * had besides steps and cases (title, what you'll see, details, earlier notes) is kept. */
+export function readPlanEdit(plan: ParsedPlan, lines: readonly string[]): { plan: ParsedPlan; edit: PlanEdit } {
+  const label = (line: PlanLine) => line.kind === "test" ? `${TEST_PREFIX}${line.text}` : line.text;
+  const original = planEditorLines(plan).map(readLine).filter((line): line is PlanLine => line !== undefined);
+  const unmatched = new Set(original.map((_, index) => index));
+  const kept: PlanLine[] = [];
+  const keptSteps: number[] = [];
+  const edit: PlanEdit = { added: [], removed: [], notes: [] };
+  const take = (match: (line: PlanLine) => boolean) => {
+    const index = [...unmatched].find((at) => match(original[at]!));
+    if (index !== undefined) unmatched.delete(index);
+    return index === undefined ? undefined : original[index];
+  };
+  for (const raw of lines) {
+    const note = /^\s*(?:[-*•]\s*)?note:\s*(.*)$/i.exec(lineText(raw));
+    if (note) { if (note[1]!.trim()) edit.notes.push(cleanLine(note[1]!)); continue; }
+    const line = readLine(raw);
+    if (!line) continue;
+    const same = take((was) => was.kind === line.kind && was.text === line.text);
+    if (same) { kept.push(same); if (same.kind === "step") keptSteps.push(original.indexOf(same)); continue; }
+    // "Add the test - this looks confusing to me": the step as it was, and a note.
+    const grown = take((was) => was.kind === line.kind && line.text.startsWith(was.text) && NOTE_AFTER.test(line.text.slice(was.text.length)));
+    const rest = grown ? appendedNote(line.text.slice(grown.text.length)) : "";
+    if (grown && rest) { kept.push(grown); if (grown.kind === "step") keptSteps.push(original.indexOf(grown)); edit.notes.push(rest); continue; }
+    if (grown) unmatched.add(original.indexOf(grown));
+    kept.push(line);
+    edit.added.push(label(line));
   }
-  return { steps, tests: normalizeCases(tests) };
+  edit.removed = [...unmatched].sort((a, b) => a - b).map((index) => label(original[index]!));
+  const steps = kept.filter((line) => line.kind === "step").map((line) => line.text);
+  const tests = normalizeCases(kept.filter((line) => line.kind === "test").map((line) => line.text));
+  // Steps the person only moved: the build follows the new order, so the screen says so.
+  if (keptSteps.some((index, at) => at > 0 && index < keptSteps[at - 1]!)) edit.order = steps;
+  const notes = [...plan.notes ?? [], ...edit.notes];
+  return { plan: { ...plan, steps, tests, ...(notes.length ? { notes } : {}) }, edit };
+}
+
+/** What changed after the editor, for the screen, wrapped to the width: never the whole plan again. Undefined when
+ * nothing changed. */
+export function planEditRows(edit: PlanEdit, width: number): string[] | undefined {
+  if (!edit.added.length && !edit.removed.length && !edit.notes.length && !edit.order) return undefined;
+  return [
+    ...(edit.added.length || edit.removed.length || edit.order ? ["Your changes:", ...edit.removed.flatMap((line) => hang("  - ", line, width)),
+      ...edit.added.flatMap((line) => hang("  + ", line, width)),
+      ...edit.order ? ["  The steps in their new order:", ...edit.order.flatMap((step, index) => hang(`    ${index + 1}. `, step, width))] : []] : []),
+    ...edit.notes.flatMap((note) => hang("Your note: ", note, width)),
+  ];
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** Text wrapped to the width under a marker ("1. "), later rows indented to line up with the first. Never cut. */
+function hang(marker: string, text: string, width: number): string[] {
+  const inner = Math.max(10, width - visibleWidth(marker));
+  return wrapTextWithAnsi(text, inner).map((row, index) => `${index ? " ".repeat(visibleWidth(marker)) : marker}${row}`);
+}
+
+/** The plan screen for a person: the title, what they will see, the steps and one line about the tests. The cases
+ * and the details are one key away (`more`: "Ctrl+T shows them" or the plain terminal's choice), or listed here in
+ * full with `full` (a run that cannot ask). Wrapped to the width, never cut. */
+export function planScreenRows(plan: ParsedPlan, width: number, options: { more?: string; full?: boolean } = {}): string[] {
+  const rows: string[] = [...hang("", `Casper plan${plan.title ? ` · ${plan.title}` : ""}`, width)];
+  for (const line of plan.note ?? []) rows.push(...hang("  ", line, width));
+  if (plan.see?.length) {
+    rows.push("", "What you'll see");
+    for (const line of plan.see) rows.push(...hang("  ", line, width));
+  }
+  rows.push("", "Steps");
+  plan.steps.forEach((step, index) => rows.push(...hang(`  ${index + 1}. `, step, width)));
+  rows.push("");
+  const cases = plan.tests.length ? `Tests: ${plural(plan.tests.length, "case", "cases")}` : "Tests: none listed";
+  if (options.full) {
+    rows.push(cases);
+    for (const item of plan.tests) rows.push(...hang("  - ", item, width));
+    if (plan.details?.length) { rows.push("", "Details"); for (const line of plan.details) rows.push(...hang("  ", line, width)); }
+  } else {
+    const hidden = [...plan.tests.length ? ["them"] : [], ...plan.details?.length ? ["the details"] : []].join(" and ");
+    rows.push(...hang("", `${cases}${hidden && options.more ? ` · ${options.more.replace("{what}", hidden)}` : ""}`, width));
+  }
+  return rows;
+}
+
+/** The cases and the details as one text, for Ctrl+T or the plain terminal's "Show the details". */
+export function planDetailsText(plan: ParsedPlan): string | undefined {
+  const parts = [
+    ...plan.tests.length ? [`Tests:\n${plan.tests.map((item) => `- ${item}`).join("\n")}`] : [],
+    ...plan.details?.length ? [`Details:\n${plan.details.join("\n")}`] : [],
+  ];
+  return parts.length ? parts.join("\n\n") : undefined;
+}
 
 /** The editor heading and key hint for the plan. */
 export function planEditorHeading(plan: ParsedPlan): { heading: string; hint: string } {
@@ -235,13 +407,25 @@ export function planEditorHeading(plan: ParsedPlan): { heading: string; hint: st
   };
 }
 
-/** The build turn's prompt: the request, the steps the user accepted and the cases to test. This
+/** The plan as the build turn reads it: the steps the user accepted, then everything else the plan said (title,
+ * what the user will see, their notes, and the details the screen kept one key away). The cases go separately. */
+export function formatPlanBlock(plan: ParsedPlan): string {
+  return [
+    `Casper plan (the user read and accepted it). Follow these steps in order:\n${plan.steps.map((step, index) => `${index + 1}. ${step}`).join("\n")}`,
+    ...plan.title ? [`Title: ${plan.title}`] : [],
+    ...plan.see?.length ? [`What the user will see:\n${plan.see.join("\n")}`] : [],
+    ...plan.notes?.length ? [`The user's notes on the plan (take each into account):\n${plan.notes.map((note) => `- ${note}`).join("\n")}`] : [],
+    ...plan.details?.length ? [`Details from your plan (where they differ from the steps above, the steps win):\n${plan.details.join("\n")}`] : [],
+  ].join("\n\n");
+}
+
+/** The build turn's prompt: the request, the plan the user accepted and the cases to test. This
  * replaces the separate checklist call. */
 export function formatBuildPrompt(request: string, plan: ParsedPlan): string {
   return [
     request,
     "",
-    `Casper plan (the user read and accepted it). Follow these steps in order:\n${plan.steps.map((step, index) => `${index + 1}. ${step}`).join("\n")}`,
+    formatPlanBlock(plan),
     ...(plan.tests.length ? ["", formatChecklistPrompt(plan.tests)] : []),
   ].join("\n");
 }

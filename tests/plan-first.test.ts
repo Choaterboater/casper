@@ -39,7 +39,7 @@ function plainScreen() {
 
 /** The fake model: on a plan turn it tries an edit and two shell commands through Casper's gate, then answers
  * with PLAN; otherwise it writes a file. */
-async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boolean } = {}) {
+async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boolean; answer?: string; planFails?: boolean } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-plan-first-"));
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(home, { recursive: true }); await mkdir(path.join(project, ".casper"), { recursive: true });
@@ -72,7 +72,8 @@ async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boo
             // A change Casper's gate cannot see (a tool that says nothing about writing, say).
             if (setup.planWrites) await writeFile(path.join(project, "notes.txt"), "written while planning\n");
             if (setup.planCode) await writeFile(path.join(project, "app.py"), "print('broken while planning')\n");
-            emit({ type: "assistant_text_delta", delta: PLAN });
+            emit({ type: "assistant_text_delta", delta: setup.answer ?? PLAN });
+            if (setup.planFails) { emit({ type: "assistant_response_end", stopReason: "error", errorMessage: "provider went away" }); return; }
           }
           else { await writeFile(path.join(project, "limiter.py"), `# ${prompts.length}\n`); emit({ type: "assistant_text_delta", delta: "Built.\n" }); }
           emit({ type: "assistant_response_end", stopReason: "stop" });
@@ -119,8 +120,11 @@ test("plan first is one numbered choice folded into the checklist panel; the pla
     expect(f.prompts).toHaveLength(0);
     f.input.write("1");
     await f.screen.until(waiting("Build this plan?"));
-    // One summary line and the choice: the plan is not printed a second time in an editor.
-    expect(f.screen.output).toContain("Casper plan: 2 steps, 2 cases to test.");
+    // Casper's plan screen, once: the steps, the tests as one line, and the choice; not the model's raw answer too.
+    expect(f.screen.output).toContain("Casper plan");
+    expect(f.screen.output).toContain("  1. Add a Limiter class in limiter.py");
+    expect(f.screen.output).toContain("Tests: 2 cases · Ctrl+T shows them");
+    expect(f.screen.output).not.toContain("- a /health request answers 200");
     expect(f.screen.output).not.toContain("Esc stops without building");
     expect(f.screen.output.split("Add a Limiter class in limiter.py").length - 1).toBe(1);
     expect(f.prompts).toHaveLength(1);
@@ -251,8 +255,12 @@ test("/plan in a run that cannot ask shows the plan and builds nothing", async (
   const f = await fixture(false);
   try {
     await f.app.runOnce(`/plan ${REQUEST}`, f.project);
-    expect(f.plain()).toContain("Casper plan: 2 steps, 2 cases to test.");
-    expect(f.plain()).toContain("  Add a Limiter class in limiter.py");
+    expect(f.plain()).toContain("Casper plan\n");
+    expect(f.plain()).toContain("  1. Add a Limiter class in limiter.py");
+    // Nothing can open the details later here, so the cases are listed.
+    expect(f.plain()).toContain("Tests: 2 cases\n  - limit(0) throws\n  - a /health request answers 200");
+    // The answer is shown once, as Casper's plan, not also as the model streamed it.
+    expect(f.plain().split("Add a Limiter class in limiter.py").length - 1).toBe(1);
     expect(f.plain()).toContain("[plan] This run can't ask you to build, so Casper stopped after the plan. Nothing was built.");
     expect(f.prompts).toHaveLength(1);
     expect(f.checklistCalls()).toBe(0);
@@ -294,9 +302,11 @@ test("the plain terminal asks Build this plan? with numbers: Enter stops and bui
       try {
         f.input.write(`/plan ${REQUEST}\n`);
         await f.screen.until((output) => output.includes("Build this plan?") && /Type [\d, ]*\d or \d:$/.test(output.trimEnd()));
-        expect(f.screen.output).toContain("Casper plan: 2 steps, 2 cases to test.");
+        expect(f.screen.output).toContain("  1. Add a Limiter class in limiter.py");
+        expect(f.screen.output).toContain("Tests: 2 cases · choose 3 to see them");
         expect(f.screen.output).toContain("  1 Stop · nothing is built");
         expect(f.screen.output).toContain("  2 Build · the model builds these steps and tests these cases\n");
+        expect(f.screen.output).toContain("  3 Show the details · list the cases to test and the details, then choose again\n");
         f.input.write(`${answer}\n`);
         if (builds) await f.screen.until((output) => output.includes("Built."));
         else await f.screen.until((output) => output.includes("[plan] Stopped without building."));
@@ -319,8 +329,83 @@ test("Edit the plan opens the plan's lines, Enter asks again, and a plan you cha
     f.input.write("2");
     await f.screen.until(idleAfter("Built."));
     expect(f.prompts).toHaveLength(2);
-    // Not edited here, so only the one-line "Building the plan" follows.
+    // Not edited here: one line says so, and the plan is not listed again.
+    expect(f.screen.output).toContain("No changes to the plan.");
     expect(f.screen.output).toContain("Building the plan (2 steps, 2 cases).");
+    expect(f.screen.output.slice(f.screen.output.indexOf("No changes to the plan."))).not.toContain("Add a Limiter class in limiter.py");
+  } finally { await f.close(); }
+}, 60_000);
+
+/** The newer answer, with the current header art quoted before the plan the way a model reading src/tui/banner.ts
+ * might: it must not appear on screen a second time under the /plan line. */
+const NEW_PLAN = [
+  "Now:",
+  "```",
+  " ██████  █████  ███████ ██████  ███████ ██████ ",
+  "```",
+  "Title: A cleaner, animated header",
+  "",
+  "What you'll see:",
+  "The ghost and the name in one colour, with a short fade-in.",
+  "",
+  "Steps:",
+  "1. Write the tests first, then the change.",
+  "2. Draw the header in the accent colour.",
+  "",
+  "Tests:",
+  "- the header is drawn once",
+  "",
+  "Details:",
+  "- src/tui/banner.ts: wordmarkHeader() takes a frame number",
+].join("\n");
+
+test("the plan screen hides the details until Ctrl+T, the banner is not printed again, an edit shows only your note, and Build gets everything", async () => {
+  const f = await fixture(true, { answer: NEW_PLAN });
+  try {
+    const art = " ██████  █████  ███████ ██████  ███████ ██████ ";
+    expect(f.screen.output.split(art).length - 1).toBe(1);
+    f.input.write(`/plan how would I change the Casper at the top to look cleaner and animated\r`);
+    await f.screen.until(waiting("Build this plan?"));
+    const screen = f.screen.output;
+    expect(screen).toContain("Casper plan · A cleaner, animated header");
+    expect(screen).toContain("What you'll see");
+    expect(screen).toContain("  The ghost and the name in one colour, with a short fade-in.");
+    expect(screen).toContain("  2. Draw the header in the accent colour.");
+    expect(screen).toContain("Tests: 1 case · Ctrl+T shows them and the details");
+    expect(screen).not.toContain("wordmarkHeader");
+    expect(screen.split(art).length - 1).toBe(1);
+    f.input.write("\x14");
+    await f.screen.until((output) => output.includes("wordmarkHeader() takes a frame number"));
+    expect(f.screen.output).toContain("Plan: cases to test and details");
+    f.input.write("3");
+    await f.screen.until((output) => output.includes("Esc stops without building"));
+    // Typed at the end of the last line, as the owner did.
+    f.input.write(" - this looks confusing to me\r");
+    await f.screen.until((output) => output.split("Build this plan?").length > 2 && waiting("Build this plan?")(output));
+    expect(f.screen.output).toContain("Your note: this looks confusing to me");
+    // Only the note follows the editor: not the plan again.
+    const after = f.screen.output.slice(f.screen.output.lastIndexOf("Your note: this looks confusing to me"));
+    expect(after).not.toContain("Draw the header in the accent colour");
+    expect(after).not.toContain("edited by you");
+    f.input.write("2");
+    await f.screen.until(idleAfter("Built."));
+    expect(f.screen.output).toContain("Building the plan (2 steps, 1 case, with your note).");
+    expect(f.prompts[1]).toContain("1. Write the tests first, then the change.\n2. Draw the header in the accent colour.");
+    expect(f.prompts[1]).toContain("- this looks confusing to me");
+    expect(f.prompts[1]).toContain("wordmarkHeader() takes a frame number");
+    expect(f.prompts[1]).toContain("- the header is drawn once");
+    expect(f.app.getLastTaskResult()?.checklist).toEqual(["the header is drawn once"]);
+  } finally { await f.close(); }
+}, 60_000);
+
+test("a plan turn the model fails part way shows what it wrote before the failure, not nothing", async () => {
+  const f = await fixture(true, { answer: "Plan:\n1. Add a Limiter class in limiter.py\n2. Call it fr", planFails: true });
+  try {
+    f.input.write(`/plan ${REQUEST}\r`);
+    await f.screen.until(idleAfter("[plan] The model failed while planning; nothing was built."));
+    const failed = f.screen.output.lastIndexOf("[plan] The model failed while planning");
+    expect(f.screen.output.slice(0, failed)).toContain("Call it fr");
+    expect(f.prompts).toHaveLength(1);
   } finally { await f.close(); }
 }, 60_000);
 

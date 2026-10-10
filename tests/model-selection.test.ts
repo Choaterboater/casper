@@ -227,7 +227,35 @@ let error = '';
 try { await session.selectModel({ query: 'nonexistent/model', picker: picker('nonexistent/model') }); } catch (caught) { error = caught.message; }
 const partial = await session.selectModel({ query: 'secon', picker: picker('secon') });
 console.log('RESULT=' + JSON.stringify({ error, opened, partial: partial.selected }));`);
-  expect(result).toEqual({ error: 'No model "nonexistent/model"; /model lists them. Model unchanged.', opened: ["secon"], partial: false });
+  expect(result).toEqual({ error: 'No model matches "nonexistent/model". /model to see all. Model unchanged.', opened: ["secon"], partial: false });
+}, 90_000);
+
+test("/model <loose words> selects the one model they name, asks when several, and names the closest when none", async () => {
+  const f = await fixture();
+  const config = JSON.parse(await readFile(path.join(f.agent, "models.json"), "utf8"));
+  config.providers.fixture.models.push({ id: "claude-opus-4-8" }, { id: "claude-opus-5" }, { id: "claude-opus-5-5" }, { id: "claude-opus-5-5-20260301" },
+    { id: "qwen3:8b" }, { id: "qwen3:32b" });
+  await writeFile(path.join(f.agent, "models.json"), JSON.stringify(config));
+  const result = await f.run(`
+const words = await session.selectModel({ query: 'opus 5.5', persist: false });
+const family = await session.selectModel({ query: 'Opus:high', persist: false });
+const several = await session.selectModel({ query: 'qwen3', persist: false });
+let asked = [];
+const chosen = await session.selectModel({ query: 'qwen3', persist: false, choose: async models => { asked = models.map(m => m.id); return models[1]; } });
+const opened = [];
+const picker = { run: operation => operation({}), mount: async () => { opened.push('picker'); return undefined; } };
+const browsed = await session.selectModel({ query: 'qwen3', persist: false, picker });
+let none = ''; try { await session.selectModel({ query: 'opus 9', persist: false }); } catch (error) { none = error.message; }
+const match = await session.matchModel('opus 5');
+console.log('RESULT=' + JSON.stringify({ words: [words.status.model, words.from], family: [family.status.model, family.status.configuredEffort],
+  several: [several.selected, several.candidates?.map(m => m.id)], asked, chosen: chosen.status.model, opened, browsed: browsed.selected, none, match }));`);
+  expect(result).toEqual({
+    words: ["claude-opus-5-5", "opus 5.5"], family: ["claude-opus-5-5", "high"],
+    several: [false, ["qwen3:8b", "qwen3:32b"]], asked: ["qwen3:8b", "qwen3:32b"], chosen: "qwen3:32b",
+    opened: ["picker"], browsed: false,
+    none: expect.stringMatching(/^No model matches "opus 9"; closest: fixture\/claude-opus-.*\. \/model to see all\. Model unchanged\.$/),
+    match: { kind: "one", model: { provider: "fixture", id: "claude-opus-5" } },
+  });
 }, 90_000);
 
 test("picker catalog diagnostics stay readable without executing terminal controls in color or NO_COLOR", async () => {
@@ -372,7 +400,7 @@ try { await session.selectModel({ query: 'fixture/second', signal: controller.si
 console.log('RESULT=' + JSON.stringify({ failures, status: session.getStatus() }));`);
   expect(result.failures[0]).toContain("missing at ");
   expect(result.failures[0]).toContain("needs an apiKey line in models.json");
-  expect(result.failures[1]).toContain("Unknown model");
+  expect(result.failures[1]).toContain("No model matches");
   expect(result.failures[2]).toBe("AbortError");
   expect(result.status).toMatchObject({ model: "first", defaultModel: { provider: "fixture", id: "first" } });
 }, 30_000);

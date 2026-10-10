@@ -158,6 +158,11 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   ] },
   { name: "preview", description: "Open your web app on a phone on the same Wi-Fi; a public link only after a yes",
     subcommands: [{ name: "stop", description: "Stop sharing it" }] },
+  { name: "pages", description: "Pages the AI made for this project, with links; open or remove one", afterCleanupError: NONE, subcommands: [
+    { name: "open", args: "<name>", description: "Show a page in your browser" },
+    { name: "remove", args: "<name>", description: "Delete a page" },
+    LIST("The same as /pages"),
+  ] },
   { name: "tasks", description: "What runs in the background (dev servers, helpers, checks); stop one", afterCleanupError: NONE,
     subcommands: [{ name: "stop", args: "<n>|all", description: "Stop one of them, or all", afterCleanupError: true }] },
   { name: "debug", description: "Inspect local targets; approve launch and debug code", afterCleanupError: NONE, subcommands: [

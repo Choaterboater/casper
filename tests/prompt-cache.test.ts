@@ -191,25 +191,25 @@ async function surfaces(installed: boolean, prompts: string[]) {
 
 test("every turn of a session offers the same tools, the browser included from the start when Chrome is there", async () => {
   const seen = await surfaces(true, ["explain how login works", "check the website layout", "fix the parser"]);
-  expect(seen[0]).toEqual(["delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted", "browser"]);
+  expect(seen[0]).toEqual(["delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted", "casper_page", "browser"]);
   for (const surface of seen) expect(surface).toEqual(seen[0]!);
 });
 
 test("the diagram tool arrives with the first diagram word and then stays", async () => {
   const seen = await surfaces(true, ["explain how login works", "map out the login flow", "fix the parser"]);
   expect(seen).toEqual([
-    ["delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted", "browser"],
-    ["delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted", "browser", "visualize"],
-    ["delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted", "browser", "visualize"],
+    ["delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted", "casper_page", "browser"],
+    ["delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted", "casper_page", "browser", "visualize"],
+    ["delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted", "casper_page", "browser", "visualize"],
   ]);
 });
 
 test("without Chrome the browser tool arrives with the first browser task and then stays", async () => {
   const seen = await surfaces(false, ["explain how login works", "check the website layout", "fix the parser"]);
   expect(seen).toEqual([
-    ["delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted"],
-    ["delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted", "browser"],
-    ["delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted", "browser"],
+    ["delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted", "casper_page"],
+    ["delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted", "casper_page", "browser"],
+    ["delegate", "ask", "casper_session", "web_search", "web_fetch", "casper_read_untrusted", "casper_page", "browser"],
   ]);
 });
 

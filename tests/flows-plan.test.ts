@@ -1,7 +1,34 @@
 import { describe, expect, test } from "bun:test";
 import {
-  extractPlan, formatBuildPrompt, isPlanningCommand, parsePlanLines, planEditorHeading, planEditorLines, planToolGate,
+  extractPlan, formatBuildPrompt, formatPlanBlock, isPlanningCommand, parsePlanLines, planDetailsText, planEditorHeading, planEditorLines,
+  planEditRows, planScreenRows, planToolGate, readPlanEdit,
 } from "../src/flows/plan";
+
+/** An answer in the shape the plan-first flow asks for now. */
+const NEW_ANSWER = [
+  "Title: A cleaner, animated Casper header",
+  "",
+  "What you'll see:",
+  "The ghost and the CASPER name in one colour, drawn once, with a short fade-in when Casper starts.",
+  "",
+  "```",
+  "  ▄▄█▄▄   CASPER",
+  "  █ █ █   0.2.30 · your coding companion",
+  "```",
+  "",
+  "Steps:",
+  "1. Write the tests first, then the change.",
+  "2. Draw the header in the theme's accent colour.",
+  "3. Fade it in over half a second at start.",
+  "",
+  "Tests:",
+  "- a plain terminal shows the one-line header",
+  "- the header is drawn once",
+  "",
+  "Details:",
+  "- src/tui/banner.ts: wordmarkHeader() takes a frame",
+  "Files: tests/banner.test.ts asserts \\x1b[1m is gone",
+].join("\n");
 
 describe("the plan turn's tool gate", () => {
   test("edits and writes are blocked with the planning message", () => {
@@ -72,12 +99,124 @@ describe("the plan", () => {
     "- \"r1 \" is trimmed to \"r1\"",
   ].join("\n");
 
-  test("steps and tests come from the Plan: and Tests: sections", () => {
-    expect(extractPlan(answer)).toEqual({
+  test("steps and tests come from the Plan: and Tests: sections (the older answer, read as before)", () => {
+    expect(extractPlan(answer)).toStrictEqual({
       steps: ["Read src/inventory.py and its tests", "Add a failing test for an empty hostname", "Make parse_host raise ValueError for an empty name"],
       tests: ["empty hostname raises ValueError(\"hostname is empty\")", "\"r1 \" is trimmed to \"r1\""],
+      // The one line before the plan is the model's note, shown above the steps.
+      note: ["The request is clear."],
     });
-    expect(extractPlan("I would just do it.")).toEqual({ steps: [], tests: [] });
+    expect(extractPlan("I would just do it.")).toStrictEqual({ steps: [], tests: [] });
+    // A long step stays whole: nothing is cut with "...".
+    const long = `Change the header so ${"the ghost and the wordmark ".repeat(15)}draw once`;
+    expect(extractPlan(`Plan:\n1. ${long}\n`).steps).toEqual([long]);
+  });
+
+  test("the newer answer: title, what you'll see with its mock-up, steps, tests once, and details", () => {
+    const plan = extractPlan(NEW_ANSWER);
+    expect(plan.title).toBe("A cleaner, animated Casper header");
+    expect(plan.see).toEqual([
+      "The ghost and the CASPER name in one colour, drawn once, with a short fade-in when Casper starts.",
+      "",
+      "  ▄▄█▄▄   CASPER",
+      "  █ █ █   0.2.30 · your coding companion",
+    ]);
+    expect(plan.steps).toEqual(["Write the tests first, then the change.", "Draw the header in the theme's accent colour.", "Fade it in over half a second at start."]);
+    expect(plan.tests).toEqual(["a plain terminal shows the one-line header", "the header is drawn once"]);
+    expect(plan.details).toEqual(["- src/tui/banner.ts: wordmarkHeader() takes a frame", "Files: tests/banner.test.ts asserts \\x1b[1m is gone"]);
+    expect(plan.note).toBeUndefined();
+  });
+
+  test("the plan screen: what you'll see and the steps, the tests as one line, details hidden, long lines wrapped", () => {
+    const plan = extractPlan(NEW_ANSWER);
+    const rows = planScreenRows(plan, 60, { more: "Ctrl+T shows {what}" });
+    expect(rows[0]).toBe("Casper plan · A cleaner, animated Casper header");
+    expect(rows).toContain("What you'll see");
+    expect(rows).toContain("    ▄▄█▄▄   CASPER");
+    expect(rows).toContain("  1. Write the tests first, then the change.");
+    expect(rows.at(-1)).toBe("Tests: 2 cases · Ctrl+T shows them and the details");
+    // The cases are not repeated and the details stay hidden.
+    expect(rows.join("\n")).not.toContain("the header is drawn once");
+    expect(rows.join("\n")).not.toContain("wordmarkHeader");
+    // Wrapped, never cut: every word of the long line is there, and no row is wider than the screen.
+    const long = { steps: [`Fade ${"the header in slowly ".repeat(8)}at start`], tests: [] };
+    const wrapped = planScreenRows(long, 40);
+    expect(wrapped.every((row) => row.length <= 40)).toBe(true);
+    expect(wrapped.join(" ").replace(/\s+/g, " ")).toContain(long.steps[0]!);
+    expect(wrapped.join("\n")).not.toContain("...");
+    expect(wrapped.at(-1)).toBe("Tests: none listed");
+    // A run that cannot ask lists everything.
+    const full = planScreenRows(plan, 80, { full: true }).join("\n");
+    expect(full).toContain("  - the header is drawn once");
+    expect(full).toContain("wordmarkHeader() takes a frame");
+    expect(planDetailsText(plan)).toBe("Tests:\n- a plain terminal shows the one-line header\n- the header is drawn once\n\n"
+      + "Details:\n- src/tui/banner.ts: wordmarkHeader() takes a frame\nFiles: tests/banner.test.ts asserts \\x1b[1m is gone");
+  });
+
+  test("an edit shows only what changed: words typed after a line are your note, not part of the step", () => {
+    const plan = extractPlan(NEW_ANSWER);
+    const lines = planEditorLines(plan);
+    // The owner's real edit: a remark typed at the end of the last test line.
+    const edited = [...lines.slice(0, -1), `${lines.at(-1)} - this looks confusing to me`];
+    const { plan: after, edit } = readPlanEdit(plan, edited);
+    expect(after.tests).toEqual(plan.tests);
+    expect(after.steps).toEqual(plan.steps);
+    expect(after.notes).toEqual(["this looks confusing to me"]);
+    expect(after.details).toEqual(plan.details);
+    expect(planEditRows(edit, 80)).toEqual(["Your note: this looks confusing to me"]);
+    // A removed step, a new one, and a Note: line.
+    const changed = readPlanEdit(plan, [lines[0]!, "Keep the old header for TERM=dumb", lines[2]!, "Note: smaller ghost please", ...lines.slice(3)]);
+    expect(changed.plan.steps).toEqual(["Write the tests first, then the change.", "Keep the old header for TERM=dumb", "Fade it in over half a second at start."]);
+    expect(planEditRows(changed.edit, 80)).toEqual(["Your changes:", "  - Draw the header in the theme's accent colour.",
+      "  + Keep the old header for TERM=dumb", "Your note: smaller ghost please"]);
+    expect(planEditRows(readPlanEdit(plan, lines).edit, 80)).toBeUndefined();
+  });
+
+  test("what you'll see written on its header line stays on the screen, with the mock-up under it", () => {
+    const plan = extractPlan(["Title: Header", "", "What you'll see: one small line with the ghost, and the name fades in.", "```",
+      "  ▄▀▀▄  Casper 0.2.30", "```", "", "Steps:", "1. Replace the block letters with one line", "", "Tests:", "- one line is drawn"].join("\n"));
+    expect(plan.see).toEqual(["one small line with the ghost, and the name fades in.", "  ▄▀▀▄  Casper 0.2.30"]);
+    expect(plan.details).toBeUndefined();
+    expect(plan.note).toBeUndefined();
+    expect(plan.steps).toEqual(["Replace the block letters with one line"]);
+    const bug = extractPlan("**What you'll see:** an empty hostname now gives a clear error.\n\nSteps:\n1. Check the name first\n");
+    expect(bug.see).toEqual(["an empty hostname now gives a clear error."]);
+    expect(bug.note).toBeUndefined();
+  });
+
+  test("nothing the model wrote is lost: a section the plan does not know goes with the details", () => {
+    const plan = extractPlan("Plan:\n1. a step here\n\nTests:\n- a case here\n\nRisks:\nThis may break the CLI.\n");
+    expect(plan.steps).toEqual(["a step here"]);
+    expect(plan.tests).toEqual(["a case here"]);
+    expect(plan.details).toEqual(["Risks:", "This may break the CLI."]);
+    expect(planDetailsText(plan)).toContain("This may break the CLI.");
+  });
+
+  test("steps only moved in the editor are a change: the screen shows their new order", () => {
+    const plan = { steps: ["first step", "second step"], tests: [] };
+    const { plan: after, edit } = readPlanEdit(plan, ["second step", "first step"]);
+    expect(after.steps).toEqual(["second step", "first step"]);
+    expect(planEditRows(edit, 80)).toEqual(["Your changes:", "  The steps in their new order:", "    1. second step", "    2. first step"]);
+  });
+
+  test("words added to a line without a separator change the line; after - or ( they are a note", () => {
+    const plan = { steps: ["Add a check before connecting."], tests: [] };
+    const grown = readPlanEdit(plan, ["Add a check before connecting. and before saving"]);
+    expect(grown.plan.steps).toEqual(["Add a check before connecting. and before saving"]);
+    expect(planEditRows(grown.edit, 80)).toEqual(["Your changes:", "  - Add a check before connecting.", "  + Add a check before connecting. and before saving"]);
+    expect(readPlanEdit(plan, ["Add a check before connecting. (why here?)"]).edit.notes).toEqual(["why here?"]);
+    expect(readPlanEdit(plan, ["Add a check before connecting. // keep it short"]).edit.notes).toEqual(["keep it short"]);
+    expect(readPlanEdit(plan, ["Add a check before connecting. note: ask me first"]).edit.notes).toEqual(["ask me first"]);
+  });
+
+  test("Build gets the whole plan: the steps, what you'll see, your notes and the details", () => {
+    const plan = { ...extractPlan(NEW_ANSWER), notes: ["this looks confusing to me"] };
+    const block = formatPlanBlock(plan);
+    expect(block).toStartWith("Casper plan (the user read and accepted it). Follow these steps in order:\n1. Write the tests first, then the change.");
+    expect(block).toContain("  ▄▄█▄▄   CASPER");
+    expect(block).toContain("- this looks confusing to me");
+    expect(block).toContain("wordmarkHeader() takes a frame");
+    expect(formatBuildPrompt("r", plan)).toContain(block);
   });
 
   test("the editor shows steps then Test: lines, and edited lines read back", () => {

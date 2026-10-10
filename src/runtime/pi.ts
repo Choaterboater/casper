@@ -7,6 +7,7 @@ import { READ_ONLY_STATE_CONFLICT } from "./types";
 import { matchConversation } from "../sessions/resume";
 import { PiModels } from "./pi-models";
 import { localServers, registerLocalServers } from "./local-models";
+import { registerClaudeSubscription } from "./claude-subscription";
 import { authenticatePi } from "./pi-auth";
 import { applyOpenRouterAttribution, isOpenRouterModel } from "./openrouter-attribution";
 import {
@@ -56,6 +57,8 @@ import type {
   RuntimeUsage,
   RuntimeImage,
   RuntimeModelInfo,
+  RuntimeModelWordsMatch,
+  RuntimeModelWordsOptions,
   RuntimeConversation,
   RuntimeEvent,
 } from "./types";
@@ -232,6 +235,10 @@ class PiRuntimeSession implements RuntimeSession {
 
   describeModel(query: string): RuntimeModelInfo | undefined {
     return this.models.describe(query);
+  }
+
+  matchModel(words: string, options?: RuntimeModelWordsOptions): Promise<RuntimeModelWordsMatch> {
+    return this.models.matchWords(words, this.runtime.session, options);
   }
 
   visionModel(): RuntimeModelInfo | undefined {
@@ -722,6 +729,7 @@ export class PiRuntime implements AgentRuntime {
     // A helper never probes: it gets what the main session found.
     const local = options.localModels === false ? undefined : localServers({ cachedOnly: Boolean(bounded) });
     const modelRuntime = await ModelRuntime.create({ authPath: `${agentDir}/auth.json`, modelsPath: `${agentDir}/models.json`, signal: bounded?.signal });
+    await registerClaudeSubscription(modelRuntime, () => this.runtime?.cwd ?? options.cwd);
     const models = this.models = new PiModels(modelRuntime, agentDir, this.home);
     if (local) models.useLocalServers(local.then((found) => { registerLocalServers(modelRuntime, found.servers); return found; }),
       bounded ? undefined : async (signal) => { registerLocalServers(modelRuntime, (await localServers({ refresh: true, signal })).servers); });
