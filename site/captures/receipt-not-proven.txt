@@ -1,4 +1,4 @@
-# Casper 0.2.30 · checks pass, but the tests pass without the change too
+# Casper 0.2.31 · checks pass, but the tests pass without the change too
 
 ❯ let sum take numeric strings too
 

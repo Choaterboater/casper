@@ -39,10 +39,10 @@
         <img class="hero-logo" src="assets/logo.svg" alt="Casper's ghost logo" width="88" height="88">
         <h1 id="hero-title">Casper</h1>
         <p class="lead">A coding helper for your terminal. Build web apps, APIs, command-line tools and scripts in the language your project uses, and Casper checks the AI's work before it tells you "done". Network engineers get extra care built in.</p>
-        <p class="muted small">Version 0.2.30 · early preview, not signed · MIT licence</p>
+        <p class="muted small">Version 0.2.31 · early preview, not signed · MIT licence</p>
 
-        <div class="cmd"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.30/install.sh | sh</code></pre></div>
-        <div class="cmd"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.30/install.ps1 | iex</code></pre></div>
+        <div class="cmd"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.31/install.sh | sh</code></pre></div>
+        <div class="cmd"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.31/install.ps1 | iex</code></pre></div>
         <p class="small muted">No Bun or source checkout needed. The installer checks the file's SHA-256 and runs the new program's <code>--version</code> before it replaces an older install. Then run <code>casper</code> in your project folder.</p>
 
         <div class="actions">
@@ -160,7 +160,7 @@
 
       <section aria-labelledby="receipt">
         <h2 id="receipt">What "done" looks like</h2>
-        <p>A real Casper 0.2.30 run. The AI here is a scripted stand-in so the capture is repeatable, but its edit is real, and every line after it is the real Casper code: the check, the proof and the receipt.</p>
+        <p>A real Casper 0.2.31 run. The AI here is a scripted stand-in so the capture is repeatable, but its edit is real, and every line after it is the real Casper code: the check, the proof and the receipt.</p>
         <figure class="capture">
 <pre class="term" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">fix the sum bug in src/sum.js</span>
 
@@ -207,12 +207,12 @@ independently certified.
 
       <section aria-labelledby="safety">
         <h2 id="safety">Good to know</h2>
-        <p>On Linux and macOS the AI's shell and Casper's checks run in a <strong>sandbox</strong>: they write only the project, temp and package caches, can't read <code>~/.ssh</code>, and reach only listed hosts. Windows has no sandbox yet, and neither does Linux without bubblewrap; there the AI's shell asks before each command that changes something (reads like <code>ls</code> or <code>cd app &amp;&amp; grep -n x *.py</code> don't). Checks still run your project's own commands without asking. Use it in projects you trust, or start with <code>--no-verify</code>. Your code and chat may go to the model provider you picked. The <a href="faq.html">FAQ</a> has more.</p>
+        <p>The AI's shell asks before each command that changes something (reads like <code>ls</code> or <code>cd app &amp;&amp; grep -n x *.py</code> don't), and a write outside the project asks first. Checks run your project's own commands without asking, with your own permissions. Turn the <strong>sandbox</strong> on (<code>sandbox: on</code>, or <code>/sandbox on</code> for a session) and on Linux and macOS the AI's shell and Casper's checks write only the project, temp and package caches, can't read <code>~/.ssh</code>, and reach only listed hosts. Windows has no sandbox yet, and neither does Linux without bubblewrap. Use it in projects you trust, or start with <code>--no-verify</code>. Your code and chat may go to the model provider you picked. The <a href="faq.html">FAQ</a> has more.</p>
       </section>
 
       <section aria-labelledby="next">
-        <h2 id="next">New in 0.2.30</h2>
-        <p>Claude models can run through the Claude Code signed in on this computer: <code>/model claude-subscription/claude-opus-4-8</code>, with Claude Code keeping its own sign-in and Casper still running every tool with its approvals and sandbox. When a picture answers better than text, the AI makes a page that opens in your browser (<code>/pages</code> lists them; off in <code>/settings</code>). A check the sandbox blocked asks to run outside it at once, and a test that hit its own time limit asks Stop, Retry or Fix it anyway, instead of starting paid repairs. <code>/sandbox off</code> turns the sandbox off for a session, <code>/model opus 5.5</code> takes a model by its name in words, <code>/plan</code> shows a plan for a person, and the network server updates between Casper releases.</p>
+        <h2 id="next">New in 0.2.31</h2>
+        <p>The AI's steps tick in under its words, then fold into one row that names what was done, with edits and failures in a box (Ctrl+T shows the last one in full). One status row above the prompt says what runs and that Esc stops it. The shell sandbox is off unless you turn it on (<code>sandbox: on</code>, or <code>/sandbox on</code> for a session); until then the AI's shell asks before commands that change things, checks run with your own permissions, and a one-shot or <code>--json</code> run keeps the sandbox where one can run. Casper runs on Pi 1.1.0, with Claude Sonnet 5.5, Claude Haiku 5.5 and GPT-6.1 Sol in <code>/model</code>, and a Claude plan sign-in works with Opus 5.5 (and with newer models once the Claude Code installed here knows them). <code>/model</code> opens on the providers, and the network server is 0.1.3. A model server on another computer (<code>OLLAMA_HOST</code> and the like) gets 10 s to answer, and <code>/model</code> and <code>casper doctor</code> say in plain words why one didn't.</p>
       </section>
     </div>
   </main>
@@ -220,7 +220,7 @@ independently certified.
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.30</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.31</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
