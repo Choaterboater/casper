@@ -171,6 +171,19 @@ test("lab logins written as prose, markdown or a table are hidden; the words aro
   ]);
 });
 
+test("a file or branch name with login in it is not a login: the name after it stays", () => {
+  for (const command of [
+    "git log origin/fix/login-expired origin/fix/minors",
+    "bun test --parallel tests/mcp-network-login-ask.test.ts tests/capabilities-kinds.test.ts",
+    "bun test tests/login.test.ts tests/other-logins.test.ts",
+    "cat docs/sign-in.md docs/account.md",
+  ]) expect(scrubPlainSecrets(command, { env: {} })).toMatchObject({ text: command, hidden: 0 });
+  // A login written as words still is one.
+  expect(scrubPlainSecrets("login admin / Adm1n!", { env: {} }).text).toBe("login admin / <secret hidden>");
+  expect(scrubPlainSecrets("sign-in root / R00tpw", { env: {} }).text).toBe("sign-in root / <secret hidden>");
+  expect(scrubPlainSecrets("username/password: admin / Adm1n!", { env: {} }).text).toBe("username/password: admin / <secret hidden>");
+});
+
 test("Proxmox API tokens and token=<uuid> are hidden, in output and in the pveum token table", () => {
   const uuid = "0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b";
   expect(scrubPlainSecrets(`curl -k -H "Authorization: PVEAPIToken=root@pam!sampleapp=${uuid}" https://build-server:8006/api2/json/nodes`, { env: {} }).text).not.toContain(uuid);

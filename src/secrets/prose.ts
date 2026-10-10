@@ -61,8 +61,9 @@ const RULES: ProseRule[] = [
   { re: /(?<![\w-])-U\s*(['"]?)[^\s%'"]+%([^\s'"]+)\1/gid, group: 2, kind: "password", accept: (value) => anyValue(value) },
   { re: new RegExp(String.raw`\b(?:echo|printf)\s+(?:-\w+\s+)?(${QUOTED})\s*\|\s*sudo\b[^|;&\n]*?\s-\w*S\b`, "gid"), group: 1, kind: "password", accept: (value) => anyValue(unquote(value)) },
   { re: /\b(?:echo|printf)\s+(?:-\w+\s+)?(['"]?)[\w.-]+:([^\s'"]+)\1\s*\|\s*(?:sudo\s+)?chpasswd\b/gid, group: 2, kind: "password", accept: (value) => anyValue(value) },
-  // login: admin / X, creds: user / X, username/password: admin / X, sign-in root / X.
-  { re: /\b(?:login|logon|log-in|creds?|credentials?|sign[- ]?in|account|user(?:name)?\s*\/\s*pass(?:word)?|u\/p)\b[^\n/]{0,30}?(?:[:=-]\s*|\s)(`?)[\w.@\\-]+\1\s*\/\s*(`?)([^\s`]+)\2/gid,
+  // login: admin / X, creds: user / X, username/password: admin / X, sign-in root / X. The word stands alone: a
+  // file or branch name with it inside (tests/login-ask.test.ts tests/x.ts, origin/fix/login-expired origin/fix/y) is not.
+  { re: /(?<![\w./-])(?:login|logon|log-in|creds?|credentials?|sign[- ]?in|account|user(?:name)?\s*\/\s*pass(?:word)?|u\/p)(?![\w./-])[^\n/]{0,30}?(?:[:=-]\s*|\s)(`?)[\w.@\\-]+\1\s*\/\s*(`?)([^\s`]+)\2/gid,
     group: 3, kind: "password", accept: (value) => anyValue(value.replace(/[.,;)]+$/, "")) },
   // root / X, admin / X (spaces around the slash; a path has none).
   // Also root@pam / X (a Proxmox login with its realm) and **root** / **X** (markdown bold).
