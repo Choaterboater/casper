@@ -244,6 +244,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       if (host.interactive && host.terminal.rich && !query) {
         const available = await session.selectModel({ signal: host.commandAbort?.signal }).catch(() => undefined);
         if (available?.models && !available.models.length) {
+          // A model server Casper was told about (OLLAMA_HOST and the like) that didn't answer: say why first.
+          for (const line of session.localProblems?.() ?? []) host.output.write(`[model] ${terminalText(line)}\n`);
           host.output.write("[model] Not signed in yet. Pick a way to sign in; Esc cancels.\n");
           await runLogin(host);
           return;

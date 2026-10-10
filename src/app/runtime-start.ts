@@ -5,7 +5,7 @@ import { rememberTool } from "./side-question";
 import type { CasperApp } from "../app";
 import path from "node:path";
 import { hasSignIn } from "../tui/model-preference";
-import { localServers } from "../runtime/local-models";
+import { localServerFound } from "../runtime/local-models";
 import { formatRuntimeStartLine } from "../tui/format";
 import { boundCapabilityResult } from "../capabilities/result";
 import { hiddenSecretGate } from "../secrets/gate";
@@ -193,8 +193,8 @@ export function observeEdit(app: CasperApp, path: string): void {
 export async function checkSignIn(app: CasperApp): Promise<void> {
   app.signedIn = await hasSignIn(appAgentDir(app));
   if (app.signedIn || app.projectContext?.localModels === false) return;
-  const found = await Promise.race([localServers(), Bun.sleep(300).then(() => undefined)]);
-  if (found?.servers.some((server) => server.models.length)) app.signedIn = true;
+  // The first server with models settles it: one on another computer, slow to answer, doesn't hold up one here.
+  if (await Promise.race([localServerFound(), Bun.sleep(300).then(() => false)])) app.signedIn = true;
 }
 
 /** Casper's state folder for this session: its login and saved conversations. */

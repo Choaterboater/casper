@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { getKeybindings, KeybindingsManager, setKeybindings, TUI_KEYBINDINGS, type TUI } from "@earendil-works/pi-tui";
+import { getKeybindings, KeybindingsManager, setKeybindings, TUI_KEYBINDINGS, visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -407,4 +407,46 @@ test("the /model live catalog refresh goes to the network only when PI_OFFLINE i
     if (savedOffline === undefined) delete process.env.PI_OFFLINE; else process.env.PI_OFFLINE = savedOffline;
     await removeTempDir(dir);
   }
+});
+
+test("the local look runs next to the catalog refresh: its reasons show under the header, and its models show even when the catalog refresh fails", async () => {
+  const models = [fakeModel("fixture", "first")];
+  const refresh = pendingRefresh();
+  const local = Promise.withResolvers<string[]>();
+  const catalog: ModelBrowserCatalog = {
+    ...fakeCatalog(models, () => refresh.promise.then(() => { throw new Error("HTTP 503"); })),
+    refreshLocal: () => local.promise,
+  };
+  const picker = new ModelBrowser({ tui: fakeTui(), catalog, color: false, sessionOnly: false, onSelect: () => {}, onCancel: () => {} });
+  try {
+    models.push(fakeModel("ollama", "qwen3:8b")); // The local look registered a server.
+    local.resolve(["Ollama at http://192.0.2.10:11434 (OLLAMA_HOST) didn't answer in 10 s."]);
+    await local.promise; await Promise.resolve();
+    let text = rendered(picker);
+    expect(text).toContain("ollama/qwen3:8b");
+    expect(text).toContain("Ollama at http://192.0.2.10:11434 (OLLAMA_HOST) didn't answer in 10 s.");
+    refresh.settle({ aborted: false, errors: new Map() });
+    await refresh.promise; await Promise.resolve(); await Promise.resolve();
+    text = rendered(picker);
+    expect(text).toContain("Could not refresh model catalogs");
+    expect(text).toContain("ollama/qwen3:8b");
+  } finally { picker.dispose(); }
+});
+
+test("on an 80-column terminal the reasons wrap under the header instead of being cut off", async () => {
+  const local = Promise.withResolvers<string[]>();
+  const tip = "On that computer the server must listen on the network: Ollama OLLAMA_HOST=0.0.0.0 ollama serve.";
+  const catalog: ModelBrowserCatalog = { ...fakeCatalog([fakeModel("fixture", "first")]), refreshLocal: () => local.promise };
+  const picker = new ModelBrowser({ tui: fakeTui(), catalog, color: false, sessionOnly: false, onSelect: () => {}, onCancel: () => {} });
+  try {
+    local.resolve(["LM Studio at http://192.0.2.10:1234 (LM_STUDIO_BASE_URL) didn't answer in 10 s.", tip]);
+    await local.promise; await Promise.resolve();
+    const lines = picker.render(80);
+    expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
+    // The right side only: what follows the divider on each row.
+    const text = lines.map(stripAnsi).map((line) => line.split(" │ ")[1] ?? "").join(" ").replace(/\s+/g, " ");
+    expect(text).toContain("(LM_STUDIO_BASE_URL) didn't answer in 10 s.");
+    expect(text).toContain("OLLAMA_HOST=0.0.0.0 ollama serve.");
+    expect(text).toContain("fixture/first");
+  } finally { picker.dispose(); }
 });

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { clearLocalServers, discoverLocalServers, localModelDefaults, localServers, registerLocalServers, sameAddress, serverRoot, type LocalDiscovery } from "../src/runtime/local-models";
+import { clearLocalServers, discoverLocalServers, localModelDefaults, localServerFound, localServers, localServerSettled, onLocalServer, onThisComputer, probeBudget, registerLocalServers, sameAddress, serverRoot, SERVER_SIDE_TIP, type LocalDiscovery, type LocalFound } from "../src/runtime/local-models";
 import { PiModels } from "../src/runtime/pi-models";
 import { isolatedEnvironment } from "../src/platform/environment";
 import { removeTempDir } from "./support/temp-dir";
@@ -12,9 +12,11 @@ import { removeTempDir } from "./support/temp-dir";
 
 const stops: (() => unknown)[] = [];
 const savedDiscover = localModelDefaults.discover;
+const savedStale = localModelDefaults.staleMs;
 afterEach(async () => {
   await Promise.all(stops.splice(0).map((stop) => stop()));
   localModelDefaults.discover = savedDiscover;
+  localModelDefaults.staleMs = savedStale;
   clearLocalServers();
 });
 
@@ -107,8 +109,95 @@ test("a server that is not running is skipped without a word; one whose variable
   const refused = (() => Promise.reject(new Error("refused"))) as unknown as typeof fetch;
   expect(await discoverLocalServers({ env: {}, fetch: refused })).toEqual({ servers: [], problems: [] });
   const closed = closedPort();
+  // A real closed port: Bun's own "refused" error is read as such.
   const found = await discoverLocalServers({ env: { VLLM_BASE_URL: closed }, fetch: ((url: string, init?: RequestInit) => url.startsWith(closed) ? fetch(url, init) : refused(url)) as typeof fetch });
-  expect(found).toEqual({ servers: [], problems: [`VLLM_BASE_URL is set (${closed}) but no vLLM answered there; its models are not in /model.`] });
+  expect(found).toEqual({ servers: [], problems: [{ provider: "vllm", root: closed, cause: "refused",
+    text: `vLLM at ${closed} (VLLM_BASE_URL) refused the connection (nothing is listening on that port).` }] });
+});
+
+test("each reason a server Casper was told about isn't there, in plain words", async () => {
+  const failWith = (error: unknown) => (() => Promise.reject(error)) as unknown as typeof fetch;
+  const answer = (status: number) => (() => Promise.resolve(new Response("{}", { status }))) as unknown as typeof fetch;
+  const reason = async (fetcher: typeof fetch) => (await discoverLocalServers({ env: { OLLAMA_HOST: "192.0.2.7" }, fetch: fetcher })).problems[0]!;
+  expect(await reason(failWith(Object.assign(new TypeError("getaddrinfo ENOTFOUND myserver"), { code: "ENOTFOUND" })))).toMatchObject({ cause: "name" });
+  expect((await reason(failWith(Object.assign(new TypeError("UnexpectedRedirect fetching"), { code: "UnexpectedRedirect" })))).text)
+    .toBe("Ollama at http://192.0.2.7:11434 (OLLAMA_HOST) tried to send Casper to another address (not followed).");
+  expect(await reason(failWith(Object.assign(new TypeError("self signed certificate"), { code: "DEPTH_ZERO_SELF_SIGNED_CERT" })))).toMatchObject({ cause: "certificate" });
+  expect((await reason(answer(401))).text).toBe("Ollama at http://192.0.2.7:11434 (OLLAMA_HOST) asked for a key.");
+  expect((await reason(answer(500))).text).toBe("Ollama at http://192.0.2.7:11434 (OLLAMA_HOST) answered with an error (HTTP 500).");
+  expect(await reason(answer(404))).toMatchObject({ cause: "other" });
+  // Bun's real redirect refusal, from a real server.
+  const bouncer = serve({ "GET /api/tags": () => Response.redirect("http://192.0.2.9/api/tags", 307) });
+  const bounced = await discoverLocalServers({ env: { OLLAMA_HOST: bouncer.url }, fetch: ((url: string, init?: RequestInit) => url.startsWith(bouncer.url) ? fetch(url, init) : Promise.reject(new Error("refused"))) as typeof fetch });
+  expect(bounced.problems[0]).toMatchObject({ cause: "redirect" });
+  // 0.0.0.0 is the server's "listen everywhere"; here it means this computer.
+  const closed = closedPort();
+  const everywhere = await discoverLocalServers({ env: { OLLAMA_HOST: `0.0.0.0:${new URL(closed).port}` },
+    fetch: ((url: string, init?: RequestInit) => url.startsWith(closed) ? fetch(url, init) : Promise.reject(new Error("refused"))) as typeof fetch });
+  expect(everywhere.problems[0]!.text).toContain("OLLAMA_HOST is 0.0.0.0, which here means this computer; to use another computer, set it to that computer's address.");
+});
+
+test("another computer gets 10 s to answer, this one 0.8 s; a server timing out says how long it was given", async () => {
+  for (const here of ["http://127.0.0.1:11434", "http://localhost:1234", "http://[::1]:8080", "http://127.1.2.3:8000"]) {
+    expect(onThisComputer(here)).toBe(true);
+    expect(probeBudget(here)).toBe(800);
+  }
+  for (const there of ["http://192.0.2.7:11434", "https://myserver.example", "http://myserver:8000", "http://100.64.0.7:11434"]) {
+    expect(onThisComputer(there)).toBe(false);
+    expect(probeBudget(there)).toBe(10_000);
+  }
+  const { promise: late, resolve: answer } = Promise.withResolvers<Response>();
+  stops.unshift(() => answer(new Response("late")));
+  const hung = serve({ "GET /api/tags": () => late });
+  const found = await discoverLocalServers({ env: { OLLAMA_HOST: hung.url }, timeoutMs: 150,
+    fetch: ((url: string, init?: RequestInit) => url.startsWith(hung.url) ? fetch(url, init) : Promise.reject(new Error("refused"))) as typeof fetch });
+  expect(found.problems[0]).toMatchObject({ cause: "timeout", text: `Ollama at ${hung.url} (OLLAMA_HOST) didn't answer in 0.1 s.` });
+});
+
+test("each server is heard of as soon as its own look ends: a slow one doesn't hold up a quick one", async () => {
+  const { promise: late, resolve: answer } = Promise.withResolvers<Response>();
+  stops.unshift(() => answer(new Response("late")));
+  const hung = serve({ "GET /v1/models": () => late });
+  const quick = serve({ "GET /api/v0/models": { data: [{ id: "qwen2.5-coder-7b", type: "llm" }] } });
+  const heard: Array<{ provider: string; at: number }> = [];
+  const started = performance.now();
+  await discoverLocalServers({ env: { VLLM_BASE_URL: hung.url, LM_STUDIO_BASE_URL: quick.url }, timeoutMs: 600,
+    fetch: ((url: string, init?: RequestInit) => url.startsWith(hung.url) || url.startsWith(quick.url) ? fetch(url, init) : Promise.reject(new Error("refused"))) as typeof fetch,
+    each: (found: LocalFound) => heard.push({ provider: found.provider, at: performance.now() - started }) });
+  const at = (provider: string) => heard.find((entry) => entry.provider === provider)!.at;
+  expect(at("lm-studio")).toBeLessThan(at("vllm"));
+  expect(at("lm-studio")).toBeLessThan(400);
+  // The cache's per-server wait settles with that server, not with the slowest.
+  const slow = Promise.withResolvers<LocalDiscovery>();
+  localModelDefaults.discover = async (options) => {
+    options?.each?.({ provider: "lm-studio", server: { provider: "lm-studio", name: "LM Studio", baseUrl: "http://127.0.0.1:1234/v1", models: [{ id: "m" }] } });
+    return slow.promise;
+  };
+  void localServers();
+  let settled: unknown;
+  void localServerSettled("lm-studio").then((server) => { settled = server; });
+  await Bun.sleep(20);
+  expect(settled).toMatchObject({ provider: "lm-studio", models: [{ id: "m" }] });
+  // A listener that arrives after the server answered (the runtime, started after the banner's look) still hears of it.
+  const heardLate: string[] = [];
+  const stop = onLocalServer((server) => heardLate.push(server.provider));
+  expect(heardLate).toEqual(["lm-studio"]);
+  stop();
+  slow.resolve({ servers: [], problems: [] });
+});
+
+test("a server on another computer doesn't count as signed in: it is never picked for you", async () => {
+  localModelDefaults.discover = async (options) => {
+    options?.each?.({ provider: "ollama", server: found("http://192.0.2.10:11434/v1")[0]! });
+    return { servers: found("http://192.0.2.10:11434/v1"), problems: [] };
+  };
+  expect(await localServerFound()).toBe(false);
+  clearLocalServers();
+  localModelDefaults.discover = async (options) => {
+    options?.each?.({ provider: "ollama", server: found("http://127.0.0.1:11434/v1")[0]! });
+    return new Promise<LocalDiscovery>(() => {}); // Another server is still being looked at: this one settles it.
+  };
+  expect(await localServerFound()).toBe(true);
 });
 
 test("a web page or a different program on a server's port is not taken for a model server", async () => {
@@ -131,8 +220,12 @@ test("a hung server costs at most the timeout", async () => {
   expect(found.servers).toEqual([]);
 });
 
-test("addresses: OLLAMA_HOST forms, /v1 dropped, localhost and 127.0.0.1 the same", () => {
+test("addresses: OLLAMA_HOST forms, /v1 and /api dropped, localhost and 127.0.0.1 the same", () => {
   expect(serverRoot("0.0.0.0", 11434)).toBe("http://127.0.0.1:11434");
+  expect(serverRoot("http://192.0.2.7:11434/api", 11434, true)).toBe("http://192.0.2.7:11434");
+  expect(serverRoot("http://192.0.2.7:11434/api/", 11434, true)).toBe("http://192.0.2.7:11434");
+  // Only Ollama's own API path: another server behind a proxy at …/api keeps it.
+  expect(serverRoot("https://models.example.com/api", 8000)).toBe("https://models.example.com/api");
   expect(serverRoot("127.0.0.1:11500", 11434)).toBe("http://127.0.0.1:11500");
   expect(serverRoot("192.0.2.7", 11434)).toBe("http://192.0.2.7:11434");
   expect(serverRoot("http://192.0.2.7:1234/v1/", 1234)).toBe("http://192.0.2.7:1234");
@@ -198,30 +291,54 @@ test("a request to a found server carries only the word local, never another pro
   }
 });
 
-test("found once a day per process; /model probes again and keeps the list when a server is busy for a moment; a helper never probes", async () => {
+test("found once a day per process; /model probes again and keeps each server busy for a moment; a helper never probes", async () => {
   let calls = 0;
-  const answers: LocalDiscovery[] = [{ servers: found("http://127.0.0.1:11434/v1"), problems: [] }, { servers: [], problems: ["busy"] }];
+  const lmStudio = { provider: "lm-studio" as const, name: "LM Studio", baseUrl: "http://127.0.0.1:1234/v1", models: [{ id: "qwen2.5-coder-7b" }] };
+  const busy = { provider: "ollama", root: "http://127.0.0.1:11434", cause: "timeout" as const, text: "busy" };
+  const answers: LocalDiscovery[] = [{ servers: [...found("http://127.0.0.1:11434/v1"), lmStudio], problems: [] },
+    { servers: [{ ...lmStudio, models: [{ id: "llava-7b" }] }], problems: [busy] }];
   localModelDefaults.discover = async () => { calls++; return answers.shift() ?? { servers: [], problems: [] }; };
   expect(await localServers({ cachedOnly: true })).toEqual({ servers: [], problems: [] });
   expect(calls).toBe(0);
   const first = await localServers();
-  expect(first.servers.length).toBe(1);
+  expect(first.servers.length).toBe(2);
   await localServers();
   expect(await localServers({ cachedOnly: true })).toBe(first);
   expect(calls).toBe(1);
+  // A refresh that finds LM Studio but not Ollama: LM Studio's new list, and Ollama's last one kept (helpers need it).
   const again = await localServers({ refresh: true });
   expect(calls).toBe(2);
-  expect(again).toEqual({ servers: first.servers, problems: ["busy"] });
+  expect(again).toEqual({ servers: [{ ...lmStudio, models: [{ id: "llava-7b" }] }, found("http://127.0.0.1:11434/v1")[0]!], problems: [busy] });
+  expect(await localServers({ cachedOnly: true })).toBe(again);
 });
 
-test("a variable set to a server that did not answer shows once, at the first request", async () => {
+test("a variable set to a server that did not answer shows once, at the first request, with what to set on that computer", async () => {
   const models = new PiModels({} as ModelRuntime, os.tmpdir(), os.tmpdir());
   expect(models.localNotice()).toBeUndefined();
-  const ready = Promise.resolve({ servers: [], problems: ["OLLAMA_HOST is set (http://192.0.2.7:11434) but no Ollama answered there; its models are not in /model."] });
-  models.useLocalServers(ready);
+  const text = "Ollama at http://192.0.2.7:11434 (OLLAMA_HOST) didn't answer in 10 s.";
+  const ready = Promise.resolve({ servers: [], problems: [{ provider: "ollama", root: "http://192.0.2.7:11434", cause: "timeout" as const, text }] });
+  models.useLocalServers({ ready });
   await ready; await Promise.resolve();
-  expect(models.localNotice()).toBe("OLLAMA_HOST is set (http://192.0.2.7:11434) but no Ollama answered there; its models are not in /model.");
+  expect(models.serverProblems()).toEqual([text, SERVER_SIDE_TIP]);
+  expect(models.localNotice()).toBe(`${text} Its models aren't in /model. ${SERVER_SIDE_TIP}`);
   expect(models.localNotice()).toBeUndefined();
+  // This computer refusing: no tip about another computer.
+  const here = new PiModels({} as ModelRuntime, os.tmpdir(), os.tmpdir());
+  const refused = Promise.resolve({ servers: [], problems: [{ provider: "ollama", root: "http://127.0.0.1:11500", cause: "refused" as const, text: "x" }] });
+  here.useLocalServers({ ready: refused });
+  await refused; await Promise.resolve();
+  expect(here.localNotice()).toBe("x Its models aren't in /model.");
+});
+
+test("a request to a found server that answers with a redirect is not followed: the conversation goes nowhere else", async () => {
+  const elsewhere = serve({ "POST /v1/chat/completions": () => new Response("should never be reached") });
+  const bouncer = serve({ "POST /v1/chat/completions": () => Response.redirect(`${elsewhere.url}/v1/chat/completions`, 307) });
+  const runtime = await runtimeIn();
+  registerLocalServers(runtime, found(`${bouncer.url}/v1`));
+  const reply = await runtime.completeSimple(runtime.getModel("ollama", "qwen3:8b")!, { messages: [{ role: "user", content: "the whole conversation", timestamp: Date.now() }] });
+  expect(reply.stopReason).toBe("error");
+  expect(bouncer.seen.some((entry) => entry.path === "/v1/chat/completions")).toBe(true);
+  expect(elsewhere.seen).toEqual([]);
 });
 
 /** A real PiRuntime in a fresh Bun child whose probe answers after `delayMs` with one Ollama model; nothing signed in. */
@@ -258,4 +375,162 @@ test("the start never waits for the probe; a first request with nothing signed i
   const again = await startWithSlowProbe(home, project, 300, `console.log(JSON.stringify({ status: session.getStatus() }));`);
   expect(again.status).toMatchObject({ provider: "ollama", model: "qwen3:8b" });
   expect(again.status.blocked).toBeUndefined();
+}, 60_000);
+
+/** A real PiRuntime in a fresh Bun child, nothing signed in, whose looks answer in turn with each list of servers in
+ * `answers` (the last one again after that); a look that finds nothing reports Ollama on another computer timing out.
+ * Every missing model sends it looking again (staleMs 0). */
+async function startWithLooks(home: string, project: string, answers: LocalDiscovery["servers"][], body: string): Promise<Record<string, any>> {
+  const repo = path.resolve(import.meta.dir, "..");
+  const env = { ...isolatedEnvironment(home), TMPDIR: path.dirname(home), PI_CODING_AGENT_DIR: path.join(home, ".pi/agent"), CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" };
+  const child = Bun.spawn([process.execPath, "-e", `import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
+    import { localModelDefaults } from ${JSON.stringify(path.join(repo, "src/runtime/local-models.ts"))};
+    const answers = ${JSON.stringify(answers)}; let looks = 0;
+    localModelDefaults.staleMs = 0;
+    localModelDefaults.discover = async () => {
+      const servers = answers[Math.min(looks, answers.length - 1)]; looks++;
+      return { servers, problems: servers.length ? [] : [{ provider: "ollama", root: "http://192.0.2.10:11434", cause: "timeout",
+        text: "Ollama at http://192.0.2.10:11434 (OLLAMA_HOST) didn't answer in 10 s." }] };
+    };
+    const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd() });
+    try { ${body} } finally { await runtime.dispose(); }`], { cwd: project, env, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+  return JSON.parse(stdout);
+}
+
+async function looksHome(): Promise<{ home: string; project: string }> {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-local-looks-")));
+  stops.push(() => removeTempDir(root));
+  const home = path.join(root, "home"); const project = path.join(root, "project");
+  await mkdir(path.join(home, ".pi/agent"), { recursive: true }); await mkdir(project);
+  return { home, project };
+}
+
+const here = found("http://127.0.0.1:11434/v1");
+
+test("a server that answered before the runtime listened is in its catalog, and a helper started mid-look gets the server it waits for", async () => {
+  const { home, project } = await looksHome();
+  const repo = path.resolve(import.meta.dir, "..");
+  const env = { ...isolatedEnvironment(home), TMPDIR: path.dirname(home), PI_CODING_AGENT_DIR: path.join(home, ".pi/agent"), CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" };
+  // The look answers for Ollama at once, before any runtime exists, and stays open (the rest are slow) until the helper
+  // has started: the helper can only have Ollama from its own wait, never from the whole look's end.
+  const child = Bun.spawn([process.execPath, "-e", `import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
+    import { localModelDefaults, localServers } from ${JSON.stringify(path.join(repo, "src/runtime/local-models.ts"))};
+    const server = ${JSON.stringify(here[0])};
+    const held = Promise.withResolvers(); let looking = true;
+    localModelDefaults.discover = async (options) => { options?.each?.({ provider: "ollama", server }); await held.promise; looking = false; return { servers: [server], problems: [] }; };
+    void localServers();
+    await Bun.sleep(50);
+    const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd() });
+    const picked = await session.selectModel({ query: "ollama/qwen3:8b", persist: true });
+    await runtime.dispose();
+    const helperRuntime = new PiRuntime();
+    const helper = await helperRuntime.startReadOnly({ cwd: process.cwd(), signal: new AbortController().signal, maxTurns: 1, maxToolCalls: 1 });
+    const stillLooking = looking;
+    held.resolve();
+    console.log(JSON.stringify({ picked: picked.selected, helper: helper.getStatus(), stillLooking }));
+    await helperRuntime.dispose();`], { cwd: project, env, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+  const result = JSON.parse(stdout);
+  expect(result.picked).toBe(true);
+  expect(result.stillLooking).toBe(true);
+  expect(result.helper).toMatchObject({ provider: "ollama", model: "qwen3:8b" });
+  expect(result.helper.blocked).toBeUndefined();
+}, 60_000);
+
+test("a missed server is looked for again: an empty /model list and a model typed by name each look once more", async () => {
+  const { home, project } = await looksHome();
+  const listed = await startWithLooks(home, project, [[], here], `
+    const result = await session.selectModel({});
+    console.log(JSON.stringify({ looks, models: result.models?.map((model) => model.provider + "/" + model.id) }));`);
+  expect(listed).toEqual({ looks: 2, models: ["ollama/qwen3:8b", "ollama/gemma3:4b"] });
+  const typed = await startWithLooks(home, project, [[], here], `
+    const result = await session.selectModel({ query: "ollama/qwen3:8b", persist: false });
+    console.log(JSON.stringify({ looks, selected: result.selected, model: result.status.model }));`);
+  expect(typed).toEqual({ looks: 2, selected: true, model: "qwen3:8b" });
+}, 60_000);
+
+test("a saved model whose server didn't answer at start says why, and is used once the server answers; another computer's server is never picked for you", async () => {
+  const { home, project } = await looksHome();
+  const first = await startWithLooks(home, project, [here], `console.log(JSON.stringify(await session.selectDefaultModel()));`);
+  expect(first).toMatchObject({ selected: true, savedDefault: true, status: { provider: "ollama", model: "qwen3:8b" } });
+  const later = await startWithLooks(home, project, [[], here], `
+    const blocked = session.getStatus().blocked; const problems = session.localProblems();
+    const again = await session.findModelAgain();
+    console.log(JSON.stringify({ blocked, problems, again, after: session.getStatus() }));`);
+  expect(later.blocked).toBe("Model ollama/qwen3:8b is unavailable: Ollama at http://192.0.2.10:11434 (OLLAMA_HOST) didn't answer in 10 s. Casper looks again when you ask after 15 seconds; /model picks another.");
+  expect(later.problems).toEqual(["Ollama at http://192.0.2.10:11434 (OLLAMA_HOST) didn't answer in 10 s.", SERVER_SIDE_TIP]);
+  expect(later.again).toBe(true);
+  expect(later.after).toMatchObject({ provider: "ollama", model: "qwen3:8b" });
+  expect(later.after.blocked).toBeUndefined();
+  // Found again: its reason is no longer true, so the first request doesn't report it.
+  const notice = await startWithLooks(home, project, [[], here], `
+    await session.findModelAgain();
+    console.log(JSON.stringify({ problems: session.localProblems() }));`);
+  expect(notice.problems).toEqual([]);
+  // OLLAMA_HOST pointing at another computer: its models are listed, but only a pick sends anything there.
+  const fresh = await looksHome();
+  const remote = await startWithLooks(fresh.home, fresh.project, [found("http://192.0.2.10:11434/v1")], `
+    const picked = await session.selectDefaultModel();
+    const chosen = await session.selectModel({ query: "ollama/qwen3:8b", persist: false });
+    console.log(JSON.stringify({ picked: picked ?? null, chosen: chosen.selected }));`);
+  expect(remote).toEqual({ picked: null, chosen: true });
+}, 60_000);
+
+test("ordinary words that name no local server never send Casper looking again", async () => {
+  const { home, project } = await looksHome();
+  const result = await startWithLooks(home, project, [here], `
+    const before = looks;
+    await session.matchModel("use node 20");
+    await session.matchModel("openrouter/no-such-model");
+    console.log(JSON.stringify({ extra: looks - before }));`);
+  expect(result.extra).toBe(0);
+}, 60_000);
+
+/** A real PiRuntime in a fresh Bun child, nothing signed in except what `setup` writes, whose look answers nothing
+ * for `lookMs` (OLLAMA_HOST on another computer, asleep). Prints what `body` logs. */
+async function startWithSlowRemote(home: string, project: string, lookMs: number, body: string): Promise<Record<string, any>> {
+  const repo = path.resolve(import.meta.dir, "..");
+  const env = { ...isolatedEnvironment(home), TMPDIR: path.dirname(home), PI_CODING_AGENT_DIR: path.join(home, ".pi/agent"), CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0",
+    OLLAMA_HOST: "192.0.2.10" };
+  const child = Bun.spawn([process.execPath, "-e", `import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
+    import { localModelDefaults } from ${JSON.stringify(path.join(repo, "src/runtime/local-models.ts"))};
+    let looks = 0;
+    localModelDefaults.discover = async (options) => {
+      looks++;
+      options?.each?.({ provider: "lm-studio" }); options?.each?.({ provider: "llama.cpp" }); options?.each?.({ provider: "vllm" });
+      await Bun.sleep(${lookMs});
+      return { servers: [], problems: [{ provider: "ollama", root: "http://192.0.2.10:11434", cause: "timeout", text: "Ollama at http://192.0.2.10:11434 (OLLAMA_HOST) didn't answer in 10 s." }] };
+    };
+    const began = performance.now(); const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd() });
+    const startMs = performance.now() - began;
+    try { ${body} } finally { await runtime.dispose(); }`], { cwd: project, env, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+  return JSON.parse(stdout);
+}
+
+test("a slow server on another computer holds up neither a start whose saved model is a cloud one, nor an ordinary line", async () => {
+  const { home, project } = await looksHome();
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "openrouter", defaultModel: "no-such-model" }));
+  const result = await startWithSlowRemote(home, project, 4000, `
+    const words = performance.now(); await session.matchModel("use node 20"); const wordsMs = performance.now() - words;
+    console.log(JSON.stringify({ startMs, wordsMs, looks }));`);
+  expect(result.startMs).toBeLessThan(3000);
+  expect(result.wordsMs).toBeLessThan(1500);
+  expect(result.looks).toBe(1);
+}, 60_000);
+
+test("a look that just ended isn't repeated at once: the wait is counted from when it ended, not when it began", async () => {
+  const { home, project } = await looksHome();
+  // A 3 s look (still running when the model is asked for), a 1.5 s wait: counted from its start the look would be
+  // repeated as soon as it ends, counted from its end it isn't.
+  const result = await startWithSlowRemote(home, project, 3000, `
+    const staleMs = localModelDefaults.staleMs; localModelDefaults.staleMs = 1500;
+    await session.selectModel({ query: "ollama/qwen3:8b", persist: false }).catch(() => undefined);
+    console.log(JSON.stringify({ looks, staleMs }));`);
+  expect(result).toEqual({ looks: 1, staleMs: 15_000 });
 }, 60_000);

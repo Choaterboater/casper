@@ -336,6 +336,10 @@ export interface RuntimeSession {
   selectModel?(options: RuntimeModelSelectionOptions): Promise<RuntimeModelSelection>;
   /** Pick a default model for a signed-in provider only when no model is selected; never overrides a choice. */
   selectDefaultModel?(options?: { provider?: string; signal?: AbortSignal }): Promise<RuntimeModelSelection | undefined>;
+  /** The selected model's server didn't answer when Casper started: look once more and use the model if it is there now. */
+  findModelAgain?(options?: { signal?: AbortSignal }): Promise<boolean>;
+  /** Why model servers Casper was told about aren't in /model (plain lines; empty when all answered). */
+  localProblems?(): string[];
   getModelRoles?(): Record<string, string>;
   /** What a selector (`@reason`, `provider/id`) names, without selecting it: its context window and input price
    * per million tokens, when the catalog knows them. Undefined when nothing matches. Makes no call. */

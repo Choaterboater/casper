@@ -1,4 +1,4 @@
-import { fuzzyFilter, getKeybindings, Input, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { fuzzyFilter, getKeybindings, Input, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { TUI } from "@earendil-works/pi-tui";
 import type { Api, Model, ModelsRefreshOptions, ModelsRefreshResult } from "@earendil-works/pi-ai";
 import { terminalText, tint } from "../tui/format";
@@ -10,6 +10,8 @@ export interface ModelBrowserCatalog {
   getAvailableSnapshot(): readonly Model<Api>[];
   refresh(options?: ModelsRefreshOptions): Promise<ModelsRefreshResult>;
   getError(): string | undefined;
+  /** Look for the local model servers again; resolves with why the ones Casper was told about aren't there. */
+  refreshLocal?(options?: { signal?: AbortSignal }): Promise<string[]>;
 }
 
 type ModelRef = { provider: string; id: string };
@@ -121,6 +123,8 @@ export class ModelBrowser {
   private errorMessage?: string;
   private refreshStatusMessage = "Refreshing model catalogs…";
   private refreshStatusSuccess = false;
+  /** Why model servers Casper was told about aren't listed (the local look's problems), shown under the header. */
+  private localProblems: string[] = [];
   private closed = false;
   private _focused = false;
 
@@ -288,11 +292,14 @@ export class ModelBrowser {
     const header = this.scope === undefined
       ? this.accent("All models") + this.muted(` (${this.allModels.length})`)
       : this.accent(terminalText(this.scope)) + this.muted(` (${this.filteredModels.length})`);
-    const lines = [header + this.statusSuffix(), ""];
+    // Why a server Casper was told about isn't listed: each reason wrapped to the pane, at most a third of it.
+    const reasons = this.localProblems.flatMap((line) => wrapTextWithAnsi(line, Math.max(10, width - 2))).slice(0, Math.max(1, Math.floor(height / 3)))
+      .map((line) => tint(`  ${line}`, "warning", this.options.color));
+    const lines = [header + this.statusSuffix(), ...reasons.length ? reasons : [""]];
     const searchLines = this.searchInput.render(width);
     lines.push(...searchLines, "");
     // One row reserved for the scroll cue so the window never overflows the pane.
-    const maxVisible = Math.max(1, height - SEARCH_FURNITURE - 1);
+    const maxVisible = Math.max(1, height - SEARCH_FURNITURE - 1 - Math.max(0, reasons.length - 1));
     const startIndex = Math.max(0, Math.min(this.selectedIndex - Math.floor(maxVisible / 2), this.filteredModels.length - maxVisible));
     const endIndex = Math.min(startIndex + maxVisible, this.filteredModels.length);
     for (let i = startIndex; i < endIndex; i++) {
@@ -447,9 +454,32 @@ export class ModelBrowser {
     this.options.onSelect(model);
   }
 
+  /** Rebuild the rows from the catalog after a refresh, keeping the highlight on the same model (by provider and id,
+   * not position) so Enter still saves what the user was looking at. */
+  private reload(): void {
+    const highlighted = this.filteredModels[this.selectedIndex];
+    this.loadModelsFromSnapshot();
+    this.syncSidebar();
+    this.filterModels(this.searchInput.getValue());
+    const kept = highlighted ? this.filteredModels.findIndex(item => sameRef(highlighted, item)) : -1;
+    if (kept >= 0) this.selectedIndex = kept;
+    this.options.tui.requestRender();
+  }
+
+  /** The local model servers and the provider catalogs are looked at side by side; the rows reload after each, so a
+   * server found here shows even when a catalog refresh fails or is slow. */
+  private async refreshModels(): Promise<void> {
+    const local = this.options.catalog.refreshLocal?.({ signal: this.refreshAbortController.signal }).then((problems) => {
+      if (this.closed) return;
+      this.localProblems = problems;
+      this.reload();
+    }, () => undefined);
+    await Promise.all([local, this.refreshCatalogs()]);
+  }
+
   /** Background catalog refresh: live provider catalogs unless PI_OFFLINE is set (the adapter's
    * catalog view keeps Pi's network default). Cached rows stay listed on failure. */
-  private async refreshModels(): Promise<void> {
+  private async refreshCatalogs(): Promise<void> {
     const timeoutMs = 15_000;
     let timedOut = false;
     this.refreshTimeout = setTimeout(() => {
@@ -470,15 +500,7 @@ export class ModelBrowser {
           this.refreshStatusSuccess = true;
         }
       }
-      // The refreshed list re-sorts and re-filters; keep the highlight on the same model (by
-      // provider and id, not position) so Enter still saves what the user was looking at.
-      const highlighted = this.filteredModels[this.selectedIndex];
-      this.loadModelsFromSnapshot();
-      this.syncSidebar();
-      this.filterModels(this.searchInput.getValue());
-      const kept = highlighted ? this.filteredModels.findIndex(item => sameRef(highlighted, item)) : -1;
-      if (kept >= 0) this.selectedIndex = kept;
-      this.options.tui.requestRender();
+      this.reload();
     } catch (error) {
       if (this.closed) return;
       const cause = timedOut ? "timed out" : refreshFailure(terminalText(errorText(error)));
