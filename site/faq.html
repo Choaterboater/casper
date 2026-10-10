@@ -224,9 +224,10 @@ The change was not made.
           <p>Not every one. Casper's approvals cover specific things: MCP calls that may change
           something, connecting a server, reaching another machine over <code>ssh</code>, a write
           outside the project, a host the sandbox does not know, the browser, the debugger and a few
-          downloads. On Linux and macOS the AI's shell and the checks run in a sandbox
-          (<code>/sandbox</code> shows what it holds, <code>/allowed</code> the commands you said yes to). On Windows the AI's shell asks before each
-          command that changes something (reads like <code>ls</code> don't). Checks run your project's own commands without asking first. If the sandbox blocks a check (an <code>EPERM</code> from a test that opens a socket, say), Casper says so, does not try to fix your code, and asks whether to run the checks outside the sandbox.</p>
+          downloads. The sandbox is off unless you turn it on (<code>sandbox: on</code> in <code>~/.casper/config.yaml</code>,
+          or <code>/sandbox on</code>): until then the AI's shell asks before each command that changes something (reads
+          like <code>ls</code> don't). With it on, on Linux and macOS, the AI's shell and the checks run in it
+          (<code>/sandbox</code> shows what it holds, <code>/allowed</code> the commands you said yes to). Checks run your project's own commands without asking first. If the sandbox blocks a check (an <code>EPERM</code> from a test that opens a socket, say), Casper says so, does not try to fix your code, and asks whether to run the checks outside the sandbox.</p>
           <p>When an <code>ssh</code> you allowed asks for a password, Casper shows its own hidden box and the password goes to
           ssh only; the AI never sees it (<code>ssh_login: off</code> turns it off).</p>
           <p>So use Casper in projects you trust, or start with <code>--no-verify</code> (no

@@ -91,6 +91,8 @@ async function scenario() {
   } } }));
   await writeFile(path.join(agent, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture", retry: { enabled: false } }));
   await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
+  // The questions below are the sandbox's: a session has it off unless the config turns it on.
+  await writeFile(path.join(home, ".casper/config.yaml"), "sandbox: on\n", { flag: "a" });
   const env = cleanEnv({ HOME: home, CASPER_AGENT_DIR: agent, PI_CODING_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0",
     NO_COLOR: "1", PATH: `${bin}:${process.env.PATH}` });
   const sshRan = async () => (await readFile(log, "utf8").catch(() => "")).split("\n").filter(Boolean);

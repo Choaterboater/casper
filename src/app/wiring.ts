@@ -103,7 +103,10 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   }
   const host = sandboxHost(app);
   const sandbox = app.sandbox = createSessionSandbox(host, context, { root: () => app.activeWorkspaceRoot(), home: app.sessionHomeDir ?? os.homedir(),
-    noSandbox: app.noSandbox, ...(app.allow ? { allow: app.allow } : {}), ...(app.sandboxSeams ? { seams: app.sandboxSeams } : {}) });
+    noSandbox: app.noSandbox, ...(app.allow ? { allow: app.allow } : {}), ...(app.sandboxSeams ? { seams: app.sandboxSeams } : {}),
+    // Off unless your config turns it on, where a person can answer the AI shell's questions. A one-shot or --json
+    // run can't ask, so it keeps the sandbox where one runs, as before.
+    offByDefault: app.interactive });
   app.shell = runtimeShell(host, sandbox, new SandboxStore(context.stateDirectory), { on: () => app.projectContext?.sshLogin !== false });
   useSandbox(sandbox);
   app.lifecycle.add({ name: "sandbox", close: async () => {

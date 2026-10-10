@@ -166,12 +166,21 @@ test("language servers: a language with no server is worth knowing; a server who
   expect(await checkLanguageServers(context(dir), "default")).toEqual([]);
 });
 
-test("sandbox: a missing helper is something to fix, with the install line", async () => {
+test("sandbox: turned on, a missing helper is something to fix, with the install line", async () => {
   const dir = await home();
-  const lines = await checkSandbox(context(dir, { platform: "linux", sandboxProblem: () => "bubblewrap and socat are missing: sudo apt install bubblewrap socat" }), undefined);
+  const on = { sandbox: { user: { off: false } } } as never;
+  const lines = await checkSandbox(context(dir, { platform: "linux", sandboxProblem: () => "bubblewrap and socat are missing: sudo apt install bubblewrap socat" }), on);
   expect(lines).toEqual([{ status: "fail", text: "Sandbox: can't hold commands here: bubblewrap and socat are missing", next: "sudo apt install bubblewrap socat" }]);
-  expect((await checkSandbox(context(dir, { platform: "win32" }), undefined))[0]!.status).toBe("note");
-  expect((await checkSandbox(context(dir, { platform: "linux" }), undefined))[0]!.status).toBe("ok");
+  expect((await checkSandbox(context(dir, { platform: "win32" }), on))[0]!.status).toBe("note");
+  expect((await checkSandbox(context(dir, { platform: "linux" }), on))[0]!.status).toBe("ok");
+});
+
+test("sandbox: off unless you turn it on is a note, not a problem, whether or not it could run", async () => {
+  const dir = await home();
+  expect(await checkSandbox(context(dir, { platform: "linux" }), undefined)).toEqual([{ status: "note",
+    text: "Sandbox: off unless you turn it on (sandbox: on in ~/.casper/config.yaml, or /sandbox on); it can run here" }]);
+  const missing = await checkSandbox(context(dir, { platform: "linux", sandboxProblem: () => "bubblewrap is missing" }), undefined);
+  expect(missing[0]).toMatchObject({ status: "note", text: "Sandbox: off unless you turn it on; it can't run here yet (bubblewrap is missing)" });
 });
 
 test("disk: low space for ~/.casper is named", async () => {

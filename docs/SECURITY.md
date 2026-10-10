@@ -11,7 +11,13 @@ Supported versions: the latest release only. Fixes go into the next release.
 
 ## The shell sandbox
 
-Since v0.2.17 every shell command Casper runs goes through one sandbox: the AI's `bash`, your
+Since v0.2.31 the sandbox is **off unless you turn it on** where you type to Casper: `sandbox: on` in
+`~/.casper/config.yaml`, or `/sandbox on` for one session. While it is off, the AI's shell asks before each command
+that changes something (as on Windows), a write outside the project asks first, and your checks, services and dev
+servers run with your own permissions. A one-shot or `--json` run can't ask, so it keeps the sandbox where one can
+run. Casper's own network server keeps its sandbox either way; only `sandbox: off` or `--no-sandbox` turns that off.
+
+When it is on, every shell command Casper runs goes through one sandbox: the AI's `bash`, your
 project's checks (`/verify`, the checks after a change, proof and trace copies, acceptance tests),
 services and dev servers, network and security tool runs, and `uv` or `bun` in `casper new`. It uses
 the operating system, not a list of words:

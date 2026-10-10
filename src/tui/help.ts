@@ -113,7 +113,7 @@ Local commands:
   /permissions all|ask              Stop the shell's questions until you quit (asks first; allowall is the same), or ask them again
   /permissions write|forget <folder>  Allow a folder outside the project for this project, or take it back (remove is the same as forget)
   /sandbox, /sandbox list           What the shell sandbox holds: write folders, private folders, hosts
-  /sandbox off, /sandbox on         Turn the shell sandbox off for this session (commands and checks run with your permissions), or back on
+  /sandbox on, /sandbox off         Turn the shell sandbox on for this session (it is off unless sandbox: on), or off again
   /sandbox forget <host>            Forget a host or machine you allowed for this project (Yes, always); remove is the same
   /allowed, /allowed list           The shell commands you said yes to for this project (saved, and for this session), numbered
   /allowed forget <n>               Forget one by its number, its words (git log) or all of them; Casper asks before running it again; remove is the same
@@ -227,7 +227,7 @@ Keys: ${KEYS_HELP}
 Checks: typecheck lint test build (all configured by default; verification.checks selects).
 verification.mode: auto (Casper runs the checks after edits, repairs failures within repair.maxAttempts), offer (the model may use casper_check; the receipt suggests /verify) or off. Unset: auto, except that interactive sessions use offer once the checks are measured at 60 s or more.
 --verify selects auto and --no-verify selects off for one run. Auto skips checks when no files changed, and checks whose declared scope misses every changed file. The receipt says why.
-Checks run the project's own commands in the shell sandbox where it can run (/sandbox): they write only the project, temp and package caches, can't read your private folders and reach only listed hosts. Without the sandbox (Windows, bubblewrap missing, --no-sandbox) they run with your permissions.
+The shell sandbox is off unless you turn it on (sandbox: on in ~/.casper/config.yaml, or /sandbox on); a one-shot or --json run keeps it where one can run. With it on, checks run the project's own commands in it (/sandbox): they write only the project, temp and package caches, can't read your private folders and reach only listed hosts. Without it they run with your permissions.
 One-shot exit codes: 0 pass (or nothing to verify), 1 check failed or blocked, 2 incomplete (skipped checks, --max-turns reached, or --verify with changes and no checks configured), 3 not verified (--require-verification only), 64 usage error, 130 cancelled.
 Exit 0 does not certify behavior beyond the checks; /receipt shows scope and freshness.
 MCP connection runs a configured program or contacts its URL. Review its source first.
