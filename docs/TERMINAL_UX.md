@@ -86,7 +86,9 @@ over the network, and `/references add` downloads files after asking you.
 | `/crew <job>` | A builder AI does the job in its own copy of the project, then 1 Keep the copy · 2 Apply to my folder · 3 Throw it away; bare `/crew` lists copies still here ([CREWS.md](CREWS.md)) |
 | `/exit`, `/quit` | Exit; during a task it stops the task first, as Ctrl+C twice does |
 
-An unknown `/` command is rejected on your machine, at once, also during work. It is never sent to a model.
+An unknown `/` command is rejected on your machine, at once, also during work, where the error shows under your
+line. It is quoted as you typed it. It is never sent to a model. A line that starts with a picture file's path is a
+request, not a command (see Pictures below).
 
 Taking something back is `forget` everywhere (`/memory`, `/mcp`, `/sandbox`, `/allowed`, `/permissions`); `remove` is the same word, and `/pack forget` is `/pack remove`. `list` is the command alone (`/memory list` is `/memory`). A usage error reads `[error] Usage: …` for every command.
 
@@ -525,7 +527,9 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - Pictures: Ctrl+V (Alt+V on Windows) pastes the clipboard's picture as `[image 1]`, and
   a picture file dropped or typed as a full path (`/…/shot.png`, `~/…`, `C:\…`) becomes
   `[image N]` when you send, also at the start of the line (then it is a request, not a
-  command). PNG, JPEG, GIF and WebP, up to 20 MB each (a pasted picture too) and 8 a
+  command; during work such a `/…` line keeps its draft, `Your picture waits until this task ends`,
+  since the AI reads a line typed during work as text only). A macOS screenshot's name, with its
+  narrow space before AM or PM, is read whole. PNG, JPEG, GIF and WebP, up to 20 MB each (a pasted picture too) and 8 a
   request. With no picture on the clipboard, files you copied in Finder, Explorer or a
   Linux file manager go in as quoted paths, as if dropped: a picture file among them is
   attached when you send, with the same checks and limits; any other file stays as its

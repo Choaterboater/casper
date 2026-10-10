@@ -57,6 +57,12 @@ test("an unknown command gets a did-you-mean when one is close", () => {
   expect(unknownCommandMessage("/zzzzzz")).toBe('Unknown command "/zzzzzz". Type /help for local commands.');
 });
 
+test("an unknown command and a help word are quoted as typed: a backslash stays one", () => {
+  expect(unknownCommandMessage(String.raw`/a\b`)).toBe(String.raw`Unknown command "/a\b". Type /help for local commands.`);
+  expect(commandProblem(String.raw`/Users/x/Screen\ Shot.txt why`)).toBe(String.raw`Unknown command "/Users/x/Screen\". Type /help for local commands.`);
+  expect(helpFor(String.raw`zebra\q`)).toBe(String.raw`[help] Nothing in the help mentions "zebra\q". /help all shows everything.` + "\n");
+});
+
 test("long help rows wrap under their own description column", () => {
   const row = "  /details [quiet|normal|detailed]  For this session: failures only, steps folded (default), or every step with small diffs";
   const lines = wrapHelp(`${row}\n`, 60).trimEnd().split("\n");

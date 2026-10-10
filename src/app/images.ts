@@ -69,10 +69,12 @@ export const imageLabel = (number: number) => `[image ${number}]`;
 
 const EXTENSION = String.raw`\.(?:png|jpe?g|gif|webp)`;
 /** A quoted path, or an unquoted one that starts at / or ~/ (POSIX, spaces escaped as `\ `), or at a drive letter
- * (Windows). Bare names ("logo.png") are words about the project, never attachments. */
+ * (Windows). Bare names ("logo.png") are words about the project, never attachments. An unquoted POSIX path ends
+ * only at an ASCII space: a terminal escapes only those, so a no-break space (U+00A0, or the U+202F a macOS
+ * screenshot's name has before AM or PM) is part of the name. */
 function pathPattern(platform: NodeJS.Platform): RegExp {
   const start = platform === "win32" ? String.raw`(?:[A-Za-z]:[\\/]|~[\\/]|\\\\)` : String.raw`(?:~\/|\/)`;
-  const unquoted = platform === "win32" ? String.raw`[^\s"']*?` : String.raw`(?:\\.|[^\s"'\\])*?`;
+  const unquoted = platform === "win32" ? String.raw`[^\s"']*?` : String.raw`(?:\\.|[^\t\n\v\f\r "'\\])*?`;
   return new RegExp(String.raw`(["'])(${start}(?:(?!\1)[^\n])*?${EXTENSION})\1|(?<=^|\s)(${start}${unquoted}${EXTENSION})(?=$|[\s,;:)!?])`, "gi");
 }
 

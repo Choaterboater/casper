@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { readFile, readdir, stat, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { attachImages, imageMimeType, MAX_IMAGES, pastedFolderParent, PastedImageFiles, promptPath, shareHost, startsWithImageFile } from "../src/app/images";
+import { attachImages, imageMimeType, leadingImagePath, MAX_IMAGES, pastedFolderParent, PastedImageFiles, promptPath, shareHost, startsWithImageFile } from "../src/app/images";
 import { removeTempDir } from "./support/temp-dir";
 
 const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
@@ -36,6 +36,34 @@ test.skipIf(process.platform === "win32")("a path the terminal escaped (spaces) 
   const result = await attachImages(`${escaped} and '~/mock up.jpg'`, { cwd: "/", home: dir, platform: "darwin" });
   expect(result.text.split("\n")[0]).toBe("[image 1] and [image 2]");
   expect(result.images.map((image) => image.mimeType)).toEqual(["image/png", "image/jpeg"]);
+});
+
+// A macOS screenshot's default name has a narrow no-break space (U+202F) before AM or PM; Terminal escapes only the
+// ASCII spaces when you drop it. A name with a no-break space (U+00A0) is dropped the same way.
+const SCREENSHOT = "/Users/x/Desktop/Screenshot 2026-10-10 at 2.17.38\u202FPM.png";
+const dropped = (file: string) => file.replaceAll(" ", "\\ ");
+
+test("a macOS screenshot name (U+202F before PM) dropped with escaped spaces is one path", async () => {
+  expect(leadingImagePath(`${dropped(SCREENSHOT)}  i like it`, { platform: "darwin" })).toBe(SCREENSHOT);
+  expect(leadingImagePath(dropped(SCREENSHOT), { platform: "linux" })).toBe(SCREENSHOT);
+  expect(leadingImagePath("/Users/x/my\u00A0shot.png fix it", { platform: "darwin" })).toBe("/Users/x/my\u00A0shot.png");
+  // An ASCII space still ends the path, and a command is still a command.
+  expect(leadingImagePath("/Users/x/my shot.png", { platform: "darwin" })).toBeUndefined();
+  expect(leadingImagePath(`/model ${dropped(SCREENSHOT)}`, { platform: "darwin" })).toBeUndefined();
+
+  // At the start of the line or in the middle of it, the picture goes with the request. `resolve` stands in for the Mac's disk.
+  const dir = await folder();
+  const shot = path.join(dir, "shot.png");
+  await writeFile(shot, PNG);
+  const read: string[] = [];
+  const resolve = (typed: string) => { read.push(typed); return shot; };
+  const start = await attachImages(`${dropped(SCREENSHOT)}  i like it`, { cwd: dir, home: dir, platform: "darwin", resolve });
+  expect(start.text).toBe(`[image 1]  i like it\n\n[image 1] is the file ${SCREENSHOT}`);
+  expect(start.images).toHaveLength(1);
+  const middle = await attachImages(`compare ${dropped(SCREENSHOT)}, and /Users/x/my\u00A0shot.png`, { cwd: dir, home: dir, platform: "darwin", resolve });
+  expect(middle.text.split("\n")[0]).toBe("compare [image 1], and [image 2]");
+  expect(middle.images).toHaveLength(2);
+  expect(read).toEqual([SCREENSHOT, SCREENSHOT, "/Users/x/my\u00A0shot.png"]);
 });
 
 test("pasted images keep their numbers and dropped files come after them", async () => {

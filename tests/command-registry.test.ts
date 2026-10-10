@@ -219,6 +219,17 @@ test("idle and during work, /settings 3 is a usage error and an unknown command 
     app.input.write("/bogus\r");
     await app.until(text => text.slice(from).includes('Unknown command "/bogus".'));
     expect(app.screen().slice(from)).not.toContain("waits until this task ends");
+    // What a line typed during work says comes under its echo, as when idle, so it never reads as the line before's.
+    const echoFirst = (echo: string, said: string) => {
+      const after = app.screen().slice(from);
+      expect(after.indexOf(echo)).toBeGreaterThanOrEqual(0);
+      expect(after.indexOf(echo)).toBeLessThan(after.indexOf(said));
+    };
+    echoFirst("❯ /bogus", 'Unknown command "/bogus".');
+    from = app.screen().length;
+    app.input.write("/btw\r");
+    await app.until(text => text.slice(from).includes("Type /btw and your question"));
+    echoFirst("❯ /btw", "Type /btw and your question");
     from = app.screen().length;
     app.input.write("/status x\r");
     await app.until(text => text.slice(from).includes("Usage: /status, with nothing after it."));
