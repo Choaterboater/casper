@@ -1,4 +1,4 @@
-# Casper 0.2.30 · /status before any model is picked
+# Casper 0.2.31 · /status before any model is picked
 
 ❯ /status
  project   project

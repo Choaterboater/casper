@@ -1,4 +1,4 @@
-# Casper 0.2.30 · /mcp setup network asks once before it installs anything; 1 (or Esc) is Not now
+# Casper 0.2.31 · /mcp setup network asks once before it installs anything; 1 (or Esc) is Not now
 
 ❯ /mcp setup network
 

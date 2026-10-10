@@ -4,11 +4,133 @@
 published, and what the installers promise. **When you'd use it:** to see what is new
 before you upgrade, or when you build or publish a release yourself.
 
-Casper distributes an unsigned **v0.2.30 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.30`,
+Casper distributes an unsigned **v0.2.31 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.31`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.31: steps under the AI's words, the sandbox off unless you turn it on, and Pi 1.1.0
+
+The screen groups the work: the AI's steps tick in under its words, then fold into one row that names what was
+done, with edits and failures in a box. The shell sandbox is off unless you turn it on: until then the AI's shell
+asks before commands that change things, and your checks run with your own permissions. Casper runs on Pi 1.1.0, a
+Claude plan sign-in works with Opus 5.5 (and with newer models once the Claude Code installed here knows them), and
+`/model` opens on the providers.
+
+- Steps tick in under the AI's words, then fold into one row naming what was done, with edits and failures in a box
+- One status row above the prompt says what runs and that Esc stops it; the Working box is gone
+- The receipt says a session's notes in full once, then in one line; a warning marked `⚠`, such as a secret in a command, comes right after the verdict
+- The shell sandbox is off unless you turn it on (`sandbox: on`, `/sandbox on`); until then the AI's shell asks before commands that change things, and your checks run with your own permissions without asking
+- Pi 1.1.0: Claude Sonnet 5.5, Claude Haiku 5.5 and GPT-6.1 Sol in `/model`, and a busy provider is tried again
+- A Claude plan sign-in works with Opus 5.5, and its requests name the Claude Code installed here when it is newer
+- `/model` opens on the providers; `/model <words>` still opens on the list
+- casper-network-mcp 0.1.3 is the version Casper ships with
+- A file or branch name with `login` in it is not taken for a login, words in a link don't pick a skill, the contrast note reads Tailwind v4 colours, and a test that timed out in the middle of a long run asks instead of starting a repair
+
+**Steps under the AI's words.** The AI's words lead with `●` and sit two columns in. A code block stays at the
+left edge, full width, so it still copies clean. Your request shows again in bold on a bar: grey in the default
+theme, white in `light`, none in `high-contrast`. A theme file sets the bar with `userBg` (`default` or `dim` means
+no bar), and a theme file without `userBg` gets the grey bar. One blank row sits between blocks, never two. Each
+step ticks in under the words that led to it. When the AI's next words come, the steps fold into one row that
+names what was done: `└ read AGENTS.md · ran git status, bun test (2m05s)` (a command that ran 10 s or more says
+how long). The edits go in one box, `Edited 2 files`, with a short diff: ten rows at most, then
+`… 11 more lines · Ctrl+T shows all`. A failed step gets a box with its line as the title
+(`✗ bash · git push — failed`) and the last lines it printed, with secrets hidden and your home folder as `~`.
+Ctrl+T shows the last box in full. A file written whole has no diff to show: when no other edit in the group has
+one, there is no box and the row names it (`edited new.py`). `/details quiet` shows only what failed or did not
+run, and `/details detailed` shows every step and each edit's whole diff. Inside tmux or with an iTerm2 split, the
+steps still show in the side pane; the main screen now also keeps the status row, the row they fold into and the
+boxes. Plain terminals, pipes and `--json` still print one line per step.
+
+**One status row.** The Working box is gone. While work runs, one row above the prompt says what Casper is doing
+and that Esc stops it: `Running bun test · 4s · Esc stops`. It steps aside while a question or a picker waits for
+you. A script names its programs (`git rev-parse, git log, git diff`), and a heredoc says how long it is
+(`python3 script (12 lines)`). An open question's top border says who asks: `── Approval ──` for Casper's
+approvals, `── Question ──` for the AI's questions, and `── Choose ──` for Casper's own pickers.
+
+**A shorter receipt.** A warning to act on, marked `⚠`, comes right after the verdict, such as
+`⚠ Not proven: …`. A secret in a command now gets `⚠` too:
+`⚠ A secret appeared in a command; change it after this task.` Two notes are about the session, not the task: the
+sandbox being off, and `Changes unknown: not a project folder (…)`. The first receipt of a session says them in
+full. Later receipts say them in one line, such as `– Same as before: not sandboxed (/receipt)`. A note is said in
+full again when its reason changes. `/receipt`, `--verbose` and `--json` always say every note in full.
+
+**The sandbox is off unless you turn it on.** Where you type to Casper, the shell sandbox now starts off. Until you
+turn it on, the AI's shell asks before each command that changes something (`Run this command?`; reads like `ls`
+don't ask), and a write outside the project asks first. Your checks, services and dev servers run with your own
+permissions, and checks still run without asking: for code you don't trust, turn the sandbox on or use
+`--no-verify`. A command you say yes to runs with your own permissions too. When it is off, the banner and
+`/status` say
+`not sandboxed (off unless you turn it on: /sandbox on) · Casper asks before AI shell commands that change things`,
+and the receipt says
+`Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or sandbox: on in ~/.casper/config.yaml)`.
+`sandbox: on` in `~/.casper/config.yaml` turns it on for every session, `/sandbox on` turns it on until Casper
+exits, and `/sandbox off` turns it off again. A `sandbox:` block that only lists hosts, folders or `checks` does
+not turn it on: add `enabled: true` to it to keep the sandbox you had. While it is off by default, `/sandbox off`
+changes nothing and the shell keeps asking: `The sandbox is already off: it is off unless you turn it on. Casper
+asks before shell commands that change things.` To stop the questions without the sandbox, use `/permissions all`,
+`sandbox: off` or `--no-sandbox`.
+
+**Where the sandbox stays on.** A one-shot or `--json` run can't ask, so it keeps the sandbox where one can run,
+and so do `casper security` and `casper mcp check`. Casper's network server keeps its own sandbox where one can
+run, also after `/sandbox off`; only `sandbox: off` or `--no-sandbox` turns that off. After `/sandbox on`,
+`/sandbox off` works as in v0.2.30: commands run with your own permissions without asking. While the sandbox is off
+by default and the shell asks, the AI starts no builders, and a `/crew` builder's commands that change things are
+refused, since a builder can't ask; `/sandbox on` brings them back. `casper doctor` says
+`Sandbox: off unless you turn it on (sandbox: on in ~/.casper/config.yaml, or /sandbox on); it can run here`, and a
+missing bubblewrap is a note, not something to fix, until you turn the sandbox on. Windows is unchanged.
+
+**Pi 1.1.0.** Casper now runs on Pi 1.1.0, up from 0.87.0. `/model` adds Claude Sonnet 5.5 and Claude Haiku 5.5
+under `anthropic` (and under `claude-subscription`, as `Claude Haiku 5.5 (Claude subscription)`), and GPT-6.1 Sol
+under `openai`, `openai-codex` and `github-copilot`. When a provider says it is busy or at capacity, Pi now tries
+again, with the usual line `– Can't reach <provider> · trying again in 4s (1 of 3) · Esc stops`. Before, the turn
+ended. `/login anthropic` with **Anthropic (Claude) · sign in with your browser** works as before: Pi now asks
+whether to use the browser or copy a code, and Casper picks the browser for you. You can still paste the code or
+redirect URL. The AI's shell commands and Casper's checks no longer see the variables for Anthropic's federation
+sign-in (`ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID`,
+`ANTHROPIC_IDENTITY_TOKEN_FILE`, `ANTHROPIC_WORKSPACE_ID`) or `TYPESAFE_API_KEY`, and `casper doctor` lists them on
+its `Sign-in:` line. Pi renamed the `azure-openai-responses` provider to `azure`, so pick a remembered Azure model
+again in `/model`.
+
+**Opus 5.5 and new Claude models with a Claude plan.** With a Claude plan sign-in (`/login anthropic`, then
+**Anthropic (Claude) · sign in with your browser**), each request names a Claude Code version, and Anthropic
+refuses newer models to an old one. Casper 0.2.30 named 2.1.251, so Opus 5.5 was refused:
+`Claude Code 2.1.251 does not support this model; version 2.1.280 or newer is required`. Requests now name 2.1.280,
+so Opus 5.5 works. When Claude Code is installed on this computer and is newer, Casper names the installed one, so
+a new model works once Claude Code knows it, with no new Casper. Casper asks `claude --version` (`claude.exe` on
+Windows) once a run, at the first such request, and waits at most 3 seconds; `CASPER_CLAUDE_PATH` names the program
+when it is not on your PATH. Casper's own one-off calls (the checklist, `/btw` answers) still name 2.1.280. An API
+key and `claude-subscription` were never affected.
+
+**`/model` opens on the providers.** `/model` now opens on the providers on the left: `All models`, then each
+provider. Up/Down there picks whose models show, and each provider starts at its first model. Enter, Tab or Right
+moves to the list, and Tab goes back. Typing searches from either side, and Esc cancels from either side with one
+press. Ctrl+S on the providers picks the list's marked row for this session only. The line under the list shows
+the keys for the side you are on, such as `Up/Down providers · Enter or Tab models · type to search · Esc cancels`
+on the left. Picking from a plain `/model` takes one more key, since Enter on the providers moves to the list. When
+`/model <words>` opens the picker, it still opens on the list, already searched, so Enter picks at once.
+
+**Network server 0.1.3.** Casper now ships with casper-network-mcp 0.1.3 and its hash lock. Setting it up says
+`Casper can set up its network server (casper-network-mcp 0.1.3, about 60 MB from pypi.org, installed with uv into ~/.casper/tools).`
+If Casper set up 0.1.2 for you, your first request in a session asks
+`Casper's network server has an update (0.1.2 → 0.1.3, about 60 MB from pypi.org).` with `1 Not now · 2 Update it`,
+even with **Network server updates** off, because 0.1.3 is now the version Casper ships with. `/mcp` shows
+`network: update ready (0.1.2 → 0.1.3) — /mcp setup network`. If you already took 0.1.3 from the daily offer,
+nothing changes. If you said Not now to it, Casper doesn't ask again at start, and `/mcp setup network` still
+updates it.
+
+**Smaller fixes.** A file or branch name with `login`, `sign-in` or `account` inside it (`tests/login.test.ts`,
+`fix/login-expired`) no longer hides the next name as a password or makes the receipt say a secret appeared in a
+command; `login admin / <secret hidden>` is still hidden. Words inside a link in your request (`https://…`,
+`github.com/owner/repo`) no longer pick one of your skills, or a project's or a pack's: a repository named
+`casper-network-mcp` doesn't load a skill tagged `mcp`, while `the mcp server` written out still does. The page
+check's contrast note now reads colours written as `oklch()`, `lab()` or `color(display-p3 …)`, so faint text in
+Tailwind v4's palette is reported (`1 text item has very low contrast (1.6:1)`), and text on an `oklch` background
+is measured against that background, not the page behind it. A test that hit its own time limit is now found
+anywhere in a check's output, not only in the start and end Casper keeps, so a long run with the timeout in the
+middle asks `1 Stop · 2 Retry · 3 Fix it anyway` instead of starting a repair. For contributors, the fetched-pack
+tests are one test per case, so a busy machine no longer times them out.
 
 ## v0.2.30: Claude through your Claude Code sign-in, pages the AI makes, and fewer wasted repairs
 

@@ -36,20 +36,20 @@ Casper itself is free and open source. A task spends money only with your own mo
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.30/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.31/install.sh | sh
 ```
 
 Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.30/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.31/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
 [release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.2.30**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.30`,
+if anything is wrong. These commands pin **v0.2.31**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.31`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 Use the one-line command above rather than downloading a program in your browser: the installer
@@ -83,7 +83,7 @@ From the shell:
 ```sh
 casper "Explain this project"
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.2.30 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.2.31 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
@@ -173,8 +173,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 
 ## What's new
 
-v0.2.30: Claude models through the Claude Code signed in on this computer (`claude-subscription`), pages the AI makes in your browser when seeing beats reading (`/pages`), a check the sandbox blocked or a test that timed out asks you instead of starting repairs, `/sandbox off` for a session, `/model opus 5.5` by name in words, a `/plan` you can read, and network server updates between Casper releases.
-[Release notes](docs/RELEASE.md#v0230-claude-through-your-claude-code-sign-in-pages-the-ai-makes-and-fewer-wasted-repairs) ·
+v0.2.31: the AI's steps tick in under its words and fold into one row that names what was done (edits and failures get a box), one status row above the prompt says what runs and that Esc stops it, the shell sandbox is off unless you turn it on (`sandbox: on`, `/sandbox on`), so the AI's shell asks first and checks run with your own permissions, Pi 1.1.0 brings Claude Sonnet 5.5, Claude Haiku 5.5 and GPT-6.1 Sol, a Claude plan sign-in works with Opus 5.5 (and with newer models once the Claude Code installed here knows them), `/model` opens on the providers, and the network server is 0.1.3.
+[Release notes](docs/RELEASE.md#v0231-steps-under-the-ais-words-the-sandbox-off-unless-you-turn-it-on-and-pi-110) ·
 [Roadmap](https://choaterboater.github.io/casper/roadmap.html).
 
 ## Contributing
