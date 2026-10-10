@@ -649,7 +649,8 @@ Vite's and Next.js's, or Streamlit's in-page exception. Streamlit shows app exce
 the console, so Casper also reads the traceback the Streamlit server logs while the page loads. A
 failing page is the receipt's first line (`✗ Failed — /dashboard has 2 console errors`) and goes to the
 repair as page evidence (the console text, the error line and the server's last log lines, bounded and
-with secrets hidden); the pages are planned and opened again after each repair. A page that loads says
+with secrets hidden; for a page that doesn't fit a phone, its width and the squashed fields); the pages are
+planned and opened again after each repair. A page that loads says
 **loads**, never "works": a pass never makes a change **Verified**. With only page checks, the receipt
 says `– Checks passed — not proven: pages load, but no test fails without the change`; without Chrome it
 says `pages answer, but their console was not checked` instead.

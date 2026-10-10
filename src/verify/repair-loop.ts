@@ -117,7 +117,9 @@ function pageEvidence(pages: PageReport): unknown {
     server: { label: pages.server.label, origin: pages.server.origin },
     pages: pages.pages.filter((page) => page.status === "fail").map((page) => ({ path: page.path, httpStatus: page.httpStatus,
       consoleErrors: page.consoleErrors.slice(0, 10), failedRequests: page.failedRequests.slice(0, 10),
-      ...(page.overlay ? { overlay: page.overlay } : {}), ...(page.serverError ? { serverError: page.serverError } : {}) })),
+      ...(page.overlay ? { overlay: page.overlay } : {}), ...(page.serverError ? { serverError: page.serverError } : {}),
+      // A page that fails only at phone width: how wide it is and which fields are squashed, so the repair knows why.
+      ...(page.phone ? { phone: page.phone } : {}) })),
     ...(pages.logTail ? { logTail: pages.logTail.slice(-2048) } : {}),
   };
 }
