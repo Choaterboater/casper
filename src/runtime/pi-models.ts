@@ -13,6 +13,7 @@ import { openRouterRequestHeaders } from "./openrouter-attribution";
 import { compactionReserveFor, smallWindowWarning } from "./small-window";
 import { lockBusy } from "../platform/files";
 import { LOCAL_SERVERS, type LocalDiscovery } from "./local-models";
+import { CLAUDE_SUBSCRIPTION } from "./claude-subscription";
 
 type Selection = { reference?: ModelReference; source: "conversation" | "default" | "none"; role?: string; effort?: string; auto?: RuntimeStatus["autoEffort"] };
 type Settings = ReturnType<SettingsManager["getGlobalSettings"]>;
@@ -65,6 +66,7 @@ const KEY_VARIABLES: Record<string, string> = {
 
 /** What to do when the model's provider has no sign-in: its real name, its /login and its key variable. */
 export function missingSignIn(provider: string, baseUrl?: string): string {
+  if (provider === CLAUDE_SUBSCRIPTION) return "Claude subscription needs native Claude Code installed and signed in to a Pro, Max, Team or Enterprise plan on this OS. Sign in using Claude Code, then restart Casper.";
   if (baseUrl && !SIGN_IN_NAMES[provider] && !KEY_VARIABLES[provider]) return `${provider} at ${baseUrl} needs an apiKey line in models.json (any text works for a local server).`;
   const name = SIGN_IN_NAMES[provider];
   const variable = KEY_VARIABLES[provider];
@@ -397,9 +399,9 @@ export class PiModels {
       ? this.catalog.getModel(reference.provider, reference.id) : undefined;
     const stale = reference && this.staleAuth.has(reference.provider);
     const auth = stale ? "unknown" : reference ? this.catalog.hasConfiguredAuth(reference.provider) ? "configured" : "missing" : "unknown";
-    // Claude sign-in is per-token extra usage (see pi-auth), so only other subscription sign-ins count.
+    // The SDK transport uses Claude Code's plan login; direct Anthropic OAuth is a separate route.
     const billing = !reference || auth !== "configured" ? undefined
-      : reference.provider !== "anthropic" && this.catalog.isUsingSubscription(reference.provider) ? "subscription" : "per-token";
+      : reference.provider === CLAUDE_SUBSCRIPTION || (reference.provider !== "anthropic" && this.catalog.isUsingSubscription(reference.provider)) ? "subscription" : "per-token";
     const blocked = !reference ? "No Casper model selected. Use /model to choose one, or /login to sign in."
       : stale ? "Credential state needs local refresh. Restart Casper before using this provider; do not repeat login blindly."
       : !model ? `Model ${reference.provider}/${reference.id} is unavailable. Use /model to choose another; no fallback was selected.`
