@@ -119,11 +119,23 @@ const A11Y_NOTES = (): A11yFindings => {
       .map(child => child.getAttribute("alt") ?? child.getAttribute("aria-label") ?? child.textContent).some(value => text(value));
     return !text((button as HTMLElement).innerText ?? button.textContent) && !ariaName(button) && !inner;
   }).length;
+  let paint: OffscreenCanvasRenderingContext2D | null | undefined;
+  /** A computed color as sRGB and alpha. Chrome keeps oklch(), lab() and color(display-p3 ...) as they are (Tailwind
+   * v4's palette is oklch), so anything but rgb() is painted on one pixel and read back. */
   const rgba = (value: string): [number, number, number, number] | undefined => {
     const match = /rgba?\(([\d.]+)[, ]+([\d.]+)[, ]+([\d.]+)(?:[,/ ]+([\d.]+%?))?\)/.exec(value);
-    if (!match) return undefined;
-    const alpha = match[4] === undefined ? 1 : match[4].endsWith("%") ? parseFloat(match[4]) / 100 : parseFloat(match[4]);
-    return [Number(match[1]), Number(match[2]), Number(match[3]), alpha];
+    if (match) {
+      const alpha = match[4] === undefined ? 1 : match[4].endsWith("%") ? parseFloat(match[4]) / 100 : parseFloat(match[4]);
+      return [Number(match[1]), Number(match[2]), Number(match[3]), alpha];
+    }
+    paint ??= new OffscreenCanvas(1, 1).getContext("2d", { willReadFrequently: true });
+    if (!paint) return undefined;
+    paint.clearRect(0, 0, 1, 1);
+    paint.fillStyle = "transparent";
+    paint.fillStyle = value;
+    paint.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = paint.getImageData(0, 0, 1, 1).data;
+    return [r!, g!, b!, a! / 255];
   };
   const luminance = ([r, g, b]: number[]) => {
     const channel = (value: number) => { const c = value / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };

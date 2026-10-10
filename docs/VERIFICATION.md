@@ -664,8 +664,9 @@ panel, a token on screen) the way it hides one in text.
 **Accessibility notes.** New in v0.2.23. While a page is open at desktop width, Casper also counts a
 few common misses with its own small rules (no third-party script): images with no `alt` (`alt=""`
 is fine for decoration), fields with no label (a placeholder is not a label), buttons with no name,
-text below 3:1 contrast against its background, and a page with no `lang`. They show as one note
-under the page line and never fail the page or start a repair:
+text below 3:1 contrast against its background (in any CSS colour, Tailwind v4's `oklch()` too),
+and a page with no `lang`. They show as one note under the page line and never fail the page or
+start a repair:
 
 ```text
 ✓ /signup loads · 0 console errors
