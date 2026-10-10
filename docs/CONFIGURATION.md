@@ -569,13 +569,23 @@ on this computer:
 | llama.cpp (`llama-server`) | `llama.cpp` | `http://127.0.0.1:8080` | `LLAMA_CPP_BASE_URL` or `LLAMA_BASE_URL` |
 | vLLM | `vllm` | `http://127.0.0.1:8000/v1` | `VLLM_BASE_URL` |
 
-- **When.** In the background from the start, so the start never waits for it (one server's look stops
-  after 0.8 s), and again each time you open `/model`, so a model you just pulled appears there. Only a
-  start whose saved model is a found server's waits for the look. Helpers use what the main session found.
-- **Nothing signed in?** A found server counts: the start doesn't say "not signed in", and your first
-  request picks the first model found (Ollama's first) and saves it as your default. `/model` picks another.
+- **When.** In the background from the start, so the start never waits for it, and again each time you
+  open `/model`, so a model you just pulled appears there. Each server is looked at on its own: one on this
+  computer gets 0.8 s, one on another computer 10 s, and a slow one never holds up the others. Only a start
+  whose saved model is a found server's waits, and only for that server. Helpers use what the main session found.
+- **Looked for again.** A model you ask for by name (`/model ollama/qwen3:8b`), a `/model` with nothing to
+  list, and a request on a saved model whose server didn't answer at the start (a VPN not up yet, a
+  computer asleep) each look once more before they give up, when the last look ended over 15 seconds ago
+  (one that just timed out isn't repeated at once).
+- **Nothing signed in?** A server found on this computer counts: the start doesn't say "not signed in", and
+  your first request picks the first model found (Ollama's first) and saves it as your default. A server on
+  another computer is never picked for you, and doesn't count as signed in: `/model` picks it. A saved model
+  name (`ollama/qwen3:8b`) goes to wherever the variable points when Casper starts.
 - **Quiet when absent.** A server that isn't running is skipped without a word. If you set its variable
-  and nothing answers there, Casper says so once, at your first request.
+  and nothing answers there, Casper says why in plain words: it didn't answer in time, refused the
+  connection, asked for a key, couldn't be found by that name, isn't that kind of server, tried to send
+  Casper elsewhere, or has a certificate this computer doesn't trust. It says so once at your first request,
+  under the header in `/model`, in `casper doctor`, and as the reason a saved model is unavailable.
 - **The model name** is the provider name, a slash and the server's own id: `ollama/qwen3:8b`,
   `lm-studio/qwen2.5-coder-7b`. Use it with `casper --model ollama/qwen3:8b` or `/model`.
 - **Context window.** Casper reads it where the server tells: for Ollama a loaded model's window, else a
@@ -585,9 +595,27 @@ on this computer:
 - **Embedding models** (`nomic-embed-text` and the like) are left out: they can't chat.
 - **No key leaves for it.** A found server is sent the word `local` as its key, and nothing else: keys
   are kept per provider, so no other provider's key is ever sent to it. The look itself sends no key.
+- **No redirects.** A found server that answers a request with a redirect gets an error, not a second
+  request: your conversation is never sent on to another address. (A provider you set up in `models.json`
+  is not covered by this.)
 - **Off switch.** `/settings` **Local models** (it writes `localModels: false` in `~/.casper/config.yaml`;
   a project file can't change it). A change applies from the next start. `CASPER_LOCAL_MODELS=off` in the
   environment does the same for one run (a script or CI).
+
+**A server on another computer.** Point the server's variable at that computer, in the shell that starts
+Casper: `OLLAMA_HOST=192.0.2.10` (the usual port is added), `LM_STUDIO_BASE_URL=http://192.0.2.10:1234`,
+`LLAMA_CPP_BASE_URL=…` or `VLLM_BASE_URL=…`. A server on this computer of the same kind is then not looked
+for. Most servers only listen on their own computer at first, so on *that* computer:
+
+- Ollama: `OLLAMA_HOST=0.0.0.0 ollama serve` (there `0.0.0.0` means "listen on the network"; on the computer
+  running Casper it means "this computer", so don't copy it across).
+- LM Studio: turn on **Serve on Local Network** in its server settings.
+- llama.cpp: `llama-server --host 0.0.0.0`; vLLM: `vllm serve <model> --host 0.0.0.0`.
+- Let the computer running Casper through that computer's firewall, on the server's port.
+
+These servers have no password by default, so open them only on a network you trust. Plain `http` on a
+home network or Wi-Fi can be read by others on that network; Tailscale or `https` keeps it private. If
+nothing answers, `/model` and `casper doctor` say why and repeat these lines.
 
 **Your models.json still works, and wins.** A provider you set up yourself in `models.json` with the
 same name (`ollama`), or one that points at the same address under another name, is used as you wrote

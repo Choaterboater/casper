@@ -311,17 +311,21 @@ test("version: a Windows update that did not finish is a failure line with the l
   expect(lines[1]).toMatchObject({ status: "note", fix: "update" });
 });
 
-test("sign-in: a model server found on this computer counts; a variable pointing at nothing is a note; localModels false looks for none", async () => {
-  const { localModelDefaults } = await import("../src/runtime/local-models");
+test("sign-in: a model server found on this computer counts; a variable pointing at nothing is a note, with what to set there; localModels false looks for none", async () => {
+  const { localModelDefaults, SERVER_SIDE_TIP } = await import("../src/runtime/local-models");
   const saved = localModelDefaults.discover;
   let looked = 0;
+  const text = "vLLM at http://192.0.2.7:8000 (VLLM_BASE_URL) refused the connection (nothing is listening on that port).";
   localModelDefaults.discover = async () => { looked++; return { servers: [{ provider: "ollama", name: "Ollama", baseUrl: "http://127.0.0.1:11434/v1", models: [{ id: "qwen3:8b" }] }],
-    problems: ["VLLM_BASE_URL is set (http://192.0.2.7:8000) but no vLLM answered there; its models are not in /model."] }; };
+    problems: [{ provider: "vllm", root: "http://192.0.2.7:8000", cause: "refused", text }] }; };
   try {
     const dir = await home();
     expect(await checkSignIn(context(dir))).toEqual([{ status: "ok", text: "Sign-in: ollama (found on this computer)" },
-      { status: "note", text: "VLLM_BASE_URL is set (http://192.0.2.7:8000) but no vLLM answered there; its models are not in /model." }]);
+      { status: "note", text }, { status: "note", text: SERVER_SIDE_TIP }]);
     expect(await checkSignIn(context(dir), false)).toEqual([{ status: "fail", text: "No model sign-in", next: "run casper and type /login, or start a model server such as Ollama" }]);
     expect(looked).toBe(1);
+    // One on another computer is named by where it is: requests go over the network there.
+    localModelDefaults.discover = async () => ({ servers: [{ provider: "ollama", name: "Ollama", baseUrl: "http://192.0.2.10:11434/v1", models: [{ id: "qwen3:8b" }] }], problems: [] });
+    expect(await checkSignIn(context(dir))).toEqual([{ status: "ok", text: "Sign-in: ollama (at http://192.0.2.10:11434)" }]);
   } finally { localModelDefaults.discover = saved; }
 });

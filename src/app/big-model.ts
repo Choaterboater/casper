@@ -42,9 +42,14 @@ export async function ensureModel(app: CasperApp, session: RuntimeSession): Prom
   if (!status.provider) {
     if (await pickDefault()) return true;
     if (canSignIn && !signal?.aborted) {
+      for (const line of session.localProblems?.() ?? []) app.output.write(`[model] ${terminalText(line)}\n`);
       app.output.write("[model] No model yet. Sign in to a provider to start; Esc cancels.\n");
       if (await runLogin(app, undefined, true) && await pickDefault()) return true;
     }
+  } else if (await session.findModelAgain?.({ signal }).catch(() => false)) {
+    // Its server didn't answer at start (a VPN not up yet, a box asleep) and does now.
+    updateFooter(app);
+    return true;
   } else if (status.auth === "missing" && canSignIn && !signal?.aborted) {
     const provider = LOGIN_PROVIDERS.find((id) => id === status.provider);
     if (provider) {

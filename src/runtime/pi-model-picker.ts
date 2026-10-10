@@ -9,8 +9,9 @@ type Pick = { provider: string; id: string; persist: boolean };
 
 export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime, current: AgentSession["model"],
   defaultModel: { provider: string; id: string } | undefined, query: string | undefined, signal?: AbortSignal, sessionOnly = false,
-  /** Runs before each catalog refresh: the local model servers are probed again (src/runtime/local-models.ts). */
-  beforeRefresh?: (signal?: AbortSignal) => Promise<void>): Promise<Pick | undefined> {
+  /** Looks for the local model servers again (src/runtime/local-models.ts), next to the catalog refresh; resolves
+   * with why the ones Casper was told about aren't there. */
+  refreshLocal?: (signal?: AbortSignal) => Promise<string[]>): Promise<Pick | undefined> {
   signal?.throwIfAborted();
   const previousBindings = getKeybindings();
   setKeybindings(new KeybindingsManager({ ...TUI_KEYBINDINGS,
@@ -40,9 +41,10 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
         const error = target.getError();
         return error === undefined ? undefined : terminalText(error);
       };
+      if (key === "refreshLocal") return refreshLocal && (async (options?: { signal?: AbortSignal }) =>
+        (await refreshLocal(options?.signal)).map((line) => terminalText(line).replace(/\s+/g, " ")));
       if (key === "refresh") return async (options: Parameters<ModelRuntime["refresh"]>[0]) => {
         try {
-          await beforeRefresh?.(options?.signal).catch(() => undefined);
           // The browser shows freshness status and keeps cached rows on failure, so live
           // catalog refresh (new provider models) is safe here, unlike startup paths. No
           // allowNetwork override: Pi's default fetches unless PI_OFFLINE is set.

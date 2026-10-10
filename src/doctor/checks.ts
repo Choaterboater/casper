@@ -22,7 +22,7 @@ import { SECURITY_TOOL_ORDER, type SecurityToolId } from "../security/types";
 import { packThemes } from "../packs/themes";
 import { BUILT_IN_THEMES, themeNote } from "../tui/theme";
 import { lastUpdateFailure, updateFailureLines } from "../update/handoff-log";
-import { localModelDefaults } from "../runtime/local-models";
+import { localModelDefaults, onThisComputer, SERVER_SIDE_TIP, wantsServerTip } from "../runtime/local-models";
 import { compareVersions, defaultRunner, lookUpNewest, type Fetcher, type Install, type ProcessRunner } from "../update/command";
 import { jsonErrorPosition } from "./json-position";
 
@@ -261,11 +261,15 @@ export async function checkSignIn(ctx: DoctorContext, localModels = true): Promi
   const fromEnv = Object.keys(ctx.env).filter((name) => ctx.env[name] && isModelProviderKeyName(name)).sort();
   if (fromEnv.length) signedIn.push(...fromEnv.map((name) => `$${name}`));
   const found = localModels ? await localModelDefaults.discover({ env: ctx.env }).catch(() => undefined) : undefined;
-  const servers = found?.servers.filter((server) => server.models.length && !custom.includes(server.provider)).map((server) => server.provider) ?? [];
-  if (servers.length) signedIn.push(`${servers.join(", ")} (found on this computer)`);
+  const servers = found?.servers.filter((server) => server.models.length && !custom.includes(server.provider)) ?? [];
+  const here = servers.filter((server) => onThisComputer(server.baseUrl)).map((server) => server.provider);
+  if (here.length) signedIn.push(`${here.join(", ")} (found on this computer)`);
+  // One a variable points at on another computer: name where, since requests go over the network there.
+  for (const server of servers.filter((entry) => !onThisComputer(entry.baseUrl))) signedIn.push(`${server.provider} (at ${server.baseUrl.replace(/\/v1$/, "")})`);
   if (signedIn.length) lines.unshift(ok(`Sign-in: ${signedIn.join(", ")}`));
   if (!lines.length) lines.push(fail("No model sign-in", "run casper and type /login, or start a model server such as Ollama"));
-  return [...lines, ...(found?.problems ?? []).map((problem) => note(problem))];
+  const problems = found?.problems ?? [];
+  return [...lines, ...problems.map((problem) => note(problem.text)), ...problems.some(wantsServerTip) ? [note(SERVER_SIDE_TIP)] : []];
 }
 
 // --- MCP servers ---

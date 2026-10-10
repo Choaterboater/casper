@@ -389,7 +389,11 @@ Each row names the test that fails without it.
   A model that runs on your own computer ([Local models](CONFIGURATION.md#local-models)) sends nothing
   off it, unless that server forwards requests elsewhere (such as Ollama's `:cloud` models). To find
   one, Casper asks the usual local addresses (127.0.0.1) for a model list, with no key; a variable such
-  as `OLLAMA_HOST` that points at another machine is asked instead. `localModels: false` stops it.
+  as `OLLAMA_HOST` that points at another machine is asked instead, and then your requests go to that
+  machine (over the network as it is: plain `http` is not encrypted). A found server is never sent a
+  provider's key, and a redirect from it is refused, never followed, so the conversation can't be passed
+  on to another address. Casper never picks a server on another machine as your first model; a model
+  you saved (`ollama/…`) goes wherever that variable points now. `localModels: false` stops the looking.
 - **Some things look like walls and are not.** Worktrees, read-only agent roles and connection prompts
   do not isolate anything at the OS level.
 - **No hard spending cap.** Casper shows what a task spends, and `spend.pauseAt` pauses a task at a

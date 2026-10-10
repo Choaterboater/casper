@@ -12,7 +12,7 @@ import { anyModelMatches } from "./pi-model-browser";
 import { openRouterRequestHeaders } from "./openrouter-attribution";
 import { compactionReserveFor, smallWindowWarning } from "./small-window";
 import { lockBusy } from "../platform/files";
-import { LOCAL_SERVERS, type LocalDiscovery } from "./local-models";
+import { isLocalProvider, lastLocalLook, LOCAL_SERVERS, localModelDefaults, onThisComputer, SERVER_SIDE_TIP, wantsServerTip, type LocalDiscovery, type LocalProblem } from "./local-models";
 import { CLAUDE_SUBSCRIPTION } from "./claude-subscription";
 
 type Selection = { reference?: ModelReference; source: "conversation" | "default" | "none"; role?: string; effort?: string; auto?: RuntimeStatus["autoEffort"] };
@@ -200,7 +200,11 @@ export class PiModels {
   /** The model an exact id (any in the catalog) or loose words (the signed-in ones) name, without selecting it. */
   async matchWords(words: string, session: AgentSession, options: RuntimeModelWordsOptions = {}): Promise<RuntimeModelWordsMatch> {
     // A model on a server found on this computer may still be on its way into the catalog.
-    if (options.wait !== false) await this.localWhen(() => this.unresolved(words) && matchModelWords(words, this.catalog.getAvailableSnapshot()).kind === "none");
+    // Only words that name a local server (ollama/…) wait for it, and look again: an ordinary line ("use node 20") waits
+    // at most for the servers on this computer, never for one far away.
+    const local = PiModels.localProvider(words);
+    if (options.wait !== false) await this.localWhen(() => this.unresolved(words) && matchModelWords(words, this.catalog.getAvailableSnapshot()).kind === "none",
+      local ? { provider: local, again: true } : { here: true });
     try {
       const { reference } = resolveModelSelection(words, this.catalog.getModels(), this.getRoles(), this.defaultReference());
       if (this.catalog.getModel(reference.provider, reference.id)) return { kind: "one", model: reference };
@@ -298,25 +302,79 @@ export class PiModels {
     if (Object.keys(overrides).length) settingsManager.applyOverrides({ compaction: { modelOverrides: overrides } });
   }
 
-  private localRefresh?: (signal?: AbortSignal) => Promise<void>;
+  private localRefresh?: (signal?: AbortSignal) => Promise<LocalDiscovery>;
   private localReady?: Promise<unknown>;
-  private localFound = false;
-  private localProblems: string[] = [];
+  private localSettled?: (provider?: string) => Promise<void>;
+  /** The first look's problems, shown once at the first request after it. */
+  private localProblems: LocalProblem[] = [];
+  /** The latest problem per server, from every look: the reason in "unavailable" and in /model. */
+  private problemFor = new Map<string, LocalProblem>();
+  /** Problems a blocked request already gave as its reason: the first-request notice doesn't repeat them. */
+  private shownProblems = new Set<string>();
   /** Local model servers (src/runtime/local-models.ts): `ready` settles once the background probe has added them,
-   * `refresh` probes again when /model opens, and the problems found (a variable set to a server that did not
-   * answer) show once, at the first request after the probe. */
-  useLocalServers(ready: Promise<LocalDiscovery>, refresh?: (signal?: AbortSignal) => Promise<void>): void {
-    this.localRefresh = refresh;
-    this.localReady = ready.then((found) => { this.localFound = found.servers.length > 0; this.localProblems = [...found.problems]; }, () => undefined);
+   * `refresh` probes again (when /model opens, or a model asked for by name isn't there), `settled` waits for one
+   * server's look (no provider: the ones on this computer). Problems (a variable set to a server that did not answer)
+   * show once, at the first request after the probe, and as the reason a model is unavailable. */
+  useLocalServers(local: { ready: Promise<LocalDiscovery>; refresh?: (signal?: AbortSignal) => Promise<LocalDiscovery>; settled?: (provider?: string) => Promise<void> }): void {
+    this.localRefresh = local.refresh && (async (signal) => { const found = await local.refresh!(signal); this.noteProblems(found); return found; });
+    this.localSettled = local.settled;
+    this.localReady = local.ready.then((found) => { this.localProblems = [...found.problems]; this.noteProblems(found); }, () => undefined);
+  }
+  private noteProblems(found: LocalDiscovery): void {
+    for (const server of found.servers) this.problemFor.delete(server.provider);
+    for (const problem of found.problems) this.problemFor.set(problem.provider, problem);
   }
   localNotice(): string | undefined {
-    const message = this.localProblems.join(" ");
+    // Only problems still true now: a server found again since (a box that woke up) isn't reported.
+    const problems = this.localProblems.filter((problem) => this.problemFor.get(problem.provider) === problem && !this.shownProblems.has(problem.text));
     this.localProblems = [];
-    return message || undefined;
+    if (!problems.length) return undefined;
+    return [...problems.map((problem) => `${problem.text} Its models aren't in /model.`), ...problems.some(wantsServerTip) ? [SERVER_SIDE_TIP] : []].join(" ");
   }
-  /** Waits for the local servers only when `missing` says a model the caller needs is not in the catalog yet. */
-  private async localWhen(missing: () => boolean): Promise<void> {
-    if (this.localReady && missing()) await this.localReady;
+  /** A blocked message carrying a server's reason was shown: the first-request notice doesn't say it again. */
+  blockedShown(blocked: string): void {
+    for (const problem of this.problemFor.values()) if (blocked.includes(problem.text)) this.shownProblems.add(problem.text);
+  }
+  /** Why servers Casper was told about aren't in /model, one line each, then the tip for another computer once. */
+  serverProblems(): string[] {
+    const problems = [...this.problemFor.values()];
+    return [...problems.map((problem) => problem.text), ...problems.some(wantsServerTip) ? [SERVER_SIDE_TIP] : []];
+  }
+  /** Waits for the local servers only when `missing` says a model the caller needs is not in the catalog yet: for one
+   * provider's look when the caller knows it, for this computer's (`here`), else for all of them. With `again`, a
+   * model still missing after a look older than `staleMs` sends Casper looking once more. */
+  private async localWhen(missing: () => boolean, options: { provider?: string; here?: boolean; again?: boolean; signal?: AbortSignal } = {}): Promise<void> {
+    if (!this.localReady || !missing()) return;
+    await (this.localSettled && (options.provider || options.here) ? this.localSettled(options.provider) : this.localReady);
+    if (!options.again || !this.localRefresh || !missing()) return;
+    const at = lastLocalLook();
+    if (at !== undefined && Date.now() - at < localModelDefaults.staleMs) return;
+    options.signal?.throwIfAborted();
+    await this.localRefresh(options.signal).catch(() => undefined);
+  }
+  /** The provider part of a `provider/id` selector, when it names a local server. */
+  private static localProvider(query: string): string | undefined {
+    const slash = query.indexOf("/");
+    const provider = slash > 0 ? query.slice(0, slash).trim().toLowerCase() : undefined;
+    return isLocalProvider(provider) ? provider : undefined;
+  }
+  /** A request is about to run on a model that isn't in the catalog (its server didn't answer at start: a VPN not up
+   * yet, a box asleep): look once more, and when it is there now, use it. True when the model is ready. */
+  async findModelAgain(session: AgentSession, signal?: AbortSignal): Promise<boolean> {
+    const selection = this.selections.get(session);
+    const reference = selection?.reference;
+    if (!selection || !reference || !isLocalProvider(reference.provider)) return false;
+    if (session.model?.provider === reference.provider && session.model.id === reference.id) return false;
+    const missing = () => !this.catalog.getModel(reference.provider, reference.id);
+    await this.localWhen(missing, { provider: reference.provider, again: true, signal });
+    signal?.throwIfAborted();
+    const model = this.catalog.getModel(reference.provider, reference.id);
+    if (!model || this.staleAuth.has(model.provider) || !this.catalog.hasConfiguredAuth(model.provider)) return false;
+    // The same model the conversation (or the saved default) already chose: its role, effort and source stay as they
+    // were, and nothing new is recorded or saved.
+    await session.setModel(model, { persist: false });
+    if (selection.effort) this.applyEffort(session, selection.effort, true);
+    return true;
   }
   /** Whether `query` names no model in the catalog now (it may be a found server's, still being probed). */
   private unresolved(query: string): boolean {
@@ -354,11 +412,11 @@ export class PiModels {
     this.shrinkCompactionReserve(settingsManager);
     const recorded = manager.buildSessionContext().model;
     // The model this start needs may be a found server's, still being probed: only then does the start wait for it.
-    await this.localWhen(() => {
-      if (!recorded && readOnly?.modelRole && this.getRoles()[readOnly.modelRole]) return this.unresolved(`@${readOnly.modelRole}`);
-      const wanted = recorded ? { provider: recorded.provider, id: recorded.modelId } : this.defaultReference(preferences);
-      return Boolean(wanted && !this.catalog.getModel(wanted.provider, wanted.id));
-    });
+    const wanted = recorded ? { provider: recorded.provider, id: recorded.modelId } : this.defaultReference(preferences);
+    // Only a model on a server Casper looks for is waited for, and only that server: a missing cloud model never waits.
+    const role = !recorded && readOnly?.modelRole && this.getRoles()[readOnly.modelRole] ? readOnly.modelRole : undefined;
+    await this.localWhen(() => role ? this.unresolved(`@${role}`) : Boolean(wanted && isLocalProvider(wanted.provider) && !this.catalog.getModel(wanted.provider, wanted.id)),
+      role ? { here: true } : { provider: wanted?.provider });
     const roles = this.getRoles();
     const routed = readOnly?.modelRole && roles[readOnly.modelRole]
       ? resolveModelSelection(`@${readOnly.modelRole}`, this.catalog.getModels(), roles, this.defaultReference(preferences)) : undefined;
@@ -404,7 +462,9 @@ export class PiModels {
       : reference.provider === CLAUDE_SUBSCRIPTION || (reference.provider !== "anthropic" && this.catalog.isUsingSubscription(reference.provider)) ? "subscription" : "per-token";
     const blocked = !reference ? "No Casper model selected. Use /model to choose one, or /login to sign in."
       : stale ? "Credential state needs local refresh. Restart Casper before using this provider; do not repeat login blindly."
-      : !model ? `Model ${reference.provider}/${reference.id} is unavailable. Use /model to choose another; no fallback was selected.`
+      : !model ? this.problemFor.has(reference.provider)
+        ? `Model ${reference.provider}/${reference.id} is unavailable: ${this.problemFor.get(reference.provider)!.text} Casper looks again when you ask after 15 seconds; /model picks another.`
+        : `Model ${reference.provider}/${reference.id} is unavailable. Use /model to choose another; no fallback was selected.`
       : auth === "missing" ? missingSignIn(reference.provider, keylessAddress(this.agentDir, reference.provider)) : undefined;
     const prices = model?.cost ? [model.cost.input, model.cost.output].filter((price) => typeof price === "number" && Number.isFinite(price)) : [];
     const priced = prices.length ? prices.some((price) => price > 0) : undefined;
@@ -505,7 +565,7 @@ export class PiModels {
     if (this.selecting) throw new Error("Model selection is in progress; wait before sending a request.");
     if (this.authenticating) throw new Error("Login is in progress; wait before sending a request.");
     const blocked = this.status(session).blocked;
-    if (blocked) throw new Error(blocked);
+    if (blocked) { this.blockedShown(blocked); throw new Error(blocked); }
   }
 
   /** `midRun`: the model is working; the new model takes its next step. */
@@ -522,7 +582,9 @@ export class PiModels {
       let from: string | undefined;
       if (options.query) {
         const query = options.query;
-        await this.localWhen(() => this.unresolved(query));
+        // Look again for a local server's model, or loose words; not for another provider's id (a cloud typo).
+        const local = PiModels.localProvider(query);
+        await this.localWhen(() => this.unresolved(query), { provider: local, again: Boolean(local) || !query.includes("/"), signal });
         signal.throwIfAborted();
         try { resolved = resolveModelSelection(query, this.catalog.getModels(), this.getRoles(), this.defaultReference()); }
         catch (error) {
@@ -560,10 +622,19 @@ export class PiModels {
       if (!model && options.picker) {
         signal.throwIfAborted();
         const picked = await options.picker.mount(view => pickPiModel(view, this.catalog,
-          this.status(session).blocked ? undefined : session.model, this.defaultReference(), options.query, signal, options.persist === false, this.localRefresh));
+          this.status(session).blocked ? undefined : session.model, this.defaultReference(), options.query, signal, options.persist === false,
+          this.localRefresh && (async (refreshSignal) => {
+            const { problems } = await this.localRefresh!(refreshSignal);
+            return [...problems.map((problem) => problem.text), ...problems.some(wantsServerTip) ? [SERVER_SIDE_TIP] : []];
+          })));
         signal.throwIfAborted();
         if (!picked) return { status: this.status(session), selected: false, savedDefault: false };
         model = this.catalog.getModel(picked.provider, picked.id); persist = options.persist === false ? false : picked.persist;
+      }
+      // Nothing to list: a model server may still be on its way, or have missed the first look.
+      if (!model && !options.picker && !this.catalog.getAvailableSnapshot().length) {
+        await this.localWhen(() => !this.catalog.getAvailableSnapshot().length, { again: true, signal });
+        signal.throwIfAborted();
       }
       if (!model) return { status: this.status(session), selected: false, savedDefault: false,
         models: this.catalog.getAvailableSnapshot().map(({ provider, id, name }) => ({ provider, id, name })) };
@@ -594,15 +665,19 @@ export class PiModels {
   }
 
   /** When no model is selected yet, pick one for a signed-in provider (`provider` first), else the first model of a
-   * server found on this computer, and save it as the default. Never replaces a model the user chose. Undefined when
-   * nothing was picked. */
+   * server found on this computer, and save it as the default. A server on another computer (a variable pointing
+   * there) is never picked for you: /model picks it. Never replaces a model the user chose. Undefined when nothing was
+   * picked. */
   async selectDefaultIfUnset(session: AgentSession, options: { provider?: string; signal?: AbortSignal } = {}): Promise<RuntimeModelSelection | undefined> {
     if (this.selections.get(session)?.reference) return undefined;
     const candidates = [...DEFAULT_MODELS].sort((a, b) => Number(b.provider === options.provider) - Number(a.provider === options.provider));
     const signedIn = () => candidates.find(({ provider, id }) => !this.staleAuth.has(provider) && this.catalog.hasConfiguredAuth(provider) && this.catalog.getModel(provider, id));
-    await this.localWhen(() => !signedIn());
+    await this.localWhen(() => !signedIn(), { here: true });
     options.signal?.throwIfAborted();
-    const local = () => LOCAL_SERVERS.flatMap(({ id }) => this.catalog.getRegisteredProviderConfig(id)?.apiKey === "local" ? this.catalog.getModels(id) : [])[0];
+    const local = () => LOCAL_SERVERS.flatMap(({ id }) => {
+      const config = this.catalog.getRegisteredProviderConfig(id);
+      return config?.apiKey === "local" && onThisComputer(config.baseUrl ?? "") ? this.catalog.getModels(id) : [];
+    })[0];
     const pick = signedIn() ?? local();
     if (!pick) return undefined;
     return this.select(session, { query: `${pick.provider}/${pick.id}`, persist: true, signal: options.signal });

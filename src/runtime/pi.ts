@@ -6,7 +6,7 @@ import { looksLikeRefusedLogin } from "../ssh/auth-failed";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
 import { matchConversation } from "../sessions/resume";
 import { PiModels } from "./pi-models";
-import { localServers, registerLocalServers } from "./local-models";
+import { localServers, localServerSettled, localServersHereSettled, onLocalServer, registerLocalServers } from "./local-models";
 import { applyClaudeCodeVersion } from "./claude-code-version";
 import { registerClaudeSubscription } from "./claude-subscription";
 import { authenticatePi } from "./pi-auth";
@@ -218,6 +218,13 @@ class PiRuntimeSession implements RuntimeSession {
     if (this.readOnly) throw new Error("Model selection is unavailable in read-only children.");
     return this.models.select(this.runtime.session, options, this.midRun);
   }
+
+  findModelAgain(options: { signal?: AbortSignal } = {}): Promise<boolean> {
+    if (this.busy || this.models.busy || this.readOnly) return Promise.resolve(false);
+    return this.models.findModelAgain(this.runtime.session, options.signal);
+  }
+
+  localProblems(): string[] { return this.readOnly ? [] : this.models.serverProblems(); }
 
   selectDefaultModel(options: { provider?: string; signal?: AbortSignal } = {}): Promise<RuntimeModelSelection | undefined> {
     if (this.busy || this.models.busy) throw new Error("Wait for active work before changing models.");
@@ -732,8 +739,27 @@ export class PiRuntime implements AgentRuntime {
     const modelRuntime = await ModelRuntime.create({ authPath: `${agentDir}/auth.json`, modelsPath: `${agentDir}/models.json`, signal: bounded?.signal });
     await registerClaudeSubscription(modelRuntime, () => this.runtime?.cwd ?? options.cwd);
     const models = this.models = new PiModels(modelRuntime, agentDir, this.home);
-    if (local) models.useLocalServers(local.then((found) => { registerLocalServers(modelRuntime, found.servers); return found; }),
-      bounded ? undefined : async (signal) => { registerLocalServers(modelRuntime, (await localServers({ refresh: true, signal })).servers); });
+    if (local) {
+      // The main session adds each server the moment its own look ends: one far away doesn't hold up one here.
+      if (!bounded) {
+        const stop = onLocalServer((server) => registerLocalServers(modelRuntime, [server]));
+        this.lifetime.signal.addEventListener("abort", stop, { once: true });
+      }
+      models.useLocalServers({
+        ready: local.then((found) => { registerLocalServers(modelRuntime, found.servers); return found; }),
+        refresh: bounded ? undefined : async (signal) => {
+          const found = await localServers({ refresh: true, signal });
+          registerLocalServers(modelRuntime, found.servers);
+          return found;
+        },
+        // What a wait was for is added to this catalog before going on: its server may have answered before this
+        // runtime listened (a helper never does).
+        settled: async (provider) => {
+          const servers = provider ? [await localServerSettled(provider)] : await localServersHereSettled();
+          registerLocalServers(modelRuntime, servers.filter((server) => server !== undefined));
+        },
+      });
+    }
     const tools = new PiToolController(options.tools ?? []);
     let limitReason: string | undefined;
     let toolCalls = 0;
