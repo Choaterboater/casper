@@ -496,6 +496,45 @@ attribution; `PI_TELEMETRY` has no effect. OpenRouter shows the icon of the refe
 referer is Casper's site (its ghost icon) rather than the GitHub page. OpenRouter keys apps by
 referer, so after this change your usage may show under a new Casper app entry.
 
+## Claude subscription through Claude Code
+
+`claude-subscription` is an enabled, separate model provider backed by the official Claude Agent
+SDK. It uses an installed native Claude Code executable and Claude Code's existing Pro, Max,
+Team or Enterprise login. A separate Pi installation is not needed, and no Claude credentials
+are copied into Casper. Claude Code must already be installed and signed in on the same OS:
+a Windows installation and a WSL installation have separate executables and login state.
+
+Select `/model claude-subscription/claude-opus-4-8` to remember this route, or add `--session`
+to try it without changing the default. Other Claude models appear under `claude-subscription`
+in `/model` once Claude Code's `auth status` reports a signed-in subscription on this OS.
+Without that login, the provider remains registered but is not offered as authenticated.
+The existing `anthropic` provider, `/login anthropic`, and saved defaults are
+unchanged. `/logout` in Casper does not sign out Claude Code.
+
+Executable discovery uses `claude` on macOS/Linux and `claude.exe` on native Windows. The Windows
+npm `.cmd` shim is not supported: use the native Claude Code installation. `CASPER_CLAUDE_PATH`
+can name the installed executable explicitly, including a path with spaces. Compiled Casper uses
+this external executable too; it does not rely on finding an SDK binary inside Bun's embedded files.
+
+Casper keeps its exact system instructions, tools, permissions, sandbox, compaction and saved
+conversations. The SDK receives tool declarations through an in-process MCP server, but cannot
+execute them; proposals return to Casper's normal approval/execution path. Each completion starts
+one SDK query with one model turn and replays the visible conversation as labelled text, retaining
+images and actual tool results but not historical thinking. This avoids manipulating Claude Code's
+private session files; it is not native alternating-turn replay and long conversations can increase
+input usage. New instructions and tool lists take effect on the next completion. Steering applies
+at Casper's next tool boundary, not inside an already-running completion.
+
+API keys, endpoint overrides and cloud-provider switches are cleared from the Claude Code child's
+environment; user/project Claude settings and inherited MCP servers are not loaded. The provider
+checks the SDK-reported account before releasing the user prompt and rejects API-key or gateway
+accounts instead of falling back. Claude Code itself owns request identity and billing headers.
+The footer's token cost is an API-equivalent estimate, not a charge. Subscription limits, model
+entitlements and any server-side extra-usage routing remain Anthropic's decisions; this adapter
+cannot guarantee billing or override plan limits. Anthropic's SDK documentation also requires
+approval for third-party products offering Claude plan login/rate limits; technical compatibility
+is not that approval.
+
 ## Local models
 
 Casper can use a model that runs on your own computer. Start the server and its models show in

@@ -217,6 +217,7 @@ Without a restored selection or Casper default, choose with /model; there is no 
 Switching provider sends the rest of the conversation to that provider.
 The picker refreshes provider catalogs over the network when CASPER_OFFLINE=1 is not set; selection does not generate a model response.
 Model servers on this computer (Ollama, LM Studio, llama.cpp, vLLM) show in /model with no sign-in; the picker looks for them again each time it opens. /settings turns that off.
+Claude subscription: /model claude-subscription/claude-opus-4-8 uses an installed native Claude Code and its own plan login (claude.exe on Windows); /login anthropic remains the direct route.
 Provider-defined credential checks may run configured key-resolution commands.
 Keys: ${KEYS_HELP}
 Checks: typecheck lint test build (all configured by default; verification.checks selects).

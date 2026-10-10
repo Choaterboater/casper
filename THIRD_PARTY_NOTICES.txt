@@ -23,6 +23,15 @@ below, then run the rebuilt Bun executable with `run build:release` in Casper's
 source checkout. Casper's complete application source and dependency lock are public.
 
 ==============================================================================
+@anthropic-ai/claude-agent-sdk 0.3.296
+Source: https://github.com/anthropics/claude-agent-sdk-typescript
+License notice (from LICENSE.md):
+© Anthropic PBC. All rights reserved. Use is subject to the Legal Agreements outlined here: https://code.claude.com/docs/en/legal-and-compliance.
+
+Casper's subscription transport uses the separately installed native Claude Code
+executable; Casper does not embed that executable or copy its credentials.
+
+==============================================================================
 Terminal presentation, response-style and model-control references
 Casper uses Pi UI modules (their notices appear below). Its rounded-panel design,
 concise response guidance and explicit-role/automatic-effort adaptation are

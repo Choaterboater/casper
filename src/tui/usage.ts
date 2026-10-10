@@ -19,7 +19,7 @@ export function formatCacheHitRate(tokens: RuntimeUsage["tokens"]): string {
 
 /** Plain name for a subscription sign-in. */
 export function subscriptionName(provider?: string): string {
-  return provider === "github-copilot" ? "Copilot subscription" : provider === "openai-codex" ? "ChatGPT subscription" : "subscription";
+  return provider === "github-copilot" ? "Copilot subscription" : provider === "openai-codex" ? "ChatGPT subscription" : provider === "claude-subscription" ? "Claude subscription" : "subscription";
 }
 
 /** Status bar cost. A subscription pays no per-token price, so the catalog figure is only what
