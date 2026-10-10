@@ -157,14 +157,14 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
       child.unref(); // Unknown cleanup must not turn a reported failure into an exit hang.
       const ended = checkEnded(exitCode, reason, plan.shell ? stderr.text() : "", process.platform, stdout.text());
       const result: VerificationResult = { ...base(), status: !reason && exitCode === 0 ? "pass" : "fail", exitCode, signal: exitSignal, reason, ...(ended ? { ended } : {}) };
-      if (!held || result.status === "pass" || reason) { sandbox?.finished(held); resolve(result); return; }
+      if (!held || result.status === "pass" || reason) { sandbox?.finished(held); resolve(withSlowTest(result)); return; }
       // A failure the sandbox caused says so, in the receipt and to the AI: "blocked by the sandbox (wanted to write /etc/hosts)".
       const output = `${result.stderr}\n${result.stdout}`;
       void blockedBySandbox(sandbox!, held, output).then((blocked) => {
         sandbox!.finished(held);
         // The sandbox's monitor does not see every refusal (a unix socket, a spawn): the check's own output says EPERM.
         const denied = blocked ?? sandboxDenialInOutput(output);
-        resolve(denied ? { ...result, reason: denied, ended: "blocked" } : result);
+        resolve(denied ? { ...result, reason: denied, ended: "blocked" } : withSlowTest(result));
       });
     };
     let stopped = false;
@@ -191,6 +191,19 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
     });
     if (signal?.aborted) abort();
   });
+}
+
+/** A test runner's own per-test time limit: bun ("this test timed out after 5000ms"), Jest ("Exceeded timeout of"),
+ * Vitest ("Test timed out in"), Mocha ("Timeout of 2000ms exceeded") and pytest-timeout ("Failed: Timeout >5.0s"). */
+const TEST_TIMED_OUT = /this test timed out after \d+ ?ms|Exceeded timeout of \d+ ?ms|Test timed out in \d+ ?ms|Timeout of \d+ ?ms exceeded|Failed: Timeout >\s?[\d.]+s/;
+export const testTimedOut = (output: string): boolean => TEST_TIMED_OUT.test(output);
+export const SLOW_TEST = "a test in it timed out (often a busy machine, not the code)";
+
+/** A failed run in which a test hit its own time limit did not finish either: often a busy machine (a full suite
+ * beside other work), not the code. It is unfinished, asked about like a check that timed out, never repaired on its own. */
+function withSlowTest(result: VerificationResult): VerificationResult {
+  if (result.status !== "fail" || result.ended || !testTimedOut(`${result.stderr}\n${result.stdout}`)) return result;
+  return { ...result, ended: "timeout", reason: SLOW_TEST };
 }
 
 /** The sandbox's refusal for run `id`, waiting briefly for its monitor, which can report just after the command ends. */

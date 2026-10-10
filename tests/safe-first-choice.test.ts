@@ -103,6 +103,10 @@ test("the risky choices still exist, as a deliberate 2 or later", () => {
   expect(modelFailedChoices("fixture/big").map((choice) => choice.label)).toEqual(["Stop", "Retry", "Retry with your big model"]);
   expect(unfinishedChoices(600_000, 2_400_000).map((choice) => choice.label)).toEqual(["Stop", "Retry", "Fix it anyway", "Allow more time", "Allow more time from now on"]);
   expect(unfinishedChoices(600_000, 2_400_000)[0]!.choice).toBeUndefined();
+  // A test that hit its own limit: no more time for the whole check, and the repair is about the slow test.
+  const slow = unfinishedChoices(0, 60_000, true);
+  expect(slow.map((choice) => choice.label)).toEqual(["Stop", "Retry", "Fix it anyway"]);
+  expect(slow[2]!.description).toContain("slow test");
   expect([...MCP_REMEMBER_CHOICES]).toEqual(["No", "Yes"]);
   expect([...MCP_WRITES_CHOICES]).toEqual(["Keep writes off", "Enable for this server"]);
   expect([...APPROVE_CHOICES]).toEqual(["No", "Yes, this once", "Yes, for this session"]);

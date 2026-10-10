@@ -4,9 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { checkEvent } from "../src/app/json-events";
 import { formatReceipt } from "../src/task/result";
-import { checkEnded, runCommandCheck } from "../src/verify/command";
-import type { VerificationResult } from "../src/verify/evidence";
-import { checkCommand } from "./support/check-command";
+import { checkEnded, runCommandCheck, testTimedOut } from "../src/verify/command";
+import { repairClass, type VerificationResult } from "../src/verify/evidence";
+import { CHECK_LIMIT_MS, checkCommand } from "./support/check-command";
 import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -28,6 +28,21 @@ test("a check that timed out or could not start is marked as unfinished, not as 
   const failing = await runCommandCheck({ name: "test", command: checkCommand("exit:1"), cwd, timeoutMs: 5000 });
   expect(failing.status).toBe("fail");
   expect(failing.ended).toBeUndefined();
+});
+
+test("a test that hit its own time limit makes the check unfinished: asked about, not repaired on its own", async () => {
+  const cwd = await root();
+  const command = checkCommand("stderr:this test timed out after 30000ms.", "exit:1");
+  const result = await runCommandCheck({ name: "test", command, cwd, timeoutMs: CHECK_LIMIT_MS });
+  expect(result).toMatchObject({ status: "fail", ended: "timeout" });
+  expect(result.reason).toContain("a test in it timed out");
+  expect(repairClass(result)).toBe("ask");
+});
+
+test("each test runner's own per-test timeout is known; a failure that only mentions a timeout is not", () => {
+  for (const line of ["  ^ this test timed out after 5000ms.", "thrown: \"Exceeded timeout of 5000 ms for a test.", "Error: Test timed out in 5000ms.",
+    "Error: Timeout of 2000ms exceeded.", "E   Failed: Timeout >5.0s"]) expect(testTimedOut(line)).toBe(true);
+  for (const line of ["expect(timeoutMs).toBe(5000)", "Received: \"timeout\"", "the request timed out", "1 test failed"]) expect(testTimedOut(line)).toBe(false);
 });
 
 test("on Windows, cmd.exe's 'is not recognized' as all a check printed means it could not start", () => {
