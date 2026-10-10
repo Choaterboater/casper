@@ -168,8 +168,9 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       return snapshot;
     }),
     app.taskUndo.begin(workspaceRoot, session, undoSignal)]);
-  // An undo copy that finished before the snapshot failed is kept: only a copy that was not made says why this way.
-  if (notProject.signal.aborted && "unavailable" in undoStart.snapshot) undoStart.snapshot = { unavailable: UNDO_NOT_PROJECT };
+  // Not a project folder: no undo, even when the undo copy finished first. With no change list Casper can't tell the
+  // task's changes from other programs' saves, and undo would put those back too.
+  if (notProject.signal.aborted) undoStart.snapshot = { unavailable: UNDO_NOT_PROJECT };
   edits.before = before;
   app.snapshotBase = before;
   // What the test command means before the change (package.json scripts, runner settings): a change that rewrites
@@ -441,6 +442,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       // A stop at --max-turns or at the spend limit is always said on a receipt.
       if ((classification.intent !== "general" && !answeredOnly) || execution !== "completed" || wroteToolCall || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
         || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand) {
+        // A folder the task made too big to compare is not a project folder either: no undo, for the same reason.
+        if (!changedPaths && app.snapshotFailure && tooManyFiles(app.snapshotFailure)) undoStart.snapshot = { unavailable: UNDO_NOT_PROJECT };
         // The second copy and the saved receipt; the change summary lists only this task's files.
         const { stat } = await app.taskUndo.finish(undoStart, { request: prompt, task: app.lastTaskResult, session, servers: [...app.taskChangeServers] });
         const task = app.lastTaskResult;
