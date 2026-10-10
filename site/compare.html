@@ -71,9 +71,9 @@
           <p><a href="https://github.com/earendil-works/pi">Pi</a> is a small terminal coding agent.
           Out of the box it gives the AI four tools: <code>read</code>, <code>write</code>,
           <code>edit</code> and <code>bash</code>. Its idea is "keep the core small, add what you
-          want". It has no MCP, no permission pop-ups, no sub-agents and no plan mode built in. You
-          add those yourself with extensions, skills or Pi packages.</p>
-          <p>Casper uses Pi's SDK as a pinned library (Pi 0.87.0 in Casper 0.2.30). It is not a fork
+          want". It can connect MCP servers, but it has no permission pop-ups, no sub-agents and no
+          plan mode built in. You add those yourself with extensions, skills or Pi packages.</p>
+          <p>Casper uses Pi's SDK as a pinned library (currently Pi 1.1.0). It is not a fork
           and not a Pi extension. Casper wraps the AI's work in a loop of checks, proof and a
           receipt, and adds guard rails for network gear.</p>
         </div>
@@ -147,7 +147,7 @@
         building anything.</p>
         <div class="table-wrap">
           <table>
-            <caption>Checked against the Pi 0.87.0 README and Casper 0.2.30 docs. "Yes" means built in
+            <caption>Checked against the Pi 1.1.0 README and docs and Casper 0.2.30 docs. "Yes" means built in
             and on or ready to use.</caption>
             <thead>
               <tr><th scope="col">What</th><th scope="col">Plain Pi</th><th scope="col">Casper 0.2.30</th></tr>
@@ -190,7 +190,7 @@
               </tr>
               <tr>
                 <th scope="row">MCP servers</th>
-                <td class="no">Not built in ("No MCP" is part of Pi's design). Add it with an extension.</td>
+                <td>Built in (<code>pi mcp add</code>). Its tools run without asking first.</td>
                 <td class="yes">Built in. Every server starts with writes off. Each change asks in plain words: <code>1 No · 2 Yes, this once · 3 Yes, for this session</code>, and a fourth wide answer for a whole product. <code>Ctrl+O</code> turns writes off again.</td>
               </tr>
               <tr>
@@ -205,7 +205,7 @@
               </tr>
               <tr>
                 <th scope="row">Permission prompts</th>
-                <td class="no">None built in ("No permission popups"). Build your own or use a container.</td>
+                <td class="no">None built in (Pi "does not ask for approval before every tool call"). Build your own or use a container.</td>
                 <td class="yes">Risky actions ask you, and the AI cannot approve for you. Reaching another machine over <code>ssh</code> and a write outside the project ask too. An ssh password goes into a hidden box of Casper's own, never to the AI.</td>
               </tr>
               <tr>

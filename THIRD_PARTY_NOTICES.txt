@@ -673,7 +673,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-@anthropic-ai/sdk@0.123.0 — declared MIT
+@anthropic-ai/sdk@0.129.0 — declared MIT
 Sources:
 node_modules/@anthropic-ai/sdk/LICENSE
 
@@ -2206,14 +2206,17 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-@earendil-works/chord@0.87.1 — declared MIT
-@earendil-works/pi-agent-core@0.87.0 — declared MIT
-@earendil-works/pi-ai@0.87.0 — declared MIT
-@earendil-works/pi-coding-agent@0.87.0 — declared MIT
-@earendil-works/pi-telemetry@0.87.1 — declared MIT
-@earendil-works/pi-tui@0.87.0 — declared MIT
+@earendil-works/chord@1.1.0 — declared MIT
+@earendil-works/pi-agent-core@1.1.0 — declared MIT
+@earendil-works/pi-ai@1.1.0 — declared MIT
+@earendil-works/pi-codemode@1.1.0 — declared MIT
+@earendil-works/pi-coding-agent@1.1.0 — declared MIT
+@earendil-works/pi-mcp@1.1.0 — declared MIT (its OAuth code is adapted from the
+  MCP TypeScript SDK; that MIT notice appears under @modelcontextprotocol/sdk)
+@earendil-works/pi-telemetry@1.1.0 — declared MIT
+@earendil-works/pi-tui@1.1.0 — declared MIT
 Sources:
-https://raw.githubusercontent.com/earendil-works/pi/v0.87.0/LICENSE
+https://raw.githubusercontent.com/earendil-works/pi/v1.1.0/LICENSE
 
 MIT License
 
@@ -5885,7 +5888,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-openai@6.40.0 — declared Apache-2.0
+openai@7.19.0 — declared Apache-2.0
 Sources:
 node_modules/openai/LICENSE
 

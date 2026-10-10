@@ -219,6 +219,7 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
       let active = true;
       let promptHandled = false;
       let codexAsked = false;
+      let methodAsked = false;
       let authorizationShown = false;
       let verificationCancelled = false;
       try {
@@ -237,6 +238,12 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
               if (browser) return "browser";
               promptHandled = true;
               return "device_code";
+            }
+            // Anthropic asks browser or copy-code first; Casper's browser path also takes a pasted code or redirect URL.
+            if (active && !methodAsked && browser && selected === "anthropic" && prompt.type === "select" && prompt.message === "Select Anthropic login method:" &&
+              prompt.options.some((option) => option.id === "browser")) {
+              methodAsked = true;
+              return "browser";
             }
             if (!active || promptHandled) throw new Error("unsupported interaction");
             promptHandled = true;

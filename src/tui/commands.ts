@@ -350,7 +350,7 @@ function fitLabel(label: string, most: number): string {
 
 /** Pi's command menu cuts a long description at the column, mid-word and with no mark. Trimmed here first: it ends at
  * a word, with "…"; a label wider than its column ends with "…" too. Mirrors Pi's slash-menu layout (a 12-32 column label, two columns of margin); verified against
- * @earendil-works/pi-tui 0.87.0 (SelectList.renderItem). `width` is the menu's width. */
+ * @earendil-works/pi-tui 1.1.0 (SelectList.renderItem). `width` is the menu's width. */
 export function fitDescriptions<T extends { value: string; label?: string; description?: string }>(items: readonly T[], width: number): T[] {
   if (width <= 40) return [...items];
   const widest = Math.max(0, ...items.map(item => visibleWidth(item.label || item.value)));
