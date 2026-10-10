@@ -832,15 +832,16 @@ cache: short   # auto (default), long, short, or off
 
 How much of the work shows on screen while Casper works. The model's thinking is never printed.
 
-- `normal` (default): the latest steps in the Working box, folded into one line when the model moves
-  on (`✓ 14 edits · 6 commands · 38s`); failures keep their own line.
-- `quiet`: the model's words, failures and the receipt; successful steps leave no line.
-- `detailed`: every step on its own line, with a small diff (up to 12 changed lines) under each edit.
+- `normal` (default): the steps tick in under the AI's words, then fold into one row naming what was done
+  (`└ read AGENTS.md · ran git status, bun test (2m05s)`) when its next words arrive; the edits go in one box
+  with a short diff (ten rows at most) and each failure in a box with the last lines it printed.
+- `quiet`: the model's words, failures (in their box) and the receipt; successful steps leave no row.
+- `detailed`: every step on its own line, and every edit's whole diff in the edit box.
 
 `/details quiet|normal|detailed` switches and remembers it (it writes `display:` for you, like
 `/effort`); `--session` (before or after the level) keeps it to this session, and `/details` alone shows the level
-now and changes nothing. Ctrl+T shows the last finished step in full at any level: an edit's whole diff, or what a
-command printed. The window title names the conversation from its first request
+now and changes nothing. Ctrl+T shows the last box in full at any level (the group's whole diff, or everything a
+failed step printed), or else the last finished step: an edit's whole diff, or what a command printed. The window title names the conversation from its first request
 (`Casper · subnet calculator`) and shows `◐` while Casper works.
 
 ```yaml
@@ -854,9 +855,9 @@ The screen's colours. A theme changes colours only: the words, glyphs, bold text
 the same, and nothing goes to the model. `NO_COLOR`, a pipe and `TERM=dumb` still show no colour,
 whatever the theme.
 
-- `default`: Casper's own look, cyan for structure and faint text for what is secondary.
+- `default`: Casper's own look, cyan for structure and faint text for what is secondary, your request on a grey bar.
 - `light`: for a light terminal background; blue and magenta in place of cyan and yellow.
-- `high-contrast`: bright colours and no faint text.
+- `high-contrast`: bright colours and no faint text (and no bar behind your request).
 
 Pick **Theme** in `/settings`, or set it in your own config. A project's `.casper/project.yaml`
 can't set it, so a repository can't make a warning or an approval hard to read. A name Casper has
@@ -875,7 +876,8 @@ above. Its name can't be a built-in theme's or another pack's theme's.
 
 A theme file, which a pack can carry, is YAML (or JSON) with a `name` (lowercase letters, numbers
 and single hyphens, like a skill's) and `colors`, by role: `accent`, `muted`, `border`,
-`selection`, `success`, `warning`, `error`, `diffAdded`, `diffRemoved` and `diffHunk`. A colour is
+`selection`, `success`, `warning`, `error`, `diffAdded`, `diffRemoved`, `diffHunk` and `userBg` (the bar behind
+your request where Casper shows it again: a background colour; `default` or `dim` is no bar). A colour is
 `"#rrggbb"` (in quotes: YAML reads a bare `#` as a comment) or one of `default`, `dim`, `black`,
 `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `gray`, `bright-red`,
 `bright-green`, `bright-yellow`, `bright-blue`, `bright-magenta`, `bright-cyan` and

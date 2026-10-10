@@ -105,7 +105,7 @@ export async function askPaneOnce(app: CasperApp): Promise<void> {
   app.paneAsked = true;
   const yes = "Yes, split when the window is wide";
   const picked = await app.terminal.pick("Show Casper's steps in a split beside this window? (iTerm2 may ask once to let Casper control it.)", [
-    { label: "No, keep one window", description: "steps show in the Working box; /pane on turns the split on later" },
+    { label: "No, keep one window", description: "steps show under the AI's words; /pane on turns the split on later" },
     { label: yes, description: `${PANE_MIN_COLUMNS}+ columns; /pane off turns it off` },
   ]);
   if (picked === undefined || app.closing) return;
@@ -127,14 +127,14 @@ export async function paneCommand(app: CasperApp, argument: string): Promise<voi
   if (!argument) {
     const on = (app.paneSetting ?? (where === "iterm" ? undefined : "on")) === "on";
     app.output.write(place
-      ? `[pane] ${on ? "On" : "Off"}: ${on ? `Casper's steps show in a ${place} split beside this window when it is ${PANE_MIN_COLUMNS}+ columns wide` : "steps show in the Working box"}. /pane ${on ? "off" : "on"} switches it (saved).\n`
-      : `[pane] The steps split works inside tmux or iTerm2 on a Mac; here steps show in the Working box. Saved setting: ${app.paneSetting ?? "on"}.\n`);
+      ? `[pane] ${on ? "On" : "Off"}: ${on ? `Casper's steps show in a ${place} split beside this window when it is ${PANE_MIN_COLUMNS}+ columns wide` : "steps show under the AI's words"}. /pane ${on ? "off" : "on"} switches it (saved).\n`
+      : `[pane] The steps split works inside tmux or iTerm2 on a Mac; here steps show under the AI's words. Saved setting: ${app.paneSetting ?? "on"}.\n`);
     return;
   }
   await savePane(app, argument as PaneSetting);
   app.output.write(argument === "on"
     ? `[pane] On: Casper's steps show in a split beside this window when it is ${PANE_MIN_COLUMNS}+ columns wide${place ? "" : " (inside tmux or iTerm2)"}; saved.\n`
-    : "[pane] Off: steps show in the Working box; saved. /pane on turns the split back on.\n");
+    : "[pane] Off: steps show under the AI's words; saved. /pane on turns the split back on.\n");
 }
 
 /** /details [quiet|normal|detailed] [--session]: no word shows the level and changes nothing, like /pane. Remembered
@@ -144,8 +144,8 @@ export async function detailsCommand(app: CasperApp, argument: string): Promise<
   const { rest: level, session } = sessionFlag(argument);
   const words: Record<DisplayLevel, string> = {
     quiet: "the model's words, failures and receipts",
-    normal: "steps fold into one summary line, with the changed files under it",
-    detailed: "every step, with a small diff under each edit",
+    normal: "steps fold into one row naming what was done, with edits and failures in a box",
+    detailed: "every step, with every edit's whole diff",
   };
   if (!level && !session) {
     const now = displayLevel(app);

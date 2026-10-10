@@ -73,26 +73,34 @@
         ran, what it covered, the proof, the sandbox and whether you can undo.</p>
         <figure class="capture">
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">fix the sum bug in src/sum.js</span>
+
 <span class="dim">[model]</span> scripted/site-capture · effort off
-<span class="ok">✓</span> 2 edits
-  changed src/sum.js, tests/sum.test.js
-Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
+
+<span class="dim">● edited src/sum.js, tests/sum.test.js</span>
+
+<span class="accent">●</span> Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
+
 <span class="dim">• Casper checking: test</span>
 <span class="ok">✓</span> test
 <span class="dim">• Casper checking that the tests fail without the change</span>
-▌ <span class="ok">✓ Verified · test passed · changed src/sum.js, tests/sum.test.js</span>
+
+▌ <span class="ok">✓</span> Verified · test passed · changed src/sum.js, tests/sum.test.js
+▌ <span class="dim">–</span> Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or
+sandbox: on in ~/.casper/config.yaml)
 Next: 1 Show diff · 2 Undo
 
 <span class="dim"># (typed /receipt)</span>
 
 <span class="prompt">❯</span> <span class="you">/receipt</span>
+
 <span class="dim">[task]</span> Execution completed
        changes      2 files changed: src/sum.js, tests/sum.test.js
        verification Checks pass (command execution): 1 pass, 0 fail, 0 skip; 0 repair attempt(s).
 test: scope undeclared; current files unverified; reuse disabled. Requested behavior is not
 independently certified.
        proof        ✓ Proven: test fails without this change (exit 1) and passes with it
-       sandbox      shell commands and checks held
+       sandbox      not sandboxed (off unless you turn it on: /sandbox on, or sandbox: on in
+~/.casper/config.yaml)
        undo         available (/undo 1)</pre>
           <figcaption>Asking Casper to fix a bug. The AI edits two files; Casper runs the test, proves
           the fix, and prints the receipt. Then <code>/receipt</code> shows the detail (no model call).</figcaption>
@@ -131,20 +139,29 @@ independently certified.
         </ol>
         <figure class="capture">
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">let sum take numeric strings too</span>
+
 <span class="dim">[model]</span> scripted/site-capture · effort off
-<span class="ok">✓</span> edit · src/sum.js
-sum now turns its inputs into numbers first.
+
+<span class="dim">● edited src/sum.js</span>
+
+<span class="accent">●</span> sum now turns its inputs into numbers first.
+
 <span class="dim">• Casper checking: test</span>
 <span class="ok">✓</span> test
 <span class="dim">• Casper checking that the tests fail without the change</span>
 <span class="accent">↻</span> repair 1/1: add a test that fails without the change
-(scripted model) No more changes.
+
+<span class="accent">●</span> (scripted model) No more changes.
+
 <span class="ok">✓</span> test
 <span class="dim">• Casper checking that the tests fail without the change</span>
+
 ▌ <span class="dim">–</span> Not verified — the tests pass without the change too
 ▌ <span class="ok">✓</span> test passed · changed src/sum.js
-▌ <span class="accent">↻</span> Casper tried 1 repair
 ▌ <span class="warn">⚠</span> Not proven: test passes without this change too, and no test was added or changed
+▌ <span class="accent">↻</span> Casper tried 1 repair
+▌ <span class="dim">–</span> Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or
+sandbox: on in ~/.casper/config.yaml)
 Next: 1 Show diff · 2 Undo</pre>
           <figcaption>The tests pass with and without the change. Casper asks for a test once. The
           scripted stand-in adds none, so the verdict stays "Not verified".</figcaption>
@@ -171,57 +188,45 @@ Next: 1 Show diff · 2 Undo</pre>
         tries: 3 by default, set with <code>repair.maxAttempts</code> (0 to 10).</p>
         <figure class="capture">
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">speed up sum in src/sum.js</span>
+
 <span class="dim">[model]</span> scripted/site-capture · effort off
-<span class="ok">✓</span> edit · src/sum.js
-Changed sum.
+
+<span class="dim">● edited src/sum.js</span>
+
+<span class="accent">●</span> Changed sum.
+
 <span class="dim">• Casper checking: test</span>
 <span class="bad">✗</span> test · exit 1
+
 <span class="dim">╭─ test: stderr ───────────────────────────────────────────────────────────────────────────────────╮</span>
 │                                                                                                  │
-│ tests/sum.test.js:                                                                               │
-│ (pass) zero plus zero [0.04ms]                                                                   │
-│ error: expect(received).toBe(expected)                                                           │
-│                                                                                                  │
-│ Expected: 5                                                                                      │
-│ Received: 6                                                                                      │
-│                                                                                                  │
-│ (fail) two plus three [0.13ms]                                                                   │
-│                                                                                                  │
-│  1 pass                                                                                          │
-│  1 fail                                                                                          │
-│  2 expect() calls                                                                                │
-│ Ran 2 tests across 1 file. [8.00ms]                                                              │
 <span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+
 <span class="dim">╭─ test: stdout ───────────────────────────────────────────────────────────────────────────────────╮</span>
-│ bun test v1.4.0 (1381054db)                                                                      │
+│                                                                                                  │
 <span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+
 <span class="dim">• Casper checking whether test failed before this change too</span>
 <span class="accent">↻</span> repair 1/1
-(scripted model) No more changes.
+
+<span class="accent">●</span> (scripted model) No more changes.
+
 <span class="bad">✗</span> test · exit 1
+
 <span class="dim">╭─ test: stderr ───────────────────────────────────────────────────────────────────────────────────╮</span>
 │                                                                                                  │
-│ tests/sum.test.js:                                                                               │
-│ (pass) zero plus zero [0.05ms]                                                                   │
-│ error: expect(received).toBe(expected)                                                           │
-│                                                                                                  │
-│ Expected: 5                                                                                      │
-│ Received: 6                                                                                      │
-│                                                                                                  │
-│ (fail) two plus three [0.07ms]                                                                   │
-│                                                                                                  │
-│  1 pass                                                                                          │
-│  1 fail                                                                                          │
-│  2 expect() calls                                                                                │
-│ Ran 2 tests across 1 file. [6.00ms]                                                              │
 <span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+
 <span class="dim">╭─ test: stdout ───────────────────────────────────────────────────────────────────────────────────╮</span>
-│ bun test v1.4.0 (1381054db)                                                                      │
+│                                                                                                  │
 <span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+
 ▌ <span class="bad">✗</span> Failed — test failed
 ▌ <span class="ok">✓</span> changed src/sum.js
 ▌ <span class="accent">↻</span> Casper tried 1 repair
 ▌ <span class="bad">✗</span> test failed (exit 1) — log above; /verify repair test to fix
+▌ <span class="dim">–</span> Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or
+sandbox: on in ~/.casper/config.yaml)
 Next: 1 Show diff · 2 Undo</pre>
           <figcaption>A "speed up" that breaks a test. This project allows one repair try. The
           stand-in makes no fix, so the receipt ends <code>✗ Failed</code> with the next step to take.</figcaption>
@@ -264,6 +269,7 @@ Next: 1 Show diff · 2 Undo</pre>
         <p>While Casper works, the screen tells you what it is doing right now, without a wall of text.</p>
         <figure class="capture">
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">/verify</span>
+
 <span class="dim">[verify]</span> No typecheck command here, so Casper runs lint, test and build.
 <span class="ok">✓</span> lint
 <span class="ok">✓</span> test
@@ -271,7 +277,9 @@ Next: 1 Show diff · 2 Undo</pre>
 <span class="ok">✓</span> Checks passed
 <span class="ok">✓</span> lint passed (node --check src/sum.js)
 <span class="ok">✓</span> test passed (bun test)
-<span class="ok">✓</span> build passed (bun build src/sum.js --outdir dist)</pre>
+<span class="ok">✓</span> build passed (bun build src/sum.js --outdir dist)
+– Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or sandbox:
+on in ~/.casper/config.yaml)</pre>
           <figcaption><code>/verify</code> on a project with lint, test and build set up (no type check).
           One line per check as it finishes, then the receipt. No model call.</figcaption>
         </figure>
@@ -283,10 +291,12 @@ Next: 1 Show diff · 2 Undo</pre>
             under a second shows no time). A pass is never silent.</p>
           </article>
           <article class="card">
-            <h3>Tool lines with +N -M</h3>
-            <p>Each tool call is one line in the Working box, <code>•</code> while it runs and <code>✓</code> or
-            <code>✗</code> once done; the finished steps fold into one summary line, with the changed files named under it. With a real model, an edit line also shows lines
-            added and removed, like <code>+9 -1</code>. (The stand-in above does not send those counts.)</p>
+            <h3>Steps under the AI's words</h3>
+            <p>Each tool call is a live row under the AI's words, a spinner while it runs and <code>✓</code> or
+            <code>✗</code> once done, with one status row above the prompt saying what runs and that Esc stops it. When the AI
+            moves on, the steps fold into one row naming what was done (<code>└ read AGENTS.md · ran git status, bun test</code>);
+            edits go in one box with a short diff and <code>+N -M</code>, and a failure in a box with the last lines it printed.
+            (The stand-in above does not send edit counts.)</p>
           </article>
           <article class="card">
             <h3>The step rail</h3>
@@ -329,7 +339,9 @@ Next: 1 Show diff · 2 Undo</pre>
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="dim"># (typed answers: 1 and 2 in the picker, 1 for "Remember", Esc back at the servers, then 2 for writes)</span>
 
 <span class="prompt">❯</span> <span class="you">/mcp</span>
+
 network: not set up — /mcp setup network
+<span class="accent">── Choose ──────────────────────────────────────────────────────────────────────────────────────────</span>
 Pick a server
 <span class="accent">→</span> 1 fixture  not connected
   <span class="accent">2</span> Done
@@ -340,6 +352,7 @@ Press 1-2 or Up/Down + Enter · Esc skip
 Pick a server → fixture
 fixture → Connect
 <span class="dim">[mcp]</span> fixture connected · 340 tools · writes off
+<span class="warn">── Approval ────────────────────────────────────────────────────────────────────────────────────────</span>
 Remember fixture?
 <span class="accent">→</span> 1 No  connected for this session only
   <span class="accent">2</span> Yes  it connects on its own next time, with writes off; every change still asks you
@@ -351,6 +364,7 @@ Remember fixture? → No
 Pick a server — skipped
 
 <span class="prompt">❯</span> <span class="you">/mcp writes fixture</span>
+<span class="warn">── Approval ────────────────────────────────────────────────────────────────────────────────────────</span>
 fixture writes are off.
 <span class="accent">→</span> 1 Keep writes off
   <span class="accent">2</span> Enable for this server
@@ -367,12 +381,16 @@ fixture writes are off. → Enable for this server
         </figure>
         <figure class="capture">
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">set the lab site on the fixture server</span>
+
 <span class="dim">[model]</span> scripted/site-capture · effort off
-I will ask the fixture server to change the site.
+
+<span class="accent">●</span> I will ask the fixture server to change the site.
+
 Change in fixture: set site
   site             lab
 This makes the change.
 MCP · fixture · set_site  [write]
+<span class="warn">── Approval ────────────────────────────────────────────────────────────────────────────────────────</span>
 Make this change?
 <span class="accent">→</span> 1 No
   <span class="accent">2</span> Yes, this once
@@ -384,7 +402,8 @@ Press 1-4 or Up/Down + Enter · Esc is No
 <span class="dim"># (pressed 1: the box closes into one line, the record of the answer)</span>
 
 Make this change? → No
-The change was not made.
+
+<span class="accent">●</span> The change was not made.
 
 <span class="dim"># (pressed Ctrl+O)</span>
 
@@ -649,28 +668,35 @@ receipt
         and Enter, or press Esc to skip. When the AI asks, the last row is
         <code>Other — type your own answer</code>: pick it and type yours.</p>
         <figure class="capture">
-          <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">/verify</span>
+          <pre class="term" tabindex="0" data-title="casper — ~/project"># on purpose)
+
+<span class="prompt">❯</span> <span class="you">/verify</span>
+
 <span class="dim">[verify]</span> No typecheck command here, so Casper runs lint, test and build.
 <span class="bad">✗</span> lint · could not start (exit 127)
+
 <span class="dim">╭─ lint: stderr ───────────────────────────────────────────────────────────────────────────────────╮</span>
-│ /bin/bash: line 1: node: command not found                                                       │
+│ /bin/sh: 1: node: not found                                                                      │
 <span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+
 <span class="ok">✓</span> test
 <span class="ok">✓</span> build
-────────────────────────────────────────────────────────────────────────────────────────────────────
+<span class="accent">── Choose ──────────────────────────────────────────────────────────────────────────────────────────</span>
 lint could not start. Casper did not try to fix it. What now?
 <span class="accent">→</span> 1 Stop  keep the changes; the receipt says it did not finish
   <span class="accent">2</span> Retry  run it again with the same limit
   <span class="accent">3</span> Fix it anyway  ask the model to fix why it could not start
 Press 1-3 or Up/Down + Enter · Esc skip
 
-<span class="dim"># (Esc pressed: skip)</span>
+<span class="dim"># (Esc pressed: skip; the box closes into one line)</span>
 
 lint could not start. Casper did not try to fix it. What now? — skipped
 <span class="bad">✗</span> Not checked — lint could not start, so the change was not tested
 <span class="bad">✗</span> lint could not start (exit 127) — check verify.lint in .casper/project.yaml
 <span class="ok">✓</span> test passed (bun test)
-<span class="ok">✓</span> build passed (bun build src/sum.js --outdir dist)</pre>
+<span class="ok">✓</span> build passed (bun build src/sum.js --outdir dist)
+– Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or sandbox:
+on in ~/.casper/config.yaml)</pre>
           <figcaption><code>node</code> was left off <code>PATH</code> on purpose, so lint could not start.
           Casper did not spend tokens on it; it asked. Esc skipped, and the receipt says the change was
           not tested.</figcaption>

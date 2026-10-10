@@ -39,6 +39,8 @@ test("the default theme draws exactly the colours Casper drew before themes", ()
   // The SGR codes each place used before roles existed: cyan structure, dim for what is secondary.
   const before: Record<(typeof THEME_ROLES)[number], string> = {
     accent: "36", muted: "2", border: "2", selection: "36", success: "32", warning: "33", error: "31", diffAdded: "32", diffRemoved: "31", diffHunk: "36",
+    // The bar behind a request came later: grey, behind the text.
+    userBg: "100",
   };
   expect(activeThemeName()).toBe("default");
   for (const role of THEME_ROLES) expect(tint("x", role, true)).toBe(`\x1b[${before[role]}mx\x1b[0m`);

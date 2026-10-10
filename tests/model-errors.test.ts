@@ -86,7 +86,7 @@ test("a Claude sign-in out of extra usage says where to add more, or to pick ano
 
 function view(rich: boolean) {
   let text = "";
-  const terminal = { rich, write() {}, endAssistant() {}, setActivity() {}, setSteps() {} } as never;
+  const terminal = { rich, write() {}, endAssistant() {}, setWork() {}, setSteps() {}, writeFold() {} } as never;
   const events = new RuntimeEventView(terminal, { write: (chunk: string) => { text += chunk; } }, {
     updateFooter() {}, onToolEnd() {}, setTaskStop() {}, markRuntimeFailed() {}, turnLimitReached() {}, cancelled: () => false,
   });

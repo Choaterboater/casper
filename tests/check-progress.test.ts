@@ -3,6 +3,7 @@ import { PLAIN_CHECK_EVERY_MS, RuntimeEventView } from "../src/app/events";
 import { runCommandCheck } from "../src/verify/command";
 import { PROGRESS_TAIL_CHARS, ProgressFeed, type CheckProgressRun } from "../src/verify/progress";
 import type { RuntimeEvent } from "../src/runtime/types";
+import type { WorkView } from "../src/tui/surface";
 import { InteractiveTerminal } from "../src/tui/terminal";
 import { tint } from "../src/tui/format";
 import { PassThrough } from "node:stream";
@@ -36,7 +37,9 @@ function view(options: { rich?: boolean; level?: DisplayLevel; announce?: boolea
   const boxes: Array<string[] | undefined> = [];
   const written: string[] = [];
   const terminal = { rich, columns: 100, questionsShown: 0, questionOpen: false, endAssistant() {}, assistant() {},
-    setActivity(lines?: string[]) { boxes.push(lines); }, write(value: string) { written.push(value); } };
+    // The live rows, then the status row's words, as one list.
+    setWork(view?: WorkView) { boxes.push(view ? [...view.rows, ...(view.status ? [view.status] : [])] : undefined); },
+    write(value: string) { written.push(value); }, writeFold() {} };
   const events = new RuntimeEventView(terminal as unknown as InteractiveTerminal, { write: value => terminal.write(value) }, {
     updateFooter() {}, onToolEnd() {}, setTaskStop() {}, markRuntimeFailed() {}, turnLimitReached() {}, cancelled: () => false,
     projectRoot: () => "/work/app", display: () => options.level ?? "normal",
@@ -46,21 +49,21 @@ function view(options: { rich?: boolean; level?: DisplayLevel; announce?: boolea
     tick: () => { for (const t of ticks.filter(x => x.live && x.every === 1000)) t.fn(); } };
 }
 
-test("a running check shows its name and elapsed time after 10 seconds, not before, with its last output line under it", () => {
+test("a running check gets its row after 10 seconds, not before, with its last output line under it; the status row names it at once", () => {
   const s = view();
   const run = s.events.watchCheck("test")!;
   run.update("collecting\ntests/a.test.ts ok\n");
-  expect(s.last()).toBeUndefined();
+  expect(s.last()).toEqual(["Checking test · 0s"]);
   clock += 9_999;
   s.tick();
-  expect(s.last()).toBeUndefined();
+  expect(s.last()).toEqual(["Checking test · 9s"]);
   clock += 1;
   s.tick();
-  expect(s.last()).toEqual(["test · 10s", "↳ tests/a.test.ts ok"]);
+  expect(s.last()).toEqual(["• test · 10s", "↳ tests/a.test.ts ok", "Checking test · 10s"]);
   clock += 3 * 60_000;
   run.update("still going \u001b[31mred\u001b[0m\u0007 token=sk-or-v1-abcdef0123456789abcdef0123456789\n\n");
   const lines = s.last()!;
-  expect(lines[0]).toBe("test · 3m10s");
+  expect(lines[0]).toBe("• test · 3m10s");
   expect(lines[1]).toStartWith("↳ still going red");
   expect(lines[1]).not.toMatch(/[\u001b\u0007]|abcdef0123456789abcdef/);
 });
@@ -70,7 +73,7 @@ test("the line is removed when the check ends, and the tick timer stops", () => 
   const run = s.events.watchCheck("lint")!;
   clock += 20_000;
   s.tick();
-  expect(s.last()![0]).toBe("lint · 20s");
+  expect(s.last()![0]).toBe("• lint · 20s");
   expect(ticks.some(t => t.live)).toBe(true);
   run.end();
   expect(s.last()).toBeUndefined();
@@ -83,7 +86,7 @@ test("extra verification runs take the label they are given", () => {
   s.events.watchCheck("test");
   clock += 12_000;
   s.tick();
-  expect(s.last()![0]).toBe("tests fail without the change · 12s");
+  expect(s.last()![0]).toBe("• tests fail without the change · 12s");
 });
 
 test("at /details quiet a check shows nothing", () => {

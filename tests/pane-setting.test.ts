@@ -41,24 +41,24 @@ test("the saved pane setting reads back; nothing saved reads as unset", async ()
   expect(await readPaneSetting(home)).toBe("on");
 });
 
-test("the steps pane opens only on a wide window, and /pane off closes it and keeps the Working box", () => {
+test("the steps pane opens only on a wide window, and /pane off closes it and keeps the steps on the main screen", () => {
   const fake = fakePane();
   const narrow = terminalOf(100, { host: { tmux: true, tmuxPane: "%1", iterm: false }, openPane: fake.open, run: () => ({ status: 1, stdout: "" }) });
   try {
     narrow.terminal.start();
-    narrow.terminal.setActivity(["• bash · npm test"]);
+    narrow.terminal.setWork({ rows: ["• bash · npm test"] });
     expect(fake.opened).toBe(0);
     // The window grew: the next step opens it.
     narrow.writer.columns = 140;
-    narrow.terminal.setActivity(["• bash · npm test", "• read · a.ts"]);
+    narrow.terminal.setWork({ rows: ["• bash · npm test", "• read · a.ts"] });
     expect(fake.opened).toBe(1);
     narrow.terminal.setPane("off");
     expect(fake.closed).toBe(1);
     expect(narrow.terminal.hasPane).toBe(false);
-    narrow.terminal.setActivity(["• bash · ls"]);
+    narrow.terminal.setWork({ rows: ["• bash · ls"] });
     expect(fake.opened).toBe(1);
     narrow.terminal.setPane("on");
-    narrow.terminal.setActivity(["• bash · pwd"]);
+    narrow.terminal.setWork({ rows: ["• bash · pwd"] });
     expect(fake.opened).toBe(2);
   } finally { narrow.close(); }
 });

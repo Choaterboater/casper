@@ -1,5 +1,6 @@
 import { type Component, Markdown, type MarkdownTheme, visibleWidth } from "@earendil-works/pi-tui";
 import { stripVTControlCharacters } from "node:util";
+import { tint } from "./format";
 import { renderCodeBlock } from "./presentation";
 
 const INDENTED_CODE = /^(?: {4}|\t)/;
@@ -115,9 +116,15 @@ interface Cache {
   width: number;
   source: string;
   lines: string[];
+  /** `lines` with the lead mark, as shown. */
+  led: string[];
   prefixEnd: number;
   prefixLines: string[];
 }
+
+/** The mark before each of the AI's messages, and the indent its prose hangs at. */
+export const AI_LEAD = "●";
+const HANG = 2;
 
 /** Assistant Markdown that re-parses only the open tail. Output matches a full render; width changes do too. */
 export class StreamingMarkdown implements Component {
@@ -128,8 +135,13 @@ export class StreamingMarkdown implements Component {
   /** Code lines (as written) of the current render, in the order Pi emitted their CODE_LINE_TAGs. */
   private codeLines: string[] = [];
   private readonly styleCode: (text: string) => string;
+  /** Columns the prose is indented by: 2 under a lead mark, 0 without. */
+  private readonly indent: number;
 
-  constructor(private readonly color: boolean, theme: MarkdownTheme) {
+  /** `hang`: the message leads with ● and its prose hangs two columns in; a top-level code block stays full width at
+   * the left edge, so it copies exactly as written. */
+  constructor(private readonly color: boolean, theme: MarkdownTheme, options: { hang?: boolean } = {}) {
+    this.indent = options.hang ? HANG : 0;
     // Pi-tui renders code content verbatim, so rendered lines cannot distinguish a content
     // line starting with ``` from a real border (nested fences). Tag border lines; the tag
     // is consumed by boxFences and never reaches rendered output. Code lines become a
@@ -150,7 +162,7 @@ export class StreamingMarkdown implements Component {
   render(width: number): string[] {
     const text = this.source;
     const cached = this.cache;
-    if (cached && cached.width === width && cached.source === text) return cached.lines;
+    if (cached && cached.width === width && cached.source === text) return cached.led;
     const extended = cached && cached.width === width && cached.prefixEnd > 0 && text.startsWith(cached.source);
     const prefixEnd = extended && !text.slice(cached.source.length).includes("\n\n")
       ? cached.prefixEnd
@@ -164,12 +176,28 @@ export class StreamingMarkdown implements Component {
           ? cached.prefixLines
           : joinRendered(cached.prefixLines, this.renderSlice(text.slice(cached.prefixEnd, prefixEnd), width));
       const lines = joinRendered(prefixLines, this.renderSlice(text.slice(prefixEnd), width));
-      this.cache = { width, source: text, lines, prefixEnd, prefixLines };
-      return lines;
+      const led = this.lead(lines);
+      this.cache = { width, source: text, lines, led, prefixEnd, prefixLines };
+      return led;
     }
     const lines = this.renderSlice(text, width);
-    this.cache = { width, source: text, lines, prefixEnd: stablePrefixEnd(text), prefixLines: [] };
-    return lines;
+    const led = this.lead(lines);
+    this.cache = { width, source: text, lines, led, prefixEnd: stablePrefixEnd(text), prefixLines: [] };
+    return led;
+  }
+
+  /** The lead mark in place of the first prose row's indent, or on a row of its own above a code block. Added only
+   * here, so the cached prefix rows and their joins never hold it. */
+  private lead(lines: string[]): string[] {
+    if (!this.indent) return lines;
+    const first = lines.findIndex(line => line !== "");
+    if (first < 0) return lines;
+    const mark = tint(AI_LEAD, "accent", this.color);
+    const pad = " ".repeat(this.indent);
+    const led = [...lines];
+    if (led[first]!.startsWith(pad)) led[first] = `${mark}${" ".repeat(this.indent - 1)}${led[first]!.slice(this.indent)}`;
+    else led.splice(first, 0, mark);
+    return led;
   }
 
   private renderSlice(text: string, width: number): string[] {
@@ -177,15 +205,17 @@ export class StreamingMarkdown implements Component {
     const markdown = text === this.source ? this.full : this.scratch;
     markdown.setText(literalStars(text));
     this.codeLines = [];
-    const rendered = markdown.render(width).map(line => line.replace(/ +$/, ""));
-    return boxFences(rendered, this.codeLines, width, this.color, this.styleCode);
+    const rendered = markdown.render(Math.max(1, width - this.indent)).map(line => line.replace(/ +$/, ""));
+    return boxFences(rendered, this.codeLines, width, this.indent, this.color, this.styleCode);
   }
 }
 
 /** Replaces each tagged fence with a copy-safe code block (see renderCodeBlock). It sits after the container prefix
  * Pi put in front of the fence (list indent, `│ ` quote border), so the title is the bare info string and the body is
- * the source code as written. */
-function boxFences(lines: string[], code: readonly string[], width: number, color: boolean, style: (text: string) => string): string[] {
+ * the source code as written. `indent`: prose rows hang this many columns in; a top-level fence keeps the full width
+ * at the left edge, and a fence inside a list or quote follows its container's indent. */
+function boxFences(lines: string[], code: readonly string[], width: number, indent: number, color: boolean, style: (text: string) => string): string[] {
+  const pad = " ".repeat(indent);
   const out: string[] = [];
   let next = 0;
   let body: string[] = [];
@@ -199,8 +229,10 @@ function boxFences(lines: string[], code: readonly string[], width: number, colo
   };
   const flush = (closing: string) => {
     const rest = margin ?? closing;
-    const panel = renderCodeBlock(title || "code", body, width - visibleWidth(head), color, style);
-    out.push(...panel.map((row, index) => `${index ? rest : head}${row}`));
+    // At the top level the block takes the whole width with no indent; inside a container it hangs with the prose.
+    const lead = head || rest ? pad : "";
+    const panel = renderCodeBlock(title || "code", body, width - visibleWidth(head) - lead.length, color, style);
+    out.push(...panel.map((row, index) => `${lead}${index ? rest : head}${row}`));
     body = [];
     title = undefined;
     margin = undefined;
@@ -216,7 +248,7 @@ function boxFences(lines: string[], code: readonly string[], width: number, colo
       continue;
     }
     const tagged = line.indexOf(CODE_LINE_TAG);
-    if (title === undefined) { if (tagged < 0) out.push(line); continue; }
+    if (title === undefined) { if (tagged < 0) out.push(line ? pad + line : line); continue; }
     // Untagged rows inside a fence are Pi wrap artefacts of a prefix wider than the column.
     if (tagged < 0) continue;
     margin ??= prefix(line, tagged);

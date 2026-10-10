@@ -72,7 +72,7 @@ test("a line typed while the answer streams is echoed after the words so far, an
     session.screen.writer.columns = 90; session.screen.writer.emit("resize");
     await session.screen.until(() => session.screen.output.split(REPAINT).length > repaints && session.screen.output.split(REPAINT).at(-1)!.includes("Second part."));
     const frame = Bun.stripANSI(session.screen.output.split(REPAINT).at(-1)!).split("\r\n").map(line => line.trimEnd()).filter(Boolean);
-    const from = frame.indexOf("First part of the answer.");
-    expect(frame.slice(from, from + 3)).toEqual(["First part of the answer.", "❯ next idea", "Second part."]);
+    const from = frame.indexOf("● First part of the answer.");
+    expect(frame.slice(from, from + 3)).toEqual(["● First part of the answer.", "❯ next idea", "● Second part."]);
   } finally { session.close(); }
 });

@@ -328,6 +328,42 @@ export interface ReceiptOptions {
   checksHintShown?: true;
   /** Files this session already named as ones undo can't put back: not named again. /undo still names them. */
   undoNamed?: ReadonlySet<string>;
+  /** Notes about the session rather than the task (the shell not sandboxed, a folder too big to compare) that an earlier
+   * receipt said in full: said again in one short line (see rememberSessionNotes). /receipt still says them in full. */
+  seenNotes?: ReadonlySet<string>;
+}
+
+/** A receipt note about the session's state rather than the task: its key (what it says, so a change says it in full
+ * again) and the words it shrinks to once said. */
+interface SessionNote { key: string; short: string }
+
+const sandboxOffLine = (reason: string) => `– Shell commands and checks were not sandboxed (${reason})`;
+const changesUnknownLine = (reason: string) => `– Changes unknown: ${reason}`;
+
+/** This task's session notes, by the receipt line that says each one. */
+function sessionNotes(task: TaskResult): Map<string, SessionNote> {
+  const safe = lineText;
+  const notes = new Map<string, SessionNote>();
+  if (!task.changedPaths && task.possibleMutations && task.snapshotFailure) {
+    const reason = safe(task.snapshotFailure.reason);
+    notes.set(changesUnknownLine(reason), { key: `changes:${reason}`, short: `changes unknown (${reason.replace(/\s*\(.*$/, "")})` });
+  }
+  if (task.sandbox && !task.sandbox.held) {
+    const reason = safe(task.sandbox.reason);
+    notes.set(sandboxOffLine(reason), { key: `sandbox:${reason}`, short: "not sandboxed" });
+  }
+  return notes;
+}
+
+/** After a short receipt: the session notes it said, so the next receipt says them short. A note whose state ended
+ * (the sandbox back on, a folder Casper can compare) is forgotten, so the next time it comes back it is said in full. */
+export function rememberSessionNotes(seen: Set<string>, task: TaskResult): void {
+  const keys = [...sessionNotes(task).values()].map((note) => note.key);
+  for (const kind of ["sandbox:", "changes:"]) {
+    if (keys.some((key) => key.startsWith(kind))) continue;
+    for (const key of [...seen]) if (key.startsWith(kind)) seen.delete(key);
+  }
+  for (const key of keys) seen.add(key);
 }
 
 /** The default, plain-language receipt: what changed, what Casper proved, and what to do next.
@@ -356,6 +392,9 @@ function pagesShownText(count: number): string {
 export function formatShortReceipt(task: TaskResult, options: ReceiptOptions = {}): string {
   const { lines, undo, folds, short } = receiptParts(task, options);
   if (!lines.length) return undo.join("\n");
+  const notes = sessionNotes(task);
+  // Said in full on an earlier receipt this session: one short line at the end says them all.
+  const again = (line: string) => Boolean(options.seenNotes?.has(notes.get(line)?.key ?? "\0"));
   const [verdict, ...body] = lines;
   // Repairs and "no files changed" are news only beside a pass; with a problem they keep their own line.
   const folded = (line: string) => folds.has(line) && (short !== undefined || !(line.startsWith("↻ ") || line === "– No files changed"));
@@ -366,8 +405,12 @@ export function formatShortReceipt(task: TaskResult, options: ReceiptOptions = {
   // Check names stay as typed: "✓ test passed", never "Test".
   const head = short !== undefined ? [[short, ...parts].join(" · ")] : [verdict, ...(parts.length ? [`✓ ${parts.join(" · ")}`] : [])];
   const safe = lineText;
-  // The problems come right after the verdict; the checklist's line follows them.
-  return [...head, ...body.filter((line) => !folded(line)), ...checklistLines(task, safe), ...undo].join("\n");
+  // The problems come right after the verdict, a warning to act on (⚠) first; the checklist's line follows them.
+  const rest = body.filter((line) => !folded(line) && !again(line));
+  const urgent = (line: string) => line.startsWith("⚠ ");
+  const repeated = body.filter(again).map((line) => notes.get(line)!.short);
+  const same = repeated.length ? [`– Same as before: ${repeated.join(" · ")} (/receipt)`] : [];
+  return [...head, ...rest.filter(urgent), ...rest.filter((line) => !urgent(line)), ...same, ...checklistLines(task, safe), ...undo].join("\n");
 }
 
 /** The request's checklist on the short receipt: said only when the model's own review lists something not done
@@ -400,7 +443,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
   if (task.changedPaths?.length) fold(`✓ Changed ${pathList(task.changedPaths, safe)}`, changedShort(task.changedPaths, safe));
   else if (task.changedPaths && task.autoSkipped === "no-changes" && !task.verification) lines.push("– No files changed, so Casper ran no checks");
   else if (task.changedPaths) fold("– No files changed", "no files changed");
-  else if (task.possibleMutations) lines.push(task.snapshotFailure ? `– Changes unknown: ${safe(task.snapshotFailure.reason)}` : "– Changes unknown — Casper could not compare the workspace");
+  else if (task.possibleMutations) lines.push(task.snapshotFailure ? changesUnknownLine(safe(task.snapshotFailure.reason)) : "– Changes unknown — Casper could not compare the workspace");
   if (!task.changedPaths && task.snapshotFailure?.edited.length) lines.push(`– Changed (seen by Casper's edit and write tools): ${pathList(task.snapshotFailure.edited, safe, false)}`);
 
   const report = task.verification;
@@ -463,9 +506,10 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
     ? `– Changed on ${safe(remote.host)} (from the commands Casper saw): ${remote.changes.map(safe).join("; ")}`
     : `– Ran commands on ${safe(remote.host)} over ssh; ${REMOTE_UNKNOWN}`);
   for (const remote of task.remoteNotRun ?? []) lines.push(`– Not run on ${safe(remote.host)}: ${remoteNotRunText(remote.commands)}`);
-  if (task.secretInCommand) lines.push(`– ${SECRET_IN_COMMAND}`);
+  // Something to do: a warning, said before the notes.
+  if (task.secretInCommand) lines.push(`⚠ ${SECRET_IN_COMMAND}`);
   // Only the exception is said: a task whose shell commands and checks ran with your own permissions.
-  if (task.sandbox && !task.sandbox.held) lines.push(`– Shell commands and checks were not sandboxed (${safe(task.sandbox.reason)})`);
+  if (task.sandbox && !task.sandbox.held) lines.push(sandboxOffLine(safe(task.sandbox.reason)));
   else if (task.sandbox && labRan(report)) lines.push(`– Lab checks ran outside the sandbox (${LAB_OUTSIDE_WHY})`);
   for (const folder of task.outsideWrites ?? []) lines.push(`– Wrote outside the project: ${safe(folder)} (you allowed it; no undo copy)`);
   for (const folder of task.outsideAllowed ?? []) lines.push(`– Allowed writes outside the project: ${safe(folder)} (no undo copy)`);

@@ -1,6 +1,7 @@
 # Casper 0.2.30 · /verify: one line per check as it finishes, then the receipt
 
 ❯ /verify
+
 [verify] No typecheck command here, so Casper runs lint, test and build.
 ✓ lint
 ✓ test
@@ -9,3 +10,5 @@
 ✓ lint passed (node --check src/sum.js)
 ✓ test passed (bun test)
 ✓ build passed (bun build src/sum.js --outdir dist)
+– Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or sandbox:
+on in ~/.casper/config.yaml)

@@ -119,7 +119,8 @@ conpty("ConPTY: a small task, undo and redo, and a shell command that asks first
   const { s, project } = await startCasper();
   expect(s.text()).toContain("not sandboxed (Windows has no sandbox yet)");
   s.send("make hello\n");
-  await s.until("✓ write · hello.txt");
+  // A finished step folds into one row that says what was done.
+  await s.until("edited hello.txt");
   await s.until("Next: 1 Show diff · 2 Undo");
   await idle(s);
   expect(await readFile(path.join(project, "hello.txt"), "utf8")).toBe("hello\n");
@@ -139,7 +140,7 @@ conpty("ConPTY: a small task, undo and redo, and a shell command that asks first
   await s.until("→ 1 No");
   await boxReady();
   s.send("2");
-  await s.until("✓ bash · mkdir made");
+  await s.until("ran mkdir made");
   await idle(s);
   expect(existsSync(path.join(project, "made"))).toBe(true);
 
@@ -296,7 +297,7 @@ conpty("ConPTY: Windows Terminal gets rounded corners and color, the old console
 conpty("ConPTY: the old console draws every mark in ASCII, not only the spinner", async () => {
   const { s } = await startCasper({ terminal: "old-console" });
   s.send("make hello\n");
-  await s.until("+ write · hello.txt");
+  await s.until("* edited hello.txt");
   await idle(s);
   s.send("run mkdir\n");
   await s.until("> 1 No");
@@ -306,7 +307,7 @@ conpty("ConPTY: the old console draws every mark in ASCII, not only the spinner"
   await idle(s);
   // Live, the old console showed ❯ → ✓ ▌ • ↳ ○ … while only the spinner fell back.
   expect(s.visible()).toMatch(/^> make hello/m);
-  for (const mark of ["❯", "✓", "✗", "→", "↳", "▌", "•", "○", "…", "–", "⠋"]) expect(s.raw).not.toContain(mark);
+  for (const mark of ["❯", "●", "✓", "✗", "→", "↳", "▌", "•", "○", "…", "–", "⠋"]) expect(s.raw).not.toContain(mark);
   expect(await exitWith(s, () => s.send("/exit\n"))).toBe(0);
 }, 120_000);
 
@@ -327,7 +328,10 @@ conpty("ConPTY: a line typed during work is queued, and Esc stops the task and g
   s.send("next idea\n");
   await s.until("↳ queued · runs when this task ends");
   s.press("escape");
-  await s.waitFor("the line back in the prompt", () => /^❯ next idea\s*$/m.test(s.visible()) && quietFooter(s));
+  // The echo above also reads "❯ next idea", and a frame caught mid-scroll can end on a blank row: wait for the note,
+  // then for the line between the editor's rules.
+  await s.until("Your 1 queued line is back in the prompt");
+  await s.waitFor("the line back in the prompt", () => /^─+\n❯ next idea\n─+$/m.test(s.visible()) && quietFooter(s));
   // Sent again, it runs as its own task.
   s.press("enter");
   await s.until("Echo: next idea");
@@ -345,7 +349,7 @@ conpty("ConPTY: Windows Terminal keys: Ctrl+Enter adds a line, Shift+Tab cycles 
   s.send("three");
   await s.waitFor("three lines in the editor", () => /^❯ one\n {2}two\n {2}three\s*$/m.test(s.visible()));
   s.press("enter");
-  await s.until("Answer: one\ntwo\nthree");
+  await s.until("Answer: one\n  two\n  three");
   await idle(s);
   s.press("up");
   await s.waitFor("the last line back", () => /^❯ one\n {2}two\n {2}three\s*$/m.test(s.visible()));

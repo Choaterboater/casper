@@ -110,13 +110,129 @@ const COMMAND_WRAPPERS = new Set(["sudo", "env", "time", "nohup", "exec", "comma
 /** ssh, scp and sftp options that take a value, so the value is not taken for the host. */
 const REMOTE_VALUE_FLAGS = new Set(["-p", "-P", "-i", "-l", "-o", "-F", "-J", "-L", "-R", "-D", "-b", "-c", "-E", "-e", "-m", "-O", "-Q", "-S", "-W", "-w"]);
 
+/** Commands of a script that only set things up or print a heading: a label names the programs that do the work. */
+const SETUP_COMMAND = /^(?:cd|pushd|popd|export|set|unset|source|\.|echo|printf|true|false|:|[A-Za-z_][A-Za-z0-9_]*=\S*|\d*[<>]\S*)(?:\s|$)/;
+/** Shell words that open or close a loop or test: the command after one is what runs. */
+const SHELL_KEYWORD = /^(?:do|then|else|elif|if|while|until|!|\{)(?:\s+|$)/;
+const SHELL_HEADER = /^(?:for|select|case|done|fi|esac|\}|function)(?:\s|$)|^[A-Za-z_][A-Za-z0-9_]*\s*\(\)/;
+
+/** One command of a script: its text before any pipe, and a heredoc's body line count when it reads one. */
+interface ScriptCommand { text: string; heredoc?: number }
+
+/** Spaces, tabs and line ends; never the no-break space inside a hidden secret's word. */
+const SPACES = /[ \t\n\r\f\v]+/g;
+
+/** A script split into its commands at newlines, `;`, `&&`, `||` and subshell brackets, outside quotes and `$(…)`.
+ * A heredoc's body is counted, not split. A pipeline keeps only its first program. */
+function scriptCommands(script: string): ScriptCommand[] {
+  const commands: ScriptCommand[] = [];
+  const lines = script.replace(/\r\n?/g, "\n").split("\n");
+  let current = "";
+  let piped = false;
+  let heredoc: { end: string; dash: boolean } | undefined;
+  // Quotes and `$(…)` may run over several lines.
+  let quote: "'" | "\"" | undefined;
+  let depth = 0;
+  const add = (text: string) => { if (!piped) current += text; };
+  const push = (body?: number) => {
+    let text = current.replace(SPACES, " ").trim();
+    while (SHELL_KEYWORD.test(text)) text = text.replace(SHELL_KEYWORD, "");
+    if (text && !SHELL_HEADER.test(text)) commands.push(body === undefined ? { text } : { text, heredoc: body });
+    current = ""; piped = false;
+  };
+  for (let row = 0; row < lines.length; row++) {
+    const line = lines[row]!;
+    for (let at = 0; at < line.length; at++) {
+      const char = line[at]!;
+      if (quote) {
+        if (char === "\\" && quote === "\"") { add(char + (line[at + 1] ?? "")); at++; continue; }
+        if (char === quote) quote = undefined;
+        add(char);
+        continue;
+      }
+      if (char === "\\") { add(char + (line[at + 1] ?? "")); at++; continue; }
+      if (char === "'" || char === "\"") { quote = char; add(char); continue; }
+      if (depth > 0) {
+        if (char === "(") depth++;
+        if (char === ")") depth--;
+        add(char);
+        continue;
+      }
+      if (char === "#" && (at === 0 || /\s/.test(line[at - 1]!))) break;
+      // `$(…)` stays inside its command; a bare `(…)` or `{ …; }` subshell is split like the rest of the script.
+      if (char === "(" && line[at - 1] === "$") { depth++; add(char); continue; }
+      if (char === "(" || char === ")") { push(); continue; }
+      const two = line.slice(at, at + 2);
+      if (two === "&&" || two === "||") { push(); at++; continue; }
+      if (char === ";") { push(); continue; }
+      if (char === "|") { piped = true; continue; }
+      const here = /^<<(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/.exec(line.slice(at));
+      if (here) { heredoc = { end: here[3]!, dash: here[1] === "-" }; add("<<HEREDOC"); at += here[0].length - 1; continue; }
+      add(char);
+    }
+    // An open quote or `$(`, or a line ending in a backslash, carries on to the next line.
+    if (quote || depth > 0) { add(" "); continue; }
+    if (/(?<!\\)\\$/.test(current)) { current = `${current.slice(0, -1)} `; continue; }
+    if (heredoc) {
+      const { end, dash } = heredoc;
+      heredoc = undefined;
+      let body = 0;
+      while (row + 1 < lines.length && (dash ? lines[row + 1]!.trim() : lines[row + 1]) !== end) { row++; body++; }
+      if (row + 1 < lines.length) row++;
+      push(body);
+      continue;
+    }
+    push();
+  }
+  push();
+  return commands;
+}
+
 /** A shell command as a short label: the program and what it acts on ("git status", "ssh root@lab",
  * "python3 -m pytest …"), at most `max` characters. Leading `cd dir &&` and `VAR=value` are left out;
- * a trailing "…" says more was cut. /output shows the whole command. */
+ * a trailing "…" says more was cut. A script of several commands names its programs ("git status, git log, bun test"),
+ * leaving out `cd`, `export`, `echo` headings, loop words and comments; a heredoc script reads "python3 script (12 lines)".
+ * /output shows the whole command. */
 export function commandLabel(command: string, max = 80): string {
-  // A hidden secret is one word here, so "-p <secret hidden>" never leaves "hidden>" as the program.
+  if (/[\n;&|<()]/.test(command)) {
+    // A hidden secret is one word here, so "-p <secret hidden>" never leaves "hidden>" as the program.
+    const commands = scriptCommands(command.replaceAll(HIDDEN, HIDDEN_WORD))
+      .filter(entry => !SETUP_COMMAND.test(entry.text) || entry.heredoc !== undefined);
+    if (commands.length > 1 || commands.some(entry => entry.heredoc !== undefined)) {
+      const labels = [...new Set(commands.map(entry => {
+        if (entry.heredoc === undefined) return singleLabel([entry.text], max, false);
+        const lines = `(${entry.heredoc} ${entry.heredoc === 1 ? "line" : "lines"})`;
+        const write = /^cat\b[^>]*>\s*(\S+)/.exec(entry.text.replace("<<HEREDOC", ""));
+        if (write) return `write ${write[1]!.replace(/^["']|["']$/g, "")} ${lines}`;
+        const program = singleLabel([entry.text.replace(/\s*<<HEREDOC.*$/, "")], max, false).split(" ")[0] || "script";
+        return `${program} script ${lines}`;
+      }).filter(Boolean))];
+      return fitLabels(labels, max).replaceAll(HIDDEN_WORD, HIDDEN);
+    }
+    // One program among headings and set-up, or inside a loop or subshell: that program, not the script's first word.
+    if (commands.length === 1) {
+      const label = singleLabel([commands[0]!.text], max, true);
+      const wrapped = /^(?:for|while|until|if|case|select)\s|^[({]/.test(command.trim()) && !label.endsWith("…");
+      return (wrapped ? fitLabels([`${label} …`], max) : label).replaceAll(HIDDEN_WORD, HIDDEN);
+    }
+  }
   const text = command.replace(/\s+/g, " ").trim().replaceAll(HIDDEN, HIDDEN_WORD);
-  const segments = text.split(/\s*(?:&&|\|\||;|\|)\s*/).filter(Boolean);
+  return singleLabel(text.split(/\s*(?:&&|\|\||;|\|)\s*/).filter(Boolean), max, true).replaceAll(HIDDEN_WORD, HIDDEN);
+}
+
+/** "git status, git log, bun test", or as many as fit with "+N more", in at most `max` characters. */
+function fitLabels(labels: readonly string[], max: number): string {
+  for (let shown = labels.length; shown > 0; shown--) {
+    const more = labels.length - shown;
+    const text = `${labels.slice(0, shown).join(", ")}${more ? ` +${more} more` : ""}`;
+    if ([...text].length <= max) return text;
+  }
+  const first = [...labels[0] ?? ""];
+  return first.length > max ? `${first.slice(0, max - 1).join("")}…` : first.join("");
+}
+
+/** A command (its `&&`, `;` and `|` parts) as its label. `more`: say "…" when words or commands were cut. */
+function singleLabel(segments: readonly string[], max: number, more: boolean): string {
   if (!segments.length) return "";
   let index = 0;
   while (index < segments.length - 1 && /^(?:cd|pushd|export|set|source|\.)(?:\s|$)/.test(segments[index]!)) index++;
@@ -134,6 +250,8 @@ export function commandLabel(command: string, max = 80): string {
   let used: number;
   let label: string;
   if (/^python[\d.]*$/.test(program) && rest[0] === "-m" && rest[1]) { label = `${program} -m ${rest[1]}`; used = 2; }
+  // Inline code is no target: "python3 -c", "node -e".
+  else if (/^(?:python[\d.]*|bash|sh|zsh|node|bun|deno|perl|ruby)$/.test(program) && /^-[ce]$/.test(rest[0] ?? "")) { label = `${program} ${rest[0]}`; used = 2; }
   else {
     const remote = ["ssh", "scp", "sftp"].includes(program);
     let at = 0;
@@ -145,11 +263,11 @@ export function commandLabel(command: string, max = 80): string {
     label = target ? `${program} ${target}` : program;
     used = target ? at + 1 : rest.length;
   }
-  const more = used < rest.length || index < segments.length - 1;
-  label = label.replaceAll(HIDDEN_WORD, HIDDEN);
+  const cut = more && (used < rest.length || index < segments.length - 1);
+  // The hidden-secret word is as long as its shown form, so the count is the same.
   const chars = [...label];
   if (chars.length > max - 2) return `${chars.slice(0, max - 1).join("")}…`;
-  return more ? `${label} …` : label;
+  return cut ? `${label} …` : label;
 }
 
 /** The one way Casper says how long: "0.4s" and "4.2s" under 10 s, then whole seconds ("14s"), "1m05s" or "2m",
@@ -207,6 +325,22 @@ export function lastOutputLine(text: string, max: number): string {
     return points.length > max ? `${points.slice(0, Math.max(0, max - 1)).join("")}…` : line;
   }
   return "";
+}
+
+/** Every path under `home` written as ~/…, so a box shows what it says without the person's folder names. */
+export function shortenHome(text: string, home: string = homedir()): string {
+  if (!home || home === "/") return text;
+  return text.split(`${home}/`).join("~/").replace(new RegExp(`${home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w.-])`, "g"), "~");
+}
+
+/** What a failed step printed last, for its box: the last `max` lines that hold anything, each as it was (only the end
+ * trimmed), with secrets redacted, control characters shown safely and the home folder as ~. `earlier`: how many
+ * more lines came before them. */
+export function failureLines(text: string, options: { max?: number; home?: string } = {}): { lines: string[]; earlier: number } {
+  const all = shortenHome(redactPreview(text.replace(/\r(?!\n)/g, "\n")), options.home).split("\n")
+    .map(line => line.replace(/\t/g, "  ").trimEnd()).filter(line => line.trim());
+  const max = Math.max(1, options.max ?? 6);
+  return { lines: all.slice(-max), earlier: Math.max(0, all.length - max) };
 }
 
 /** `root`: paths under it print relative to it; `home` (default the real one) shortens other paths to ~.

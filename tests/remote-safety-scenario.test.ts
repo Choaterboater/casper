@@ -170,7 +170,7 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
     + " installed or removed packages (apt-get install -y nginx)");
   // One machine, one line, whether the AI used the alias or the address.
   expect(receipt.split("Changed on").length - 1).toBe(1);
-  expect(receipt).toContain("– A secret appeared in a command; change it after this task.");
+  expect(receipt).toContain("⚠ A secret appeared in a command; change it after this task.");
   // The sub-folder's own tests ran for the receipt.
   expect(receipt).toContain("• Casper checking: test (checks from tools)");
   expect(receipt).toMatch(/✓ test passed \(checks from tools · python3 -m unittest discover -s tests(, \d+\.\ds)?\)/);
@@ -202,7 +202,7 @@ posix("one-shot with no sandbox: nothing waits, no ssh runs, ~/.ssh stays privat
   expect(screen).toContain("– Incomplete — commands to 198.51.100.20 (build-server) did not run");
   expect(screen).not.toMatch(/✓ Verified|Checks passed/);
   expect(result.exit).toBe(2);
-  expect(screen).toContain("– A secret appeared in a command; change it after this task.");
+  expect(screen).toContain("⚠ A secret appeared in a command; change it after this task.");
   expect(screen).toMatch(/✓ test passed \(checks from tools · python3 -m unittest discover -s tests(, \d+\.\ds)?\)/);
   expect(screen).toContain("[folder] The work is in ~/Documents/tools. To work there: cd ~/Documents/tools && casper");
   expect(screen).not.toContain("[memory]");

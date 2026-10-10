@@ -1,37 +1,46 @@
 import { afterAll, expect, spyOn, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { buildersLine, PLAIN_START_AFTER_MS, refusalForScreen, RuntimeEventView, stepSummary } from "../src/app/events";
+import { buildersLine, PLAIN_START_AFTER_MS, refusalForScreen, RuntimeEventView } from "../src/app/events";
 import { reachCantAsk, reachDeclined, SHELL_CANT_ASK } from "../src/app/sandbox";
 import { planToolGate } from "../src/flows/plan";
 import { commandLabel, displayPath, formatToolActivity, toolTarget } from "../src/tui/format";
-import { InteractiveTerminal } from "../src/tui/terminal";
+import { GLYPHS } from "../src/tui/glyphs";
+import { describeSteps, stepRows } from "../src/tui/step-view";
+import type { WorkView } from "../src/tui/surface";
+import { InteractiveTerminal, renderFold, type FoldView } from "../src/tui/terminal";
 import { SPEND_STOP_REASON } from "../src/task/spend";
 import { TaskObservations } from "../src/task/observations";
 import type { RuntimeEvent } from "../src/runtime/types";
 
 const ambientTerm = process.env.TERM;
 process.env.TERM = "xterm-256color";
+// A box's top-left corner as this terminal draws it: square on the old Windows console.
+const [CORNER] = GLYPHS.corners;
 afterAll(() => { if (ambientTerm === undefined) delete process.env.TERM; else process.env.TERM = ambientTerm; });
 
-/** A terminal that records the main screen and the Working box apart. */
+/** A terminal that records the main screen and the work in progress (live rows, status row) apart. A fold is drawn as
+ * the rich screen draws it, at 100 columns without colour: under the AI's words when they came last. */
 function fakeTerminal(rich: boolean) {
   const screen: string[] = [];
-  let box: string[] | undefined;
+  let work: WorkView | undefined;
   let text = "";
+  let lead = false;
   const terminal = {
     rich, columns: 100, questionsShown: 0, questionOpen: false,
-    setActivity(status?: string | readonly string[]) { box = status === undefined ? undefined : typeof status === "string" ? [status] : [...status]; },
-    endAssistant() { if (text) { screen.push(...text.split("\n").filter(Boolean)); text = ""; } },
+    setWork(view?: WorkView) { work = view; },
+    endAssistant() { if (text) { screen.push(...text.split("\n").filter(Boolean)); text = ""; lead = true; } },
     assistant(delta: string) { text += delta; },
-    write(value: string) { screen.push(...value.split("\n").filter(Boolean)); },
+    write(value: string) { screen.push(...value.split("\n").filter(Boolean)); lead = false; },
+    writeFold(fold: FoldView) { screen.push(...renderFold(fold, 100, lead, false)); lead = true; },
   };
   const output = { write: (value: string) => terminal.write(value) };
   const view = new RuntimeEventView(terminal as unknown as InteractiveTerminal, output, {
     updateFooter() {}, onToolEnd() {}, setTaskStop() {}, markRuntimeFailed() {}, turnLimitReached() {}, cancelled: () => false,
-    projectRoot: () => "/work/app",
+    projectRoot: () => "/work/app", homeDir: () => "/home/someone",
   });
-  return { view, screen, terminal, get box() { return box; }, handle: (...events: RuntimeEvent[]) => { for (const event of events) view.handle(event); } };
+  return { view, screen, terminal, get box() { return work?.rows.length ? work.rows : undefined; }, get status() { return work?.status; },
+    handle: (...events: RuntimeEvent[]) => { for (const event of events) view.handle(event); } };
 }
 
 const start = (id: string, toolName: string, input: Record<string, string>): RuntimeEvent => ({ type: "tool_start", toolName, toolCallId: id, input });
@@ -64,52 +73,83 @@ test("tool lines drop 'completed' and durations under a second", () => {
   expect(formatToolActivity({ type: "tool_end", toolName: "bash", input, isError: true }, 10)).toBe("✗ bash · npm test … — failed");
 });
 
-test("rich terminal: parallel tools with text between print one line each, never a running line", () => {
+test("rich terminal: steps tick in as live rows, then fold under the AI's words into one row naming what was done", () => {
   const t = fakeTerminal(true);
   t.handle(start("a", "bash", { command: "git status" }), start("b", "read", { path: "/work/app/src/x.ts" }));
   expect(t.box).toEqual(["• bash · git status", "• read · src/x.ts"]);
+  // The status row says what runs now, and how many more.
+  expect(t.status).toMatch(/^Reading src\/x\.ts · \d+s \(\+1 more\)$/);
   t.handle(end("a", "bash", { command: "git status" }));
   expect(t.box).toEqual(["✓ bash · git status", "• read · src/x.ts"]);
   expect(t.screen).toEqual([]);
   t.handle({ type: "assistant_text_delta", delta: "Looking.\n" });
   t.handle(end("b", "read", { path: "/work/app/src/x.ts" }), { type: "message_end" });
-  expect(t.screen).toEqual(["✓ bash · git status", "Looking.", "✓ read · src/x.ts"]);
+  // No words came before the first step, so its row stands on its own (●); the next hangs under the words (└).
+  expect(t.screen).toEqual(["● ran git status", "Looking.", "  └ read src/x.ts"]);
   expect(t.screen.some(line => line.startsWith("•") || line.includes("completed") || line.includes("running"))).toBe(false);
   expect(t.box).toBeUndefined();
 });
 
-test("rich terminal: the Working box keeps the last 3 steps, then folds them into one summary line", () => {
+test("rich terminal: live rows show every step of the group; the fold puts edits in a box and a failure in a box with its output", () => {
   const t = fakeTerminal(true);
   const edit = { path: "/work/app/a.py" };
   t.handle(start("1", "edit", edit), end("1", "edit", edit, true, "old text not found"));
-  t.handle(start("2", "edit", edit), end("2", "edit", edit));
-  t.handle(start("3", "bash", { command: "python3 -m pytest -q" }), end("3", "bash", { command: "python3 -m pytest -q" }, true, "1 failed"));
+  t.handle(start("2", "edit", edit), { ...end("2", "edit", edit), lines: { added: 1, removed: 1 }, diff: "@@ -1 +1 @@\n-x = 1\n+x = 2\n" } as RuntimeEvent);
+  t.handle(start("3", "bash", { command: "python3 -m pytest -q" }), end("3", "bash", { command: "python3 -m pytest -q" }, true, "tests/test_a.py F\n\n1 failed"));
   t.handle(start("4", "write", { path: "/work/app/b.py" }), end("4", "write", { path: "/work/app/b.py" }));
   t.handle(start("5", "read", { path: "/work/app/c.py" }));
-  expect(t.box).toEqual(["✗ bash · python3 -m pytest … — failed", "✓ write · b.py", "• read · c.py"]);
+  expect(t.box).toEqual(["✗ edit · a.py — failed", "✓ edit · a.py · +1 -1", "✗ bash · python3 -m pytest … — failed", "✓ write · b.py", "• read · c.py"]);
   t.handle(end("5", "read", { path: "/work/app/c.py" }));
   expect(t.screen).toEqual([]);
   t.handle({ type: "assistant_text_delta", delta: "Fixed it." });
-  // The failed edit was tried again at once: counted, not printed. The failed command prints with its cause.
-  expect(t.screen).toEqual(["✗ bash · python3 -m pytest … — failed", "  1 failed", "– 3 edits · 1 command · 1 read · 2 failed", "  changed a.py, b.py"]);
+  const screen = t.screen.join("\n");
+  // The failed edit was tried again at once: shown nowhere. The failed command is a box with what it printed.
+  expect(t.screen[0]).toBe("● read c.py");
+  expect(t.screen[1]).toStartWith(`${CORNER}─ Edited 2 files ─`);
+  expect(t.screen.slice(2, 6).map(row => row.slice(2).trim().replace(/│$/, "").trim())).toEqual(["a.py  +1 -1", "- x = 1", "+ x = 2", "b.py"]);
+  expect(screen).toContain(`${CORNER}─ ✗ bash · python3 -m pytest … — failed ─`);
+  expect(screen).toMatch(/│ tests\/test_a\.py F +│\n│ 1 failed +│/);
+  expect(screen).not.toContain("old text not found");
   expect(t.box).toBeUndefined();
 });
 
-test("the folded line names the changed files under it, a few at most; nothing changed, no line", () => {
+test("edits fold into one box naming each file, a few changed lines each; with no diff to show, into the row", () => {
   const t = fakeTerminal(true);
   const files = ["a.py", "b.py", "c.py", "d.py", "e.py", "f.py", "g.py"];
-  files.forEach((file, index) => t.handle(start(String(index), "edit", { path: `/work/app/${file}` }), end(String(index), "edit", { path: `/work/app/${file}` })));
+  const diff = "@@ -1 +1 @@\n-old\n+new\n";
+  files.forEach((file, index) => t.handle(start(String(index), "edit", { path: `/work/app/${file}` }),
+    { ...end(String(index), "edit", { path: `/work/app/${file}` }), lines: { added: 1, removed: 1 }, diff } as RuntimeEvent));
   t.handle(start("r", "read", { path: "/work/app/a.py" }), end("r", "read", { path: "/work/app/a.py" }));
   t.handle({ type: "assistant_text_delta", delta: "Done." });
-  expect(t.screen).toEqual(["✓ 7 edits · 1 read", "  changed a.py, b.py, c.py, d.py, e.py +2 more"]);
+  expect(t.screen[0]).toBe("● read a.py");
+  expect(t.screen[1]).toStartWith(`${CORNER}─ Edited 7 files ─`);
+  // Every file is named; the changed lines fill the rest of the box's ten rows, and the last row says what is left.
+  const rows = t.screen.slice(2, 13).map(row => row.slice(2).trim().replace(/│$/, "").trim());
+  expect(rows.filter(row => row.endsWith("+1 -1")).map(row => row.split(" ")[0])).toEqual(files);
+  expect(rows.at(-1)).toBe("… 11 more lines · Ctrl+T shows all");
+  const written = fakeTerminal(true);
+  written.handle(start("w", "write", { path: "/work/app/new.py" }), end("w", "write", { path: "/work/app/new.py" }), { type: "message_end" });
+  expect(written.screen).toEqual(["● edited new.py"]);
   const reads = fakeTerminal(true);
   reads.handle(start("1", "read", { path: "/work/app/a.py" }), end("1", "read", { path: "/work/app/a.py" }));
   reads.handle(start("2", "bash", { command: "ls" }), end("2", "bash", { command: "ls" }));
   reads.handle({ type: "assistant_text_delta", delta: "Done." });
-  expect(reads.screen).toEqual(["✓ 1 command · 1 read"]);
+  expect(reads.screen).toEqual(["● read a.py · ran ls"]);
 });
 
-test("the Working box never stays after the receipt, even for a tool that ends after its turn", async () => {
+test("steps with no words between them stay one group: a turn of only tool calls, or words held for the plan screen", () => {
+  const t = fakeTerminal(true);
+  t.handle(start("1", "read", { path: "/work/app/a.ts" }), end("1", "read", { path: "/work/app/a.ts" }));
+  // Blank space before any words is not the AI moving on.
+  t.handle({ type: "assistant_text_delta", delta: "\n\n" });
+  t.handle(start("2", "read", { path: "/work/app/b.ts" }), end("2", "read", { path: "/work/app/b.ts" }));
+  t.view.holdText("Writing the plan");
+  t.handle({ type: "assistant_text_delta", delta: "hidden words" });
+  t.handle(start("3", "read", { path: "/work/app/c.ts" }), end("3", "read", { path: "/work/app/c.ts" }), { type: "message_end" });
+  expect(t.screen).toEqual(["● read a.ts, b.ts, c.ts"]);
+});
+
+test("the live rows never stay after the receipt, even for a tool that ends after its turn", async () => {
   const t = fakeTerminal(true);
   t.handle(start("x", "bash", { command: "sleep 5" }), { type: "message_end" });
   expect(t.box).toEqual(["• bash · sleep 5"]);
@@ -117,7 +157,7 @@ test("the Working box never stays after the receipt, even for a tool that ends a
   expect(t.box).toEqual(["✓ bash · sleep 5"]);
   t.view.reset();
   expect(t.box).toBeUndefined();
-  expect(t.screen).toEqual(["✓ bash · sleep 5"]);
+  expect(t.screen).toEqual(["● ran sleep 5"]);
 
   // On the real surface the prompt's return clears the box too. A width change repaints the whole screen.
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
@@ -133,7 +173,7 @@ test("the Working box never stays after the receipt, even for a tool that ends a
   const terminal = new InteractiveTerminal(input, writer, () => {}, () => {});
   try {
     terminal.setStatus("fixture"); terminal.start();
-    terminal.setActivity(["✓ bash · sleep 5"]);
+    terminal.setWork({ rows: ["✓ bash · sleep 5"] });
     await until(() => Bun.stripANSI(output).includes("Working"));
     void terminal.readCommand();
     const repaints = output.split(REPAINT).length;
@@ -153,7 +193,7 @@ test("plain terminal prints only the end line of each tool", () => {
   expect(t.box).toBeUndefined();
 });
 
-test("rich: a finished step keeps its time in the Working box, and its folded line leaves it out; plain keeps it", () => {
+test("rich: a finished step keeps its time in its live row, and a slow command its time in the folded row; plain keeps it", () => {
   let now = 1_000;
   const clock = spyOn(performance, "now").mockImplementation(() => now);
   try {
@@ -164,7 +204,7 @@ test("rich: a finished step keeps its time in the Working box, and its folded li
       t.handle(end("1", "bash", { command: "bun test" }));
       if (rich) expect(t.box).toEqual(["✓ bash · bun test · 16s"]);
       t.handle({ type: "message_end" });
-      expect(t.screen.at(-1)).toBe(rich ? "✓ bash · bun test" : "✓ bash · bun test · 16s");
+      expect(t.screen.at(-1)).toBe(rich ? "● ran bun test (16s)" : "✓ bash · bun test · 16s");
     }
   } finally { clock.mockRestore(); }
 });
@@ -177,9 +217,21 @@ test("rich: the AI's answered question leaves no ask step (its box is the record
   expect(t.screen).toEqual(["✗ ask — failed"]);
 });
 
-test("the summary line counts steps and leaves the time to the footer and the Working box", () => {
-  expect(stepSummary([{ kind: "edit" }, { kind: "edit" }])).toBe("✓ 2 edits");
-  expect(stepSummary([{ kind: "command", failed: true }, { kind: "other" }])).toBe("– 1 command · 1 other step · 1 failed");
+test("the folded row names what was done, each kind once, and keeps names on a narrow screen by giving each kind a row", () => {
+  const parts = describeSteps([
+    { toolName: "read", input: { path: "/work/app/AGENTS.md" } }, { toolName: "read", input: { path: "/work/app/docs/CONTEXT.md" } },
+    { toolName: "bash", input: { command: "git status" } }, { toolName: "bash", input: { command: "git status" } },
+    { toolName: "bash", input: { command: "echo === tests ===\nbun test tests/a.test.ts" }, elapsedMs: 125_000 },
+    { toolName: "grep", input: { pattern: "TODO", path: "/work/app/src" } }, { toolName: "web_fetch", input: { url: "https://pypi.org/project/x" } },
+    { toolName: "github" },
+  ], { root: "/work/app" });
+  expect(stepRows(parts, 200, "└", false)).toEqual(['└ read AGENTS.md, docs/CONTEXT.md · ran git status, bun test (2m05s) · searched "TODO" in src · fetched pypi.org/project/x · used github']);
+  expect(stepRows(parts, 60, "└", false)).toEqual([
+    "└ read AGENTS.md, docs/CONTEXT.md", "  ran git status, bun test (2m05s)", '  searched "TODO" in src', "  fetched pypi.org/project/x", "  used github",
+  ]);
+  const many = describeSteps(Array.from({ length: 13 }, (_, index) => ({ toolName: "read", input: { path: `/work/app/src/deep/file${index}.ts` } })), { root: "/work/app" });
+  expect(stepRows(many, 60, "●", false)).toEqual(["● read 13 files: file0.ts, file1.ts, file2.ts +10 more"]);
+  expect(stepRows(many, 24, "●", false)).toEqual(["● read 13 files"]);
 });
 
 test("a tool call stopped at the spend limit shows as not run, never as a failed step or with the model's instruction", () => {
@@ -191,7 +243,7 @@ test("a tool call stopped at the spend limit shows as not run, never as a failed
     expect(t.screen).toContain("○ bash · ssh root@10.0.0.5 … — not run (spend limit)");
     expect(t.screen.join("\n")).not.toContain("Do not call more tools");
     expect(t.screen.join("\n")).not.toMatch(/failed|✗/);
-    if (rich) expect(t.screen).toContain("✓ read · a.py");
+    if (rich) expect(t.screen).toContain("● read a.py");
   }
 });
 
@@ -320,24 +372,24 @@ test("a skipped casper_check shows as skipped on both terminals; its payload nev
   expect(failed.screen.join("\n")).not.toContain("status");
 });
 
-test("the Working box names the builders that are running, and nothing when none are", () => {
+test("the live rows name the builders that are running, and nothing when none are", () => {
   expect(buildersLine([])).toBeUndefined();
   expect(buildersLine(["Fix the parser\nmore detail"])).toBe("1 builder working: Fix the parser");
   expect(buildersLine(["fix the parser", "add tests", "x".repeat(60), "four"]))
     .toBe(`4 builders working: fix the parser, add tests, ${"x".repeat(39)}… +1 more`);
 });
 
-test("the Working box line names running reviewers too, before the builders", () => {
+test("the builders row names running reviewers too, before the builders", () => {
   expect(buildersLine([], 1)).toBe("1 reviewer working");
   expect(buildersLine(["fix the parser", "add tests"], 1)).toBe("1 reviewer, 2 builders working: fix the parser, add tests");
   expect(buildersLine(["fix the parser"], 3)).toBe("3 reviewers, 1 builder working: fix the parser");
   expect(buildersLine([], 0)).toBeUndefined();
 });
 
-test("rich terminal: the box carries the reviewers count and drops it when they end", () => {
+test("rich terminal: the live rows carry the reviewers count and drop it when they end", () => {
   let reviewers = 1;
   const box: Array<readonly string[] | undefined> = [];
-  const terminal = { rich: true, columns: 100, setActivity(s?: string | readonly string[]) { box.push(s === undefined ? undefined : typeof s === "string" ? [s] : s); }, endAssistant() {}, write() {} };
+  const terminal = { rich: true, columns: 100, setWork(view?: WorkView) { box.push(view?.rows); }, endAssistant() {}, write() {} };
   const view = new RuntimeEventView(terminal as unknown as InteractiveTerminal, { write() {} }, {
     updateFooter() {}, onToolEnd() {}, setTaskStop() {}, markRuntimeFailed() {}, turnLimitReached() {}, cancelled: () => false,
     builderGoals: () => ["fix the parser"], reviewerCount: () => reviewers,
@@ -349,10 +401,10 @@ test("rich terminal: the box carries the reviewers count and drops it when they 
   expect(box.at(-1)).toEqual(["1 builder working: fix the parser"]);
 });
 
-test("rich terminal: the box carries the builders line, and drops it when they end", () => {
+test("rich terminal: the live rows carry the builders line, and drop it when they end", () => {
   let goals: string[] = ["fix the parser", "add tests"];
   const box: Array<readonly string[] | undefined> = [];
-  const terminal = { rich: true, columns: 100, setActivity(s?: string | readonly string[]) { box.push(s === undefined ? undefined : typeof s === "string" ? [s] : s); }, endAssistant() {}, write() {} };
+  const terminal = { rich: true, columns: 100, setWork(view?: WorkView) { box.push(view?.rows); }, endAssistant() {}, write() {} };
   const view = new RuntimeEventView(terminal as unknown as InteractiveTerminal, { write() {} }, {
     updateFooter() {}, onToolEnd() {}, setTaskStop() {}, markRuntimeFailed() {}, turnLimitReached() {}, cancelled: () => false,
     builderGoals: () => goals,

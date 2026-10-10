@@ -52,7 +52,7 @@ the landed parts no reviewer has finished yet: a nudge, never a gate.
 Up to 3 builders work at once, and 6 per request, besides fix builders: those
 have their own count, and first builds and fixes together stop at 9. The
 footer shows reviewers and builders while they work:
-`│ 1 reviewer · 2 builders · $0.19`, and the Working box names them too. Casper
+`│ 1 reviewer · 2 builders · $0.19`, and a live row under the AI's words names them too. Casper
 also says in a `[crew]` line when a reviewer starts ("A reviewer is checking
 part 2 (3 files)") and when a builder starts fixing what it found. What each one spent
 joins the task's total (and the receipt) when it ends, and counts toward the

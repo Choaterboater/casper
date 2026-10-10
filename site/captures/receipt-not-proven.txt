@@ -1,18 +1,27 @@
 # Casper 0.2.30 · checks pass, but the tests pass without the change too
 
 ❯ let sum take numeric strings too
+
 [model] scripted/site-capture · effort off
-✓ edit · src/sum.js
-sum now turns its inputs into numbers first.
+
+● edited src/sum.js
+
+● sum now turns its inputs into numbers first.
+
 • Casper checking: test
 ✓ test
 • Casper checking that the tests fail without the change
 ↻ repair 1/1: add a test that fails without the change
-(scripted model) No more changes.
+
+● (scripted model) No more changes.
+
 ✓ test
 • Casper checking that the tests fail without the change
+
 ▌ – Not verified — the tests pass without the change too
 ▌ ✓ test passed · changed src/sum.js
-▌ ↻ Casper tried 1 repair
 ▌ ⚠ Not proven: test passes without this change too, and no test was added or changed
+▌ ↻ Casper tried 1 repair
+▌ – Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or
+sandbox: on in ~/.casper/config.yaml)
 Next: 1 Show diff · 2 Undo

@@ -163,26 +163,34 @@
         <p>A real Casper 0.2.30 run. The AI here is a scripted stand-in so the capture is repeatable, but its edit is real, and every line after it is the real Casper code: the check, the proof and the receipt.</p>
         <figure class="capture">
 <pre class="term" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">fix the sum bug in src/sum.js</span>
+
 <span class="dim">[model]</span> scripted/site-capture · effort off
-<span class="ok">✓</span> 2 edits
-  changed src/sum.js, tests/sum.test.js
-Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
+
+<span class="dim">● edited src/sum.js, tests/sum.test.js</span>
+
+<span class="accent">●</span> Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
+
 <span class="dim">• Casper checking: test</span>
 <span class="ok">✓</span> test
 <span class="dim">• Casper checking that the tests fail without the change</span>
-▌ <span class="ok">✓ Verified · test passed · changed src/sum.js, tests/sum.test.js</span>
+
+▌ <span class="ok">✓</span> Verified · test passed · changed src/sum.js, tests/sum.test.js
+▌ <span class="dim">–</span> Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or
+sandbox: on in ~/.casper/config.yaml)
 Next: 1 Show diff · 2 Undo
 
 <span class="dim"># (typed /receipt)</span>
 
 <span class="prompt">❯</span> <span class="you">/receipt</span>
+
 <span class="dim">[task]</span> Execution completed
        changes      2 files changed: src/sum.js, tests/sum.test.js
        verification Checks pass (command execution): 1 pass, 0 fail, 0 skip; 0 repair attempt(s).
 test: scope undeclared; current files unverified; reuse disabled. Requested behavior is not
 independently certified.
        proof        ✓ Proven: test fails without this change (exit 1) and passes with it
-       sandbox      shell commands and checks held
+       sandbox      not sandboxed (off unless you turn it on: /sandbox on, or sandbox: on in
+~/.casper/config.yaml)
        undo         available (/undo 1)</pre>
           <figcaption>Line 1 of the receipt is the verdict. Anything less than <code>Verified</code> says why. <code>/receipt</code> shows the evidence, and <code>Next: 1 Show diff · 2 Undo</code> puts the files back.</figcaption>
         </figure>

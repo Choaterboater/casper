@@ -58,8 +58,8 @@ test("a tool that ends after its turn still prints its line before the prompt re
     loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
   });
   const interactive = app.runInteractive(project);
-  // A transcript line starts the row; the Working box's copy sits inside its border.
-  const printed = (output: string) => output.match(/(?<!│ )✓ bash · sleep 5/g)?.length ?? 0;
+  // The folded row names the step; its live row ("  ✓ bash · sleep 5") is gone by then.
+  const printed = (output: string) => output.match(/● ran sleep 5/g)?.length ?? 0;
   const idle = (output: string) => output.trimEnd().endsWith("│ idle");
   try {
     await screen.until(output => output.includes("idle"));

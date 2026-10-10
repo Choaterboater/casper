@@ -376,6 +376,8 @@ export class CasperApp {
   /** Receipts say the no-checks how-to once per session, and name a file undo can't put back once. */
   checksHintShown = false;
   readonly undoNamed = new Set<string>();
+  /** Session notes a receipt said in full (the shell not sandboxed, a folder too big to compare): later ones say them short. */
+  readonly receiptNotesSeen = new Set<string>();
   /** The next repair runs on this model (the big model), then Casper switches back. */
   repairOnBigModel?: BigModelChoice;
   /** The /model picker opened during a task: `close` shuts it (nothing chosen) and waits until it is gone. */

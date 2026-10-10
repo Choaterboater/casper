@@ -22,40 +22,41 @@ function makeSurface() {
   return { surface, chunks };
 }
 
-test("the footer spinner animates while activity is present", async () => {
+test("the footer spinner and the status row's spinner animate while work is present", async () => {
   vi.useFakeTimers();
   try {
     const { surface, chunks } = makeSurface();
     surface.start();
     chunks.length = 0;
-    surface.setActivity("Running bash find");
+    surface.setWork({ rows: [], status: "Running find" });
     vi.advanceTimersByTime(SPINNER.length * 120 + 120);
     await Promise.resolve(); // requestRender schedules on process.nextTick; drain it.
     await Promise.resolve();
-    const moving = SPINNER.filter(frame => chunks.some(text => text.includes(` ${frame} `)));
+    const moving = SPINNER.filter(frame => chunks.some(text => Bun.stripANSI(text).split(/\r?\n|\r/).some(line => line.startsWith(`${frame} `))));
     expect(moving.length).toBeGreaterThan(1);
     // Elapsed time rides the same footer, right after the spinner. Bun's fake timers freeze Date, so it renders
     // as "0s" here; the assertion proves the wiring, not clock arithmetic.
     expect(chunks.some(text => SPINNER.some(frame => text.includes(`${frame} 0s │ `)))).toBe(true);
-    const panelFrames = chunks
-      .filter(text => text.includes("Working"))
-      .map(text => SPINNER.find(frame => text.includes(`${frame} Working`)))
+    // The status row above the prompt spins too, and says Esc stops the work.
+    const rowFrames = chunks
+      .filter(text => text.includes("Running find · Esc stops"))
+      .map(text => SPINNER.find(frame => text.includes(`${frame} Running find`)))
       .filter(frame => frame !== undefined);
-    expect(new Set(panelFrames).size).toBeGreaterThan(1);
+    expect(new Set(rowFrames).size).toBeGreaterThan(1);
     surface.close();
   } finally { vi.useRealTimers(); }
 });
 
-test("the footer drops the spinner and the time after activity clears", async () => {
+test("the footer drops the spinner and the time after the work clears", async () => {
   // Bun's fake timers do not flush the renderer's nextTick/setTimeout chain reliably, so the
   // idle transition is exercised against the platform clock; 300ms is bounded and rare.
   const { surface, chunks } = makeSurface();
   try {
     surface.start();
-    surface.setActivity("Running bash find");
+    surface.setWork({ rows: [], status: "Running find" });
     await new Promise(resolve => setTimeout(resolve, 200));
     chunks.length = 0;
-    surface.setActivity(undefined);
+    surface.setWork(undefined);
     await new Promise(resolve => setTimeout(resolve, 300));
     const idle = chunks.filter(text => text.includes("Casper · / for commands"));
     expect(idle.length).toBeGreaterThan(0);
@@ -68,7 +69,7 @@ test("a picker open during work (the model picker, sign-in) shows waiting for yo
   try {
     surface.start();
     surface.setStatus("project/main │ model │ idle", process.cwd());
-    surface.setActivity("Starting the model");
+    surface.setWork({ rows: [], status: "Starting the model" });
     expect(surface.footerLine(80)).not.toContain("waiting for you");
     const host = surface.exclusiveHost()!;
     let seen = "";

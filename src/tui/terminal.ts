@@ -5,13 +5,53 @@ import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO } from "../r
 import { terminalText, tint } from "./format";
 import { renderPanel, type PanelTone } from "./presentation";
 import type { ThemeRole } from "./theme";
-import { TerminalSurface, type AskOrigin } from "./surface";
+import { TerminalSurface, type AskOrigin, type WorkView } from "./surface";
+import { renderEditBox, renderFailureBox, stepRows, type EditedFile, type FailedStep, type StepPart } from "./step-view";
+import type { EntryKind } from "./transcript";
 import type { NextRow } from "./next-row";
 import { bellSequence, hostCommand, prepareTmuxPane, titleSequence, TITLE_RESTORE, TITLE_SAVE, type HostCommand, type HostTerminal } from "./host-terminal";
 import { SidePane, type ActivityPane } from "./side-pane";
 import { answerRecordText, numberPrompt, OTHER_CHOICE, type PickRecord } from "./choices";
 
 export { numberPrompt } from "./choices";
+
+/** One transcript line colored by how it starts: ✗ error, ✓ success, a note (–), a warning (⚠) or a step that did not
+ * run (○) warning, a running step (•) muted (the theme's colours); a detailed diff line added or removed. */
+export function styleLine(line: string, color: boolean): string {
+  const role: ThemeRole | undefined = /^(?:\[error\]|✗)/.test(line) ? "error" : /^✓/.test(line) ? "success"
+    : /^(?:– |○ |⚠ |\[skills\]|\[cancel|\[approval\]|\[ask\]|\[effort\])/.test(line) ? "warning" : /^CASPER/.test(line) ? "accent" : /^(?: \/help · |…|• )/.test(line) ? "muted"
+    : /^ {4}\+ /.test(line) ? "diffAdded" : /^ {4}- /.test(line) ? "diffRemoved" : undefined;
+  // The text header is bold as well as the accent colour.
+  return role ? tint(line, role, color, role === "accent" ? "1" : undefined) : line;
+}
+
+/** A folded group's rows at this width: two columns in under the AI's words (`attached`, with └), or at the left edge
+ * with ● when nothing of theirs is above. */
+export function renderFold(fold: FoldView, width: number, attached: boolean, color: boolean): string[] {
+  const indent = attached ? "  " : "";
+  const inner = Math.max(1, width - indent.length);
+  const rows = [
+    ...stepRows(fold.parts, inner, tint(attached ? "└" : "●", "muted", color), color),
+    ...fold.lines.flatMap(line => terminalText(line).split("\n")).map(row => styleLine(row, color)),
+    ...(fold.edits.length ? renderEditBox(fold.edits, inner, { color, maxLines: fold.editLines }) : []),
+    ...fold.failures.flatMap(failure => failure.output?.trim() ? renderFailureBox(failure, inner, color) : [styleLine(terminalText(failure.title), color)]),
+  ];
+  return rows.map(row => truncateToWidth(`${indent}${row}`, width, ""));
+}
+
+/** A group of finished steps as the screen shows it once the AI moves on (see writeFold). */
+export interface FoldView {
+  /** What went well, by kind, for the one named row. */
+  parts: StepPart[];
+  /** Lines shown as they are, under the row: steps Casper stopped before they ran, or every step at the detailed level. */
+  lines: string[];
+  /** The group's edits, for the edit box. */
+  edits: EditedFile[];
+  /** The edit box's rows at most. */
+  editLines: number;
+  /** Steps that failed, each in its own box. */
+  failures: FailedStep[];
+}
 
 /** The terminal Casper was started in (tmux, iTerm2), when it is a real one. Tests leave it out. */
 export interface TerminalHost {
@@ -114,13 +154,14 @@ export class InteractiveTerminal {
   get badge(): string | undefined { return this.badgeText; }
   /** ctrl+o on the rich terminal: turn writes off everywhere. The handler returns true when any were on. */
   setWritesRevert(handler: (() => boolean) | undefined): void { this.surface?.setWritesRevert(handler); }
-  /** The rich Working box: one line or a few (the latest steps). Nothing on the plain terminal. Inside tmux or
-   * iTerm2 the lines go to the view-only steps pane instead, and the main screen keeps only the model's words. */
-  setActivity(status?: string | readonly string[]): void {
-    const lines = typeof status === "string" ? [status] : status ?? [];
+  /** Work in progress on the rich terminal: the open group's steps under the AI's words, and the status row above the
+   * prompt. Nothing on the plain terminal. Inside tmux or iTerm2 the steps go to the view-only steps pane instead, and
+   * the main screen keeps the status row and the rows the steps fold into. */
+  setWork(view?: WorkView): void {
+    const lines = [...view?.rows ?? [], ...(view?.status ? [view.status] : [])];
     const pane = lines.length ? this.activityPane() : this.pane;
-    if (pane) { pane.show(lines); this.surface?.setActivity(undefined); return; }
-    this.surface?.setActivity(status);
+    if (pane) { pane.show(lines); this.surface?.setWork(view?.status ? { rows: [], status: view.status } : undefined); return; }
+    this.surface?.setWork(view);
   }
   /** A helper's (delegate's) step: in the steps pane when there is one; the main screen stays quiet. */
   logHelper(line: string): void { this.activityPane()?.log(line); }
@@ -211,23 +252,31 @@ export class InteractiveTerminal {
     const lines = options.diff ? plain.map(line =>
       /^\+(?!\+\+ )/.test(line) ? tint(line, "diffAdded", this.color) : /^-(?!-- )/.test(line) ? tint(line, "diffRemoved", this.color)
         : line.startsWith("@@") ? tint(line, "diffHunk", this.color) : line) : plain;
-    this.surface.writeBlock({ render: width => renderPanel(heading, lines, width, this.color, options.tone ?? "muted"), invalidate() {} });
+    this.surface.writeBlock({ render: width => renderPanel(heading, lines, width, this.color, options.tone ?? "muted"), invalidate() {} }, "group");
   }
 
-  write(text: string): void {
+  /** `kind`: how the lines sit among the blocks around them on the rich terminal (plain lines pack together). */
+  write(text: string, kind: EntryKind = "line"): void {
     const styled = terminalText(text).split("\n").map(line => this.styleLine(line)).join("\n");
-    if (this.surface) this.surface.write(styled); else this.output.write(styled);
+    if (this.surface) this.surface.write(styled, kind); else this.output.write(styled);
   }
 
-  /** One transcript line colored by how it starts: ✗ error, ✓ success, a note (–) or a step that did not run (○)
-   * warning, a running step (•) muted (the theme's colours); a detailed diff line added or removed. */
-  private styleLine(line: string): string {
-    const role: ThemeRole | undefined = /^(?:\[error\]|✗)/.test(line) ? "error" : /^✓/.test(line) ? "success"
-      : /^(?:– |○ |\[skills\]|\[cancel|\[approval\]|\[ask\]|\[effort\])/.test(line) ? "warning" : /^CASPER/.test(line) ? "accent" : /^(?: \/help · |…|• )/.test(line) ? "muted"
-      : /^ {4}\+ /.test(line) ? "diffAdded" : /^ {4}- /.test(line) ? "diffRemoved" : undefined;
-    // The text header is bold as well as the accent colour.
-    return role ? tint(line, role, this.color, role === "accent" ? "1" : undefined) : line;
+  /**
+   * A group of finished steps, folded, on the rich terminal: one row naming what went well (└ under the AI's words, or
+   * ● on its own), the lines given as they are (steps Casper stopped before they ran), the edits in one box with a short
+   * diff, and each failure in an error box with the last lines it printed (a failure with nothing printed stays a ✗
+   * line). The plain terminal prints the lines and failures as lines.
+   */
+  writeFold(fold: FoldView): void {
+    if (!this.surface) {
+      for (const line of [...fold.lines, ...fold.failures.map(failure => failure.title)]) this.write(`${line}\n`);
+      return;
+    }
+    const color = this.color;
+    this.surface.writeAttachable(attached => ({ render: width => renderFold(fold, width, attached, color), invalidate() {} }));
   }
+
+  private styleLine(line: string): string { return styleLine(line, this.color); }
 
   /** A task's result (the receipt) on the rich terminal: a colored edge down its left side, success for a pass,
    * error for a failure, warning for anything in between. The plain terminal gets the lines as they are. */
@@ -236,7 +285,8 @@ export class InteractiveTerminal {
     const lines = terminalText(text).split("\n");
     const tone = /^✓/.test(lines[0] ?? "") ? "success" : /^(?:✗|\[error\])/.test(lines[0] ?? "") ? "error" : "warning";
     const edge = tint("▌", tone, this.color);
-    this.surface.write(lines.map(line => line ? `${edge} ${this.styleLine(line)}` : line).join("\n"));
+    // A block of its own: a blank row before it.
+    this.surface.write(lines.map(line => line ? `${edge} ${this.styleLine(line)}` : line).join("\n"), "group");
   }
 
   assistant(delta: string): void {
@@ -261,7 +311,8 @@ export class InteractiveTerminal {
   /** Print the receipt's next-step row and offer its keys until the next line or key. Nothing waits on it. */
   offerNext(row: NextRow | undefined): void {
     if (!row) { this.nextKeys = undefined; this.surface?.offerNext(undefined); return; }
-    this.write(`${row.line}\n`);
+    // Right under the receipt it belongs to.
+    this.write(`${row.line}\n`, "attached");
     if (this.surface) this.surface.offerNext(row.keys); else this.nextKeys = new Map(row.keys);
   }
 

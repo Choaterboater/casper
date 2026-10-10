@@ -136,7 +136,7 @@ test("/details <level> is remembered like /effort; --session keeps it to this se
   try {
     await app.runOnce("/details detailed", project);
     expect(await readFile(config, "utf8")).toBe("display: detailed\n");
-    expect(output).toContain("[details] detailed: every step, with a small diff under each edit. Saved; /details <level> --session changes only this session.\n");
+    expect(output).toContain("[details] detailed: every step, with every edit's whole diff. Saved; /details <level> --session changes only this session.\n");
     output = "";
     await app.runOnce("/details quiet --session", project);
     expect(await readFile(config, "utf8")).toBe("display: detailed\n");

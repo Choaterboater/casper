@@ -195,8 +195,16 @@ The lines below the verdict give the evidence:
 – Ran commands on build-server over ssh; Casper can't tell from the command text whether they changed anything there
 – Not run on 198.51.100.20 (build-server): 3 commands Casper stopped before they reached it
 – Incomplete — commands to 198.51.100.20 (build-server) did not run
-– A secret appeared in a command; change it after this task.
+⚠ A secret appeared in a command; change it after this task.
 ```
+
+A note about the session rather than the task, `– Shell commands and checks were not sandboxed (…)` when the sandbox
+is off or `– Changes unknown: not a project folder (…)`, is said in full on the first receipt of a session that has it.
+Later receipts say the notes that have not changed in one short line at the end,
+`– Same as before: changes unknown (not a project folder) · not sandboxed (/receipt)`; a note whose state changes (the
+sandbox on again, a folder Casper can compare) is said in full again the next time it comes back. `/receipt` and
+`--json` always have every line in full. A warning to act on, `⚠ A secret appeared in a command; change it after this
+task.` or `⚠ Not proven: …`, comes right after the verdict.
 
 From v0.2.19 a check's time shows only from one second up (`✓ test passed (npm run test)` for a
 quick one). The lines about other machines come from the text of the AI's ssh and scp commands, not

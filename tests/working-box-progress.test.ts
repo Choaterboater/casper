@@ -5,6 +5,7 @@ import type { RuntimeEvent } from "../src/runtime/types";
 import { formatCost, formatDuration, formatElapsed, formatTokens, lastOutputLine, runningElapsed } from "../src/tui/format";
 import { formatTokenSplit } from "../src/tui/usage";
 import { formatTaskSpend } from "../src/task/spend";
+import type { WorkView } from "../src/tui/surface";
 import type { InteractiveTerminal } from "../src/tui/terminal";
 import type { DisplayLevel } from "../src/tui/display";
 
@@ -18,7 +19,9 @@ function box(rich = true, level: DisplayLevel = "normal") {
   const boxes: Array<string[] | undefined> = [];
   const written: string[] = [];
   const terminal = { rich, columns: 100, questionsShown: 0, questionOpen: false, endAssistant() {}, assistant() {},
-    setActivity(lines?: string[]) { boxes.push(lines); }, write(value: string) { written.push(value); } };
+    // The live rows, then the status row's words, as one list.
+    setWork(view?: WorkView) { boxes.push(view ? [...view.rows, ...(view.status ? [view.status] : [])] : undefined); },
+    write(value: string) { written.push(value); }, writeFold() {} };
   const events = new RuntimeEventView(terminal as unknown as InteractiveTerminal, { write: value => terminal.write(value) }, {
     updateFooter() {}, onToolEnd() {}, setTaskStop() {}, markRuntimeFailed() {}, turnLimitReached() {}, cancelled: () => false,
     projectRoot: () => "/work/app", display: () => level });
@@ -74,7 +77,7 @@ test("last output line: control characters, secrets, truncation and empty output
 test("a running bash step shows one dim line with its latest output", () => {
   const s = box();
   s.handle(start, { type: "tool_progress", toolName: "bash", toolCallId: "1", text: "tests/a.py ..\ntests/b.py ... [45%]\n" });
-  expect(s.last()).toEqual(["• bash · python -m pytest", "↳ tests/b.py ... [45%]"]);
+  expect(s.last()).toEqual(["• bash · python -m pytest", "↳ tests/b.py ... [45%]", "Running python -m pytest · 0s"]);
 });
 
 test("quiet, plain terminals and other tools show no output line", () => {

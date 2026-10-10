@@ -196,7 +196,7 @@ def exercise(bun, repo, root, no_color):
         s.send("/sta")
         s.until("• /sta")
         s.release("stream-step")
-        s.until("• read · src/example.ts")
+        s.until("Reading src/example.ts")
         assert "• /sta" in s.screen.text(), s.screen.text()
         s.send("tus\n")  # A command that only shows something runs during work, with no model request.
         s.until("mcp       1 configured")
@@ -210,9 +210,9 @@ def exercise(bun, repo, root, no_color):
         s.until("Echo: next idea")
         s.until("│ idle")
         assert s.requests() == ["stream", "next idea"]
-        # Hidden streaming (reasoning, tool arguments) shows a boxed live status that leaves no trace.
+        # Hidden streaming (reasoning, tool arguments) shows a live status row that leaves no trace.
         s.send("progress\n")
-        s.until("Working")
+        s.until("Esc stops")
         s.until("Reasoning · 1.5k chars")
         s.release("progress-step")
         s.until("Preparing write · 4.0k chars")
@@ -222,7 +222,7 @@ def exercise(bun, repo, root, no_color):
         s.until("│ idle")
         s.pump(0.05)
         assert "composing arguments" not in s.screen.text(), s.screen.text()
-        assert "✓ write · site/index.html" in s.screen.text() and "— completed" not in s.screen.text(), s.screen.text()
+        assert "edited site/index.html" in s.screen.text() and "— completed" not in s.screen.text(), s.screen.text()
         # Fenced code gets a title line with its language and no side borders; fence markers never reach the screen.
         s.send("code\n")
         s.until("── sh ")
