@@ -395,11 +395,13 @@ export class SubagentManager {
           ...(offered ? { of: { type: "integer" } } : {}),
         },
       },
-      execute: async (args, signal) => {
+      execute: async (raw, signal) => {
         try {
-          if (!args || Array.isArray(args) || typeof args !== "object" || Object.keys(args).some((key) => !["role", "goal", "context", "of"].includes(key))) {
+          if (!raw || Array.isArray(raw) || typeof raw !== "object" || Object.keys(raw).some((key) => !["role", "goal", "context", "of"].includes(key))) {
             throw new Error("Invalid delegate arguments; only role, goal, context, and of are accepted");
           }
+          // Some models (OpenAI strict tool calls) send every field, the unused ones as null: null is "not given".
+          const args = Object.fromEntries(Object.entries(raw).filter(([, value]) => value !== null)) as typeof raw;
           if (args.of !== undefined && (typeof args.of !== "number" || !Number.isSafeInteger(args.of) || args.of < 1)) {
             throw new Error("of must be a whole number: the part number in a builder's result");
           }
