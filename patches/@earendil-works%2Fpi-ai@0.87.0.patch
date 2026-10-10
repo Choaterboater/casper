@@ -1,3 +1,16 @@
+diff --git a/dist/api/anthropic-messages.js b/dist/api/anthropic-messages.js
+index d462f30bd8e5ebcbaf3cf3e0563cb0915d0d1aea..5dd85f19db51b73dcd0c5c4cd8c28ad99e09ee6f 100644
+--- a/dist/api/anthropic-messages.js
++++ b/dist/api/anthropic-messages.js
+@@ -39,7 +39,7 @@ function getCacheControl(model, cacheRetention, env) {
+     };
+ }
+ // Stealth mode: Mimic Claude Code's tool naming exactly
+-const claudeCodeVersion = "2.1.251";
++const claudeCodeVersion = "2.1.280";
+ // Claude Code 2.x tool names (canonical casing)
+ // Source: https://cchistory.mariozechner.at/data/prompts-2.1.11.md
+ // To update: https://github.com/badlogic/cchistory
 diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js
 index 80720d096966bf057708433de0b128935aece8b6..a7023f04315f52e21ca4d8d9c1eff2a395a779fa 100644
 --- a/dist/api/openai-completions.js
