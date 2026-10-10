@@ -20,14 +20,27 @@ async function temp(): Promise<string> {
 
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 
-/** git for building fixtures: no settings from this machine. */
-function git(cwd: string, ...args: string[]): string {
-  const result = spawnSync("git", ["-c", "user.name=Casper Test", "-c", "user.email=casper@example.invalid", "-c", "core.autocrlf=false", ...args], {
-    cwd, encoding: "utf8", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null" },
+/** A fixture git is stopped after this long. A sync call holds up the test's own time limit and all output, so a git
+ * that hung froze the whole file until CI's stall guard cut the run; now that test fails, naming the command. */
+const GIT_TIMEOUT_MS = 20_000;
+
+/** git for building fixtures: no settings from this machine, no prompt and no background maintenance. */
+function gitSync(cwd: string, args: string[], input?: string): string {
+  const result = spawnSync("git", ["-c", "user.name=Casper Test", "-c", "user.email=casper@example.invalid", "-c", "core.autocrlf=false",
+    "-c", "gc.auto=0", "-c", "maintenance.auto=false", ...args], {
+    cwd, encoding: "utf8", timeout: GIT_TIMEOUT_MS, killSignal: "SIGKILL", ...(input === undefined ? {} : { input }),
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null", GIT_TERMINAL_PROMPT: "0" },
   });
-  // Say why when git printed nothing: a signal or a spawn error on a busy machine left this empty.
-  if (result.status !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr || result.error?.message || `ended by ${result.signal ?? `exit ${result.status}`}`}`);
+  // Say why when git printed nothing: a signal, the time limit or a spawn error on a busy machine left this empty.
+  if (result.status !== 0) {
+    const why = result.signal ? `stopped by ${result.signal}${result.signal === "SIGKILL" ? ` (no answer in ${GIT_TIMEOUT_MS / 1000} s)` : ""}` : `exit ${result.status}`;
+    throw new Error(`git ${args.join(" ")}: ${[result.stderr?.trim(), result.error?.message, why].filter(Boolean).join(" · ")}`);
+  }
   return result.stdout.trim();
+}
+
+function git(cwd: string, ...args: string[]): string {
+  return gitSync(cwd, args);
 }
 
 test("a pack link must be https://github.com/owner/repo@<full commit>; branches, tags, other hosts and http are refused", () => {
@@ -69,7 +82,10 @@ test("pack git runs with no settings of yours or the system's, hooks off, and re
   await writeFile(evilConfig, `[core]\n\thooksPath = ${evilHooks.replaceAll("\\", "/")}\n[protocol "file"]\n\tallow = always\n[user]\n\tname = Evil\n\temail = evil@example.invalid\n`);
   const yours = { ...process.env, GIT_CONFIG_GLOBAL: evilConfig, GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: evilHooks, GIT_DIR: path.join(root, "elsewhere") };
   // The hook would run for an ordinary git with these settings.
-  spawnSync("git", ["commit", "-q", "--allow-empty", "-m", "first"], { cwd: repo, env: { ...yours, GIT_DIR: undefined } });
+  const first = spawnSync("git", ["commit", "-q", "--allow-empty", "-m", "first"], {
+    cwd: repo, env: { ...yours, GIT_DIR: undefined, GIT_TERMINAL_PROMPT: "0" }, encoding: "utf8", timeout: GIT_TIMEOUT_MS, killSignal: "SIGKILL",
+  });
+  expect({ status: first.status, signal: first.signal, stderr: first.stderr }).toMatchObject({ status: 0, signal: null });
   expect(existsSync(marker)).toBe(true);
   await removeTempDir(marker);
 
@@ -120,7 +136,7 @@ async function packRepo(root: string, extra?: (repo: string) => void) {
 
 /** A blob in `repo`'s object store, for an index entry no working file has. */
 function blob(repo: string, text: string): string {
-  return spawnSync("git", ["hash-object", "-w", "--stdin"], { cwd: repo, input: text, encoding: "utf8" }).stdout.trim();
+  return gitSync(repo, ["hash-object", "-w", "--stdin"], text);
 }
 
 /** What fetching a pack whose commit also holds `extra`'s index entries says: its error, or "fetched". One repository
@@ -194,7 +210,6 @@ test("a commit that isn't on the repository's own branches or tags, like a fork'
 
 test("a file stored with Git LFS, or more than 8 folders deep, refuses a fetched commit", async () => {
   const root = await temp();
-  const blob = (repo: string, text: string) => spawnSync("git", ["hash-object", "-w", "--stdin"], { cwd: repo, input: text, encoding: "utf8" }).stdout.trim();
   // What git holds for a file stored with LFS: a pointer, never read as the pack's text.
   const lfs = await packRepo(path.join(root, "lfs"), (repo) => {
     const pointer = blob(repo, `version https://git-lfs.github.com/spec/v1\noid sha256:${"ab".repeat(32)}\nsize 12\n`);
