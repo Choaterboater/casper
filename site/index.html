@@ -5,14 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Casper · a terminal coding helper that checks its work</title>
   <meta name="description" content="Casper is a coding helper for your terminal that runs your checks and proves the change before it says done.">
-  <meta name="color-scheme" content="light dark">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#07090d">
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
   <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48">
   <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="assets/style.css">
+  <link rel="stylesheet" href="assets/home.css">
 </head>
-<body>
+<body class="home">
   <a class="skip-link" href="#main">Skip to content</a>
 
   <header class="site-header">
@@ -34,135 +36,60 @@
   </header>
 
   <main id="main">
-    <div class="container">
-      <section class="hero" aria-labelledby="hero-title">
-        <img class="hero-logo" src="assets/logo.svg" alt="Casper's ghost logo" width="88" height="88">
-        <h1 id="hero-title">Casper</h1>
-        <p class="lead">A coding helper for your terminal. Build web apps, APIs, command-line tools and scripts in the language your project uses, and Casper checks the AI's work before it tells you "done". Network engineers get extra care built in.</p>
-        <p class="muted small">Version 0.2.31 · early preview, not signed · MIT licence</p>
+    <!-- 1. Hero ----------------------------------------------------------- -->
+    <section class="hx" aria-labelledby="hero-title">
+      <div class="hx-aurora" aria-hidden="true"></div>
+      <div class="hx-grid" aria-hidden="true"></div>
+      <div class="container hx-inner">
+        <div class="ghost" aria-hidden="true">
+          <svg class="ghost-svg" viewBox="0 0 64 64" width="132" height="132" focusable="false">
+            <path d="M12 30a20 20 0 0 1 40 0v24l-5-4-5 4-5-4-5 4-5-4-5 4-5-4-5 4z"
+                  fill="#f4f7fb" stroke="#0f766e" stroke-width="3" stroke-linejoin="round"/>
+            <g id="ghost-eye-left" class="ghost-eye">
+              <ellipse cx="25" cy="29" rx="3.5" ry="4.5" fill="#1b2430"/>
+              <circle cx="26.2" cy="27.4" r="1.2" fill="#fff"/>
+            </g>
+            <g id="ghost-eye-right" class="ghost-eye">
+              <ellipse cx="39" cy="29" rx="3.5" ry="4.5" fill="#1b2430"/>
+              <circle cx="40.2" cy="27.4" r="1.2" fill="#fff"/>
+            </g>
+            <path d="M28 37q4 3.5 8 0" fill="none" stroke="#1b2430" stroke-width="2.4" stroke-linecap="round"/>
+            <circle cx="20" cy="35" r="2.4" fill="#5eead4" opacity=".7"/>
+            <circle cx="44" cy="35" r="2.4" fill="#5eead4" opacity=".7"/>
+          </svg>
+        </div>
 
-        <div class="cmd"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.31/install.sh | sh</code></pre></div>
-        <div class="cmd"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.31/install.ps1 | iex</code></pre></div>
-        <p class="small muted">No Bun or source checkout needed. The installer checks the file's SHA-256 and runs the new program's <code>--version</code> before it replaces an older install. Then run <code>casper</code> in your project folder.</p>
+        <p class="hx-eyebrow"><span class="hx-name">Casper</span><span class="hx-pill">0.2.31 · early preview</span></p>
+        <h1 id="hero-title">The coding agent that proves it's done.</h1>
+        <p class="lead">A coding helper for your terminal. Build web apps, APIs, command-line tools and scripts in the language your project uses, and Casper checks the AI's work before it tells you "done". Network engineers get extra care built in.</p>
+
+        <div class="install" id="install">
+          <div class="install-tabs" role="tablist" aria-label="Install command" hidden>
+            <button type="button" role="tab" id="tab-unix" aria-controls="cmd-unix" aria-selected="true">macOS / Linux</button>
+            <button type="button" role="tab" id="tab-windows" aria-controls="cmd-windows" aria-selected="false" tabindex="-1">Windows</button>
+          </div>
+          <div class="cmd" id="cmd-unix"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.31/install.sh | sh</code></pre></div>
+          <div class="cmd" id="cmd-windows"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.31/install.ps1 | iex</code></pre></div>
+        </div>
+        <p class="small muted hx-note">No Bun or source checkout needed. The installer checks the file's SHA-256 and runs the new program's <code>--version</code> before it replaces an older install. Then run <code>casper</code> in your project folder.</p>
 
         <div class="actions">
           <a class="btn" href="tour.html">Take the tour</a>
           <a class="btn secondary" href="network.html">For network engineers</a>
           <a class="btn secondary" href="https://github.com/Choaterboater/casper">Source on GitHub</a>
         </div>
-      </section>
+        <p class="muted small">Version 0.2.31 · early preview, not signed · MIT licence</p>
+      </div>
+    </section>
 
-      <section aria-labelledby="why">
-        <h2 id="why">Why Casper</h2>
-        <ul>
-          <li>It builds anything you'd build in a terminal: web apps, APIs, CLIs and scripts, in TypeScript, Python, Go, Rust or whatever your project uses. <code>casper new web-app</code> (React with Tailwind), <code>casper new vite-react</code> or <code>casper new python-cli</code> starts a project with tests, with no model call.</li>
-          <li>It does not take the AI's word for "done". It runs your project's own tests, lint and build.</li>
-          <li>Where it can, it proves the change: the tests fail without it and pass with it.</li>
-          <li>Every coding task ends with a short receipt. Line 1 is the verdict.</li>
-          <li>It is careful around network gear: MCP servers start with writes off, and risky actions ask you first.</li>
-          <li>Known device secrets become <code>&lt;secret hidden&gt;</code> before the AI sees them (best effort, known formats only).</li>
-          <li>Sign in with OpenRouter, Anthropic (Claude), OpenAI Codex or GitHub Copilot, or point it at a model on your own computer. You are not tied to one model company.</li>
-          <li>Every task can be undone: <code>/undo</code> puts the files back, also outside git.</li>
-        </ul>
-      </section>
-
-      <section aria-labelledby="highlights">
-        <h2 id="highlights">Highlights</h2>
-        <p>The short version. Each card opens that part of the tour or the guide.</p>
-        <div class="grid">
-          <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/NEW.md">
-            <span class="icon" aria-hidden="true">✚</span>
-            <h3>Builds anything</h3>
-            <p>Web apps, APIs, CLIs and scripts in your project's language. <code>casper new</code> starts one with tests and a first commit, no tokens used.</p>
-          </a>
-          <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/BROWSER.md">
-            <span class="icon" aria-hidden="true">◱</span>
-            <h3>Sees your web app</h3>
-            <p>Starts your dev server, opens the page in a throwaway browser, clicks, types and takes screenshots, then replays the same check after a fix.</p>
-          </a>
-          <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/LSP.md">
-            <span class="icon" aria-hidden="true">⌘</span>
-            <h3>Knows your code</h3>
-            <p>Language servers report errors right after each edit, a step debugger stops at a line, and read-only helpers search or review a big project.</p>
-          </a>
-          <a class="card" href="tour.html#receipts">
-            <span class="icon" aria-hidden="true">✓</span>
-            <h3>Receipts with a verdict</h3>
-            <p>Each task ends with a receipt: <code>Verified</code>, <code>Checks passed — not proven</code>, <code>Failed</code> and so on. <code>/receipt</code> shows the detail.</p>
-          </a>
-          <a class="card" href="tour.html#proof">
-            <span class="icon" aria-hidden="true">⇄</span>
-            <h3>Proof, not just a pass</h3>
-            <p><code>Verified</code> means the checks pass and a test fails without the change. A green test that was green before is not proof.</p>
-          </a>
-          <a class="card" href="tour.html#repair">
-            <span class="icon" aria-hidden="true">↻</span>
-            <h3>Checks and repair</h3>
-            <p>After edits, Casper runs your checks and sends real failures back for a few repair tries (3 by default). A check that timed out or could not start is never sent to a paid repair.</p>
-          </a>
-          <a class="card" href="tour.html#mcp">
-            <span class="icon" aria-hidden="true">⌁</span>
-            <h3>MCP, writes off</h3>
-            <p>Every MCP server starts with writes off. Each change asks you in plain words: <code>1 No · 2 Yes, this once · 3 Yes, for this session</code>. The AI cannot approve anything for you.</p>
-          </a>
-          <a class="card" href="tour.html#secrets">
-            <span class="icon" aria-hidden="true">✱</span>
-            <h3>Secrets hidden</h3>
-            <p>Passwords, RADIUS and TACACS keys, PSKs and SNMP communities in known formats are swapped for <code>&lt;secret hidden&gt;</code>. Not every secret, so still look before you share.</p>
-          </a>
-          <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/UNDO.md">
-            <span class="icon" aria-hidden="true">↶</span>
-            <h3>Undo</h3>
-            <p>Casper keeps a copy of your folder before each task. <code>/undo</code>, <code>/redo</code> and <code>/diff</code> work on any saved task, also outside git.</p>
-          </a>
-          <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/SECURITY.md">
-            <span class="icon" aria-hidden="true">▣</span>
-            <h3>A sandbox, and asks</h3>
-            <p>The AI's shell asks before commands that change things; turn the sandbox on (<code>sandbox: on</code>) and on macOS and Linux it and your checks run in one. Before the AI's shell reaches another machine over <code>ssh</code>, Casper asks, and an ssh password goes to ssh only, never to the AI.</p>
-          </a>
-          <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/PACKS.md">
-            <span class="icon" aria-hidden="true">❖</span>
-            <h3>Skill packs and themes</h3>
-            <p><code>/pack add</code> a folder or a GitHub commit of skills after a box that shows every file. Pick a colour theme in <code>/settings</code>.</p>
-          </a>
-          <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/GITHUB.md">
-            <span class="icon" aria-hidden="true">⇡</span>
-            <h3>Pull requests and CI</h3>
-            <p>Ask which pull requests are open or why a check failed. Casper reads the failing step. The AI never sees your GitHub login.</p>
-          </a>
-          <a class="card" href="tour.html#zero-tokens">
-            <span class="icon" aria-hidden="true">0</span>
-            <h3>Zero-token commands</h3>
-            <p><code>/verify</code>, <code>/mcp</code>, <code>/diff</code>, <code>/receipt</code> and local reference search make no model call, so they use no tokens.</p>
-          </a>
-          <a class="card" href="tour.html#references">
-            <span class="icon" aria-hidden="true">⌕</span>
-            <h3>Local references</h3>
-            <p>Search your own copies of vendor specs and SDKs (Junos YANG, pycentral, mistapi) with <code>/references search</code>. The AI can search them too.</p>
-          </a>
-          <a class="card" href="tour.html#choices">
-            <span class="icon" aria-hidden="true">1</span>
-            <h3>Numbered choices</h3>
-            <p>Questions show numbered answers. Press the number to pick, or Esc to skip.</p>
-          </a>
-          <a class="card" href="tour.html#scripting">
-            <span class="icon" aria-hidden="true">{}</span>
-            <h3>Scripts and CI</h3>
-            <p><code>--json</code> streams events. Exit codes tell a script what happened, for example 3 = not verified with <code>--require-verification</code>.</p>
-          </a>
-          <a class="card" href="tour.html#sessions">
-            <span class="icon" aria-hidden="true">⑂</span>
-            <h3>Sessions and branches</h3>
-            <p>Pick up a past chat with <code>--continue</code> or <code>/resume</code>, or try an idea in a named branch with its own Git worktree.</p>
-          </a>
-        </div>
-      </section>
-
-      <section aria-labelledby="receipt">
-        <h2 id="receipt">What "done" looks like</h2>
+    <div class="container">
+      <!-- 2. Live terminal ------------------------------------------------ -->
+      <section class="replay" aria-labelledby="receipt">
+        <h2 id="receipt" class="kicker-title"><span class="kicker">Watch it work</span>What "done" looks like</h2>
         <p>A real Casper 0.2.31 run. The AI here is a scripted stand-in so the capture is repeatable, but its edit is real, and every line after it is the real Casper code: the check, the proof and the receipt.</p>
-        <figure class="capture">
-<pre class="term" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">fix the sum bug in src/sum.js</span>
+        <figure class="capture replay-figure">
+          <button class="replay-btn" type="button" hidden>↻ Replay</button>
+<pre class="term" id="replay-term" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">fix the sum bug in src/sum.js</span>
 
 <span class="dim">[model]</span> scripted/site-capture · effort off
 
@@ -174,8 +101,12 @@
 <span class="ok">✓</span> test
 <span class="dim">• Casper checking that the tests fail without the change</span>
 
-▌ <span class="ok">✓</span> Verified · test passed · changed src/sum.js, tests/sum.test.js
-▌ <span class="dim">–</span> Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or
+▌ <span class="ok verdict-line" id="verdict-line">✓ Verified · test passed · changed src/sum.js, tests/sum.test.js</span></pre>
+          <figcaption>Line 1 of the receipt is the verdict. Anything less than <code>Verified</code> says why. <code>/receipt</code> shows the evidence, and <code>Next: 1 Show diff · 2 Undo</code> puts the files back.</figcaption>
+        </figure>
+        <details class="dark-details">
+          <summary>The rest of the run, and <code>/receipt</code></summary>
+<pre class="term" data-title="casper — ~/project">▌ <span class="dim">–</span> Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or
 sandbox: on in ~/.casper/config.yaml)
 Next: 1 Show diff · 2 Undo
 
@@ -188,32 +119,208 @@ Next: 1 Show diff · 2 Undo
        verification Checks pass (command execution): 1 pass, 0 fail, 0 skip; 0 repair attempt(s).
 test: scope undeclared; current files unverified; reuse disabled. Requested behavior is not
 independently certified.
-       proof        ✓ Proven: test fails without this change (exit 1) and passes with it
+       proof        <span class="ok">✓</span> Proven: test fails without this change (exit 1) and passes with it
        sandbox      not sandboxed (off unless you turn it on: /sandbox on, or sandbox: on in
 ~/.casper/config.yaml)
        undo         available (/undo 1)</pre>
-          <figcaption>Line 1 of the receipt is the verdict. Anything less than <code>Verified</code> says why. <code>/receipt</code> shows the evidence, and <code>Next: 1 Show diff · 2 Undo</code> puts the files back.</figcaption>
-        </figure>
+        </details>
         <p class="small muted">A passing check shows a command passed, not that the code is fully right. Review important changes yourself.</p>
       </section>
 
-      <section aria-labelledby="network">
-        <aside class="callout tip">
-          <strong class="callout-title" id="network">Made for network engineers</strong>
+      <!-- 3. Verdicts ----------------------------------------------------- -->
+      <section aria-labelledby="verdicts">
+        <h2 id="verdicts" class="kicker-title"><span class="kicker">Receipts</span>Every task ends with a verdict</h2>
+        <div class="verdicts">
+          <a class="vchip ok" href="tour.html#proof">
+            <span class="vchip-mark" aria-hidden="true">✓</span>
+            <span class="vchip-name">Verified</span>
+            <span class="vchip-text">The checks pass and a test fails without the change.</span>
+          </a>
+          <a class="vchip warn" href="tour.html#proof">
+            <span class="vchip-mark" aria-hidden="true">⚠</span>
+            <span class="vchip-name">Checks passed — not proven</span>
+            <span class="vchip-text">A green test that was green before is not proof.</span>
+          </a>
+          <a class="vchip bad" href="tour.html#receipts">
+            <span class="vchip-mark" aria-hidden="true">✗</span>
+            <span class="vchip-name">Failed</span>
+            <span class="vchip-text">Anything less than <code>Verified</code> says why. <code>/receipt</code> shows the detail.</span>
+          </a>
+        </div>
+      </section>
+
+      <section aria-labelledby="why">
+        <h2 id="why" class="kicker-title"><span class="kicker">Why Casper</span>It doesn't take the AI's word for it</h2>
+        <ul class="checklist">
+          <li>It builds anything you'd build in a terminal: web apps, APIs, CLIs and scripts, in TypeScript, Python, Go, Rust or whatever your project uses. <code>casper new web-app</code> (React with Tailwind), <code>casper new vite-react</code> or <code>casper new python-cli</code> starts a project with tests, with no model call.</li>
+          <li>It does not take the AI's word for "done". It runs your project's own tests, lint and build.</li>
+          <li>Where it can, it proves the change: the tests fail without it and pass with it.</li>
+          <li>Every coding task ends with a short receipt. Line 1 is the verdict.</li>
+          <li>It is careful around network gear: MCP servers start with writes off, and risky actions ask you first.</li>
+          <li>Known device secrets become <code>&lt;secret hidden&gt;</code> before the AI sees them (best effort, known formats only).</li>
+          <li>Sign in with OpenRouter, Anthropic (Claude), OpenAI Codex or GitHub Copilot, or point it at a model on your own computer. You are not tied to one model company.</li>
+          <li>Every task can be undone: <code>/undo</code> puts the files back, also outside git.</li>
+        </ul>
+      </section>
+
+      <!-- 4. Bento -------------------------------------------------------- -->
+      <section aria-labelledby="highlights">
+        <h2 id="highlights" class="kicker-title"><span class="kicker">Highlights</span>Everything in the box</h2>
+        <p>The short version. Each tile opens that part of the tour or the guide.</p>
+        <div class="bento">
+          <a class="tile big" href="https://github.com/Choaterboater/casper/blob/main/docs/NEW.md">
+            <span class="icon" aria-hidden="true">✚</span>
+            <h3>Builds anything</h3>
+            <p>Web apps, APIs, CLIs and scripts in your project's language. <code>casper new</code> starts one with tests and a first commit, no tokens used.</p>
+          </a>
+          <a class="tile big" href="https://github.com/Choaterboater/casper/blob/main/docs/BROWSER.md">
+            <span class="icon" aria-hidden="true">◱</span>
+            <h3>Sees your web app</h3>
+            <p>Starts your dev server, opens the page in a throwaway browser, clicks, types and takes screenshots, then replays the same check after a fix.</p>
+          </a>
+          <a class="tile big" href="tour.html#receipts">
+            <span class="icon" aria-hidden="true">✓</span>
+            <h3>Receipts with a verdict</h3>
+            <p>Each task ends with a receipt: <code>Verified</code>, <code>Checks passed — not proven</code>, <code>Failed</code> and so on. <code>/receipt</code> shows the detail.</p>
+          </a>
+          <a class="tile big" href="tour.html#proof">
+            <span class="icon" aria-hidden="true">⇄</span>
+            <h3>Proof, not just a pass</h3>
+            <p><code>Verified</code> means the checks pass and a test fails without the change. A green test that was green before is not proof.</p>
+          </a>
+          <a class="tile big" href="tour.html#mcp">
+            <span class="icon" aria-hidden="true">⌁</span>
+            <h3>MCP, writes off</h3>
+            <p>Every MCP server starts with writes off. Each change asks you in plain words: <code>1 No · 2 Yes, this once · 3 Yes, for this session</code>. The AI cannot approve anything for you.</p>
+          </a>
+          <a class="tile big" href="tour.html#secrets">
+            <span class="icon" aria-hidden="true">✱</span>
+            <h3>Secrets hidden</h3>
+            <p>Passwords, RADIUS and TACACS keys, PSKs and SNMP communities in known formats are swapped for <code>&lt;secret hidden&gt;</code>. Not every secret, so still look before you share.</p>
+          </a>
+          <a class="tile" href="https://github.com/Choaterboater/casper/blob/main/docs/LSP.md">
+            <span class="icon" aria-hidden="true">⌘</span>
+            <h3>Knows your code</h3>
+            <p>Language servers report errors right after each edit, a step debugger stops at a line, and read-only helpers search or review a big project.</p>
+          </a>
+          <a class="tile" href="tour.html#repair">
+            <span class="icon" aria-hidden="true">↻</span>
+            <h3>Checks and repair</h3>
+            <p>After edits, Casper runs your checks and sends real failures back for a few repair tries (3 by default). A check that timed out or could not start is never sent to a paid repair.</p>
+          </a>
+          <a class="tile" href="https://github.com/Choaterboater/casper/blob/main/docs/UNDO.md">
+            <span class="icon" aria-hidden="true">↶</span>
+            <h3>Undo</h3>
+            <p>Casper keeps a copy of your folder before each task. <code>/undo</code>, <code>/redo</code> and <code>/diff</code> work on any saved task, also outside git.</p>
+          </a>
+          <a class="tile" href="https://github.com/Choaterboater/casper/blob/main/docs/SECURITY.md">
+            <span class="icon" aria-hidden="true">▣</span>
+            <h3>A sandbox, and asks</h3>
+            <p>The AI's shell asks before commands that change things; turn the sandbox on (<code>sandbox: on</code>) and on macOS and Linux it and your checks run in one. Before the AI's shell reaches another machine over <code>ssh</code>, Casper asks, and an ssh password goes to ssh only, never to the AI.</p>
+          </a>
+          <a class="tile" href="https://github.com/Choaterboater/casper/blob/main/docs/PACKS.md">
+            <span class="icon" aria-hidden="true">❖</span>
+            <h3>Skill packs and themes</h3>
+            <p><code>/pack add</code> a folder or a GitHub commit of skills after a box that shows every file. Pick a colour theme in <code>/settings</code>.</p>
+          </a>
+          <a class="tile" href="https://github.com/Choaterboater/casper/blob/main/docs/GITHUB.md">
+            <span class="icon" aria-hidden="true">⇡</span>
+            <h3>Pull requests and CI</h3>
+            <p>Ask which pull requests are open or why a check failed. Casper reads the failing step. The AI never sees your GitHub login.</p>
+          </a>
+          <a class="tile" href="tour.html#zero-tokens">
+            <span class="icon" aria-hidden="true">0</span>
+            <h3>Zero-token commands</h3>
+            <p><code>/verify</code>, <code>/mcp</code>, <code>/diff</code>, <code>/receipt</code> and local reference search make no model call, so they use no tokens.</p>
+          </a>
+          <a class="tile" href="tour.html#references">
+            <span class="icon" aria-hidden="true">⌕</span>
+            <h3>Local references</h3>
+            <p>Search your own copies of vendor specs and SDKs (Junos YANG, pycentral, mistapi) with <code>/references search</code>. The AI can search them too.</p>
+          </a>
+          <a class="tile" href="tour.html#choices">
+            <span class="icon" aria-hidden="true">1</span>
+            <h3>Numbered choices</h3>
+            <p>Questions show numbered answers. Press the number to pick, or Esc to skip.</p>
+          </a>
+          <a class="tile" href="tour.html#scripting">
+            <span class="icon" aria-hidden="true">{}</span>
+            <h3>Scripts and CI</h3>
+            <p><code>--json</code> streams events. Exit codes tell a script what happened, for example 3 = not verified with <code>--require-verification</code>.</p>
+          </a>
+          <a class="tile" href="tour.html#sessions">
+            <span class="icon" aria-hidden="true">⑂</span>
+            <h3>Sessions and branches</h3>
+            <p>Pick up a past chat with <code>--continue</code> or <code>/resume</code>, or try an idea in a named branch with its own Git worktree.</p>
+          </a>
+        </div>
+      </section>
+
+      <!-- 5. Network ------------------------------------------------------ -->
+      <section class="net" aria-labelledby="network">
+        <div class="net-text">
+          <h2 id="network" class="kicker-title"><span class="kicker">Network engineers</span>Made for network engineers</h2>
           <p>Casper works with MCP servers such as hpe-networking-mcp, junos-mcp-server, Mist and NetBox. Casper can set up its own server for Mist, Central and ClearPass in one step (<code>/mcp setup network</code>). Writes start off. A login counts as read-only only when the product itself says so; anything else shows <code>access not checked</code>. Building your own MCP server? <code>casper mcp check</code> runs its tests and checks its labels, schemas and example configs.</p>
-          <p><a href="network.html">See the network page →</a></p>
-        </aside>
+          <p><a class="btn secondary" href="network.html">See the network page →</a></p>
+        </div>
+        <figure class="capture net-term">
+<pre class="term" data-title="casper — a write tool asks first"><span class="prompt">❯</span> <span class="you">set the lab site on the fixture server</span>
+
+<span class="dim">[model]</span> scripted/site-capture · effort off
+
+<span class="accent">●</span> I will ask the fixture server to change the site.
+
+Change in fixture: set site
+  site             lab
+This makes the change.
+<span class="dim">MCP · fixture · set_site</span>  <span class="warn">[write]</span>
+<span class="dim">── Approval ────────────────────────────────────────────────────────────────────────────────────────</span>
+<b>Make this change?</b>
+<span class="accent">→ 1 No</span>
+  2 Yes, this once
+  3 Yes, for this session
+  4 Yes to everything on fixture this session (no more asking, even reboots, deletes or an AI-set
+  confirm)
+<span class="dim">Press 1-4 or Up/Down + Enter · Esc is No</span>
+
+<span class="dim"># (pressed 1: the box closes into one line, the record of the answer)</span>
+
+Make this change? <span class="accent">→ No</span></pre>
+          <figcaption>A real Casper 0.2.31 capture against a local test MCP server that never contacts a device. <code>1</code> (or Esc) says no.</figcaption>
+        </figure>
       </section>
 
-      <section aria-labelledby="safety">
-        <h2 id="safety">Good to know</h2>
-        <p>The AI's shell asks before each command that changes something (reads like <code>ls</code> or <code>cd app &amp;&amp; grep -n x *.py</code> don't), and a write outside the project asks first. Checks run your project's own commands without asking, with your own permissions. Turn the <strong>sandbox</strong> on (<code>sandbox: on</code>, or <code>/sandbox on</code> for a session) and on Linux and macOS the AI's shell and Casper's checks write only the project, temp and package caches, can't read <code>~/.ssh</code>, and reach only listed hosts. Windows has no sandbox yet, and neither does Linux without bubblewrap. Use it in projects you trust, or start with <code>--no-verify</code>. Your code and chat may go to the model provider you picked. The <a href="faq.html">FAQ</a> has more.</p>
+      <!-- 6. Works with, good to know, new -------------------------------- -->
+      <section class="works" aria-labelledby="works">
+        <h2 id="works" class="kicker-title"><span class="kicker">Bring your own model</span>Works with</h2>
+        <ul class="pills">
+          <li>OpenRouter</li>
+          <li>Anthropic Claude</li>
+          <li>OpenAI Codex</li>
+          <li>GitHub Copilot</li>
+          <li>Local models</li>
+        </ul>
+        <p class="small muted">Sign in with any of them, or point Casper at a model on your own computer. You are not tied to one model company.</p>
       </section>
 
-      <section aria-labelledby="next">
-        <h2 id="next">New in 0.2.31</h2>
-        <p>The AI's steps tick in under its words, then fold into one row that names what was done, with edits and failures in a box (Ctrl+T shows the last one in full). One status row above the prompt says what runs and that Esc stops it. The shell sandbox is off unless you turn it on (<code>sandbox: on</code>, or <code>/sandbox on</code> for a session); until then the AI's shell asks before commands that change things, checks run with your own permissions, and a one-shot or <code>--json</code> run keeps the sandbox where one can run. Casper runs on Pi 1.1.0, with Claude Sonnet 5.5, Claude Haiku 5.5 and GPT-6.1 Sol in <code>/model</code>, and a Claude plan sign-in works with Opus 5.5 (and with newer models once the Claude Code installed here knows them). <code>/model</code> opens on the providers, and the network server is 0.1.3. A model server on another computer (<code>OLLAMA_HOST</code> and the like) gets 10 s to answer, and <code>/model</code> and <code>casper doctor</code> say in plain words why one didn't.</p>
-      </section>
+      <div class="duo">
+        <section class="panel" aria-labelledby="safety">
+          <h2 id="safety">Good to know</h2>
+          <ul>
+            <li>The AI's shell asks before each command that changes something, and a write outside the project asks first. Checks run your project's own commands with your own permissions.</li>
+            <li>Turn the <strong>sandbox</strong> on (<code>sandbox: on</code>, or <code>/sandbox on</code> for a session) and on Linux and macOS the shell and checks write only the project, temp and package caches. Windows has no sandbox yet.</li>
+            <li>Your code and chat may go to the model provider you picked. The <a href="faq.html">FAQ</a> has more.</li>
+          </ul>
+        </section>
+        <section class="panel" aria-labelledby="next">
+          <h2 id="next">New in 0.2.31</h2>
+          <ul>
+            <li>The AI's steps tick in under its words, then fold into one row. One status row says what runs and that Esc stops it.</li>
+            <li>The shell sandbox is off unless you turn it on. Casper runs on Pi 1.1.0, with Claude Sonnet 5.5, Claude Haiku 5.5 and GPT-6.1 Sol in <code>/model</code>.</li>
+            <li>A model server on another computer (<code>OLLAMA_HOST</code> and the like) gets 10 s to answer, and <code>/model</code> and <code>casper doctor</code> say why one didn't.</li>
+          </ul>
+        </section>
+      </div>
     </div>
   </main>
 
@@ -233,5 +340,6 @@ independently certified.
   </footer>
 
   <script src="assets/site.js" defer></script>
+  <script src="assets/home.js" defer></script>
 </body>
 </html>
