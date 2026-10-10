@@ -37,7 +37,8 @@ class ScriptedRuntime implements AgentRuntime {
 /** The dev server stand-in: answers every page. */
 const SERVER = `Bun.serve({ hostname: process.env.HOST, port: Number(process.env.PORT), fetch: () => new Response("<html>ok</html>", { headers: { "content-type": "text/html" } }) });\n`;
 
-/** A browser stand-in: loads the page for real, and reports a console error while app/dashboard/page.tsx throws. */
+/** A browser stand-in: loads the page for real, and reports a console error while app/dashboard/page.tsx throws,
+ * and a page too wide for a phone while it holds a fixed-width table. */
 function fakeOpener(project: string): PageOpener & { urls: string[]; closed: number } {
   const opener = { consoleChecked: true, urls: [] as string[], closed: 0,
     async close() { opener.closed++; },
@@ -47,7 +48,8 @@ function fakeOpener(project: string): PageOpener & { urls: string[]; closed: num
       await response.text();
       const source = await readFile(path.join(project, "app/dashboard/page.tsx"), "utf8").catch(() => "");
       return { status: response.status, consoleChecked: true, pageErrors: [], failedRequests: [],
-        consoleErrors: source.includes("throw") ? ["TypeError: Cannot read properties of undefined (reading 'map')"] : [] };
+        consoleErrors: source.includes("throw") ? ["TypeError: Cannot read properties of undefined (reading 'map')"] : [],
+        ...(source.includes("width: 650") ? { phone: { viewport: 390, pageWidth: 650, squashed: ["input#address (20px tall; 49px on a wider screen)"] } } : {}) };
     } };
   return opener;
 }
@@ -119,6 +121,19 @@ test("a page that logs an error goes to the repair with its evidence; still fail
   // The dev server lines are printed once per session, even when the pages are opened again after the repair.
   expect(f.text().match(/Dev server: /g)).toHaveLength(1);
   expect(f.opener.urls).toHaveLength(2);
+}, 30_000);
+
+test("a page that fails only at phone width goes to the repair with its width and squashed fields", async () => {
+  const f = await fixture();
+  f.runtime.turns.push(async runtime => { await runtime.write(f.page, "export default function Page() { return <table style={{ width: 650 }} />; }\n"); });
+  f.runtime.turns.push(async () => {});
+  await f.app.runOnce("Add a devices table to the dashboard");
+  expect(f.runtime.prompts).toHaveLength(2);
+  expect(f.runtime.prompts[1]).toContain("Casper verification repair 1/1.");
+  expect(f.runtime.prompts[1]).toContain("\"pageWidth\": 650");
+  expect(f.runtime.prompts[1]).toContain("\"viewport\": 390");
+  expect(f.runtime.prompts[1]).toContain("input#address (20px tall; 49px on a wider screen)");
+  expect(f.text()).toContain("✗ /dashboard at phone width (390px): the page is 650px wide, so it scrolls sideways");
 }, 30_000);
 
 test("the pages are opened again after a repair and pass once the repair fixes the page", async () => {
