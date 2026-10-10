@@ -24,6 +24,8 @@ export interface RetainedToolOutput {
 export const TOOL_OUTPUT_LIMIT = 20;
 /** Calls listed per task by `/output all` (name, identity fields and status only). */
 export const TOOL_CALL_LIMIT = 1000;
+/** Files kept per task as the edit and write tools named them; later ones go unlisted. */
+export const OBSERVED_EDITS_LIMIT = 32;
 
 /** One tool call as `/output all` lists it. */
 /** `input`: the call's identity fields, formatted like its transcript line when shown. */
@@ -117,7 +119,7 @@ export class TaskObservations {
   }
 
   recordEdit(path: string): void {
-    if (this.edits.size < 32) this.edits.add(path.slice(0, 512));
+    if (this.edits.size < OBSERVED_EDITS_LIMIT) this.edits.add(path.slice(0, 512));
   }
 
   observeToolEnd(event: Extract<RuntimeEvent, { type: "tool_end" }>, commands: ProjectModel["commands"] | undefined): void {
