@@ -7,14 +7,22 @@ import { currentSandbox, type SandboxWrapOptions, type ShellSandbox } from "../s
 
 const OUTPUT_BYTES = 8192;
 
-// Drain all output, retaining a bounded head and tail of each stream.
+// Drain all output, retaining a bounded head and tail of each stream. A sandbox refusal is looked for in all of
+// it as it streams: in a long test run the EPERM line sits in the middle, which the head and tail cut out.
 class OutputCapture {
   private head = Buffer.alloc(0);
   private tail = Buffer.alloc(0);
   private size = 0;
+  private carry = "";
+  denial?: string;
 
   add(chunk: Buffer): void {
     this.size += chunk.length;
+    if (!this.denial) {
+      const text = this.carry + chunk.toString("latin1");
+      this.denial = DENIAL.exec(text)?.[0];
+      this.carry = text.slice(-64); // A refusal split across two chunks.
+    }
     const headBytes = Math.min(chunk.length, OUTPUT_BYTES / 2 - this.head.length);
     if (headBytes > 0) this.head = Buffer.concat([this.head, chunk.subarray(0, headBytes)]);
     const remainder = chunk.subarray(headBytes);
@@ -163,7 +171,7 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
       void blockedBySandbox(sandbox!, held, output).then((blocked) => {
         sandbox!.finished(held);
         // The sandbox's monitor does not see every refusal (a unix socket, a spawn): the check's own output says EPERM.
-        const denied = blocked ?? sandboxDenialInOutput(output);
+        const denied = blocked ?? sandboxDenialInOutput(stderr.denial ?? stdout.denial ?? output);
         resolve(denied ? { ...result, reason: denied, ended: "blocked" } : result);
       });
     };
@@ -204,12 +212,14 @@ export async function blockedBySandbox(sandbox: Pick<ShellSandbox, "blockedReaso
 }
 
 /** What a check prints when the sandbox, not the code, said no: EPERM / "Operation not permitted" (a unix socket, a
- * loopback address, a spawned program, /dev/fd), or the sandbox's own wording. Only read for a run the sandbox held. */
-const DENIAL = /\bEPERM\b|operation not permitted|blocked by the sandbox|sandbox[-\w]*\W+deny|\bdeny\(\d+\)/i;
+ * loopback address, a spawned program, /dev/fd), "out of pty devices" (no terminal for a terminal test), or the
+ * sandbox's own wording. Only read for a run the sandbox held. */
+const DENIAL = /\bEPERM\b|operation not permitted|out of pty devices|blocked by the sandbox|sandbox[-\w]*\W+deny|\bdeny\(\d+\)/i;
 export function sandboxDenialInOutput(output: string): string | undefined {
   const found = DENIAL.exec(output)?.[0];
   if (!found) return undefined;
-  const what = /^eperm$/i.test(found) ? "EPERM" : /not permitted/i.test(found) ? "Operation not permitted" : "a sandbox denial";
+  const what = /^eperm$/i.test(found) ? "EPERM" : /not permitted/i.test(found) ? "Operation not permitted"
+    : /pty/i.test(found) ? "out of pty devices: no terminal" : "a sandbox denial";
   return `blocked by the sandbox (the check printed ${what}; not a bug in your code)`;
 }
 
