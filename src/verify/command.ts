@@ -7,21 +7,24 @@ import { currentSandbox, type SandboxWrapOptions, type ShellSandbox } from "../s
 
 const OUTPUT_BYTES = 8192;
 
-// Drain all output, retaining a bounded head and tail of each stream. A sandbox refusal is looked for in all of
-// it as it streams: in a long test run the EPERM line sits in the middle, which the head and tail cut out.
+// Drain all output, retaining a bounded head and tail of each stream. A sandbox refusal and a test's own time
+// limit are looked for in all of it as it streams: in a long test run that line sits in the middle, which the head
+// and tail cut out.
 class OutputCapture {
   private head = Buffer.alloc(0);
   private tail = Buffer.alloc(0);
   private size = 0;
   private carry = "";
   denial?: string;
+  slowTest = false;
 
   add(chunk: Buffer): void {
     this.size += chunk.length;
-    if (!this.denial) {
+    if (!this.denial || !this.slowTest) {
       const text = this.carry + chunk.toString("latin1");
-      this.denial = DENIAL.exec(text)?.[0];
-      this.carry = text.slice(-64); // A refusal split across two chunks.
+      this.denial ??= DENIAL.exec(text)?.[0];
+      this.slowTest ||= TEST_TIMED_OUT.test(text);
+      this.carry = text.slice(-64); // A line split across two chunks.
     }
     const headBytes = Math.min(chunk.length, OUTPUT_BYTES / 2 - this.head.length);
     if (headBytes > 0) this.head = Buffer.concat([this.head, chunk.subarray(0, headBytes)]);
@@ -165,14 +168,14 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
       child.unref(); // Unknown cleanup must not turn a reported failure into an exit hang.
       const ended = checkEnded(exitCode, reason, plan.shell ? stderr.text() : "", process.platform, stdout.text());
       const result: VerificationResult = { ...base(), status: !reason && exitCode === 0 ? "pass" : "fail", exitCode, signal: exitSignal, reason, ...(ended ? { ended } : {}) };
-      if (!held || result.status === "pass" || reason) { sandbox?.finished(held); resolve(withSlowTest(result)); return; }
+      if (!held || result.status === "pass" || reason) { sandbox?.finished(held); resolve(withSlowTest(result, stdout.slowTest || stderr.slowTest)); return; }
       // A failure the sandbox caused says so, in the receipt and to the AI: "blocked by the sandbox (wanted to write /etc/hosts)".
       const output = `${result.stderr}\n${result.stdout}`;
       void blockedBySandbox(sandbox!, held, output).then((blocked) => {
         sandbox!.finished(held);
         // The sandbox's monitor does not see every refusal (a unix socket, a spawn): the check's own output says EPERM.
         const denied = blocked ?? sandboxDenialInOutput(stderr.denial ?? stdout.denial ?? output);
-        resolve(denied ? { ...result, reason: denied, ended: "blocked" } : withSlowTest(result));
+        resolve(denied ? { ...result, reason: denied, ended: "blocked" } : withSlowTest(result, stdout.slowTest || stderr.slowTest));
       });
     };
     let stopped = false;
@@ -209,8 +212,8 @@ export const SLOW_TEST = "a test in it timed out (often a busy machine, not the 
 
 /** A failed run in which a test hit its own time limit did not finish either: often a busy machine (a full suite
  * beside other work), not the code. It is unfinished, asked about like a check that timed out, never repaired on its own. */
-function withSlowTest(result: VerificationResult): VerificationResult {
-  if (result.status !== "fail" || result.ended || !testTimedOut(`${result.stderr}\n${result.stdout}`)) return result;
+function withSlowTest(result: VerificationResult, seen: boolean): VerificationResult {
+  if (result.status !== "fail" || result.ended || !seen) return result;
   return { ...result, ended: "timeout", reason: SLOW_TEST };
 }
 
