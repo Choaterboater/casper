@@ -1,12 +1,16 @@
 # Casper 0.2.30 · the same write, answered 2 (Yes, this once)
 
 ❯ set the lab site on the fixture server
+
 [model] scripted/site-capture · effort off
-I will ask the fixture server to change the site.
+
+● I will ask the fixture server to change the site.
+
 Change in fixture: set site
   site             lab
 This makes the change.
 MCP · fixture · set_site  [write]
+── Approval ────────────────────────────────────────────────────────────────────────────────────────
 Make this change?
 → 1 No
   2 Yes, this once
@@ -18,4 +22,5 @@ Press 1-4 or Up/Down + Enter · Esc is No
 # (pressed 2: the box closes into one line, the record of the answer)
 
 Make this change? → Yes, this once
-The server says the site is set.
+
+● The server says the site is set.

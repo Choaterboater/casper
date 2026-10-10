@@ -189,7 +189,7 @@ test("idle: /details alone shows the level and saves nothing; --session goes bef
   const config = path.join(app.home, ".casper", "config.yaml");
   try {
     await app.until(text => text.includes("idle"));
-    let shown = await typed(app, "/details", "[details] normal: steps fold into one summary line");
+    let shown = await typed(app, "/details", "[details] normal: steps fold into one row naming what was done");
     expect(shown).toContain("/details quiet or detailed changes it");
     expect(await readFile(config, "utf8").catch(() => "")).not.toContain("display");
     shown = await typed(app, "/details --session quiet", "[details] quiet:");

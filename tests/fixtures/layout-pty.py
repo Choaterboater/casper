@@ -182,7 +182,7 @@ def main():
     signal.signal(signal.SIGTERM, terminate)
     bun = sys.argv[1]
     repo = pathlib.Path(__file__).resolve().parents[2]
-    env = {"HOME": os.environ["HOME"], "PATH": os.environ["PATH"], "TERM": "xterm-256color"}
+    env = {"HOME": os.environ["HOME"], "PATH": os.environ["PATH"], "TERM": "xterm-256color", "CASPER_DEMO_PACE": "40"}
     s = Session([bun, str(repo / "tools/terminal-demo.ts")], str(repo), env)
     ok = True
     try:
@@ -194,7 +194,9 @@ def main():
         for i in range(4):
             s.send(f"prompt {i}\n"); s.until_count("Demo complete. No real tools ran.", i + 1)
         ok &= check("scrolled transcript", s, settle(s, lambda: [one_prompt_box(s),
-            ("prompt 3" in s.vt.screen(), "latest prompt echoed on screen"),
+            # One answer is taller than the screen now (steps, an edit box, a failure box): the prompt is in scrollback.
+            ("prompt 3" in s.vt.everything(), "latest prompt echoed"),
+            ("● Demo complete." in s.vt.screen(), "latest answer on screen"),
             ("CASPER · OFFLINE" in s.vt.everything(), "banner retained in scrollback"),
             (s.vt.clear_scrollback_count == 0, "scrollback must not be wiped while chatting"),
             (s.footer_row() == ROWS - 1, "transcript should have reached the bottom edge")]))

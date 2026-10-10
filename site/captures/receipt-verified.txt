@@ -1,24 +1,32 @@
 # Casper 0.2.30 · ✓ Verified: the tests fail without the change and pass with it; /receipt has the detail
 
 ❯ fix the sum bug in src/sum.js
+
 [model] scripted/site-capture · effort off
-✓ 2 edits
-  changed src/sum.js, tests/sum.test.js
-Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
+
+● edited src/sum.js, tests/sum.test.js
+
+● Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
+
 • Casper checking: test
 ✓ test
 • Casper checking that the tests fail without the change
+
 ▌ ✓ Verified · test passed · changed src/sum.js, tests/sum.test.js
+▌ – Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or
+sandbox: on in ~/.casper/config.yaml)
 Next: 1 Show diff · 2 Undo
 
 # (typed /receipt)
 
 ❯ /receipt
+
 [task] Execution completed
        changes      2 files changed: src/sum.js, tests/sum.test.js
        verification Checks pass (command execution): 1 pass, 0 fail, 0 skip; 0 repair attempt(s).
 test: scope undeclared; current files unverified; reuse disabled. Requested behavior is not
 independently certified.
        proof        ✓ Proven: test fails without this change (exit 1) and passes with it
-       sandbox      shell commands and checks held
+       sandbox      not sandboxed (off unless you turn it on: /sandbox on, or sandbox: on in
+~/.casper/config.yaml)
        undo         available (/undo 1)

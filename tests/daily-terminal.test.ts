@@ -43,7 +43,7 @@ function fakeWriter(columns: number, rows: number) {
 const REPAINT = "\x1b[2J\x1b[H\x1b[3J";
 const plainLines = (frame: string) => frame.replace(/\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07/g, "").split("\r\n");
 
-test("live work status appears in a box before response text and clears when it streams", async () => {
+test("live work status shows above the prompt before response text, the step under it, and both fold when words stream", async () => {
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
   const screen = fakeWriter(80, 24);
   const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {});
@@ -55,24 +55,25 @@ test("live work status appears in a box before response text and clears when it 
   try {
     terminal.setStatus("fixture"); terminal.start();
     events.handle({ type: "assistant_response_start", provider: "openai-codex", model: "gpt-6-luna" });
-    await screen.until(output => Bun.stripANSI(output).includes(" Working "));
-    expect(Bun.stripANSI(screen.output)).toContain("Waiting for openai-codex/gpt-6-luna · 0s");
+    await screen.until(output => Bun.stripANSI(output).includes("Esc stops"));
+    expect(Bun.stripANSI(screen.output)).toContain("Waiting for openai-codex/gpt-6-luna · 0s · Esc stops");
     // The clock counts up. On a busy machine its first tick can come after 2 s, so any second past 0 will do.
     await screen.until(output => /Waiting for openai-codex\/gpt-6-luna · [1-9]\d*s/.test(Bun.stripANSI(output)));
     events.handle({ type: "tool_start", toolName: "write", toolCallId: "write-1", input: { path: "src/app.ts" } });
-    // The running step lives in the Working box, not on the main screen.
-    await screen.until(output => Bun.stripANSI(output).includes("│ • write · src/app.ts"));
+    // The running step is a live row, its mark the spinner, and the status row names it.
+    await screen.until(output => /(?:^|[^│]) {2}\S write · src\/app\.ts/m.test(Bun.stripANSI(output)));
+    await screen.until(output => Bun.stripANSI(output).includes("Editing src/app.ts"));
     events.handle({ type: "tool_end", toolName: "write", toolCallId: "write-1", input: { path: "src/app.ts" }, isError: false });
     events.handle({ type: "assistant_text_delta", delta: "Working on it.\n" });
     screen.writer.columns = 79; screen.writer.emit("resize");
     await screen.until(output => output.split(REPAINT).length > 1 && output.split(REPAINT).at(-1)!.includes("Working on it."));
     const frame = plainLines(screen.output.split(REPAINT).at(-1)!);
-    expect(frame).toContain("Working on it.");
-    // One line for the finished step, above the model's words; no running line and no Working box left.
-    expect(frame.filter(line => line.includes("src/app.ts"))).toEqual(["✓ write · src/app.ts"]);
-    expect(frame.indexOf("✓ write · src/app.ts")).toBeLessThan(frame.indexOf("Working on it."));
+    expect(frame).toContain("● Working on it.");
+    // One row naming the finished step, above the model's words; no running row and no status row left.
+    expect(frame.filter(line => line.includes("src/app.ts"))).toEqual(["● edited src/app.ts"]);
+    expect(frame.indexOf("● edited src/app.ts")).toBeLessThan(frame.indexOf("● Working on it."));
     expect(frame.join("\n")).not.toContain("Waiting for openai-codex/gpt-6-luna");
-    expect(frame.join("\n")).not.toContain(" Working ");
+    expect(frame.join("\n")).not.toContain("Esc stops");
   } finally { terminal.close(); input.destroy(); }
 });
 
@@ -156,12 +157,13 @@ test("streamed assistant Markdown renders lists and fences once, whole, and re-r
     await screen.until(output => output.split(REPAINT).length > 1 && output.split(REPAINT).at(-1)!.includes("after"));
     const frame = plainLines(screen.output.split(REPAINT).at(-1)!);
     const body = frame.slice(0, frame.indexOf("after")).filter(line => line.trim());
-    // The fenced block keeps its language title line at the new width, and its code copies clean: no side borders.
-    expect(body.slice(0, 3)).toEqual(["Here is a plan:", "- first item", "- second item with code"]);
+    // The words lead with ● and hang two columns in. The fenced block keeps its language title line at the new width,
+    // at the left edge, and its code copies clean: no side borders, no indent.
+    expect(body.slice(0, 3)).toEqual(["● Here is a plan:", "  - first item", "  - second item with code"]);
     expect(body[3]).toMatch(/^── ts ─+$/);
     expect(body[4]).toBe("const x = 1;");
     expect(body[5]).toMatch(/^─+$/);
-    expect(body[6]).toBe("Done.");
+    expect(body[6]).toBe("  Done.");
     expect(body[3]!.length).toBe(40);
     expect(screen.output).not.toContain("\x1b[?1049h");
   } finally { terminal.close(); input.destroy(); }
@@ -188,7 +190,7 @@ test("a code block with emoji or CJK characters wider than the screen draws with
   } finally { terminal.close(); input.destroy(); }
 });
 
-test("tool, code and Working panels span the whole terminal width and follow it through a resize", async () => {
+test("tool panels and code blocks span the whole terminal width and follow it through a resize", async () => {
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
   const screen = fakeWriter(100, 40);
   const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {});
@@ -197,18 +199,16 @@ test("tool, code and Working panels span the whole terminal width and follow it 
     void terminal.readCommand();
     terminal.writePanel("output", "tool output");
     terminal.assistant("```ts\nconst x = 1;\n```\n"); terminal.endAssistant();
-    terminal.setActivity("Waiting for fixture/model");
-    await screen.until(output => output.includes("Working"));
+    terminal.setWork({ rows: [], status: "Waiting for fixture/model" });
+    await screen.until(output => output.includes("Waiting for fixture/model"));
     for (const columns of [160, 100]) {
       const repaints = screen.output.split(REPAINT).length;
       screen.writer.columns = columns; screen.writer.emit("resize");
-      await screen.until(output => output.split(REPAINT).length > repaints && output.split(REPAINT).at(-1)!.includes("Working"));
+      await screen.until(output => output.split(REPAINT).length > repaints && output.split(REPAINT).at(-1)!.includes("Waiting for fixture/model"));
       // Round corners, or square ones on the old Windows console (src/tui/glyphs.ts).
       const borders = plainLines(screen.output.split(REPAINT).at(-1)!).filter(line => /^[╭╰┌└]/.test(line));
-      // Titles, with the Working panel's spinner frame (a braille cell, or | / - \ on the old console) removed.
-      expect(borders.filter(line => /^[╭┌]/.test(line)).map(line => line.replace(/[╭─╮┌┐\u2800-\u28ff|/\\]/g, "").replace(/(^|\s)-(\s|$)/g, " ").trim()))
-        .toEqual(["output", "Working"]);
-      expect(borders.map(line => visibleWidth(line))).toEqual(Array(4).fill(columns));
+      expect(borders.filter(line => /^[╭┌]/.test(line)).map(line => line.replace(/[╭─╮┌┐]/g, "").trim())).toEqual(["output"]);
+      expect(borders.map(line => visibleWidth(line))).toEqual(Array(2).fill(columns));
       // The code block's title line spans the width too.
       const code = plainLines(screen.output.split(REPAINT).at(-1)!).find(line => line.startsWith("── ts "));
       expect(visibleWidth(code!)).toBe(columns);

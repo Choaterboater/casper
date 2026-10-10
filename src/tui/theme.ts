@@ -3,8 +3,9 @@
  * accent: the prompt, headings, links, Casper's boxes and the wordmark. muted: hints, the footer, secondary text.
  * border: rules, the input box and code block lines. selection: the highlighted choice in a list or question.
  * success, warning, error: ✓, – (a note) and ✗ lines, a result's edge and boxes of that kind. diffAdded, diffRemoved, diffHunk:
- * a diff's + and - lines and its @@ headers. */
-export const THEME_ROLES = ["accent", "muted", "border", "selection", "success", "warning", "error", "diffAdded", "diffRemoved", "diffHunk"] as const;
+ * a diff's + and - lines and its @@ headers. userBg: the bar behind your request where Casper shows it again, a
+ * background colour (`default` or `dim`: no bar). */
+export const THEME_ROLES = ["accent", "muted", "border", "selection", "success", "warning", "error", "diffAdded", "diffRemoved", "diffHunk", "userBg"] as const;
 export type ThemeRole = typeof THEME_ROLES[number];
 
 /** The colour names a theme may use, as the terminal's own palette draws them (so a light or dark terminal keeps
@@ -38,19 +39,20 @@ export function isThemeColor(value: unknown): value is ThemeColor {
 /** Casper's own look: cyan for structure, faint for what is secondary. */
 export const DEFAULT_THEME: Theme = Object.freeze({ name: "default", colors: Object.freeze({
   accent: "cyan", muted: "dim", border: "dim", selection: "cyan", success: "green", warning: "yellow", error: "red",
-  diffAdded: "green", diffRemoved: "red", diffHunk: "cyan",
+  diffAdded: "green", diffRemoved: "red", diffHunk: "cyan", userBg: "gray",
 }) });
 
 /** For a light terminal background: blue instead of cyan, magenta instead of yellow, which wash out on white. */
 const LIGHT_THEME: Theme = Object.freeze({ name: "light", colors: Object.freeze({
   accent: "blue", muted: "dim", border: "dim", selection: "blue", success: "green", warning: "magenta", error: "red",
-  diffAdded: "green", diffRemoved: "red", diffHunk: "blue",
+  diffAdded: "green", diffRemoved: "red", diffHunk: "blue", userBg: "white",
 }) });
 
 /** Bright colours and no faint text: secondary text at the terminal's full strength. */
 const HIGH_CONTRAST_THEME: Theme = Object.freeze({ name: "high-contrast", colors: Object.freeze({
   accent: "bright-cyan", muted: "default", border: "default", selection: "bright-yellow", success: "bright-green",
   warning: "bright-yellow", error: "bright-red", diffAdded: "bright-green", diffRemoved: "bright-red", diffHunk: "bright-cyan",
+  userBg: "default",
 }) });
 
 export const BUILT_IN_THEMES: readonly Theme[] = [DEFAULT_THEME, LIGHT_THEME, HIGH_CONTRAST_THEME];
@@ -68,7 +70,8 @@ export function registerTheme(theme: Theme): void {
   if (typeof theme.colors !== "object" || theme.colors === null) throw new Error(`theme ${theme.name}: colors must be a mapping of roles to colours`);
   const colors = {} as Record<ThemeRole, ThemeColor>;
   for (const role of THEME_ROLES) {
-    const value = Object.hasOwn(theme.colors, role) ? theme.colors[role] : undefined;
+    // userBg came after the first themes: one made without it takes the default theme's.
+    const value = Object.hasOwn(theme.colors, role) ? theme.colors[role] : role === "userBg" ? DEFAULT_THEME.colors.userBg : undefined;
     if (!isThemeColor(value)) throw new Error(`theme ${theme.name}: ${role} must be #rrggbb or one of ${COLOR_NAMES.join(", ")}`);
     colors[role] = value;
   }
@@ -114,16 +117,21 @@ function nearest256(red: number, green: number, blue: number): number {
   return distance(greyLevel, greyLevel, greyLevel) < cube ? 232 + grey : 16 + 36 * r + 6 * g + b;
 }
 
-/** The SGR parameters for one colour ("36", "2", "38;2;r;g;b"); "" for the terminal's own text colour. */
-export function colorCode(color: ThemeColor, env: Record<string, string | undefined> = process.env): string {
-  if (Object.hasOwn(NAMED_COLORS, color)) return NAMED_COLORS[color]!;
+/** The SGR parameters for one colour ("36", "2", "38;2;r;g;b"); "" for the terminal's own text colour. `background`:
+ * the colour behind the text instead ("100", "48;2;r;g;b"); `default` and `dim` are no background. */
+export function colorCode(color: ThemeColor, env: Record<string, string | undefined> = process.env, background = false): string {
+  if (Object.hasOwn(NAMED_COLORS, color)) {
+    const code = NAMED_COLORS[color]!;
+    return !background ? code : /^(?:3|9)\d$/.test(code) ? String(Number(code) + 10) : "";
+  }
   if (!HEX_COLOR.test(color)) return "";
   const [red, green, blue] = [1, 3, 5].map(at => parseInt(color.slice(at, at + 2), 16)) as [number, number, number];
-  return trueColor(env) ? `38;2;${red};${green};${blue}` : `38;5;${nearest256(red, green, blue)}`;
+  const layer = background ? 48 : 38;
+  return trueColor(env) ? `${layer};2;${red};${green};${blue}` : `${layer};5;${nearest256(red, green, blue)}`;
 }
 
 function codesFor(theme: Theme, env: Record<string, string | undefined>): Record<ThemeRole, string> {
-  return Object.fromEntries(THEME_ROLES.map(role => [role, colorCode(theme.colors[role], env)])) as Record<ThemeRole, string>;
+  return Object.fromEntries(THEME_ROLES.map(role => [role, colorCode(theme.colors[role], env, role === "userBg")])) as Record<ThemeRole, string>;
 }
 
 let activeName = DEFAULT_THEME.name;

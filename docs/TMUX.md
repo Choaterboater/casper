@@ -8,8 +8,9 @@ side pane off and `/pane on` back on; the choice is saved (in `~/.casper/pane.js
 
 - **Side pane for the busy steps.** On the first step of a task Casper opens one pane to the right of
   its own, when the window is at least 120 columns wide (a split halves it; a narrow window keeps the
-  Working box, and the pane opens on a later step once the window is wide). It shows each command and file step as it runs, and what the helpers (`delegate`) are
-  doing. The main screen keeps the AI's words, its questions and the receipt.
+  steps under the AI's words, and the pane opens on a later step once the window is wide). It shows each command and file step as it runs, and what the helpers (`delegate`) are
+  doing. The main screen keeps the AI's words, the row each group of steps folds into, its boxes, its questions, the
+  status row above the prompt and the receipt.
 - **View only.** The pane shows a log that only Casper writes. tmux input is off for that pane, so
   nothing typed there (by you or by the AI) goes anywhere. Casper never sends keys to any pane.
 - **Closed for you.** Casper closes the pane when you exit, and also when Casper crashes or is killed:
@@ -27,7 +28,7 @@ twice there: once as it starts (`• bash · ssh root@build-server …`) and onc
 `— not run` for a command Casper refused). Questions, such as `Reach 198.51.100.20 (build-server)?`, always
 come on the main screen, never in the pane.
 
-Outside tmux the steps stay in the small Working box above the prompt, as before.
+Outside tmux the steps show as live rows under the AI's words, with the status row above the prompt.
 
 ## iTerm2 without tmux
 
@@ -41,7 +42,7 @@ Show Casper's steps in a split beside this window? (iTerm2 may ask once to let C
 ```
 
 The answer is saved; `/pane on` or `/pane off` changes it later. With a split, macOS may ask the first
-time whether your terminal may control iTerm2. If you say no there, Casper keeps the Working box.
+time whether your terminal may control iTerm2. If you say no there, Casper keeps the steps on its own screen.
 
 ## After a dropped SSH
 

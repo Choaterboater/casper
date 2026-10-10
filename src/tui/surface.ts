@@ -6,14 +6,15 @@ import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO, RuntimePick
 import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } from "../app/images";
 import { readClipboardFiles } from "./clipboard-files";
 import { commandMenu, COMMANDS, findCommand, fitDescriptions, menuRunsDuringWork } from "./commands";
-import { BUSY_GLYPH, formatElapsed, hasLineControls, hasTerminalControls, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
+import { BUSY_GLYPH, formatElapsed, hasLineControls, hasTerminalControls, markdownTheme, NOT_RUN_GLYPH, PROMPT_GLYPH, terminalText, tint } from "./format";
 import { answerRecord, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, OTHER_CHOICE, typedChoice, type PickRecord } from "./choices";
 import { typedDuringTask } from "./give-way";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
 import { renderPanel } from "./presentation";
 import { StreamTerminal } from "./stream-terminal";
-import { Transcript } from "./transcript";
+import { roleCode } from "./theme";
+import { type EntryKind, Transcript } from "./transcript";
 
 const GUTTER = 2;
 
@@ -60,8 +61,8 @@ export const clipboardDefaults: {
   filesFirst: process.platform === "darwin",
 };
 
-/** Spinner frames (braille; ASCII on the old Windows console); the footer dot and Working panel title cycle through
- * them while background work runs, so activity is visible even between transcript updates. */
+/** Spinner frames (braille; ASCII on the old Windows console); the footer, the status row and a running step's mark
+ * cycle through them while work runs, so activity is visible even between transcript updates. */
 const SPINNER_FRAMES = GLYPHS.spinner;
 const SPINNER_INTERVAL_MS = 120;
 
@@ -92,6 +93,34 @@ function askOptionLines(prefix: string, option: AskOption, width: number,
     ...wrapTextWithAnsi(label, Math.max(1, width - indent.length)).map((line, index) => `${index ? indent : prefix}${style.label(line)}`),
     ...(description ? wrapTextWithAnsi(description, Math.max(1, width - indent.length - 2)).map(line => `${indent}  ${style.description(line)}`) : []),
   ];
+}
+
+/** Work in progress for the screen: the steps of the open group (rows under the AI's words) and what Casper is doing or
+ * waiting for now (the status row above the prompt). */
+export interface WorkView { rows: readonly string[]; status?: string }
+
+/** Marks a live row may start with, and the colour each takes; a running step's • becomes the spinner. */
+const LIVE_MARK = /^(✓|✗|○|•|–) /;
+
+/** Your request as Casper shows it again: ❯ and the words, bold, hanging under the mark, on the theme's userBg bar
+ * across the row (none without colour, or when the theme has no bar). */
+export function promptEcho(text: string, color: boolean): Component {
+  return {
+    render: width => {
+      const inner = Math.max(1, width - GUTTER);
+      const rows = terminalText(text).split("\n").flatMap(line => line ? wrapTextWithAnsi(line, inner) : [""]);
+      const bar = color ? roleCode("userBg") : "";
+      return rows.map((row, index) => {
+        const lead = index ? "  " : `${tint(PROMPT_GLYPH, "accent", color, "1")} `;
+        const body = `${lead}${color ? `\x1b[1m${row}\x1b[0m` : row}`;
+        if (!bar) return body;
+        // Every reset inside the row would also end the bar: it starts again after each one, out to the edge.
+        const open = `\x1b[${bar}m`;
+        return `${open}${body.replaceAll("\x1b[0m", `\x1b[0m${open}`)}${" ".repeat(Math.max(0, width - visibleWidth(body)))}\x1b[0m`;
+      });
+    },
+    invalidate() {},
+  };
 }
 
 /** Prompt editor with a fixed two-column gutter: the glyph changes with state, the box never moves. */
@@ -162,8 +191,8 @@ export class TerminalSurface {
   /** The highlighted choice in a list or question. */
   private readonly selected: (text: string) => string;
   private status = "";
-  /** The Working box's lines: the latest steps and what the model is doing now. */
-  private activity?: string[];
+  /** Work in progress: the open group's steps (live rows under the AI's words) and the status row's words. */
+  private work?: { rows: string[]; status?: string };
   /** The task's stages for the footer while work runs; see StepRail. */
   private steps?: string;
   private note = "";
@@ -261,7 +290,7 @@ export class TerminalSurface {
           this.editor.addToHistory(value); this.editor.setText("");
           // After the words streamed so far, not above them: the answer carries on under the line.
           this.endAssistant();
-          this.write(this.accent(`${PROMPT_GLYPH} ${terminalText(value.trim())}`) + "\n");
+          this.writeBlock(promptEcho(value.trim(), this.io.color), "line");
           return;
         }
         this.editor.setText(value);
@@ -276,8 +305,8 @@ export class TerminalSurface {
       this.updateSpinner();
       this.configureAutocomplete();
       this.editor.addToHistory(value); this.editor.setText("");
-      // Continuation lines of a multiline prompt sit under the text, not under the gutter glyph.
-      this.write(terminalText(value).split("\n").map((line, index) => this.accent(`${index ? "  " : `${PROMPT_GLYPH} `}${line}`)).join("\n") + "\n");
+      // Continuation lines of a multiline prompt sit under the text, not under the gutter glyph. A blank row before it.
+      this.writeBlock(promptEcho(value, this.io.color), "group");
       resolve(value);
     };
     // Popovers cover the transcript tail without scrolling. Private login panels and questions
@@ -286,13 +315,17 @@ export class TerminalSurface {
       render: width => {
         const editorLines = this.editor.render(width);
         const rule = this.border("─".repeat(width));
-        const activity = this.activity ? renderPanel(`${SPINNER_FRAMES[this.spinnerFrame]} Working`, this.activity.map(line => { const fitted = truncateToWidth(line, Math.max(1, width - 4)); return line.startsWith("↳ ") ? this.muted(fitted) : fitted; }), width, this.io.color, "accent") : [];
+        const status = this.statusRow(width);
         const block = this.slot ? this.slot.render(width).map(line => truncateToWidth(line, width))
           : this.lending ? [rule, this.muted(truncateToWidth("  exclusive input in progress · Esc or Ctrl+C cancels", width)), rule]
-          : this.pendingAsk ? [rule, ...this.renderAsk(width, this.terminal.rows - editorLines.length - 2), ...editorLines]
+          : this.pendingAsk ? [this.askRule(width), ...this.renderAsk(width, this.terminal.rows - editorLines.length - 2), ...editorLines]
           : this.pendingEdit ? [rule, ...this.editHeading.flatMap(line => wrapTextWithAnsi(line, width)).map(line => truncateToWidth(line, width)), ...editorLines]
-          : this.editor.popup.length ? [rule, ...this.editor.popup, ...activity, ...editorLines] : [...activity, ...editorLines];
+          : this.editor.popup.length ? [rule, ...this.editor.popup, ...status, ...editorLines] : [...status, ...editorLines];
         while (block.length < editorLines.length) block.push("");
+        // The open group's steps show under the AI's words while nothing waits on you, and never more of them than fit
+        // above the prompt: a row that ticks off the top of the screen would make the terminal redraw everything.
+        this.transcript.live = this.work?.rows.length && !this.waiting ? this.liveRows : undefined;
+        this.transcript.liveCap = Math.max(1, this.terminal.rows - block.length - 3);
         const body = this.transcript.render(width);
         const overlayLines = this.slot ? block.length - editorLines.length
           : this.pendingAsk || this.pendingEdit ? 0
@@ -493,7 +526,7 @@ export class TerminalSurface {
     // Waiting on the user: no spinner or running timer, so it never looks busy while it needs Enter.
     if (this.waiting && !this.note) return truncateToWidth(`${this.accent("?")} ${this.accent("waiting for you")}${this.muted(` │ ${details || "Casper"}`)}`, width);
     // One state mark: the spinner while working.
-    const active = this.busy || this.activity !== undefined;
+    const active = this.busy || this.work !== undefined;
     const state = active ? `${this.accent(SPINNER_FRAMES[this.spinnerFrame])} ` : "";
     // A transient note replaces the status line so it is never truncated away.
     if (this.note) return truncateToWidth(`${state}${this.accent(this.note)}`, width);
@@ -516,10 +549,10 @@ export class TerminalSurface {
     return this.muted(room > 3 ? `${truncateToWidth(details, room, "…")}${IDLE_TAIL}` : truncateToWidth(this.status, width));
   }
 
-  /** While work runs (a prompt in flight or tool activity), the footer's state mark and the Working panel
- * title cycle through braille frames; idle has no mark. */
-private updateSpinner(): void {
-    const working = (this.busy || this.activity !== undefined) && !this.closed;
+  /** While work runs (a prompt in flight or tool activity), the footer's state mark, the status row and a running step's
+   * mark cycle through braille frames; idle has no mark. */
+  private updateSpinner(): void {
+    const working = (this.busy || this.work !== undefined) && !this.closed;
     const active = working && !this.waiting;
     // The timer counts the whole task, a question's wait included, like the Working box's step times.
     if (working) this.activeSince ??= Date.now();
@@ -613,15 +646,44 @@ private updateSpinner(): void {
     this.steps = next;
     this.render();
   }
-  /** The Working box: one line, or a few (the latest steps). Undefined or empty removes it. */
-  setActivity(status?: string | readonly string[]): void {
-    const lines = (typeof status === "string" ? [status] : status ?? [])
-      .map(line => terminalText(line).replace(/\s+/g, " ").trim()).filter(Boolean);
-    const next = lines.length ? lines : undefined;
-    if (next?.join("\n") === this.activity?.join("\n")) return;
-    this.activity = next;
+  /** Work in progress: the open group's steps, shown under the AI's words, and the status row's words ("Waiting for
+   * …", "Running bun test · 4s"). Undefined, or nothing in it, ends it. */
+  setWork(view?: WorkView): void {
+    const rows = (view?.rows ?? []).map(line => terminalText(line).replace(/\s+/g, " ").trim()).filter(Boolean);
+    const status = view?.status ? terminalText(view.status).replace(/\s+/g, " ").trim() || undefined : undefined;
+    const next = rows.length || status ? { rows, ...(status ? { status } : {}) } : undefined;
+    if (next?.status === this.work?.status && next?.rows.join("\n") === this.work?.rows.join("\n")) return;
+    this.work = next;
     this.updateSpinner();
     this.render();
+  }
+  /** The work in progress as the screen holds it now (for tests and the layout checks). */
+  get workView(): WorkView | undefined { return this.work; }
+
+  /** The open group's steps, two columns in under the AI's words: a running step's • is the spinner, a finished step
+   * keeps its mark in its colour, and a command's latest output line hangs dim under it. */
+  private readonly liveRows: Component = {
+    render: width => (this.work?.rows ?? []).map(row => {
+      if (row.startsWith("↳ ")) return this.muted(truncateToWidth(`    ${row}`, width));
+      const mark = LIVE_MARK.exec(row);
+      if (!mark) return truncateToWidth(`  ${row}`, width);
+      const glyph = mark[1] === BUSY_GLYPH ? this.accent(SPINNER_FRAMES[this.spinnerFrame]!)
+        : tint(mark[1]!, mark[1] === "✓" ? "success" : mark[1] === "✗" ? "error" : "warning", this.io.color);
+      return truncateToWidth(`  ${glyph} ${row.slice(mark[0].length)}`, width);
+    }),
+    invalidate() {},
+  };
+
+  /** The one row above the prompt while work runs: the spinner, what Casper is doing or waiting for, and that Esc
+   * stops it. Nothing while a question or picker waits on you. A narrow window cuts the words, never the key. */
+  private statusRow(width: number): string[] {
+    if (!this.work || this.waiting || this.closed) return [];
+    const spin = this.accent(SPINNER_FRAMES[this.spinnerFrame]!);
+    const words = this.work.status ?? "Working";
+    const hint = " · Esc stops";
+    const room = width - 2 - visibleWidth(hint);
+    if (room < 8) return [truncateToWidth(`${spin} ${words}`, width, "…")];
+    return [`${spin} ${truncateToWidth(words, room, "…")}${this.muted(hint)}`];
   }
   private configureAutocomplete(): void {
     const provider = this.autocomplete;
@@ -649,15 +711,24 @@ private updateSpinner(): void {
     return fitDescriptions(items, Math.max(1, (this.io.output.columns ?? 80) - GUTTER));
   }
   private render(): void { if (this.started && !this.closed) this.tui.requestRender(); }
-  write(text: string): void {
+  /** `kind`: how the lines sit among the blocks around them (see EntryKind): plain lines pack together. */
+  write(text: string, kind: EntryKind = "line"): void {
     if (!this.started) { this.io.output.write(text); return; }
-    this.transcript.append(text);
+    this.transcript.append(text, kind);
     this.render();
   }
-  /** A block that renders itself per width (a bordered panel) commits after any open tail line. */
-  writeBlock(block: Component): void {
+  /** A block that renders itself per width (a bordered panel) commits after any open tail line. `group`: a blank row
+   * before it. */
+  writeBlock(block: Component, kind: EntryKind = "line"): void {
     if (!this.started) { this.io.output.write(block.render(this.io.output.columns ?? 80).join("\n") + "\n"); return; }
-    this.transcript.commit(block);
+    this.transcript.commit(block, kind);
+    this.render();
+  }
+  /** A block that belongs under the AI's words (the steps they led to, a box of edits): right under them when they came
+   * last, else on its own after a blank row. `make` is told which, and indents itself when attached. */
+  writeAttachable(make: (attached: boolean) => Component): void {
+    if (!this.started) { this.io.output.write(make(false).render(this.io.output.columns ?? 80).join("\n") + "\n"); return; }
+    this.transcript.commitAttachable(make);
     this.render();
   }
   assistant(delta: string): void {
@@ -667,7 +738,8 @@ private updateSpinner(): void {
       return;
     }
     this.source += terminalText(delta);
-    if (!this.message) this.transcript.preview = this.message = new StreamingMarkdown(this.io.color, this.theme);
+    // The AI's words lead with ● and hang two columns in, with a blank row before them.
+    if (!this.message) this.transcript.preview = this.message = new StreamingMarkdown(this.io.color, this.theme, { hang: true });
     this.message.setText(this.source);
     this.render();
   }
@@ -675,7 +747,7 @@ private updateSpinner(): void {
     if (this.plainAssistantOpen) { this.io.output.write("\n"); this.plainAssistantOpen = false; }
     if (!this.message) return;
     this.transcript.preview = undefined;
-    this.transcript.commit(this.message);
+    this.transcript.commit(this.message, "narration");
     this.message = undefined; this.source = "";
     this.render();
   }
@@ -705,7 +777,7 @@ private updateSpinner(): void {
   readCommand(): Promise<string | undefined> {
     if (this.busy) { this.attention(); this.busySince = undefined; }
     // The prompt is back: whatever work was shown in the Working box is over.
-    this.endAssistant(); this.busy = false; this.note = ""; this.activity = undefined; this.configureAutocomplete();
+    this.endAssistant(); this.busy = false; this.note = ""; this.work = undefined; this.configureAutocomplete();
     this.updateSpinner();
     if (this.closed) return Promise.resolve(undefined);
     const { promise, resolve } = Promise.withResolvers<string | undefined>();
@@ -737,7 +809,8 @@ private updateSpinner(): void {
     if (this.held && !typedDuringTask()) return this.held.then(() => this.ask(question, options, multi, signal, from, typed, ownRecord));
     this.yieldSlot();
     if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
-    this.endAssistant(); this.activity = undefined;
+    // The steps and the status row step aside while the box is open, and come back after it.
+    this.endAssistant();
     const draft = this.editor.getExpandedText();
     const draftPastes = this.editor.pasted;
     this.editor.setText(""); // Pretyped drafts never answer a question.
@@ -813,7 +886,7 @@ private updateSpinner(): void {
     if (this.held && !typedDuringTask()) return this.held.then(() => this.editLines(heading, hint, lines, signal));
     this.yieldSlot();
     if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
-    this.endAssistant(); this.activity = undefined;
+    this.endAssistant();
     const draft = this.editor.getExpandedText();
     const draftPastes = this.editor.pasted;
     this.editor.pasted = [];
@@ -834,6 +907,14 @@ private updateSpinner(): void {
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
     return promise;
+  }
+
+  /** The open box's top rule, titled by who asks: an approval in the warning colour, the AI's question or Casper's own
+   * choice in the accent colour. The title is Casper's word for the box, never the question's own text. */
+  private askRule(width: number): string {
+    const title = this.askFrom === "approval" ? "Approval" : this.askFrom === "ai" ? "Question" : "Choose";
+    const head = truncateToWidth(`── ${title} `, width, "");
+    return tint(`${head}${"─".repeat(Math.max(0, width - visibleWidth(head)))}`, this.askFrom === "approval" ? "warning" : "accent", this.io.color);
   }
 
   /** The whole question and every option, wrapped to the width; the highlighted option in the selection colour.

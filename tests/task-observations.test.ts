@@ -231,7 +231,7 @@ test("changes the AI made on another machine over ssh reach the receipt, marked 
   expect(snapshot.secretInCommand).toBe(true);
   const receipt = formatReceipt({ execution: "completed", ...snapshot });
   expect(receipt).toContain("– Changed on build-server (from the commands Casper saw): made an API token (pveum user token add root@pam sampleapp --privs…); turned a service on or off at boot (systemctl enable --now sampleapp)");
-  expect(receipt).toContain(`– ${SECRET_IN_COMMAND}`);
+  expect(receipt).toContain(`⚠ ${SECRET_IN_COMMAND}`);
   expect(SECRET_IN_COMMAND).toBe("A secret appeared in a command; change it after this task.");
   expect(formatTaskResult({ execution: "completed", ...snapshot })).toContain("(from the commands Casper saw)");
   // Nothing remote, nothing said.

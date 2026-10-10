@@ -25,16 +25,16 @@ test("while work runs the footer leads with the steps; idle, it shows the plain 
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("project │ fixture/demo │ idle"); session.terminal.start();
-    session.terminal.setActivity("working");
+    session.terminal.setWork({ rows: [], status: "working" });
     session.terminal.setSteps("checklist ✓ · building");
     await session.screen.until(output => Bun.stripANSI(output).includes("checklist ✓ · building"));
     const footer = Bun.stripANSI(session.screen.output).split(/\r?\n/).filter(line => line.includes("checklist ✓ · building")).at(-1)!;
     expect(footer.indexOf("checklist ✓ · building")).toBeLessThan(footer.indexOf("project"));
-    session.terminal.setSteps(undefined); session.terminal.setActivity(undefined);
+    session.terminal.setSteps(undefined); session.terminal.setWork(undefined);
   } finally { session.close(); }
 });
 
-test("the footer timer counts a question's wait, like the Working box's step times", async () => {
+test("the footer timer counts a question's wait, like the live rows' step times", async () => {
   process.env.TERM = "xterm-256color";
   const session = interactiveTerminal();
   try {

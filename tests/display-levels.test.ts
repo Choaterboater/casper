@@ -7,11 +7,14 @@ import { loadConfiguration } from "../src/config/load";
 import { loadProjectContext } from "../src/project/context";
 import type { RuntimeEvent } from "../src/runtime/types";
 import { inlineDiff, nextDisplay, type DisplayLevel } from "../src/tui/display";
-import type { InteractiveTerminal } from "../src/tui/terminal";
+import { GLYPHS } from "../src/tui/glyphs";
+import { renderFold, type FoldView, type InteractiveTerminal } from "../src/tui/terminal";
 import { removeTempDir } from "./support/temp-dir";
 
 const ambientTerm = process.env.TERM;
 process.env.TERM = "xterm-256color";
+// A box's top-left corner as this terminal draws it: square on the old Windows console.
+const [CORNER] = GLYPHS.corners;
 afterAll(() => { if (ambientTerm === undefined) delete process.env.TERM; else process.env.TERM = ambientTerm; });
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -20,8 +23,9 @@ function view(rich: boolean, level: DisplayLevel, homeDir?: string) {
   const screen: string[] = [];
   const terminal = {
     rich, columns: 100, questionsShown: 0, questionOpen: false,
-    setActivity() {}, endAssistant() {}, assistant() {},
+    setWork() {}, endAssistant() {}, assistant() {},
     write(value: string) { screen.push(...value.split("\n").filter(Boolean)); },
+    writeFold(fold: FoldView) { screen.push(...renderFold(fold, 100, false, false)); },
   };
   const events = new RuntimeEventView(terminal as unknown as InteractiveTerminal, { write: value => terminal.write(value) }, {
     updateFooter() {}, onToolEnd() {}, setTaskStop() {}, markRuntimeFailed() {}, turnLimitReached() {}, cancelled: () => false,
@@ -49,31 +53,41 @@ const work: RuntimeEvent[] = [
   { type: "message_end" },
 ];
 
-test("normal folds steps into one summary line and keeps failures (today's screen)", () => {
-  for (const rich of [true]) {
-    const s = view(rich, "normal");
-    s.handle(...work);
-    expect(s.screen.some(line => line.startsWith("✗ bash · bun test"))).toBe(true);
-    expect(s.screen.some(line => /^– 1 edit · 1 command · 1 read · 1 failed/.test(line))).toBe(true);
-    expect(s.screen.some(line => line.includes("export const b"))).toBe(false);
-  }
+/** A box's rows without the frame: what it says. */
+const inside = (screen: string[]) => screen.map(line => line.replace(/^│ ?|│$/g, "").trimEnd());
+
+test("normal folds steps into one row naming them, the edit into a box with its diff, and the failure into a box", () => {
+  const s = view(true, "normal");
+  s.handle(...work);
+  expect(s.screen[0]).toBe("● read src/math.ts");
+  expect(s.screen[1]).toStartWith(`${CORNER}─ Edited 1 file ─`);
+  expect(inside(s.screen.slice(2, 5))).toEqual(["src/math.ts  +1 -1", "  - export const b = 2;", "  + export const b = 3;"]);
+  expect(s.screen[6]).toStartWith(`${CORNER}─ ✗ bash · bun test — failed ─`);
+  expect(inside([s.screen[7]!])).toEqual(["1 fail"]);
+  // The plain terminal keeps one line per step.
+  const plain = view(false, "normal");
+  plain.handle(...work);
+  expect(plain.screen.filter(line => /^[✓✗]/.test(line)).map(line => line.split(" · ")[0])).toEqual(["✓ read", "✓ edit", "✗ bash"]);
 });
 
 test("quiet shows failures only, on the rich and the plain terminal", () => {
-  for (const rich of [true, false]) {
-    const s = view(rich, "quiet");
-    s.handle(...work);
-    expect(s.screen.filter(line => /^[✓✗•]/.test(line)).map(line => line.slice(0, 17))).toEqual(["✗ bash · bun test"]);
-  }
+  const rich = view(true, "quiet");
+  rich.handle(...work);
+  expect(rich.screen[0]).toStartWith(`${CORNER}─ ✗ bash · bun test — failed ─`);
+  expect(rich.screen.join("\n")).not.toMatch(/read|Edited|✓/);
+  const plain = view(false, "quiet");
+  plain.handle(...work);
+  expect(plain.screen.filter(line => /^[✓✗•]/.test(line)).map(line => line.slice(0, 17))).toEqual(["✗ bash · bun test"]);
 });
 
-test("detailed shows every step and a small diff under each edit", () => {
+test("detailed shows every step and every edit's diff", () => {
   for (const rich of [true, false]) {
     const s = view(rich, "detailed");
     s.handle(...work);
     const text = s.screen.join("\n");
     expect(text).toContain("✓ read · src/math.ts");
-    expect(text).toContain("✓ edit · src/math.ts · +1 -1\n    - export const b = 2;\n    + export const b = 3;");
+    if (rich) expect(inside(s.screen.slice(2, 5))).toEqual(["src/math.ts  +1 -1", "  - export const b = 2;", "  + export const b = 3;"]);
+    else expect(text).toContain("✓ edit · src/math.ts · +1 -1\n    - export const b = 2;\n    + export const b = 3;");
     expect(text).toContain("✗ bash · bun test");
   }
 });

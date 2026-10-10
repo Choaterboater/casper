@@ -381,7 +381,9 @@ test("the plan screen hides the details until Ctrl+T, the banner is not printed 
     await f.screen.until((output) => output.includes("Esc stops without building"));
     // Typed at the end of the last line, as the owner did.
     f.input.write(" - this looks confusing to me\r");
-    await f.screen.until((output) => output.split("Build this plan?").length > 2 && waiting("Build this plan?")(output));
+    // The box asks again after the note (the same box also redraws lower when the Ctrl+T panel lands above it).
+    const note = "Your note: this looks confusing to me";
+    await f.screen.until((output) => output.includes(note) && waiting("Build this plan?")(output.slice(output.lastIndexOf(note))));
     expect(f.screen.output).toContain("Your note: this looks confusing to me");
     // Only the note follows the editor: not the plan again.
     const after = f.screen.output.slice(f.screen.output.lastIndexOf("Your note: this looks confusing to me"));

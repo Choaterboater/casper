@@ -237,7 +237,9 @@ Press 1-2 or Up/Down + Enter · Esc is No</code></pre></div>
 <pre class="term" data-title="casper — ~/project"><span class="dim"># (typed answers: 1 and 2 in the picker, 1 for "Remember", Esc back at the servers, then 2 for writes)</span>
 
 <span class="prompt">❯</span> <span class="you">/mcp</span>
+
 network: not set up — /mcp setup network
+<span class="accent">── Choose ──────────────────────────────────────────────────────────────────────────────────────────</span>
 Pick a server
 <span class="accent">→</span> 1 fixture  not connected
   <span class="accent">2</span> Done
@@ -248,6 +250,7 @@ Press 1-2 or Up/Down + Enter · Esc skip
 Pick a server → fixture
 fixture → Connect
 <span class="dim">[mcp]</span> fixture connected · 340 tools · writes off
+<span class="warn">── Approval ────────────────────────────────────────────────────────────────────────────────────────</span>
 Remember fixture?
 <span class="accent">→</span> 1 No  connected for this session only
   <span class="accent">2</span> Yes  it connects on its own next time, with writes off; every change still asks you
@@ -259,6 +262,7 @@ Remember fixture? → No
 Pick a server — skipped
 
 <span class="prompt">❯</span> <span class="you">/mcp writes fixture</span>
+<span class="warn">── Approval ────────────────────────────────────────────────────────────────────────────────────────</span>
 fixture writes are off.
 <span class="accent">→</span> 1 Keep writes off
   <span class="accent">2</span> Enable for this server
@@ -328,12 +332,16 @@ fixture writes are off. → Enable for this server
         <p class="prose">Here is a write tool asking. We typed <code>2</code> (Yes, this once):</p>
         <figure class="capture">
 <pre class="term" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">set the lab site on the fixture server</span>
+
 <span class="dim">[model]</span> scripted/site-capture · effort off
-I will ask the fixture server to change the site.
+
+<span class="accent">●</span> I will ask the fixture server to change the site.
+
 Change in fixture: set site
   site             lab
 This makes the change.
 MCP · fixture · set_site  [write]
+<span class="warn">── Approval ────────────────────────────────────────────────────────────────────────────────────────</span>
 Make this change?
 <span class="accent">→</span> 1 No
   <span class="accent">2</span> Yes, this once
@@ -345,7 +353,8 @@ Press 1-4 or Up/Down + Enter · Esc is No
 <span class="dim"># (pressed 2: the box closes into one line, the record of the answer)</span>
 
 Make this change? → Yes, this once
-The server says the site is set.</pre>
+
+<span class="accent">●</span> The server says the site is set.</pre>
           <figcaption>The model here is a scripted stand-in, so the result does not depend on an AI. A key typed before the box appeared never answers it.</figcaption>
         </figure>
         <p class="prose small muted">If the tool has a preview switch, <code>Preview first</code> is added after the yes answers: it runs a dry run and shows the box again with the result. Passwords and PSKs in the box show as <code>••• 13 chars</code> on your screen; the server still gets the real value you approve.</p>
@@ -359,6 +368,7 @@ The server says the site is set.</pre>
         </div>
         <figure class="capture">
 <pre class="term" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">/mcp writes fixture</span>
+<span class="warn">── Approval ────────────────────────────────────────────────────────────────────────────────────────</span>
 fixture writes are off.
 <span class="accent">→</span> 1 Keep writes off
   <span class="accent">2</span> Enable for this server
@@ -366,6 +376,7 @@ Press 1-2 or Up/Down + Enter · Esc is No
 
 <span class="dim"># (pressed 2)</span>
 
+fixture writes are off. → Enable for this server
 <span class="dim">[mcp]</span> Writes on for fixture. Each change still asks you. Ctrl+O turns writes off.</pre>
           <figcaption>Writes on does not mean "no more questions". Each change still shows the box.</figcaption>
         </figure>

@@ -43,7 +43,7 @@ test("the done bell reaches iTerm2 through tmux; elsewhere it is a plain bell", 
   expect(tmuxPassthrough("\x1b]9;x\x07")).toBe("\x1bPtmux;\x1b\x1b]9;x\x07\x1b\\");
 });
 
-test("inside tmux the busy steps go to the side pane, not the Working box, and the pane closes at exit", async () => {
+test("inside tmux the busy steps go to the side pane, not the main screen's live rows, and the pane closes at exit", async () => {
   const fake = fakePane();
   let opened = 0;
   const s = session({ host: { tmux: true, tmuxPane: "%1", iterm: false }, openPane: () => { opened++; return fake.pane; }, run: () => ({ status: 1, stdout: "" }) });
@@ -58,19 +58,20 @@ test("inside tmux the busy steps go to the side pane, not the Working box, and t
     expect(fake.logged).toEqual(["helper explorer · ✓ read · src/app.ts"]);
     s.terminal.write("done\n");
     await s.screen.until(output => output.includes("done"));
-    expect(Bun.stripANSI(s.screen.output)).not.toContain(" Working ");
+    // The main screen keeps only the status row; the step's live row is in the pane.
+    expect(Bun.stripANSI(s.screen.output)).not.toContain("  ✓ bash · npm test");
   } finally { s.close(); }
   expect(fake.closed).toBe(1);
   s.terminal.close();
   expect(fake.closed).toBe(1);
 });
 
-test("outside tmux the Working box stays and no pane is opened", async () => {
+test("outside tmux the steps stay on the main screen and no pane is opened", async () => {
   const s = session();
   try {
     s.terminal.setStatus("fixture"); s.terminal.start();
     s.events.handle({ type: "tool_start", toolName: "bash", toolCallId: "b1", input: { command: "npm test" } });
-    await s.screen.until(output => output.includes(" Working "));
+    await s.screen.until(output => Bun.stripANSI(output).includes("Running npm test"));
     s.terminal.logHelper("helper explorer · read");
     expect(s.terminal.hasPane).toBe(false);
   } finally { s.close(); }

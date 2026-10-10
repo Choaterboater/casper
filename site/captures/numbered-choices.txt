@@ -2,14 +2,17 @@
 # on purpose)
 
 ❯ /verify
+
 [verify] No typecheck command here, so Casper runs lint, test and build.
 ✗ lint · could not start (exit 127)
+
 ╭─ lint: stderr ───────────────────────────────────────────────────────────────────────────────────╮
-│ /bin/bash: line 1: node: command not found                                                       │
+│ /bin/sh: 1: node: not found                                                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+
 ✓ test
 ✓ build
-────────────────────────────────────────────────────────────────────────────────────────────────────
+── Choose ──────────────────────────────────────────────────────────────────────────────────────────
 lint could not start. Casper did not try to fix it. What now?
 → 1 Stop  keep the changes; the receipt says it did not finish
   2 Retry  run it again with the same limit
@@ -23,3 +26,5 @@ lint could not start. Casper did not try to fix it. What now? — skipped
 ✗ lint could not start (exit 127) — check verify.lint in .casper/project.yaml
 ✓ test passed (bun test)
 ✓ build passed (bun build src/sum.js --outdir dist)
+– Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or sandbox:
+on in ~/.casper/config.yaml)

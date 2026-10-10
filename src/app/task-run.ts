@@ -16,7 +16,7 @@ import type { ChildProject } from "../project/child";
 import type { RuntimeImage, RuntimeSession } from "../runtime/types";
 import { formatSelectedSkills } from "../skills/registry";
 import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "../task/classify";
-import { answerClaimsBrowserPass, formatShortReceipt, undoPathsShown, formatTaskResult, UNDO_NOT_PROJECT, type TaskResult } from "../task/result";
+import { answerClaimsBrowserPass, formatShortReceipt, rememberSessionNotes, undoPathsShown, formatTaskResult, UNDO_NOT_PROJECT, type TaskResult } from "../task/result";
 import { TaskObservations } from "../task/observations";
 import { isToolCallAsText, TOOL_CALL_AS_TEXT_LINE } from "../task/text-tool-call";
 import { diffSnapshots, tooManyFiles, type TreeChanges } from "../task/changes";
@@ -446,12 +446,14 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         const task = app.lastTaskResult;
         // The short receipt gets the colored result edge on the rich terminal; --verbose's full form stays plain.
         const receipt = app.verbose ? formatTaskResult(task) : formatShortReceipt(task, { surface: receiptSurface(app), ...receiptFolder(app, workspaceRoot),
-          ...(app.checksHintShown ? { checksHintShown: true as const } : {}), undoNamed: app.undoNamed });
+          ...(app.checksHintShown ? { checksHintShown: true as const } : {}), undoNamed: app.undoNamed, seenNotes: app.receiptNotesSeen });
         if (app.verbose) app.output.write(`${receipt}\n`); else app.terminal.writeResult(`${receipt}\n`);
         if (!app.verbose) {
           if (task.autoSkipped === "no-checks" && !task.verification && !task.observedChecks?.length && task.execution === "completed") app.checksHintShown = true;
           // Only the files the receipt printed: ones past its limit are named on a later one.
           for (const shown of undoPathsShown(task, app.undoNamed)) app.undoNamed.add(shown);
+          // The session notes it said in full are said short from now on.
+          rememberSessionNotes(app.receiptNotesSeen, task);
         }
         // The per-file table stays behind Diff and --verbose; the receipt already says how many files changed.
         if (app.verbose && stat.trim()) app.output.write(stat.endsWith("\n") ? stat : `${stat}\n`);

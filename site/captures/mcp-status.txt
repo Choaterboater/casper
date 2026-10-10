@@ -2,7 +2,9 @@
 # (typed answers: 1 and 2 in the picker, 1 for "Remember", Esc back at the servers, then 2 for writes)
 
 ❯ /mcp
+
 network: not set up — /mcp setup network
+── Choose ──────────────────────────────────────────────────────────────────────────────────────────
 Pick a server
 → 1 fixture  not connected
   2 Done
@@ -13,6 +15,7 @@ Press 1-2 or Up/Down + Enter · Esc skip
 Pick a server → fixture
 fixture → Connect
 [mcp] fixture connected · 340 tools · writes off
+── Approval ────────────────────────────────────────────────────────────────────────────────────────
 Remember fixture?
 → 1 No  connected for this session only
   2 Yes  it connects on its own next time, with writes off; every change still asks you
@@ -24,6 +27,7 @@ Remember fixture? → No
 Pick a server — skipped
 
 ❯ /mcp writes fixture
+── Approval ────────────────────────────────────────────────────────────────────────────────────────
 fixture writes are off.
 → 1 Keep writes off
   2 Enable for this server

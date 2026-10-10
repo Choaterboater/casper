@@ -27,8 +27,8 @@ const DOCS = [
   "No break yet, just a growing paragraph with **bold**.",
 ];
 
-function once(text: string, width: number, color: boolean): string[] {
-  const markdown = new StreamingMarkdown(color, markdownTheme(color));
+function once(text: string, width: number, color: boolean, hang = false): string[] {
+  const markdown = new StreamingMarkdown(color, markdownTheme(color), { hang });
   markdown.setText(text);
   return markdown.render(width);
 }
@@ -45,22 +45,44 @@ test("a safe prefix stops before an open fence, indented continuation, or unreso
   expect(stablePrefixEnd("No break yet")).toBe(0);
 });
 
-test("chunked streaming matches a one-shot render, including color and a later width change", () => {
-  for (const color of [false, true]) {
-    for (const width of [40, 72]) {
-      for (const doc of DOCS) {
-        const live = new StreamingMarkdown(color, markdownTheme(color));
-        for (let end = 1; end <= doc.length; end += 7) {
-          const partial = doc.slice(0, end);
-          live.setText(partial);
-          expect(live.render(width)).toEqual(once(partial, width, color));
+test("chunked streaming matches a one-shot render, including color, the lead mark and a later width change", () => {
+  for (const hang of [false, true]) {
+    for (const color of [false, true]) {
+      for (const width of [40, 72]) {
+        for (const doc of DOCS) {
+          const live = new StreamingMarkdown(color, markdownTheme(color), { hang });
+          for (let end = 1; end <= doc.length; end += 7) {
+            const partial = doc.slice(0, end);
+            live.setText(partial);
+            expect(live.render(width)).toEqual(once(partial, width, color, hang));
+          }
+          live.setText(doc);
+          expect(live.render(width)).toEqual(once(doc, width, color, hang));
+          expect(live.render(width + 11)).toEqual(once(doc, width + 11, color, hang));
         }
-        live.setText(doc);
-        expect(live.render(width)).toEqual(once(doc, width, color));
-        expect(live.render(width + 11)).toEqual(once(doc, width + 11, color));
       }
     }
   }
+});
+
+test("the AI's words lead with ● and hang two columns in; a top-level code block stays full width at the left edge", () => {
+  expect(once("The suite passes. Next I'll run the lint and type checks.\n\n```sh\nbunx oxlint\n```\n\nDone.", 30, false, true)).toEqual([
+    "● The suite passes. Next I'll",
+    "  run the lint and type",
+    "  checks.",
+    "",
+    "── sh ────────────────────────",
+    "bunx oxlint",
+    "──────────────────────────────",
+    "",
+    "  Done.",
+  ]);
+  // A message that opens with code gets the mark on a row of its own, so the code still copies clean.
+  expect(once("```sh\nls\n```", 20, false, true)).toEqual(["●", "── sh ──────────────", "ls", "────────────────────"]);
+  // A fence inside a list hangs with the list; the mark is the theme's accent.
+  const nested = once("1. Step:\n\n   ```sh\n   a\n   ```", 30, true, true);
+  expect(nested[0]).toStartWith("\x1b[36m●\x1b[0m ");
+  expect(nested.slice(1).filter(Boolean).every((line) => line.startsWith("  "))).toBe(true);
 });
 
 const plain = (lines: string[]) => lines;
@@ -92,14 +114,16 @@ test("streaming a list or quote with a nested fence matches the one-shot render 
     "1. Step:\n\n   ```sh\n   a\n\n   b\n   ```\n\nDone.\n",
     "> ```sh\n> ls\n>\n> pwd\n> ```\n\nAfter.\n",
   ];
-  for (const color of [false, true]) {
-    for (const doc of docs) {
-      for (let cut = 1; cut < doc.length; cut++) {
-        const live = new StreamingMarkdown(color, markdownTheme(color));
-        live.setText(doc.slice(0, cut));
-        expect(live.render(60)).toEqual(once(doc.slice(0, cut), 60, color));
-        live.setText(doc);
-        expect(live.render(60)).toEqual(once(doc, 60, color));
+  for (const hang of [false, true]) {
+    for (const color of [false, true]) {
+      for (const doc of docs) {
+        for (let cut = 1; cut < doc.length; cut++) {
+          const live = new StreamingMarkdown(color, markdownTheme(color), { hang });
+          live.setText(doc.slice(0, cut));
+          expect(live.render(60)).toEqual(once(doc.slice(0, cut), 60, color, hang));
+          live.setText(doc);
+          expect(live.render(60)).toEqual(once(doc, 60, color, hang));
+        }
       }
     }
   }

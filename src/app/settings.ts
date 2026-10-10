@@ -46,7 +46,7 @@ const DURING_TASK: Record<Applies, string> = {
 
 const SPEND_AMOUNTS = [2, 5, 20];
 const DISPLAY_WORDS: Record<DisplayLevel, string> = {
-  quiet: "the model's words, failures and receipts", normal: "steps fold into one summary line", detailed: "every step, with a small diff under each edit",
+  quiet: "the model's words, failures and receipts", normal: "steps fold into one named row; edits and failures in a box", detailed: "every step, with every edit's whole diff",
 };
 
 /** web: on/off goes into web.enabled when your web: is a mapping (a provider is set), so the provider stays. */
