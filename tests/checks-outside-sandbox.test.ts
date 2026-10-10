@@ -52,6 +52,17 @@ posixOnly("a check that prints EPERM inside the sandbox is blocked, not failed, 
     .toContain("✗ test — blocked by the sandbox");
 });
 
+posixOnly("an EPERM in the middle of a long run's output, where the kept output is cut, is still blocked", async () => {
+  const { root } = await session();
+  const filler = "for i in $(seq 1 400); do echo \"(pass) test number $i with a long enough name\"; done";
+  const command = `${filler} >&2; echo 'Failed to listen at /tmp/x.sock: EPERM' >&2; ${filler} >&2; exit 1`;
+  const result = await runCommandCheck({ name: "test", command, cwd: root, timeoutMs: 10_000 });
+  expect(result.truncated).toBe(true);
+  expect(`${result.stdout}${result.stderr}`).not.toContain("x.sock");
+  expect(result.ended).toBe("blocked");
+  expect(repairClass(result)).toBe("never");
+});
+
 posixOnly("the same output with no sandbox holding it is an ordinary failure", async () => {
   const { root } = await session({ user: { off: true } });
   const result = await runCommandCheck({ name: "test", command: EPERM, cwd: root, timeoutMs: 10_000 });
@@ -63,6 +74,7 @@ test("what counts as the sandbox's own refusal", () => {
   expect(sandboxDenialInOutput("Error: listen EPERM: operation not permitted 0.0.0.0:80")).toContain("blocked by the sandbox");
   expect(sandboxDenialInOutput("spawn git EPERM")).toContain("EPERM");
   expect(sandboxDenialInOutput("open /dev/fd/3: Operation not permitted")).toContain("Operation not permitted");
+  expect(sandboxDenialInOutput("OSError: out of pty devices")).toContain("no terminal");
   expect(sandboxDenialInOutput("expected 3 but got 4")).toBeUndefined();
   expect(sandboxDenialInOutput("EPERMISSIVE mode on")).toBeUndefined();
 });
