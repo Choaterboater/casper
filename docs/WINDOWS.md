@@ -23,7 +23,7 @@ without checking where the download came from.
 In PowerShell (a normal window, not "Run as administrator"):
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.29/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.30/install.ps1 | iex
 ```
 
 What the installer does:
@@ -54,11 +54,11 @@ casper --help
 Get-Command casper | Select-Object Source
 ```
 
-`casper --version` should print `casper 0.2.29 (<path to casper.exe>)`. The `Source`
+`casper --version` should print `casper 0.2.30 (<path to casper.exe>)`. The `Source`
 line should point into the install folder, not an old checkout or some other program
 called casper.
 
-The command above always installs **v0.2.29**. Running it again reinstalls v0.2.29.
+The command above always installs **v0.2.30**. Running it again reinstalls v0.2.30.
 To get a newer preview, run `casper update`. Windows will not replace a running `casper.exe`,
 so Casper checks that release's own installer (checksum and build provenance, as on other systems),
 saves it to a private temporary folder and starts a separate hidden PowerShell that waits for
@@ -79,7 +79,7 @@ WSL is Linux running inside Windows. If you open a WSL terminal (Ubuntu, for exa
 can use the Linux Casper there instead of the Windows preview. In that terminal:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.29/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.30/install.sh | sh
 ```
 
 - The Linux Casper is a separate install from the Windows one. It has its own `~/.casper`

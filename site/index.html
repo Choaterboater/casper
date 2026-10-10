@@ -39,10 +39,10 @@
         <img class="hero-logo" src="assets/logo.svg" alt="Casper's ghost logo" width="88" height="88">
         <h1 id="hero-title">Casper</h1>
         <p class="lead">A coding helper for your terminal. Build web apps, APIs, command-line tools and scripts in the language your project uses, and Casper checks the AI's work before it tells you "done". Network engineers get extra care built in.</p>
-        <p class="muted small">Version 0.2.29 · early preview, not signed · MIT licence</p>
+        <p class="muted small">Version 0.2.30 · early preview, not signed · MIT licence</p>
 
-        <div class="cmd"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.29/install.sh | sh</code></pre></div>
-        <div class="cmd"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.29/install.ps1 | iex</code></pre></div>
+        <div class="cmd"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.30/install.sh | sh</code></pre></div>
+        <div class="cmd"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.30/install.ps1 | iex</code></pre></div>
         <p class="small muted">No Bun or source checkout needed. The installer checks the file's SHA-256 and runs the new program's <code>--version</code> before it replaces an older install. Then run <code>casper</code> in your project folder.</p>
 
         <div class="actions">
@@ -160,7 +160,7 @@
 
       <section aria-labelledby="receipt">
         <h2 id="receipt">What "done" looks like</h2>
-        <p>A real Casper 0.2.29 run. The AI here is a scripted stand-in so the capture is repeatable, but its edit is real, and every line after it is the real Casper code: the check, the proof and the receipt.</p>
+        <p>A real Casper 0.2.30 run. The AI here is a scripted stand-in so the capture is repeatable, but its edit is real, and every line after it is the real Casper code: the check, the proof and the receipt.</p>
         <figure class="capture">
 <pre class="term" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">fix the sum bug in src/sum.js</span>
 <span class="dim">[model]</span> scripted/site-capture · effort off
@@ -203,8 +203,8 @@ independently certified.
       </section>
 
       <section aria-labelledby="next">
-        <h2 id="next">New in 0.2.29</h2>
-        <p>Every command runs during a task, with whatever follows it (<code>/permissions all</code>, <code>/settings</code>, <code>/login</code> …); only the few that would change what the task works on wait, and <code>/btw &lt;question&gt;</code> asks a side question. Start Ollama, LM Studio, llama.cpp or vLLM and its models show in <code>/model</code>, with no sign-in and no file to edit. On a computer where Claude Code, Codex CLI or GitHub CLI is signed in, <code>/login</code> offers to use that sign-in (a plan sign-in is never copied, so the other tool stays signed in). With no sandbox, a <code>cd</code> into the project, globs and <code>2&gt;&amp;1</code> no longer ask, and a yes to a line covers its one real command. <code>/permissions</code> is a short screen, a sign-in that can't be renewed says <code>/login</code> in plain words, and a helper stopped by its limit hands back what it found.</p>
+        <h2 id="next">New in 0.2.30</h2>
+        <p>Claude models can run through the Claude Code signed in on this computer: <code>/model claude-subscription/claude-opus-4-8</code>, with Claude Code keeping its own sign-in and Casper still running every tool with its approvals and sandbox. When a picture answers better than text, the AI makes a page that opens in your browser (<code>/pages</code> lists them; off in <code>/settings</code>). A check the sandbox blocked asks to run outside it at once, and a test that hit its own time limit asks Stop, Retry or Fix it anyway, instead of starting paid repairs. <code>/sandbox off</code> turns the sandbox off for a session, <code>/model opus 5.5</code> takes a model by its name in words, <code>/plan</code> shows a plan for a person, and the network server updates between Casper releases.</p>
       </section>
     </div>
   </main>
@@ -212,7 +212,7 @@ independently certified.
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.29</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.30</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

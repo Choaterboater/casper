@@ -1,4 +1,4 @@
-# Casper 0.2.29 · the start screen in a 100-column terminal
+# Casper 0.2.30 · the start screen in a 100-column terminal
 
  ▄▄███▄▄    ██████  █████  ███████ ██████  ███████ ██████
 ██ ███ ██  ██      ██   ██ ██      ██   ██ ██      ██   ██
@@ -6,7 +6,7 @@
 █████████  ██      ██   ██      ██ ██      ██      ██   ██
 █▀██▀██▀█   ██████ ██   ██ ███████ ██      ███████ ██   ██
 
- version   0.2.29 · your coding companion
+ version   0.2.30 · your coding companion
  project   project · branch main · profile default
  checks    test — run after each change
  shell     sandboxed · writes: this project, temp, package caches · hosts: 11 listed (/sandbox)
