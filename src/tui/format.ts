@@ -105,13 +105,15 @@ export function markdownTheme(color: boolean): MarkdownTheme {
 
 type ToolEvent = Extract<RuntimeEvent, { type: "tool_start" | "tool_end" }>;
 
-/** Shell wrappers that come before the program itself. */
-const COMMAND_WRAPPERS = new Set(["sudo", "env", "time", "nohup", "exec", "command", "nice"]);
+/** Shell wrappers that come before the program itself, each with its options that take a value ("sudo -u root",
+ * "nice -n 10"): the wrapper's options and their values are not taken for the program. */
+const COMMAND_WRAPPERS = new Map([["sudo", /^-[ugChDpUrtRT]$/], ["env", /^-[uCSP]$/], ["time", /^-[of]$/], ["nohup", /^$/],
+  ["exec", /^-a$/], ["command", /^$/], ["nice", /^-n$/]]);
 /** ssh, scp and sftp options that take a value, so the value is not taken for the host. */
 const REMOTE_VALUE_FLAGS = new Set(["-p", "-P", "-i", "-l", "-o", "-F", "-J", "-L", "-R", "-D", "-b", "-c", "-E", "-e", "-m", "-O", "-Q", "-S", "-W", "-w"]);
 
-/** Commands of a script that only set things up or print a heading: a label names the programs that do the work. */
-const SETUP_COMMAND = /^(?:cd|pushd|popd|export|set|unset|source|\.|echo|printf|true|false|:|[A-Za-z_][A-Za-z0-9_]*=\S*|\d*[<>]\S*)(?:\s|$)/;
+/** Commands of a script that only set things up, print a heading or leave a loop: a label names the programs that do the work. */
+const SETUP_COMMAND = /^(?:cd|pushd|popd|export|set|unset|source|\.|echo|printf|true|false|:|break|continue|[A-Za-z_][A-Za-z0-9_]*=\S*|\d*[<>]\S*)(?:\s|$)/;
 /** Shell words that open or close a loop or test: the command after one is what runs. */
 const SHELL_KEYWORD = /^(?:do|then|else|elif|if|while|until|!|\{)(?:\s+|$)/;
 const SHELL_HEADER = /^(?:for|select|case|done|fi|esac|\}|function)(?:\s|$)|^[A-Za-z_][A-Za-z0-9_]*\s*\(\)/;
@@ -236,17 +238,32 @@ function singleLabel(segments: readonly string[], max: number, more: boolean): s
   if (!segments.length) return "";
   let index = 0;
   while (index < segments.length - 1 && /^(?:cd|pushd|export|set|source|\.)(?:\s|$)/.test(segments[index]!)) index++;
-  const words = segments[index]!.split(" ").map(word => word.replace(/^["']|["']$/g, ""));
+  // Shell words: quotes and an escaped space keep a space inside one word ("Google Chrome.app"). Only the ASCII space
+  // splits, so a hidden secret's word (with its no-break space) stays one word. A backslash escapes only a space or a
+  // quote; anywhere else, a pair (\\server) included, it is kept as typed: PowerShell paths use it (src\app.ts).
+  const words = (segments[index]!.match(/(?:"[^"]*"?|'[^']*'?|\\[ "'\\]|[^ "'\\]+|\\)+/g) ?? [""])
+    .map(word => word.replace(/"([^"]*)"?|'([^']*)'?|\\([ "'])|\\\\/g, (pair, double?: string, single?: string, escaped?: string) => double ?? single ?? escaped ?? pair));
   let first = 0;
+  let wrapper = 0;
   for (;;) {
-    while (first < words.length - 1 && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[first]!) || COMMAND_WRAPPERS.has(words[first]!))) first++;
+    while (first < words.length - 1 && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[first]!) || COMMAND_WRAPPERS.has(words[first]!))) {
+      const valued = COMMAND_WRAPPERS.get(words[first]!);
+      if (valued) wrapper = first;
+      first++;
+      if (valued) while (first < words.length && words[first]!.startsWith("-")) first += valued.test(words[first]!) ? 2 : 1;
+    }
     // sshpass carries a password (-p) before the real program: skip it and its options, never show the value.
     if (words[first] !== "sshpass" || first >= words.length - 1) break;
-    first++;
-    while (first < words.length - 1 && words[first]!.startsWith("-")) first += /^-[pfdP]$/.test(words[first]!) ? 2 : 1;
+    wrapper = first++;
+    while (first < words.length && words[first]!.startsWith("-")) first += /^-[pfdP]$/.test(words[first]!) ? 2 : 1;
   }
-  const program = words[first]!.split("/").pop() || words[first]!;
-  const rest = words.slice(first + 1);
+  // Only options after a wrapper ("sudo -u root", "sudo -E"): no program follows, so the label is the wrapper alone.
+  const bare = first >= words.length;
+  if (bare) first = wrapper;
+  // A program or target with a space is quoted, so `grep "foo bar"` does not read as `grep foo bar`.
+  const quoted = (word: string) => !word.includes(" ") ? word : word.includes("\"") ? `'${word}'` : `"${word}"`;
+  const program = quoted(words[first]!.split("/").pop() || words[first]!);
+  const rest = bare ? [] : words.slice(first + 1);
   let used: number;
   let label: string;
   if (/^python[\d.]*$/.test(program) && rest[0] === "-m" && rest[1]) { label = `${program} -m ${rest[1]}`; used = 2; }
@@ -260,7 +277,7 @@ function singleLabel(segments: readonly string[], max: number, more: boolean): s
     if (address >= 0) at = address;
     else while (at < rest.length && (rest[at]!.startsWith("-") || rest[at] === HIDDEN_WORD)) at += remote && REMOTE_VALUE_FLAGS.has(rest[at]!) ? 2 : 1;
     const target = rest[at];
-    label = target ? `${program} ${target}` : program;
+    label = target ? `${program} ${quoted(target)}` : program;
     used = target ? at + 1 : rest.length;
   }
   const cut = more && (used < rest.length || index < segments.length - 1);

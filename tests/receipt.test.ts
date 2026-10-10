@@ -357,12 +357,51 @@ test("an answer that says the browser checks passed, against Casper's record, is
     .toContain("– Browser checks did not finish — the answer above says they passed; Casper saw no passing browser check");
   expect(formatReceipt(done({ changedPaths: [], browser: incomplete }))).toContain("– Browser checks incomplete");
   // Some passed: the receipt counts them and names what did not finish; the answer was mostly right, so no correction.
-  const mixed = { status: "incomplete", checks: [{ name: "Calculate a subnet", status: "incomplete" }, { name: "Split", status: "pass" },
-    { name: "Mobile", status: "pass" }] } as unknown as TaskResult["browser"];
+  const mixed = { status: "incomplete", checks: [{ name: "Calculate a subnet", status: "incomplete" }, { name: "Split", status: "pass", freshness: "fresh" },
+    { name: "Mobile", status: "pass", freshness: "fresh" }] } as unknown as TaskResult["browser"];
   const mixedReceipt = formatReceipt(done({ changedPaths: [], browser: mixed, browserClaimed: true }));
   expect(mixedReceipt).toContain("– Browser checks: 2 of 3 passed; not finished: Calculate a subnet");
   expect(mixedReceipt).not.toContain("the answer above");
   const failed = { status: "fail", checks: [{ name: "phone", status: "fail" }] } as unknown as TaskResult["browser"];
   expect(formatReceipt(done({ changedPaths: [], browser: failed, browserClaimed: true })))
     .toContain("✗ Browser checks failed: phone — the answer above says they passed");
+});
+
+test("browser checks that passed but no longer count say why, never with an empty not-finished list", () => {
+  const passes = (freshness: string) => ({ status: "incomplete", checks: ["Home", "Split", "Mobile", "Dark"]
+    .map((name) => ({ name, status: "pass", freshness })) }) as unknown as TaskResult["browser"];
+  // A later edit or command (even git status) made every pass stale: they all ran and passed.
+  const stale = formatReceipt(done({ changedPaths: ["site/style.css"], browser: passes("stale") }));
+  expect(stale).not.toMatch(/not finished: ?$/m);
+  expect(stale).not.toContain("not every check ran");
+  expect(stale.split("\n")[0]).toBe("– Incomplete — the browser checks passed, but an edit or command ran after them");
+  expect(stale).toContain("– Browser checks: 4 of 4 passed; all ran before a later edit or command (replay to count)");
+  // No input scope: a replay keeps the same scenario, so "replay to count" is not offered.
+  const untied = formatReceipt(done({ changedPaths: ["site/style.css"], browser: passes("unavailable") }));
+  expect(untied).not.toMatch(/not finished: ?$/m);
+  expect(untied).not.toContain("replay");
+  expect(untied.split("\n")[0]).toBe("– Incomplete — the browser checks passed, but Casper can't tie them to the final files");
+  expect(untied).toContain("– Browser checks: 4 of 4 passed; Casper can't tie them to the final files");
+  // The project checks passed too: the browser is why the task is incomplete, and the verdict says so.
+  const checked = formatReceipt(done({ changedPaths: ["site/style.css"], verification: report([check()]), browser: passes("stale") }));
+  expect(checked.split("\n")[0]).toBe("– Incomplete — the browser checks passed, but an edit or command ran after them");
+  // Some stale, one never finished: each is said once.
+  const some = { status: "incomplete", checks: [{ name: "Home", status: "pass", freshness: "stale" }, { name: "Split", status: "pass", freshness: "fresh" },
+    { name: "Mobile", status: "incomplete", freshness: "unavailable" }] } as unknown as TaskResult["browser"];
+  const someReceipt = formatReceipt(done({ changedPaths: [], browser: some }));
+  expect(someReceipt).toContain("– Browser checks: 2 of 3 passed; not finished: Mobile; 1 ran before a later edit or command (replay to count)");
+  expect(someReceipt.split("\n")[0]).toBe("– Incomplete — not every check ran");
+  // "all" and "them" never cover a check that did not finish, or a pass that still counts.
+  const checks = (...list: [string, string][]) => ({ status: "incomplete", checks: list
+    .map(([status, freshness], index) => ({ name: `Check ${index + 1}`, status, freshness })) }) as unknown as TaskResult["browser"];
+  const oneStale = formatReceipt(done({ changedPaths: [], browser: checks(["pass", "stale"], ["incomplete", "unavailable"]) }));
+  expect(oneStale).toContain("– Browser checks: 1 of 2 passed; not finished: Check 2; 1 ran before a later edit or command (replay to count)");
+  const oneUntied = formatReceipt(done({ changedPaths: [], browser: checks(["pass", "unavailable"], ["incomplete", "unavailable"]) }));
+  expect(oneUntied).toContain("– Browser checks: 1 of 2 passed; not finished: Check 2; Casper can't tie 1 of them to the final files");
+  // A check replayed after the edit is fresh again: the verdict says only some of them ran before it.
+  const replayed = formatReceipt(done({ changedPaths: [], browser: checks(["pass", "fresh"], ["pass", "stale"]) }));
+  expect(replayed.split("\n")[0]).toBe("– Incomplete — the browser checks passed, but an edit or command ran after some of them");
+  expect(replayed).toContain("– Browser checks: 2 of 2 passed; 1 ran before a later edit or command (replay to count)");
+  const partlyUntied = formatReceipt(done({ changedPaths: [], browser: checks(["pass", "fresh"], ["pass", "unavailable"]) }));
+  expect(partlyUntied.split("\n")[0]).toBe("– Incomplete — the browser checks passed, but Casper can't tie some of them to the final files");
 });

@@ -420,8 +420,10 @@ async function updateCheckout(options: UpdateOptions, root: string): Promise<{ e
   const start = await head();
   const pull = await git("pull", "--ff-only", "--quiet");
   if (pull.code !== 0) {
-    // Its own commits: HEAD is not part of what it pulls from (exit 1); git's text covers changes in the way.
-    const ownCommits = (await git("merge-base", "--is-ancestor", "HEAD", "@{upstream}")).code === 1;
+    // Its own commits are in the way only when the branch has diverged (each side has commits the other lacks): a
+    // checkout that is only ahead pulls cleanly, so its failed pull is the network or a lock. Git's text covers changes in the way.
+    const onlyAhead = (await git("merge-base", "--is-ancestor", "@{upstream}", "HEAD")).code === 0;
+    const ownCommits = !onlyAhead && (await git("merge-base", "--is-ancestor", "HEAD", "@{upstream}")).code === 1;
     return fail(ownCommits || /fast-forward|diverg|would be overwritten|local changes|untracked working tree/i.test(pull.stderr)
       ? `The Casper checkout at ${root} has its own commits or changes in the way, so it was not updated; nothing was forced.`
       : `Git could not pull into the Casper checkout at ${root} (is the network down?), so it was not updated.`);

@@ -56,9 +56,17 @@ function words(segment: string): string[] | undefined {
 const flag = (word: string, ...names: string[]) => names.some((name) => word === name || word.startsWith(`${name}=`));
 /** A short-option word (`-uo`, `-Hx`) that holds any of these letters: most tools accept options bunched together. */
 const short = (word: string, letters: string) => /^-[^-]/.test(word) && [...word.slice(1)].some((letter) => letters.includes(letter));
+/** git's words after any leading `-C <dir>` pairs, which only pick the repository; `-c` (a setting) is not skipped. */
+function gitWords(args: string[]): string[] {
+  let at = 0;
+  while (args[at] === "-C" && args[at + 1] !== undefined) at += 2;
+  return args.slice(at);
+}
 
 /** Look commands, and the arguments that would make each one write, run or fetch something. */
 const BASH_COMMANDS: Record<string, (args: string[]) => boolean> = {
+  // cd changes no file, and each shell call starts afresh, so `cd dir && ls` only looks.
+  cd: (args) => args.length <= 1,
   cat: () => true, head: () => true, tail: () => true, wc: () => true, stat: () => true,
   // file -C compiles a magic file and writes it.
   file: (args) => !args.some((arg) => flag(arg, "--compile") || short(arg, "C")),
@@ -84,7 +92,7 @@ const BASH_COMMANDS: Record<string, (args: string[]) => boolean> = {
   sed: (args) => args[0] === "-n" && args.length >= 2 && /^(?:\d+(?:,\d+)?|\$|\/[^/]*\/)p$/.test(args[1]!)
     && !args.slice(2).some((arg) => arg.startsWith("-")),
   git: (args) => {
-    const [sub, ...rest] = args;
+    const [sub, ...rest] = gitWords(args);
     const noOutput = !rest.some((arg) => flag(arg, "--output", "--open-files-in-pager", "--ext-diff", "--textconv") || /^-O/.test(arg));
     switch (sub) {
       case "status": case "log": case "diff": case "show": case "ls-files": case "ls-tree": case "rev-parse":
@@ -116,18 +124,23 @@ function segments(command: string): string[][] | undefined {
   return result;
 }
 
+/** The first part of a shell command that is not a look command on Casper's list, as its words; [] when the
+ * command can't be read as one short line of parts; undefined when every part is a look command. */
+function refusedPart(command: string, shell: "bash" | "powershell"): string[] | undefined {
+  const parts = command.length > 2000 ? undefined : segments(command);
+  if (!parts) return [];
+  return parts.find(([name, ...args]) => {
+    // PowerShell runs anything in brackets inside an argument, `gci (Remove-Item x)`, and @ splats.
+    if (shell === "powershell") return !POWERSHELL_COMMANDS.has(name.toLowerCase()) || /[(){}[\]@]/.test(command);
+    const check = Object.hasOwn(BASH_COMMANDS, name) ? BASH_COMMANDS[name] : undefined;
+    return !check?.(args);
+  });
+}
+
 /** Whether Casper lets the model run this shell command while planning: every part must be a look
  * command on Casper's list, with none of the flags that write, run or fetch. */
 export function isPlanningCommand(command: string, shell: "bash" | "powershell" = "bash"): boolean {
-  if (command.length > 2000) return false;
-  const parts = segments(command);
-  if (!parts) return false;
-  return parts.every(([name, ...args]) => {
-    // PowerShell runs anything in brackets inside an argument, `gci (Remove-Item x)`, and @ splats.
-    if (shell === "powershell") return POWERSHELL_COMMANDS.has(name.toLowerCase()) && !/[(){}[\]@]/.test(command);
-    const check = Object.hasOwn(BASH_COMMANDS, name) ? BASH_COMMANDS[name] : undefined;
-    return Boolean(check?.(args));
-  });
+  return refusedPart(command, shell) === undefined;
 }
 
 /** ssh that only runs something on the other machine: no local log file (-E), no options (-o LocalCommand ...). */
@@ -159,8 +172,19 @@ export function planToolGate(toolName: string, input: Record<string, unknown> | 
   if (PLANNING_TOOLS.has(toolName)) return undefined;
   if (toolName === "bash" || toolName === "powershell") {
     const command = typeof input?.command === "string" ? input.command : "";
-    if (isPlanningCommand(command, toolName)) return undefined;
-    return `${NOT_RUN}${PLANNING_BLOCKED}. While planning it runs only look commands such as ls, cat, grep and git log.`;
+    const part = refusedPart(command, toolName);
+    if (!part) return undefined;
+    // Name the part that was refused: the step label on screen may leave it out (it drops set-up words such as cd).
+    // The screen shows 240 characters of the refusal, so the reason stays short.
+    const [name = "", ...args] = part;
+    const powershell = toolName === "powershell";
+    const listed = powershell ? POWERSHELL_COMMANDS.has(name.toLowerCase()) : Object.hasOwn(BASH_COMMANDS, name);
+    const sub = name === "git" ? gitWords(args)[0] : undefined;
+    const why = !part.length ? "It must be one line with no redirects, $, backticks, backslashes or lone &."
+      // A listed PowerShell command is refused only for brackets or @ somewhere in the line.
+      : powershell && listed ? "Brackets and @ can run commands in PowerShell, so they are refused."
+      : name ? `${lineText(`${name}${sub ? ` ${sub}` : ""}`)}${listed ? " with these options" : ""} is not one.` : "";
+    return `${NOT_RUN}${PLANNING_BLOCKED}. While planning it runs only look commands such as ls, cat, grep and git log.${why ? ` ${why}` : ""}`;
   }
   if (toolName === "edit" || toolName === "write") return `${NOT_RUN}${PLANNING_BLOCKED}.`;
   return `${NOT_RUN}${PLANNING_BLOCKED}. While planning it allows only read, grep, find, ls and web lookups, not ${toolName}.`;

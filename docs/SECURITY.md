@@ -410,8 +410,10 @@ Each row names the test that fails without it.
   sandbox on they run held (no network, no writes outside the project, temp and package caches, no private files); with
   no sandbox they run with your permissions. Only `ansible.cfg` is kept out.
 - **With no sandbox, the plan turn's look-only list is a list, not a sandbox**: `git diff` and `git log`
-  follow a repository's own `diff.external` and `textconv` settings, which can run a program. A file that
-  changes is still named on the receipt. With the sandbox on the project is read-only while planning.
+  follow a repository's own `diff.external` and `textconv` settings, which can run a program. The list also
+  takes `cd dir` and `git -C dir`, so that can be any repository's settings, a bare one committed among the
+  project's own files included. A file that changes is still named on the receipt. With the sandbox on the
+  project is read-only while planning.
 - **With no sandbox, the AI's shell can write the files that hold your choices** in `~/.casper`
   (security approvals and lab answers). With the sandbox on it can't. A pack's files and record are
   there too; a changed pack file stops the pack, and a record needs the private key to count.

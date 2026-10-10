@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { refusalForScreen } from "../src/app/events";
 import {
   extractPlan, formatBuildPrompt, formatPlanBlock, isPlanningCommand, parsePlanLines, planDetailsText, planEditorHeading, planEditorLines,
   planEditRows, planScreenRows, planToolGate, readPlanEdit,
@@ -49,6 +50,15 @@ describe("the plan turn's tool gate", () => {
     expect(planToolGate("bash", {})).toContain("Planning only");
     expect(planToolGate("powershell", { command: "Get-ChildItem src" })).toBeUndefined();
     expect(planToolGate("powershell", { command: "Remove-Item x" })).toContain("Planning only");
+    // The refusal names the first part that is not a look command, and why.
+    expect(planToolGate("bash", { command: "ls && npm test" })).toEndWith("While planning it runs only look commands such as ls, cat, grep and git log. npm is not one.");
+    expect(planToolGate("bash", { command: "git status && git commit -m x" })).toEndWith(" git commit with these options is not one.");
+    expect(planToolGate("bash", { command: "ls\ngit log" })).toEndWith(" It must be one line with no redirects, $, backticks, backslashes or lone &.");
+    expect(planToolGate("powershell", { command: "Remove-Item x" })).toEndWith(" Remove-Item is not one.");
+    expect(planToolGate("powershell", { command: "Get-ChildItem (Remove-Item x)" })).toEndWith(" Brackets and @ can run commands in PowerShell, so they are refused.");
+    expect(planToolGate("bash", { command: "'' x" })).toEndWith("grep and git log.");
+    // The screen shows 240 characters of a refusal: the reason is never cut off.
+    for (const command of ["ls\ngit log", "git status && git commit -m x"]) expect(refusalForScreen(planToolGate("bash", { command })!)!.length).toBeLessThanOrEqual(240);
   });
 
   test("look commands and pipelines of them are allowed", () => {
@@ -56,6 +66,8 @@ describe("the plan turn's tool gate", () => {
       "ls -la src", "cat README.md | head -20", "grep -rn 'def main' src 2>/dev/null", "rg TODO src && git status",
       "git log --oneline -5", "git diff HEAD~1 -- src", "find . -name '*.py' -type f", "sed -n 10,40p src/app.py",
       "wc -l src/*.ts", "git branch -a", "sort names.txt | uniq -c",
+      // cd changes no file, and git -C only picks the repository.
+      "cd Casper && find site -type f | head -50 && git log --oneline -10 && cat package.json", "git -C Casper log --oneline -5",
     ]) expect({ command, ok: isPlanningCommand(command) }).toEqual({ command, ok: true });
   });
 
@@ -66,6 +78,7 @@ describe("the plan turn's tool gate", () => {
       "git checkout main", "git commit -m x", "git diff --output=x", "git -c core.pager=sh log", "git config user.name x",
       "echo $API_KEY", "cat `which x`", "ls $(pwd)", "env", "printenv", "curl http://x", "awk '{system(\"id\")}' f",
       "rg --pre ./x foo", "fd -x rm", "sleep 100 &", "ls\nrm x", "cat <<EOF", "npm install", "ls \\; rm x", "",
+      "cd x && rm y", "cd -P x && ls", "cd x y && ls", "git -C x -c core.pager=sh log", "git -C x commit -m y", "git -C x",
     ]) expect({ command, ok: isPlanningCommand(command) }).toEqual({ command, ok: false });
   });
 

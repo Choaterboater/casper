@@ -197,7 +197,8 @@ redaction; this is not a general secret detector, and recorded evidence is uncha
 Tool activity shows file/command targets (grep/find show their pattern, web_fetch its address,
 web_search its query) and state; paths show relative to the project (`~` for home outside it), and
 the time shows only from one second up. A shell command shows as a short label, its program and what it
-acts on (`git status`, `ssh root@10.0.0.5 …`, `python3 -m pytest …`, at most 80 characters); a script of
+acts on (`git status`, `ssh root@10.0.0.5 …`, `python3 -m pytest …`, at most 80 characters), without a wrapper
+such as `sudo -u root` or `env -i` before it; a script of
 several commands names its programs and leaves out `cd`, `export`, `echo` headings, loop words and comments
 (`git rev-parse, git log, git diff`), and a heredoc script says its program and length (`python3 script (12 lines)`).
 `/output` shows the whole command, secrets hidden. The `✓` or `✗` says how a call ended, so there
@@ -291,7 +292,8 @@ requirements (two or more list lines, most with a detail such as a command, numb
 is built as asked, with no question. Plan first (or `/plan <request>`) runs a
 plan turn: the model may only read (read, grep, find, ls and look-only shell commands such as `ls`,
 `cat` or `git log`); every other tool, MCP and Casper's own tools included, is refused with "Planning
-only" and shown as `— not run`, not as a failed step (the receipt does not count it). This is Casper's gate, not a
+only" and shown as `— not run`, not as a failed step (the receipt does not count it). A refused shell command
+names its first part that is not a look command (`npm is not one.`). This is Casper's gate, not a
 sandbox, and a file that changed anyway is named on the receipt (`– Changed while planning: …`). The plan is
 written for you, not for the code, and shown once by Casper (the model's answer is not streamed as well):
 
