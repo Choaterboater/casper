@@ -145,25 +145,39 @@ export class TaskUndo {
           if (already) { kept.push(already); return []; }
           return [change.path];
         });
-        // Files the task's own tools edited that no copy holds (ignored, secret): undo can't put them back either.
+        // Files the task's own tools edited that no copy holds (ignored, secret), and files the task changed inside a
+        // nested repository: undo can't put them back either.
         const edited = (task.observedEdits ?? []).flatMap((file) => {
           const relative = path.relative(start.root, path.resolve(start.root, file)).split(path.sep).join("/");
           return relative && !isOutside(relative) ? [relative] : [];
         });
         const all = [...before.left, ...after.left, ...kept];
-        for (const file of edited) {
-          if (paths.includes(file) || all.some((entry) => entry.path === file)) continue;
+        // The nested repositories the copies left out, one entry each (kept only names files inside them).
+        const nested = [...before.left, ...after.left].flatMap((entry) => entry.why === "nested repo" ? [entry.path] : []);
+        const inPaths = new Set(paths), named = new Set(all.map((entry) => entry.path)), editedSet = new Set(edited);
+        const inside = new Map<string, string[]>();
+        for (const file of new Set([...(nested.length ? changed : []), ...edited])) {
+          if (inPaths.has(file) || named.has(file)) continue;
+          const repo = nested.length ? coveredBy(nested, file) : undefined;
+          if (repo !== undefined) { const list = inside.get(repo); if (list) list.push(file); else inside.set(repo, [file]); continue; }
+          if (!editedSet.has(file)) continue;
           const ignored = coveredBy(before.ignored, file) ?? coveredBy(after.ignored, file);
           if (ignored !== undefined || isSecretFile(file)) all.push({ path: file, why: isSecretFile(file) ? "secret" : "ignored" });
         }
         const wanted = new Set([...changed, ...edited, ...kept.map((entry) => entry.path)]);
+        // A nested repository with many changed files (a clone, an install) is named once, so the receipt stays small.
+        for (const [repo, files] of inside) {
+          if (files.length > MAX_NAMES) { all.push({ path: repo, why: "nested repo" }); wanted.add(repo); }
+          else all.push(...files.map((file): LeftOut => ({ path: file, why: "nested repo" })));
+        }
         const unique = [...new Map(all.filter((entry) => wanted.has(entry.path)).map((entry) => [entry.path, entry])).values()]
           .sort((a, b) => a.path.localeCompare(b.path));
         const left = unique.map((entry) => ({ path: entry.path, why: leftOutWhy(entry) }));
         if (paths.length) {
           task.undo = { available: true, ...(left.length ? { left } : {}) };
           stat = await store.diff(before.tree, after.tree, { stat: true, ...(kept.length ? { paths } : {}) }).catch(() => "");
-        } else task.undo = { available: false, reason: left.length ? `Casper keeps no copy of ${names(left.map((entry) => entry.path))}` : UNDO_NOTHING_CHANGED };
+        } else task.undo = { available: false, reason: left.length
+          ? `Casper keeps no copy of ${names(unique.map((entry) => entry.why === "nested repo" ? `${entry.path} (${leftOutWhy(entry)})` : entry.path))}` : UNDO_NOTHING_CHANGED };
         undo = { before: before.tree, after: after.tree, paths, left: unique,
           ...(input.servers.length ? { servers: [...input.servers] } : {}) };
       }

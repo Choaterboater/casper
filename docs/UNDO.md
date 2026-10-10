@@ -81,7 +81,7 @@ a file changed only by a shell command that git ignores is not named:
 - Casper's `.casper` folder, except `.casper/project.yaml`, which is copied and goes back like any project file;
 - secret files (`.env`, keys, credentials, the list in [SECRETS.md](SECRETS.md)): Casper keeps no copy of them;
 - files over 8 MB;
-- the contents of nested repositories and submodules;
+- the contents of nested repositories and submodules (a repository with more than 8 changed files is named once);
 - files outside this folder;
 - anything changed through an MCP server or on a network device ("Undo only puts back files in this folder; it
   can't undo changes made through <server>");
@@ -94,6 +94,9 @@ When undo can't be offered at all, the receipt says why on one line:
 – Undo not available: this folder has more than 20,000 files
 – Undo not available: Casper could not save a copy (<reason>)
 ```
+
+A task in a folder too big to compare (over 20,000 files, nested repositories included), or one that makes it
+that big, has no undo and no `/diff`; its receipt says "Changes unknown: not a project folder" instead.
 
 Casper checks each file again just before putting it back, so a file you saved while Casper asked is left as
 you saved it. An editor that saves in the same instant can still lose that save.

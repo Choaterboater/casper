@@ -452,6 +452,71 @@ test("files in a folder the task made into its own repository are not counted as
   } finally { await later.app.close(); }
 }, 30_000);
 
+test("a file the task changed inside a nested repository is named as one undo can't put back", async () => {
+  const place = await folder();
+  const lib = path.join(place.project, "lib");
+  await mkdir(lib);
+  await writeFile(path.join(lib, "a.py"), "a = 1\n");
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: lib, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } });
+  git("init", "-q"); git("config", "user.email", "t@example.com"); git("config", "user.name", "t"); git("add", "-A"); git("commit", "-qm", "first");
+  const nested = "– Undo can't put back: lib/a.py (a nested repository)";
+  const first = makeApp(place, [async (project, edited) => {
+    await writeFile(path.join(project, "lib", "a.py"), "a = 2\n"); await edited("lib/a.py");
+    await writeFile(path.join(project, "notes.py"), "print('two')\n"); await edited("notes.py");
+  }]);
+  try {
+    await first.app.runOnce("change a in lib", place.project);
+    expect(first.output()).toContain(nested);
+    const seen = first.output().length;
+    await first.app.runOnce("/diff 1", place.project);
+    expect(first.output().slice(seen)).toContain("+print('two')");
+    expect(first.output().slice(seen)).toContain(nested);
+  } finally { await first.app.close(); }
+  const later = makeApp(place, []);
+  try {
+    await later.app.runOnce("/undo 1", place.project);
+    expect(later.output()).toContain("✓ Undone — 1 file is back as it was before task 1: notes.py\n");
+    expect(later.output()).toContain(nested);
+    expect(await readFile(path.join(lib, "a.py"), "utf8")).toBe("a = 2\n");
+    expect(await readFile(path.join(place.project, "notes.py"), "utf8")).toBe("print('one')\n");
+  } finally { await later.app.close(); }
+}, 30_000);
+
+test("a nested repository with many changed files (a clone) is named once, so the receipt stays small", async () => {
+  const place = await folder();
+  const once = (text: string) => {
+    expect(text).toContain("– Undo can't put back: vendor/x (a nested repository)\n");
+    expect(text.split("(a nested repository)")).toHaveLength(2);
+  };
+  const first = makeApp(place, [async (project, edited) => {
+    const clone = path.join(project, "vendor", "x");
+    await mkdir(clone, { recursive: true });
+    execFileSync("git", ["init", "-q"], { cwd: clone });
+    for (let index = 0; index < 20; index++) await writeFile(path.join(clone, `part${index}.py`), `n = ${index}\n`);
+    await writeFile(path.join(project, "notes.py"), "print('two')\n"); await edited("notes.py");
+  }]);
+  try {
+    await first.app.runOnce("clone x and fix notes", place.project);
+    once(first.output());
+    const seen = first.output().length;
+    await first.app.runOnce("/diff 1", place.project);
+    expect(first.output().slice(seen)).toContain("+print('two')");
+    once(first.output().slice(seen));
+  } finally { await first.app.close(); }
+  const stateRoot = path.join(place.home, ".casper", "projects");
+  const [projectState] = await readdir(stateRoot);
+  const saved = JSON.parse(await readFile(path.join(stateRoot, projectState!, "receipts", "1.json"), "utf8"));
+  expect(saved.undo.left).toEqual([{ path: "vendor/x", why: "nested repo" }]);
+  expect(saved.task.undo.left).toEqual([{ path: "vendor/x", why: "a nested repository" }]);
+  const later = makeApp(place, []);
+  try {
+    await later.app.runOnce("/undo 1", place.project);
+    expect(later.output()).toContain("✓ Undone — 1 file is back as it was before task 1: notes.py\n");
+    once(later.output());
+    expect(await readFile(path.join(place.project, "vendor", "x", "part0.py"), "utf8")).toBe("n = 0\n");
+  } finally { await later.app.close(); }
+}, 30_000);
+
 test("an undo that put nothing back (you saved the file while Casper asked) can be tried again later", async () => {
   const place = await folder();
   const s = session(place, [async (project) => { await writeFile(path.join(project, "notes.py"), "print('two')\n"); await writeFile(path.join(project, "a.py"), "a = 1\n"); }]);
