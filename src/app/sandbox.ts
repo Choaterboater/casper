@@ -111,10 +111,10 @@ export const PI_SANDBOX_IGNORED = "[sandbox] Ignored .pi/sandbox.json: a project
 export interface RunAllowances { hosts?: string[]; writes?: string[]; reach?: string[] }
 
 export function createSessionSandbox(host: SandboxHost, context: ProjectContext, options: { root: () => string; home: string; noSandbox?: boolean;
-  allow?: RunAllowances; seams?: Partial<ShellSandboxOptions> }): ShellSandbox {
+  allow?: RunAllowances; seams?: Partial<ShellSandboxOptions>; offByDefault?: boolean }): ShellSandbox {
   const store = new SandboxStore(context.stateDirectory);
   return new ShellSandbox({
-    root: options.root, home: options.home, agentDir: casperAgentDir(), settings: context.sandbox ?? {}, store,
+    root: options.root, home: options.home, agentDir: casperAgentDir(), settings: context.sandbox ?? {}, store, ...(options.offByDefault ? { offByDefault: true } : {}),
     ...(options.noSandbox ? { noSandboxFlag: true } : {}),
     ...(options.allow?.hosts?.length ? { allowHosts: options.allow.hosts } : {}),
     ...(options.allow?.writes?.length ? { allowWrites: options.allow.writes } : {}),

@@ -87,7 +87,7 @@ casper --version     # casper 0.2.30 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
-A check runs your project's own command without asking, inside the sandbox where there is one.
+A check runs your project's own command without asking, inside the sandbox when you have turned it on.
 Use `--no-verify` for code you don't trust.
 
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
@@ -141,11 +141,12 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 
 ## Safety and privacy
 
-- **Sandbox.** On macOS and Linux, the AI's shell and your checks write only the project, temp and
-  package caches, can't read `~/.ssh` or cloud logins, and reach only listed hosts. Casper's network
-  server runs in it too, reaching only your login hosts. On Windows, or
-  Linux without bubblewrap (`sudo apt install bubblewrap socat`; the release program carries ripgrep), the AI's shell asks before
-  each command that changes something. [Sandbox](docs/SECURITY.md)
+- **Sandbox, off unless you turn it on.** Until you do, the AI's shell asks before each command that changes
+  something, and a write outside the project asks first. `sandbox: on` in `~/.casper/config.yaml` (or `/sandbox on`
+  for a session) turns it on, on macOS and Linux: then the AI's shell and your checks write only the project, temp and
+  package caches, can't read `~/.ssh` or cloud logins, and reach only listed hosts. Casper's network server runs in a
+  sandbox of its own either way, reaching only your login hosts. A one-shot or `--json` run, which can't ask, keeps the
+  sandbox where one can run (Linux needs `sudo apt install bubblewrap socat`). [Sandbox](docs/SECURITY.md)
 - **Private ssh passwords.** When an `ssh` or `scp` you allowed asks for a password or a key's passphrase, Casper
   shows its own hidden box (1 No · 2 Yes, this once · 3 Yes, for this session) and the password goes to ssh only,
   never to the AI, and is hidden wherever the AI reads. Nothing is saved; `ssh_login: off` turns it off.

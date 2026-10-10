@@ -264,8 +264,8 @@ function withoutProxy(env: Record<string, string>): Record<string, string> {
 function unique(values: string[]): string[] { return [...new Set(values.filter(Boolean))]; }
 
 /** The session's sandbox state for MCP servers: a sandbox that failed to start counts as not there. */
-export function shellSandboxState(sandbox: Pick<ShellSandbox, "state" | "failure">): () => SandboxState {
-  return () => sandbox.failure ? { kind: "missing", reason: sandbox.failure } : sandbox.state;
+export function shellSandboxState(sandbox: Pick<ShellSandbox, "serverState" | "failure">): () => SandboxState {
+  return () => sandbox.failure ? { kind: "missing", reason: sandbox.failure } : sandbox.serverState;
 }
 
 /** The /mcp line under a server about its sandbox; none for a server Casper has no profile for (the summary says it). */
@@ -296,6 +296,6 @@ export function sandboxSummary(statuses: readonly { name: string; sandbox?: MCPS
 }
 
 /** The session's MCP server sandbox: held like the AI's shell (off with it), with the open project hidden too. */
-export function mcpServerSandbox(home: string, shell: Pick<ShellSandbox, "state" | "failure">, project: () => string[], note: (line: string) => void): MCPServerSandbox {
+export function mcpServerSandbox(home: string, shell: Pick<ShellSandbox, "serverState" | "failure">, project: () => string[], note: (line: string) => void): MCPServerSandbox {
   return new MCPServerSandbox({ home, state: shellSandboxState(shell), hide: project, note });
 }

@@ -49,6 +49,30 @@ async function fixture(options: Partial<CasperAppOptions> = {}, edit = true) {
   return { app, project, home, text: () => output, started: () => started };
 }
 
+test("a session a person types in starts with the sandbox off unless the config turns it on; a one-shot run keeps it", async () => {
+  const off = await fixture({ sandboxSeams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
+  try {
+    off.app.interactive = true;
+    await off.app.runOnce("/status", off.project);
+    expect(off.text()).toContain(" shell     not sandboxed (off unless you turn it on: /sandbox on) · Casper asks before AI shell commands that change things");
+    expect(off.app.sandbox!.state.kind).toBe("default");
+    expect(off.app.sandbox!.serverState.kind).toBe("on");
+  } finally { await off.app.close(); }
+  const on = await fixture({ sandboxSeams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
+  try {
+    await mkdir(path.join(on.home, ".casper"), { recursive: true });
+    await writeFile(path.join(on.home, ".casper", "config.yaml"), "sandbox: on\n");
+    on.app.interactive = true;
+    await on.app.runOnce("/status", on.project);
+    expect(on.app.sandbox!.on).toBe(true);
+  } finally { await on.app.close(); }
+  const script = await fixture({ sandboxSeams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
+  try {
+    await script.app.runOnce("/status", script.project);
+    expect(script.app.sandbox!.on).toBe(true);
+  } finally { await script.app.close(); }
+});
+
 test("with the sandbox on, /status and /sandbox say what it holds, and the AI's bash is wrapped", async () => {
   const engine = fakeEngine();
   const f = await fixture({ sandboxSeams: { engine, problem: () => undefined, platform: "linux" } });

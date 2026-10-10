@@ -379,6 +379,11 @@ export async function checkSecurityTools(ctx: DoctorContext): Promise<DoctorLine
 export async function checkSandbox(ctx: DoctorContext, loaded: LoadedConfiguration | undefined): Promise<DoctorLine[]> {
   const state = ShellSandbox.detect({ platform: ctx.platform, agentDir: ctx.agentDir, home: ctx.homeDir,
     ...(loaded ? { settings: loaded.sandbox } : {}), ...(ctx.sandboxProblem ? { problem: ctx.sandboxProblem } : {}) });
+  // Off unless your config turns it on: say so, and what it would take, without calling it a problem.
+  if (loaded?.sandbox?.user?.off === undefined && (state.kind === "on" || state.kind === "missing")) {
+    return [note(state.kind === "on" ? "Sandbox: off unless you turn it on (sandbox: on in ~/.casper/config.yaml, or /sandbox on); it can run here"
+      : `Sandbox: off unless you turn it on; it can't run here yet (${state.reason ?? "missing"})`)];
+  }
   if (state.kind === "on") return [ok("Sandbox: can hold shell commands here")];
   if (state.kind === "off") return [note(`Sandbox: off (${state.reason}); Casper asks before shell commands that change things`)];
   if (state.kind === "unsupported") return [note(`Sandbox: none on ${state.reason === "Windows" ? "Windows yet" : state.reason}; Casper asks before shell commands that change things`)];

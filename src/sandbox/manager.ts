@@ -16,7 +16,9 @@ import type { SandboxStore } from "./store";
  * state says why; the AI's shell then asks before each command instead (see src/runtime/pi.ts).
  */
 
-export type SandboxKind = "on" | "missing" | "unsupported" | "off";
+/** default: Casper's own start, where the sandbox is off unless your config says `sandbox: on` (or `/sandbox on`): the AI's
+ * shell asks before commands that change things, as with no sandbox. */
+export type SandboxKind = "on" | "missing" | "unsupported" | "off" | "default";
 export interface SandboxState { kind: SandboxKind; reason?: string }
 
 /** ask: listed hosts, others asked about (or refused when nobody can answer); host: the machine's own network
@@ -58,6 +60,9 @@ export interface ShellSandboxOptions {
   settings?: { user?: SandboxUserSettings; project?: SandboxProjectSettings };
   /** --no-sandbox: the explicit opt-out, reported on the receipt. */
   noSandboxFlag?: boolean;
+  /** Casper's own start: the sandbox is off unless your config says `sandbox: on` or you say `/sandbox on`. Unset (tests,
+   * Casper's security tools): it holds commands wherever it can run, as before. */
+  offByDefault?: boolean;
   /** --allow-host and --allow-write: hosts and absolute folders allowed for this run, as if you said yes for the session. */
   allowHosts?: string[];
   allowWrites?: string[];
@@ -100,7 +105,8 @@ const exists = (file: string) => { try { lstatSync(file); return true; } catch {
 export class ShellSandbox {
   private readonly detected: SandboxState;
   /** /sandbox off: commands run with your own permissions until /sandbox on or Casper exits. A crew copy follows its session. */
-  private offForSession = false;
+  /** /sandbox on or /sandbox off for this session; a crew copy follows its session. */
+  private sessionChoice?: "on" | "off";
   private readonly engine: SandboxEngine;
   private started?: Promise<void>;
   private tempDir?: string;
@@ -172,19 +178,35 @@ export class ShellSandbox {
     return problem ? { kind: "missing", reason: problem } : { kind: "on" };
   }
 
-  /** Whether and why the sandbox holds commands now: as detected, unless you said /sandbox off this session. */
+  /** Whether and why the sandbox holds commands now: as detected, off by default at Casper's own start unless your
+   * config turned it on, and as you said with /sandbox on or /sandbox off this session. */
   get state(): SandboxState {
-    return (this.parent ?? this).offForSession ? { kind: "off", reason: "/sandbox off for this session; /sandbox on puts it back" } : this.detected;
+    const choice = (this.parent ?? this).sessionChoice;
+    if (choice === "off") return { kind: "off", reason: "/sandbox off for this session; /sandbox on puts it back" };
+    if (choice !== "on" && this.offUntilAsked && (this.detected.kind === "on" || this.detected.kind === "missing")) return DEFAULT_OFF;
+    return this.detected;
   }
+  /** Off by default here, and neither your config nor --no-sandbox said anything. */
+  private get offUntilAsked(): boolean {
+    return Boolean(this.options.offByDefault) && this.options.settings?.user?.off === undefined;
+  }
+  /** What Casper's network server goes by: whether a sandbox can run here and you did not turn it off yourself
+   * (sandbox: off, --no-sandbox). The shell's default-off and /sandbox off leave it held. */
+  get serverState(): SandboxState { return this.detected; }
   /** /sandbox off and /sandbox on: what changed, or why nothing did. Only the session's sandbox, not a crew copy. */
   setSessionOff(off: boolean): string {
-    if (!off && this.detected.kind !== "on") return `The sandbox can't be turned on here: ${this.detected.kind === "off" ? `it is off (${this.detected.reason})` : `it can't run (${this.detected.reason})`}.`;
-    if (off === this.offForSession) return off ? "The sandbox is already off for this session." : "The sandbox is already on.";
-    if (off && this.detected.kind !== "on") return `The sandbox is not running here already (${this.detected.reason}).`;
-    this.offForSession = off;
-    return off
-      ? "Sandbox off for this session: shell commands and checks run with your own permissions, and writes outside the project don't ask (the receipt says so). /sandbox on puts it back; sandbox: off in ~/.casper/config.yaml keeps it off."
-      : "Sandbox on again: shell commands and checks are held as before.";
+    const now = this.state.kind;
+    if (!off) {
+      if (this.detected.kind !== "on") return `The sandbox can't be turned on here: ${this.detected.kind === "off" ? `it is off (${this.detected.reason})` : `it can't run (${this.detected.reason})`}.`;
+      if (now === "on") return "The sandbox is already on.";
+      this.sessionChoice = "on";
+      return "Sandbox on for this session: shell commands and checks write only the project, temp and package caches, and reach only listed hosts. sandbox: on in ~/.casper/config.yaml keeps it on.";
+    }
+    if (now === "default") return "The sandbox is already off: it is off unless you turn it on. Casper asks before shell commands that change things.";
+    if (now === "off") return this.sessionChoice === "off" ? "The sandbox is already off for this session." : `The sandbox is already off (${this.detected.reason}).`;
+    if (this.detected.kind !== "on") return `The sandbox is not running here already (${this.detected.reason}).`;
+    this.sessionChoice = "off";
+    return "Sandbox off for this session: shell commands and checks run with your own permissions, and writes outside the project don't ask (the receipt says so). /sandbox on puts it back.";
   }
   get on(): boolean { return this.state.kind === "on" && !this.startError; }
   /** Why the sandbox failed to start on first use, if it did. */
@@ -646,13 +668,17 @@ export class ShellSandbox {
 
 /** Whether the AI's shell asks before each command: no sandbox can run here, and you did not turn it off yourself. */
 export function asksBeforeShell(state: SandboxState): boolean {
-  return state.kind === "missing" || state.kind === "unsupported";
+  return state.kind === "missing" || state.kind === "unsupported" || state.kind === "default";
 }
+
+/** The state at Casper's own start when your config doesn't turn the sandbox on. */
+const DEFAULT_OFF: SandboxState = { kind: "default", reason: "off unless you turn it on: /sandbox on, or sandbox: on in ~/.casper/config.yaml" };
 
 /** The shell line of the status and the banner. */
 export function describeSandbox(state: SandboxState, hosts?: number): string {
   if (state.kind === "on") return `sandboxed · writes: this project, temp, package caches${hosts !== undefined ? ` · hosts: ${hosts} listed` : ""} (/sandbox)`;
   if (state.kind === "off") return `not sandboxed (${state.reason ?? "off"})`;
+  if (state.kind === "default") return "not sandboxed (off unless you turn it on: /sandbox on) · Casper asks before AI shell commands that change things";
   if (state.kind === "unsupported") return `not sandboxed (${state.reason === "Windows" ? "Windows has no sandbox yet" : state.reason ?? "this system"}) · Casper asks before AI shell commands that change things`;
   return `not sandboxed (${state.reason ?? "no sandbox"}) · Casper asks before AI shell commands that change things`;
 }

@@ -390,8 +390,12 @@ Casper itself:
 
 ## The shell sandbox
 
-New in v0.2.17. The shell sandbox (see [SECURITY.md](SECURITY.md)) is
-set only in your own files (`~/.casper/config.yaml` or a profile):
+New in v0.2.17. The shell sandbox (see [SECURITY.md](SECURITY.md)) is set only in your own files
+(`~/.casper/config.yaml` or a profile). Since v0.2.31 it is **off unless you turn it on** where you type to Casper:
+`sandbox: on` (or `sandbox: { enabled: true }`) turns it on for every session, and `/sandbox on` for one. While it is
+off, the AI's shell asks before each command that changes something and a write outside the project asks first.
+A one-shot or `--json` run can't ask, so it keeps the sandbox where one can run, as before. Casper's network server
+keeps its own sandbox either way.
 
 ```yaml
 sandbox:
@@ -417,8 +421,9 @@ that kind of command (`git push`) for the session or for this project; `/allowed
 `review` or `checkout`, `gh issue close` or `reopen`, and `gh run rerun` or `cancel`, offer only No and Yes, this once,
 every time. Nothing to configure; see [SECURITY.md](SECURITY.md) for what counts as plain.
 
-`sandbox: off` turns it off for every run (like `--no-sandbox` for one run, or `/sandbox off` until
-Casper exits; `/sandbox on` puts it back); the receipt then says shell commands and checks were not sandboxed. A project's `.casper/project.yaml` can only
+`sandbox: off` turns it off for every run, one-shot runs and the network server's sandbox too, and the AI's shell
+then doesn't ask (like `--no-sandbox` for one run, or `/sandbox off` until Casper exits); the receipt then says shell
+commands and checks were not sandboxed. A project's `.casper/project.yaml` can only
 add denies:
 
 ```yaml
