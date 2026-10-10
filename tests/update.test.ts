@@ -551,6 +551,19 @@ test("checkout: its own commits are told apart from a network problem in any lan
   expect(lines).toEqual([`The Casper checkout at ${checkout} has its own commits or changes in the way, so it was not updated; nothing was forced.`]);
 });
 
+test("checkout: a checkout only ahead of a remote it cannot reach names the network, not its own commits", async () => {
+  const { upstream, checkout } = await checkoutPair();
+  await commitVersion(checkout, "0.2.21-local", undefined, "local work");
+  git(checkout, "remote", "set-url", "origin", path.join(path.dirname(upstream), "missing"));
+  const unreachable = await updateCheckout(checkout);
+  expect(unreachable.exitCode).toBe(1);
+  expect(unreachable.lines).toEqual([`Git could not pull into the Casper checkout at ${checkout} (is the network down?), so it was not updated.`]);
+  git(checkout, "remote", "set-url", "origin", upstream);
+  const reached = await updateCheckout(checkout);
+  expect(reached.exitCode).toBe(0);
+  expect(reached.lines).toEqual([`The Casper checkout at ${checkout} is already up to date (0.2.21-local).`]);
+}, 60_000);
+
 test("checkout: git keeps the user's way of reaching the remote but not settings that point at another repository", () => {
   const env = gitEnv({ PATH: "/usr/bin", GIT_SSH_COMMAND: "ssh -i key", GIT_SSH: "ssh", GIT_ASKPASS: "askpass", GIT_PROXY_COMMAND: "proxy",
     GIT_DIR: "/elsewhere/.git", GIT_WORK_TREE: "/elsewhere", GIT_INDEX_FILE: "i", GIT_CONFIG_GLOBAL: "c", GIT_CONFIG_COUNT: "1", GIT_CEILING_DIRECTORIES: "/", GIT_NAMESPACE: "n", LANG: "de_DE.UTF-8" });

@@ -201,7 +201,8 @@ export class TerminalSurface {
   private onCycleEffort?: () => void;
   private onBusySubmit?: (line: string) => true | string;
   private onExpandLast?: () => void;
-  /** "WRITES: <servers> · Ctrl+O" while any MCP server has writes on; drawn first, never cut off. */
+  /** "ASKING OFF · /permissions ask" while the shell stops asking, and "ALLOW ALL: <servers>" or "WRITES: <servers>"
+   * with "· Ctrl+O" while an MCP server has writes on; drawn first, and shortened before anything of it is cut off. */
   private badge?: string;
   /** ctrl+o: turn writes off everywhere. True when something was on. */
   private onWritesRevert?: () => boolean;
@@ -511,12 +512,15 @@ export class TerminalSurface {
   private get waiting(): boolean { return Boolean(this.pendingAsk || this.pendingEdit || this.slot || this.lending); }
 
   private footer(width: number): string {
-    if (!this.badge) return this.footerText(width);
-    // The badge leads and is never cut off; a window too narrow for it gets the short form.
-    const text = visibleWidth(this.badge) + 1 < width ? this.badge : "WRITES · Ctrl+O";
-    const rest = width - visibleWidth(text) - 1;
+    const full = this.badge;
+    if (!full) return this.footerText(width);
+    // The badge leads; a window too narrow for it gets the short form of what is on ("ASKING OFF · ALLOW ALL · Ctrl+O"),
+    // cut only in a window narrower than that.
+    const short = ["ASKING OFF", "ALLOW ALL:", "WRITES:", "Ctrl+O"].filter((word) => full.includes(word)).map((word) => word.replace(/:$/, "")).join(" · ");
+    const text = visibleWidth(full) + 1 < width ? full : short || full;
+    const rest = width - visibleWidth(text) - 3;
     const badge = tint(text, "warning", this.io.color, "1");
-    return rest > 2 ? `${badge} ${this.footerText(rest)}` : truncateToWidth(badge, width);
+    return rest > 2 ? `${badge}${this.muted(" │ ")}${this.footerText(rest)}` : truncateToWidth(badge, width);
   }
 
   private footerText(width: number): string {

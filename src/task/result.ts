@@ -228,6 +228,15 @@ function remoteNotRunVerdict(remotes: NonNullable<TaskResult["remoteNotRun"]>, s
   return `${count === 1 ? "a command" : "commands"} to ${remotes.map((remote) => safe(remote.host)).join(", ")} did not run`;
 }
 
+/** Why browser checks that all passed still leave the task incomplete: an edit or command ran after some or all of
+ * them, or Casper can't tie them to the final files. Each says "them" only when it covers every check. */
+function browserPassedVerdict(checks: BrowserReport["checks"]): string {
+  const which = (count: number) => count === checks.length ? "them" : "some of them";
+  const stale = checks.filter((check) => check.freshness === "stale").length;
+  const untied = checks.filter((check) => check.freshness === "unavailable").length;
+  return `the browser checks passed, but ${stale ? `an edit or command ran after ${which(stale)}` : `Casper can't tie ${which(untied)} to the final files`}`;
+}
+
 /** An ssh command whose text shows no change Casper knows: it ran there all the same. */
 export const REMOTE_UNKNOWN = "Casper can't tell from the command text whether they changed anything there";
 
@@ -522,10 +531,18 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
     if (task.browser.status === "pass") fold(`✓ Browser checks passed (${task.browser.checks.length})`, `browser checks passed (${task.browser.checks.length})`);
     else if (task.browser.status === "fail") lines.push(`✗ Browser checks failed: ${failed.join(", ")}${claimed}`);
     else {
-      // Incomplete: count what passed, and name what did not finish (a check that went stale or never ran).
-      const passed = task.browser.checks.filter((check) => check.status === "pass").length;
+      // Incomplete: count what passed, name what did not finish, and say why a pass does not count
+      // (a later edit or command made it stale, or Casper can't tie it to the final files).
+      const passed = task.browser.checks.filter((check) => check.status === "pass");
       const open = task.browser.checks.filter((check) => check.status !== "pass").map((check) => safe(check.name));
-      if (passed) lines.push(`– Browser checks: ${passed} of ${task.browser.checks.length} passed; not finished: ${open.join(", ")}`);
+      const stale = passed.filter((check) => check.freshness === "stale").length;
+      const untied = passed.filter((check) => check.freshness === "unavailable").length;
+      // "all" and "them" only when they cover every check, never one that did not finish.
+      const total = task.browser.checks.length, every = (count: number) => count === total;
+      const notes = [open.length ? `not finished: ${open.join(", ")}` : "",
+        stale ? `${every(stale) ? "all" : stale} ran before a later edit or command (replay to count)` : "",
+        untied ? `Casper can't tie ${every(untied) ? "them" : `${untied} of them`} to the final files` : ""].filter(Boolean);
+      if (passed.length) lines.push(`– Browser checks: ${passed.length} of ${task.browser.checks.length} passed${notes.length ? `; ${notes.join("; ")}` : ""}`);
       else lines.push(claimed ? `– Browser checks did not finish${claimed}; Casper saw no passing browser check` : "– Browser checks incomplete");
     }
   }
@@ -632,6 +649,9 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
         : task.remoteNotRun?.length ? `– Incomplete — ${remoteNotRunVerdict(task.remoteNotRun, safe)}`
         : task.wroteToolCallAsText ? "– Did not act — the model wrote a tool call as text instead of using it"
         : report?.reason === NO_CHECKS_FOUND && !report.results.length ? NO_CHECKS_LINE
+        // Every browser check ran and passed, but not on the final files: say that, not "not every check ran".
+        : task.browser?.status === "incomplete" && report?.status !== "incomplete" && task.browser.checks.length > 0
+          && task.browser.checks.every((check) => check.status === "pass") ? `– Incomplete — ${browserPassedVerdict(task.browser.checks)}`
         : "– Incomplete — not every check ran", ...body];
       break;
     case "verified":
