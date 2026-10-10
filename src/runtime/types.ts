@@ -1,4 +1,5 @@
 import type { Readable } from "node:stream";
+import type { ModelServer } from "../config/model-servers";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ToolObservationInput, ToolObservationOutput } from "./observation";
 import type { PromptCacheSetting } from "./cache";
@@ -48,6 +49,8 @@ export interface RuntimeStartOptions {
   /** Find model servers on this computer (Ollama, LM Studio, llama.cpp, vLLM) and list their models in /model
    * (`localModels:` in ~/.casper/config.yaml). Unset: on. */
   localModels?: boolean;
+  /** Model servers you added (~/.casper/config.yaml `modelServers`): looked at even with `localModels: false`. */
+  modelServers?: readonly ModelServer[];
 }
 
 /** What the private ssh login adds to one allowed ssh command (see src/ssh/askpass.ts). */
@@ -189,9 +192,9 @@ export interface RuntimeAuthenticationOptions {
 
 /** No credentials or provider diagnostics may cross this boundary. */
 export type RuntimeAuthenticationResult =
-  | { status: "saved" }
+  | { status: "saved"; /** Model servers added from the /login list (no sign-in made). */ servers?: string[]; /** Plain lines about them. */ lines?: string[] }
   | { status: "saved-needs-refresh" }
-  | { status: "cancelled"; effect: "none" | "unknown" }
+  | { status: "cancelled"; effect: "none" | "unknown"; lines?: string[] }
   | { status: "failed"; effect: "none" | "unknown"; reason: "unavailable" | "destination" | "provider"; detail?: string };
 
 export interface RuntimeModelSelectionOptions {
@@ -200,6 +203,8 @@ export interface RuntimeModelSelectionOptions {
   persist?: boolean;
   signal?: AbortSignal;
   picker?: RuntimeModelPickerHost;
+  /** Open the picker on this provider's models (one of your servers, just added from /login). */
+  scope?: string;
   /** Words that name several models equally well (at most 4): the caller's numbered question picks one; undefined
    * changes nothing. Without it, or with more than 4, the picker opens on the words, else the result lists them as
    * `candidates`. */

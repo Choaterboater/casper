@@ -1,4 +1,5 @@
 import { readFile, realpath } from "node:fs/promises";
+import { parseModelServers, type ModelServer } from "./model-servers";
 import os from "node:os";
 import path from "node:path";
 import { parse } from "yaml";
@@ -75,6 +76,8 @@ export interface LoadedConfiguration {
   sideQuestions?: boolean;
   /** `localModels: false`: Casper does not look for model servers on this computer (user or profile only). */
   localModels?: boolean;
+  /** Model servers you added (`/model` → `+ Add server`), from ~/.casper/config.yaml only. */
+  modelServers?: ModelServer[];
   /** `cache: auto|long|short|off`: how long the provider keeps the prompt cache (user or profile only). Unset: auto. */
   cache?: PromptCacheSetting;
   /** `display: quiet|normal|detailed`: how much of the work shows on screen (user or profile only). Unset: normal. */
@@ -281,7 +284,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -725,6 +728,13 @@ export async function loadConfiguration(
   if (projectDocument.sideQuestions !== undefined) throw new Error("sideQuestions is a user setting (~/.casper/config.yaml); a project cannot turn side questions on or off");
   // Which servers on your computer Casper asks for models is yours too.
   if (projectDocument.localModels !== undefined) throw new Error("localModels is a user setting (~/.casper/config.yaml); a project cannot turn local models on or off");
+  // Where your conversation goes is yours: a project never adds a model server.
+  if (projectDocument.modelServers !== undefined) throw new Error("modelServers is your own setting (~/.casper/config.yaml); a project cannot add model servers");
+  // Only ~/.casper/config.yaml: a server's name is a provider's (your default model and saved sign-ins are kept by it
+  // for every profile), so the names must mean the same server everywhere.
+  const serverWarnings = [...new Set([profileDocument, userProfileDocument])].filter((document) => document !== globalDocument && document.modelServers !== undefined)
+    .map((document) => `${document === profileDocument ? labels.profile : labels.userProfile}: modelServers is kept in ~/.casper/config.yaml only; this profile's list is ignored`);
+  const { servers: modelServers, warnings: modelServerWarnings } = parseModelServers(globalDocument.modelServers, labels.global);
   // What you pay for caching is your choice too.
   if (projectDocument.cache !== undefined) throw new Error(CACHE_IN_PROJECT_ERROR);
   let bigModelLastTry: boolean | undefined;
@@ -943,6 +953,7 @@ export async function loadConfiguration(
     ...(updates !== undefined ? { updates } : {}),
     ...(sideQuestions !== undefined ? { sideQuestions } : {}),
     ...(localModels !== undefined ? { localModels } : {}),
+    ...(modelServers.length ? { modelServers } : {}),
     ...(cache ? { cache } : {}),
     ...(display ? { display } : {}),
     ...(theme ? { theme } : {}),
@@ -986,6 +997,8 @@ export async function loadConfiguration(
     warnings: [
       ...profileNotes,
       ...sandboxWarnings,
+      ...serverWarnings,
+      ...modelServerWarnings,
       ...unknownKeys(globalDocument, labels.global),
       ...unknownKeys(profileDocument, labels.profile),
       ...unknownKeys(projectDocument, labels.project),

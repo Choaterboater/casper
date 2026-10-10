@@ -182,7 +182,7 @@ export function settingRows(context: ProjectContext): Setting[] {
     money("pauseAt", "Spend pause", ["is", "comes"], "The task stops and asks before it spends more."),
     cacheRow(context.cache ?? "auto"),
     onOffRow("Local models", context.localModels !== false,
-      "Casper looks for Ollama, LM Studio, llama.cpp and vLLM on this computer and lists their models in /model, with no sign-in and no models.json. A change applies from the next start.",
+      "Casper looks for Ollama, LM Studio, llama.cpp and vLLM on this computer and lists their models in /model, with no sign-in and no models.json. Servers you added in /model stay either way. A change applies from the next start.",
       ["localModels"], true),
     onOffRow("Page checks", context.pageChecks !== false,
       "After a UI change Casper opens the changed pages in its own browser and checks they load, in every project. A project file can turn them off for itself, not back on.",

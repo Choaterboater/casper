@@ -329,3 +329,22 @@ test("sign-in: a model server found on this computer counts; a variable pointing
     expect(await checkSignIn(context(dir))).toEqual([{ status: "ok", text: "Sign-in: ollama (at http://192.0.2.10:11434)" }]);
   } finally { localModelDefaults.discover = saved; }
 });
+
+test("sign-in: servers you added are listed even with localModels false", async () => {
+  const { localModelDefaults } = await import("../src/runtime/local-models");
+  const saved = localModelDefaults.discover;
+  const seen: unknown[] = [];
+  localModelDefaults.discover = async (options) => {
+    seen.push({ auto: options?.auto, saved: options?.saved?.map((server) => server.name) });
+    return { servers: [{ provider: "vllm-box", name: "vLLM at 192.0.2.10:8000", baseUrl: "http://192.0.2.10:8000/v1", models: [{ id: "Qwen/Qwen3-8B" }], saved: true }],
+      problems: [{ provider: "ollama-den", saved: true, root: "http://192.0.2.11:11434", cause: "timeout", text: "ollama-den (Ollama at http://192.0.2.11:11434) didn't answer in 10 s." }] };
+  };
+  try {
+    const dir = await home();
+    const servers = [{ name: "vllm-box", address: "http://192.0.2.10:8000", kind: "vllm" as const }, { name: "ollama-den", address: "http://192.0.2.11:11434", kind: "ollama" as const }];
+    const lines = await checkSignIn(context(dir), false, servers);
+    expect(seen).toEqual([{ auto: false, saved: ["vllm-box", "ollama-den"] }]);
+    expect(lines[0]).toEqual({ status: "ok", text: "Sign-in: vllm-box (your server at http://192.0.2.10:8000, 1 model)" });
+    expect(lines.map((line) => line.text)).toContain("ollama-den (Ollama at http://192.0.2.11:11434) didn't answer in 10 s.");
+  } finally { localModelDefaults.discover = saved; }
+});

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { ModelServer } from "../config/model-servers";
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -29,6 +30,8 @@ export interface ProjectContext {
   sideQuestions?: boolean;
   /** `localModels: false` in the user's config: no model servers on this computer are looked for. */
   localModels?: boolean;
+  /** Model servers you added yourself (~/.casper/config.yaml `modelServers`). */
+  modelServers?: ModelServer[];
   /** `cache:` in the user's config (auto, long, short or off). Unset: auto. */
   cache?: LoadedConfiguration["cache"];
   /** `display:` in the user's config (quiet, normal or detailed). Unset: normal. */
@@ -154,6 +157,7 @@ export async function loadProjectContext(
     ...(configuration.updates !== undefined ? { updates: configuration.updates } : {}),
     ...(configuration.sideQuestions !== undefined ? { sideQuestions: configuration.sideQuestions } : {}),
     ...(configuration.localModels !== undefined ? { localModels: configuration.localModels } : {}),
+    ...(configuration.modelServers ? { modelServers: configuration.modelServers } : {}),
     ...(configuration.cache ? { cache: configuration.cache } : {}),
     ...(configuration.display ? { display: configuration.display } : {}),
     ...(configuration.theme ? { theme: configuration.theme } : {}),

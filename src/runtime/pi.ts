@@ -6,7 +6,12 @@ import { looksLikeRefusedLogin } from "../ssh/auth-failed";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
 import { matchConversation } from "../sessions/resume";
 import { PiModels } from "./pi-models";
-import { localServers, localServerSettled, localServersHereSettled, onLocalServer, registerLocalServers } from "./local-models";
+import { configureLocalServers, dropLocalServers, forgetLocalServer, localServers, localServerSettled, localServersHereSettled, onLocalServer, registerLocalServers, rememberLocalServer, savedLocalServers } from "./local-models";
+import { addModelServers, forgetModelServer } from "./add-model-server";
+import { serverLabel } from "./model-servers";
+import { forgetServerChoices } from "../app/safe-choices";
+import { withLoginDisplay, type LoginDisplay } from "../tui/login";
+import type { ModelServerActions } from "./pi-models";
 import { applyClaudeCodeVersion } from "./claude-code-version";
 import { registerClaudeSubscription } from "./claude-subscription";
 import { authenticatePi } from "./pi-auth";
@@ -635,6 +640,8 @@ export function toolPathContext(root: string, home: string, agentDir: string | u
 export class PiRuntime implements AgentRuntime {
   private runtime?: AgentSessionRuntime;
   private models?: PiModels;
+  /** The session's model catalog, for adding a model server to it from /login. */
+  private catalog?: ModelRuntime;
   private wrapper?: PiRuntimeSession;
   private readonly lifetime = new AbortController();
   private authWork?: Promise<RuntimeAuthenticationResult>;
@@ -651,7 +658,15 @@ export class PiRuntime implements AgentRuntime {
     }
     this.models?.setAuthenticating(true);
     this.authWork = Promise.resolve().then(async (): Promise<RuntimeAuthenticationResult> => {
-      const { provider, ...result } = await authenticatePi(options, path.resolve(getAgentDir(), "auth.json"), this.lifetime.signal);
+      // The /login list also adds a model server on another computer (no provider named, a main session only).
+      const addServer = options.provider || this.readOnly ? undefined : async (display: LoginDisplay, signal: AbortSignal) => {
+        const agentDir = getAgentDir();
+        // Before a conversation, a catalog of what models.json and Pi know, only to check names and addresses.
+        const catalog = this.catalog ?? await ModelRuntime.create({ authPath: path.join(agentDir, "auth.json"), modelsPath: path.join(agentDir, "models.json"), refreshOnCreate: false, allowModelNetwork: false, signal });
+        return this.addServers(display, catalog);
+      };
+      const { provider, ...result } = await authenticatePi(options, path.resolve(getAgentDir(), "auth.json"), this.lifetime.signal, addServer);
+      if ("servers" in result) return result;
       if (provider && (result.status === "saved" || result.status === "saved-needs-refresh" || ("effect" in result && result.effect === "unknown"))) {
         this.models?.invalidateAuth(provider);
         if (result.status === "saved" || result.status === "saved-needs-refresh") {
@@ -669,6 +684,60 @@ export class PiRuntime implements AgentRuntime {
   /** Casper's login file, read the way /login writes it: builtins only, no model catalog, no network. */
   private credentials(signal?: AbortSignal): Promise<ModelRuntime> {
     return ModelRuntime.create({ authPath: path.resolve(getAgentDir(), "auth.json"), modelsPath: null, refreshOnCreate: false, allowModelNetwork: false, signal });
+  }
+
+  /** Adding one of your model servers (the screens of src/runtime/add-model-server.ts), as /model and /login use it:
+   * saved, and added to this catalog and the looks at once. Resolves with the names added. */
+  async addServers(display: LoginDisplay, catalog: ModelRuntime): Promise<{ names: string[]; lines: string[] }> {
+    const known = () => [...savedLocalServers().map((server) => ({ name: server.name, root: server.address })),
+      ...catalog.getModels().filter((model) => typeof model.baseUrl === "string").map((model) => ({ name: model.provider, root: model.baseUrl.replace(/\/v1\/?$/, "") }))];
+    const result = await addModelServers(display, { home: this.home, known,
+      taken: () => new Set([...catalog.getProviders().map((provider) => provider.id), ...this.loginNames(), ...savedLocalServers().map((server) => server.name)]) });
+    if (result.added.length) {
+      const names = new Set(result.added.map(({ server }) => server.name));
+      configureLocalServers({ saved: [...savedLocalServers().filter((server) => !names.has(server.name)), ...result.added.map(({ server }) => server)] });
+      for (const { server, models: list } of result.added) {
+        const found = { provider: server.name, name: serverLabel(server.kind, server.address), baseUrl: `${server.address}/v1`, models: list, saved: true as const };
+        rememberLocalServer(found);
+        registerLocalServers(catalog, [found]);
+      }
+    }
+    return { names: result.added.map(({ server }) => server.name), lines: result.lines };
+  }
+
+  private modelServers(catalog: ModelRuntime, models: PiModels): ModelServerActions {
+    return {
+      rows: () => savedLocalServers().map((server) => {
+        const problem = models.serverProblem(server.name);
+        return { name: server.name, address: server.address, ...problem ? { problem } : {} };
+      }),
+      add: (io, signal) => withLoginDisplay(io, signal, async (display) => {
+        const { names, lines } = await this.addServers(display, catalog);
+        for (const line of lines) io.output.write(`[model] ${line}\n`);
+        return { ...names[0] ? { name: names[0] } : {}, lines };
+      }),
+      forget: (name, io, signal) => withLoginDisplay(io, signal, async (display) => {
+        const answer = await display.choose(`Forget ${name}?`, forgetServerChoices(name).map((label, index) => ({ id: String(index), label })));
+        if (answer !== "1") { io.output.write(`[model] Kept ${name}.\n`); return [`Kept ${name}.`]; }
+        await forgetModelServer(name, { home: this.home });
+        configureLocalServers({ saved: savedLocalServers().filter((server) => server.name !== name) });
+        forgetLocalServer(name);
+        models.forgetServer(name);
+        try { catalog.unregisterProvider(name); } catch { /* not registered (it never answered) */ }
+        const onIt = this.runtime?.session.model?.provider === name;
+        const said = `Forgot ${name}.${onIt ? " Your model was on it; pick another." : ""}`;
+        io.output.write(`[model] ${said}\n`);
+        return [said];
+      }),
+    };
+  }
+
+  /** The names in Casper's login file: any provider's sign-in and the web key. */
+  private loginNames(): string[] {
+    try {
+      const data: unknown = JSON.parse(readFileSync(path.resolve(getAgentDir(), "auth.json"), "utf8").replace(/^\uFEFF/, ""));
+      return data && typeof data === "object" ? Object.keys(data) : [];
+    } catch { return []; }
   }
 
   async savedSignIns(signal?: AbortSignal): Promise<Array<{ provider: string; type: "api_key" | "oauth" }>> {
@@ -735,10 +804,14 @@ export class PiRuntime implements AgentRuntime {
     // Local model servers are probed in the background: the start never waits for them (a closed port can take
     // seconds on Windows). Only a model the start needs that is not in the catalog yet waits (PiModels.create).
     // A helper never probes: it gets what the main session found.
-    const local = options.localModels === false ? undefined : localServers({ cachedOnly: Boolean(bounded) });
+    // The main session says what the looks cover: the automatic servers (`localModels: false`: none) and the ones you
+    // added.
+    if (!bounded) configureLocalServers({ auto: options.localModels !== false, saved: options.modelServers ?? [] });
+    const local = options.localModels === false && !savedLocalServers().length ? undefined : localServers({ cachedOnly: Boolean(bounded) });
     const modelRuntime = await ModelRuntime.create({ authPath: `${agentDir}/auth.json`, modelsPath: `${agentDir}/models.json`, signal: bounded?.signal });
     await registerClaudeSubscription(modelRuntime, () => this.runtime?.cwd ?? options.cwd);
     const models = this.models = new PiModels(modelRuntime, agentDir, this.home);
+    if (!bounded) this.catalog = modelRuntime;
     if (local) {
       // The main session adds each server the moment its own look ends: one far away doesn't hold up one here.
       if (!bounded) {
@@ -746,10 +819,11 @@ export class PiRuntime implements AgentRuntime {
         this.lifetime.signal.addEventListener("abort", stop, { once: true });
       }
       models.useLocalServers({
-        ready: local.then((found) => { registerLocalServers(modelRuntime, found.servers); return found; }),
+        ready: local.then((found) => { registerLocalServers(modelRuntime, found.servers); dropLocalServers(modelRuntime, found.looked); return found; }),
         refresh: bounded ? undefined : async (signal) => {
           const found = await localServers({ refresh: true, signal });
           registerLocalServers(modelRuntime, found.servers);
+          dropLocalServers(modelRuntime, found.looked);
           return found;
         },
         // What a wait was for is added to this catalog before going on: its server may have answered before this
@@ -760,6 +834,7 @@ export class PiRuntime implements AgentRuntime {
         },
       });
     }
+    if (!bounded) models.useModelServers(this.modelServers(modelRuntime, models));
     const tools = new PiToolController(options.tools ?? []);
     let limitReason: string | undefined;
     let toolCalls = 0;
@@ -987,7 +1062,7 @@ export class PiRuntime implements AgentRuntime {
     this.lifetime.abort();
     await this.wrapper?.abort();
     await this.authWork;
-    await this.models?.close(); this.models = undefined;
+    await this.models?.close(); this.models = undefined; this.catalog = undefined;
     this.wrapper?.detach();
     this.wrapper = undefined;
     const runtime = this.runtime;

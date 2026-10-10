@@ -6,16 +6,27 @@ import type { RuntimePickerView } from "./types";
 import { ModelBrowser } from "./pi-model-browser";
 
 type Pick = { provider: string; id: string; persist: boolean };
+/** What the picker closed for: a model, or one of your model servers to add or forget (asked outside the picker). */
+export type PickerResult = Pick | { action: "add" } | { action: "forget"; name: string };
+
+/** Your model servers, for the left list: the rows, and opening on one (after adding it). */
+export interface PickerServers {
+  rows(): ReadonlyArray<{ name: string; address: string; problem?: string }>;
+  initialScope?: string;
+  /** What the add or forget just done said, shown when the picker opens again. */
+  notice?: readonly string[];
+}
 
 export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime, current: AgentSession["model"],
   defaultModel: { provider: string; id: string } | undefined, query: string | undefined, signal?: AbortSignal, sessionOnly = false,
   /** Looks for the local model servers again (src/runtime/local-models.ts), next to the catalog refresh; resolves
    * with why the ones Casper was told about aren't there. */
-  refreshLocal?: (signal?: AbortSignal) => Promise<string[]>): Promise<Pick | undefined> {
+  refreshLocal?: (signal?: AbortSignal) => Promise<string[]>, servers?: PickerServers): Promise<PickerResult | undefined> {
   signal?.throwIfAborted();
   const previousBindings = getKeybindings();
   setKeybindings(new KeybindingsManager({ ...TUI_KEYBINDINGS,
     "app.models.save": { defaultKeys: "ctrl+s", description: "Select for this session only" },
+    "casper.models.forget": { defaultKeys: "ctrl+x", description: "Forget this model server" },
   }));
   let settled = false;
   const removeListener = view.tui.addInputListener(data => {
@@ -25,8 +36,8 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
   });
   let picker: ModelBrowser | undefined;
   const cancel = () => finish();
-  const { promise, resolve } = Promise.withResolvers<Pick | undefined>();
-  const finish = (pick?: Pick) => {
+  const { promise, resolve } = Promise.withResolvers<PickerResult | undefined>();
+  const finish = (pick?: PickerResult) => {
     if (settled) return;
     settled = true;
     picker?.dispose();
@@ -74,6 +85,13 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
       onSelect: model => finish({ provider: model.provider, id: model.id, persist: true }),
       onSelectAsDefault: model => finish({ provider: model.provider, id: model.id, persist: false }),
       onCancel: cancel,
+      ...(servers ? {
+        servers: () => servers.rows().map((row) => ({ name: terminalText(row.name), address: terminalText(row.address), ...row.problem ? { problem: terminalText(row.problem) } : {} })),
+        onAddServer: () => finish({ action: "add" }),
+        onForgetServer: (name: string) => finish({ action: "forget", name }),
+        ...(servers.initialScope ? { initialScope: servers.initialScope } : {}),
+        ...(servers.notice?.length ? { notice: servers.notice.map((line) => terminalText(line)) } : {}),
+      } : {}),
     });
     view.show(picker);
     view.tui.setFocus(picker);

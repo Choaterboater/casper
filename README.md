@@ -16,7 +16,7 @@ proves a test fails without the change. You get a short receipt that says what w
 Network engineers get extra care: MCP servers (tool servers the AI can call) start with writes
 off, every change asks you in one numbered box, and the AI can't approve anything for you.
 Sign in with OpenRouter, Anthropic (Claude), OpenAI Codex or GitHub Copilot, so you are not tied
-to one model company, or run a model on your own computer: Ollama, LM Studio, llama.cpp and vLLM show in `/model` by themselves ([Local models](docs/CONFIGURATION.md#local-models)). Many things cost zero tokens: the checks, `/verify`, `/mcp`, `/diff`,
+to one model company, or run a model on your own computer: Ollama, LM Studio, llama.cpp and vLLM show in `/model` by themselves, and one on another computer is added from `/model` by its address ([Local models](docs/CONFIGURATION.md#local-models)). Many things cost zero tokens: the checks, `/verify`, `/mcp`, `/diff`,
 `/receipt` and local reference search make no model call.
 
 Casper itself is free and open source. A task spends money only with your own model provider
@@ -71,7 +71,7 @@ casper
 
 Type `/login` and press a number: OpenRouter is first (Enter picks it), then Anthropic, OpenAI
 Codex and GitHub Copilot. Already signed in to Claude Code, Codex CLI or GitHub CLI on this computer?
-`/login` offers that first; a plan sign-in is never copied, so the other tool stays signed in. If you skip it, Casper opens sign-in on your first request. Then ask for what you want, for example `Fix the failing test in sum.js`.
+`/login` offers that first; a plan sign-in is never copied, so the other tool stays signed in. If you skip it, Casper opens sign-in on your first request (or `/model`, on model servers you added). Then ask for what you want, for example `Fix the failing test in sum.js`.
 Casper works, runs the checks, and ends with a receipt:
 
 ```text

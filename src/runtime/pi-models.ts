@@ -6,7 +6,7 @@ import { SettingsManager, type AgentSession, type ModelRuntime, type SessionMana
 import { classifyEffort, nearestEffort, resolveAutoEffort } from "./auto-effort";
 import { isEffortSelection, isModelRole, resolveModelSelection, type ModelReference, type ModelRoles, type ResolvedModelSelection } from "./model-routing";
 import { matchModelWords, noModelMessage } from "./model-words";
-import type { RuntimeModelInfo, RuntimeModelSelection, RuntimeModelSelectionOptions, RuntimeModelWordsMatch, RuntimeModelWordsOptions, RuntimeReadOnlyStartOptions, RuntimeStatus, RuntimeUsage } from "./types";
+import type { RuntimeLoginIO, RuntimeModelInfo, RuntimeModelSelection, RuntimeModelSelectionOptions, RuntimeModelWordsMatch, RuntimeModelWordsOptions, RuntimeReadOnlyStartOptions, RuntimeStatus, RuntimeUsage } from "./types";
 import { pickPiModel } from "./pi-model-picker";
 import { anyModelMatches } from "./pi-model-browser";
 import { openRouterRequestHeaders } from "./openrouter-attribution";
@@ -93,6 +93,15 @@ function modelInfo(model: { provider: string; id: string; contextWindow?: number
     ...(typeof model.contextWindow === "number" && Number.isFinite(model.contextWindow) && model.contextWindow > 0 ? { contextWindow: model.contextWindow } : {}),
     ...(typeof input === "number" && Number.isFinite(input) && input > 0 ? { inputCostPerMillion: input } : {}),
     ...(model.input?.includes("image") ? { images: true } : {}) };
+}
+
+/** Adding and forgetting your model servers, on the sign-in screen the picker lends (src/runtime/pi.ts). */
+export interface ModelServerActions {
+  rows(): ReadonlyArray<{ name: string; address: string; problem?: string }>;
+  /** The add screens; resolves with the first server added (the picker opens on it), if any, and what they said. */
+  add(io: RuntimeLoginIO, signal: AbortSignal): Promise<{ name?: string; lines: string[] }>;
+  /** Asks first (1 Keep · 2 Forget), then forgets it; resolves with what it said. */
+  forget(name: string, io: RuntimeLoginIO, signal: AbortSignal): Promise<string[]>;
 }
 
 export class PiModels {
@@ -303,6 +312,13 @@ export class PiModels {
   }
 
   private localRefresh?: (signal?: AbortSignal) => Promise<LocalDiscovery>;
+  /** Your model servers, for /model's left list, its `+ Add server` row and Ctrl+X (the main session only). */
+  private servers?: ModelServerActions;
+  useModelServers(servers: ModelServerActions): void { this.servers = servers; }
+  /** Why one of your servers isn't in /model, from the latest look (its row in the left list says it). */
+  serverProblem(name: string): string | undefined { return this.problemFor.get(name)?.text; }
+  /** One of your servers was forgotten: its last problem goes with it. */
+  forgetServer(name: string): void { this.problemFor.delete(name); }
   private localReady?: Promise<unknown>;
   private localSettled?: (provider?: string) => Promise<void>;
   /** The first look's problems, shown once at the first request after it. */
@@ -321,12 +337,15 @@ export class PiModels {
     this.localReady = local.ready.then((found) => { this.localProblems = [...found.problems]; this.noteProblems(found); }, () => undefined);
   }
   private noteProblems(found: LocalDiscovery): void {
+    // A server no look is about any more (one you forgot) has no problem to tell.
+    if (found.looked) for (const provider of [...this.problemFor.keys()]) if (!found.looked.includes(provider)) this.problemFor.delete(provider);
     for (const server of found.servers) this.problemFor.delete(server.provider);
     for (const problem of found.problems) this.problemFor.set(problem.provider, problem);
   }
   localNotice(): string | undefined {
     // Only problems still true now: a server found again since (a box that woke up) isn't reported.
-    const problems = this.localProblems.filter((problem) => this.problemFor.get(problem.provider) === problem && !this.shownProblems.has(problem.text));
+    // A server you added shows its problem in /model and on its row, not as a notice at every start.
+    const problems = this.localProblems.filter((problem) => !problem.saved && this.problemFor.get(problem.provider) === problem && !this.shownProblems.has(problem.text));
     this.localProblems = [];
     if (!problems.length) return undefined;
     return [...problems.map((problem) => `${problem.text} Its models aren't in /model.`), ...problems.some(wantsServerTip) ? [SERVER_SIDE_TIP] : []].join(" ");
@@ -620,16 +639,30 @@ export class PiModels {
         }
       }
       if (!model && options.picker) {
-        signal.throwIfAborted();
-        const picked = await options.picker.mount(view => pickPiModel(view, this.catalog,
-          this.status(session).blocked ? undefined : session.model, this.defaultReference(), options.query, signal, options.persist === false,
-          this.localRefresh && (async (refreshSignal) => {
-            const { problems } = await this.localRefresh!(refreshSignal);
-            return [...problems.map((problem) => problem.text), ...problems.some(wantsServerTip) ? [SERVER_SIDE_TIP] : []];
-          })));
-        signal.throwIfAborted();
-        if (!picked) return { status: this.status(session), selected: false, savedDefault: false };
-        model = this.catalog.getModel(picked.provider, picked.id); persist = options.persist === false ? false : picked.persist;
+        const picker = options.picker;
+        // Adding or forgetting a model server closes the picker, asks on the sign-in screen, and opens it again.
+        let scope = options.scope;
+        let notice: string[] = [];
+        for (;;) {
+          signal.throwIfAborted();
+          const servers = this.servers && { rows: () => this.servers!.rows(), ...(scope ? { initialScope: scope } : {}), notice };
+          const picked = await picker.mount(view => pickPiModel(view, this.catalog,
+            this.status(session).blocked ? undefined : session.model, this.defaultReference(), scope ? undefined : options.query, signal, options.persist === false,
+            this.localRefresh && (async (refreshSignal) => {
+              const { problems } = await this.localRefresh!(refreshSignal);
+              return [...problems.map((problem) => problem.text), ...problems.some(wantsServerTip) ? [SERVER_SIDE_TIP] : []];
+            }), servers));
+          signal.throwIfAborted();
+          if (!picked) return { status: this.status(session), selected: false, savedDefault: false };
+          if ("action" in picked) {
+            // What the screens said shows when the picker opens again (else it would sit behind it).
+            if (picked.action === "add") ({ name: scope, lines: notice } = await picker.run((io) => this.servers!.add(io, signal)));
+            else { scope = undefined; notice = await picker.run((io) => this.servers!.forget(picked.name, io, signal)); }
+            continue;
+          }
+          model = this.catalog.getModel(picked.provider, picked.id); persist = options.persist === false ? false : picked.persist;
+          break;
+        }
       }
       // Nothing to list: a model server may still be on its way, or have missed the first look.
       if (!model && !options.picker && !this.catalog.getAvailableSnapshot().length) {
