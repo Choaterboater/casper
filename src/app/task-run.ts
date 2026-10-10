@@ -17,7 +17,7 @@ import type { RuntimeImage, RuntimeSession } from "../runtime/types";
 import { formatSelectedSkills } from "../skills/registry";
 import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "../task/classify";
 import { answerClaimsBrowserPass, formatShortReceipt, rememberSessionNotes, undoPathsShown, formatTaskResult, UNDO_NOT_PROJECT, type TaskResult } from "../task/result";
-import { TaskObservations } from "../task/observations";
+import { OBSERVED_EDITS_LIMIT, TaskObservations } from "../task/observations";
 import { isToolCallAsText, TOOL_CALL_AS_TEXT_LINE } from "../task/text-tool-call";
 import { diffSnapshots, tooManyFiles, type TreeChanges } from "../task/changes";
 import type { CheckName, VerificationReport } from "../verify/evidence";
@@ -31,6 +31,8 @@ import { definitionChangedReason, definitionChanges, testDefinition } from "../v
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "../task/review";
 import { extractChecklist, formatChecklistPrompt, normalizeCases } from "../task/checklist";
 import { isOutside } from "../platform/inside";
+import { realpathLongest, within } from "../platform/project-paths";
+import { systemTempDirs } from "../sandbox/policy";
 import { autoDetectedChecks } from "../verify/migrations-check";
 import { buildNextRow, type NextItem } from "../tui/next-row";
 import { findFlow, formatFlowPrompt, loadFlowCatalog, type Flow, type FlowRule } from "../flows/catalog";
@@ -369,10 +371,15 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       verification = await runVerification(app, app.checkTask.checks, true, prompt, app.checkTask);
     }
     // The work landed in a project inside this folder (sample-tools in Documents): its own checks run for this receipt.
-    if (!stopped && before && afterModel && !app.closing) {
-      workFolder = await childProjectOfTask(app, context, flatten(diffSnapshots(before, afterModel)));
+    // In a folder too big to compare (Documents holding many projects), the files Casper's edit and write tools changed
+    // inside it say where the work is; not when they changed more files than Casper keeps, as one left out may be elsewhere.
+    const edited = app.observations.edited();
+    const landed = before && afterModel ? flatten(diffSnapshots(before, afterModel))
+      : !before && app.snapshotFailure && tooManyFiles(app.snapshotFailure) && edited.length < OBSERVED_EDITS_LIMIT ? toolFiles(workspaceRoot, edited, "inside") : undefined;
+    if (!stopped && landed && !app.closing) {
+      workFolder = await childProjectOfTask(app, context, landed);
       if (workFolder && !verification && app.checkTask && verificationMode === "auto") {
-        const child = await runChildChecks(app, workFolder, flatten(diffSnapshots(before, afterModel)));
+        const child = await runChildChecks(app, workFolder, landed);
         if (child) {
           verification = child;
           autoChecks = undefined;
@@ -412,8 +419,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     const services = !app.closing && app.services && !app.services.closed
       ? app.services.status().map(({ name, origin, state }) => ({ name, ...(origin ? { origin } : {}), state })) : [];
     const snapshotFailure = !changedPaths && app.snapshotFailure ? { reason: app.snapshotFailure,
-      edited: observations.observedEdits.map((file) => { const relative = path.relative(workspaceRoot, path.resolve(workspaceRoot, file));
-        return relative && !isOutside(relative) ? relative.split(path.sep).join("/") : file; }) } : undefined;
+      edited: toolFiles(workspaceRoot, observations.observedEdits, "all") } : undefined;
     const modelError = execution === "failed" ? explainModelError(app.events.lastError ?? thrownError ?? "")?.cause : undefined;
     // The whole answer is a tool call written as text and no tool ran: shown, never run, never retried.
     const wroteToolCall = execution === "completed" && !app.observations.madeToolCalls && isToolCallAsText(app.lastAnswer);
@@ -873,6 +879,27 @@ export async function runSuggestion(app: CasperApp, id: string): Promise<Verific
     ? `Add a test that proves this bug stays fixed: the test must fail without the fix and pass with it. The fix was for: ${picked.request}`
     : picked.request;
   return runModelTask(app, request, { flow });
+}
+
+/** Files the tools named, relative to the folder with "/", also when named through a link (macOS's /tmp is /private/tmp).
+ * A file outside the folder is left out with "inside"; with "all" it keeps its full path, except scratch in the system
+ * temp folders, where the sandbox lets writes through without asking: not a change to keep. */
+function toolFiles(root: string, files: readonly string[], keep: "inside" | "all"): string[] {
+  const realRoot = realpathLongest(root);
+  const temp = keep === "all" ? systemTempDirs() : [];
+  return files.flatMap((file) => {
+    const named = inFolder(root, file);
+    if (named !== undefined) return [named];
+    const real = realpathLongest(path.resolve(root, file));
+    const inside = inFolder(realRoot, real);
+    return inside !== undefined ? [inside] : keep === "inside" || temp.some((dir) => within(dir, real)) ? [] : [file];
+  });
+}
+
+/** A file a tool named, relative to the folder with "/"; undefined when it is outside the folder. */
+function inFolder(root: string, file: string): string | undefined {
+  const relative = path.relative(root, path.resolve(root, file));
+  return relative && !isOutside(relative) ? relative.split(path.sep).join("/") : undefined;
 }
 
 /** Next commands in a receipt are slash commands in a session, casper invocations otherwise. */

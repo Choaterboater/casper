@@ -100,7 +100,9 @@ receipt: `• Casper checking: test (checks from sample-tools)` and
 sandbox, once, with no repair round. Then Casper asks `The work is in ~/Documents/sample-tools.` with
 `1 Stay here · 2 Switch there`; Enter stays, and after Stay it doesn't ask about that folder again this
 session. A one-shot run prints `[folder] The work is in ~/Documents/sample-tools. To work there: cd
-~/Documents/sample-tools && casper`.
+~/Documents/sample-tools && casper`. In a folder too big to compare (over 20,000 files, as a Documents folder
+holding many projects often is), the work folder is found from the files Casper's edit and write tools changed;
+what a shell command changed there is not counted.
 
 **`/verify` with nothing to run (from v0.2.19)** prints one line instead of one line per check:
 `[verify] No checks found in Documents. Tests found in sample-tools: /project sample-tools`, or
@@ -197,6 +199,13 @@ The lines below the verdict give the evidence:
 – Incomplete — commands to 198.51.100.20 (build-server) did not run
 ⚠ A secret appeared in a command; change it after this task.
 ```
+
+In a folder too big to compare, the receipt says `– Changes unknown: not a project folder (over 20,000 files)` and
+lists the files Casper's edit and write tools changed. When the ones inside the folder all sit in one project, that
+project's checks run and Casper says `The work is in ~/Documents/sample-tools.`, as above; not when the tools changed 32
+files or more, since Casper keeps only the first 32 and a later one may sit elsewhere. In this list, as in any receipt
+that says `Changes unknown`, a file outside the folder is named in full, except scratch in the system temp folders,
+which is left out.
 
 A note about the session rather than the task, `– Shell commands and checks were not sandboxed (…)` when the sandbox
 is off or `– Changes unknown: not a project folder (…)`, is said in full on the first receipt of a session that has it.
