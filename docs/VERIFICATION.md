@@ -237,6 +237,12 @@ now?` with:
   project (`verification.timeoutMs` in `.casper/project.yaml`, written for you):
   `[verify] Saved verification.timeoutMs: 2400000 in .casper/project.yaml: every check here gets 40m from now on.`
 
+A check that finished but in which a test hit its own time limit (bun's `this test timed out after`,
+Jest's `Exceeded timeout of`, Vitest's `Test timed out in`, Mocha's `Timeout of ... exceeded`,
+pytest-timeout's `Failed: Timeout >`) is unfinished too: that is often a busy computer, not the code.
+Casper asks `test: a test in it timed out (often a busy machine, not the code). Casper did not try to
+fix it. What now?` with `1 Stop · 2 Retry · 3 Fix it anyway` (more time for the whole check would not help).
+
 Enter or Esc stops (before v0.2.16 there was no Stop choice and `1` was Retry). Casper asks at
 most eight times per round of checks (the review round, when on, is a
 second round). When the only failures are unfinished checks, the verdict is `✗ Not checked —

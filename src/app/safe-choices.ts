@@ -69,11 +69,11 @@ export function modelFailedChoices(bigModel?: string): Choice[] {
 
 /** "test timed out after 10m. Casper did not try to fix it. What now?" `had` is the limit the run just had (0 when
  * a check could not start), `longer` the limit "Allow more time" gives. */
-export function unfinishedChoices(had: number, longer: number): Array<Choice & { choice: UnfinishedChoice | "more-time-saved" | undefined }> {
+export function unfinishedChoices(had: number, longer: number, slowTest = false): Array<Choice & { choice: UnfinishedChoice | "more-time-saved" | undefined }> {
   return [
     { label: "Stop", description: "keep the changes; the receipt says it did not finish", choice: undefined },
-    { label: "Retry", description: "run it again with the same limit", choice: "retry" },
-    { label: "Fix it anyway", description: had ? "ask the model to make it finish in time, for example a hanging or slow test"
+    { label: "Retry", description: slowTest ? "run it again, best when the computer is less busy" : "run it again with the same limit", choice: "retry" },
+    { label: "Fix it anyway", description: had || slowTest ? "ask the model to make it finish in time, for example a hanging or slow test"
       : "ask the model to fix why it could not start", choice: "repair" },
     ...(had && had < 3_600_000 ? [{ label: "Allow more time", description: `run it with ${formatDuration(longer)}, this time only`, choice: "more-time" as const },
       { label: "Allow more time from now on", description: `run it with ${formatDuration(longer)}, and give every check in this project that long (saved for you)`,

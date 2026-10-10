@@ -24,7 +24,7 @@ import { checkEvent } from "./json-events";
 import { sandboxReceipt } from "./sandbox";
 import { exactPick } from "./approvals";
 import { CHECKS_OUTSIDE_CHOICES, checksOutsideQuestion, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
-import { SANDBOX_CHECK_BLOCKED } from "../verify/command";
+import { SANDBOX_CHECK_BLOCKED, SLOW_TEST } from "../verify/command";
 import { phase, clearSteps } from "./footer";
 import { prepareCapabilities, pageRun, smokeRun } from "./task-tools";
 import { bigModelReceipt, switchToBigModel, restoreModel, askBigModelRetry, bigModelOf } from "./big-model";
@@ -273,12 +273,14 @@ export async function repairPreexisting(app: CasperApp, failures: VerificationRe
 export async function askUnfinished(app: CasperApp, unfinished: VerificationResult[], timeoutMs: number, signal: AbortSignal): Promise<UnfinishedChoice | undefined> {
   // The limit the run actually had: after "Allow more time" it is the longer one, not the configured one.
   const limit = (result: VerificationResult) => timedOutAfter(result) ?? timeoutMs;
-  const what = unfinished.map((result) => result.ended === "timeout"
+  // A test that hit its own limit inside a check that finished: the check's limit was not the problem.
+  const slow = (result: VerificationResult) => result.reason === SLOW_TEST;
+  const what = unfinished.map((result) => slow(result) ? `${result.name}: ${SLOW_TEST}` : result.ended === "timeout"
     ? `${result.name} timed out after ${formatDuration(limit(result))}` : `${result.name} could not start`).join(", ");
   // More time: four times the limit the run just had (at least a minute, at most an hour), as often as it is chosen.
-  const had = Math.max(0, ...unfinished.filter((result) => result.ended === "timeout").map(limit));
+  const had = Math.max(0, ...unfinished.filter((result) => result.ended === "timeout" && !slow(result)).map(limit));
   const longer = longerLimit(had);
-  const options = unfinishedChoices(had, longer);
+  const options = unfinishedChoices(had, longer, unfinished.some(slow));
   app.events.ensureLineBreak();
   // pick: the ask box on the rich terminal, numbered lines on a plain one.
   const answer = await app.terminal.pick(`${what}. Casper did not try to fix it. What now?`,
