@@ -1,6 +1,10 @@
 // Casper site: tiny, optional helpers. Every page works without this file.
 //  1. Mobile nav: adds a Menu button that folds the nav on small screens.
 //  2. Copy buttons: adds "Copy" to each <div class="cmd"> install command.
+//  3. Tables with 3 or more columns: each cell gets its column name (data-label), so on a
+//     phone each row stacks into a small card. Without JS the table just scrolls sideways.
+//  4. Terminal captures: long runs of ─ become <span class="rule">, so on a phone a divider
+//     is cut at the edge instead of wrapping into rows of dashes. The text is unchanged.
 (function () {
   "use strict";
   var root = document.documentElement;
@@ -77,5 +81,28 @@
     block.classList.add("has-copy");
     block.appendChild(button);
     block.appendChild(status);
+  });
+
+  // 3. Stackable tables
+  var wraps = document.querySelectorAll(".table-wrap");
+  Array.prototype.forEach.call(wraps, function (wrap) {
+    var heads = wrap.querySelectorAll("thead th");
+    if (heads.length < 3) return;
+    var names = Array.prototype.map.call(heads, function (th) { return th.textContent.trim(); });
+    Array.prototype.forEach.call(wrap.querySelectorAll("tbody tr"), function (row) {
+      Array.prototype.forEach.call(row.children, function (cell, i) {
+        if (names[i]) cell.setAttribute("data-label", names[i]);
+      });
+    });
+    wrap.classList.add("stacks");
+  });
+
+  // 4. Divider lines in terminal captures
+  var terms = document.querySelectorAll("pre.term");
+  Array.prototype.forEach.call(terms, function (term) {
+    if (term.innerHTML.indexOf("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500") === -1) return;
+    term.innerHTML = term.innerHTML.replace(/\u2500{8,}/g, function (run) {
+      return '<span class="rule">' + run + "</span>";
+    });
   });
 })();
