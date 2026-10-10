@@ -49,13 +49,17 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
   if (app.closing) return "Casper is closing";
   // No task yet: Casper is still opening a folder or project. Nothing is loaded to show, so the line waits.
   if (!app.commandActive || !app.projectContext) return "draft kept · Enter again once Casper has opened the project";
-  if (line.startsWith("/") && leadingImagePath(line) === undefined) {
+  // A picture file dropped at the start of the line starts it with "/" too: a request, never a command.
+  const picture = line.startsWith("/") && leadingImagePath(line) !== undefined;
+  // What a command says comes one microtask later, under the screen's echo of the line, not above it.
+  if (line.startsWith("/") && !picture) {
     // A command Casper doesn't know, or words one doesn't take: said now, as when idle, not after the task.
     const problem = commandProblem(line);
-    if (problem) { app.output.write(`[error] ${terminalText(problem)}\n`); return true; }
+    if (problem) { queueMicrotask(() => app.output.write(`[error] ${terminalText(problem)}\n`)); return true; }
   }
-  if (runsDuringWork(line)) { duringTask(() => runCommandDuringWork(app, canonicalLine(line))); return true; }
-  if (line.startsWith("/")) return `${terminalText(line.split(/\s+/)[0]!)} waits until this task ends${plain ? "; type it again then" : " · draft kept · Esc stops the task"}`;
+  if (runsDuringWork(line)) { queueMicrotask(() => duringTask(() => runCommandDuringWork(app, canonicalLine(line)))); return true; }
+  // The AI reads a line during a task as text only, so a line that starts with a picture waits to go with it.
+  if (line.startsWith("/")) return `${picture ? "Your picture" : terminalText(line.split(/\s+/)[0]!)} waits until this task ends${plain ? "; type it again then" : " · draft kept · Esc stops the task"}`;
   const pasted = app.terminal.takeSubmittedPastes();
   // A side question gets its own answer now; the working AI never sees it.
   const side = sideQuestionsOn(app) ? sideQuestionText(line, pasted) : undefined;

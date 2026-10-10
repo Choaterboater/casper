@@ -299,14 +299,15 @@ export function helpFor(word: string): string {
   const matches = helpEntries().filter((entry) => entry.join(" ").toLowerCase().includes(needle));
   if (matches.length) return `${matches.map((entry) => entry.join("\n")).join("\n")}\n`;
   const near = closestCommand(needle);
-  return `[help] Nothing in the help mentions ${JSON.stringify(word.trim())}.${near ? ` Did you mean ${near}?` : ""} /help all shows everything.\n`;
+  return `[help] Nothing in the help mentions "${word.trim()}".${near ? ` Did you mean ${near}?` : ""} /help all shows everything.\n`;
 }
 
-/** The error for a slash command Casper doesn't know, with a did-you-mean when one is close. */
+/** The error for a slash command Casper doesn't know, with a did-you-mean when one is close. The word is quoted as
+ * typed (a backslash stays one); the screen takes control characters out. */
 export function unknownCommandMessage(command: string): string {
   const near = closestCommand(command);
   const topic = TOPIC_COMMANDS[command.replace(/^\//, "").toLowerCase()];
-  return `Unknown command ${JSON.stringify(command)}.${near ? ` Did you mean ${near}?` : topic ? ` ${topic}` : ""} Type /help for local commands.`;
+  return `Unknown command "${command}".${near ? ` Did you mean ${near}?` : topic ? ` ${topic}` : ""} Type /help for local commands.`;
 }
 
 /** Why a slash line can't run as typed (an unknown command, or words after one that takes none); undefined when it can. */

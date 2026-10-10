@@ -39,8 +39,9 @@ function plainScreen() {
   };
 }
 
-/** A project with no checks and a model that sees pictures (`vision`) or not; `big` is a role that can. */
-async function fixture(options: { vision: boolean; big?: string; projectYaml?: string }) {
+/** A project with no checks and a model that sees pictures (`vision`) or not; `big` is a role that can. The first
+ * request waits for `hold`, so lines can be typed during work. */
+async function fixture(options: { vision: boolean; big?: string; projectYaml?: string; hold?: Promise<void> }) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-images-app-"));
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(path.join(home, ".casper"), { recursive: true }); await mkdir(path.join(project, ".casper"), { recursive: true });
@@ -65,6 +66,7 @@ async function fixture(options: { vision: boolean; big?: string; projectYaml?: s
     },
     prompt: async (text, _signal, promptOptions) => {
       prompts.push({ model: current, text, ...(promptOptions?.images ? { images: promptOptions.images } : {}) });
+      if (options.hold && prompts.length === 1) await options.hold;
       emit({ type: "assistant_response_start", provider: "fixture", model: current });
       emit({ type: "assistant_text_delta", delta: "Looked.\n" });
       emit({ type: "assistant_response_end", stopReason: "stop" });
@@ -176,6 +178,39 @@ test("a picture file dropped at the start of the line is a request, not a comman
     expect(f.prompts[0]!.text).toContain("[image 1] why is this broken?");
     expect(f.prompts[0]!.images).toHaveLength(1);
   } finally {
+    f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
+  }
+});
+
+test.skipIf(process.platform === "win32")("a macOS screenshot dropped at the start of a line during work waits as a draft, then goes as a picture", async () => {
+  const hold = Promise.withResolvers<void>();
+  const f = await fixture({ vision: true, hold: hold.promise });
+  // The name macOS gives a screenshot has U+202F before PM; the terminal escapes only the ASCII spaces.
+  const shot = path.join(path.dirname(f.shot), "Screenshot 2026-10-10 at 2.17.38\u202FPM.png");
+  await writeFile(shot, PNG);
+  const app = f.make(true);
+  const interactive = app.runInteractive(f.project);
+  try {
+    await f.screen.until((output) => output.includes("idle"));
+    f.input.write("hello\r");
+    await f.screen.until(() => f.prompts.length === 1);
+    f.input.write(`${shot.replaceAll(" ", "\\ ")}  i like it\r`);
+    // The AI reads a line during work as text only: the line stays in the prompt instead.
+    await f.screen.until((output) => output.includes("Your picture waits until this task ends · draft kept"));
+    expect(f.screen.output).not.toContain("Unknown command");
+    hold.resolve();
+    await f.screen.until(idleAfter("Looked."));
+    const sent = f.screen.output.length;
+    f.input.write("\r");
+    // Idle again before /exit is typed: a line typed while the task ends, before the prompt reopens, stays a draft.
+    await f.screen.until((output) => idleAfter("Looked.")(output.slice(sent)));
+    expect(f.prompts).toHaveLength(2);
+    expect(f.prompts[1]!.text).toContain("[image 1]  i like it");
+    expect(f.prompts[1]!.text).toContain(`[image 1] is the file ${shot}`);
+    expect(f.prompts[1]!.images).toEqual([{ data: PNG.toString("base64"), mimeType: "image/png" }]);
+    expect(f.screen.output).not.toContain("Unknown command");
+  } finally {
+    hold.resolve();
     f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
   }
 });
