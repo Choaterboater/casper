@@ -173,7 +173,7 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 
 ## What's new
 
-v0.2.31: the AI's steps tick in under its words and fold into one row that names what was done (edits and failures get a box), one status row above the prompt says what runs and that Esc stops it, the shell sandbox is off unless you turn it on (`sandbox: on`, `/sandbox on`), so the AI's shell asks first and checks run with your own permissions, Pi 1.1.0 brings Claude Sonnet 5.5, Claude Haiku 5.5 and GPT-6.1 Sol, a Claude plan sign-in works with Opus 5.5 (and with newer models once the Claude Code installed here knows them), `/model` opens on the providers, and the network server is 0.1.3.
+v0.2.31: the AI's steps tick in under its words and fold into one row that names what was done (edits and failures get a box), one status row above the prompt says what runs and that Esc stops it, the shell sandbox is off unless you turn it on (`sandbox: on`, `/sandbox on`), so the AI's shell asks first and checks run with your own permissions, Pi 1.1.0 brings Claude Sonnet 5.5, Claude Haiku 5.5 and GPT-6.1 Sol, a Claude plan sign-in works with Opus 5.5 (and with newer models once the Claude Code installed here knows them), `/model` opens on the providers, a model server on another computer (`OLLAMA_HOST` and the like) is found or Casper says why, and the network server is 0.1.3.
 [Release notes](docs/RELEASE.md#v0231-steps-under-the-ais-words-the-sandbox-off-unless-you-turn-it-on-and-pi-110) ·
 [Roadmap](https://choaterboater.github.io/casper/roadmap.html).
 

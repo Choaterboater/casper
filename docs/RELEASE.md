@@ -15,8 +15,8 @@ new version.
 The screen groups the work: the AI's steps tick in under its words, then fold into one row that names what was
 done, with edits and failures in a box. The shell sandbox is off unless you turn it on: until then the AI's shell
 asks before commands that change things, and your checks run with your own permissions. Casper runs on Pi 1.1.0, a
-Claude plan sign-in works with Opus 5.5 (and with newer models once the Claude Code installed here knows them), and
-`/model` opens on the providers.
+Claude plan sign-in works with Opus 5.5 (and with newer models once the Claude Code installed here knows them),
+`/model` opens on the providers, and a model server on another computer is found, or Casper says why.
 
 - Steps tick in under the AI's words, then fold into one row naming what was done, with edits and failures in a box
 - One status row above the prompt says what runs and that Esc stops it; the Working box is gone
@@ -25,6 +25,7 @@ Claude plan sign-in works with Opus 5.5 (and with newer models once the Claude C
 - Pi 1.1.0: Claude Sonnet 5.5, Claude Haiku 5.5 and GPT-6.1 Sol in `/model`, and a busy provider is tried again
 - A Claude plan sign-in works with Opus 5.5, and its requests name the Claude Code installed here when it is newer
 - `/model` opens on the providers; `/model <words>` still opens on the list
+- A model server on another computer (`OLLAMA_HOST` and the like) gets 10 s to answer, and Casper says in plain words why one didn't
 - casper-network-mcp 0.1.3 is the version Casper ships with
 - A file or branch name with `login` in it is not taken for a login, words in a link don't pick a skill, the contrast note reads Tailwind v4 colours, and a test that timed out in the middle of a long run asks instead of starting a repair
 
@@ -110,6 +111,22 @@ press. Ctrl+S on the providers picks the list's marked row for this session only
 the keys for the side you are on, such as `Up/Down providers · Enter or Tab models · type to search · Esc cancels`
 on the left. Picking from a plain `/model` takes one more key, since Enter on the providers moves to the list. When
 `/model <words>` opens the picker, it still opens on the list, already searched, so Enter picks at once.
+
+**A model server on another computer.** Ollama, LM Studio, llama.cpp or vLLM on another computer (a box on your
+network or a Tailscale peer) shows in `/model` when you point its variable at it, in the shell that starts Casper:
+`OLLAMA_HOST=192.0.2.10`, `LM_STUDIO_BASE_URL=http://192.0.2.10:1234`, `LLAMA_CPP_BASE_URL=…` or `VLLM_BASE_URL=…`.
+A server on another computer gets 10 s to answer, one on this computer keeps 0.8 s, and each is looked at on its
+own, so a slow or switched-off box never holds up the others, a line you type, or a start whose saved model is a
+cloud one. When one doesn't answer, Casper says why in plain words, such as
+`Ollama at http://192.0.2.10:11434 (OLLAMA_HOST) refused the connection (nothing is listening on that port).`:
+at your first request, under the header in `/model`, in `casper doctor`, and as the reason a saved model is
+unavailable. For another computer it adds what to set there (`OLLAMA_HOST=0.0.0.0 ollama serve`, LM Studio's
+**Serve on Local Network**, `--host 0.0.0.0`, the firewall), and that these servers have no password by default. A
+model typed by name
+(`/model ollama/qwen3:8b`), a `/model` with nothing to list, and a request on a saved model whose server was
+asleep at the start (a VPN not up yet) look once more. A found server that answers with a redirect gets an error,
+so your conversation is never sent on to another address (a provider you set up in `models.json` is not covered).
+A server on another computer is never picked as your model for you; pick it in `/model`.
 
 **Network server 0.1.3.** Casper now ships with casper-network-mcp 0.1.3 and its hash lock. Setting it up says
 `Casper can set up its network server (casper-network-mcp 0.1.3, about 60 MB from pypi.org, installed with uv into ~/.casper/tools).`

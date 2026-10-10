@@ -131,6 +131,10 @@
             new models work without a new Casper.</li>
             <li><strong><code>/model</code> opens on the providers.</strong> Enter, Tab or Right goes to the list, and
             Esc cancels from either side; <code>/model &lt;words&gt;</code> still opens on the list.</li>
+            <li><strong>A model server on another computer.</strong> Ollama, LM Studio, llama.cpp or vLLM that
+            <code>OLLAMA_HOST</code> and the like point at gets 10 s to answer; when one doesn't, <code>/model</code>,
+            the first request and <code>casper doctor</code> say why in plain words, with what to set on that
+            computer. It is never picked for you, and a redirect from it is refused.</li>
             <li><strong>Network server 0.1.3</strong> is the version Casper ships with, offered with
             <code>1 Not now · 2 Update it</code> if Casper set up 0.1.2.</li>
             <li><strong>Smaller fixes.</strong> A file or branch name with <code>login</code> in it is not taken for a
