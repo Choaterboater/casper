@@ -7,6 +7,7 @@ import { READ_ONLY_STATE_CONFLICT } from "./types";
 import { matchConversation } from "../sessions/resume";
 import { PiModels } from "./pi-models";
 import { localServers, registerLocalServers } from "./local-models";
+import { applyClaudeCodeVersion } from "./claude-code-version";
 import { registerClaudeSubscription } from "./claude-subscription";
 import { authenticatePi } from "./pi-auth";
 import { applyOpenRouterAttribution, isOpenRouterModel } from "./openrouter-attribution";
@@ -751,6 +752,8 @@ export class PiRuntime implements AgentRuntime {
         // CASPER_TELEMETRY=0 or telemetry: off there is none to add, and the runtime's is taken out too.
         pi.on("before_provider_headers", (event, ctx) => {
           if (isOpenRouterModel(ctx.model)) applyOpenRouterAttribution(event.headers);
+          // A Claude plan sign-in names a Claude Code version; Anthropic refuses newer models to an old one.
+          if (ctx.model?.provider === "anthropic" && ctx.modelRegistry.isUsingOAuth(ctx.model)) applyClaudeCodeVersion(event.headers);
         });
         if (bounded) pi.on("tool_call", (event) => {
           if (bounded.signal.aborted) {

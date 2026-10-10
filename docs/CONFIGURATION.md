@@ -521,6 +521,12 @@ Without that login, the provider remains registered but is not offered as authen
 The existing `anthropic` provider, `/login anthropic`, and saved defaults are
 unchanged. `/logout` in Casper does not sign out Claude Code.
 
+With a Claude plan sign-in through the `anthropic` provider, requests name a Claude Code version, and
+Anthropic refuses newer models to an old one (`Claude Code 2.1.251 does not support this model`). When
+Claude Code is installed here and newer than the version Pi names, Casper names the installed one, so a
+Claude Code update keeps new models working without a Casper release. Without Claude Code here, Pi's
+version is used.
+
 Executable discovery uses `claude` on macOS/Linux and `claude.exe` on native Windows. The Windows
 npm `.cmd` shim is not supported: use the native Claude Code installation. `CASPER_CLAUDE_PATH`
 can name the installed executable explicitly, including a path with spaces. Compiled Casper uses
