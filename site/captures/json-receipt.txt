@@ -1,4 +1,4 @@
-# Casper 0.2.29 · --json: one JSON object per line on stdout; the last line is the receipt
+# Casper 0.2.30 · --json: one JSON object per line on stdout; the last line is the receipt
 # (the model here is the scripted stand-in; checks, proof and receipt are real)
 
 $ casper --json "fix the sum bug in src/sum.js" > ../run.jsonl

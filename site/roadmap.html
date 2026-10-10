@@ -57,6 +57,7 @@
         <ul>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0230">v0.2.30: Claude through Claude Code, pages the AI makes, fewer wasted repairs</a></li>
               <li><a href="#v0229">v0.2.29: commands during a task, models on this computer, sign-ins from other tools</a></li>
               <li><a href="#v0228">v0.2.28: one table of commands, screens that say things once, git push with your login</a></li>
               <li><a href="#v0227">v0.2.27: skill packs, colour themes, a clickable /mcp, pasted pictures and files</a></li>
@@ -77,13 +78,7 @@
               <li><a href="#v010">v0.1.0: the first preview</a></li>
             </ul>
           </li>
-          <li><a href="#next">Next release, built, not released</a>
-            <ul>
-              <li><a href="#network-releases">Network server updates between Casper releases</a></li>
-              <li><a href="#model-words">A model by its name in words</a></li>
-              <li><a href="#ai-pages">Pages the AI makes</a></li>
-            </ul>
-          </li>
+          <li><a href="#next">Next release, built, not released</a></li>
           <li><a href="#coming">Planned, not started</a>
             <ul>
               <li><a href="#v030">v0.3: crews</a></li>
@@ -110,8 +105,38 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <article class="card" id="v0230" aria-labelledby="v0230-h">
+          <h3 id="v0230-h">v0.2.30 · Claude through Claude Code, pages the AI makes, fewer wasted repairs <span class="badge ok">current preview</span></h3>
+          <p>Claude models can run through the Claude Code signed in on this computer, the AI makes a page in your
+          browser when seeing beats reading, and a check that failed for a reason the code can't fix asks you
+          instead of starting repairs.</p>
+          <ul>
+            <li><strong>Claude through Claude Code.</strong> <code>/model claude-subscription/claude-opus-4-8</code>
+            sends requests through the official Claude Agent SDK and the <code>claude</code> program (<code>claude.exe</code>
+            on Windows) signed in on this computer. Claude Code keeps its sign-in; Casper never reads it, and still runs
+            every tool with its approvals and sandbox. How a plan counts these requests is Anthropic's decision.</li>
+            <li><strong>Pages the AI makes.</strong> Options side by side, a mock-up, a dashboard or a report opens in
+            your browser from a local server on <code>127.0.0.1</code>; <code>/pages</code> lists, opens and removes
+            them. <strong>Pages the AI makes</strong> and <strong>Open pages in the browser</strong> in
+            <code>/settings</code> turn them off.</li>
+            <li><strong>Fewer wasted repairs.</strong> A check the sandbox blocked asks at once to run outside it, even
+            when the refusal sits in the middle of a long run. A test that hit its own time limit asks
+            <code>1 Stop · 2 Retry · 3 Fix it anyway</code>: often a busy computer, not the code.</li>
+            <li><strong><code>/sandbox off</code></strong> turns the sandbox off until Casper exits;
+            <code>/sandbox on</code> puts it back.</li>
+            <li><strong>A model by its name in words.</strong> <code>/model opus 5.5</code>, and a typed
+            <code>change model to opus 5.5</code>, pick the model with no model call.</li>
+            <li><strong>A plan you can read.</strong> <code>/plan</code> shows what you'll see, plain steps and one
+            line for the tests; the files and functions are one key away (Ctrl+T).</li>
+            <li><strong>Network server updates</strong> between Casper releases, from the hash lock attached to each
+            casper-network-mcp release, with <code>1 Not now · 2 Update it</code>.</li>
+            <li><strong>Helpers with GPT models.</strong> A tool field sent as <code>null</code> counts as not given, so
+            explorers, reviewers and builders work with GPT models through GitHub Copilot.</li>
+          </ul>
+        </article>
+
         <article class="card" id="v0229" aria-labelledby="v0229-h">
-          <h3 id="v0229-h">v0.2.29 · Commands during a task, models on this computer, sign-ins from other tools <span class="badge ok">current preview</span></h3>
+          <h3 id="v0229-h">v0.2.29 · Commands during a task, models on this computer, sign-ins from other tools <span class="badge">released</span></h3>
           <p>Every command runs during a task, a model server on your own computer shows in <code>/model</code> by
           itself, and <code>/login</code> offers a sign-in another coding tool left on this computer.</p>
           <ul>
@@ -610,51 +635,15 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Built on the main branch after v0.2.29; it ships with the next preview.</p>
-          <p><code>/plan</code> shows a plan for a person, with what you'll see (a small mock-up when the change is on screen), plain steps and one line for the tests; the files and functions stay one key away (Ctrl+T). After Edit the plan, only what you changed and your note are shown.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.30. New work shows here before the next preview.</p>
         </aside>
-        <article class="card" id="network-releases" aria-labelledby="network-releases-h">
-          <h3 id="network-releases-h">Network server updates between Casper releases · a network fix reaches you without a new Casper <span class="badge soon">built, not released</span></h3>
-          <p>Once a day Casper asks GitHub whether <a href="https://github.com/Choaterboater/casper-network-mcp">casper-network-mcp</a>
-          has a release newer than the one installed, and offers it the usual way:
-          <code>network: update ready (0.1.2 → 0.1.3)</code> and <code>1 Not now · 2 Update it</code>. It installs from the
-          hash lock attached to that release, checked first, with the same <code>uv</code> hash-locked install as the version
-          Casper ships with, which stays the floor and the offline fallback. Only the server Casper set up is updated, never
-          one you run from your own checkout. <strong>Network server updates</strong> in <code>/settings</code>,
-          <code>tools: { downloads: off }</code> or <code>CASPER_OFFLINE=1</code> turns it off.</p>
-        </article>
-        <article class="card" id="model-words" aria-labelledby="model-words-h">
-          <h3 id="model-words-h">A model by its name in words <span class="badge soon">built, not released</span></h3>
-          <ul>
-            <li><strong><code>/model opus 5.5</code></strong> picks the model the words name, with no model call:
-            case, dots and spaces do not matter, and <code>/model opus</code> is the newest Opus. Words that name
-            several ask which by number; words that name none list the closest few.</li>
-            <li><strong>A typed line that only asks to change the model</strong>, such as
-            <code>change model to opus 5.5</code> or <code>switch to sonnet 5</code>, is done here with no model call,
-            also during a task, and says so. Anything else, such as
-            <code>change the model class in models.py</code>, goes to the AI as before.</li>
-          </ul>
-        </article>
-        <div class="stack">
-        <article class="card" id="ai-pages" aria-labelledby="ai-pages-h">
-          <h3 id="ai-pages-h">Pages the AI makes · see it, don't read it <span class="badge soon">built, not released</span></h3>
-          <p>When a picture answers better than text (options side by side, a mock-up, a dashboard of results, a
-          report someone else will read), the AI makes a page by itself and it opens in your browser at
-          once: <code>[page] db-options → http://127.0.0.1:52144/db-options.html</code>. A change reloads the open tab.
-          <code>/pages</code> lists them, <code>/pages open</code> and <code>/pages remove</code> work during a task.
-          Pages stay on this computer: a local server on <code>127.0.0.1</code>, a strict policy that keeps a page
-          from fetching from other sites, and nothing served outside the pages folder. Over SSH or with no desktop Casper
-          prints the link. <strong>Pages the AI makes</strong> and <strong>Open pages in the browser</strong> in
-          <code>/settings</code> turn them off. Sharing a page beyond your computer comes later, and will ask first.</p>
-        </article>
-        </div>
       </section>
 
       <section id="coming" aria-labelledby="coming-h">
         <h2 id="coming-h">Planned, not started</h2>
         <aside class="callout soon">
           <strong class="callout-title">Not in any release yet</strong>
-          <p>Nothing else in this section is in v0.2.29: the first part of Crews shipped in v0.2.23, AI-started
+          <p>Nothing else in this section is in v0.2.30: the first part of Crews shipped in v0.2.23, AI-started
           builders in v0.2.24, reviewers and a fix round in v0.2.25, and the rest has not been started. Names, commands and details may change, or move to a later version, before
           they ship.</p>
         </aside>
@@ -834,7 +823,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.29</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.30</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

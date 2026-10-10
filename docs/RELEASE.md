@@ -4,11 +4,77 @@
 published, and what the installers promise. **When you'd use it:** to see what is new
 before you upgrade, or when you build or publish a release yourself.
 
-Casper distributes an unsigned **v0.2.29 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.29`,
+Casper distributes an unsigned **v0.2.30 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.30`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.30: Claude through your Claude Code sign-in, pages the AI makes, and fewer wasted repairs
+
+Claude models can run through the Claude Code installed and signed in on this computer, the AI makes a page in
+your browser when seeing beats reading, and a check that failed for a reason the code can't fix (the sandbox, a
+busy computer) asks you instead of starting paid repairs. `/sandbox off` turns the sandbox off for a session,
+`/model opus 5.5` takes a model by its name in words, and the network server updates between Casper releases.
+
+- `claude-subscription`: Claude models through Claude Code's own sign-in, on Mac, Linux and Windows
+- Pages the AI makes: options side by side, a mock-up, a dashboard, a report; `/pages` lists, opens and removes them
+- A check the sandbox blocked asks at once to run outside it; a test that hit its own time limit asks Stop, Retry or Fix it anyway
+- `/sandbox off` and `/sandbox on` for this session
+- `/model opus 5.5` and a typed `change model to opus 5.5` pick the model, with no model call
+- `/plan` shows a plan for a person: what you'll see, plain steps, one line for the tests
+- casper-network-mcp updates between Casper releases, from the hash lock attached to its release
+- Helpers work with models that send unused tool fields as `null` (GPT models through GitHub Copilot)
+
+**Claude through your Claude Code sign-in.** `/model claude-subscription/claude-opus-4-8` (or any Claude model
+under that provider) sends requests through the official Claude Agent SDK and the `claude` program (`claude.exe` on
+Windows) already installed and signed in on this computer. Claude Code keeps the sign-in, its renewal and its own
+request details; Casper never reads or stores them, and `CASPER_CLAUDE_PATH` names the program when it is not on
+your PATH. The models show as available only when `claude auth status` says Claude Code is signed in. API key,
+gateway and cloud settings in the environment are cleared for that program, so a request never falls back to API
+billing. Casper still runs every tool itself, with its approvals and sandbox: the SDK sees the tool list, and each
+tool call comes back to Casper. The `anthropic` provider is unchanged. Each turn replays the conversation as text
+rather than keeping one Claude Code conversation open. How your plan counts these requests is Anthropic's
+decision; Claude's usage page shows it.
+
+**Pages the AI makes.** When a picture answers better than text, the AI makes a page by itself and it opens in
+your browser: `[page] db-options → http://127.0.0.1:52144/db-options.html`. A change reloads the open tab.
+`/pages` lists them, and `/pages open` and `/pages remove` also work during a task. Pages stay on this computer: a
+local server on `127.0.0.1`, a policy that keeps a page from fetching from other sites, and nothing served outside
+the pages folder. Over SSH or with no desktop, Casper prints the link. **Pages the AI makes** and **Open pages in the
+browser** in `/settings` (`ai_pages: off`, `open_pages: off`) turn them off; a project file can't.
+
+**Fewer wasted repairs.** A check the sandbox blocked is now found in its whole output, not only the start and end
+Casper keeps: an `EPERM` in the middle of a long test run, or `out of pty devices`, asks `Run this project's checks
+outside the sandbox?` after the first run instead of after three repairs. A check that ran to the end but in which
+a test hit its own time limit (bun's `this test timed out after`, Jest, Vitest, Mocha, pytest-timeout) is
+unfinished, not a bug: `test: a test in it timed out (often a busy machine, not the code). Casper did not try to
+fix it. What now?` with `1 Stop · 2 Retry · 3 Fix it anyway`.
+
+**`/sandbox off` and `/sandbox on`.** `/sandbox off` turns the shell sandbox off until Casper exits: shell commands
+and checks run with your own permissions. While it is off, the status line and receipt say `not sandboxed (/sandbox
+off for this session; /sandbox on puts it back)`. `/sandbox on` can't undo `sandbox: off` in your config or `--no-sandbox`, and
+says why.
+
+**A model by its name in words.** `/model opus 5.5` picks the model the words name; case, dots and spaces don't
+matter, and `/model opus` is the newest Opus. Words that name several ask which by number; words that name none
+list the closest few. A typed line that only asks to change the model (`change model to opus 5.5`) is done with no
+model call, also during a task.
+
+**A plan you can read.** `/plan` shows what you'll see first (a small mock-up when the change is on screen), plain
+steps and one line for the tests; the files and functions stay one key away (Ctrl+T). After Edit the plan, only
+what you changed and your note are shown.
+
+**Network server updates.** Once a day Casper asks GitHub whether casper-network-mcp has a release newer than the
+one installed and offers it: `network: update ready (0.1.2 → 0.1.3)` with `1 Not now · 2 Update it`. It installs
+from the hash lock attached to that release, checked first; the version Casper ships with stays the floor and the
+offline fallback. **Network server updates** in `/settings` (`network_updates: off`), `tools: { downloads: off }` or
+`CASPER_OFFLINE=1` turns it off.
+
+**Helpers with GPT models.** Some models send every tool field and fill the unused ones with `null`; `delegate`
+refused `of: null`, so the AI lost its explorers, reviewers and builders. A field sent as `null` now counts as not
+given. For contributors, `CASPER_LOCAL_MODELS=off` keeps a run from looking for a model server on this computer,
+and the test suite sets it.
 
 ## v0.2.29: commands during a task, models on this computer with no setup, and sign-ins from other tools
 
