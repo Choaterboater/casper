@@ -75,7 +75,7 @@ file and set no variable.
    Casper asks once:
 
    ```text
-   Casper can set up its network server (casper-network-mcp 0.1.2, about 60 MB from pypi.org, installed with uv into ~/.casper/tools).
+   Casper can set up its network server (casper-network-mcp 0.1.3, about 60 MB from pypi.org, installed with uv into ~/.casper/tools).
    It starts read-only. Logins are asked per product the first time you use it.
    → 1 Not now
      2 Set it up

@@ -1,7 +1,7 @@
 # Casper 0.2.30 · /mcp setup network asks once before it installs anything; 1 (or Esc) is Not now
 
 ❯ /mcp setup network
-Casper can set up its network server (casper-network-mcp 0.1.2, about 60 MB from pypi.org, installed
+Casper can set up its network server (casper-network-mcp 0.1.3, about 60 MB from pypi.org, installed
 with uv into ~/.casper/tools).
 It starts read-only. Logins are asked per product the first time you use it.
 → 1 Not now
