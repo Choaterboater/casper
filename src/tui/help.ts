@@ -205,7 +205,7 @@ Local commands:
   /exit, /quit                      Exit interactive mode (during a task it stops the task first, like Ctrl+C twice); no-op in one-shot mode
 
 Unknown slash commands are rejected locally, never sent to a model.
-/model: Enter selects and saves ~/.casper/settings.json; Ctrl+S selects for this session only. Exact IDs are remembered too; /model --session <id> opts out.
+/model opens on the providers (Up/Down picks whose models show; Enter, Tab or Right goes to the list). Enter selects and saves ~/.casper/settings.json; Ctrl+S selects for this session only. Exact IDs are remembered too; /model --session <id> opts out.
 During a task, /model and /effort apply from the model's next step; the step already running keeps its model and effort.
 During a task every command runs at once, with whatever follows it (/permissions all, /settings, /login, /memory remember ...); a picker or question it opens closes when the task asks you something. Only the ones that would change the task's conversation, workspace or files, or start model work of their own, wait for it: /clear, /new, /resume, /compact, /undo, /redo, /branch <name>, /switch, /project <name>, /project new, /plan, /verify, /security-review, /delegate, /crew. Esc stops the task.
 Words you type at the start of a request, then : , or a new line, set that task only and are not sent to the model: think hard (top effort), quick (low effort), big model or use the big model (your big model, the reason role), fast model or use the fast model (your fast role), plan first (like /plan). ultrathink anywhere in your line is top effort too. Casper says what each word did in one line, and again when it goes back. Pasted text never counts, and words never grant permission.

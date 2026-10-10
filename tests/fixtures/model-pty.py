@@ -29,7 +29,7 @@ def exercise(bun, repo, root, no_color=False):
         s.until("│ idle")  # Wait for the raw editor, not just the startup banner.
         draft = "x" * 95
         s.send("/model\n" + draft + "\x1b[D\x1b[D")
-        s.until("Enter remember · Ctrl+S this session only")
+        s.until("Up/Down providers")  # It opens on the providers; typing goes to the search.
         s.send("second")
         s.until("second · fixture/second")
         s.send("\x13")  # Ctrl+S is the explicit session-only alternative.

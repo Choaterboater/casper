@@ -362,15 +362,16 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
 
 - `/model`: Casper's full-screen model browser. Typing searches the models; each row shows the
   context size, price and `reasoning`/`vision` tags, with the current model first and your default
-  next, and the line under the list sums up the highlighted one. Tab moves to the providers on the
-  left (`All models`, then each provider): Up/Down there picks whose models show, and Enter or
-  typing goes back to the list. `/model <part of a name>` opens it already searched.
+  next, and the line under the list sums up the highlighted one. It opens on the providers on the
+  left (`All models`, then each provider): Up/Down there picks whose models show, and Enter, Tab or
+  Right moves to the list (Tab goes back). Typing searches from either side. `/model <part of a
+  name>` opens it already searched, on the list, so Enter picks at once.
   It refreshes the provider lists in the background and keeps the saved rows when that fails,
   saying why in a few words: `Your anthropic sign-in expired. Run /login to sign in again; showing
   saved models.`, or `Could not refresh openrouter (HTTP 503); showing saved models.`, never the
   provider's URL or stack.
   **Enter remembers globally** in Casper's settings; **Ctrl+S selects for this session
-  only**. Esc cancels. `/effort` with no level is the same numbered list as every other
+  only** (from the providers too: it picks the list's marked model). Esc cancels from either side. `/effort` with no level is the same numbered list as every other
   choice: press a level's number (or Up/Down and Enter) to remember it; Ctrl+S picks it for
   this session only.
 - A fresh interactive session clears the viewport at startup: the new session renders from

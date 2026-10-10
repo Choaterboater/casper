@@ -20,7 +20,7 @@ try:
     s.until("ctx 28%~")
     s.send("/model\n")
     s.until("All models")
-    s.send("\x1b[B\n")
+    s.send("\t\x1b[B\n")  # /model opens on the providers: Tab to the list, Down, Enter.
     s.until("Demo state: model=fixture/beta")
     s.send("/effort\n")
     s.until("Reasoning effort")
