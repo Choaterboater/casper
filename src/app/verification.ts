@@ -92,15 +92,16 @@ export async function runVerification(app: CasperApp, checks: readonly CheckName
         if (app.taskRuntimeFailed && !app.taskRuntimeCancelled) throw new Error("Repair model stopped unsuccessfully; changes retained.");
         return back && big ? { model: big.label } : undefined;
       } : undefined,
-      onRepair: (attempt, max) => {
+      onRepair: (attempt, max, notes) => {
         app.repairsTried = attempt;
-        // The granted extra try, or the last one with repair.bigModelLastTry on, runs on the big model.
+        // The granted extra try, or the last one with repair.bigModelLastTry on, runs on the big model; a turn that
+        // only fixes page notes never does.
         const granted = app.bigModelGrant;
         app.bigModelGrant = undefined;
-        const setting = attempt === max && context.repair.bigModelLastTry === true && app.session ? bigModelOf(app, app.session) : undefined;
+        const setting = !notes && attempt === max && context.repair.bigModelLastTry === true && app.session ? bigModelOf(app, app.session) : undefined;
         app.repairOnBigModel = granted ?? (setting ? { query: "@reason", label: setting.label } : undefined);
         const on = app.repairOnBigModel;
-        app.output.write(`↻ repair ${attempt}/${max}${on ? ` on ${on.oneOff ? "" : "your big model "}${terminalText(on.label)}` : ""}\n`);
+        app.output.write(`↻ ${notes ? "page notes" : "repair"} ${attempt}/${max}${on ? ` on ${on.oneOff ? "" : "your big model "}${terminalText(on.label)}` : ""}\n`);
       },
       // Out of tries: one numbered offer to try once more on the big model. Only a person answers it; one-shot
       // and --json runs never get it, so they never spend on a bigger model on their own.

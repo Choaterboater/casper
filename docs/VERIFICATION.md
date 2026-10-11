@@ -679,21 +679,25 @@ few common misses with its own small rules (no third-party script): images with 
 is fine for decoration), fields with no label (a placeholder is not a label), buttons with no name,
 text below WCAG AA contrast against its background (4.5:1, or 3:1 for text of 24 px, or 18.66 px bold;
 in any CSS colour, Tailwind v4's `oklch()` too, naming the worst pair), and a page with no `lang`. They
-show as one note under the page line and never fail the page or start a repair:
+show as one note under the page line and never fail the page. When a page has notes and repair is on
+with a try left, the model gets one repair turn per task with only those notes ("fix only these; don't
+weaken checks"), shown as `↻ page notes 1/3` and never on your big model, then the pages are checked
+once more; a clean page asks the model nothing:
 
 ```text
 ✓ /signup loads · 0 console errors
   • /signup: 2 inputs have no label · 1 image has no alt text · the page has no lang
 ```
 
-They cost no model tokens and need Chrome; `pages: off` turns them off with the rest of the check.
+Finding them costs no model tokens; only that one turn does. They need Chrome; `pages: off` (or
+verification off) turns them off with the rest of the check.
 
 **Look notes.** The same way, Casper names what a person would see wrong: images that didn't load (by
 `src`), one picture used on two or more items of a repeated group such as product cards (icons under
 48 px left out), and at phone width the first elements that run past the screen's right edge (not
 inside a box that scrolls sideways on purpose) and links, buttons and inputs smaller than 44×44 px (a
 link inside a sentence is left out). They are one note above the accessibility one, and nothing when
-the page is clean:
+the page is clean. They go to the model in the same one repair turn as the accessibility notes:
 
 ```text
 ✓ /shop loads · 0 console errors

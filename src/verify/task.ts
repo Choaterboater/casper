@@ -129,6 +129,8 @@ export class VerificationTask {
   private readonly inputEdits = new Map<CheckName, number>();
   private readonly controller = new AbortController();
   private closed = false;
+  /** The task's one page-notes turn was sent: later runs (after a review or look edit) never send another. */
+  pageNotesSent = false;
   private pending: Promise<unknown> = Promise.resolve();
 
   constructor(
