@@ -81,7 +81,8 @@ class Session:
             "command": bun, "args": [str(repo / "tests/fixtures/mcp-server.ts")]
         }}}))
         # A model server running on this machine (Ollama and the like) must not change what these screens show.
-        (home / ".casper/config.yaml").write_text("localModels: false\n")
+        # This fixture exercises the connect, writes and change boxes, so its server waits for /mcp connect.
+        (home / ".casper/config.yaml").write_text("localModels: false\nmcp_autoconnect: off\n")
         if setup: setup(home, project)
         self.master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 100, 80, 0, 0))

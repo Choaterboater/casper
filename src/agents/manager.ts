@@ -74,7 +74,7 @@ export interface BuilderRunOptions {
   goal: string;
   projectContext: string;
   context?: string;
-  /** The session's sandbox around the copy, with nobody to ask (see src/crew/shell.ts). */
+  /** The session's sandbox around the copy; its questions come to your box (see src/crew/shell.ts). */
   shell?: RuntimeShell;
   /** The folder the copy was made from: your private paths inside it are private in the copy too. */
   main?: string;
@@ -145,7 +145,7 @@ export interface BuildOutcome {
 
 /** The delegate tool's builder mode: a helper that edits in its own copy, its change applied when it ends. */
 export interface DelegateBuilders {
-  /** Why builders are not offered here (not a Git repository, no sandbox, turned off); unset when they are. */
+  /** Why builders are not offered here (not a Git repository, the shell not ready, turned off); unset when they are. */
   off?: string;
   /** Why not now (the request said to work alone), asked at each call. */
   refuse?(): string | undefined;
@@ -271,7 +271,7 @@ function builderPrompt(options: BuilderRunOptions, timeoutMs: number): string {
     "- work only in this copy: read, edit and run commands here; nothing outside it",
     "- do not commit, push, or change git branches; Casper takes your changes from the copy",
     "- do not install or add dependencies; if one is missing, say so in your report",
-    "- anything that needs the person's OK is not run; you are told why. Go on without it and list it in your report",
+    "- a command that needs the person's OK is asked in their box; if it is declined or can't be asked, you are told why. Go on without it and list it in your report",
     "- run the project's fast checks for what you changed when it has them",
     `- budget: ${BUILDER_LIMITS.maxTurns} model turns, ${BUILDER_LIMITS.maxToolCalls} tool calls, ${duration(timeoutMs)}, then one tool-free turn to report`,
     "End with a short report: what you changed (files), which checks you ran and their results, and what is left or was skipped. Do not claim checks you did not run.",
@@ -547,8 +547,8 @@ export class SubagentManager {
 
   /**
    * A crew builder, started by Casper for /crew or the delegate tool's role builder: a child with the main model that
-   * may edit and run commands in its own copy of the project (`cwd`), with the session's sandbox around it and
-   * nobody to ask. It gets the built-in tools only: no MCP, delegate or crew. Builders have their own slots.
+   * may edit and run commands in its own copy of the project (`cwd`), with the session's sandbox around it; its
+   * commands that need a yes are asked in your box. It gets the built-in tools only: no MCP, delegate or crew. Builders have their own slots.
    */
   async runBuilder(input: BuilderRunOptions): Promise<SubagentResult> {
     const goal = requireString(input.goal, "goal", BUILDER_LIMITS.goalBytes);

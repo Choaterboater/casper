@@ -3,8 +3,8 @@
  *
  * After the receipt they are items on the receipt's non-blocking row, numbered after the row's own items
  * (1 Show diff · 2 Undo, then 3, 4, 5). There is never a blocking question after the receipt: typed text
- * is simply the next request. Before work, the plan-first suggestion is one numbered choice inside the
- * checklist panel, so there is still at most one panel before the model starts.
+ * is simply the next request. Before work, the plan-first suggestion is one line: the build starts at once,
+ * and the line says /plan shows the steps first next time.
  *
  * Nothing here calls a model. A suggestion that costs tokens says so before it is chosen.
  */
@@ -207,7 +207,7 @@ export function countAsks(request: string): number {
 
 export interface BeforeWorkSuggestion {
   id: "plan-first";
-  /** Why, for the panel's question: "this asks for 4 things". */
+  /** Why, for the line: "this asks for 4 things". */
   reason: string;
 }
 
@@ -237,51 +237,4 @@ export function suggestBeforeWork(request: string, classification: TaskClassific
   if (wordCount >= 60) return { id: "plan-first", reason: "this is a long request" };
   if (asks >= 2 && underSpecifiedTarget(request)) return { id: "plan-first", reason: "this asks for 2 things and names no file" };
   return undefined;
-}
-
-export type BeforeWorkChoice = "plan-first" | "build" | "edit";
-
-export interface BeforeWorkPanel {
-  question: string;
-  options: Array<{ label: string; description: string; choice: BeforeWorkChoice }>;
-}
-
-/**
- * The checklist panel with plan-first folded in as its first numbered choice: one panel before work.
- * 1 Plan first · 2 Just build (with the listed cases) · 3 Edit the cases first (only with cases).
- */
-export function beforeWorkPanel(suggestion: BeforeWorkSuggestion, cases: readonly string[] = []): BeforeWorkPanel {
-  const shown = cases.slice(0, 3).map(safe).join("; ");
-  const more = cases.length > 3 ? `; and ${cases.length - 3} more` : "";
-  return {
-    question: `Suggested: plan first — ${suggestion.reason}`,
-    options: [
-      { label: "Plan first", choice: "plan-first",
-        description: "the model reads and writes a plan and the cases to test; Casper blocks file changes it can see until you choose Build" },
-      { label: "Just build", choice: "build",
-        description: !cases.length ? "start now" : cases.length === 1 ? `with this case: ${shown}` : `with these ${cases.length} cases: ${shown}${more}` },
-      ...(cases.length ? [{ label: "Edit the cases first", choice: "edit" as const, description: "change, add or delete cases, then build" }] : []),
-    ],
-  };
-}
-
-export type BeforeWorkAnswer =
-  | { kind: BeforeWorkChoice }
-  /** Esc: build as listed; the suggestion counts as ignored. */
-  | { kind: "skipped" }
-  /** Free text typed into the panel: the host treats it as one more case to handle. */
-  | { kind: "typed"; text: string };
-
-/** The panel's answer (terminal.ask's result) as a choice. */
-export function readBeforeWorkAnswer(panel: BeforeWorkPanel, answer: readonly string[] | undefined): BeforeWorkAnswer {
-  const first = answer?.[0];
-  if (first === undefined) return { kind: "skipped" };
-  const option = panel.options.find((item) => item.label === first);
-  if (option) return { kind: option.choice };
-  const text = safe(first);
-  // A plain yes or no answers the question ("Suggested: plan first"); it is not one more case to test.
-  const word = text.toLowerCase().replace(/[.!]+$/, "");
-  if (/^(?:y|yes|yeah|ok|okay|sure|plan|plan it)$/.test(word)) return { kind: "plan-first" };
-  if (/^(?:n|no|nope|no thanks|not now|skip|build|just build it)$/.test(word)) return { kind: "build" };
-  return text ? { kind: "typed", text } : { kind: "skipped" };
 }

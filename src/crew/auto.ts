@@ -24,8 +24,9 @@ export interface AutoBuildHost {
   /** The project's rules and facts, as a helper gets them. */
   projectContext: string;
   runBuilder(options: BuilderRunOptions): Promise<SubagentResult>;
-  /** The builder's shell around its copy; `note` gets what was not run because it needed your OK. */
-  shell(copy: string, note: (line: string) => void): (RuntimeShell & { close(): Promise<void> }) | undefined;
+  /** The builder's shell around its copy, its questions named `label` ("Builder 2"); `note` gets what was not run
+   * because Casper couldn't ask you or you said no. */
+  shell(copy: string, note: (line: string) => void, label: string): (RuntimeShell & { close(): Promise<void> }) | undefined;
   /** One applied file, told to the session as the AI's own edit. */
   observeEdit(file: string): void;
   /** A line for the person ("[crew] ..."). */
@@ -53,11 +54,11 @@ export function builderSteerLine(steer: BuilderSteer): string | undefined {
 
 export const SOLO_REFUSAL = "The request said to work alone: no builders this task. Do the work yourself.";
 
-/** Why builders can't run here, or undefined when they can. */
+/** Why builders can't run here, or undefined when they can. "asks" (no sandbox holds commands): they run, and their
+ * commands that need a yes come to your box, as your own do. */
 export async function builderAvailability(input: { root: string; homeDir: string; off: boolean; sandbox: "ready" | "none" | "asks" }): Promise<string | undefined> {
   if (input.off) return "turned off in /settings";
   if (input.sandbox === "none") return "the shell is not ready";
-  if (input.sandbox === "asks") return "no sandbox runs here";
   const manager = await GitWorktreeManager.open(input.root, input.homeDir);
   if (!manager) return "not a Git repository";
   if (!(await manager.hasCommits())) return "the repository has no commits yet";
@@ -78,32 +79,34 @@ async function inTurn<T>(key: string, work: () => Promise<T>): Promise<T> {
 const shown = (text: string) => redactPreview(text).replace(/\s+/g, " ").trim();
 const message = (error: unknown) => shown(error instanceof Error ? error.message : String(error));
 
-/** The delegate tool's builders for this task. */
+/** The delegate tool's builders for this task, numbered as they start: "Builder 2" in its lines and box questions. */
 export function autoBuilders(host: AutoBuildHost, off: string | undefined, steer: BuilderSteer, parts = new PartRecord()): DelegateBuilders {
+  let started = 0;
   return {
     ...(off ? { off } : {}),
     refuse: () => steer === "solo" ? SOLO_REFUSAL : undefined,
-    run: (job) => runAutoBuilder(host, job, parts),
+    run: (job) => runAutoBuilder(host, { ...job, label: `Builder ${++started}` }, parts),
     parts,
     say: (line) => host.say(line),
   };
 }
 
 /** `parts` records what lands, so a reviewer can be given a part by number; without it parts have no number. */
-export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; context?: string; of?: number; signal?: AbortSignal }, parts?: PartRecord): Promise<BuildOutcome> {
+export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; context?: string; of?: number; signal?: AbortSignal; label?: string }, parts?: PartRecord): Promise<BuildOutcome> {
+  const label = job.label ?? "Builder 1";
   const manager = await GitWorktreeManager.open(host.root, host.homeDir);
   if (!manager) throw new Error("No builders here: this folder is not a Git repository");
   const id = randomBytes(3).toString("hex");
   const copy = await inTurn(manager.commonDir, async () => manager.create(await manager.planCrew(id, 1, host.root, { fromFolder: true })));
   const notRun: string[] = [];
   const note = (line: string) => { if (notRun.length < 12 && !notRun.includes(line)) notRun.push(shown(line)); };
-  const shell = host.shell(copy.path, note);
+  const shell = host.shell(copy.path, note, label);
   if (!shell) {
     await inTurn(manager.commonDir, () => manager.remove(copy)).catch(() => {});
     throw new Error("No builders here: this session's shell is not ready for them");
   }
   await linkDependencies(manager.primaryWorkspace, copy.path);
-  host.say(`A builder is working in its own copy (${copy.branch}): ${shown(job.goal).slice(0, 80)}`);
+  host.say(`${label} is working in its own copy (${copy.branch}): ${shown(job.goal).slice(0, 80)}`);
   let result: SubagentResult;
   try {
     result = await host.runBuilder({ cwd: copy.path, goal: job.goal, projectContext: host.projectContext, shell, main: manager.primaryWorkspace,
@@ -122,7 +125,7 @@ export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; c
     } };
   };
   const keep = (why: string, work?: WorktreePatch) => {
-    host.say(`A builder's work was not applied (${why}). It stays in its copy; /crew lists it.`);
+    host.say(`${label}'s work was not applied (${why}). It stays in its copy; /crew lists it.`);
     return outcome({ applied: [], ...(work ? { changedInCopy: work.files } : {}), kept: { copy: copy.path, why } });
   };
 

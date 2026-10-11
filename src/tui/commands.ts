@@ -105,7 +105,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     { name: "add", args: "<name>", description: "Save a ready-made check Casper found" },
   ] },
   { name: "security-review", description: "Run the pinned security tools here, then offer an AI review (asks first)", waits: ANY, subcommands: [
-    { name: "ai", description: "The same; where Casper can't ask, runs the AI review", waits: true },
+    { name: "ai", description: "The same, and runs the AI review with no box", waits: true },
     { name: "update", description: "Download osv-scanner's advisory data (asks first)" },
     { name: "ignores", description: "List ignores you approved; approve or remove them" },
   ] },
@@ -165,8 +165,8 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   ] },
   { name: "tasks", description: "What runs in the background (dev servers, helpers, checks); stop one", afterCleanupError: NONE,
     subcommands: [{ name: "stop", args: "<n>|all", description: "Stop one of them, or all", afterCleanupError: true }] },
-  { name: "debug", description: "Inspect local targets; approve launch and debug code", afterCleanupError: NONE, subcommands: [
-    { name: "start", args: "<target>", description: "Start the debugger and your program (asks first)" },
+  { name: "debug", description: "Inspect local targets; launch and debug code", afterCleanupError: NONE, subcommands: [
+    { name: "start", args: "<target>", description: "Start the debugger and your program (not sandboxed)" },
     { name: "breakpoints", args: "<path> <lines|clear>", description: "Replace one file's breakpoint lines" },
     { name: "threads", description: "Show threads" },
     { name: "stack", args: "<thread>", description: "One thread's stack" },
@@ -196,9 +196,9 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     { name: "import", args: "<file>", description: "Add devices to your lab list from a file (asks first)" },
     { name: "ssh", args: "on|off", description: "Whether ssh and scp to lab devices ask first" },
   ] },
-  // /branch <name> and /switch <name> run when typed (you asked for them); only /switch main apply|discard asks.
+  // /branch and /switch run when typed (you asked for them); /switch main apply|discard shows the diff first.
   { name: "branch", description: "Named conversations and workspaces; /branch <name> makes one and moves there", argumentHint: "[name]", afterCleanupError: NONE, waits: SOMETHING },
-  { name: "switch", description: "Go to a named conversation; /switch main apply|discard asks first", argumentHint: "<branch> [apply|discard]", waits: ANY },
+  { name: "switch", description: "Go to a named conversation; /switch main apply|discard shows the diff first", argumentHint: "<branch> [apply|discard]", waits: ANY },
   { name: "memory", description: "Manage explicit project facts and inspect task outcomes", afterCleanupError: NONE, subcommands: [
     { name: "remember", args: "<fact>", description: "Save a project fact (no model)" },
     { name: "forget", args: "<id>", description: "Remove a fact", aliases: FORGET_ALIASES },

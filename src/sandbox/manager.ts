@@ -74,6 +74,8 @@ export interface ShellSandboxOptions {
   store?: SandboxStore;
   /** A numbered question about one host; undefined when nobody can answer now (one-shot, --json, piped). */
   askHost?: (host: string) => Promise<HostAnswer> | undefined;
+  /** /permissions all is on: a host is allowed for this session without a question, while a builder's command runs too. */
+  stopAsking?: () => boolean;
   /** One numbered question about writes to folders (or, for the AI's tools, one file) outside the project (true
    * allows them for this session); undefined when nobody can answer now. Never remembered past the session. */
   /** true: for this session; "once": this one write or the next command. */
@@ -525,6 +527,8 @@ export class ShellSandbox {
     for (const hosts of this.runHosts.values()) if (hosts.includes(name)) return true;
     const pending = this.pendingHosts.get(name);
     if (pending) return pending;
+    // You said stop asking: the session yes it stands for counts whoever's command reaches out, a builder's included.
+    if (this.options.stopAsking?.()) { this.sessionHosts.add(name); return true; }
     const decision = (async () => {
       // The proxy can't tell whose command reaches out: while a builder's runs, nobody is asked.
       const builders = new Set(this.crewRuns.values());

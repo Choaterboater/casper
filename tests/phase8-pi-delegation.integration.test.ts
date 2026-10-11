@@ -115,6 +115,9 @@ try { await app.runInteractive(); } finally { await app.close(); }
   const result = await f.run([harness]);
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
   expect(result.stdout).not.toContain("[error]");
+  // Typing /switch main discard is the yes: what it drops is printed, and no box asks again.
+  expect(result.stdout).toContain("action: discard");
+  expect(result.stdout).not.toContain("Discard this candidate and return to main?");
   const worktree = result.stdout.match(/\[sessions\] active candidate · ([^\n]+)/)?.[1];
   expect(worktree).toContain(path.join(".casper", "worktrees") + path.sep);
   expect(f.payloads).toHaveLength(4);

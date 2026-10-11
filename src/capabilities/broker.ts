@@ -388,8 +388,10 @@ export class CapabilityBroker {
     const allCovered = needsApproval(plan) && !optedIn && this.allowAllOn(plan.server);
     // Risky kinds (firmware, delete, admin) are off by default: the user allows the kind first, then the change box asks.
     if (needsApproval(plan) && !optedIn && !allCovered) await this.allowRiskyKinds(capability, plan, combined);
+    // Your own server that started with writes on (My MCP servers), read fresh: past the kinds box, no change box.
+    const ownCovered = needsApproval(plan) && !optedIn && this.writesGate && this.manager.policy(plan.server).ownWrites === true;
     // Covered by the user's "Yes, for this session": approved without a box, so server questions still reach them.
-    const covered = allCovered || (needsApproval(plan) && !optedIn && this.sessionCovers(plan, capability));
+    const covered = allCovered || ownCovered || (needsApproval(plan) && !optedIn && this.sessionCovers(plan, capability));
     const writesBefore = this.writes(policy);
     // A plain Junos show the user hasn't opted into: the box can opt this server in for the session (changes still ask).
     const showOnly = guard === "ask" && !plan.routed.length && !plan.routerUnclear && aiConfirm(plan.arguments).length === 0
@@ -435,7 +437,7 @@ export class CapabilityBroker {
         throw new NotExecutedError(writesOffReason(capability.descriptor.source));
       }
       if (allCovered) this.onAllowAll?.(plan.server, realToolOf(plan));
-      else if (covered) this.onSessionCovered?.(plan.server, realToolOf(plan));
+      else if (covered && !ownCovered) this.onSessionCovered?.(plan.server, realToolOf(plan));
       if (answer && label !== "read") this.onChangeCall?.(plan.server, realToolOf(plan));
       // 6. Call, under the per-server call clock. Only an approved call may carry server questions to the user.
       raw = await this.manager.call(capability.descriptor.source, capability.tool.name, frozenArgs, combined,

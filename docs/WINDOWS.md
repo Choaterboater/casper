@@ -225,7 +225,8 @@ commands.
 - **MCP servers you already set up (new in 0.2.15):** Casper finds VS Code's
   `mcp.json` and `settings.json` in `%APPDATA%\Code\User` (and the Insiders folder),
   plus the other files listed in [MCP.md](MCP.md), such as `~/.mcp.json` in your user
-  folder. Each server needs one `/mcp connect` first.
+  folder. They connect when the session starts (**My MCP servers** in `/settings`; with it off,
+  each server needs one `/mcp connect` first).
 - **Remembered MCP approvals:** on Windows, Casper cannot check that
   `~/.casper/mcp-consent.key` is readable only by you (Windows has no such permission
   bits), so that check is skipped. See [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md).

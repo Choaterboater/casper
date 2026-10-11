@@ -53,6 +53,7 @@ function wordsRuntime(working?: Promise<void>) {
           status = { ...status, provider: picked!.provider, model: picked!.id };
           return { status, selected: true, savedDefault: options.persist !== false, ...(from ? { from } : {}) };
         },
+        setEffort: async (level: string) => { status = { ...status, thinkingLevel: level }; return status; },
         prompt: async (text: string) => { prompts.push(text); started.resolve(); await working; },
       };
     },
@@ -119,4 +120,20 @@ test("during a task: /model <words> and a typed \"switch to sonnet 5\" apply fro
     expect(app.screen()).not.toMatch(/sent to Casper|queued · runs when/);
     gate.resolve();
   } finally { gate.resolve(); await app.close(); }
+}, 30_000);
+
+test("while helpers are busy: /model and /effort change the main conversation's next turn and say helpers keep theirs", async () => {
+  const fake = wordsRuntime();
+  const app = await richApp(() => fake.runtime);
+  try {
+    await app.until(text => text.includes("idle"));
+    Object.defineProperty(app.app.subagents, "isBusy", { get: () => true });
+    app.input.write("/model opus 5.5\r");
+    await app.until(text => text.includes('[model] anthropic/claude-opus-5-5 (from "opus 5.5")'));
+    await app.until(text => text.includes("[model] Helpers already working keep their model; your next message uses this one."));
+    app.input.write("/effort low\r");
+    await app.until(text => text.includes("[effort] Helpers already working keep their effort; your next message uses this one."));
+    expect(app.screen()).not.toContain("Wait for active subagents");
+    expect(fake.prompts).toEqual([]);
+  } finally { await app.close(); }
 }, 30_000);

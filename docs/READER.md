@@ -16,7 +16,7 @@ It is on by default and costs nothing until the AI calls it. Each call is one sm
    command that only reads, such as `tail -n 500 logs/app.log`, run in the shell sandbox like the
    AI's own commands) or `mcp` (an MCP tool by id; its own approval box still applies).
 2. Casper reads the source. Paths follow the same rules as the AI's read tool: private places
-   (`~/.ssh`, your `sandbox.denyRead`) and links out of the project are refused. Secrets are hidden
+   (`~/.ssh`, your `sandbox.denyRead`) are refused, also through a link. Secrets are hidden
    before the text leaves.
 3. Your `fast` model reads it (the session's model when no fast model is set or signed in). The
    call has no tools. The text sits between markers that change every call, and the prompt says it

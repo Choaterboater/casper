@@ -51,6 +51,8 @@ export interface PermissionsView {
   writesSession: readonly string[];
   mcpWritesOn: readonly string[];
   mcpAllowAll: readonly string[];
+  /** Your own servers that started with writes on (My MCP servers): their changes run without the change box. */
+  mcpOwnWrites?: readonly string[];
   web: boolean;
   github: boolean;
   sshLogin: boolean;
@@ -82,7 +84,7 @@ export function permissionsSummary(view: PermissionsView): string {
     ...(view.sandboxOn ? [`  Hosts commands reach: ${view.listedHosts} listed, remembered: ${list(view.rememberedHosts)}; others: ${asks} · 4 at the box remembers one`] : []),
     `  Other machines (ssh, scp): ${asks} · remembered: ${list(view.reachHosts)}${lab} · 4 at the box remembers one`,
     `  Writes outside the project: ${writes} · allowed: ${list([...view.writesForGood, ...view.writesSession].map(view.show))} · /permissions write <folder>`,
-    `  Network devices (MCP): ${view.mcpWritesOn.length ? `writes on: ${list(view.mcpWritesOn)}` : "writes off"} · ${view.mcpAllowAll.length ? `Yes to everything: ${list(view.mcpAllowAll)}; other changes ask` : "each change asks"} · /mcp writes <server>`,
+    `  Network devices (MCP): ${view.mcpWritesOn.length ? `writes on: ${list(view.mcpWritesOn)}` : "writes off"} · ${view.mcpAllowAll.length ? `Yes to everything: ${list(view.mcpAllowAll)}; other changes ask` : "each change asks"}${view.mcpOwnWrites?.length ? ` · your own, changes don't ask: ${list(view.mcpOwnWrites)}` : ""} · /mcp writes <server>`,
     ...(view.sandboxOn ? [`  GitHub login: asks · allowed: ${list(view.githubLogin ?? [])} · /allowed forget <n>`] : []),
     "Protected whatever you pick: ~/.ssh, ~/.casper, cloud logins, shell start-up files and secrets; device writes and the spend pause keep their own boxes; the AI can't answer a box for you.",
     "/permissions details shows everything, with every way to change it.",
@@ -119,7 +121,7 @@ export function permissionsScreen(view: PermissionsView): string {
     `Your project's checks (tests, typecheck, lint) run ${view.sandboxOn ? "in the sandbox" : "without a sandbox here"}. Outside the sandbox: ${view.checks === "outside" ? "always (sandbox: checks: outside in ~/.casper/config.yaml)" : view.checks === "inside" ? "never, and never asked (sandbox: checks: inside in ~/.casper/config.yaml)" : view.checksRemembered ? "yes, remembered for this project" : "only if you say so when a check is blocked"}.`,
     "  A check the sandbox blocks asks 'Run this project's checks outside the sandbox?' (not answered by /permissions all). To undo \"always\": /allowed forget <n>.",
     "",
-    `Network devices (MCP): every server starts with writes off and each change asks. Writes on now: ${list(view.mcpWritesOn)}. Yes to everything on a product: ${list(view.mcpAllowAll)}.`,
+    `Network devices (MCP): a network product's server starts with writes off and each change asks; your own other servers start with writes on (My MCP servers in /settings), and firmware, delete and admin changes still ask. Writes on now: ${list(view.mcpWritesOn)}. Your own with writes on: ${list(view.mcpOwnWrites ?? [])}. Yes to everything on a product: ${list(view.mcpAllowAll)}.`,
     "  To allow changes: answer 2, 3 or 4 in the change box, or /mcp writes <server> and /mcp allow <server> ahead of time. Ctrl+O turns writes off everywhere.",
     "",
     `Switches (/settings): web lookups ${view.web ? "on" : "off"}, GitHub tool ${view.github ? "on" : "off"}. Fetching ripgrep ${view.downloads ? "on" : "off"} (tools: downloads: off in config).`,

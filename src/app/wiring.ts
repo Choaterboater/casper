@@ -8,7 +8,7 @@ import path from "node:path";
 import { terminalText } from "../tui/format";
 import { ReferenceLibrary } from "../references/library";
 import { LSPManager } from "../lsp/manager";
-import { MCPManager } from "../mcp/manager";
+import { MCPManager, ownServerDefaults } from "../mcp/manager";
 import { ConsentStore } from "../mcp/consent";
 import { CapabilityBroker } from "../capabilities/broker";
 import type { ProjectContext } from "../project/context";
@@ -74,7 +74,7 @@ export function sandboxHost(app: CasperApp): SandboxHost {
   };
 }
 
-/** Load all workspace metadata before publishing it. No connections or model startup. */
+/** Load all workspace metadata before publishing it. Your own MCP and language servers start in the background. */
 export async function loadWorkspace(app: CasperApp, cwd: string) {
   const project = await app.inspectProjectFn(cwd);
   const context = await app.loadProjectContextFn(project);
@@ -118,8 +118,10 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   const consent = new ConsentStore(app.sessionHomeDir ?? os.homedir());
   await consent.load().catch(() => {});
   app.mcpConsent = consent;
+  // My MCP servers: your own, profile and imported servers connect without /mcp connect (project ones keep their review).
+  const autoconnect = ownServerDefaults.start && context.mcpAutoconnect !== false;
   app.mcp = new MCPManager(mcpConfiguration, {
-    consent,
+    consent, autoconnect,
     // Casper's network server starts with the logins saved in ~/.casper/network-logins.json.
     homeDir: app.sessionHomeDir ?? os.homedir(),
     elicit: (question, signal) => answerServerQuestion(app, question, signal),
@@ -129,8 +131,14 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   // Re-reads the same layered files the manager was built from; the manager diffs them.
   app.reloadMCPConfiguration = () => app.loadMCPConfigurationFn(context);
   app.lsp = new LSPManager(context.info.root, lspConfiguration);
+  // Started now, not at the first task, so they are ready when it comes. A failure shows in /mcp; /lsp connect tries again.
+  // A one-shot run waits for them instead: its tools are there for the first turn, and no start is still running when it exits.
+  const ownStarts = [autoconnect ? app.mcp.prepare().catch(() => {}) : undefined,
+    ownServerDefaults.start && context.lspAutostart !== false ? app.lsp.startOwn() : undefined];
+  if (!app.interactive) await Promise.all(ownStarts);
   app.visualization = new VisualizationRouter({ providers: app.visualizationProviders, settings: context.visualize, workspaceRoot: context.info.root });
-  // Every server starts with writes off; only the user turns them on (/mcp writes <name>).
+  // Every server starts with writes off but your own that aren't a network product (My MCP servers); only the user
+  // turns them on (/mcp writes <name>).
   app.broker = new CapabilityBroker(app.mcp, (call, signal) => confirmCapability(app, call, signal), { writesGate: true, scrubber: app.scrubber,
     secretValues: () => ownSecretValues(app),
     onSessionCovered: (server, tool) => { if (!app.closing) app.output.write(`[approval] allowed (this session): ${terminalText(server)} · ${terminalText(tool)}\n`); },

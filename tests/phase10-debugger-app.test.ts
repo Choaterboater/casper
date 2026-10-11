@@ -38,7 +38,7 @@ async function fixture(commands: string[] = []) {
 }
 
 // python3 runs the standard-library PTY fixture; Windows has no equivalent here.
-posixOnly("production debugger CLI preserves fresh consent and cleans up on EOF/SIGTERM", async () => {
+posixOnly("production debugger CLI launches as typed and cleans up on stop, EOF and SIGTERM", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-debug-pty-"));
   cleanup.push(() => removeTempDir(root));
   const { exit, stdout, stderr } = await runPtyFixture("debug-pty.py", [root]);
@@ -46,19 +46,24 @@ posixOnly("production debugger CLI preserves fresh consent and cleans up on EOF/
   expect(stdout).toContain("DEBUG PTY PASS");
 }, PTY_TEST_MS);
 
-test("debugger listing is lazy and one-shot launch cannot grant execution consent", async () => {
+test("debugger listing is lazy; a typed one-shot /debug start launches with a one-line notice and no box", async () => {
   const f = await fixture();
   await f.app.runOnce("/debug", f.project);
   expect(f.output()).toContain('"targets":["example"]');
   expect(f.starts()).toBe(0);
-  await expect(f.app.runOnce("/debug start example")).rejects.toThrow("denied");
   expect(await Bun.file(path.join(f.project, "adapter-started")).exists()).toBe(false);
+  await f.app.runOnce("/debug start example");
+  expect(f.output()).toContain("[debug] Not sandboxed: the adapter and your program run as you; debug values may hold secrets.");
+  expect(f.output()).toContain('"state":"stopped"');
+  expect(f.output()).not.toContain("Launch this debugger target?");
+  expect(f.starts()).toBe(0);
 });
 
-test("interactive debugger commands use fresh approval, no model and close owned processes", async () => {
+test("interactive debugger commands launch as typed, use no model and close owned processes", async () => {
   const f = await fixture(["/debug start example", "/debug threads", "/debug stack 1", "/debug stop", "/exit"]);
   await f.app.runInteractive(f.project);
-  expect(f.output()).toContain("Debugger launch:");
+  expect(f.output()).toContain("[debug] Not sandboxed");
+  expect(f.output()).not.toContain("Launch this debugger target?");
   expect(f.output()).toContain('"state":"stopped"');
   expect(f.output()).toContain('"name":"fixture"');
   expect(f.output()).toContain('"state":"closed"');

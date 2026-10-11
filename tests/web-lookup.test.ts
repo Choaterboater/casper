@@ -43,7 +43,7 @@ test("a redirect to a private address, to plain http, or past 5 hops is refused;
   await expect(toPrivate.fetch("https://docs.example.com/")).rejects.toThrow("private or local address (169.254.169.254)");
   await expect(lookupWith(async () => redirect("https://127.0.0.1/")).fetch("https://docs.example.com/")).rejects.toThrow(NotExecutedError);
   await expect(lookupWith(async () => redirect("http://docs.example.com/plain")).fetch("https://docs.example.com/")).rejects.toThrow("https to plain http");
-  await expect(lookupWith(async () => redirect("https://docs.example.com:8443/")).fetch("https://docs.example.com/")).rejects.toThrow("only ports 80 and 443");
+  await expect(lookupWith(async () => redirect("https://127.0.0.1:8443/")).fetch("https://docs.example.com/")).rejects.toThrow("private or local address");
   let hops = 0;
   const loop = lookupWith(async (request) => { hops++; return redirect(`${request.url.href}x`); });
   await expect(loop.fetch("https://docs.example.com/")).rejects.toThrow("more than 5 times");
@@ -56,6 +56,15 @@ test("a redirect to a private address, to plain http, or past 5 hops is refused;
   expect(result.guidance).toContain("from other.example.com");
   expect(resolver.asked).toEqual(["docs.example.com", "other.example.com"]);
   expect(seen).toEqual(["93.184.215.14", "93.184.215.15"]);
+});
+
+test("a redirect to a public host on another port is followed to that port", async () => {
+  const ports: string[] = [];
+  const lookup = lookupWith(async (request) => { ports.push(request.url.port); return request.url.port === "8443" ? page("on 8443") : redirect("https://docs.example.com:8443/"); });
+  const result = await lookup.fetch("https://docs.example.com/");
+  expect(result.finalUrl).toBe("https://docs.example.com:8443/");
+  expect(result.text).toBe("on 8443");
+  expect(ports).toEqual(["", "8443"]);
 });
 
 test("the read stops at 2 MiB, and the text is cut at 12 KB with a marker", async () => {

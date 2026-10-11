@@ -22,6 +22,8 @@ async function freshProcess(code: string) {
     await mkdir(path.join(home, ".casper"), { recursive: true });
     await mkdir(project);
     await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: { unused: { command: "never-run-fixture" } } }));
+    // My MCP servers would start that server with the session (a fresh process has no test preload): off, nothing is approved.
+    await writeFile(path.join(home, ".casper/config.yaml"), "mcp_autoconnect: false\n");
     const child = Bun.spawn([process.execPath, "-e", `
       import assert from "node:assert/strict";
       const source = ${JSON.stringify(source)};

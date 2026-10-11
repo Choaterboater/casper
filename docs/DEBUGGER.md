@@ -17,17 +17,20 @@ any adapter.
 
 One explicitly configured, human-started stdio DAP session per active workspace.
 `/debug` is local status/configuration listing, never an automatic adapter launch.
-`/debug start <target>` asks first (`1 No · 2 Yes, this once · 3 Yes, for this session`), showing the resolved adapter,
-arguments, debuggee, working directory and initial breakpoints. Project metadata is
-not execution permission. No adapter installation or personal account use.
+`/debug start <target>` runs as typed: the command you typed is the yes, so there is
+no second box. It prints one line (`[debug] Not sandboxed: the adapter and your program
+run as you; debug values may hold secrets.`) and the resolved adapter, arguments,
+debuggee, working directory and initial breakpoints, then launches. A one-shot
+`casper "/debug start <target>"` does the same. Only a person types it: the model has no
+debugger tool. No adapter installation or personal account use.
 
 Configuration is only `<project>/.casper/debug.json` (lazy, at most 64 KiB), with
 up to 16 named targets. A target contains `command` (absolute adapter executable),
 `args`, `adapterID`, `program` (project-relative regular file), optional project-
 relative `cwd`, optional `programArgs`, and optional `breakpoints` mapping source
-paths to one-based line arrays. Unknown fields fail closed. Resolve paths and show
-the exact normalized definition before consent; re-read it after consent. This is
-non-atomic inspection, not a filesystem sandbox or a digest of every executable.
+paths to one-based line arrays. Unknown fields fail closed. Casper resolves paths and
+shows the exact normalized definition before it launches. This is inspection, not a
+filesystem sandbox or a digest of every executable.
 
 Example using an already installed Python/debugpy adapter (replace both paths).
 To find them, run `which python3` and
@@ -51,9 +54,8 @@ the adapter is the `adapter` folder inside that directory.
 Commands:
 
 - `/debug` — targets and actual session state.
-- `/debug start <target>` — shows exactly what will run, then `1 No · 2 Yes, this once ·
-  3 Yes, for this session` (3: the same launch doesn't ask again until Casper exits). The
-  program stops at its first line (stop-on-entry).
+- `/debug start <target>` — shows exactly what will run, then runs it (no box: you typed
+  it). The program stops at its first line (stop-on-entry).
 - `/debug breakpoints <relative path> <line,line|clear>` — replace that file's list.
 - `/debug threads` and `/debug stack <thread-id>` — bounded thread/stack inspection.
 - `/debug scopes <frame-handle>` and `/debug variables <variable-handle>` — explicit

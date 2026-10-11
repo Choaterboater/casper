@@ -71,7 +71,7 @@ test("a matching answer comes back as JSON with its source; quoted text is wrapp
   expect(JSON.stringify({ ...parsed, data: { ...parsed.data, body: undefined } })).not.toContain("rm -rf");
 });
 
-test("private places and links out are refused like the read tool, before any model call", async () => {
+test("private places are refused like the read tool, before any model call", async () => {
   const { home, repo } = await project();
   const { complete, sent } = fake("{}");
   const made = tool({ root: repo, home, complete });

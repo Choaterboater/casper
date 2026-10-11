@@ -30,7 +30,7 @@ test("Yes, for this session stops asking for that key only, until forget", async
   expect(await yes.approve("browser", "", "Allow this browser action?")).toBe(true);
   expect(await yes.approve("browser", "", "Allow this browser action?")).toBe(true);
   expect(asked).toHaveLength(1);
-  expect(await yes.approve("debug:example", "", "Launch this debugger target?")).toBe(false);
+  expect(await yes.approve("browser:example.test", "", "Allow this browser action?")).toBe(false);
   expect(asked).toHaveLength(2);
   yes.forget();
   expect(await yes.approve("browser", "", "Allow this browser action?")).toBe(false);

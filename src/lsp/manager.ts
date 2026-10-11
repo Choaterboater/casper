@@ -82,6 +82,13 @@ export class LSPManager {
     return preview ? { source: definition.source, shadows: definition.shadows, preview } : undefined;
   }
 
+  /** My language servers (lsp_autostart): your own and profile servers start at session start, with no /lsp connect.
+   * A project's server keeps its review. One that fails to start stays disconnected; /lsp connect tries it again. */
+  async startOwn(): Promise<void> {
+    const own = this.configuration.servers.filter((definition) => definition.scope !== "project");
+    await Promise.all(own.map((definition) => this.connect(definition.name).catch(() => {})));
+  }
+
   connect(name: string): Promise<void> {
     if (this.cleanupError) return Promise.reject(this.cleanupError);
     if (this.lifetime.signal.aborted) return Promise.reject(new Error("LSP manager closed"));

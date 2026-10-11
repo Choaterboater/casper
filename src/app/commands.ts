@@ -222,7 +222,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       return;
     }
     if (/^\/model(?:\s|$)/.test(prompt)) {
-      if (host.subagents.isBusy) throw new Error("Wait for active subagents before changing models.");
+      // Helpers already working started with their own model; the change is for the main conversation's next turn.
+      const helpers = host.subagents.isBusy;
       const session = await host.ensureRuntime();
       host.commandAbort?.signal.throwIfAborted();
       // /model big <selector|clear> is plain words for the reason role: the model Casper offers when repairs run out.
@@ -270,6 +271,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         ? "[model] Selected and saved as the Casper default for new conversations.\n"
         : "[model] Selected for this conversation only; startup default unchanged.\n");
       if (result.selected) host.output.write(`[model] The next request sends this conversation's context to ${result.status.provider}.\n`);
+      if (result.selected && helpers) host.output.write("[model] Helpers already working keep their model; your next message uses this one.\n");
       if (result.models) {
         host.output.write(result.models.length ? result.models.map((model) => `  ${model.provider}/${model.id}`).join("\n") + "\n" : "No models with configured credentials. Use /login to configure a supported provider.\n");
         host.output.write("Use /model <provider/model-id> to select. Selection does not send a prompt.\n");
@@ -277,7 +279,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       return;
     }
     if (/^\/effort(?:\s|$)/.test(prompt)) {
-      if (host.subagents.isBusy) throw new Error("Wait for active subagents before changing effort.");
+      const helpers = host.subagents.isBusy;
       const session = await host.ensureRuntime();
       // --session before or after the level.
       const { rest: level, session: sessionOnly } = sessionFlag(prompt.slice(7));
@@ -304,6 +306,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       }
       if (!session.setEffort) throw new Error("This runtime does not support effort controls.");
       host.output.write(`${formatRuntimeStatus(await session.setEffort(choice.level, choice.persist))}\n`);
+      if (helpers) host.output.write("[effort] Helpers already working keep their effort; your next message uses this one.\n");
       host.updateFooter();
       return;
     }
@@ -733,8 +736,8 @@ async function handleDebugCommand(host: CommandHost, prompt: string): Promise<vo
       host.commandAbort?.signal.throwIfAborted();
       if (host.closing) return;
       host.debugSession = new DebugSession({ projectRoot: host.activeWorkspaceRoot(),
-        confirm: (preview, signal) => host.sessionYes.approve(`debug:${preview}`, `Debugger launch:\n${preview}\nThe adapter and the program run code, not sandboxed. Debug values may contain secrets.\n`,
-          "Launch this debugger target?", signal),
+        // You typed /debug start: that is the yes. What it launches is shown, with no second box.
+        notice: preview => host.output.write(`[debug] Not sandboxed: the adapter and your program run as you; debug values may hold secrets.\n${preview}\n`),
       });
       const debug = host.debugSession;
       host.lifecycle.add({ name: "debug", close: () => debug.close() });
@@ -746,7 +749,7 @@ async function handleDebugCommand(host: CommandHost, prompt: string): Promise<vo
   }
 
 function debugProgressMessage(request: DebugRequest): string {
-    if (request.action === "start") return `Starting ${request.target}; approval may be required, then Casper waits for adapter initialization and the first stop.`;
+    if (request.action === "start") return `Starting ${request.target}; Casper waits for adapter initialization and the first stop.`;
     if (request.action === "continue") return `Continuing thread ${request.threadId}; waiting for the debugger to acknowledge resume.`;
     if (request.action === "breakpoints") return `Updating breakpoints for ${request.path || "source"}.`;
     if (request.action === "threads") return "Listing debugger threads.";
@@ -1051,7 +1054,8 @@ function mcpListText(statuses: readonly MCPStatus[], hints: boolean): string {
 
 /** "Heads up: writes are on for lab; lab runs outside the sandbox." under the list (or before the picker), or nothing. */
 function headsUpText(statuses: readonly MCPStatus[], hints: boolean): string {
-  const writesOn = statuses.filter((status) => status.writes === "on").map((status) => status.name);
+  // Your own servers' writes are on by default (My MCP servers); the heads-up is for writes you turned on.
+  const writesOn = statuses.filter((status) => status.writes === "on" && !status.ownWrites).map((status) => status.name);
   const open = statuses.filter((status) => status.state === "ready" && status.sandbox && status.sandbox.state !== "on").map((status) => status.name);
   const warn = [
     ...(writesOn.length ? [`writes are on for ${writesOn.join(", ")}`] : []),
@@ -1199,6 +1203,9 @@ async function handleMCPDocs(host: CommandHost): Promise<void> {
 
 /** Plain lines about approval: not approved yet, changed since, or remembered. */
 function approvalLines(status: MCPStatus): string[] {
+  // My MCP servers: your own server needs no /mcp connect and nothing to remember.
+  if (status.ownWrites) return ["  Your own server: connects on its own, writes on; firmware, delete and admin changes still ask."];
+  if (status.startsOwn && status.approved) return ["  Your own server: connects on its own, with writes off."];
   if (status.consent === "changed" && !status.approved) return [`  Changed since you approved it. Run /mcp connect ${status.name}.`];
   if (status.consent === "remembered" && status.approved) return ["  Remembered: connects on its own, with writes off."];
   if (status.importedFrom && !status.approved && status.state === "disconnected") {
@@ -1211,7 +1218,7 @@ function approvalLines(status: MCPStatus): string[] {
  * so a habitual 1 never remembers a server. */
 async function offerRemember(host: CommandHost, name: string): Promise<void> {
   const status = host.mcp!.status().find((entry) => entry.name === name);
-  if (!host.interactive || !status || status.scope === "project" || status.consent === "remembered") return;
+  if (!host.interactive || !status || status.scope === "project" || status.consent === "remembered" || status.startsOwn) return;
   const block = host.mcp!.rememberBlock(name);
   if (block) { host.output.write(`[mcp] ${terminalText(block)}\n`); return; }
   // The box's one-line record ("Remember lab? → No") is the whole outcome of a No; the choices say what each means.
@@ -1592,6 +1599,8 @@ async function handlePermissions(host: CommandHost, prompt: string, duringWork =
   const context = host.projectContext;
   const reach = await sandbox?.store?.reachHosts() ?? [];
   const forGood = sandbox?.rememberedWriteFolders() ?? [];
+  // Your own servers that started with writes on are listed apart: their changes don't ask (My MCP servers).
+  const asked = host.mcp?.writesOn({ own: false }) ?? [];
   const view: PermissionsView = {
     shell: basics[0]!, scripts: basics.at(-1)!,
     sandboxReason: sandbox?.failure ?? sandbox?.state.reason, shellAsks: Boolean(sandbox?.asksFirst),
@@ -1602,7 +1611,7 @@ async function handlePermissions(host: CommandHost, prompt: string, duringWork =
     checks: sandbox?.user.checks ?? "ask", checksRemembered: all.some((entry) => entry.kind === "checks"),
     githubLogin: all.filter((entry) => entry.kind === "github").map((entry) => `${entry.value}${entry.session ? " (this session)" : ""}`),
     writesForGood: forGood, writesSession: (sandbox?.allowedWriteFolders() ?? []).filter((folder) => !forGood.includes(folder)),
-    mcpWritesOn: host.mcp?.writesOn() ?? [], mcpAllowAll: host.allowances?.allowAllServers() ?? [],
+    mcpWritesOn: asked, mcpOwnWrites: (host.mcp?.writesOn() ?? []).filter((server) => !asked.includes(server)), mcpAllowAll: host.allowances?.allowAllServers() ?? [],
     web: context?.web?.enabled !== false, github: context?.github !== false, sshLogin: context?.sshLogin !== false, downloads: context?.toolDownloads !== false,
     show: (folder) => displayPath(folder, { root, home }),
   };
@@ -1629,12 +1638,12 @@ export function permissionsText(sandbox: ShellSandbox | undefined): string {
     : `Shell commands and checks are not sandboxed here (${sandbox?.failure ?? sandbox?.state.reason ?? "no sandbox"}): they run with your permissions, files and network, without your AI provider keys.${sandbox?.asksFirst ? " Casper asks before each shell command the AI runs, except plain reads like ls or git status." : ""}`;
   return [
     shell,
-    `The AI's file tools (read, edit, write, grep, find, ls) stay out of private places and git's own files and never follow a link out of the project. ${sandbox && !sandbox.asksOutsideWrites
+    `The AI's file tools (read, edit, write, grep, find, ls) stay out of private places and git's own files; a link out of the project counts as the place it leads to. ${sandbox && !sandbox.asksOutsideWrites
       ? "With the sandbox off, an edit or write outside the project doesn't ask." : "An edit or write outside the project asks first (temp and caches don't; --no-sandbox turns this off)."}`,
-    "Web lookups (web_search, web_fetch) read public pages without asking. Private and local addresses, other ports, and a search or address holding a secret are refused; what comes back has its secrets hidden. /settings turns them off.",
+    "Web lookups (web_search, web_fetch) read public pages without asking. Private and local addresses and a search or address holding a secret are refused; what comes back has its secrets hidden. /settings turns them off.",
     "The untrusted-text reader (casper_read_untrusted) reads a file, a read-only command or an MCP tool through a separate model call with no tools; the AI gets only JSON that matches its schema, never the text. It changes nothing; an MCP tool keeps its own approval. /settings turns it off.",
     "The shell commands you said yes to, for this session or always for this project, are listed by /allowed, which also takes them back.",
-    "MCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals. The AI can't approve anything for you.",
+    "MCP and consequential browser operations have their own exact approvals; /debug start and workspace moves run because you typed them. The AI can't approve anything for you.",
     "No SAFE/YOLO or read-only mode is implied. /verify and /services may execute project scripts (the declared checks and service commands). See docs/SECURITY.md.",
   ].join("\n");
 }
@@ -1679,6 +1688,13 @@ async function runCrew(host: CommandHost, argument: string): Promise<void> {
     projectContext: formatProjectContext(context),
     notReviewed: () => host.crewParts?.notReviewed() ?? [],
     runBuilder: (options) => host.subagents.runBuilder(options),
-    shell: (copy, note) => sandbox ? crewShell(sandbox, copy, note) : undefined,
+    // Its commands that need a yes come to your box, named for it, and /permissions all counts as for yours.
+    shell: (copy, note) => sandbox ? crewShell(sandbox, copy, note, { label: "Builder 1", host: {
+      canAsk: () => host.interactive && host.terminal.canAsk && !host.closing,
+      pick: (question, options, signal, settings) => host.terminal.pick(question, options, signal ?? host.commandAbort?.signal, settings?.record ? { record: settings.record } : {}),
+      write: (text) => { if (!host.closing) host.output.write(text); },
+      planning: () => false,
+      stopAsking: () => host.stopAsking && host.interactive && host.terminal.canAsk && !host.closing,
+    } }) : undefined,
   }, argument);
 }

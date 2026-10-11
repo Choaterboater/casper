@@ -75,14 +75,16 @@ An experiment in its own worktree cannot use plain `/switch main`. Pick one:
 
 - **`apply`**: Casper runs the configured checks in the experiment folder, then
   captures the full diff. It shows the files, a size summary, the content and a
-  SHA-256 fingerprint of the patch, then asks `1 No · 2 Yes, this once`. Casper applies that exact
-  patch to main **without committing**, then cleans up the worktree and branch.
-- **`discard`**: Casper captures and shows the full diff, then asks `1 No · 2 Yes, this once`. Casper
+  SHA-256 fingerprint of the patch. Typing `apply` is the yes, so no box asks again:
+  Casper applies that exact patch to main **without committing**, then cleans up the
+  worktree and branch.
+- **`discard`**: Casper captures and shows the full diff, then (typing `discard` is the yes)
   cleans up the worktree and branch and does not apply anything.
 
-If a check fails or is blocked, `apply` stops before asking you. Checks that are
-not configured show as `incomplete`, and you still have to approve. If files
-change after you approve, the experiment stays open.
+A one-shot run (`casper "/switch main apply"`) refuses: an experiment is for a session.
+If a check fails or is blocked, `apply` stops before showing the diff. Checks that are
+not configured show as `incomplete`. If files change while Casper applies, the experiment
+stays open.
 
 If the experiment's worktree was deleted, or its branch changed (for example a
 detached HEAD), Casper cannot capture a reviewed diff, so `apply` and `discard`
@@ -158,14 +160,14 @@ run `/branch` and the policy says to isolate.
   `git.push` policy (`neverUnlessRequested` by default) and "ask before
   destructive operations" are instructions to the model, not blocks. The
   model's bash tool can still run `git commit`, `git push` or `rm`.
-- The one block: the model's bash tool may not run `git stash` (except `list`
-  and `show`), `git reset --hard` (also `--merge` and `--keep`), `git checkout`
-  with `--`, `.`, `-f` or `-p`, `git restore` of the working tree,
-  `git switch -f` or `--discard-changes`, or `git clean` (except `-n`). Each of
-  these can set aside or throw away your uncommitted work. This is a check of
+- The one block: the model's bash tool may not run `git reset --hard`,
+  `git checkout` with `--`, `.`, `-f` or `-p`, `git restore` of the working tree,
+  `git switch -f` or `--discard-changes`, `git clean` (except `-n`), or
+  `git stash drop` or `clear`. Each of these can throw away your uncommitted
+  work. `git stash`, `git stash pop`/`apply` and `git reset --keep`/`--merge` run. This is a check of
   the command text, not a sandbox; a script or alias can get past it.
-- Approval for applying or discarding an experiment lasts only for this Casper
-  process. Files in the project cannot answer an approval prompt.
+- Applying or discarding an experiment needs `/switch main apply|discard` typed in
+  this Casper session. Files in the project cannot type it.
 - A worktree keeps file changes apart; it is not a security boundary. Since
   v0.2.17 the shell sandbox holds shell commands to the folder you are in, and
   the model's file tools stay out of private places (see

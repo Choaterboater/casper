@@ -146,6 +146,8 @@ export interface CasperAppOptions {
   newProject?: { template?: string; name?: string };
   /** Builds a new project (casper new, the new-project questions and /project new); tests pass a fake. */
   createProject?: (options: NewProjectOptions) => Promise<NewProjectResult>;
+  /** Tests: the wait before each automatic retry of a model that answered with nothing (default: a timer). */
+  modelRetryWait?: (ms: number) => Promise<void>;
   /** Tests: whether this computer has a desktop, and the browser opener, for the pages the AI makes. */
   pageSeams?: { desktop?: () => boolean; open?: (url: string) => boolean };
   /** Opens pages for the page check: Chrome when installed, else HTTP only. Tests pass a fake. */
@@ -181,7 +183,7 @@ export class CasperApp {
   loginProvider?: string;
   /** The current task's stages for the footer. */
   readonly steps = new StepRail();
-  /** Browser actions and debugger launches you said "Yes, for this session" to. */
+  /** Browser actions you said "Yes, for this session" to. */
   readonly sessionYes = new SessionYes((preview, question, options, signal) => recordedApproval(this, preview, question, options, signal));
   readonly runtimeFactory: () => AgentRuntime | Promise<AgentRuntime>;
   readonly subagents: SubagentManager;
@@ -301,6 +303,7 @@ export class CasperApp {
   pages?: PageSession;
   pageTool?: RuntimeTool;
   readonly pageSeams?: CasperAppOptions["pageSeams"];
+  readonly modelRetryWait?: CasperAppOptions["modelRetryWait"];
   /** The dev-server lines are printed once per session. */
   readonly pageNotice: DevServerNotice = { shown: false };
   /** What may have changed this task's code since it started: a check the model records after that has no
@@ -376,7 +379,7 @@ export class CasperApp {
   newProjectExitCode?: number;
   /** The build-request question is asked at most once per session. */
   newProjectOffered = false;
-  /** This task already showed its one question before work (the new-project question): no checklist panel. */
+  /** This task already asked the new-project question: no checklist is made and no plan-first line is shown. */
   beforeWorkAsked = false;
   /** Receipts say the no-checks how-to once per session, and name a file undo can't put back once. */
   checksHintShown = false;
@@ -423,6 +426,7 @@ export class CasperApp {
     this.runtimeFactory = options.runtimeFactory ?? freshPiRuntime;
     this.pageOpenerFn = options.pageOpener ?? pageOpener;
     this.pageSeams = options.pageSeams;
+    this.modelRetryWait = options.modelRetryWait;
     this.networkTools = options.networkTools;
     this.securitySeams = options.securitySeams;
     this.networkSeams = options.networkSeams;

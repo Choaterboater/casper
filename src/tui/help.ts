@@ -100,7 +100,7 @@ Local commands:
   /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
   /output all                       Every tool call of the last task on its own line (the screen folds them into a summary)
   /details [quiet|normal|detailed] [--session]  Alone: the level now. Failures only, steps folded (default), or every step with small diffs; remembered like /effort, --session (before or after) for this session only. Ctrl+T shows the last step in full
-  /settings, /config                Every switch at a glance, then one by number, written to ~/.casper/config.yaml for you: web lookups, browser tool, browser clicks, starter templates, diagram tool, pages the AI makes, open pages in the browser, new-version notice, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, local models, page checks, show the AI the pages, work shown, theme, untrusted-text reader, helpers that build, Playwright tests, send Casper's name to OpenRouter, sign-ins from other tools, network server updates, private ssh passwords
+  /settings, /config                Every switch at a glance, then one by number, written to ~/.casper/config.yaml for you: web lookups, browser tool, browser clicks, starter templates, diagram tool, pages the AI makes, open pages in the browser, new-version notice, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, local models, page checks, show the AI the pages, work shown, theme, untrusted-text reader, helpers that build, Playwright tests, send Casper's name to OpenRouter, sign-ins from other tools, network server updates, my MCP servers, my language servers, private ssh passwords
   /theme                            Pick the screen's colours (the Theme row of /settings), saved for you
   /hotkeys                          The keys Casper uses
   /copy [n]                         Copy the last answer, or its code block n, to the clipboard
@@ -138,8 +138,8 @@ Local commands:
   /branch                           Show named conversations and their workspaces
   /branch <name>                    Copy this conversation into a named one with its own workspace and move there (you typed it: no box)
   /switch <branch>                  Switch to a named conversation and its workspace (you typed it: no box)
-  /switch main apply                Check, review and apply that workspace's changes, then clean up (asks first)
-  /switch main discard              Review and throw away that workspace's changes, then clean up (asks first)
+  /switch main apply                Check, show and apply that workspace's changes, then clean up
+  /switch main discard              Show and throw away that workspace's changes, then clean up
   /delegate <explorer|reviewer> <goal>  Run a read-only helper AI on one goal
   /crew <job>                       The manual way: a builder AI does the job in its own copy; then 1 Keep the copy · 2 Apply to my folder · 3 Throw it away
   /crew                             Crew copies still here; /crew apply <n> or /crew drop <n>
@@ -186,7 +186,7 @@ Local commands:
   /tasks stop <n>|all               Stop one of them, or all, without the question
   /pane [on|off]                    The steps split beside Casper in tmux or iTerm2 (120+ columns); saved
   /debug                            Debugger state and .casper/debug.json targets
-  /debug start <target>             Start the debugger and your program (asks first, every time)
+  /debug start <target>             Start the debugger and your program (not sandboxed; no box, you typed it)
   /debug breakpoints <path> <lines|clear>  Replace one file's breakpoint lines (first line is 1)
   /debug threads|stack <thread>     Show threads, or one thread's stack
   /debug scopes <frame>             Show the scopes of a frame from the stack
@@ -199,14 +199,14 @@ Local commands:
   /verify add <name>                Save a ready-made check Casper found (Ansible) in .casper/project.yaml
   /verify <lab check>               Run a lab check on your own lab (lab.hosts); asks first, never auto
   /security-review                  Run the pinned security tools here (no model), then offer an AI review: 1 Stop here · 2 Run the AI review, with its cost; Enter spends nothing
-  /security-review ai               The same; where Casper can't ask (one-shot, --json), runs the AI review
+  /security-review ai               The same, and runs the AI review with no box (the cost is printed first)
   /security-review update           Download osv-scanner's advisory data (asks first)
   /security-review ignores          List ignores you approved; approve or remove them
   /exit, /quit                      Exit interactive mode (during a task it stops the task first, like Ctrl+C twice); no-op in one-shot mode
 
 Unknown slash commands are rejected locally, never sent to a model.
 /model opens on the providers (Up/Down picks whose models show; Enter, Tab or Right goes to the list). Enter selects and saves ~/.casper/settings.json; Ctrl+S selects for this session only. Exact IDs are remembered too; /model --session <id> opts out.
-During a task, /model and /effort apply from the model's next step; the step already running keeps its model and effort.
+During a task, /model and /effort apply from the model's next step; the step already running and helpers already working keep their model and effort.
 During a task every command runs at once, with whatever follows it (/permissions all, /settings, /login, /memory remember ...); a picker or question it opens closes when the task asks you something. Only the ones that would change the task's conversation, workspace or files, or start model work of their own, wait for it: /clear, /new, /resume, /compact, /undo, /redo, /branch <name>, /switch, /project <name>, /project new, /plan, /verify, /security-review, /delegate, /crew. Esc stops the task.
 Words you type at the start of a request, then : , or a new line, set that task only and are not sent to the model: think hard (top effort), quick (low effort), big model or use the big model (your big model, the reason role), fast model or use the fast model (your fast role), plan first (like /plan). ultrathink anywhere in your line is top effort too. Casper says what each word did in one line, and again when it goes back. Pasted text never counts, and words never grant permission.
 Side questions: a line you start with ? (? what does ECONNRESET mean) goes to your fast model on the side with no tools, idle or during a task. The answer shows as a side answer; it is not added to the conversation and the AI never sees it. /usage counts its cost; /settings turns side questions off. /btw <question> asks the same way and still works with them off, since it is typed on purpose.
@@ -232,16 +232,17 @@ One-shot exit codes: 0 pass (or nothing to verify), 1 check failed or blocked, 2
 Exit 0 does not certify behavior beyond the checks; /receipt shows scope and freshness.
 MCP connection runs a configured program or contacts its URL. Review its source first.
 Casper's network server runs in the sandbox where one runs: it reaches only your login hosts, writes only its cache, and can't read your keys, ~/.casper or projects (/mcp sandbox network off). Other servers run as they are; /mcp says which.
-Servers from ~/.claude.json, ~/.mcp.json and VS Code are listed too; each needs /mcp connect once.
-Every MCP server starts with writes off. ${WRITES_OFF_MEANING} /mcp writes <name> turns writes on; Ctrl+O turns them off again. A remembered server always starts with writes off.
+Servers from ~/.claude.json, ~/.mcp.json and VS Code are listed too.
+Your own and imported MCP servers connect when the session starts (My MCP servers in /settings; a project's server needs /mcp connect). One that isn't a network product starts with writes on: its changes run without asking, firmware, delete and admin changes still ask.
+A network product's server (Mist, Central, ClearPass, Junos…) starts with writes off, and so does every server with My MCP servers off. ${WRITES_OFF_MEANING} /mcp writes <name> turns writes on; Ctrl+O turns them off again, your own servers' too. A remembered server always starts with writes off.
 A login is read-only only when the product says so (access_check); labels only make things stricter.
-MCP changes ask you in a numbered box; one-shot runs can't ask, so they are refused. The AI can't approve.
+MCP changes on a server with writes off ask you in a numbered box; one-shot runs can't ask, so they are refused. The AI can't approve.
 Known device secrets (passwords, keys, SNMP communities) in MCP results, config files and config-like command output are shown to the AI as <secret hidden> (best effort, known formats only); a change that carries the marker back is refused. See docs/SECRETS.md.
 A plain terminal (TERM=dumb or output redirected) can't answer approvals.
 Piped line input drops unfinished input when a question opens; NO_COLOR is supported.
-LSP connection runs a configured program. Review .casper/lsp.json first.
+LSP connection runs a configured program. Your own language servers (~/.casper/lsp.json) start with the session (My language servers in /settings); a project's .casper/lsp.json needs /lsp connect: review it first.
 An LSP rename asks you first; one-shot runs can't rename.
-Web lookups (web_search, web_fetch) are on by default and never ask. They reach only public https pages on ports 80 and 443 (http is upgraded), checked again on every redirect; a search or address holding a secret is refused, never sent. Search is DuckDuckGo by default; web: { provider: brave } uses Brave Search with the key saved as "brave" in Casper's login file (~/.casper/agent/auth.json), and web: { provider: searxng, searxngUrl: <address> } your own SearXNG.
+Web lookups (web_search, web_fetch) are on by default and never ask. They reach only public https pages, on any port (http is upgraded), checked again on every redirect; a search or address holding a secret is refused, never sent. Search is DuckDuckGo by default; web: { provider: brave } uses Brave Search with the key saved as "brave" in Casper's login file (~/.casper/agent/auth.json), and web: { provider: searxng, searxngUrl: <address> } your own SearXNG.
 /settings turns them off (web: off in ~/.casper/config.yaml); a project file can't change web:.
 Browser tasks use installed Chrome/Chromium (CASPER_BROWSER_EXECUTABLE overrides detection).
 No automatic browser installation, personal profiles, account credentials or arbitrary page scripts.
@@ -253,10 +254,10 @@ Task-owned development servers run the project's code in the shell sandbox (file
 Saved screenshots (readable only by you) stay in Casper's project folder until you remove them; they may be sensitive.
 See docs/BROWSER.md for limits, input freshness, supported assertions and remaining caveats.
 Services from .casper/project.yaml run the project's code in the shell sandbox (files held; the network is not limited, so you can reach them); they stay up between prompts and stop on exit, /clear, /resume, /branch and /switch. Ctrl+C cancels only a startup. See docs/SERVICES.md.
-/switch main apply and /switch main discard ask you first; /branch <name> and /switch <name> run as typed.
+/branch, /switch and /switch main apply|discard run as typed (you asked); apply and discard show the diff first.
 Helpers from /delegate get read/grep/find/ls only; no edit/write/bash/MCP/LSP and no helpers of their own.
 For a big job with separate parts the AI starts builders itself (up to 3 at once; "run a crew" or "split this up" asks for it, "by yourself" stops it, /settings turns it off).
-A builder edits and runs commands only in its own copy (a Git worktree), in the same sandbox; what would ask you is not run and is listed. No MCP, no helpers.
+A builder edits and runs commands only in its own copy (a Git worktree), in the same sandbox; a command that needs your OK asks in your box ("Builder 2 wants to run: ..."), or is listed as not run where Casper can't ask. No MCP, no helpers.
 An AI-started builder's change lands in your folder when it ends, uncommitted (/undo takes it back with the task); one that touches a file changed meanwhile stays in its copy for /crew. See docs/CREWS.md.
 Limits: 2 at once, 4 per request; 180 seconds/12 turns/48 tool calls each.
 Children use Casper roles (explorer→fast, reviewer→review) or the startup default.

@@ -22,7 +22,8 @@ Settings (saved in ~/.casper/config.yaml for you):
   Work shown: normal · Theme: default · Untrusted-text reader: on
   Helpers that build: on · Playwright tests: on
   Send Casper's name to OpenRouter: on · Sign-ins from other tools: on
-  Network server updates: on · Private ssh passwords: on
+  Network server updates: on · My MCP servers: on · My language servers: on
+  Private ssh passwords: on
 Pick one to change:
   1 Done                              nothing changes
   2 Web lookups                       on (DuckDuckGo)
@@ -52,14 +53,16 @@ Pick one to change:
  26 Send Casper's name to OpenRouter  on
  27 Sign-ins from other tools         on
  28 Network server updates            on
- 29 Private ssh passwords             on
+ 29 My MCP servers                    on
+ 30 My language servers               on
+ 31 Private ssh passwords             on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
-Every row has its number: past 9, type it and press Enter (`Type 1-29 + Enter or Up/Down + Enter`).
+Every row has its number: past 9, type it and press Enter (`Type 1-31 + Enter or Up/Down + Enter`).
 A plain terminal (`TERM=dumb`) asks the same list as numbered lines.
-A change applies from now on (built-in skills, packs, the prompt cache and local models from the next start) and says so:
+A change applies from now on (built-in skills, packs, the prompt cache, local models, My MCP servers and My language servers from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Changed while a task runs, it also says when the
 task gets it: from its next step, or, for a tool the task already has (web lookups, the reader, the browser,
 builders, the spend limits), `The running task keeps what it had; your next request uses it.` A switch turned off is written as
@@ -71,7 +74,7 @@ run), `/settings` lists them. `/details <level>` saves the work shown the same w
 ### Web lookups
 
 The AI can search the web and read public pages, with no question: `web_search` uses DuckDuckGo
-by default, and `web_fetch` reads one page. Both reach only public `https` pages on ports 80 and 443
+by default, and `web_fetch` reads one page. Both reach only public `https` pages, on any port
 (`http` is upgraded), checked again on every redirect; a search or address holding a secret is
 refused and never sent, and secrets on a page are hidden before the AI sees it. Turn them off with
 `/settings` (it writes `web: false`, or `web.enabled: false` when your `web:` sets a provider).
@@ -142,7 +145,7 @@ packs: off # default on
 ### GitHub tool
 
 The AI checks this repo's pull requests and CI through GitHub's `gh` tool when a request names them
-(see [GITHUB.md](GITHUB.md)). It is on, and asks once per repo first. Turn it off with `/settings` (it
+(see [GITHUB.md](GITHUB.md)). It is on, and asks nothing: it only acts on the folder's own `origin`. Turn it off with `/settings` (it
 writes `github: false`): the AI is never offered the `github` tool. A project file (or a profile it
 picks) can't turn it on or off: `github:` in `.casper/project.yaml` stops configuration loading with
 an error.
@@ -157,7 +160,8 @@ never offered the `visualize` tool. `/visualize`, typed by you, still works. A p
 
 ### Suggestions
 
-The numbered next steps under a task's receipt cost no tokens. They are on. Turn them all off with
+The numbered next steps under a task's receipt, and the line before a big job that says `/plan` first
+next time, cost no tokens. They are on. Turn them all off with
 `/settings` (it writes `suggestions: false`); `/suggestions off <name>` turns off just one. A project
 file can't change `suggestions:`.
 
@@ -183,6 +187,20 @@ On requests to OpenRouter Casper sends only the app name and site, so OpenRouter
 Casper (kept out of its public rankings for now); nothing about your code. It is on. Turn it off with
 `/settings` (it writes `telemetry: false`) or `CASPER_TELEMETRY=0`; either one off is off. A project
 file can't change `telemetry:`. See [OpenRouter app attribution](#provider-credentials).
+
+### My MCP servers and My language servers
+
+Your own MCP servers (`~/.casper/mcp.json`, your profile's, and the ones found in Claude Code and
+VS Code files) connect when the session starts, with no `/mcp connect`. One that isn't a network
+product starts with writes on, and its changes run without the change box; firmware, delete and
+admin changes still ask. A network product's server (Mist, Central, ClearPass, Junos…) keeps writes
+off and its yes/no box, and a project's server keeps its review (see
+[MCP.md](MCP.md#your-own-servers-start-by-themselves)). Your own language servers
+(`~/.casper/lsp.json` and your profile's) start with the session too (see [LSP.md](LSP.md)). Both are
+on. Turn them off with `/settings` (**My MCP servers** writes `mcp_autoconnect: false`, **My language
+servers** `lsp_autostart: false`): every server then waits for `/mcp connect` or `/lsp connect`, and
+an MCP server starts with writes off with every change asking in the box. They apply from the next
+start. A project file can't set them.
 
 ### Asking less: /permissions
 
@@ -299,7 +317,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
-`showPages`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
+`showPages`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
@@ -389,9 +407,10 @@ Casper itself:
 
 - `askQuestions: beforeChanges`: in an interactive rich terminal, when a build or configure
   request does not name a clear target, the model must ask you once before its first edit.
-- The model's bash may not run `git stash` (other than `list`/`show`), `git reset --hard`,
-  `git checkout --`/`.`/`-f`, `git restore` of the working tree, `git switch -f` or `git clean`
-  (other than `-n`), because each can set aside or throw away your uncommitted work. This is a
+- The model's bash may not run `git reset --hard`, `git checkout --`/`.`/`-f`, `git restore`
+  of the working tree, `git switch -f`, `git clean` (other than `-n`) or `git stash drop`/`clear`,
+  because each can throw away your uncommitted work. `git stash`, its `pop` and `apply`, and
+  `git reset --keep`/`--merge` run without asking. This is a
   check of the command text, not a sandbox. It applies whatever the policy says.
 
 ## The shell sandbox

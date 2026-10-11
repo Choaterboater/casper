@@ -26,7 +26,7 @@ import { appReaderTool } from "./reader";
 import { casperSessionTool } from "./session-tool";
 import { githubTool } from "../github/tool";
 import { ownSecretValues } from "./network-host";
-import { projectPrivatePaths } from "./wiring";
+import { projectPrivatePaths, sandboxHost } from "./wiring";
 import { appAgentDir, observeEdit } from "./runtime-start";
 import { autoBuilders, builderAvailability } from "../crew/auto";
 import { crewShell } from "../crew/shell";
@@ -51,8 +51,7 @@ export async function prepareCapabilities(app: CasperApp, task: string): Promise
       app.shell?.approve ? (command, signal, options) => app.shell!.approve!(command, signal, options) : undefined),
     githubOff: app.projectContext?.github === false,
     githubTool: () => githubTool({
-      root: () => app.activeWorkspaceRoot(), interactive: () => app.interactive && !app.closing, reruns: app.githubReruns,
-      approve: (key, preview, question, signal) => app.sessionYes.approve(key, preview, question, signal), secrets: () => ownSecretValues(app),
+      root: () => app.activeWorkspaceRoot(), reruns: app.githubReruns, secrets: () => ownSecretValues(app),
     }),
     offered: app.offeredTools,
   });
@@ -91,7 +90,8 @@ export function delegateTool(app: CasperApp): RuntimeTool {
     // The task's spend pause sees a builder's spend while it works, and holds its tool calls too. The question
     // follows the task's own stop, not one builder's, since the AI may be waiting on the same answer.
     runBuilder: (options) => app.subagents.runBuilder({ ...options, beforeToolWait: () => spendGate(app) }),
-    shell: (copy, note) => app.sandbox ? crewShell(app.sandbox, copy, note) : undefined,
+    // Its questions in your box go by the number its [crew] lines show: "Builder 2 wants to run: ...".
+    shell: (copy, note, label) => app.sandbox ? crewShell(app.sandbox, copy, note, { host: sandboxHost(app), label }) : undefined,
     observeEdit: (file) => observeEdit(app, file),
     say: (line) => { if (!app.closing) { app.events.ensureLineBreak(); app.output.write(`[crew] ${terminalText(line)}\n`); } },
   }, app.buildersOff, app.builderSteer, app.crewParts));
@@ -109,7 +109,7 @@ export function metadataQuestion(sessionYes: SessionYes): NonNullable<BrowserSes
     `Open ${address}?`, signal);
 }
 
-/** Why the AI can't start builders here now: turned off, no sandbox to hold their commands, or not a Git repository. */
+/** Why the AI can't start builders here now: turned off, no shell yet, or not a Git repository. */
 export async function buildersOff(app: CasperApp): Promise<string | undefined> {
   const sandbox = app.sandbox;
   return builderAvailability({ root: app.activeWorkspaceRoot(), homeDir: app.homeDir(), off: app.projectContext?.delegate?.build === false,

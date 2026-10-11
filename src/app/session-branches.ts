@@ -6,7 +6,6 @@ import { formatProjectContext } from "../project/context";
 import type { RuntimeSession } from "../runtime/types";
 import { CHECK_NAMES } from "../verify/evidence";
 import { SessionWorkspaceManager, type ReturnAction } from "../sessions/manager";
-import { confirmYes } from "./approvals";
 import { stopDebugger } from "./task-tools";
 import { runVerification } from "./verification";
 import { loadWorkspace } from "./wiring";
@@ -66,7 +65,12 @@ export async function handleSwitchCommand(app: CasperApp, prompt: string): Promi
     if (name !== "main") throw new Error("Apply/discard is only valid when returning to main");
     transition = await manager.returnToMain(action as ReturnAction, {
       getRuntime: () => runtimeForWorkspaceTransition(app),
-      confirm: (preview, question) => confirmYes(app, preview, question),
+      // You typed apply or discard: what it applies or drops is shown, with no second box. A one-shot run still refuses.
+      confirm: async (preview) => {
+        if (!app.interactive) return false;
+        app.output.write(preview.endsWith("\n") ? preview : `${preview}\n`);
+        return true;
+      },
       verify: async () => (await runVerification(app, 
         CHECK_NAMES,
         false,

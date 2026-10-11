@@ -1,8 +1,8 @@
-/** The model when it fails or repairs run out: picking a first model or opening sign-in, one retry after an empty
+/** The model when it fails or repairs run out: picking a first model or opening sign-in, three retries after an empty
  * answer, and the user's big model for one more repair (asked first; only a person says yes). Moved from src/app.ts. */
 
 import type { CasperApp } from "../app";
-import { formatCost, formatTokens, terminalText } from "../tui/format";
+import { formatCost, formatDuration, formatTokens, terminalText } from "../tui/format";
 import type { RuntimeSession, RuntimeImage, RuntimeModelInfo, RuntimeStatus } from "../runtime/types";
 import type { TaskResult } from "../task/result";
 import type { VerificationResult } from "../verify/evidence";
@@ -75,10 +75,14 @@ export async function ensureModel(app: CasperApp, session: RuntimeSession): Prom
   return false;
 }
 
-/** A provider hiccup Pi does not retry (an empty response) ends a run for no reason of the task's: try once
- * more on its own, then, in the terminal, ask. Sign-in, quota and context errors, and errors Pi already
- * retried within its budget, are not retried again. */
+/** The waits before each automatic retry of a model that answered with nothing; after the last, the terminal asks. */
+export const MODEL_RETRY_WAITS_MS = [1000, 2000, 4000] as const;
+
+/** A provider hiccup Pi does not retry (an empty response) ends a run for no reason of the task's: try three
+ * more times on its own, 1s, 2s and 4s apart, then, in the terminal, ask. A cancel stops the retries at once.
+ * Sign-in, quota and context errors, and errors Pi already retried within its budget, are not retried again. */
 export async function retryModelFailure(app: CasperApp, session: RuntimeSession, request: string): Promise<void> {
+  const waits = MODEL_RETRY_WAITS_MS;
   for (let attempt = 1; ; attempt++) {
     const error = app.events.lastError ?? "";
     if (!app.taskRuntimeFailed || app.taskRuntimeCancelled || app.closing || app.commandAbort?.signal.aborted || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined) return;
@@ -86,9 +90,10 @@ export async function retryModelFailure(app: CasperApp, session: RuntimeSession,
     // within the user's retry budget, so never go past that.
     if (!/empty (?:response|completion|message|content)|no (?:content|response|output) (?:was )?returned|returned no (?:content|output)/i.test(error)) return;
     if (isRetryableAssistantError({ stopReason: "error", errorMessage: error } as Parameters<typeof isRetryableAssistantError>[0])) return;
-    let retry = attempt === 1;
+    const wait = waits[attempt - 1];
+    let retry = wait !== undefined;
     let big: { label: string } | undefined;
-    if (!retry && app.interactive && app.terminal.rich && attempt <= 4) {
+    if (!retry && app.interactive && app.terminal.rich && attempt <= waits.length + 3) {
       app.events.ensureLineBreak();
       const bigModel = bigModelOf(app, session);
       // Stop comes first, so Enter never spends more tokens.
@@ -99,8 +104,12 @@ export async function retryModelFailure(app: CasperApp, session: RuntimeSession,
     }
     if (!retry) return;
     app.events.ensureLineBreak();
+    if (wait !== undefined) {
+      app.output.write(`… The model failed · trying again in ${formatDuration(wait)} (${attempt} of ${waits.length})${app.terminal.rich ? " · Esc stops" : ""}\n`);
+      if (!await waitUnlessCancelled(app, wait)) return;
+    }
     const back = big ? await switchToBigModel(app, session, { query: "@reason", label: big.label }) : undefined;
-    app.output.write(`[model] ${attempt === 1 ? "The model failed; trying once more." : back ? `Trying again on your big model ${terminalText(big!.label)}.`
+    if (wait === undefined) app.output.write(`[model] ${back ? `Trying again on your big model ${terminalText(big!.label)}.`
       : big ? `Casper could not switch to your big model ${terminalText(big.label)}; trying again on the current model.` : "Trying again."}\n`);
     app.taskRuntimeFailed = false;
     try {
@@ -108,6 +117,19 @@ export async function retryModelFailure(app: CasperApp, session: RuntimeSession,
         app.commandAbort?.signal, { request, maxTurns: app.maxTurns });
     } finally { if (back) await restoreModel(app, session, back); }
   }
+}
+
+/** Waits `ms` before an automatic retry; false when the task was cancelled first (then at once). */
+async function waitUnlessCancelled(app: CasperApp, ms: number): Promise<boolean> {
+  const signal = app.commandAbort?.signal;
+  if (signal?.aborted) return false;
+  const { promise: cancelled, resolve } = Promise.withResolvers<false>();
+  const onAbort = () => resolve(false);
+  signal?.addEventListener("abort", onAbort, { once: true });
+  try {
+    const waited = (app.modelRetryWait ?? Bun.sleep)(ms).then(() => true);
+    return await Promise.race([waited, cancelled]) && !signal?.aborted && !app.taskRuntimeCancelled && !app.closing;
+  } finally { signal?.removeEventListener("abort", onAbort); }
 }
 
 /** The receipt's big-model part: which model ran repairs, and how many. */

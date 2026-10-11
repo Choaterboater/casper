@@ -8,7 +8,8 @@ import { DAPConnection } from "./protocol";
 
 export interface DebugOptions {
   projectRoot: string;
-  confirm(preview: string, signal: AbortSignal): Promise<boolean>;
+  /** Shown before a typed /debug start launches (the typed command is the yes; there is no second box). */
+  notice?(preview: string): void;
 }
 export type DebugRequest =
   | { action: "start"; target: string }
@@ -21,17 +22,8 @@ export interface DebugResult { items?: Record<string, unknown>[]; truncated?: bo
 type State = "idle" | "starting" | "running" | "stopped" | "closing" | "closed" | "failed";
 const id = (value: unknown): value is number => Number.isInteger(value) && Number(value) >= 0 && Number(value) < 2 ** 31;
 const text = (value: unknown, length = 256) => typeof value === "string" ? value.slice(0, length) : "";
-const sameJSON = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 
-function targetChangeReason(before: DebugTarget, after: DebugTarget): string | undefined {
-  const changed = (["name", "command", "args", "adapterID", "program", "cwd", "programArgs", "breakpoints"] as const)
-    .filter((key) => !sameJSON(before[key], after[key]));
-  if (changed.length) return `target field changed: ${changed.join(", ")}`;
-  if (before.identity !== after.identity) return "configuration, adapter, program, or breakpoint file identity changed";
-  return undefined;
-}
-
-/** Owns launch consent, stop-scoped inspection, protocol lifetime and subprocess cleanup. */
+/** Owns the launch, stop-scoped inspection, protocol lifetime and subprocess cleanup. */
 export class DebugSession {
   private readonly lifetime = new AbortController();
   private readonly prefix = randomUUID();
@@ -182,20 +174,8 @@ export class DebugSession {
     this.root = await realpath(this.options.projectRoot);
     const target = await resolveTarget(this.root, name);
     const preview = formatTerminalJSON({ ...target, stopOnEntry: true, environment: "temporary HOME; allowlisted environment; no inherited provider credentials" });
-    if (Buffer.byteLength(preview) > 16_384) throw new Error("Debugger approval preview exceeds 16 KiB; simplify the target");
-    const allowed = await new Promise<boolean>((resolve, reject) => {
-      const abort = () => { signal.removeEventListener("abort", abort); reject(new Error("Debugger approval cancelled")); };
-      signal.addEventListener("abort", abort, { once: true });
-      if (signal.aborted) { abort(); return; }
-      Promise.resolve().then(() => this.options.confirm(preview, signal)).then(answer => {
-        signal.removeEventListener("abort", abort); resolve(answer && !signal.aborted);
-      }, () => { signal.removeEventListener("abort", abort); reject(new Error("Debugger approval failed")); });
-    });
-    if (!allowed) throw new Error("Debugger launch denied");
-    signal.throwIfAborted();
-    const latestTarget = await resolveTarget(this.root, name);
-    const targetChange = targetChangeReason(target, latestTarget);
-    if (targetChange) throw new Error(`Debugger configuration or launch files changed during approval: ${targetChange}`);
+    if (Buffer.byteLength(preview) > 16_384) throw new Error("Debugger launch preview exceeds 16 KiB; simplify the target");
+    this.options.notice?.(preview);
     signal.throwIfAborted(); this.target = target; this.state = "starting";
     try {
       this.home = await mkdtemp(path.join(os.tmpdir(), "casper-debug-home-"));

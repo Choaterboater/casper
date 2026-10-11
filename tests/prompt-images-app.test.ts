@@ -146,17 +146,15 @@ test("2 then /plan that stops at the plan: the plan runs on your model, and no s
   }
 });
 
-test("2 then 1 Plan first at the panel, and the plan stops: still on your model", async () => {
+test("/plan, 2 at the picture question, and the plan stops: still on your model", async () => {
   const f = await fixture({ vision: false, big: "fixture/eyes" });
   const app = f.make(true);
   const interactive = app.runInteractive(f.project);
   try {
     await f.screen.until((output) => output.includes("idle"));
-    f.input.write(`add a login page like ${f.shot}, then add a signup page, then add a logout button, and also add a help page\r`);
+    f.input.write(`/plan add a login page like ${f.shot}, then add a signup page, then add a logout button, and also add a help page\r`);
     await f.screen.until(waiting("can't see pictures"));
     f.input.write("2");
-    await f.screen.until(waiting("Suggested: plan first"));
-    f.input.write("1");
     await f.screen.until(idleAfter("nothing was built"));
     expect(f.prompts.map((prompt) => prompt.model)).toEqual(["fixture/text"]);
     expect(f.selections).toEqual([]);
@@ -296,7 +294,7 @@ test(`${PASTE_IMAGE_KEY}: a vague request with a pasted picture is still under-s
   }
 });
 
-test(`${PASTE_IMAGE_KEY}: a vague two-part request with a pasted picture is still offered plan first`, async () => {
+test(`${PASTE_IMAGE_KEY}: a vague two-part request with a pasted picture still gets the plan-first hint`, async () => {
   const f = await fixture({ vision: true });
   const previous = { ...clipboardDefaults };
   clipboardDefaults.image = async () => new Uint8Array(PNG);
@@ -312,9 +310,8 @@ test(`${PASTE_IMAGE_KEY}: a vague two-part request with a pasted picture is stil
     await f.screen.until((output) => output.includes("build a login page like [image 1] then add a signup page too"));
     f.input.write("\r");
     // The saved file's line is not counted: the request still asks for 2 things and names no file.
-    await f.screen.until(waiting("Suggested: plan first — this asks for 2 things and names no file"));
-    f.input.write("2");
     await f.screen.until(idleAfter("Looked."));
+    expect(f.screen.output).toContain("Big job (this asks for 2 things and names no file)");
     expect(f.prompts[0]!.text).toMatch(/\n\[image 1\] is the file .+pasted-image-1-[0-9a-f]{8}\.png$/);
   } finally {
     Object.assign(clipboardDefaults, previous);

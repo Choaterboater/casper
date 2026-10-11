@@ -137,6 +137,7 @@ export async function setEffortDuringWork(app: CasperApp, level: string, persist
     if (problem) throw new Error(problem);
     const updated = await session.setEffort(level, persist);
     app.output.write(`[effort] ${formatEffort(updated, true) ?? level} from the model's next step${persist ? "; saved" : " (this conversation)"}\n`);
+    if (app.subagents.isBusy) app.output.write("[effort] Helpers already working keep their effort.\n");
     updateFooter(app);
   } catch (error) { app.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); }
 }
@@ -172,6 +173,7 @@ export async function setModelDuringWork(app: CasperApp, argument: string): Prom
     const moved = result.status.provider !== before ? ` · this conversation's context goes to ${terminalText(result.status.provider ?? "its provider")}` : "";
     const from = result.from !== undefined ? ` (from ${terminalText(JSON.stringify(result.from))})` : "";
     app.output.write(`[model] ${terminalText(label)}${from} from the model's next step${result.savedDefault ? "; saved" : " (this conversation)"}${moved}\n`);
+    if (app.subagents.isBusy) app.output.write("[model] Helpers already working keep their model.\n");
     updateFooter(app);
   } catch (error) {
     if (yielded.signal.aborted) app.output.write("[model] Model unchanged.\n");

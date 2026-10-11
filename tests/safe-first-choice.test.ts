@@ -7,7 +7,6 @@ import {
   REPAIR_LIMIT_STOP, pictureChoices, spendChoices, undoChangedChoices, missingFolderChoices, workFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES, writeChoices, githubLoginChoices,
 } from "../src/app/safe-choices";
 import { planEditorHeading } from "../src/flows/plan";
-import { beforeWorkPanel } from "../src/flows/suggest";
 import { askBuildRequest, offerMissingFolder, type NewProjectFlow } from "../src/app/new-project";
 import { labAskFor, labFailureAsk } from "../src/network/checks";
 import { newProjectQuestion } from "../src/new/pick";
@@ -80,9 +79,6 @@ const firsts: Array<[string, string, string]> = [
   ["run outside the sandbox with your GitHub login", githubLoginChoices("git push")[0]!.label, "No"],
   ["run outside the sandbox with your GitHub login (an address typed in the command)", githubLoginChoices("git clone", false)[0]!.label, "No"],
   ["the AI security review", AI_REVIEW_CHOICES[0].label, "Stop here"],
-  // Both choices spend tokens; Plan first is the one that changes no files and ends at Build this plan? (1 Stop).
-  // It is asked only for a big, vague request: one that lists concrete requirements goes straight to building.
-  ["Suggested: plan first", beforeWorkPanel({ id: "plan-first", reason: "this asks for 4 things" }, ["a case"]).options[0]!.label, "Plan first"],
   ["a typed folder that isn't there", missingFolderChoices("Documents", "sample-tools")[0]!.label, "Stay in Documents"],
   ["the work is in a project inside this folder", workFolderChoices("Documents", "sample-tools")[0]!.label, "Stay here"],
   ["this task has used $5.02", spendChoices("$10")[0]!.label, "Stop here"],
