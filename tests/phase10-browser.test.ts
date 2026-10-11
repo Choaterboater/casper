@@ -273,6 +273,85 @@ browserTest("an immutable reproduction detects behavior and layout failures, rep
     .rejects.toThrow("replay runs the recorded scenario unchanged");
 }, 25_000);
 
+browserTest("at the end Casper replays checks that ran before a later edit: a pass counts, a break fails, a fresh check is left alone", async () => {
+  const f = await fixture();
+  const html = (saved: string) => `<!doctype html><button id="save" onclick="document.querySelector('#status').textContent='${saved}'">Save</button><p id="status">Not saved</p>`;
+  await writeFile(f.sourceFile, html("Saved"));
+  const scenario = { name: "Save", url: f.url, scope: { inputs: ["index.html"] }, steps: [{ action: "click", selector: "#save", impact: "local-test", reason: "Synthetic save" }],
+    assertions: [{ kind: "text", selector: "#status", expected: "Saved" }] };
+  const recorded = await f.session.run({ action: "check", scenario });
+  expect(recorded).toMatchObject({ status: "pass", freshness: "fresh" });
+  // Nothing ran since: nothing to replay, the check stays as it was.
+  await f.session.replayStale(0);
+  expect(await f.session.report()).toMatchObject({ status: "pass", checks: [{ id: recorded.id, status: "pass", freshness: "fresh" }] });
+  // A later edit that keeps the page working: the replay counts it.
+  f.session.invalidate();
+  expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ freshness: "stale" }] });
+  await f.session.replayStale(0);
+  expect(await f.session.report()).toMatchObject({ status: "pass", checks: [{ id: recorded.id, status: "pass", freshness: "fresh", baseline: "pass" }] });
+  // A later edit that breaks it: the replay reports the failure with its evidence.
+  await writeFile(f.sourceFile, html("Broken"));
+  f.session.invalidate();
+  await f.session.replayStale(0);
+  expect(await f.session.report()).toMatchObject({ status: "fail", checks: [{ status: "fail", assertions: [{ status: "fail", actual: "Broken" }] }] });
+}, 30_000);
+
+browserTest("the end replay never asks: a step that needs the person, or a closed browser, keeps the check as it was", async () => {
+  const approvals: unknown[] = [];
+  const f = await fixture({ allowActions: () => false, confirm: async request => { approvals.push(request); return true; } });
+  await writeFile(f.sourceFile, '<!doctype html><button id="go" onclick="document.querySelector(\'#out\').textContent=\'done\'">Go</button><p id="out"></p>');
+  const recorded = await f.session.run({ action: "check", scenario: { name: "Asks", url: f.url, scope: { inputs: ["index.html"] },
+    steps: [{ action: "click", selector: "#go", impact: "uncertain", reason: "Unsure" }], assertions: [{ kind: "text", selector: "#out", expected: "done" }] } });
+  expect(recorded).toMatchObject({ status: "pass" });
+  expect(approvals).toHaveLength(1);
+  f.session.invalidate();
+  await f.session.replayStale(0);
+  expect(approvals).toHaveLength(1);
+  expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ status: "pass", freshness: "stale" }] });
+  await f.session.close();
+  await f.session.replayStale(0);
+  expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ status: "pass", freshness: "stale" }] });
+}, 30_000);
+
+browserTest("the end replay keeps to this task's local tests, even with Browser clicks on", async () => {
+  const asked: unknown[] = [];
+  const f = await fixture({ allowActions: () => true, confirm: async request => { asked.push(request); return true; } });
+  await writeFile(f.sourceFile, '<!doctype html><button id="go" onclick="document.querySelector(\'#out\').textContent=\'done\'">Send</button><p id="out"></p>');
+  const step = (impact: string) => ({ name: impact, url: f.url, scope: { inputs: ["index.html"] },
+    steps: [{ action: "click", selector: "#go", impact, reason: "Test" }], assertions: [{ kind: "text", selector: "#out", expected: "done" }] });
+  const uncertain = await f.session.run({ action: "check", scenario: step("uncertain") });
+  expect(uncertain).toMatchObject({ status: "pass" });
+  const local = await f.session.run({ action: "check", scenario: { ...step("local-test"), name: "local", steps: [], assertions: [{ kind: "visible", selector: "#go" }] } });
+  expect(local).toMatchObject({ status: "pass" });
+  f.session.invalidate();
+  // The uncertain "Send" click ran with clicks on when the model asked; Casper's own replay never repeats it, or asks.
+  await f.session.replayStale(0);
+  expect(asked).toHaveLength(0);
+  const all = (await f.session.report()).checks;
+  expect(all.find(c => c.id === uncertain.id)).toMatchObject({ freshness: "stale" });
+  expect(all.find(c => c.id === local.id)).toMatchObject({ freshness: "fresh" });
+  // A check from before this task started is left alone.
+  f.session.invalidate();
+  await f.session.replayStale(performance.now());
+  expect((await f.session.report()).checks.find(c => c.id === local.id)).toMatchObject({ freshness: "stale" });
+}, 30_000);
+
+browserTest("the browser tool's screenshot comes with the picture, and its text no longer says to read the PNG", async () => {
+  const f = await fixture();
+  const tool = browserTool(f.session);
+  expect((await tool.execute({ action: "open", url: f.url })).images).toBeUndefined();
+  const shot = await tool.execute({ action: "screenshot" });
+  expect(shot.isError).toBeUndefined();
+  expect(shot.images).toHaveLength(1);
+  expect(shot.images![0]!.mimeType).toBe("image/png");
+  expect(Buffer.from(shot.images![0]!.data, "base64").subarray(1, 4).toString()).toBe("PNG");
+  expect(shot.text).not.toContain("read tool");
+  expect(shot.text).not.toContain(shot.images![0]!.data.slice(0, 64));
+  expect(JSON.parse(shot.text).data.path).toEqual(expect.stringContaining(f.state));
+  expect(tool.description).not.toContain("read the PNG");
+  expect(tool.description).toContain("Casper replays stale checks at the end");
+}, 20_000);
+
 browserTest("fill types into number, email and date fields; password stays out; a scoped overflow check looks at one element", async () => {
   const f = await fixture();
   await writeFile(f.sourceFile, `<!doctype html><meta name="viewport" content="width=device-width"><main>

@@ -60,6 +60,7 @@ import type {
   RuntimeStatus,
   RuntimeSwitchOptions,
   RuntimeTool,
+  RuntimeToolResult,
   RuntimeUsage,
   RuntimeImage,
   RuntimeModelInfo,
@@ -620,6 +621,15 @@ export const PI_TOOL_RULES: readonly string[] = [
 /** A bash timeout above this is capped: one hour, the longest a Casper check may run, so the cap never
  * cuts short a command a check itself would allow, while a day-long timeout cannot hang a session. */
 export const BASH_TIMEOUT_CAP_SECONDS = 3600;
+/** What the model gets from one of Casper's tools: the text, then its pictures when the model can see images. A model
+ * that can't is told the picture was left out, so it does not ask for one again. */
+export function toolContent(result: RuntimeToolResult, seesImages: boolean): Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> {
+  const text = { type: "text" as const, text: result.text };
+  if (!result.images?.length) return [text];
+  if (!seesImages) return [text, { type: "text", text: "Picture not attached: this model can't see images." }];
+  return [text, ...result.images.map(({ data, mimeType }) => ({ type: "image" as const, data, mimeType }))];
+}
+
 /** What a bounded child is told when its report turn starts: without it a model mid-search calls tools again, they
  * are refused, and the run ends with no report at all. */
 export function reportNowText(reason: string): string {
@@ -968,10 +978,10 @@ export class PiRuntime implements AgentRuntime {
           description: tool.description,
           parameters: Type.Unsafe<Record<string, unknown>>(tool.inputSchema),
           ...(tool.sequential ? { executionMode: "sequential" as const } : {}),
-          execute: async (_id, args, signal) => {
+          execute: async (_id, args, signal, _update, ctx) => {
             const result = await tool.execute(args, signal, { withFileLocks });
             if (result.isError) throw new Error(result.text);
-            return { content: [{ type: "text", text: result.text }], details: {} };
+            return { content: toolContent(result, Boolean(ctx?.model?.input?.includes("image"))), details: {} };
           },
         });
         for (const tool of tools.current()) { register(tool); owned.add(tool.name); }

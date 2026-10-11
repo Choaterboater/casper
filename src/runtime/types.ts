@@ -16,8 +16,11 @@ export interface RuntimeTool {
   /** Run one at a time: the tool asks the human or drives shared state, so parallel calls would
    * clash. Pi then runs every call in that batch in order, so keep this off read-only tools. */
   sequential?: boolean;
-  execute(args: Record<string, unknown>, signal?: AbortSignal, context?: RuntimeToolContext): Promise<{ text: string; isError?: boolean }>;
+  execute(args: Record<string, unknown>, signal?: AbortSignal, context?: RuntimeToolContext): Promise<RuntimeToolResult>;
 }
+
+/** A tool's answer. Pictures go to a model that can see images after the text; another model gets the text only. */
+export interface RuntimeToolResult { text: string; isError?: boolean; images?: RuntimeImage[] }
 
 export interface RuntimeStartOptions {
   cwd: string;

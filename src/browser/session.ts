@@ -15,6 +15,9 @@ import { MetadataGuard, type Lookup } from "./metadata";
 import { actionUsage, browserArguments, text, webURL, type BrowserAction } from "./arguments";
 import { ownSpawnedTree, type OwnedProcesses, ProcessCleanupError, terminateTree } from "../platform/processes";
 
+/** A screenshot result's picture (base64 PNG), under a key JSON leaves out, so the browser tool can send it as an image. */
+export const SCREENSHOT_PNG = Symbol("screenshot png");
+
 export interface BrowserSessionOptions {
   projectRoot: string;
   stateDirectory: string;
@@ -399,6 +402,8 @@ async function inputState(root: string, scenario: BrowserScenario, signal?: Abor
     : { reason: `${state.reason} With no scope.inputs Casper watches the whole project; name the files the page depends on.` };
 }
 
+interface RecordedCheck { scenario: BrowserScenario; check: BrowserCheck; fingerprint?: string; revision: number; /** performance.now() when it last ran. */ ranAt: number }
+
 export class BrowserSession {
   private readonly controller = new AbortController();
   private browser?: Browser;
@@ -425,7 +430,11 @@ export class BrowserSession {
   private loads = 0;
   /** Page loads that took pictures, for their file names. */
   private pageLoads = 0;
-  private readonly scenarios = new Map<string, { scenario: BrowserScenario; check: BrowserCheck; fingerprint?: string; revision: number }>();
+  private readonly scenarios = new Map<string, RecordedCheck>();
+  /** Casper's own end-of-task replay runs: nothing is asked, and a question is a no. */
+  private unattended = false;
+  /** When Casper's end replays must stop (performance.now()); set only while they run. */
+  private replayUntil?: number;
   /** Metadata addresses the person said yes to for the action now running (a session yes is kept by confirmMetadata). */
   private readonly metadataAllowed = new Set<string>();
   private guard?: MetadataGuard;
@@ -460,11 +469,18 @@ export class BrowserSession {
   private async dispatch(input: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const interaction = INTERACTIONS.includes(String(input.action));
     const url = input.action === "open" ? webURL(input.url) : undefined;
-    const combined = signal ? AbortSignal.any([signal, this.controller.signal]) : this.controller.signal;
+    let combined = signal ? AbortSignal.any([signal, this.controller.signal]) : this.controller.signal;
     combined.throwIfAborted();
-    const stop = () => { void this.close().catch(() => {}); };
+    const close = () => { void this.close().catch(() => {}); };
+    // Casper's own end replay gives up softly: its signal aborts and the browser stays open; only an operation that
+    // still hasn't stopped 5 s later closes the session, as any other overrun does.
+    let last: ReturnType<typeof setTimeout> | undefined;
+    const soft = this.unattended ? new AbortController() : undefined;
+    if (soft) combined = AbortSignal.any([combined, soft.signal]);
+    const stop = soft ? () => { soft.abort(new Error("Browser replay ran out of time")); last ??= setTimeout(close, 5_000); } : close;
     combined.addEventListener("abort", stop, { once: true });
-    const limit = input.action === "check" || input.action === "replay" ? 30_000 : 15_000;
+    const full = input.action === "check" || input.action === "replay" ? 30_000 : 15_000;
+    const limit = soft && this.replayUntil ? Math.max(1_000, Math.min(full, this.replayUntil - performance.now())) : full;
     let timer = setTimeout(stop, limit);
     this.deadline = { hold: () => clearTimeout(timer), resume: () => { clearTimeout(timer); timer = setTimeout(stop, limit); } };
     try {
@@ -505,13 +521,15 @@ export class BrowserSession {
       const saved = await this.savePicture(`${this.screenshotCount + 1}.png`, bytes, combined);
       this.screenshotCount++;
       return { path: saved, bytes: bytes.byteLength,
-        url: page.url(), viewport: page.viewport(), guidance: "Use the native read tool on this PNG to view it. Capture alone is not verification or proof the model viewed it.", ...held };
-    } finally { clearTimeout(timer); this.deadline = undefined; this.metadataAllowed.clear(); combined.removeEventListener("abort", stop); }
+        url: page.url(), viewport: page.viewport(), guidance: "The picture comes with this result when the model can see images. Capture alone is not verification.", ...held,
+        [SCREENSHOT_PNG]: Buffer.from(bytes).toString("base64") };
+    } finally { clearTimeout(timer); clearTimeout(last); this.deadline = undefined; this.metadataAllowed.clear(); combined.removeEventListener("abort", stop); }
   }
 
   /** The person's answer for one metadata address; the action's deadline waits for it. No one to ask is a no. */
   private async metadataYes(address: string, url: string, signal: AbortSignal): Promise<boolean> {
     if (this.metadataAllowed.has(address)) return true;
+    if (this.unattended) return false;
     this.deadline?.hold();
     try {
       const yes = await this.options.confirmMetadata?.({ address, url }, signal) ?? false;
@@ -764,18 +782,45 @@ export class BrowserSession {
 
   invalidate(): void { this.revision++; }
 
+  /** A recorded check as it stands now: stale once a later edit or command ran, or its declared inputs changed. */
+  private async current(entry: RecordedCheck): Promise<BrowserCheck> {
+    const check = structuredClone(entry.check);
+    if (entry.revision !== this.revision) { check.freshness = "stale"; check.reason = "Code/tool writes observed after this browser check."; }
+    else if (entry.fingerprint) {
+      const current = await inputState(this.options.projectRoot, entry.scenario);
+      if (!current.fingerprint) { check.freshness = "unavailable"; check.reason = current.reason; }
+      else if (current.fingerprint !== entry.fingerprint) { check.freshness = "stale"; check.reason = "Declared local inputs changed after this browser check."; }
+    }
+    return check;
+  }
+
+  /**
+   * At the end of a task, before the receipt: Casper replays once each finished check this task ran (since `since`)
+   * that a later edit or command made stale, with no model turn, so its fresh result counts. Only checks of a page on
+   * this computer, and only steps that would run with Browser clicks off (local-test, no "send" or "buy" label);
+   * nothing is asked. A step or address that would need the person, a busy or closed browser, or a replay that can't
+   * finish keeps the check as it was, and the browser stays open. All replays share one minute.
+   */
+  async replayStale(since: number, signal?: AbortSignal, onReplay?: (name: string) => void): Promise<void> {
+    this.replayUntil = performance.now() + 60_000;
+    try {
+      for (const [id, entry] of this.scenarios) {
+        if (this.controller.signal.aborted || signal?.aborted || this.work || !this.page || performance.now() > this.replayUntil - 1_000) return;
+        if (entry.ranAt < since || !localURL(entry.scenario.url) || entry.check.status === "incomplete" || (await this.current(entry)).freshness !== "stale") continue;
+        const kept = { check: entry.check, fingerprint: entry.fingerprint, revision: entry.revision, ranAt: entry.ranAt };
+        onReplay?.(entry.check.name);
+        this.unattended = true;
+        const work = this.dispatch({ action: "replay", id }, signal);
+        this.work = work;
+        try { await work; } catch { Object.assign(entry, kept); }
+        finally { this.unattended = false; if (this.work === work) this.work = undefined; }
+      }
+    } finally { this.replayUntil = undefined; }
+  }
+
   async report(): Promise<BrowserReport> {
     const checks: BrowserCheck[] = [];
-    for (const entry of this.scenarios.values()) {
-      const check = structuredClone(entry.check);
-      if (entry.revision !== this.revision) { check.freshness = "stale"; check.reason = "Code/tool writes observed after this browser check."; }
-      else if (entry.fingerprint) {
-        const current = await inputState(this.options.projectRoot, entry.scenario);
-        if (!current.fingerprint) { check.freshness = "unavailable"; check.reason = current.reason; }
-        else if (current.fingerprint !== entry.fingerprint) { check.freshness = "stale"; check.reason = "Declared local inputs changed after this browser check."; }
-      }
-      checks.push(check);
-    }
+    for (const entry of this.scenarios.values()) checks.push(await this.current(entry));
     return { status: checks.some(check => check.status === "fail") ? "fail" : !checks.length || checks.some(check => check.status !== "pass" || check.freshness !== "fresh") ? "incomplete" : "pass",
       checks, guidance: "Only these browser assertions were checked. Freshness covers declared local inputs, not the server build, external services or all requested behavior. Screenshots and model claims are not acceptance. Run relevant repository checks too." };
   }
@@ -789,7 +834,7 @@ export class BrowserSession {
       id = randomUUID();
       this.scenarios.set(id, { scenario, revision: this.revision, check: { id, name: scenario.name,
         scenarioSha256: createHash("sha256").update(JSON.stringify(scenario)).digest("hex"), url: scenario.url, viewport: scenario.viewport,
-        status: "incomplete", baseline: "incomplete", freshness: "unavailable", scope: scenario.scope, assertions: [] } });
+        status: "incomplete", baseline: "incomplete", freshness: "unavailable", scope: scenario.scope, assertions: [] }, ranAt: performance.now() });
     } else {
       id = text(input.id, "id", 64);
       if (!this.scenarios.has(id)) throw new Error("Unknown browser check id; replay an id a check returned in this session, or record a check first");
@@ -798,7 +843,7 @@ export class BrowserSession {
     const entry = this.scenarios.get(id)!;
     const { scenario } = entry;
     const check: BrowserCheck = { ...entry.check, status: "incomplete", freshness: "unavailable", assertions: [], reason: undefined };
-    entry.check = check; entry.fingerprint = undefined; entry.revision = this.revision;
+    entry.check = check; entry.fingerprint = undefined; entry.revision = this.revision; entry.ranAt = performance.now();
     try {
       const before = await inputState(this.options.projectRoot, scenario, signal);
       await this.start(); signal.throwIfAborted();
@@ -875,9 +920,9 @@ export class BrowserSession {
       throw new Error(`Fill takes a textarea or an input of type ${[...TYPED_FIELDS.filter(Boolean), ...PICKED_FIELDS].join(", ")}`);
     }
     if (action === "select" && before.tag !== "SELECT") throw new Error("Select takes a <select>; use fill for a text field, or click the options of a custom menu");
-    const hold = actionHold({ impact: String(input.impact), url: before.url, target: before.target, allowAll: this.options.allowActions?.() });
+    const hold = actionHold({ impact: String(input.impact), url: before.url, target: before.target, allowAll: !this.unattended && this.options.allowActions?.() });
     if (hold) {
-      const approved = await this.options.confirm?.({ action, selector, url: before.url, target: before.target,
+      const approved = !this.unattended && await this.options.confirm?.({ action, selector, url: before.url, target: before.target,
         ...(value === undefined ? {} : { value }), reason, impact: String(input.impact) }, signal);
       signal.throwIfAborted();
       if (!approved) throw new Error(`Browser action requires human approval; not executed. ${!localURL(before.url) ? "It is on a page that is not on this computer."
