@@ -27,6 +27,8 @@ export interface BrowserSessionOptions {
    * redirect, a frame or a fetch. Without it nobody can say yes, and those addresses are not opened.
    */
   confirmMetadata?: (request: MetadataApproval, signal: AbortSignal) => Promise<boolean>;
+  /** Browser clicks (browser_clicks, on unless turned off): every action runs without asking. Read at each action. */
+  allowActions?: () => boolean;
   /** Test seams, never model-supplied: the metadata addresses and the name lookup. */
   metadataHosts?: readonly string[];
   lookup?: Lookup;
@@ -37,6 +39,14 @@ const INTERACTIONS = ["click", "fill", "press"];
 const DANGEROUS = /\b(delete|remove|destroy|purchase|pay|checkout|buy|send|publish|deploy|sign.?in|log.?in|password|credit.?card)\b/i;
 function localURL(source: string): boolean {
   try { return ["localhost", "127.0.0.1", "[::1]"].includes(new URL(source).hostname); } catch { return false; }
+}
+/** Whether a click, fill or press asks first: undefined runs it; `word` is the known label that held a local test.
+ * With browser clicks on (allowAll), every action runs; off, only a local test on a local page without a known label does. */
+export function actionHold(action: { impact: string; url: string; target: string; allowAll?: boolean }): { word?: string } | undefined {
+  if (action.allowAll) return undefined;
+  if (!localURL(action.url) || action.impact !== "local-test") return {};
+  const word = DANGEROUS.exec(action.target)?.[0];
+  return word ? { word } : undefined;
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -607,12 +617,14 @@ export class BrowserSession {
     if (action === "fill" && before.tag !== "TEXTAREA" && (before.tag !== "INPUT" || !(TYPED_FIELDS.includes(type) || PICKED_FIELDS.includes(type)))) {
       throw new Error(`Fill takes a textarea or an input of type ${[...TYPED_FIELDS.filter(Boolean), ...PICKED_FIELDS].join(", ")}`);
     }
-    const automatic = input.impact === "local-test" && localURL(before.url) && !DANGEROUS.test(before.target);
-    if (!automatic) {
+    const hold = actionHold({ impact: String(input.impact), url: before.url, target: before.target, allowAll: this.options.allowActions?.() });
+    if (hold) {
       const approved = await this.options.confirm?.({ action, selector, url: before.url, target: before.target,
         ...(value === undefined ? {} : { value }), reason, impact: String(input.impact) }, signal);
       signal.throwIfAborted();
-      if (!approved) throw new Error("Browser action requires human approval; not executed");
+      if (!approved) throw new Error(`Browser action requires human approval; not executed. ${!localURL(before.url) ? "It is on a page that is not on this computer."
+        : hold.word ? `Its label has "${hold.word}", so it asks even as a local test; other local-test actions on this page run without asking.`
+        : "It is not marked local-test."} Browser clicks are off (/settings), and a run that can't ask says no.`);
       if (JSON.stringify(await describe()) !== JSON.stringify(before)) throw new Error("Browser target changed during approval; inspect it again");
     }
     signal.throwIfAborted();

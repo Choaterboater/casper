@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, realpath, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { BrowserSession } from "../src/browser/session";
+import { actionHold, BrowserSession } from "../src/browser/session";
 import { browserTool } from "../src/browser/tools";
 import { needsSymlinks, posixModes } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
@@ -12,7 +12,7 @@ const executable = process.env.CASPER_BROWSER_EXECUTABLE ?? "/Applications/Googl
 const browserTest = existsSync(executable) ? test : test.skip;
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-async function fixture(options: { executablePath?: string; confirm?: (request: unknown, signal: AbortSignal) => Promise<boolean>; navigationTimeoutMs?: number } = {}) {
+async function fixture(options: { executablePath?: string; confirm?: (request: unknown, signal: AbortSignal) => Promise<boolean>; navigationTimeoutMs?: number; allowActions?: () => boolean } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-browser-test-")));
   cleanup.push(() => removeTempDir(root));
   const project = path.join(root, "project"), state = path.join(root, "state");
@@ -131,12 +131,34 @@ browserTest("known consequential labels cannot bypass approval by claiming local
   await writeFile(f.sourceFile, `<button id="send" onclick="fetch('http://127.0.0.1:${endpoint.port}/effect')">Send message</button>`);
   await f.session.run({ action: "open", url: f.url });
   const click = { action: "click", selector: "#send", impact: "local-test", reason: "Synthetic local fixture" };
-  await expect(f.session.run(click)).rejects.toThrow("approval");
+  // The refusal says which word held it, that other local clicks don't ask, and how a run that can't ask allows it.
+  await expect(f.session.run(click)).rejects.toThrow(/approval.*"Send".*Browser clicks are off/s);
   expect(effects).toBe(0); expect(approvals).toBe(1);
   approved = true; await f.session.run(click);
   for (let i = 0; i < 20 && effects === 0; i++) await new Promise(resolve => setTimeout(resolve, 20));
   expect(effects).toBe(1); expect(approvals).toBe(2);
 }, 20_000);
+
+browserTest("browser clicks (on unless turned off) let any action run without asking, a known label included", async () => {
+  let approvals = 0, effects = 0;
+  const f = await fixture({ allowActions: () => true, confirm: async () => { approvals++; return false; } });
+  const endpoint = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => { effects++; return new Response("ok", { headers: { "access-control-allow-origin": "*" } }); } });
+  cleanup.push(async () => { endpoint.stop(true); });
+  await writeFile(f.sourceFile, `<button id="send" onclick="fetch('http://127.0.0.1:${endpoint.port}/effect')">Send message</button>`);
+  await f.session.run({ action: "open", url: f.url });
+  await f.session.run({ action: "click", selector: "#send", impact: "consequential", reason: "Synthetic local fixture" });
+  for (let i = 0; i < 20 && effects === 0; i++) await new Promise(resolve => setTimeout(resolve, 20));
+  expect(effects).toBe(1); expect(approvals).toBe(0);
+}, 20_000);
+
+test("with browser clicks on every action runs; off, only a local test on a local page without a known label does", () => {
+  const local = "http://127.0.0.1:8731/", remote = "https://example.com/";
+  expect(actionHold({ impact: "consequential", url: remote, target: "Send message", allowAll: true })).toBeUndefined();
+  expect(actionHold({ impact: "local-test", url: local, target: "Dark mode" })).toBeUndefined();
+  expect(actionHold({ impact: "local-test", url: local, target: "Send message" })).toEqual({ word: "Send" });
+  expect(actionHold({ impact: "consequential", url: local, target: "Save" })).toEqual({});
+  expect(actionHold({ impact: "local-test", url: remote, target: "Save" })).toEqual({});
+});
 
 browserTest("screenshot writes refuse redirected artifact directories", async () => {
   const f = await fixture();

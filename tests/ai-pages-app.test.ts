@@ -119,6 +119,14 @@ test("a one-shot run saves the page and prints the file's address; nothing opens
   expect(run.opened).toEqual([]);
 });
 
+test("browser_clicks is your own setting: on unless your config turns it off, never in a project file", async () => {
+  const { home, project } = await folders("browser_clicks: off\n");
+  const load = () => loadConfiguration({ projectRoot: project, homeDir: home });
+  expect(await load()).toMatchObject({ browserClicks: false });
+  await writeFile(path.join(project, ".casper", "project.yaml"), "browser_clicks: on\n");
+  await expect(load()).rejects.toThrow("browser_clicks is a user setting");
+});
+
 test("ai_pages and open_pages are your own settings: on or off in your config, never in a project file", async () => {
   const { home, project } = await folders("ai_pages: off\nopen_pages: off\n");
   const load = () => loadConfiguration({ projectRoot: project, homeDir: home });
