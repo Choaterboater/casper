@@ -648,7 +648,10 @@ says `– Checks passed — not proven: pages load, but no test fails without th
 says `pages answer, but their console was not checked` instead.
 
 **Screenshots.** With Chrome, Casper also saves a picture of each opened page at desktop width
-(1280 px) and at phone width (390 px). They cost no tokens and are listed under the page's line:
+(1280 px) and at phone width (390 px). First it scrolls through the page once, so lazy images load, and
+waits for animations to finish (at most a second). The desktop picture is the whole page, up to 4000 px
+tall, so rows below the fold are in it; the phone picture is the screen. They cost no tokens and are
+listed under the page's line:
 
 ```text
 ✓ /dashboard loads · 0 console errors · fits a phone · 2 screenshots
@@ -674,9 +677,9 @@ panel, a token on screen) the way it hides one in text.
 **Accessibility notes.** New in v0.2.23. While a page is open at desktop width, Casper also counts a
 few common misses with its own small rules (no third-party script): images with no `alt` (`alt=""`
 is fine for decoration), fields with no label (a placeholder is not a label), buttons with no name,
-text below 3:1 contrast against its background (in any CSS colour, Tailwind v4's `oklch()` too),
-and a page with no `lang`. They show as one note under the page line and never fail the page or
-start a repair:
+text below WCAG AA contrast against its background (4.5:1, or 3:1 for text of 24 px, or 18.66 px bold;
+in any CSS colour, Tailwind v4's `oklch()` too, naming the worst pair), and a page with no `lang`. They
+show as one note under the page line and never fail the page or start a repair:
 
 ```text
 ✓ /signup loads · 0 console errors
@@ -684,6 +687,18 @@ start a repair:
 ```
 
 They cost no model tokens and need Chrome; `pages: off` turns them off with the rest of the check.
+
+**Look notes.** The same way, Casper names what a person would see wrong: images that didn't load (by
+`src`), one picture used on two or more items of a repeated group such as product cards (icons under
+48 px left out), and at phone width the first elements that run past the screen's right edge (not
+inside a box that scrolls sideways on purpose) and links, buttons and inputs smaller than 44×44 px (a
+link inside a sentence is left out). They are one note above the accessibility one, and nothing when
+the page is clean:
+
+```text
+✓ /shop loads · 0 console errors
+  – /shop: 1 image didn't load: /img/hero.jpg · the same picture is on 4 items: /img/bag.jpg
+```
 
 **Chrome.** Pages are opened in a fresh headless Chrome (`CASPER_BROWSER_EXECUTABLE`, else an installed
 Chrome or Chromium; Casper never downloads one). Without Chrome, Casper only fetches the page and says so:

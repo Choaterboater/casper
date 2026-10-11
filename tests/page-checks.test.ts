@@ -114,17 +114,34 @@ test("at phone width, a page wider than the screen or a squashed text field fail
 test("accessibility findings are notes under the page line; they never fail the page", async () => {
   const f = await fixture();
   const opener = fakeOpener(url => url.pathname === "/signup"
-    ? { a11y: { lang: false, images: 1, inputs: 2, buttons: 1, contrast: { count: 3, worst: 2.1 } } }
+    ? { a11y: { lang: false, images: 1, inputs: 2, buttons: 1, contrast: { count: 3, worst: 2.1, colors: "#999999 on #ffffff" } } }
     : { a11y: { lang: true, images: 0, inputs: 0, buttons: 0, contrast: { count: 0, worst: 0 } } });
   const report = await new PageChecks(() => f.manager, f.service, opener, { open: ["/signup", "/ok"], skipped: [] }).run(signal());
   expect(report.status).toBe("pass");
-  expect(report.pages[0]!.a11y).toEqual(["2 inputs have no label", "1 button has no name", "1 image has no alt text", "3 text items have very low contrast (2.1:1)", "the page has no lang"]);
+  expect(report.pages[0]!.a11y).toEqual(["2 inputs have no label", "1 button has no name", "1 image has no alt text", "3 text items are below AA contrast (worst 2.1:1, #999999 on #ffffff)", "the page has no lang"]);
   expect(formatPageReport(report)).toEqual([
     "✓ /signup loads · 0 console errors",
-    "  – /signup: 2 inputs have no label · 1 button has no name · 1 image has no alt text · 3 text items have very low contrast (2.1:1) · the page has no lang",
+    "  – /signup: 2 inputs have no label · 1 button has no name · 1 image has no alt text · 3 text items are below AA contrast (worst 2.1:1, #999999 on #ffffff) · the page has no lang",
     "✓ /ok loads · 0 console errors",
   ]);
   expect(pageFailureSummary(report)).toBeUndefined();
+}, 30_000);
+
+test("exact facts about the look are a note under the page line, never a failure, and nothing when the page is clean", async () => {
+  const f = await fixture();
+  const clean = { brokenImages: [], repeatedImages: [], overflow: [], smallTargets: { count: 0, names: [] } };
+  const opener = fakeOpener(url => url.pathname === "/shop"
+    ? { look: { brokenImages: ["/img/hero.jpg"], repeatedImages: [{ src: "/img/bag.jpg", items: 4 }], overflow: ["div.hero", "table"],
+      smallTargets: { count: 6, names: ['a "Menu"', "button.close", "a#cart"] } } }
+    : { look: clean });
+  const report = await new PageChecks(() => f.manager, f.service, opener, { open: ["/shop", "/ok"], skipped: [] }).run(signal());
+  expect(report.status).toBe("pass");
+  expect(formatPageReport(report)).toEqual([
+    "✓ /shop loads · 0 console errors",
+    "  – /shop: 1 image didn't load: /img/hero.jpg · the same picture is on 4 items: /img/bag.jpg"
+      + " · at phone width div.hero, table run past the screen's right edge · at phone width 6 tap targets are under 44×44 px: a \"Menu\", button.close, a#cart, …",
+    "✓ /ok loads · 0 console errors",
+  ]);
 }, 30_000);
 
 test("secrets in console text never reach the report", async () => {

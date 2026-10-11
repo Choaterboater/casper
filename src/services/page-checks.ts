@@ -7,7 +7,7 @@ import type { ServiceSpec } from "./config";
 import { detectWebService, isDetectedWebService, type DetectedWebService, type DetectInput } from "./detect";
 import type { ServiceManager } from "./manager";
 import { changedPages, type PagePlan, type PagesSetting } from "./pages";
-import { a11yNotes, formatOpeningLine, formatServerLine, pageStatus, type PageReport, type PageResult, type PageStatus } from "./page-report";
+import { a11yNotes, formatOpeningLine, lookNotes, formatServerLine, pageStatus, type PageReport, type PageResult, type PageStatus } from "./page-report";
 
 export * from "./page-report";
 
@@ -152,6 +152,8 @@ function judge(path: string, origin: string, load: PageLoad, serverError: string
   // Accessibility notes ride along; they never change the page's status.
   const notes = load.a11y ? a11yNotes(load.a11y) : [];
   if (notes.length) result.a11y = notes;
+  const look = load.look ? lookNotes(load.look).map(note => hide(note)) : [];
+  if (look.length) result.look = look;
   if (load.phone) {
     result.phoneChecked = true;
     const { viewport, pageWidth, squashed } = load.phone;
