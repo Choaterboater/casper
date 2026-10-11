@@ -118,7 +118,7 @@ async function fixture(options: Options = {}) {
   const screen = plainScreen();
   const make = (tty: boolean) => new CasperApp({
     ...(tty ? { input, output: screen.writer } : { output: { write: (text: string) => { plainOutput += text; } } }),
-    runtimeFactory: () => runtime, sessionHomeDir: home,
+    runtimeFactory: () => runtime, sessionHomeDir: home, modelRetryWait: async () => {},
     loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
     loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
     loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
@@ -260,7 +260,7 @@ test("/model big sets and clears the reason role, and /model roles names it your
 
 test("\"The model failed again\" offers the big model, which goes on there and then switches back", async () => {
   // No repairs: the proof would otherwise ask the model for a test and meet the repair limit's own question.
-  const f = await fixture({ reason: "fixture/big", failOn: [1, 2], repairs: 0 });
+  const f = await fixture({ reason: "fixture/big", failOn: [1, 2, 3, 4], repairs: 0 });
   const app = f.make(true);
   const interactive = app.runInteractive(f.project);
   try {
@@ -273,7 +273,7 @@ test("\"The model failed again\" offers the big model, which goes on there and t
     f.input.write("3");
     await f.screen.until((output) => /Back on fixture\/demo[\s\S]*idle/.test(output) && idle(output));
     expect(f.text()).toContain("[model] Trying again on your big model fixture/big.");
-    expect(f.promptModels.slice(0, 3)).toEqual(["fixture/demo", "fixture/demo", "fixture/big"]);
+    expect(f.promptModels.slice(0, 5)).toEqual(["fixture/demo", "fixture/demo", "fixture/demo", "fixture/demo", "fixture/big"]);
     expect(f.selections.slice(0, 2)).toEqual([{ query: "@reason", persist: false }, { query: "fixture/demo", persist: false }]);
   } finally {
     f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
@@ -343,7 +343,7 @@ test("a model picked at the repair limit is saved as your big model on Yes, and 
 }, 90_000);
 
 test("when the switch to the big model fails, Casper says so instead of quietly trying on the same model", async () => {
-  const f = await fixture({ reason: "fixture/big", failOn: [1, 2], repairs: 0, switchFails: true });
+  const f = await fixture({ reason: "fixture/big", failOn: [1, 2, 3, 4], repairs: 0, switchFails: true });
   const app = f.make(true);
   const interactive = app.runInteractive(f.project);
   try {
@@ -354,7 +354,7 @@ test("when the switch to the big model fails, Casper says so instead of quietly 
     await f.screen.until((output) => output.includes("trying again on the current model"));
     expect(f.text()).toContain("[model] Casper could not switch to your big model fixture/big; trying again on the current model.");
     await f.screen.until(idle);
-    expect(f.promptModels.slice(0, 3)).toEqual(["fixture/demo", "fixture/demo", "fixture/demo"]);
+    expect(f.promptModels.slice(0, 5)).toEqual(Array(5).fill("fixture/demo"));
   } finally {
     f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
   }

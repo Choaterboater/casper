@@ -146,6 +146,8 @@ export interface CasperAppOptions {
   newProject?: { template?: string; name?: string };
   /** Builds a new project (casper new, the new-project questions and /project new); tests pass a fake. */
   createProject?: (options: NewProjectOptions) => Promise<NewProjectResult>;
+  /** Tests: the wait before each automatic retry of a model that answered with nothing (default: a timer). */
+  modelRetryWait?: (ms: number) => Promise<void>;
   /** Tests: whether this computer has a desktop, and the browser opener, for the pages the AI makes. */
   pageSeams?: { desktop?: () => boolean; open?: (url: string) => boolean };
   /** Opens pages for the page check: Chrome when installed, else HTTP only. Tests pass a fake. */
@@ -301,6 +303,7 @@ export class CasperApp {
   pages?: PageSession;
   pageTool?: RuntimeTool;
   readonly pageSeams?: CasperAppOptions["pageSeams"];
+  readonly modelRetryWait?: CasperAppOptions["modelRetryWait"];
   /** The dev-server lines are printed once per session. */
   readonly pageNotice: DevServerNotice = { shown: false };
   /** What may have changed this task's code since it started: a check the model records after that has no
@@ -423,6 +426,7 @@ export class CasperApp {
     this.runtimeFactory = options.runtimeFactory ?? freshPiRuntime;
     this.pageOpenerFn = options.pageOpener ?? pageOpener;
     this.pageSeams = options.pageSeams;
+    this.modelRetryWait = options.modelRetryWait;
     this.networkTools = options.networkTools;
     this.securitySeams = options.securitySeams;
     this.networkSeams = options.networkSeams;

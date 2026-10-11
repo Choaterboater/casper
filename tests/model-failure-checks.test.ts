@@ -36,8 +36,10 @@ for (const check of ["pass", "fail"] as const) test(`a model that fails after ed
     async dispose() {},
   };
   let output = "";
+  const waits: number[] = [];
   const app = new CasperApp({
     output: { write: (text: string) => { output += text; } }, runtimeFactory: () => runtime, sessionHomeDir: home,
+    modelRetryWait: async (ms) => { waits.push(ms); },
     loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
     loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
     loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
@@ -52,9 +54,12 @@ for (const check of ["pass", "fail"] as const) test(`a model that fails after ed
       ? "✗ Failed — the model run failed; changes already made are kept; the checks pass on those changes"
       : "✗ Failed — the model run failed; changes already made are kept; on those changes test failed");
     expect(output).toContain(`– Next: casper --model <provider/id> "…" to try another model`);
-    // One automatic retry of the provider failure, then the edits are checked.
-    expect(output).toContain("[model] The model failed; trying once more.");
-    expect(prompts).toBe(2);
+    // Three automatic retries of the provider failure, 1s, 2s and 4s apart, then the edits are checked.
+    expect(output).toContain("… The model failed · trying again in 1s (1 of 3)\n");
+    expect(output).toContain("… The model failed · trying again in 2s (2 of 3)\n");
+    expect(output).toContain("… The model failed · trying again in 4s (3 of 3)\n");
+    expect(waits).toEqual([1000, 2000, 4000]);
+    expect(prompts).toBe(4);
     expect(app.getLastTaskResult()?.verification?.repairAttempts).toBe(0);
   } finally {
     await app.close();
@@ -91,7 +96,7 @@ test("a provider failure that clears on the automatic retry finishes the task no
   };
   let output = "";
   const app = new CasperApp({
-    output: { write: (text: string) => { output += text; } }, runtimeFactory: () => runtime, sessionHomeDir: home,
+    output: { write: (text: string) => { output += text; } }, runtimeFactory: () => runtime, sessionHomeDir: home, modelRetryWait: async () => {},
     loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
     loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
     loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
@@ -101,7 +106,8 @@ test("a provider failure that clears on the automatic retry finishes the task no
   try {
     await app.runOnce("Write the notes", project);
     expect(prompts).toBe(2);
-    expect(output).toContain("[model] The model failed; trying once more.");
+    expect(output).toContain("… The model failed · trying again in 1s (1 of 3)\n");
+    expect(output).not.toContain("(2 of 3)");
     expect(app.getLastTaskResult()?.execution).toBe("completed");
     expect(output).not.toContain("the model run failed");
   } finally {
@@ -110,7 +116,7 @@ test("a provider failure that clears on the automatic retry finishes the task no
   }
 }, 30_000);
 
-test("in the terminal, a second provider failure asks whether to retry or stop", async () => {
+test("in the terminal, a provider failure after three automatic retries asks whether to retry or stop", async () => {
   const { PassThrough } = await import("node:stream");
   const { fakeWriter } = await import("./support/tty");
   process.env.TERM = "xterm-256color";
@@ -134,7 +140,7 @@ test("in the terminal, a second provider failure asks whether to retry or stop",
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
   const screen = fakeWriter();
   const app = new CasperApp({
-    input, output: screen.writer, runtimeFactory: () => runtime, sessionHomeDir: home,
+    input, output: screen.writer, runtimeFactory: () => runtime, sessionHomeDir: home, modelRetryWait: async () => {},
     loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
     loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
     loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
@@ -146,10 +152,62 @@ test("in the terminal, a second provider failure asks whether to retry or stop",
     await screen.until((output) => output.includes("idle"));
     input.write("fix it\r");
     await screen.until((output) => Bun.stripANSI(output).includes("The model failed again. What now?"));
-    expect(prompts).toBe(2);
+    expect(prompts).toBe(4);
+    expect(Bun.stripANSI(screen.output)).toContain("… The model failed · trying again in 4s (3 of 3) · Esc stops");
     input.write("\r"); // Enter picks 1 Stop: no more tokens.
     await screen.until((output) => { const text = Bun.stripANSI(output); const at = text.lastIndexOf("✗ Failed — the model run failed"); return at >= 0 && text.lastIndexOf("idle") > at; });
-    expect(prompts).toBe(2);
+    expect(prompts).toBe(4);
+  } finally {
+    input.write("/exit\r");
+    await interactive;
+    await app.close();
+    input.destroy();
+    await removeTempDir(root);
+  }
+}, 30_000);
+
+test("Esc while Casper waits to retry a failed model stops the retries at once", async () => {
+  const { PassThrough } = await import("node:stream");
+  const { fakeWriter } = await import("./support/tty");
+  process.env.TERM = "xterm-256color";
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-model-cancel-"));
+  const home = path.join(root, "home"); const project = path.join(root, "project");
+  await mkdir(home); await mkdir(project); await writeFile(path.join(project, "notes.txt"), "An empty folder would ask about a new project.\n");
+  const listeners = new Set<RuntimeEventListener>();
+  let prompts = 0;
+  const runtime: AgentRuntime = {
+    async start() {
+      return {
+        getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }),
+        getState: () => ({ cwd: project, isStreaming: false }),
+        subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
+        abort: async () => {}, setTools: () => {},
+        prompt: async () => { prompts++; for (const listener of listeners) listener({ type: "error", message: "Provider returned an empty response" }); },
+      };
+    },
+    async dispose() {},
+  };
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  const screen = fakeWriter();
+  const app = new CasperApp({
+    // A wait that never ends by itself: only the cancel can end it.
+    input, output: screen.writer, runtimeFactory: () => runtime, sessionHomeDir: home, modelRetryWait: () => new Promise(() => {}),
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+    loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+    loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
+  });
+  const interactive = app.runInteractive(project);
+  try {
+    await screen.until((output) => output.includes("idle"));
+    input.write("fix it\r");
+    await screen.until((output) => Bun.stripANSI(output).includes("trying again in 1s (1 of 3)"));
+    input.write("\x1b");
+    await screen.until((output) => { const text = Bun.stripANSI(output); const at = text.lastIndexOf("[cancel] Stopping."); return at >= 0 && text.lastIndexOf("idle") > at; });
+    expect(prompts).toBe(1);
+    expect(Bun.stripANSI(screen.output)).not.toContain("(2 of 3)");
+    expect(Bun.stripANSI(screen.output)).not.toContain("What now?");
   } finally {
     input.write("/exit\r");
     await interactive;

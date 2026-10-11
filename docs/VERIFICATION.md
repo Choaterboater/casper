@@ -268,8 +268,10 @@ test timed out, so the change was not tested`, not `✗ Failed`; the outcome and
 command that could not start is not saved as a check timing.
 
 **The model provider fails.** A provider that answers with nothing ("empty response", which Pi
-does not retry itself) is retried once; other errors are left to Pi's own retries. If it fails
-again, an interactive terminal asks `1 Stop · 2 Retry` (Enter stops; before v0.2.16 it was
+does not retry itself) is retried three times on its own, after 1, 2 and 4 seconds, each with one
+dim line (`… The model failed · trying again in 2s (2 of 3) · Esc stops`); Esc stops the retries at
+once. Other errors are left to Pi's own retries. If it still fails, an interactive terminal asks
+`1 Stop · 2 Retry` (Enter stops; before v0.2.16 it was
 `1 Retry · 2 Stop`). With your big model set, a third choice, Retry with your big model, comes
 last. When the model run fails after it edited
 files, Casper still runs the checks on those edits, without a repair, and the verdict says how
