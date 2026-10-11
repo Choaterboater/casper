@@ -149,7 +149,7 @@ export function settingRows(context: ProjectContext): Setting[] {
     onOffRow("Browser tool", context.browser !== false,
       "The AI's own browser opens pages and reads them when a task needs it. The page checks after a change still run when it is off.", ["browser"], false, "task"),
     onOffRow("Browser clicks", context.browserClicks !== false,
-      "The AI's browser clicks, types and presses keys without asking, a Send or Delete button included, so it can test what it built. Off: those buttons, anything not a test on this computer and any page elsewhere ask first. Password, payment and file fields are never filled.",
+      "The AI's browser clicks, types and presses keys without asking, a Send or Delete button included, and starts the dev server, so it can test what it built. Off: those buttons, anything not a test on this computer and any page elsewhere ask first. Password, payment and file fields are never filled.",
       ["browser_clicks"], true, "step"),
     onOffRow("Starter templates", context.templates !== false,
       "In an empty folder, a first request that fits a template (a NOC dashboard, an MCP server) is built from it for you, with one line saying so. Off: the AI builds it from scratch.", ["templates"], false, "task"),

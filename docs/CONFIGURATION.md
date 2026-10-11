@@ -115,7 +115,7 @@ the AI's browser; `/browser`, typed by you, still works. A project file (or a pr
 can't turn it on or off.
 
 Its clicks, typing and key presses run without asking, on any page, so it can test what it
-built (**Browser clicks**). Turn that off with `/settings` (it writes `browser_clicks: false`) and a
+built, and so does starting the project's dev server (**Browser clicks**). Turn that off with `/settings` (it writes `browser_clicks: false`) and a
 Send or Delete button, an action that isn't a local test, or one on a page elsewhere asks first.
 Password, payment and file fields are never filled either way.
 
