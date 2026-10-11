@@ -290,12 +290,12 @@ hidden there for 14 days; picking it resets that. `/suggestions` lists each step
 `/suggestions off [name]` and `/suggestions on [name]` switch them; `suggestions: false` in
 `~/.casper/config.yaml` turns them all off. One-shot runs and `--json` never show them.
 
-Before work, a build request with several asks can get one extra choice folded into the checklist
-panel, so there is still one panel: `Suggested: plan first — this asks for 4 things` with 1 Plan first,
-2 Just build (with the listed cases) and 3 Edit the cases first. A typed yes plans first and a typed
-no just builds; other typed text is one more case to test. A request that already lists its
-requirements (two or more list lines, most with a detail such as a command, number, file or example)
-is built as asked, with no question. Plan first (or `/plan <request>`) runs a
+Before work nothing waits: a build request with several asks is built at once, with one line first:
+`– Big job (this asks for 4 things): /plan first next time to see the steps before any change`. The
+line is the `plan-first` suggestion, so it fades the same way and `/suggestions off plan-first` or
+Suggestions off in `/settings` leaves it out. A request that already lists its requirements (two or
+more list lines, most with a detail such as a command, number, file or example) gets no line.
+`/plan <request>` (or `plan first:` at the start of a request) runs a
 plan turn: the model may only read (read, grep, find, ls and look-only shell commands such as `ls`,
 `cat` or `git log`); every other tool, MCP and Casper's own tools included, is refused with "Planning
 only" and shown as `— not run`, not as a failed step (the receipt does not count it). A refused shell command

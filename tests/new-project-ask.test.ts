@@ -165,7 +165,7 @@ test("a build request outside a project asks before the model starts; 2 builds i
       .toEqual([{ parent: path.join(dirs.home, "Projects"), name: "mist-aps", template: "mist-python" }]);
     expect(h.starts).toEqual([path.join(dirs.home, "Projects", "mist-aps")]);
     expect(h.prompts[0]).toContain(REQUEST);
-    // One question before work: the checklist panel (a model call) does not follow it.
+    // One question before work: no checklist call follows it.
     expect(h.completes).toBe(0);
     expect(h.visible()).toContain("Ready: ~/Projects/mist-aps");
     await h.until(settled);

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { rememberableTestCommand } from "../src/flows/runners";
 import {
-  beforeWorkPanel, countAsks, formatSuggestionRow, MAX_SUGGESTIONS, readBeforeWorkAnswer, specificRequest, suggestBeforeWork,
+  countAsks, formatSuggestionRow, MAX_SUGGESTIONS, specificRequest, suggestBeforeWork,
   SuggestionRules, type AfterReceiptContext, type SuggestionRule,
 } from "../src/flows/suggest";
 import type { ProjectModel } from "../src/project/model";
@@ -174,30 +174,6 @@ describe("before-work plan-first suggestion", () => {
     expect(specificRequest("Add these:\n1. read sites from `sites.csv`\n2. write devices to report.json")).toBe(true);
     // The user asking for a plan still turns it off either way.
     expect(ask(`${vague}\nPlan it first.`)).toBeUndefined();
-  });
-
-  test("folds into the checklist panel: plan first is choice 1, then build with the cases, then edit", () => {
-    const panel = beforeWorkPanel({ id: "plan-first", reason: "this asks for 4 things" }, ["empty host is an error", "port 22 is default", "IPv6 works", "names are trimmed"]);
-    expect(panel.question).toBe("Suggested: plan first — this asks for 4 things");
-    expect(panel.options.map((option) => option.label)).toEqual(["Plan first", "Just build", "Edit the cases first"]);
-    expect(panel.options[0]!.description).toContain("Casper blocks file changes it can see until you choose Build");
-    expect(panel.options[0]!.description).not.toMatch(/read-only/i);
-    expect(panel.options[1]!.description).toBe("with these 4 cases: empty host is an error; port 22 is default; IPv6 works; and 1 more");
-    const noCases = beforeWorkPanel({ id: "plan-first", reason: "this is a long request" });
-    expect(noCases.options.map((option) => [option.label, option.description.slice(0, 9)])).toEqual([["Plan first", "the model"], ["Just build", "start now"]]);
-  });
-
-  test("reads the panel's answer: a label, Esc or typed text", () => {
-    const panel = beforeWorkPanel({ id: "plan-first", reason: "r" }, ["one case"]);
-    expect(panel.options[1]!.description).toBe("with this case: one case");
-    expect(readBeforeWorkAnswer(panel, ["Plan first"])).toEqual({ kind: "plan-first" });
-    expect(readBeforeWorkAnswer(panel, ["Just build"])).toEqual({ kind: "build" });
-    expect(readBeforeWorkAnswer(panel, ["Edit the cases first"])).toEqual({ kind: "edit" });
-    expect(readBeforeWorkAnswer(panel, undefined)).toEqual({ kind: "skipped" });
-    expect(readBeforeWorkAnswer(panel, ["also keep the old flag"])).toEqual({ kind: "typed", text: "also keep the old flag" });
-    // A typed yes or no answers the question: "no" never becomes a case to test.
-    for (const typed of ["no", "No.", "n", "not now", "skip"]) expect(readBeforeWorkAnswer(panel, [typed])).toEqual({ kind: "build" });
-    for (const typed of ["yes", "y", "OK"]) expect(readBeforeWorkAnswer(panel, [typed])).toEqual({ kind: "plan-first" });
   });
 });
 

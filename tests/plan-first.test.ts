@@ -39,11 +39,12 @@ function plainScreen() {
 
 /** The fake model: on a plan turn it tries an edit and two shell commands through Casper's gate, then answers
  * with PLAN; otherwise it writes a file. */
-async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boolean; answer?: string; planFails?: boolean } = {}) {
+async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boolean; answer?: string; planFails?: boolean; homeConfig?: string } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-plan-first-"));
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(home, { recursive: true }); await mkdir(path.join(project, ".casper"), { recursive: true });
   await writeFile(path.join(project, "app.py"), "print('app')\n");
+  if (setup.homeConfig) { await mkdir(path.join(home, ".casper"), { recursive: true }); await writeFile(path.join(home, ".casper/config.yaml"), setup.homeConfig); }
   await writeFile(path.join(project, ".casper/project.yaml"), "verification:\n  checklist: true\n"
     + (setup.planCode ? `  mode: auto\nverify:\n  test: ${JSON.stringify(`"${process.execPath}" -e "process.exit(0)"`)}\n` : ""));
   const listeners = new Set<RuntimeEventListener>();
@@ -105,21 +106,30 @@ async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boo
 const waiting = (question: string) => (output: string) => output.includes(question) && output.slice(output.lastIndexOf(question)).includes("? waiting for you");
 const idleAfter = (marker: string) => (output: string) => output.includes(marker) && /idle\s*$/.test(output.slice(output.lastIndexOf(marker)));
 
-test("plan first is one numbered choice folded into the checklist panel; the plan turn refuses changes; after the editor, 2 builds the plan", async () => {
+const HINT = "– Big job (this asks for 4 things): /plan first next time to see the steps before any change";
+
+test("a big vague request builds straight away, with a one-line hint to /plan first next time", async () => {
   const f = await fixture();
   try {
     f.input.write(`${REQUEST}\r`);
-    await f.screen.until(waiting("Suggested: plan first — this asks for 4 things"));
-    const panel = f.screen.output;
-    expect(panel).toContain("1 Plan first");
-    expect(panel).toContain("2 Just build");
-    expect(panel).toContain("with these 2 cases: limit(0) throws; the 6th call is rejected");
-    expect(panel).toContain("3 Edit the cases first");
-    // One panel before work: the checklist editor did not open first.
-    expect(panel).not.toContain("Esc starts without a checklist");
-    expect(f.prompts).toHaveLength(0);
-    f.input.write("1");
+    await f.screen.until(idleAfter("Built."));
+    expect(f.screen.output).toContain(HINT);
+    // No panel before work: nothing waited for an answer.
+    expect(f.screen.output).not.toContain("Suggested: plan first");
+    expect(f.screen.output).not.toContain("? waiting for you");
+    expect(f.prompts).toHaveLength(1);
+    expect(f.prompts[0]).toContain("- limit(0) throws\n- the 6th call is rejected");
+    expect(f.prompts[0]).not.toContain('Casper flow "plan-first"');
+    expect(f.gate.every(({ reason }) => reason === undefined)).toBe(true);
+  } finally { await f.close(); }
+}, 60_000);
+
+test("/plan: the plan turn refuses changes; after the editor, 2 builds the plan", async () => {
+  const f = await fixture();
+  try {
+    f.input.write(`/plan ${REQUEST}\r`);
     await f.screen.until(waiting("Build this plan?"));
+    expect(f.screen.output).not.toContain("Big job");
     // Casper's plan screen, once: the steps, the tests as one line, and the choice; not the model's raw answer too.
     expect(f.screen.output).toContain("Casper plan");
     expect(f.screen.output).toContain("  1. Add a Limiter class in limiter.py");
@@ -129,7 +139,6 @@ test("plan first is one numbered choice folded into the checklist panel; the pla
     expect(f.screen.output.split("Add a Limiter class in limiter.py").length - 1).toBe(1);
     expect(f.prompts).toHaveLength(1);
     expect(f.prompts[0]).toContain(findFlow(bundledFlows(), "plan-first")!.body.trim());
-    expect(f.prompts[0]).toContain("- limit(0) throws");
     const reasons = Object.fromEntries(f.gate.map(({ tool, reason }) => [tool.split(" ")[0] + (tool.includes("rm ") ? " rm" : tool.includes("ls ") ? " ls" : ""), reason]));
     expect(reasons.edit).toStartWith("Not run: Planning only: Casper blocks file changes until you choose Build");
     expect(reasons["bash rm"]).toStartWith("Not run: Planning only");
@@ -148,33 +157,17 @@ test("plan first is one numbered choice folded into the checklist panel; the pla
     expect(f.prompts[1]).toContain("Casper plan (the user read and accepted it). Follow these steps in order:\n1. Add a Limiter class in limiter.py\n2. Call it from app.py");
     expect(f.prompts[1]).toContain("- limit(0) throws\n- a /health request answers 200");
     expect(f.prompts[1]).not.toContain('Casper flow "plan-first"');
-    // The build turn runs without the plan gate, and there was no second checklist call.
+    // The build turn runs without the plan gate, and the cases come from the plan, not a checklist call.
     expect(f.gate.slice(5).every(({ reason }) => reason === undefined)).toBe(true);
-    expect(f.checklistCalls()).toBe(1);
+    expect(f.checklistCalls()).toBe(0);
     expect(f.app.getLastTaskResult()?.checklist).toEqual(["limit(0) throws", "a /health request answers 200"]);
-  } finally { await f.close(); }
-}, 60_000);
-
-test("Just build sends the listed cases unedited, with no plan turn", async () => {
-  const f = await fixture();
-  try {
-    f.input.write(`${REQUEST}\r`);
-    await f.screen.until(waiting("Suggested: plan first"));
-    f.input.write("2");
-    await f.screen.until(idleAfter("Built."));
-    expect(f.prompts).toHaveLength(1);
-    expect(f.prompts[0]).toContain("- limit(0) throws\n- the 6th call is rejected");
-    expect(f.prompts[0]).not.toContain("plan-first");
-    expect(f.gate.every(({ reason }) => reason === undefined)).toBe(true);
   } finally { await f.close(); }
 }, 60_000);
 
 test("Esc in the plan editor stops without building", async () => {
   const f = await fixture();
   try {
-    f.input.write(`${REQUEST}\r`);
-    await f.screen.until(waiting("Suggested: plan first"));
-    f.input.write("1");
+    f.input.write(`/plan ${REQUEST}\r`);
     await f.screen.until(waiting("Build this plan?"));
     f.input.write("3");
     await f.screen.until((output) => output.includes("Esc stops without building"));
@@ -238,14 +231,43 @@ test("a request that already lists concrete requirements builds without the plan
   } finally { await f.close(); }
 }, 60_000);
 
-test("/suggestions off plan-first stops the question for a big vague request", async () => {
+test("Suggestions off in /settings (suggestions: false) leaves the hint out too", async () => {
+  const f = await fixture(true, { homeConfig: "suggestions: false\n" });
+  try {
+    f.input.write(`${REQUEST}\r`);
+    await f.screen.until(idleAfter("Built."));
+    expect(f.screen.output).not.toContain("Big job");
+    expect(f.prompts).toHaveLength(1);
+  } finally { await f.close(); }
+}, 60_000);
+
+test("using /plan counts as taking the hint, so it does not fade while you plan", async () => {
+  const f = await fixture();
+  const hints = () => f.screen.output.split(HINT).length - 1;
+  const build = async (count: number) => {
+    f.input.write(`${REQUEST}\r`);
+    await f.screen.until((output) => output.split("Built.").length - 1 === count && /idle\s*$/.test(output));
+  };
+  try {
+    await build(1); await build(2);
+    f.input.write(`/plan ${REQUEST}\r`);
+    await f.screen.until(waiting("Build this plan?"));
+    f.input.write("\r");
+    await f.screen.until(idleAfter("[plan] Stopped without building."));
+    // Two ignored, then /plan: the count starts again, so two more still show it.
+    await build(3); await build(4);
+    expect(hints()).toBe(4);
+  } finally { await f.close(); }
+}, 90_000);
+
+test("/suggestions off plan-first stops the hint for a big vague request", async () => {
   const f = await fixture();
   try {
     f.input.write("/suggestions off plan-first\r");
     await f.screen.until((output) => /idle\s*$/.test(output) && output.includes("plan-first"));
     f.input.write(`${REQUEST}\r`);
     await f.screen.until(idleAfter("Built."));
-    expect(f.screen.output).not.toContain("Suggested: plan first");
+    expect(f.screen.output).not.toContain("Big job");
     expect(f.prompts).toHaveLength(1);
     expect(f.prompts[0]).not.toContain('Casper flow "plan-first"');
   } finally { await f.close(); }

@@ -39,7 +39,7 @@ From the prompt to the receipt, in `src/app/task-run.ts` (`runModelTask`) unless
 1. `command-loop.ts` reads the line. A slash command goes to `handleSlashCommand`; anything else is a request.
 2. The request is classified (`src/task/classify.ts`) and `prepareCapabilities` (`task-tools.ts`) builds its tool list.
 3. Casper snapshots the folder (`snapshotWorkspace`) and starts undo's first copy (`taskUndo.begin`).
-4. At most one question before work: a checklist of the cases the request states, or the plan-first panel. Then, for
+4. No question before work: a checklist of the cases the request states is made quietly (or `/plan` runs the plan turn). Then, for
    a code change with a test command (in auto mode), `ChangeBaseline.capture` (`src/verify/proof.ts`) copies the
    folder as it is now.
 5. The model turn: `session.prompt` in `src/runtime/pi.ts`. Every tool call passes the gates first (git guard, private

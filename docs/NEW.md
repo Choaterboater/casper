@@ -25,7 +25,7 @@ would start a project instead, for example
 `[new] … To start a project instead: casper new mist-python mist-aps`.
 
 A template built from your first request, or the question above, is the one thing before work for that
-request: the plan-first panel doesn't follow it, and no checklist is made.
+request: the plan-first line doesn't follow it, and no checklist is made.
 
 ### Turning the starter template off
 

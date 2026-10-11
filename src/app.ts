@@ -379,7 +379,7 @@ export class CasperApp {
   newProjectExitCode?: number;
   /** The build-request question is asked at most once per session. */
   newProjectOffered = false;
-  /** This task already showed its one question before work (the new-project question): no checklist panel. */
+  /** This task already asked the new-project question: no checklist is made and no plan-first line is shown. */
   beforeWorkAsked = false;
   /** Receipts say the no-checks how-to once per session, and name a file undo can't put back once. */
   checksHintShown = false;

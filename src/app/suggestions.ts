@@ -14,7 +14,7 @@ import { SuggestionState, FADE_AFTER_IGNORES, FADE_DAYS } from "../flows/state";
 export const SUGGESTION_HINT = "A number picks one · type to ask something else · /suggestions off stops these";
 /** The command a suggestion's key submits. */
 export const SUGGESTION_COMMAND = "/suggestion";
-/** Suggestions that are not after-receipt rules but can still be turned off and fade: the plan-first choice. */
+/** Suggestions that are not after-receipt rules but can still be turned off and fade: the one-line plan-first hint before a big job. */
 const BEFORE_WORK_IDS = ["plan-first"] as const;
 const LAST_SLOT = 9;
 

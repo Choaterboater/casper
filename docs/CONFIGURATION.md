@@ -157,7 +157,8 @@ never offered the `visualize` tool. `/visualize`, typed by you, still works. A p
 
 ### Suggestions
 
-The numbered next steps under a task's receipt cost no tokens. They are on. Turn them all off with
+The numbered next steps under a task's receipt, and the line before a big job that says `/plan` first
+next time, cost no tokens. They are on. Turn them all off with
 `/settings` (it writes `suggestions: false`); `/suggestions off <name>` turns off just one. A project
 file can't change `suggestions:`.
 

@@ -1,6 +1,6 @@
 ---
 name: plan-first
-description: Write a short plan and the cases to test before changing any file. Loads only when the user picks "Plan first".
+description: Write a short plan and the cases to test before changing any file. Loads only from /plan or a request that starts with "plan first:".
 disable-model-invocation: true
 casper-flow:
   when: before-work

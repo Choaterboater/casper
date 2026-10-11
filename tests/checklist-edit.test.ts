@@ -110,19 +110,6 @@ async function checklistApp(config = "verification:\n  checklist: true\n", cases
   });
   const interactive = app.runInteractive(project);
   await screen.until(output => output.includes("idle"));
-  /** Sends a request that gets the plan-first panel, picks 3 Edit the cases first, types `keys` into the
-   * checklist editor, and waits for the task to finish. */
-  const run = async (request: string, keys: string, done: (output: string) => boolean) => {
-    const from = screen.output.length;
-    input.write(`${request}\r`);
-    const since = () => Bun.stripANSI(screen.output.slice(from)).replaceAll("\r\n", "\n");
-    await screen.until(() => since().includes("3 Edit the cases first"));
-    input.write("3");
-    await screen.until(() => since().includes("Esc starts without a checklist"));
-    input.write(keys);
-    await screen.until(() => done(since()));
-    return since();
-  };
   /** Sends a request that is expected to run without the checklist editor, and waits for it to finish. */
   const plain = async (request: string) => {
     const from = screen.output.length;
@@ -130,15 +117,14 @@ async function checklistApp(config = "verification:\n  checklist: true\n", cases
     await screen.until(() => prompts.length > 0 && Bun.stripANSI(screen.output.slice(from)).includes("idle"));
     return Bun.stripANSI(screen.output.slice(from)).replaceAll("\r\n", "\n");
   };
-  return { app, input, prompts, screen, run, plain, checklistCalls: () => checklistCalls, close: async () => {
+  return { app, input, prompts, screen, plain, checklistCalls: () => checklistCalls, close: async () => {
     input.write("/exit\r"); await interactive; await app.close(); input.destroy();
     await removeTempDir(root);
   } };
 }
 
-/** Asks for several things, so the plan-first panel (with its Edit the cases first choice) comes before work. */
+/** Asks for several things: it is built at once, and the checklist is still made quietly. */
 const BIG = "add a rate limiter to the API, then add a /health endpoint, then add request logging, and also add a config file for the limits";
-const finished = (output: string) => /idle\s*$/.test(output) && /\[checklist\]|\[cancel\]|Casper checklist:/.test(output);
 
 test("interactive: the cases are made quietly, reach the task prompt, and /receipt lists them", async () => {
   const fixture = await checklistApp();
@@ -159,42 +145,15 @@ test("interactive: the cases are made quietly, reach the task prompt, and /recei
   } finally { await fixture.close(); }
 });
 
-test("Edit the cases first: Enter keeps the listed cases", async () => {
+test("a request that asks for several things opens no editor or panel: the cases go straight to the model", async () => {
   const fixture = await checklistApp();
   try {
-    const kept = await fixture.run(BIG, "\r", finished);
-    expect(kept).toContain("Casper checklist: 2 cases from your request.");
+    const shown = await fixture.plain(BIG);
+    expect(shown).not.toContain("Esc starts without a checklist");
+    expect(shown).not.toContain("Suggested: plan first");
+    expect(fixture.checklistCalls()).toBe(1);
     expect(fixture.prompts.at(-1)).toContain("- limit(0) throws\n- the 6th call is rejected");
     expect(fixture.app.getLastTaskResult()?.checklist).toEqual(CASES);
-  } finally { await fixture.close(); }
-});
-
-test("Edit the cases first: an edit replaces them in the task prompt and the receipt", async () => {
-  const fixture = await checklistApp();
-  try {
-    await fixture.run(BIG, "\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7fallowed\n- limit(-1) throws\r", finished);
-    expect(fixture.prompts.at(-1)).toContain("- limit(0) throws\n- the 6th call is allowed\n- limit(-1) throws");
-    expect(fixture.app.getLastTaskResult()?.checklist).toEqual(["limit(0) throws", "the 6th call is allowed", "limit(-1) throws"]);
-  } finally { await fixture.close(); }
-});
-
-test("Edit the cases first: Esc starts the task without a checklist", async () => {
-  const fixture = await checklistApp();
-  try {
-    const skipped = await fixture.run(BIG, "\x1b", finished);
-    expect(skipped).toContain("[checklist] skipped; the task starts without one");
-    expect(fixture.prompts).toHaveLength(1);
-    expect(fixture.prompts[0]).not.toContain("Casper's checklist");
-    expect(fixture.app.getLastTaskResult()?.checklist).toBeUndefined();
-  } finally { await fixture.close(); }
-});
-
-test("Edit the cases first: Ctrl-C while editing cancels the task before the model starts", async () => {
-  const fixture = await checklistApp();
-  try {
-    const cancelled = await fixture.run(BIG, "\x03", finished);
-    expect(cancelled).toContain("[cancel]");
-    expect(fixture.prompts).toHaveLength(0);
   } finally { await fixture.close(); }
 });
 

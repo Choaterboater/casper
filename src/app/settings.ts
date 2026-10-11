@@ -165,7 +165,7 @@ export function settingRows(context: ProjectContext): Setting[] {
       question: `The line and the footer note that say a newer Casper is out are ${context.updates === false ? "off" : "on"}.`, keep: `Keep it ${context.updates === false ? "off" : "on"}`,
       choices: [context.updates === false ? { label: "Turn it on", keys: ["updates"], value: true, shown: "on" } : { label: "Turn it off", keys: ["updates"], value: false, shown: "off" }] },
     onOffRow("Suggestions", context.suggestions !== false,
-      "The numbered next steps under a task's receipt (zero tokens).", ["suggestions"], true),
+      "The numbered next steps under a task's receipt, and the line that says /plan first next time before a big job (zero tokens).", ["suggestions"], true),
     { label: "Side questions with ?", value: context.sideQuestions === false ? "off" : "on",
       question: context.sideQuestions === false ? "Side questions are off: a line that starts with ? goes to Casper as an ordinary request."
         : "Side questions are on: a line that starts with ? (? what does ECONNRESET mean) goes to your fast model on the side, with no tools, and the task's AI never sees it. Each one uses a few tokens.",

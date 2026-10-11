@@ -1,4 +1,4 @@
-/** One request to the model, start to receipt: the checklist and plan first (when offered), the turn, the checks,
+/** One request to the model, start to receipt: the checklist or the plan turn (/plan), the turn, the checks,
  * the review and the proof that the tests fail without the change, then the receipt and the row of next steps.
  * Moved from src/app.ts. */
 
@@ -36,7 +36,7 @@ import { systemTempDirs } from "../sandbox/policy";
 import { autoDetectedChecks } from "../verify/migrations-check";
 import { buildNextRow, type NextItem } from "../tui/next-row";
 import { findFlow, formatFlowPrompt, loadFlowCatalog, type Flow, type FlowRule } from "../flows/catalog";
-import { beforeWorkPanel, readBeforeWorkAnswer, suggestBeforeWork } from "../flows/suggest";
+import { suggestBeforeWork } from "../flows/suggest";
 import { extractPlan, formatPlanBlock, planDetailsText, planEditorHeading, planEditorLines, planEditRows, planScreenRows, readPlanEdit,
   type ParsedPlan } from "../flows/plan";
 import { PROJECT_YAML, saveProjectCommand } from "../project/config-write";
@@ -184,35 +184,24 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   let thrownError: string | undefined;
   // verification.checklist: the cases the request states, listed before the model starts, so it tests each one.
   // Unset, it is on for interactive code changes and off otherwise: questions, docs, refactors and one-shot runs.
-  // At most one question before work: after the new-project question there is no checklist panel.
+  // After the new-project question no checklist is made and no plan-first line is shown.
   const checklistOn = !app.beforeWorkAsked && (context.verification.checklist
     ?? (app.interactive && ["implement", "fix", "test"].includes(classification.intent)));
   const complete = checklistOn ? session.complete?.bind(session) : undefined;
-  // Plan first: suggested for a build request with several asks, as one numbered choice folded into the
-  // checklist panel, so there is still one panel before work. /plan chooses it directly.
-  const planOffer = !app.beforeWorkAsked && app.terminal.canAsk ? suggestBeforeWork(typed, classification, { interactive: app.interactive }) : undefined;
+  // Plan first: a build request with several asks is built straight away; with suggestions on, one line says
+  // /plan shows the steps first next time. /plan (or "plan first:") chooses the plan turn directly.
+  const planFirst = options.planFirst === true;
+  const planOffer = !app.beforeWorkAsked ? suggestBeforeWork(typed, classification, { interactive: app.interactive }) : undefined;
   const planState = planOffer ? await app.suggestions.state(context) : undefined;
-  let planFirst = options.planFirst === true;
-  let checklist: string[] | undefined;
   if (planOffer && planState?.visible(planOffer.id)) {
-    const listed = complete ? await makeChecklist(app, complete, prompt, { edit: false }) : undefined;
-    if (app.closing || app.commandAbort?.signal.aborted) return;
-    const panel = beforeWorkPanel(planOffer, listed ?? []);
-    // Editing needs the rich editor; the plain terminal offers the other two.
-    if (!app.terminal.rich) panel.options = panel.options.filter((option) => option.choice !== "edit");
     app.events.ensureLineBreak();
-    const picked = await app.terminal.pick(panel.question, panel.options.map(({ label, description }) => ({ label, description })), app.commandAbort?.signal, { typed: true });
-    if (app.closing || app.commandAbort?.signal.aborted) return;
-    const answer = readBeforeWorkAnswer(panel, picked === undefined ? undefined : [picked]);
-    if (answer.kind === "plan-first") { planFirst = true; await planState.recordChosen(planOffer.id).catch(() => {}); }
-    else await planState.recordIgnored([planOffer.id]).catch(() => {});
-    if (answer.kind === "edit") checklist = await makeChecklist(app, complete!, prompt, { cases: listed });
-    else {
-      const cases = normalizeCases([...(listed ?? []), ...(answer.kind === "typed" ? [answer.text] : [])]);
-      checklist = cases.length ? cases : undefined;
-    }
-    if (app.closing || app.commandAbort?.signal.aborted) return;
-  } else if (!planFirst) checklist = complete ? await makeChecklist(app, complete, prompt) : undefined;
+    app.output.write(`– Big job (${planOffer.reason}): /plan first next time to see the steps before any change\n`);
+    // Not taken this time: three in a row hide the line in this project for 14 days.
+    await planState.recordIgnored([planOffer.id]).catch(() => {});
+  }
+  // Using /plan is taking the hint: its fading starts again.
+  if (planFirst) await (await app.suggestions.state(context))?.recordChosen("plan-first").catch(() => {});
+  let checklist = !planFirst && complete ? await makeChecklist(app, complete, prompt) : undefined;
   if (app.closing || app.commandAbort?.signal.aborted) return;
   // The plan turn: the model reads and writes a plan and the cases to test; the user edits it, then builds.
   let planBlock = "";
@@ -571,25 +560,20 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
 }
 
 /** verification.checklist: one separate model call lists the cases the request states and the task prompt asks
- * for one test per case. Nothing is printed before work unless the call failed or the list was cut; the user
- * edits the cases only by choosing to on the plan-first panel. Its usage joins the task's. A failed call is one
- * line on the transcript and the task goes on without a checklist. */
-export async function makeChecklist(app: CasperApp, complete: NonNullable<RuntimeSession["complete"]>, request: string,
-  options: { edit?: false; cases?: string[] } = {}): Promise<string[] | undefined> {
+ * for one test per case. Nothing is printed before work unless the call failed or the list was cut. Its usage
+ * joins the task's. A failed call is one line on the transcript and the task goes on without a checklist. */
+export async function makeChecklist(app: CasperApp, complete: NonNullable<RuntimeSession["complete"]>, request: string): Promise<string[] | undefined> {
   let result: { cases: string[]; dropped: number } | { error: string };
-  if (options.cases) result = { cases: options.cases, dropped: 0 };
-  else {
-    phase(app, "checklist", "start");
-    try {
-      const made = await extractChecklist({ complete, request, signal: app.commandAbort?.signal });
-      app.observations.recordModelCall(made.usage);
-      result = made;
-    } catch (error) {
-      // The call may have reached the provider: its usage is unknown.
-      app.observations.recordUntrackedModelUse();
-      result = { error: `the checklist call failed: ${error instanceof Error ? error.message : String(error)}` };
-    } finally { phase(app, "checklist", "end"); }
-  }
+  phase(app, "checklist", "start");
+  try {
+    const made = await extractChecklist({ complete, request, signal: app.commandAbort?.signal });
+    app.observations.recordModelCall(made.usage);
+    result = made;
+  } catch (error) {
+    // The call may have reached the provider: its usage is unknown.
+    app.observations.recordUntrackedModelUse();
+    result = { error: `the checklist call failed: ${error instanceof Error ? error.message : String(error)}` };
+  } finally { phase(app, "checklist", "end"); }
   if (app.closing || app.commandAbort?.signal.aborted) return undefined;
   if ("error" in result) {
     app.events.ensureLineBreak();
@@ -602,28 +586,10 @@ export async function makeChecklist(app: CasperApp, complete: NonNullable<Runtim
     app.steps.skip("checklist"); app.terminal.setSteps(app.steps.text());
     return undefined;
   }
-  // Listed for the plan-first panel, which offers editing them.
-  if (options.edit === false) return result.cases;
   // Made quietly: the cases are not printed before work. The receipt names one only when it is not met, and
   // /receipt lists them all. A list cut short still says so.
-  if (!options.cases) {
-    if (result.dropped) { app.events.ensureLineBreak(); app.output.write(`– Checklist kept ${result.cases.length} cases; ${result.dropped} more ${result.dropped === 1 ? "was" : "were"} left out\n`); }
-    return result.cases;
-  }
-  // "Edit the cases first" on the plan-first panel: the user corrects the list before the model sees it.
-  // Enter keeps the editor's lines, Esc (or deleting every line) starts without one, Ctrl+C cancels the task.
-  const count = (n: number) => `${n} ${n === 1 ? "case" : "cases"}`;
-  app.events.ensureLineBreak();
-  const answer = await app.terminal.editLines(`Casper checklist: ${count(result.cases.length)} from your request. The model writes one test per case.`,
-    "Enter starts with these · edit, add or delete lines · Esc starts without a checklist", result.cases, app.commandAbort?.signal);
-  if (app.closing || app.commandAbort?.signal.aborted) return undefined;
-  const kept = answer ? normalizeCases(answer) : [];
-  if (!kept.length) {
-    app.output.write("[checklist] skipped; the task starts without one\n");
-    app.steps.skip("checklist"); app.terminal.setSteps(app.steps.text());
-    return undefined;
-  }
-  return kept;
+  if (result.dropped) { app.events.ensureLineBreak(); app.output.write(`– Checklist kept ${result.cases.length} cases; ${result.dropped} more ${result.dropped === 1 ? "was" : "were"} left out\n`); }
+  return result.cases;
 }
 
 /** verification.acceptance: tests written from the request alone by a separate model call, run once
