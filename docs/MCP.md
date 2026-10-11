@@ -8,10 +8,14 @@ yes, and how much of each answer the AI reads.
 
 **When you'd use it.** When you want Casper to look things up in Aruba Central,
 Mist, ClearPass, NetBox, a Junos router and so on, through a server you trust.
-Every server starts with writes off. Every change asks you first, in plain words:
+A network product's server (Mist, Central, ClearPass, Junos and the other [presets](#presets))
+starts with writes off. Every change on it asks you first, in plain words:
 `1 No · 2 Yes, this once · 3 Yes, for this session`, and last
 `Yes to everything on <product> this session`. Firmware changes, deletes and admin
 changes are off until you allow them ([Change kinds](#change-kinds-and-mcp-allow)).
+Your other servers connect when the session starts, with writes on, and their changes run
+without asking; firmware, delete and admin changes still ask
+([Your own servers start by themselves](#your-own-servers-start-by-themselves)).
 
 Casper uses the pinned official MCP SDK (the library that speaks the protocol). No
 server and no credentials come with Casper. For Mist, Central and ClearPass, Casper can
@@ -45,15 +49,17 @@ read-only. Only you can approve a call or turn writes on; the AI can't. See
    }
    ```
 
-2. Start Casper and type `/mcp` to see it. It shows `not connected` until you connect it.
+2. Start Casper and type `/mcp` to see it. It is your own server, so it connects when the
+   session starts; junos is a network product, so its writes stay off. (With **My MCP servers**
+   off in `/settings`, it shows `not connected` until you connect it.)
    `/mcp` prints one line for each server (name, state, tools, writes, sandbox, where it
    was found). On a normal terminal an arrow-key list sits right under it: pick a server,
    then pick what to do (details, connect or reconnect, disconnect, forget, writes on or
    off, sandbox on or off). Nothing to remember. `/mcp detail [name]` prints the full
    status, with limits, the preset and its pins. Plain terminals and scripts get the same
    one-line list with the typed commands shown.
-3. Pick Connect (or type `/mcp connect junos`). Casper asks if it should remember the server.
-   It then prints one line, such as `[mcp] junos connected · 4 tools · writes off`.
+3. With My MCP servers off, pick Connect (or type `/mcp connect junos`). Casper asks if it should
+   remember the server. It then prints one line, such as `[mcp] junos connected · 4 tools · writes off`.
 4. Ask your question, for example "show the BGP summary on my lab router". Each
    command still asks you first. For a plain `show` command the box offers
    `3 Yes, show commands on junos for this session`: later show commands run without a
@@ -286,8 +292,9 @@ anything.
   junos  not connected · from ~/.claude.json · /mcp connect junos
   ```
 
-  (The `/mcp connect` hint is left out on a normal terminal, where you pick the server instead.
-  `/mcp detail junos` says `Found in ~/.claude.json. Not approved yet`.)
+  (That is with My MCP servers off; on, it connects by itself. The `/mcp connect` hint is left out on a
+  normal terminal, where you pick the server instead. `/mcp detail junos` says
+  `Found in ~/.claude.json. Not approved yet`.)
 
 - **Once per new set of names**, an interactive session says:
   `[mcp] Found 3 servers in ~/.claude.json and VS Code. Run /mcp to see them.`
@@ -387,9 +394,11 @@ casper --mcp local-docs "Find the documentation for pagination"
 casper --mcp local-docs --mcp another-server
 ```
 
-**Discovery is not permission.** Every server starts disconnected, including your
-own. A `trusted` flag in a project file or a skill can't connect one. Only your
-`/mcp connect` or `--mcp` does.
+**Discovery is not permission.** A `trusted` flag in a project file or a skill can't
+connect a server. Your own and imported servers connect by themselves, a choice you
+make with **My MCP servers** in `/settings` (see
+[Your own servers start by themselves](#your-own-servers-start-by-themselves)); with it
+off, every server starts disconnected and only your `/mcp connect` or `--mcp` connects one.
 
 - `--mcp` and one-shot runs connect your own and imported servers only. A project
   server (including one that replaces your server of the same name) connects only
@@ -424,15 +433,42 @@ ignored.
 - New servers appear disconnected. Removed servers disappear.
 - A server whose command, arguments, env, URL, headers or start folder changed
   counts as a different program. Its connection closes, its writes go off, and you
-  must `/mcp connect <name>` again. One exception: a definition that matches one
-  you remembered is approved again, with writes off.
+  must `/mcp connect <name>` again. Exceptions: your own server connects again by
+  itself while My MCP servers is on, and a definition that matches one you
+  remembered is approved again, with writes off.
 - A server that moves from your own or an imported file into a project file counts
   as changed too: it needs the project review before it connects again.
 - Unchanged approved servers keep their connection.
 
+### Your own servers start by themselves
+
+Servers in `~/.casper/mcp.json`, your profile's `mcp.json`, and the ones found in Claude Code and
+VS Code files are yours. With **My MCP servers** on (the default), each one connects when the
+session starts, with no `/mcp connect`, unpinned package runners (`npx`, `uvx`, `docker` with
+`:latest`) included:
+
+- **A server that isn't a network product** starts with writes on. Its changes run without the
+  change box, as they do in Claude Code. Firmware changes, deletes and admin changes still ask
+  first ([Change kinds](#change-kinds-and-mcp-allow)), and secrets stay hidden. `/mcp detail`
+  says `Your own server: connects on its own, writes on; firmware, delete and admin changes still ask.`
+  It is left out of the footer's `WRITES:` badge.
+- **A network product** (one Casper knows by a [preset](#presets): Mist, Central, ClearPass, Junos,
+  NetBox and the rest, by its definition or by its tool list) connects with writes off, and every
+  change asks in the yes/no box, exactly as before.
+- **A project's server** keeps its review: it never connects by itself.
+- **Ctrl+O** (or `/mcp writes off`) turns writes off for your own servers too. From then on the
+  change box asks on them, as on any server, until the session ends.
+
+Turn it off with `/settings` (**My MCP servers**, it writes `mcp_autoconnect: false` in
+`~/.casper/config.yaml`; a project file can't set it). Off is the behavior before: every server
+waits for `/mcp connect` (or a remembered approval), starts with writes off, and every change asks
+in the box. It applies from the next start.
+
 ### Remembered servers
 
-After an interactive `/mcp connect` of your own or an imported server, Casper asks:
+With My MCP servers on, your own servers connect by themselves, so Casper doesn't offer to
+remember them. With it off, after an interactive `/mcp connect` of your own or an imported
+server, Casper asks:
 
 ```text
 Next time it connects on its own, with writes off. Every change still asks you.
@@ -566,7 +602,7 @@ may do.
 
 ### Turning writes on
 
-Every server starts with writes off, including remembered ones. Writes off: the server runs with its read-only settings, and every change asks you first. In detail:
+Every network product starts with writes off, remembered ones too, and so does every server while My MCP servers is off. Writes off: the server runs with its read-only settings, and every change asks you first. In detail:
 
 - the server runs with its preset's read-only pins, where it has one;
 - every change asks you first, in the change box (see [Safety](#safety)); nothing changes without your answer;
@@ -893,7 +929,8 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
   set. "Yes, for this session" and "Yes to everything" are yours to give, per server,
   and end with the session or Ctrl+O; under "Yes, for this session" destructive changes
   still ask. A remembered server only connects on its
-  own, with writes off. Calls that may ask run one at a time, and approvals and server
+  own, with writes off; your own server starts with writes on only while you leave My
+  MCP servers on, and the AI can't change that switch. Calls that may ask run one at a time, and approvals and server
   questions are shown one at a time. The approval can't change the arguments, and a
   changed tool or a reconnect cancels a pending approval.
 

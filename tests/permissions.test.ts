@@ -216,6 +216,19 @@ test("the short screen's Network devices line says which servers have writes on 
   expect(permissionsSummary({ ...view, mcpWritesOn: ["central"] })).toContain("writes on: central · each change asks");
 });
 
+test("your own servers that started with writes on are named apart: their changes don't ask, a network product's still do", () => {
+  const view: PermissionsView = {
+    shell: "", scripts: "", asking: true, sandboxOn: false, outsideWritesAsk: true, commandsSession: 0, commandsSaved: 0, listedHosts: 0, rememberedHosts: [], reachHosts: [],
+    labDevices: 0, labAsks: undefined, checks: "ask", checksRemembered: false, writesForGood: [], writesSession: [], mcpWritesOn: [], mcpAllowAll: [], mcpOwnWrites: ["files"],
+    web: true, github: true, sshLogin: true, downloads: true, show: (folder) => folder,
+  };
+  expect(permissionsSummary(view)).toContain("  Network devices (MCP): writes off · each change asks · your own, changes don't ask: files · /mcp writes <server>");
+  const details = permissionsScreen(view);
+  expect(details).toContain("a network product's server starts with writes off and each change asks; your own other servers start with writes on (My MCP servers in /settings), and firmware, delete and admin changes still ask");
+  expect(details).toContain("Your own with writes on: files.");
+  expect(details).not.toContain("every server starts with writes off");
+});
+
 test("/permissions details is the full screen: every fact and every way to be asked less, with no box", async () => {
   const d = await dirs();
   const { output } = await session(d, ["/permissions details"], []);

@@ -122,6 +122,10 @@ export function fixtureServer(mode = "generic") {
       }, annotations: { destructiveHint: true } },
     ];
   }
+  if (mode === "own") {
+    // A server of your own that is not a network product: a plain change and a delete (a risky kind).
+    tools.push({ name: "delete_site", description: "Delete a site", inputSchema: site, annotations: { readOnlyHint: false } });
+  }
   if (mode === "schema-budget") {
     const schemaAt = (bytes: number): Tool["inputSchema"] => {
       const schema = { ...empty, description: '"'.repeat(2000) };

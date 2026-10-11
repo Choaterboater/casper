@@ -130,6 +130,10 @@ export interface LoadedConfiguration {
   openPages?: boolean;
   /** `browser_clicks: off` in your own config: the AI's browser asks before a known label (Send, Delete…), a non-test action or one on a page elsewhere. Unset: on. */
   browserClicks?: boolean;
+  /** `mcp_autoconnect: off` in your own config: your own MCP servers wait for /mcp connect, with writes off and the change box. Unset: on. */
+  mcpAutoconnect?: boolean;
+  /** `lsp_autostart: off` in your own config: your own language servers wait for /lsp connect. Unset: on. */
+  lspAutostart?: boolean;
   /** The user's lab devices (lab.hosts), from ~/.casper/config.yaml or the profile only; never a project file. */
   lab?: LabSettings;
   /** The profile whose own lab list replaces yours (~/.casper/profiles/<name>/config.yaml), when it has one. */
@@ -286,7 +290,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "browser_clicks", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "browser_clicks", "mcp_autoconnect", "lsp_autostart", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -932,6 +936,11 @@ export async function loadConfiguration(
   // Whether the AI's browser clicks without asking is yours too.
   if (projectDocument.browser_clicks !== undefined) throw new Error("browser_clicks is a user setting (~/.casper/config.yaml); a project cannot change whether the AI's browser asks before clicking");
   let browserClicks: boolean | undefined;
+  // Whether your own MCP and language servers start by themselves is yours too.
+  if (projectDocument.mcp_autoconnect !== undefined) throw new Error("mcp_autoconnect is a user setting (~/.casper/config.yaml); a project cannot start your MCP servers or stop them starting");
+  if (projectDocument.lsp_autostart !== undefined) throw new Error("lsp_autostart is a user setting (~/.casper/config.yaml); a project cannot start your language servers or stop them starting");
+  let mcpAutoconnect: boolean | undefined;
+  let lspAutostart: boolean | undefined;
   for (const [document, label] of [[globalDocument, labels.global], [userProfileDocument, labels.userProfile]] as const) {
     toolDownloads = toolsLayer(document, label, sandboxWarnings) ?? toolDownloads;
     browser = onOffLayer(document.browser, label, "browser") ?? browser;
@@ -945,6 +954,8 @@ export async function loadConfiguration(
     aiPages = onOffLayer(document.ai_pages, label, "ai_pages") ?? aiPages;
     openPages = onOffLayer(document.open_pages, label, "open_pages") ?? openPages;
     browserClicks = onOffLayer(document.browser_clicks, label, "browser_clicks") ?? browserClicks;
+    mcpAutoconnect = onOffLayer(document.mcp_autoconnect, label, "mcp_autoconnect") ?? mcpAutoconnect;
+    lspAutostart = onOffLayer(document.lsp_autostart, label, "lsp_autostart") ?? lspAutostart;
     diagrams = diagramLayer(document, label, sandboxWarnings, false) ?? diagrams;
   }
   if (pickedByProject) diagramLayer(profileDocument, labels.profile, sandboxWarnings, true);
@@ -991,6 +1002,8 @@ export async function loadConfiguration(
     ...(aiPages !== undefined ? { aiPages } : {}),
     ...(openPages !== undefined ? { openPages } : {}),
     ...(browserClicks !== undefined ? { browserClicks } : {}),
+    ...(mcpAutoconnect !== undefined ? { mcpAutoconnect } : {}),
+    ...(lspAutostart !== undefined ? { lspAutostart } : {}),
     ...(pageChecks !== undefined ? { pageChecks } : {}),
     profileName: selectedProfile,
     policy: mergePolicy(

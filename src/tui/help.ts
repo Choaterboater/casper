@@ -100,7 +100,7 @@ Local commands:
   /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
   /output all                       Every tool call of the last task on its own line (the screen folds them into a summary)
   /details [quiet|normal|detailed] [--session]  Alone: the level now. Failures only, steps folded (default), or every step with small diffs; remembered like /effort, --session (before or after) for this session only. Ctrl+T shows the last step in full
-  /settings, /config                Every switch at a glance, then one by number, written to ~/.casper/config.yaml for you: web lookups, browser tool, browser clicks, starter templates, diagram tool, pages the AI makes, open pages in the browser, new-version notice, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, local models, page checks, show the AI the pages, work shown, theme, untrusted-text reader, helpers that build, Playwright tests, send Casper's name to OpenRouter, sign-ins from other tools, network server updates, private ssh passwords
+  /settings, /config                Every switch at a glance, then one by number, written to ~/.casper/config.yaml for you: web lookups, browser tool, browser clicks, starter templates, diagram tool, pages the AI makes, open pages in the browser, new-version notice, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, local models, page checks, show the AI the pages, work shown, theme, untrusted-text reader, helpers that build, Playwright tests, send Casper's name to OpenRouter, sign-ins from other tools, network server updates, my MCP servers, my language servers, private ssh passwords
   /theme                            Pick the screen's colours (the Theme row of /settings), saved for you
   /hotkeys                          The keys Casper uses
   /copy [n]                         Copy the last answer, or its code block n, to the clipboard
@@ -232,14 +232,15 @@ One-shot exit codes: 0 pass (or nothing to verify), 1 check failed or blocked, 2
 Exit 0 does not certify behavior beyond the checks; /receipt shows scope and freshness.
 MCP connection runs a configured program or contacts its URL. Review its source first.
 Casper's network server runs in the sandbox where one runs: it reaches only your login hosts, writes only its cache, and can't read your keys, ~/.casper or projects (/mcp sandbox network off). Other servers run as they are; /mcp says which.
-Servers from ~/.claude.json, ~/.mcp.json and VS Code are listed too; each needs /mcp connect once.
-Every MCP server starts with writes off. ${WRITES_OFF_MEANING} /mcp writes <name> turns writes on; Ctrl+O turns them off again. A remembered server always starts with writes off.
+Servers from ~/.claude.json, ~/.mcp.json and VS Code are listed too.
+Your own and imported MCP servers connect when the session starts (My MCP servers in /settings; a project's server needs /mcp connect). One that isn't a network product starts with writes on: its changes run without asking, firmware, delete and admin changes still ask.
+A network product's server (Mist, Central, ClearPass, Junos…) starts with writes off, and so does every server with My MCP servers off. ${WRITES_OFF_MEANING} /mcp writes <name> turns writes on; Ctrl+O turns them off again, your own servers' too. A remembered server always starts with writes off.
 A login is read-only only when the product says so (access_check); labels only make things stricter.
-MCP changes ask you in a numbered box; one-shot runs can't ask, so they are refused. The AI can't approve.
+MCP changes on a server with writes off ask you in a numbered box; one-shot runs can't ask, so they are refused. The AI can't approve.
 Known device secrets (passwords, keys, SNMP communities) in MCP results, config files and config-like command output are shown to the AI as <secret hidden> (best effort, known formats only); a change that carries the marker back is refused. See docs/SECRETS.md.
 A plain terminal (TERM=dumb or output redirected) can't answer approvals.
 Piped line input drops unfinished input when a question opens; NO_COLOR is supported.
-LSP connection runs a configured program. Review .casper/lsp.json first.
+LSP connection runs a configured program. Your own language servers (~/.casper/lsp.json) start with the session (My language servers in /settings); a project's .casper/lsp.json needs /lsp connect: review it first.
 An LSP rename asks you first; one-shot runs can't rename.
 Web lookups (web_search, web_fetch) are on by default and never ask. They reach only public https pages on ports 80 and 443 (http is upgraded), checked again on every redirect; a search or address holding a secret is refused, never sent. Search is DuckDuckGo by default; web: { provider: brave } uses Brave Search with the key saved as "brave" in Casper's login file (~/.casper/agent/auth.json), and web: { provider: searxng, searxngUrl: <address> } your own SearXNG.
 /settings turns them off (web: off in ~/.casper/config.yaml); a project file can't change web:.

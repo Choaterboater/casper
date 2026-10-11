@@ -69,12 +69,12 @@
         <h2 id="rules-title">The house rules</h2>
         <div class="grid">
           <article class="card">
-            <h3>Every server starts disconnected</h3>
-            <p>Finding a server in a config file is not permission. Only your <code>/mcp connect</code> or <code>--mcp</code> connects it.</p>
+            <h3>A project's server starts disconnected</h3>
+            <p>Finding a server in a project file is not permission. Only your <code>/mcp connect</code> or <code>--mcp</code> connects it. Your own servers connect when the session starts, a network product with writes off (<strong>My MCP servers</strong> in <code>/settings</code>).</p>
           </article>
           <article class="card">
-            <h3>Writes start off</h3>
-            <p>The server runs with its read-only settings, and every change asks you first. Only you can allow it, one server at a time.</p>
+            <h3>A network product's writes start off</h3>
+            <p>A network product's server runs with its read-only settings, and every change asks you first. Only you can allow it, one server at a time. Your other own servers start with writes on (<strong>My MCP servers</strong> in <code>/settings</code>).</p>
           </article>
           <article class="card">
             <h3>Changes ask in plain words</h3>
@@ -212,7 +212,7 @@ Press 1-2 or Up/Down + Enter · Esc is No</code></pre></div>
         <details>
           <summary>Other servers Casper has presets for</summary>
           <div class="table-wrap"><table>
-            <caption>From docs/MCP.md, "Presets". Every server, preset or not, starts with writes off.</caption>
+            <caption>From docs/MCP.md, "Presets". Every server with a preset starts with writes off.</caption>
             <thead><tr><th scope="col">Server</th><th scope="col">Pinned while writes are off</th><th scope="col">Hidden for a read-only login</th></tr></thead>
             <tbody>
               <tr><td>centralmcp (<code>aruba-*</code>)</td><td><code>CENTRALMCP_READONLY=1</code></td><td>write and delete tools</td></tr>
@@ -363,7 +363,7 @@ Make this change? → Yes, this once
       <section id="writes" aria-labelledby="writes-title">
         <h2 id="writes-title">Writes are off until you say so</h2>
         <div class="prose">
-          <p>Every server starts with writes off, remembered ones too. That means the server runs with its read-only settings, and every change asks you first in the change box.</p>
+          <p>Every network server starts with writes off, remembered ones too. That means the server runs with its read-only settings, and every change asks you first in the change box.</p>
           <p>You allow changes from that box: <code>2</code> for this one change (writes go back off after it), or <code>3</code> for the rest of the session on that server (destructive changes still ask every time). To turn writes on ahead of time, type <code>/mcp writes &lt;server&gt;</code> and pick <code>2</code>.</p>
         </div>
         <figure class="capture">
@@ -534,8 +534,8 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
         <ol class="steps">
           <li><strong>Make a read-only token on the Mist side.</strong> An Observer org token. This is the part that really keeps it read-only, because Mist enforces it, not Casper.</li>
           <li><strong>Put it in your shell, not in a file.</strong> <code>export MIST_TOKEN=…</code>, then add the <a href="#setup-mist">Mist entry</a> with <code>Bearer ${MIST_TOKEN}</code> to <code>~/.casper/mcp.json</code>.</li>
-          <li><strong>Start Casper and look.</strong> Type <code>/mcp</code>. You'll see <code>mist</code> as <code>disconnected</code>, with writes off.</li>
-          <li><strong>Connect.</strong> Type <code>/mcp connect mist</code>. Casper reminds you that it can't pin read-only on a hosted server and that access is not checked. Pick <code>1</code> for just this session or <code>2</code> to remember it.</li>
+          <li><strong>Start Casper and look.</strong> Type <code>/mcp</code>. You'll see <code>mist</code> connected, with writes off: it is your own server, so it connects when the session starts, and Mist is a network product.</li>
+          <li><strong>Connect, with My MCP servers off.</strong> Then it shows as <code>disconnected</code>: type <code>/mcp connect mist</code>. Casper reminds you that it can't pin read-only on a hosted server and that access is not checked. Pick <code>1</code> for just this session or <code>2</code> to remember it.</li>
           <li><strong>Ask plainly.</strong> "List the APs at each site in Mist. Read only, no changes." The AI finds tools with <code>find_capability</code> (a word like <code>site</code> finds <code>mist_list_sites</code>) and calls them. Tools the server marks read-only run without asking. Anything else stops at the approval box for you.</li>
           <li><strong>Big orgs are cut to size.</strong> Each result the AI reads fits 16 KiB, and each list is cut to 50 items, with a note like <code>Partial result: … shows 50 of 2000. More: call again with next_cursor.</code> So the AI knows it saw only part, and can ask for the next page.</li>
           <li><strong>Secrets stay hidden.</strong> If a result carries a PSK or RADIUS key under a key like <code>psk</code> or <code>radius_key</code>, it arrives as <code>&lt;secret hidden&gt;</code>.</li>

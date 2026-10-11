@@ -7,8 +7,9 @@ is used, and rename a name across files (a rename is a normal edit: no box, and 
 TypeScript or Python project (or any language with a server) where you want
 errors caught right after each edit.
 
-Nothing is installed or started for you. You point Casper at a server you
-already have, then connect it.
+Nothing is installed for you. You point Casper at a server you already have.
+Your own servers (in `~/.casper/lsp.json` or your profile's) start when the
+session starts; a project's server waits for you to review and connect it.
 
 Casper has its own LSP client and rules; Pi only passes the tool through. OMP
 was used as reference material, not as a dependency.
@@ -38,7 +39,9 @@ Optional metadata files, lowest to highest precedence:
 }
 ```
 
-`disabled: true` removes an inherited definition. Invalid named overrides also remove the earlier definition rather than silently starting it. Configuration is frozen at startup; restart after changing it. Use absolute executable paths where possible. No server is bundled into user configuration, automatically installed, or automatically started. The test-only language-server packages in devDependencies do not enable any server.
+`disabled: true` removes an inherited definition. Invalid named overrides also remove the earlier definition rather than silently starting it. Configuration is frozen at startup; restart after changing it. Use absolute executable paths where possible. No server is bundled into user configuration or automatically installed. The test-only language-server packages in devDependencies do not enable any server.
+
+**Your own servers start by themselves.** With **My language servers** on in `/settings` (the default), every server from `~/.casper/lsp.json` and your profile's `lsp.json` starts in the background when the session starts, with no `/lsp connect`, so the `lsp` tool and the diagnostics after each edit are there for the first task. One that fails to start shows as `disconnected` in `/lsp`, and `/lsp connect <name>` tries it again. A server from the project's `.casper/lsp.json` never starts by itself. Turn it off with `/settings` (it writes `lsp_autostart: false` in `~/.casper/config.yaml`; a project file can't set it): every server then waits for `/lsp connect`, as before. It applies from the next start.
 
 ```text
 /lsp                         list servers and their state (starts nothing)

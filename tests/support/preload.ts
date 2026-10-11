@@ -53,3 +53,8 @@ afterEach(() => {
 // soon as a box is up; tests/one-input-style.test.ts sets the real wait itself.
 const { askDefaults } = await import("../../src/tui/surface");
 askDefaults.guardMs = 0;
+
+// Your own MCP and language servers (~/.claude.json, ~/.casper/mcp.json) never start by themselves in the suite: a
+// developer's real servers would run in it. Tests of My MCP servers build their managers with autoconnect themselves.
+const { ownServerDefaults } = await import("../../src/mcp/manager");
+ownServerDefaults.start = false;

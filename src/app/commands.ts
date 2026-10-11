@@ -1054,7 +1054,8 @@ function mcpListText(statuses: readonly MCPStatus[], hints: boolean): string {
 
 /** "Heads up: writes are on for lab; lab runs outside the sandbox." under the list (or before the picker), or nothing. */
 function headsUpText(statuses: readonly MCPStatus[], hints: boolean): string {
-  const writesOn = statuses.filter((status) => status.writes === "on").map((status) => status.name);
+  // Your own servers' writes are on by default (My MCP servers); the heads-up is for writes you turned on.
+  const writesOn = statuses.filter((status) => status.writes === "on" && !status.ownWrites).map((status) => status.name);
   const open = statuses.filter((status) => status.state === "ready" && status.sandbox && status.sandbox.state !== "on").map((status) => status.name);
   const warn = [
     ...(writesOn.length ? [`writes are on for ${writesOn.join(", ")}`] : []),
@@ -1202,6 +1203,9 @@ async function handleMCPDocs(host: CommandHost): Promise<void> {
 
 /** Plain lines about approval: not approved yet, changed since, or remembered. */
 function approvalLines(status: MCPStatus): string[] {
+  // My MCP servers: your own server needs no /mcp connect and nothing to remember.
+  if (status.ownWrites) return ["  Your own server: connects on its own, writes on; firmware, delete and admin changes still ask."];
+  if (status.startsOwn && status.approved) return ["  Your own server: connects on its own, with writes off."];
   if (status.consent === "changed" && !status.approved) return [`  Changed since you approved it. Run /mcp connect ${status.name}.`];
   if (status.consent === "remembered" && status.approved) return ["  Remembered: connects on its own, with writes off."];
   if (status.importedFrom && !status.approved && status.state === "disconnected") {
@@ -1214,7 +1218,7 @@ function approvalLines(status: MCPStatus): string[] {
  * so a habitual 1 never remembers a server. */
 async function offerRemember(host: CommandHost, name: string): Promise<void> {
   const status = host.mcp!.status().find((entry) => entry.name === name);
-  if (!host.interactive || !status || status.scope === "project" || status.consent === "remembered") return;
+  if (!host.interactive || !status || status.scope === "project" || status.consent === "remembered" || status.startsOwn) return;
   const block = host.mcp!.rememberBlock(name);
   if (block) { host.output.write(`[mcp] ${terminalText(block)}\n`); return; }
   // The box's one-line record ("Remember lab? → No") is the whole outcome of a No; the choices say what each means.
@@ -1595,6 +1599,8 @@ async function handlePermissions(host: CommandHost, prompt: string, duringWork =
   const context = host.projectContext;
   const reach = await sandbox?.store?.reachHosts() ?? [];
   const forGood = sandbox?.rememberedWriteFolders() ?? [];
+  // Your own servers that started with writes on are listed apart: their changes don't ask (My MCP servers).
+  const asked = host.mcp?.writesOn({ own: false }) ?? [];
   const view: PermissionsView = {
     shell: basics[0]!, scripts: basics.at(-1)!,
     sandboxReason: sandbox?.failure ?? sandbox?.state.reason, shellAsks: Boolean(sandbox?.asksFirst),
@@ -1605,7 +1611,7 @@ async function handlePermissions(host: CommandHost, prompt: string, duringWork =
     checks: sandbox?.user.checks ?? "ask", checksRemembered: all.some((entry) => entry.kind === "checks"),
     githubLogin: all.filter((entry) => entry.kind === "github").map((entry) => `${entry.value}${entry.session ? " (this session)" : ""}`),
     writesForGood: forGood, writesSession: (sandbox?.allowedWriteFolders() ?? []).filter((folder) => !forGood.includes(folder)),
-    mcpWritesOn: host.mcp?.writesOn() ?? [], mcpAllowAll: host.allowances?.allowAllServers() ?? [],
+    mcpWritesOn: asked, mcpOwnWrites: (host.mcp?.writesOn() ?? []).filter((server) => !asked.includes(server)), mcpAllowAll: host.allowances?.allowAllServers() ?? [],
     web: context?.web?.enabled !== false, github: context?.github !== false, sshLogin: context?.sshLogin !== false, downloads: context?.toolDownloads !== false,
     show: (folder) => displayPath(folder, { root, home }),
   };

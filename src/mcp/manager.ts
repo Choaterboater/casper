@@ -57,6 +57,10 @@ export interface MCPStatus {
   preset?: { id: string; lines: string[] };
   /** Plain show commands on a Junos server run without asking (the user's own opt-in). */
   showOptIn?: boolean;
+  /** Your own server (not a network product) that started with writes on: its changes run without the change box. */
+  ownWrites?: true;
+  /** Your own server that connects on its own (My MCP servers), with no /mcp connect. */
+  startsOwn?: true;
   /** Whether this local server runs in the sandbox (see src/mcp/sandbox). Absent when no sandbox is wired in. */
   sandbox?: MCPSandboxStatus;
 }
@@ -86,10 +90,16 @@ export interface ServerPolicy {
   writes: "off" | "on";
   access?: AccessCheck;
   showOptIn: boolean;
+  /** Your own server started with writes on (My MCP servers): a change runs without the change box. */
+  ownWrites?: true;
 }
 
 /** Casper's defaults: 20 s to start, 90 s per call without progress, 10 min for any call. */
 export const MCP_LIMITS = { connectMs: 20_000, callMs: 90_000, hardCapMs: 600_000 } as const;
+
+/** Whether a session starts your own MCP and language servers by itself (My MCP servers, My language servers in
+ * /settings). The test suite turns it off, so a developer's own servers never start in it. */
+export const ownServerDefaults = { start: true };
 
 /** The SDK's own request timeout cannot be paused, so it sits far above any call limit: Casper's
  * CallClock owns cancellation through the abort signal (a paused approval prompt must not trip it). */
@@ -135,6 +145,9 @@ export interface MCPManagerOptions {
   homeDir?: string;
   /** Runs servers Casper knows the needs of inside the sandbox. Without it, every server runs as it is. */
   sandbox?: MCPServerHolder;
+  /** My MCP servers (mcp_autoconnect): your own, profile and imported servers connect without /mcp connect, and those
+   * that aren't a network product start with writes on. Project servers keep their review. */
+  autoconnect?: boolean;
 }
 
 /** The call the user approved: its server questions may reach the user. */
@@ -188,8 +201,11 @@ interface Entry {
   inFlight: number;
   /** The one call the user approved that is running now, if any. */
   approvedCall?: RunningApprovedCall;
-  /** Always "off" at start and after a changed definition; only the user turns it on. */
+  /** "off" at start and after a changed definition, unless it is your own server that starts with writes on. */
   writes: "off" | "on";
+  /** Started with writes on as your own server. Ends when writes go off (ctrl+o, /mcp writes off) or its tool list
+   * shows a network product. */
+  ownWrites: boolean;
   /** Times writes went off (ctrl+o, /mcp writes off, disconnect, a changed definition): a "for this session" answer
    * given before the last one no longer counts. */
   writesOffCount: number;
@@ -267,15 +283,24 @@ function questionShape(schema: unknown): { field: string; kind: "boolean" | "cho
   return { field, kind: "choice", options: options as string[] };
 }
 
-function newEntry(definition: MCPServerDefinition, consent?: ConsentStore): Entry {
+/** My MCP servers: your own, profile or imported server connects on its own, and one that isn't a network product (no
+ * preset by its definition) starts with writes on. A project's server never does. */
+function ownStart(definition: MCPServerDefinition, autoconnect: boolean): { approved: boolean; writes: boolean } {
+  const own = autoconnect && definition.scope !== "project" && !definition.disabled;
+  return { approved: own, writes: own && !matchPreset(definition) };
+}
+
+function newEntry(definition: MCPServerDefinition, consent?: ConsentStore, autoconnect = false): Entry {
   const personal = definition.scope !== "project";
+  const own = ownStart(definition, autoconnect);
   return {
     definition, state: definition.disabled ? "disabled" : "disconnected",
     tools: [], abort: new AbortController(), dirty: false, attempts: [], generation: 0, secrets: [], loginSecrets: [], inFlight: 0,
     // Remembered approval only ever means "connect with writes off"; project servers always ask.
-    approved: personal && !definition.disabled && (consent?.has(definition) ?? false),
+    approved: own.approved || (personal && !definition.disabled && (consent?.has(definition) ?? false)),
     consent: personal ? consent?.state(definition) ?? "none" : "none",
-    writes: "off", writesOffCount: 0, allowanceEnds: 0, mismatch: false, pins: { kind: "none" }, showOptIn: false,
+    writes: own.writes ? "on" : "off", ownWrites: own.writes,
+    writesOffCount: 0, allowanceEnds: 0, mismatch: false, pins: { kind: "none" }, showOptIn: false,
   };
 }
 
@@ -303,6 +328,7 @@ export class MCPManager {
   private readonly consent?: ConsentStore;
   private readonly homeDir?: string;
   private readonly holder?: MCPServerHolder;
+  private readonly autoconnect: boolean;
 
   constructor(configuration: MCPConfiguration, options: MCPManagerOptions = {}) {
     this.diagnostics = [...configuration.diagnostics, ...options.consent?.diagnostics ?? []];
@@ -311,6 +337,7 @@ export class MCPManager {
     this.consent = options.consent;
     this.homeDir = options.homeDir;
     this.holder = options.sandbox;
+    this.autoconnect = options.autoconnect ?? false;
     this.defaults = {
       connectMs: options.connectTimeoutMs ?? options.timeoutMs ?? MCP_LIMITS.connectMs,
       callMs: options.callTimeoutMs ?? options.timeoutMs ?? MCP_LIMITS.callMs,
@@ -318,7 +345,7 @@ export class MCPManager {
     };
     for (const definition of configuration.servers) {
       if (this.entries.has(definition.name)) throw new Error("Duplicate MCP server name");
-      this.entries.set(definition.name, newEntry(structuredClone(definition), this.consent));
+      this.entries.set(definition.name, newEntry(structuredClone(definition), this.consent, this.autoconnect));
     }
   }
 
@@ -349,6 +376,8 @@ export class MCPManager {
         access: entry.state === "ready" ? accessStatusText(entry.access) : "access not checked",
         ...(match ? { preset: { id: match.preset.id, lines: this.presetLines(entry, match) } } : {}),
         ...(entry.showOptIn ? { showOptIn: true } : {}),
+        ...(entry.ownWrites && entry.writes === "on" ? { ownWrites: true as const } : {}),
+        ...(ownStart(entry.definition, this.autoconnect).approved ? { startsOwn: true as const } : {}),
         ...(this.sandboxStatus(entry) ? { sandbox: this.sandboxStatus(entry)! } : {}),
       };
     });
@@ -391,15 +420,18 @@ export class MCPManager {
     const entry = this.entries.get(server);
     if (!entry) return { writes: "off", showOptIn: false };
     const match = this.match(entry);
-    return { ...(match ? { match } : {}), writes: entry.writes, ...(entry.access ? { access: entry.access } : {}), showOptIn: entry.showOptIn };
+    return { ...(match ? { match } : {}), writes: entry.writes, ...(entry.access ? { access: entry.access } : {}), showOptIn: entry.showOptIn,
+      ...(entry.ownWrites && entry.writes === "on" && !match ? { ownWrites: true as const } : {}) };
   }
 
   /** A copy of one loaded definition (for the user's own notes; never shown to the model). */
   definition(name: string): MCPServerDefinition { return structuredClone(this.entry(name).definition); }
 
-  /** Servers with writes turned on, for the footer badge. */
-  writesOn(): string[] {
-    return [...this.entries.values()].filter((entry) => entry.writes === "on").map((entry) => entry.definition.name);
+  /** Servers with writes on (ctrl+o turns them off). `own: false` leaves out your own servers that started with writes
+   * on, for the footer badge. */
+  writesOn(options: { own?: boolean } = {}): string[] {
+    return [...this.entries.values()].filter((entry) => entry.writes === "on" && (options.own !== false || !entry.ownWrites))
+      .map((entry) => entry.definition.name);
   }
 
   /** Why this server can't be remembered, or undefined when it can. */
@@ -480,6 +512,8 @@ export class MCPManager {
     if (!on) {
       if (entry.writes === "off") return;
       entry.writes = "off";
+      // Turned on again later, it is like any server's: every change asks.
+      entry.ownWrites = false;
       entry.writesOffCount++;
       // The broker re-pinning after "Yes, this once" is not the person turning writes off.
       if (!options.once) entry.allowanceEnds++;
@@ -625,8 +659,8 @@ export class MCPManager {
 
   /** Re-read configuration: add new servers, drop removed ones, and replace changed
    * definitions (a changed command/url is a different program, so its consent resets and
-   * it reconnects only via an explicit /mcp connect). Unchanged approved servers keep
-   * their connection. Returns the diff for the command report; `revoked` lists the changed
+   * it reconnects only via an explicit /mcp connect, or on its own as your own server with My MCP
+   * servers on). Unchanged approved servers keep their connection. Returns the diff for the command report; `revoked` lists the changed
    * servers that actually held consent. */
   async reload(configuration: MCPConfiguration): Promise<{ added: string[]; removed: string[]; changed: string[]; revoked: string[] }> {
     this.assertCleanup();
@@ -663,14 +697,17 @@ export class MCPManager {
         else delete entry.definition.limits;
         continue;
       }
-      // Back to a definition you remembered: it connects on its own again (writes off), like at start.
-      const remembered = replacement.scope !== "project" && !replacement.disabled && (this.consent?.has(replacement) ?? false);
+      // Back to a definition you remembered: it connects on its own again (writes off), like at start. With My MCP
+      // servers on, your own server connects on its own anyway, as it would at start.
+      const own = ownStart(replacement, this.autoconnect);
+      const remembered = own.approved || (replacement.scope !== "project" && !replacement.disabled && (this.consent?.has(replacement) ?? false));
       if (entry.approved && !remembered) revoked.push(name);
       await this.disconnect(name);
       entry.definition = replacement;
       entry.approved = remembered;
-      // A different program starts over: writes off, no opt-ins, and its remembered approval no longer matches.
-      entry.writes = "off";
+      // A different program starts over: writes as at start, no opt-ins, and its remembered approval no longer matches.
+      entry.writes = own.writes ? "on" : "off";
+      entry.ownWrites = own.writes;
       entry.writesOffCount++;
       entry.allowanceEnds++;
       entry.showOptIn = false;
@@ -685,7 +722,7 @@ export class MCPManager {
       changed.push(name);
     }
     for (const definition of next.values()) {
-      this.entries.set(definition.name, newEntry(definition, this.consent));
+      this.entries.set(definition.name, newEntry(definition, this.consent, this.autoconnect));
       added.push(definition.name);
     }
     this.diagnostics = [...configuration.diagnostics, ...this.consent?.diagnostics ?? []];
@@ -999,6 +1036,12 @@ export class MCPManager {
       if (match?.by === "tools") {
         const first = entry.toolPreset !== match.preset.id;
         entry.toolPreset = match.preset.id;
+        // Your own server whose tools show a network product: writes off and the yes/no box, as for any such server.
+        if (entry.ownWrites) {
+          entry.ownWrites = false;
+          entry.writes = "off";
+          entry.writesOffCount++;
+        }
         // Started without pins because the definition did not show what it runs: restart once with them.
         if (first && entry.writes === "off" && entry.pins.kind !== "pinned" && planPins(entry.definition, match.preset).kind === "pinned") {
           clearTimeout(deadline);

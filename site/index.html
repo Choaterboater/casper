@@ -154,7 +154,7 @@ This makes the change.
 <span class="dim"># (pressed 1: the box closes into one line, the record of the answer)</span>
 
 Make this change? <span class="accent">→ No</span></pre>
-          <p class="demo-note">MCP servers start with writes off, and every change asks you first. The AI cannot approve anything for you. Captured against a local test server that never contacts a device.</p>
+          <p class="demo-note">Network MCP servers start with writes off, and every change asks you first. The AI cannot approve anything for you. Captured against a local test server that never contacts a device.</p>
         </div>
         <div class="demo-panel" id="demo-secrets">
           <h3 class="demo-label">Hide secrets</h3>
@@ -273,7 +273,7 @@ independently certified.
       <section class="split" aria-labelledby="network">
         <div>
           <h2 id="network">Made for network engineers</h2>
-          <p>Casper works with MCP servers such as hpe-networking-mcp, junos-mcp-server, Mist and NetBox. Casper can set up its own server for Mist, Central and ClearPass in one step (<code>/mcp setup network</code>). Writes start off. A login counts as read-only only when the product itself says so; anything else shows <code>access not checked</code>.</p>
+          <p>Casper works with MCP servers such as hpe-networking-mcp, junos-mcp-server, Mist and NetBox. Casper can set up its own server for Mist, Central and ClearPass in one step (<code>/mcp setup network</code>). A network product's writes start off. A login counts as read-only only when the product itself says so; anything else shows <code>access not checked</code>.</p>
           <p>Building your own MCP server? <code>casper mcp check</code> runs its tests and checks its labels, schemas and example configs.</p>
           <p><a href="network.html">See the network page →</a></p>
         </div>

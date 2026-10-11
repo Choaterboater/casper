@@ -77,6 +77,10 @@ export interface ProjectContext {
   openPages?: boolean;
   /** `browser_clicks: off` in the user's config: the AI's browser asks before a held action. Unset: on. */
   browserClicks?: boolean;
+  /** `mcp_autoconnect: off` in the user's config: their own MCP servers wait for /mcp connect. Unset: on. */
+  mcpAutoconnect?: boolean;
+  /** `lsp_autostart: off` in the user's config: their own language servers wait for /lsp connect. Unset: on. */
+  lspAutostart?: boolean;
   /** `telemetry: off` in the user's config: no OpenRouter app-name headers. Unset: on. */
   telemetry?: boolean;
   rules: {
@@ -183,6 +187,8 @@ export async function loadProjectContext(
     ...(configuration.aiPages !== undefined ? { aiPages: configuration.aiPages } : {}),
     ...(configuration.openPages !== undefined ? { openPages: configuration.openPages } : {}),
     ...(configuration.browserClicks !== undefined ? { browserClicks: configuration.browserClicks } : {}),
+    ...(configuration.mcpAutoconnect !== undefined ? { mcpAutoconnect: configuration.mcpAutoconnect } : {}),
+    ...(configuration.lspAutostart !== undefined ? { lspAutostart: configuration.lspAutostart } : {}),
     ...(configuration.toolDownloads !== undefined ? { toolDownloads: configuration.toolDownloads } : {}),
     rules: {
       profile: configuration.profileRules,

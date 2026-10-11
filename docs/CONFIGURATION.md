@@ -22,7 +22,8 @@ Settings (saved in ~/.casper/config.yaml for you):
   Work shown: normal · Theme: default · Untrusted-text reader: on
   Helpers that build: on · Playwright tests: on
   Send Casper's name to OpenRouter: on · Sign-ins from other tools: on
-  Network server updates: on · Private ssh passwords: on
+  Network server updates: on · My MCP servers: on · My language servers: on
+  Private ssh passwords: on
 Pick one to change:
   1 Done                              nothing changes
   2 Web lookups                       on (DuckDuckGo)
@@ -52,14 +53,16 @@ Pick one to change:
  26 Send Casper's name to OpenRouter  on
  27 Sign-ins from other tools         on
  28 Network server updates            on
- 29 Private ssh passwords             on
+ 29 My MCP servers                    on
+ 30 My language servers               on
+ 31 Private ssh passwords             on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
-Every row has its number: past 9, type it and press Enter (`Type 1-29 + Enter or Up/Down + Enter`).
+Every row has its number: past 9, type it and press Enter (`Type 1-31 + Enter or Up/Down + Enter`).
 A plain terminal (`TERM=dumb`) asks the same list as numbered lines.
-A change applies from now on (built-in skills, packs, the prompt cache and local models from the next start) and says so:
+A change applies from now on (built-in skills, packs, the prompt cache, local models, My MCP servers and My language servers from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Changed while a task runs, it also says when the
 task gets it: from its next step, or, for a tool the task already has (web lookups, the reader, the browser,
 builders, the spend limits), `The running task keeps what it had; your next request uses it.` A switch turned off is written as
@@ -185,6 +188,20 @@ Casper (kept out of its public rankings for now); nothing about your code. It is
 `/settings` (it writes `telemetry: false`) or `CASPER_TELEMETRY=0`; either one off is off. A project
 file can't change `telemetry:`. See [OpenRouter app attribution](#provider-credentials).
 
+### My MCP servers and My language servers
+
+Your own MCP servers (`~/.casper/mcp.json`, your profile's, and the ones found in Claude Code and
+VS Code files) connect when the session starts, with no `/mcp connect`. One that isn't a network
+product starts with writes on, and its changes run without the change box; firmware, delete and
+admin changes still ask. A network product's server (Mist, Central, ClearPass, Junos…) keeps writes
+off and its yes/no box, and a project's server keeps its review (see
+[MCP.md](MCP.md#your-own-servers-start-by-themselves)). Your own language servers
+(`~/.casper/lsp.json` and your profile's) start with the session too (see [LSP.md](LSP.md)). Both are
+on. Turn them off with `/settings` (**My MCP servers** writes `mcp_autoconnect: false`, **My language
+servers** `lsp_autostart: false`): every server then waits for `/mcp connect` or `/lsp connect`, and
+an MCP server starts with writes off with every change asking in the box. They apply from the next
+start. A project file can't set them.
+
 ### Asking less: /permissions
 
 `/permissions` prints a short screen: whether Casper is asking, one line per kind (state · how to change it) and what stays protected, then the numbered box
@@ -300,7 +317,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
-`showPages`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
+`showPages`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
