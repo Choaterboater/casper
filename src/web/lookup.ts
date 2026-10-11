@@ -6,7 +6,8 @@ import { Readable } from "node:stream";
 import zlib from "node:zlib";
 import { NotExecutedError, OutcomeUnknownError } from "../capabilities/result";
 import { loginFileValues, scrubPlainSecrets } from "../secrets/files";
-import { containsHiddenSecret, scrubText, scrubValue } from "../secrets/scrub";
+import { holdsSecret } from "../secrets/refuse";
+import { scrubText, scrubValue } from "../secrets/scrub";
 import type { WebSettings } from "../config/load";
 import { CASPER_VERSION } from "../version";
 import { htmlToText } from "./html";
@@ -152,13 +153,8 @@ export class WebLookup {
 
   /** Refuses (never redacts and sends) text that holds a secret. */
   private refuseSecrets(text: string, what: string): void {
-    const values = this.options.loginValues?.() ?? [];
-    // Each %XX run on its own, so one bad escape elsewhere can't hide an encoded secret.
-    const decoded = text.replace(/\+/g, " ").replace(/(?:%[0-9a-f]{2})+/gi, (run) => { try { return decodeURIComponent(run); } catch { return run; } });
-    for (const candidate of new Set([text, decoded])) {
-      if (containsHiddenSecret(candidate) || scrubText(candidate).hidden || scrubPlainSecrets(candidate, { env: this.options.env ?? process.env, values }).hidden) {
-        throw new NotExecutedError(`the ${what} holds a secret`, `Casper never sends secrets to the web. Ask again without it.`);
-      }
+    if (holdsSecret(text, { values: this.options.loginValues?.() ?? [], env: this.options.env ?? process.env })) {
+      throw new NotExecutedError(`the ${what} holds a secret`, `Casper never sends secrets to the web. Ask again without it.`);
     }
   }
 

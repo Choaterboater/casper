@@ -28,6 +28,8 @@ export interface TaskCapabilitySource {
   web?: RuntimeTool[];
   /** casper_page (pages in the user's browser); unset when ai_pages is off, so it costs nothing. */
   page?: RuntimeTool;
+  /** make_picture; unset when pictures are off or nothing can make one (no codex, no OpenRouter sign-in). */
+  picture?: RuntimeTool;
   visualization: VisualizationRouter;
   /** Workspace root for repo-scoped visualization. */
   projectRoot: string;
@@ -67,8 +69,15 @@ export function diagramRequested(task: string): boolean {
   return /\b(visuali[sz](e|ation)|diagrams?|graphs?|maps?|mind ?maps?|charts?|flowcharts?|draw|sketch|architecture|topology)\b/i.test(task);
 }
 
+/** Picture words, or a request to build a web page, pull in make_picture. Once offered it stays for the session, so
+ * a task that only mentions a page ("check the website layout") leaves it out. */
+export function picturesRequested(task: string): boolean {
+  return /\b(pictures?|images?|photos?|photographs?|illustrations?|artwork|gallery|logos?|banners?|posters?|thumbnails?)\b/i.test(task)
+    || /\b(build|make|create|design|generate|write|start)\b.*\b(website|webpage|portfolio|(?:landing|home|web) ?(?:page|site))\b/i.test(task);
+}
+
 /** The complete custom tool surface for one task, in the established order: MCP capabilities,
- * delegation, clarification, Casper's own state, managed checks, LSP, references, web lookups, the untrusted-text reader, pages, browser, services, visualization.
+ * delegation, clarification, Casper's own state, managed checks, LSP, references, web lookups, the untrusted-text reader, pages, pictures, browser, services, visualization.
  * Casper's own tools, once offered, stay offered for the session: a changed tool list throws away
  * the provider's prompt cache. The direct MCP tools are picked once per session (again when a server
  * connects or disconnects); find_capability reaches the rest. */
@@ -77,6 +86,7 @@ export async function assembleTaskTools(task: string, source: TaskCapabilitySour
   const browser = !source.browserOff && (source.browserInstalled || browserRequested(task, source.browserReady) || kept("browser"));
   const service = serviceRequested(task, source.services) || kept("service");
   const github = !source.githubOff && source.githubTool !== undefined && (githubRequested(task) || kept("github"));
+  const picture = source.picture !== undefined && (picturesRequested(task) || kept("make_picture"));
   const diagram = !source.diagramOff && (diagramRequested(task) || kept("visualize"));
   return [
     ...await source.broker.prepare(task),
@@ -89,6 +99,7 @@ export async function assembleTaskTools(task: string, source: TaskCapabilitySour
     ...(source.web ?? []),
     ...(source.reader ? [source.reader] : []),
     ...(source.page ? [source.page] : []),
+    ...(picture ? [source.picture!] : []),
     ...(browser ? [browserTool(source.browser, source.browserSignal)] : []),
     ...(service ? [source.serviceTool()] : []),
     ...(github ? [source.githubTool!()] : []),

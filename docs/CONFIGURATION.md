@@ -15,15 +15,16 @@ writes your answer into `~/.casper/config.yaml` for you, keeping your comments a
 Settings (saved in ~/.casper/config.yaml for you):
   Web lookups: on (DuckDuckGo) · Browser tool: on · Browser clicks: on
   Routine commands: on · Starter templates: on · Diagram tool: on
-  Pages the AI makes: on · Open pages in the browser: on
-  New-version notice: on · Suggestions: on · Side questions with ?: on
-  Built-in skills: on · GitHub tool: on · Packs: on · Spend notes: at $1 a task
-  Spend pause: off · Prompt cache: auto · Local models: on · Page checks: on
-  Show the AI the pages: ask once a session · Work shown: normal
-  Theme: default · Untrusted-text reader: on · Helpers that build: on
-  Playwright tests: on · Send Casper's name to OpenRouter: on
-  Sign-ins from other tools: on · Network server updates: on
-  My MCP servers: on · My language servers: on · Private ssh passwords: on
+  Pages the AI makes: on · Pictures the AI makes: on
+  Open pages in the browser: on · New-version notice: on · Suggestions: on
+  Side questions with ?: on · Built-in skills: on · GitHub tool: on · Packs: on
+  Spend notes: at $1 a task · Spend pause: off · Prompt cache: auto
+  Local models: on · Page checks: on · Show the AI the pages: ask once a session
+  Work shown: normal · Theme: default · Untrusted-text reader: on
+  Helpers that build: on · Playwright tests: on
+  Send Casper's name to OpenRouter: on · Sign-ins from other tools: on
+  Network server updates: on · My MCP servers: on · My language servers: on
+  Private ssh passwords: on
 Pick one to change:
   1 Done                              nothing changes
   2 Web lookups                       on (DuckDuckGo)
@@ -33,35 +34,36 @@ Pick one to change:
   6 Starter templates                 on
   7 Diagram tool                      on
   8 Pages the AI makes                on
-  9 Open pages in the browser         on
- 10 New-version notice                on
- 11 Suggestions                       on
- 12 Side questions with ?             on
- 13 Built-in skills                   on
- 14 GitHub tool                       on
- 15 Packs                             on
- 16 Spend notes                       at $1 a task
- 17 Spend pause                       off
- 18 Prompt cache                      auto
- 19 Local models                      on
- 20 Page checks                       on
- 21 Show the AI the pages             ask once a session
- 22 Work shown                        normal
- 23 Theme                             default
- 24 Untrusted-text reader             on
- 25 Helpers that build                on
- 26 Playwright tests                  on
- 27 Send Casper's name to OpenRouter  on
- 28 Sign-ins from other tools         on
- 29 Network server updates            on
- 30 My MCP servers                    on
- 31 My language servers               on
- 32 Private ssh passwords             on
+  9 Pictures the AI makes             on
+ 10 Open pages in the browser         on
+ 11 New-version notice                on
+ 12 Suggestions                       on
+ 13 Side questions with ?             on
+ 14 Built-in skills                   on
+ 15 GitHub tool                       on
+ 16 Packs                             on
+ 17 Spend notes                       at $1 a task
+ 18 Spend pause                       off
+ 19 Prompt cache                      auto
+ 20 Local models                      on
+ 21 Page checks                       on
+ 22 Show the AI the pages             ask once a session
+ 23 Work shown                        normal
+ 24 Theme                             default
+ 25 Untrusted-text reader             on
+ 26 Helpers that build                on
+ 27 Playwright tests                  on
+ 28 Send Casper's name to OpenRouter  on
+ 29 Sign-ins from other tools         on
+ 30 Network server updates            on
+ 31 My MCP servers                    on
+ 32 My language servers               on
+ 33 Private ssh passwords             on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
-Every row has its number: past 9, type it and press Enter (`Type 1-32 + Enter or Up/Down + Enter`).
+Every row has its number: past 9, type it and press Enter (`Type 1-33 + Enter or Up/Down + Enter`).
 A plain terminal (`TERM=dumb`) asks the same list as numbered lines.
 A change applies from now on (built-in skills, packs, the prompt cache, local models, My MCP servers and My language servers from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Changed while a task runs, it also says when the
@@ -170,6 +172,31 @@ The AI draws a diagram when a task asks for a map, chart or flow (see
 `visualize: false`, or `visualize.enabled: false` when your `visualize:` lists providers): the AI is
 never offered the `visualize` tool. `/visualize`, typed by you, still works. A project file may pick
 `visualize.providers` but can't turn the tool on or off.
+
+### Pictures the AI makes
+
+When a request asks for pictures or to build a web page, the AI may make photos and illustrations
+with the `make_picture` tool and save them in the project (`assets/` unless it names a path). It
+uses what you already have, in this order, with no question: your ChatGPT plan through the Codex CLI
+you installed and signed in to (`codex login status` says ChatGPT; included in the plan), then the
+free OpenRouter model `inclusionai/ming-image-0.1-design` with your OpenRouter sign-in. With
+neither, or when both fail or hit their limits, no picture is made and the AI draws SVG. Nothing
+paid runs on its own: a paid model runs only when your request names one ("make the images with FLUX
+3") or you list models in `pictures.models`, which are tried after Codex in place of the free one. A
+`gpt-image-*` model uses your OpenAI key when you have one. The receipt counts what a picture cost.
+Codex runs read-only and only makes the picture; Casper copies the one its image tool saved under
+`$CODEX_HOME/generated_images` (default `~/.codex`) and leaves Codex's copy there. A picture wider
+or taller than 1600 px or over 400 KB is shrunk for the web with macOS's `sips` or ImageMagick, as
+a `.jpg` unless you ask for `.png` or transparency; with neither it is kept and the AI is told.
+The tool is offered only when Codex is signed in with ChatGPT (checked once a session) or you are
+signed in to OpenRouter. Turn it off with `/settings` (it writes `pictures: false`). A project file
+can't turn it on or off or list models.
+
+```yaml
+# ~/.casper/config.yaml or a profile's config.yaml
+pictures:
+  models: [black-forest-labs/flux-3-image] # may cost money; default: none
+```
 
 ### Suggestions
 
@@ -886,6 +913,7 @@ other_logins: off    # /login never offers sign-ins from Claude Code, Codex CLI 
 network_updates: off # only a new Casper brings a new network server version (see MCP.md)
 ai_pages: off        # the AI is never offered casper_page: no pages, and no tokens for it
 open_pages: off      # pages the AI makes are not opened in your browser; Casper prints the link
+pictures: off        # the AI is never offered make_picture; it draws SVG
 ```
 
 `network_updates: off` (or **Network server updates** in `/settings`) stops Casper looking for

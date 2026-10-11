@@ -159,5 +159,5 @@ test("/settings: Pages the AI makes and Open pages in the browser are on by defa
   expect(await readFile(path.join(home, ".casper", "config.yaml"), "utf8")).toBe("ai_pages: false\nopen_pages: false\n");
   expect(context).toMatchObject({ aiPages: false, openPages: false });
   expect(FULL_HELP_TEXT).toContain("/pages open <name>");
-  expect(FULL_HELP_TEXT).toContain("pages the AI makes, open pages in the browser");
+  expect(FULL_HELP_TEXT).toContain("pages the AI makes, pictures the AI makes, open pages in the browser");
 });

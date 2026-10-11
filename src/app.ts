@@ -150,6 +150,8 @@ export interface CasperAppOptions {
   modelRetryWait?: (ms: number) => Promise<void>;
   /** Tests: whether this computer has a desktop, and the browser opener, for the pages the AI makes. */
   pageSeams?: { desktop?: () => boolean; open?: (url: string) => boolean };
+  /** Tests: where make_picture finds codex (PATH) and how it reaches the image services. */
+  pictureSeams?: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; urls?: { openrouter?: string; openai?: string } };
   /** Opens pages for the page check: Chrome when installed, else HTTP only. Tests pass a fake. */
   pageOpener?: (options: { projectRoot: string; stateDirectory: string }) => Promise<PageOpener>;
   /** Where network checks find their tools (PATH), temp folders and home; tests point these at fakes. */
@@ -303,6 +305,10 @@ export class CasperApp {
   pages?: PageSession;
   pageTool?: RuntimeTool;
   readonly pageSeams?: CasperAppOptions["pageSeams"];
+  /** make_picture (src/app/pictures.ts), and the codex program signed in with a ChatGPT plan, looked up once. */
+  pictureTool?: RuntimeTool;
+  codexForPictures?: Promise<string | undefined>;
+  readonly pictureSeams?: CasperAppOptions["pictureSeams"];
   readonly modelRetryWait?: CasperAppOptions["modelRetryWait"];
   /** The dev-server lines are printed once per session. */
   readonly pageNotice: DevServerNotice = { shown: false };
@@ -426,6 +432,7 @@ export class CasperApp {
     this.runtimeFactory = options.runtimeFactory ?? freshPiRuntime;
     this.pageOpenerFn = options.pageOpener ?? pageOpener;
     this.pageSeams = options.pageSeams;
+    this.pictureSeams = options.pictureSeams;
     this.modelRetryWait = options.modelRetryWait;
     this.networkTools = options.networkTools;
     this.securitySeams = options.securitySeams;
