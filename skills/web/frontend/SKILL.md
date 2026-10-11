@@ -57,7 +57,7 @@ design folder), follow that instead: the repo's style always wins over this file
 
 - Body text at least 4.5:1 against its background; large text and borders of controls 3:1.
 - Never use color alone to carry meaning (add a word or icon to red/green states).
-- Check both light and dark values.
+- Check both light and dark values; set `color-scheme` to match, and images and their frames too.
 
 ## Repeated items
 
@@ -102,7 +102,7 @@ These make a page look machine-made; skip them unless the user asks:
 - emoji used as icons or bullet points;
 - every block in a rounded card with a shadow; cards inside cards;
 - giant centered hero with vague text ("Unlock your potential"), three feature cards below;
-- lorem ipsum or "John Doe" filler: write short, real-looking text for this product;
+- lorem ipsum, "John Doe", 555 or 000 numbers, a "demo" note on the page: write real-looking text;
 - many accent colors; text in gradient; everything centered.
 
 Prefer plain alignment to a grid, real words, one accent used rarely, and whitespace.
