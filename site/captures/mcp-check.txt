@@ -1,4 +1,4 @@
-# Casper 0.2.31 · casper mcp check on a test MCP server whose tool labels are wrong on purpose
+# Casper 0.2.32 · casper mcp check on a test MCP server whose tool labels are wrong on purpose
 # (long lines wrapped at a space to fit 100 columns)
 
 $ casper mcp check . --quick

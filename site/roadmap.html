@@ -57,6 +57,7 @@
         <ul>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0232">v0.2.32: a model server added by its address, no undo in a folder too big to compare, a new-version note in the footer</a></li>
               <li><a href="#v0231">v0.2.31: steps under the AI's words, the sandbox off unless you turn it on, Pi 1.1.0</a></li>
               <li><a href="#v0230">v0.2.30: Claude through Claude Code, pages the AI makes, fewer wasted repairs</a></li>
               <li><a href="#v0229">v0.2.29: commands during a task, models on this computer, sign-ins from other tools</a></li>
@@ -106,8 +107,45 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <article class="card" id="v0232" aria-labelledby="v0232-h">
+          <h3 id="v0232-h">v0.2.32 · A model server added by its address, no undo in a folder too big to compare, a new-version note in the footer <span class="badge ok">current preview</span></h3>
+          <p>A model server on another computer is added by typing its address, a folder too big to compare offers no
+          undo, and the footer says when a newer Casper is out.</p>
+          <ul>
+            <li><strong>Add a model server by its address.</strong> In <code>/model</code> (<code>+ Add server</code>) or
+            <code>/login</code>, type an address such as <code>192.0.2.10</code>: Casper finds Ollama, LM Studio,
+            llama.cpp, vLLM or any OpenAI-style server there and suggests a name. No key is asked for or sent, the
+            address is kept under <code>modelServers</code> in <code>~/.casper/config.yaml</code>, and Ctrl+X on its
+            row forgets it.</li>
+            <li><strong>A folder too big to compare.</strong> In a folder over 20,000 files, or one a task makes that
+            big, a task offers no Show diff or Undo, so what another program saved there is never put back. In a folder
+            already that big, when the files Casper's edit and write tools changed all sit in one project, that
+            project's checks run and Casper says <code>The work is in ~/Documents/sample-tools.</code> A file a task
+            changed inside a nested repository is named as one undo can't put back, and a repository with more than 8
+            changed files is named once.</li>
+            <li><strong>A new-version note in the footer</strong> before <code>idle</code> until you update:
+            <code>Casper 0.2.33 is out · casper update</code>, also when the once-a-day check finds it during a
+            session.</li>
+            <li><strong>Browser checks that passed before an edit.</strong> The receipt says so,
+            <code>– Incomplete — the browser checks passed, but an edit or command ran after them</code>, never an
+            empty <code>not finished:</code>. While planning, <code>cd dir</code> and <code>git -C dir</code> before a
+            look command are allowed, and a refused command names the part it refused, such as
+            <code>npm is not one.</code></li>
+            <li><strong>A dropped macOS screenshot.</strong> Its narrow space before AM or PM no longer ends the path,
+            so it goes as a picture, also at the start of a line, where it was an unknown command. During work a line
+            that starts with it keeps its draft (<code>Your picture waits until this task ends</code>).</li>
+            <li><strong>A page that doesn't fit a phone tells the repair why.</strong> The repair now gets how wide the
+            page is at phone width (390px) and up to five squashed fields, such as
+            <code>input#address (20px tall; 49px on a wider screen)</code>, not just that the page failed.</li>
+            <li><strong>Smaller fixes.</strong> Step labels skip a wrapper's options and keep a quoted path whole, what
+            a command typed during work says shows under your line, an unknown command is quoted as typed, a narrow
+            window no longer shows a false <code>WRITES</code>, and a failed <code>casper update</code> on a checkout
+            only ahead of its remote names the network.</li>
+          </ul>
+        </article>
+
         <article class="card" id="v0231" aria-labelledby="v0231-h">
-          <h3 id="v0231-h">v0.2.31 · Steps under the AI's words, the sandbox off unless you turn it on, Pi 1.1.0 <span class="badge ok">current preview</span></h3>
+          <h3 id="v0231-h">v0.2.31 · Steps under the AI's words, the sandbox off unless you turn it on, Pi 1.1.0 <span class="badge">released</span></h3>
           <p>The AI's steps tick in under its words and fold into one row that names what was done, the shell sandbox
           is off unless you turn it on, and Casper runs on Pi 1.1.0.</p>
           <ul>
@@ -673,7 +711,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.31. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.32. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -681,7 +719,7 @@
         <h2 id="coming-h">Planned, not started</h2>
         <aside class="callout soon">
           <strong class="callout-title">Not in any release yet</strong>
-          <p>Nothing else in this section is in v0.2.31: the first part of Crews shipped in v0.2.23, AI-started
+          <p>Nothing else in this section is in v0.2.32: the first part of Crews shipped in v0.2.23, AI-started
           builders in v0.2.24, reviewers and a fix round in v0.2.25, and the rest has not been started. Names, commands and details may change, or move to a later version, before
           they ship.</p>
         </aside>
@@ -861,7 +899,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.31</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.32</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

@@ -23,7 +23,7 @@ Each line starts with a mark:
 
 ```text
 Casper doctor · no model, no tokens
-✓ Casper 0.2.31, the newest release
+✓ Casper 0.2.32, the newest release
 ✓ casper on PATH is this one (~/.local/bin/casper)
 ✗ ~/.casper/config.yaml doesn't load: line 3, column 6: Block collections are not allowed within flow collections
     → fix that line, or move the file away to start fresh

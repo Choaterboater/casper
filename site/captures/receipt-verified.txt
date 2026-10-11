@@ -1,4 +1,4 @@
-# Casper 0.2.31 · ✓ Verified: the tests fail without the change and pass with it; /receipt has the detail
+# Casper 0.2.32 · ✓ Verified: the tests fail without the change and pass with it; /receipt has the detail
 
 ❯ fix the sum bug in src/sum.js
 

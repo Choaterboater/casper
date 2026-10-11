@@ -1,4 +1,4 @@
-# Casper 0.2.31 · a check that could not start, and a numbered choice (node was missing from PATH
+# Casper 0.2.32 · a check that could not start, and a numbered choice (node was missing from PATH
 # on purpose)
 
 ❯ /verify

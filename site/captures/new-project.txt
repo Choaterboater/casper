@@ -1,4 +1,4 @@
-# Casper 0.2.31 · casper new python-cli ping-tool: a new project with tests and a first commit, no model call
+# Casper 0.2.32 · casper new python-cli ping-tool: a new project with tests and a first commit, no model call
 
 $ casper new python-cli ping-tool
 Starting ~/Projects/ping-tool from template python-cli

@@ -40,7 +40,7 @@
       <div class="container">
         <div class="hx-row">
           <div class="hx-copy">
-            <p class="hx-meta">Casper 0.2.31 · early preview, not signed · MIT licence</p>
+            <p class="hx-meta">Casper 0.2.32 · early preview, not signed · MIT licence</p>
             <h1 id="hero-title">The coding agent that proves it's done.</h1>
             <p class="lead">A coding helper for your terminal. Build web apps, APIs, command-line tools and scripts in the language your project uses, and Casper checks the AI's work before it tells you "done". Network engineers get extra care built in.</p>
             <div class="actions">
@@ -74,8 +74,8 @@
             <button type="button" role="tab" id="tab-unix" aria-controls="cmd-unix" aria-selected="true">macOS / Linux</button>
             <button type="button" role="tab" id="tab-windows" aria-controls="cmd-windows" aria-selected="false" tabindex="-1">Windows</button>
           </div>
-          <div class="cmd" id="cmd-unix"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.31/install.sh | sh</code></pre></div>
-          <div class="cmd" id="cmd-windows"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.31/install.ps1 | iex</code></pre></div>
+          <div class="cmd" id="cmd-unix"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.32/install.sh | sh</code></pre></div>
+          <div class="cmd" id="cmd-windows"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.32/install.ps1 | iex</code></pre></div>
         </div>
         <p class="small muted">No Bun or source checkout needed. The installer checks the file's SHA-256 and runs the new program's <code>--version</code> before it replaces an older install. Then run <code>casper</code> in your project folder.</p>
       </div>
@@ -85,7 +85,7 @@
       <section class="demo" id="demo" aria-labelledby="demo-title">
         <div class="demo-head">
           <h2 id="demo-title">See it work</h2>
-          <p class="muted">Real Casper 0.2.31 runs, copied from the terminal. Pick one, or let them play.</p>
+          <p class="muted">Real Casper 0.2.32 runs, copied from the terminal. Pick one, or let them play.</p>
         </div>
         <div class="demo-bar">
           <div class="demo-tabs" role="tablist" aria-label="Casper runs" hidden>
@@ -318,11 +318,11 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
           </ul>
         </div>
         <div>
-          <h2 id="next">New in 0.2.31</h2>
+          <h2 id="next">New in 0.2.32</h2>
           <ul>
-            <li>The AI's steps tick in under its words, then fold into one row. One status row says what runs and that Esc stops it.</li>
-            <li>The shell sandbox is off unless you turn it on. Casper runs on Pi 1.1.0, with Claude Sonnet 5.5, Claude Haiku 5.5 and GPT-6.1 Sol in <code>/model</code>.</li>
-            <li>A model server on another computer (<code>OLLAMA_HOST</code> and the like) gets 10 s to answer, and <code>/model</code> and <code>casper doctor</code> say why one didn't.</li>
+            <li>A model server on another computer is added from <code>/model</code> (<code>+ Add server</code>) or <code>/login</code> by typing its address, with no key and no file to edit.</li>
+            <li>In a folder over 20,000 files, a task offers no undo or <code>/diff</code>, and when Casper's edits there sit in one project, that project's checks run.</li>
+            <li>The footer says when a newer Casper is out, until you update. A dropped macOS screenshot goes as a picture, and a page that doesn't fit a phone tells the repair why.</li>
           </ul>
         </div>
       </section>
@@ -332,7 +332,7 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.31</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.32</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

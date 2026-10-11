@@ -4,11 +4,148 @@
 published, and what the installers promise. **When you'd use it:** to see what is new
 before you upgrade, or when you build or publish a release yourself.
 
-Casper distributes an unsigned **v0.2.31 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.31`,
+Casper distributes an unsigned **v0.2.32 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.32`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.32: a model server added by its address, no undo in a folder too big to compare, and a new-version note in the footer
+
+You can add a model server on another computer by typing its address, in `/model` or `/login`, with no key and no
+file to edit. In a folder too big to compare, a task offers no undo, so what another program saved there is never
+put back, and when Casper's own edits there sit in one project, that project's checks run. The footer keeps a short
+note when a newer Casper is out. Browser checks that passed before a later edit say so, a dropped macOS screenshot
+goes as a picture, and a page that doesn't fit a phone tells the repair why.
+
+- A model server on another computer is added from `/model` (`+ Add server`) or `/login` by typing its address: Casper finds what runs there and suggests a name, no key is asked for or sent, `modelServers` in `~/.casper/config.yaml` keeps it, and Ctrl+X on its row forgets it
+- In a folder over 20,000 files, or one a task makes that big, a task offers no Show diff or Undo; in a folder already that big, the files Casper's edit and write tools changed say which project the work is in, so its checks run and Casper says where the work is
+- A file a task changed inside a nested repository is named as one undo can't put back
+- The footer keeps `Casper 0.2.33 is out · casper update` before `idle` until you update, also when the once-a-day check finds it during a session
+- Browser checks that passed before a later edit or command say so on the receipt; while planning, `cd dir` and `git -C dir` before a look command are allowed and a refused command names the part it refused
+- A dropped macOS screenshot goes as a picture, also at the start of a line, where it was an unknown command, and during work a line that starts with one waits as a draft
+- A page that fails only because it doesn't fit a phone goes to the repair with the reason: how wide it is at phone width and the squashed fields
+- Step labels skip a wrapper's options and keep a quoted path whole, what a command typed during work says shows under your line, an unknown command is quoted as typed, a narrow window no longer shows a false `WRITES`, and a failed `casper update` on a checkout only ahead of its remote names the network
+
+**Add a model server by its address.** A model server on another computer no longer needs a variable in the shell
+that starts Casper. In `/model`, go to the last row on the left, `+ Add server`, and press Enter. Or type `/login`
+and pick the last row, `Model server on another computer · type its address` (when `/login` first offers a sign-in
+it found on this computer, pick `Sign in separately` to see that list). When `/model` has nothing to list yet, it
+opens that sign-in list instead. Both ask `Where is the server? Type its address.`: `192.0.2.10`, `myserver`,
+`myserver:11434` or `http://myserver:8000` (a copied `…/v1/models` address works too). With no port, Casper tries
+11434, 1234, 8080 and 8000 (an `https://` address with no port is 443), waits up to 10 seconds, and finds every
+server that answers. It works out which kind each one is (Ollama, LM Studio, llama.cpp, vLLM, or any other server
+with an OpenAI-style model list) and suggests a name you can keep or type over, such as `ollama-myserver` or
+`ollama-192-0-2-10`. The name goes before its models (`ollama-myserver/qwen3:8b`), and a name a provider already
+uses is refused. The name screen says when the link isn't encrypted:
+`This link isn't encrypted: others on the same network could read what you send.` The server is saved and `/model`
+opens on its models (`Added ollama-myserver: 2 models (Ollama at myserver:11434).`); nothing is picked for you.
+When no model server is there, Casper says why, such as
+`Casper found no model server there: it refused the connection (nothing is listening on that port).`, and, when
+nothing answered at all, what to set on that computer. It offers `1 Cancel · 2 Try another address`, with the
+address still in the box to fix.
+
+**No key, ever.** Casper never asks for, keeps or sends a key for a server you added: its requests carry no key but
+the word `local`, even if a sign-in in the login file has the same name. A server that asks for one (llama-server
+or vLLM started with `--api-key`, or a proxy) is not added, and Casper says where it goes instead:
+`The server at 192.0.2.10:8000 asks for a key. Casper adds servers that need none; set this one up in ~/.casper/agent/models.json (Local models in docs/CONFIGURATION.md).`
+Other servers on that computer that need no key are still added.
+
+**Your servers.** The name, address and kind are kept under `modelServers` in `~/.casper/config.yaml`. Casper
+writes them and leaves the rest of the file, its comments and your other entries as they are. Only that file
+counts: a project file can't add a server, and a profile's list is ignored with a warning. A bad entry is skipped
+with a warning, never a reason Casper won't start, and since the AI can read that file, an entry with a key is
+skipped too. A server you added that doesn't answer still shows on the left in `/model`, marked `off`; highlight it
+and the right side says why, such as `ollama-myserver (Ollama at http://192.0.2.10:11434) didn't answer in 10 s.`
+One that answered with no models yet shows `0` and what to do on that computer. To forget one, highlight it and
+press Ctrl+X: Casper asks `1 Keep ollama-myserver · 2 Forget ollama-myserver`. `localModels: false` keeps the
+servers you added, and `CASPER_LOCAL_MODELS=off` stops those too, for one run. With a server added and nothing
+signed in, `/model` opens the picker rather than sign-in, and a first request with no model says
+`[model] No model yet. Pick one from your model servers; Esc cancels.` and opens it. `casper doctor` lists each one
+on its `Sign-in:` line, such as `ollama-myserver (your server at http://192.0.2.10:11434, 2 models)`, or a note
+saying why it didn't answer.
+
+**A folder too big to compare.** Casper compares the folder before and after each task to see what changed. In a
+folder over 20,000 files (files in nested repositories count), such as a Documents folder holding many projects, it
+can't, and the receipt says `– Changes unknown: not a project folder (over 20,000 files)`. Before, undo could still
+be offered there, and with no list of what changed it could also put back what another program saved while the task
+ran. Now such a task, or one that makes the folder that big, offers no Show diff or Undo: `/undo 1` says
+`Task 1 can't be undone: not a project folder.` and `/diff 1` says
+`Casper kept no copy of task 1 (not a project folder), so it can't show its changes.` The receipt still lists the
+files Casper's edit and write tools changed, such as
+`– Changed (seen by Casper's edit and write tools): sample-tools/sites.py`. In a folder that was already that big
+when the task started, when the ones inside it all sit in one project, that project's checks now run
+(`• Casper checking: test (checks from sample-tools)`) and Casper asks `The work is in ~/Documents/sample-tools.`
+with `1 Stay here · 2 Switch there`, as in a smaller folder. What a shell command changed is not counted, and when
+the tools changed 32 files or more Casper doesn't say where the work is, since it keeps only the first 32. The
+Changed line now leaves out scratch in the system temp folders, and a file in the folder named through a link
+(macOS's `/tmp` is `/private/tmp`) is named as one in it.
+
+**Nested repositories and undo.** Undo's copies leave out what is inside a nested repository, such as a project
+cloned inside this one. A file the task changed there is now named on the receipt, in `/diff` and in `/undo` as one
+undo can't put back: `– Undo can't put back: lib/a.py (a nested repository)`. `/undo` still puts back the task's
+other files. When the task changed nothing else, the receipt now says
+`– Undo not available: Casper keeps no copy of lib/a.py (a nested repository)` instead of nothing. A repository
+with more than 8 changed files, such as a fresh clone, is named once
+(`– Undo can't put back: vendor/x (a nested repository)`), so the receipt stays short.
+
+**A new-version note in the footer.** The `[update]` line at the start of a session scrolls away once you work. Now
+the footer also keeps a short note right before `idle` until you update: `Casper 0.2.33 is out · casper update` (a
+source checkout says `Casper is 2 changes behind · casper update`), in the accent colour. It comes up as soon as the
+once-a-day check in the background finds a newer Casper, also in the middle of a session, and a session left open
+looks every hour (GitHub is still asked at most once a day). It never pushes out the folder and the model: a
+narrower window drops its `· casper update`, and one with no room beside them leaves it out. While work runs it
+steps aside, and after `/doctor` updates Casper it says `Casper updated · restart to use it`. `updates: false`
+(**New-version notice** in `/settings`, which takes it away at once), `CASPER_NO_UPDATE_CHECK=1` or `CI` turns it
+off with the line. A Casper older than 0.2.32 still says it only at the start.
+
+**Browser checks that passed before an edit.** A browser check counts only for the files it ran on, so an edit or a
+command after it leaves it stale. When every browser check had passed, the receipt said
+`– Incomplete — not every check ran`, and its browser line ended in an empty `not finished:`. It now says why:
+`– Incomplete — the browser checks passed, but an edit or command ran after them`, and the browser line says
+`– Browser checks: 4 of 4 passed; all ran before a later edit or command (replay to count)`. When Casper can't tie
+the checks to the final files, it says that instead:
+`– Incomplete — the browser checks passed, but Casper can't tie them to the final files`.
+
+**Planning in another folder.** While planning, the AI may now run `cd dir` before its look commands
+(`cd ~/project && git log --oneline -5`), and git may name its repository with `-C` (`git -C ~/project log`). This
+is for bash; PowerShell's look list is unchanged. A command Casper refuses while planning now says which part it
+refused (`npm is not one.`), since the step's short label can leave that part out. A line Casper can't read as
+plain parts says `It must be one line with no redirects, $, backticks, backslashes or lone &.` With no sandbox, the
+look list is a list, not a sandbox: `git diff` and `git log` follow a repository's own `diff.external` and
+`textconv` settings, which can run a program, and with `cd` and `git -C` that can be any repository's settings, a
+bare one committed among the project's files included. A file that changes is still named on the receipt. With the
+sandbox on, the project is read-only while planning.
+
+**A dropped macOS screenshot.** The name macOS gives a screenshot has a narrow space before AM or PM. When you
+drop the file, a terminal escapes only the plain spaces, and Casper took the narrow one as the end of the path. So
+the picture didn't go with the request, and at the start of a line Casper said it was an unknown command. The name
+is now read whole, at the start of a line or in the middle, and becomes `[image 1]` when you send. On macOS and
+Linux, a name with a no-break space is read whole too. During work, a line that starts with a picture's `/…` path
+keeps its draft, since the AI reads a line typed during work as text only:
+`Your picture waits until this task ends · draft kept · Esc stops the task`. Enter sends it with its picture once
+the task ends.
+
+**A page that doesn't fit a phone tells the repair why.** Since v0.2.21 the page check also looks at each page at
+phone width (390px), and a page that scrolls sideways or squashes a text field there fails:
+`✗ /dashboard at phone width (390px): the page is 650px wide, so it scrolls sideways`. Before, a page that failed
+only there went to the repair with no console errors and no failed requests, so the AI knew which page failed but
+not why. Now its page evidence says how wide the page is at phone width and names up to five squashed fields, such
+as `input#address (20px tall; 49px on a wider screen)`, with secrets hidden. A page that also fails for another
+reason, such as a console error, now carries them too. The pages are opened again after the repair, as before.
+
+**Smaller fixes.** During work, what a command you type says, such as an unknown command or a usage error, now
+shows under your line, as it does when Casper is idle, not above it. An unknown command is quoted as you typed it,
+so a backslash shows once: `/a\b` gets `[error] Unknown command "/a\b". Type /help for local commands.` `/help`
+with a word the help doesn't mention quotes the word the same way. A step's label skips a wrapper and its options:
+`sudo -u root apt update` shows as `apt update`, and `nice -n 10 make` as `make`. A path with a quoted or escaped
+space stays whole and shows quoted (`ls "docs/My Notes"`), and a script's `break` and `continue` are no longer
+listed as programs. The footer's badge, such as `ASKING OFF · /permissions ask`, is set apart from the rest of the
+footer by `│`. A window too narrow for the whole badge shortens it to what is on, such as `ASKING OFF`,
+`ALLOW ALL · Ctrl+O` or `ASKING OFF · WRITES · Ctrl+O`; it used to say `WRITES · Ctrl+O` even with no writes on.
+When `casper update` can't pull into a Casper checkout that is only ahead of its remote, as when the remote can't be
+reached, it no longer blames the checkout's own commits:
+`Git could not pull into the Casper checkout at … (is the network down?), so it was not updated.`
 
 ## v0.2.31: steps under the AI's words, the sandbox off unless you turn it on, and Pi 1.1.0
 
