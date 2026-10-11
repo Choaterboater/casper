@@ -160,11 +160,11 @@ run `/branch` and the policy says to isolate.
   `git.push` policy (`neverUnlessRequested` by default) and "ask before
   destructive operations" are instructions to the model, not blocks. The
   model's bash tool can still run `git commit`, `git push` or `rm`.
-- The one block: the model's bash tool may not run `git stash` (except `list`
-  and `show`), `git reset --hard` (also `--merge` and `--keep`), `git checkout`
-  with `--`, `.`, `-f` or `-p`, `git restore` of the working tree,
-  `git switch -f` or `--discard-changes`, or `git clean` (except `-n`). Each of
-  these can set aside or throw away your uncommitted work. This is a check of
+- The one block: the model's bash tool may not run `git reset --hard`,
+  `git checkout` with `--`, `.`, `-f` or `-p`, `git restore` of the working tree,
+  `git switch -f` or `--discard-changes`, `git clean` (except `-n`), or
+  `git stash drop` or `clear`. Each of these can throw away your uncommitted
+  work. `git stash`, `git stash pop`/`apply` and `git reset --keep`/`--merge` run. This is a check of
   the command text, not a sandbox; a script or alias can get past it.
 - Applying or discarding an experiment needs `/switch main apply|discard` typed in
   this Casper session. Files in the project cannot type it.

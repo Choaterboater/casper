@@ -407,9 +407,10 @@ Casper itself:
 
 - `askQuestions: beforeChanges`: in an interactive rich terminal, when a build or configure
   request does not name a clear target, the model must ask you once before its first edit.
-- The model's bash may not run `git stash` (other than `list`/`show`), `git reset --hard`,
-  `git checkout --`/`.`/`-f`, `git restore` of the working tree, `git switch -f` or `git clean`
-  (other than `-n`), because each can set aside or throw away your uncommitted work. This is a
+- The model's bash may not run `git reset --hard`, `git checkout --`/`.`/`-f`, `git restore`
+  of the working tree, `git switch -f`, `git clean` (other than `-n`) or `git stash drop`/`clear`,
+  because each can throw away your uncommitted work. `git stash`, its `pop` and `apply`, and
+  `git reset --keep`/`--merge` run without asking. This is a
   check of the command text, not a sandbox. It applies whatever the policy says.
 
 ## The shell sandbox

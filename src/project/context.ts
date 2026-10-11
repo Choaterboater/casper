@@ -258,7 +258,7 @@ export function formatProjectContext(context: ProjectContext): string {
     ...(gitRule(policy.git.commit) === gitRule(policy.git.push) ? [`- git commit and push: ${gitRule(policy.git.commit)}`]
       : [`- git commit: ${gitRule(policy.git.commit)}`, `- git push: ${gitRule(policy.git.push)}`]),
     "- ask the user first before deleting files they didn't ask to delete, git reset, or force-push. Creating and editing files in this project needs no ask.",
-    "- never set aside or discard uncommitted work: git stash, reset --hard, checkout --, restore and clean are blocked",
+    "- never discard uncommitted work: git reset --hard, checkout --, restore, clean and stash drop/clear are blocked",
     ...line("isolate", [[policy.workspace.isolateWhen.parallelAgents, "parallel agents"], [policy.workspace.isolateWhen.riskyRefactor, "risky refactors"],
       [policy.workspace.isolateWhen.experimentalBranch, "experimental branches"]]),
   ];

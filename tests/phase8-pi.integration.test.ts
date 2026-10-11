@@ -251,9 +251,9 @@ try {
   expect(busy).toBe(false);
 }, 15_000);
 
-test("real Pi refuses a model's git stash, and the model sees why", async () => {
+test("real Pi refuses a model's git stash drop, and the model sees why", async () => {
   let step = 0;
-  const f = await fixture(() => step++ === 0 ? calls([{ name: "bash", args: { command: "git stash push -m tmp && echo STASHED" } }]) : answer("Done"));
+  const f = await fixture(() => step++ === 0 ? calls([{ name: "bash", args: { command: "git stash drop && echo STASHED" } }]) : answer("Done"));
   const harness = path.join(f.agent, "git-guard.ts");
   await writeFile(harness, `import { PiRuntime } from ${JSON.stringify(path.join(import.meta.dir, "../src/runtime/pi.ts"))};
 const runtime = new PiRuntime();
@@ -270,7 +270,7 @@ try {
   const ends: Array<{ isError: boolean; text?: string }> = JSON.parse(result.stdout.split("RESULT=")[1]!);
   expect(ends).toHaveLength(1);
   expect(ends[0]!.isError).toBe(true);
-  expect(ends[0]!.text).toContain("Casper does not let the model run `git stash push -m tmp`");
+  expect(ends[0]!.text).toContain("Casper does not let the model run `git stash drop`");
   expect(ends[0]!.text).not.toContain("STASHED");
 }, 30_000);
 
