@@ -73,8 +73,17 @@ not proof that the code works.
   defaults.
 - If a role is set but that model is not usable, the helper fails. It does not
   quietly pick another provider.
-- Effort suffixes on a role (for example `:high`) and automatic effort apply to
-  the helper only. Nothing is saved, and no helper transcript is kept.
+- If its role is not set, an explorer works at `low` effort and a reviewer at
+  `medium`, or at your saved effort if that is lower (an unsaved `/effort` does
+  not count). A role you set (`/model role review provider/model:high`) always
+  wins, with its own effort or, without a suffix, the saved effort for that
+  model. Builders keep your effort. The helper's step lines and its `/tasks`
+  entry say its effort, for example
+  `helper explorer (low effort) · ✓ read · src/app.ts`.
+- Effort suffixes on a role (for example `:high`) apply to the helper only.
+  Automatic effort applies to a builder and to a helper whose role is set, not
+  to an explorer or reviewer on the low or medium default. Nothing is saved,
+  and no helper transcript is kept.
 
 ## Errors and how they are reported
 

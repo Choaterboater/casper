@@ -135,7 +135,8 @@ Its findings are its opinion, not checked by a tool.
   files. The price is a lower bound: it counts the files once, and each step the AI
   takes costs more.
 - **How it reads.** One read-only child on your review model (`/model` sets the
-  `review` role; without one, your usual model). It has `read`, `grep`, `find` and `ls`
+  `review` role; without one, your usual model at your saved effort, not the
+  lower default other reviewer helpers get). It has `read`, `grep`, `find` and `ls`
   only: no shell, no edits, no network tools. It is not the shell sandbox; it simply
   has no tool that runs a command.
 - **What it never sees.** Key files (`*.pem`, `id_rsa` and the like), `.env` files,

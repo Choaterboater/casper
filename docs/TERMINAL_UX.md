@@ -448,7 +448,7 @@ Restored conversations retain their recorded model/effort. Missing credentials o
 an unavailable model still block sending rather than silently choosing another
 provider. Pi CLI defaults are neither read nor rewritten. Selecting a model generates no
 model response; subsequent requests send context to the selected provider.
-Explorer/reviewer children use Casper roles or its startup default. Auto effort
+Explorer/reviewer children use Casper roles or its startup default (then at low/medium effort). Auto effort
 makes one extra bounded current-request-only classifier call using `fast`, or
 the selected model if unset; no history or skills are sent to the classifier.
 This can cross providers when `fast` is configured. See [CONFIGURATION.md](CONFIGURATION.md)

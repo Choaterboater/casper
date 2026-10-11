@@ -666,9 +666,9 @@ export class RuntimeEventView {
   }
 }
 
-/** One helper line for the steps pane: "helper explorer: find the login code", "helper explorer · ✓ read · src/app.ts". */
+/** One helper line for the steps pane: "helper explorer: find the login code", "helper explorer (low effort) · ✓ read · src/app.ts". */
 export function helperActivityLine(activity: HelperActivity, root?: string): string {
-  const who = `helper ${activity.run.role}`;
+  const who = `helper ${activity.run.role}${activity.run.effort ? ` (${activity.run.effort} effort)` : ""}`;
   if (activity.kind === "start") return `${who} started: ${redactPreview(activity.run.goal).replace(/\s+/g, " ").slice(0, 100)}`;
   if (activity.kind === "usage") return `${who} · ${(activity.run.spent?.tokens ?? 0).toLocaleString("en-US")} tokens so far`;
   if (activity.kind === "end") return `${who} ${activity.status === "completed" ? "finished" : `stopped (${activity.status.replace("_", " ")})`}`;

@@ -130,8 +130,9 @@ export interface SubagentManagerOptions {
   onActivity?: (activity: HelperActivity) => void;
 }
 
-/** One helper (a delegated child) that is running now; `spent` is what its model responses cost so far. */
-export interface HelperRun { id: number; role: SubagentRole; goal: string; startedAt: number; spent?: SubagentUsage }
+/** One helper (a delegated child) that is running now; `spent` is what its model responses cost so far;
+ * `effort` is its thinking level once its model is chosen (unset for a model that does not think). */
+export interface HelperRun { id: number; role: SubagentRole; goal: string; startedAt: number; spent?: SubagentUsage; effort?: string }
 
 /** What a builder the AI started did, for the delegate result (src/crew/auto.ts). */
 export interface BuildOutcome {
@@ -198,6 +199,8 @@ interface ChildSpec {
   systemPromptAppend: string;
   /** Unset: the startup default (a builder works with the main model). */
   modelRole?: "fast" | "review";
+  /** See RuntimeReadOnlyStartOptions.keepEffort. */
+  keepEffort?: boolean;
   maxTurns: number;
   maxToolCalls: number;
   timeoutMs: number;
@@ -538,7 +541,7 @@ export class SubagentManager {
     requireString(input.cwd, "cwd", 4096);
     return this.runChild({
       role: "reviewer", goal: "security review", cwd: input.cwd, prompt: text, signal: input.signal,
-      systemPromptAppend: input.systemPromptAppend, modelRole: "review",
+      systemPromptAppend: input.systemPromptAppend, modelRole: "review", keepEffort: true,
       maxTurns: SECURITY_REVIEW_LIMITS.maxTurns, maxToolCalls: SECURITY_REVIEW_LIMITS.maxToolCalls, timeoutMs: this.reviewTimeoutMs,
       responseBytes: SECURITY_REVIEW_LIMITS.responseBytes, totalTextBytes: SECURITY_REVIEW_LIMITS.totalTextBytes,
       reportTurn: true, scrubToolOutput: input.scrubToolOutput, beforeToolGate: input.beforeToolGate,
@@ -723,9 +726,12 @@ export class SubagentManager {
             } } : {}) });
         } else {
           if (!runtime.startReadOnly) throw new Error("Runtime does not support enforced read-only subagents");
-          session = await runtime.startReadOnly({ ...common, ...(options.modelRole ? { modelRole: options.modelRole } : {}) });
+          session = await runtime.startReadOnly({ ...common, ...(options.modelRole ? { modelRole: options.modelRole } : {}),
+            ...(options.keepEffort ? { keepEffort: true } : {}) });
         }
         controller.signal.throwIfAborted();
+        // A model that does not think ("off") says nothing.
+        try { const level = session.getStatus?.().thinkingLevel; if (level && level !== "off") info.effort = level; } catch { /* display only */ }
         unsubscribe = session.subscribe(observe);
         await session.prompt(options.prompt, controller.signal, { request: options.goal });
         // The effort classifier's calls are not response events (the main task treats them alike).
