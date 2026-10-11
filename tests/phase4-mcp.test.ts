@@ -519,9 +519,10 @@ test.each([true, false])("Streamable HTTP (JSON responses: %s) supports headers,
   const address = http.address();
   if (!address || typeof address === "string") throw new Error("Missing HTTP port");
   process.env.CASPER_TEST_MCP_HEADER = "fixture-secret";
+  // 340 tools over several pages: a busy Windows runner can need more than the usual 2 s to list them.
   const mcp = manager([{ name: "http", source: "fixture", cwd: process.cwd(), disabled: false, transport: {
     type: "http", url: `http://127.0.0.1:${address.port}/mcp`, headers: { Authorization: "Bearer ${CASPER_TEST_MCP_HEADER}" },
-  } }]);
+  } }], 15_000);
   await mcp.connect("http");
   expect(mcp.status()[0]).toMatchObject({ state: "ready", toolCount: 340 });
   expect(authenticated).toBe(true);
