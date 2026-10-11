@@ -239,6 +239,15 @@ too as a test failure (not a crash, a signal or a timeout there, which can't tel
 `1 Leave it · 2 Fix it anyway` before paying for a repair (Enter leaves it; before v0.2.16 the
 two were the other way round). Scripts repair.
 
+**A repair that changes nothing.** Casper compares each failure with the last round's, leaving out
+what changes from run to run (durations, ports, temp paths, hex ids, times). When a repair
+round changed no files and the failure is the same, Casper stops there with `The last repair
+changed nothing and the failure is the same.` instead of spending another round. With
+`repair.bigModelLastTry` on, the next round is that last try on your big model instead; in an
+interactive terminal you get the offer to try once more on the big model first. When files
+changed but the failure is the same, the next repair prompt starts with `Same failure as the last
+round: your change did not affect it; try a different approach.`
+
 **Timed out or could not start.** Such a check did not fail as a test, so Casper never repairs it
 on its own: a repair costs model tokens and cannot fix a slow suite or a missing tool. In an
 interactive terminal Casper asks `test timed out after 10m. Casper did not try to fix it. What

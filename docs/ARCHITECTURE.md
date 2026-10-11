@@ -50,7 +50,8 @@ From the prompt to the receipt, in `src/app/task-run.ts` (`runModelTask`) unless
    and is skipped from the 5th, with the earlier result handed back (`src/runtime/loop-guard.ts`).
 6. Casper snapshots again and plans the checks from what changed (`planAutoChecks` in `src/verify/mode.ts`), plus smoke and page checks.
 7. `runVerification` (`src/app/verification.ts`) runs them in the sandbox, with up to three repair turns by default (`repair.maxAttempts`)
-   (`src/verify/repair-loop.ts`).
+   (`src/verify/repair-loop.ts`). A round that changed no files and left the same failure ends the repairs
+   (or goes straight to the big model's last try, or the offer at the limit).
 8. When the checks pass on a code change, `finishChange` and `proveChange` run the tests on the copy without the
    change: they must fail there and pass with it. The optional acceptance test runs after that.
 9. The receipt: `app.lastTaskResult` is built, `taskUndo.finish` saves the second copy and the receipt
