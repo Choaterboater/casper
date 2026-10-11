@@ -450,3 +450,91 @@ test("on an 80-column terminal the reasons wrap under the header instead of bein
     expect(text).toContain("fixture/first");
   } finally { picker.dispose(); }
 });
+
+test("your servers: an offline one shows as off with why, the add row is last and fits at 80 columns, Ctrl+X asks to forget only yours", () => {
+  const previous = getKeybindings();
+  setKeybindings(new KeybindingsManager({ ...TUI_KEYBINDINGS, "casper.models.forget": { defaultKeys: "ctrl+x", description: "Forget this model server" } }));
+  try {
+    const models = [fakeModel("alpha", "a-model"), fakeModel("ollama-192-0-2-10", "qwen3:8b")];
+    const actions: string[] = [];
+    const picker = new ModelBrowser({
+      tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false, onSelect: () => {}, onCancel: () => {},
+      servers: () => [{ name: "ollama-192-0-2-10", address: "http://192.0.2.10:11434" },
+        { name: "ollama-192-0-2-11", address: "http://192.0.2.11:11434", problem: "ollama-192-0-2-11 (Ollama at http://192.0.2.11:11434) didn't answer in 10 s." }],
+      onAddServer: () => actions.push("add"), onForgetServer: (name) => actions.push(`forget ${name}`),
+    });
+    try {
+      const left = picker.render(80).map(stripAnsi).map((line) => line.split(" │ ")[0]!);
+      // At 80 columns the list widens for your servers' names; narrower, a name keeps its start and its end.
+      expect(left.some((line) => line.includes("ollama-192-0-2-11") && line.trimEnd().endsWith("off"))).toBe(true);
+      expect(left.findIndex((line) => line.includes("+ Add server"))).toBeGreaterThan(left.findIndex((line) => line.includes("ollama-192-0-2-11")));
+      const narrow = picker.render(60).map(stripAnsi).map((line) => line.split(" │ ")[0]!);
+      expect(narrow.some((line) => /ollama.*….*0-2-10/.test(line))).toBe(true);
+      expect(narrow.some((line) => /ollama.*….*0-2-11/.test(line) && line.trimEnd().endsWith("off"))).toBe(true);
+      picker.handleInput("\x18"); // Ctrl+X on "All models": not one of yours.
+      expect(rendered(picker)).toContain("Only servers you added can be forgotten here.");
+      picker.handleInput("\x1b[B"); picker.handleInput("\x1b[B"); picker.handleInput("\x1b[B"); // alpha → …10 → …11
+      let text = rendered(picker, 80);
+      expect(text).toContain("Ctrl+X forgets this server");
+      expect(text).toContain("didn't answer in 10 s.");
+      expect(text).toContain("Ctrl+X forgets it.");
+      picker.handleInput("\x1b[B"); // The add row.
+      text = rendered(picker, 80);
+      expect(text).toContain("Add a model server");
+      expect(text).toContain("Enter adds a model server");
+      picker.handleInput("\r");
+      expect(actions).toEqual(["add"]);
+    } finally { picker.dispose(); }
+    const forget = new ModelBrowser({
+      tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false, onSelect: () => {}, onCancel: () => {},
+      servers: () => [{ name: "ollama-192-0-2-10", address: "http://192.0.2.10:11434" }],
+      onAddServer: () => actions.push("add"), onForgetServer: (name) => actions.push(`forget ${name}`),
+    });
+    try {
+      forget.handleInput("\x1b[B"); forget.handleInput("\x1b[B"); // alpha → ollama-192-0-2-10
+      forget.handleInput("\x18");
+      expect(actions).toEqual(["add", "forget ollama-192-0-2-10"]);
+    } finally { forget.dispose(); }
+  } finally { setKeybindings(previous); }
+});
+
+test("after an add the picker says what happened until a key is pressed; a new server with no models opens on its row, not an empty list", () => {
+  const previous = getKeybindings();
+  setKeybindings(new KeybindingsManager({ ...TUI_KEYBINDINGS, "casper.models.forget": { defaultKeys: "ctrl+x", description: "Forget this model server" } }));
+  try {
+    const picker = new ModelBrowser({
+      tui: fakeTui(), catalog: fakeCatalog([fakeModel("alpha", "a-model")]), color: false, sessionOnly: false, onSelect: () => {}, onCancel: () => {},
+      servers: () => [{ name: "ollama-box", address: "http://192.0.2.10:11434" }], initialScope: "ollama-box",
+      notice: ["Added ollama-box, but it has no models yet. On that computer run ollama pull qwen3."],
+      onAddServer: () => {}, onForgetServer: () => {},
+    });
+    try {
+      const lines = picker.render(60).map(stripAnsi);
+      const left = lines.map((line) => line.split(" │ ")[0]!);
+      const right = lines.map((line) => line.split(" │ ")[1] ?? "").join(" ").replace(/\s+/g, " ");
+      // It answered with none: 0, not off; its row says what to do, and the hint starts with Ctrl+X (a narrow screen cuts the end).
+      expect(left.some((line) => line.startsWith("> ollama-box") && line.trimEnd().endsWith("0"))).toBe(true);
+      expect(right).toContain("Added ollama-box, but it has no models yet.");
+      expect(right).toContain("ollama-box · no models");
+      expect(right).toContain("No models there yet.");
+      expect(lines.some((line) => line.startsWith("  Ctrl+X forgets this server · Up/Down providers"))).toBe(true);
+      expect(lines.join("\n")).not.toContain("Use /login to sign in");
+      picker.handleInput("\x1b[A");
+      expect(rendered(picker)).not.toContain("Added ollama-box");
+    } finally { picker.dispose(); }
+  } finally { setKeybindings(previous); }
+});
+
+test("with no server actions there is no add row, and a just-added server opens on its models, on the list", () => {
+  const models = [fakeModel("alpha", "a-model"), fakeModel("ollama-box", "qwen3:8b")];
+  const plain = new ModelBrowser({ tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false, onSelect: () => {}, onCancel: () => {} });
+  try { expect(rendered(plain)).not.toContain("+ Add server"); } finally { plain.dispose(); }
+  let selected = "";
+  const scoped = new ModelBrowser({ tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false, initialScope: "ollama-box",
+    onSelect: (model) => { selected = `${model.provider}/${model.id}`; }, onCancel: () => {} });
+  try {
+    expect(rendered(scoped)).toContain("ollama-box (1)");
+    scoped.handleInput("\r");
+    expect(selected).toBe("ollama-box/qwen3:8b");
+  } finally { scoped.dispose(); }
+});

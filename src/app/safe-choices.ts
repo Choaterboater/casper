@@ -166,6 +166,13 @@ export function forgetLoginChoices(product: string): string[] {
   return [`Keep the ${product} login`, `Forget the ${product} login`];
 }
 
+/** /model: forget a model server you added (Ctrl+X on its row): only "2" forgets it. */
+export function forgetServerChoices(name: string): string[] {
+  return [`Keep ${name}`, `Forget ${name}`];
+}
+/** Adding a model server and nothing answered: "1" stops, "2" lets you type the address again. */
+export const NOTHING_ANSWERED_CHOICES = ["Cancel", "Try another address"] as const;
+
 /** /mcp writes <name>: only "2" turns writes on. */
 export const MCP_WRITES_CHOICES = ["Keep writes off", "Enable for this server"] as const;
 

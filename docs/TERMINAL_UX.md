@@ -40,7 +40,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/doctor` | Check Casper's own setup and fix what it can, each fix after a question (see [DOCTOR.md](DOCTOR.md)); during a task it only reports |
 | `/model`, `/model <words>`, `/model big <model>` | Pick a model (remembered; `--session`, before or after the model, for this conversation only); words pick the model they name (`/model opus 5.5`), several ask which, none name the closest; your big model for when repairs run out |
 | `/effort [level\|auto]`, `/thinking` | Reasoning effort (the model's own levels; one it lacks is refused), or `auto` per request; Shift+Tab cycles it (see [Model and effort](#model-and-effort)) |
-| `/login [provider]`, `/logout [provider]` | Sign in to a provider: `codex`, `copilot`, `anthropic` or `openrouter` (see [Provider login](#provider-login)); remove a sign-in Casper saved (`/logout` alone lists them; environment variables stay) |
+| `/login [provider]`, `/logout [provider]` | Sign in to a provider: `codex`, `copilot`, `anthropic` or `openrouter` (see [Provider login](#provider-login)), or add a model server on another computer (the list's last row); remove a sign-in Casper saved (`/logout` alone lists them; environment variables stay) |
 | `/context`, `/usage`, `/cost` | Context estimate; session tokens and estimated cost (`/cost` is `/usage`) |
 | `/compact [instructions]` | Summarize the conversation (**makes a model request**) |
 | `/clear`, `/new` | Start a fresh conversation; files and saved conversations stay |
@@ -123,7 +123,8 @@ are transcript lines like everything else. A model is not started just to paint
 the footer. A saved default is shown as an advisory startup snapshot; after
 runtime initialization the footer uses the active conversation's model. Before any
 sign-in, the banner and footer say `not signed in · type a request to sign in`, and `/model`
-opens sign-in instead of an empty picker. Where sign-in can't open (a plain or piped terminal,
+opens sign-in instead of an empty picker (with model servers you added, `/model` and a request open
+the picker on them instead). Where sign-in can't open (a plain or piped terminal,
 a one-shot run) they say `not signed in · run casper in a terminal and type /login` instead.
 
 Casper opens the folder you started it in. A project, or a folder inside a git repository, opens
@@ -369,7 +370,12 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
   next, and the line under the list sums up the highlighted one. It opens on the providers on the
   left (`All models`, then each provider): Up/Down there picks whose models show, and Enter, Tab or
   Right moves to the list (Tab goes back). Typing searches from either side. `/model <part of a
-  name>` opens it already searched, on the list, so Enter picks at once.
+  name>` opens it already searched, on the list, so Enter picks at once. The left list's last row,
+  `+ Add server`, adds a model server on another computer (Ollama, LM Studio, llama.cpp, vLLM): type its
+  address, name it, and its models show at once ([Add a model server](CONFIGURATION.md#add-a-model-server-on-another-computer)).
+  A server you added shows on the left even when it doesn't answer (`off`, with why on the right; `0`
+  when it answered with no models yet); Ctrl+X on its row asks `1 Keep · 2 Forget` and forgets it, and
+  what an add or forget said shows at the top of the right side when the picker opens again.
   It refreshes the provider lists in the background and keeps the saved rows when that fails,
   saying why in a few words: `Your anthropic sign-in expired. Run /login to sign in again; showing
   saved models.`, or `Could not refresh openrouter (HTTP 503); showing saved models.`, never the
@@ -449,7 +455,8 @@ unreported failed-request cost is unknown, not zero.
 
 `/login` shows one numbered list of providers and ways to sign in, OpenRouter first:
 1 OpenRouter · paste an API key, 2 OpenRouter · sign in with your browser, 3-4 the same for
-Anthropic (Claude), then OpenAI Codex and GitHub Copilot. OpenAI Codex opens your browser on
+Anthropic (Claude), then OpenAI Codex and GitHub Copilot, and last **Model server on another
+computer**, which adds one instead of signing in ([Add a model server](CONFIGURATION.md#add-a-model-server-on-another-computer)). OpenAI Codex opens your browser on
 a desktop; over SSH or on Linux with no display it shows a code to enter at openai.com
 instead (some accounts must turn that on first). GitHub Copilot always uses a code. Press a number, or Up/Down and
 Enter (Enter alone picks 1); Esc cancels. `/login <provider-id>` lists only that provider's
@@ -490,8 +497,8 @@ Windows). The AI's tools can't read any of these, moved or not. **Sign-ins from 
 (`other_logins: off`) turns the offer off.
 
 If you skip `/login`, Casper opens sign-in on your first request and picks that provider's
-default model (OpenRouter: `deepseek/deepseek-v4.1-flash`). `/model` picks another; Casper never
-replaces a model you chose. Type keys or codes only in the private login prompt, never in chat.
+default model (OpenRouter: `deepseek/deepseek-v4.1-flash`); with model servers you added, it opens
+`/model` on them instead and you pick. `/model` picks another; Casper never replaces a model you chose. Type keys or codes only in the private login prompt, never in chat.
 Your provider's plans and charges still apply.
 
 `/logout` lists the sign-ins `/login` saved (provider and kind, never the key), and

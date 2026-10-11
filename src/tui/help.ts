@@ -220,7 +220,7 @@ Restored conversations keep their model; a missing or unavailable model blocks s
 Without a restored selection or Casper default, choose with /model; there is no other fallback.
 Switching provider sends the rest of the conversation to that provider.
 The picker refreshes provider catalogs over the network when CASPER_OFFLINE=1 is not set; selection does not generate a model response.
-Model servers on this computer (Ollama, LM Studio, llama.cpp, vLLM), or where OLLAMA_HOST and the like point, show in /model with no sign-in; the picker looks for them again each time it opens and says why one it was told about didn't answer. /settings turns that off.
+Model servers on this computer (Ollama, LM Studio, llama.cpp, vLLM), or where OLLAMA_HOST and the like point, show in /model with no sign-in; the picker looks for them again each time it opens and says why one it was told about didn't answer. /settings turns that off. One on another computer: /model, the left list's last row (+ Add server), or /login's last row; Ctrl+X on its row forgets it.
 Claude subscription: /model claude-subscription/claude-opus-4-8 uses an installed native Claude Code and its own plan login (claude.exe on Windows); /login anthropic remains the direct route.
 Provider-defined credential checks may run configured key-resolution commands.
 Keys: ${KEYS_HELP}

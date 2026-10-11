@@ -1,4 +1,5 @@
 import path from "node:path";
+import { savedLocalServers } from "../runtime/local-models";
 import { addLabHosts, labConfigPlace, labImportList, parseLabFile } from "../network/lab-import";
 import type { LabSettings } from "../network/spec";
 import type { BrowserSession } from "../browser/session";
@@ -102,8 +103,8 @@ export interface CommandHost {
   readonly session?: RuntimeSession;
   /** The mode and checks this session uses after a change (shared with the banner and tasks). */
   checksPlan(context: ProjectContext): Promise<ChecksPlan>;
-  /** The provider of the last successful /login, preferred when Casper picks a first model. */
-  loginProvider?: RuntimeAuthProvider;
+  /** The provider of the last successful /login (or a model server added there), preferred when Casper picks a first model. */
+  loginProvider?: string;
   /** False until a sign-in exists (the footer says how to start). */
   signedIn?: boolean;
   readonly observations: TaskObservations;
@@ -240,8 +241,9 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       if (!session.selectModel) throw new Error("This runtime does not support model selection.");
       // --session before or after the model: /model --session x and /model x --session are the same.
       const { rest: query, session: sessionOnly } = sessionFlag(argument);
-      // Nothing signed in: an empty picker helps no one, so /model opens sign-in (which then picks a model).
-      if (host.interactive && host.terminal.rich && !query) {
+      // Nothing signed in: an empty picker helps no one, so /model opens sign-in (which then picks a model). With
+      // model servers you added, the picker opens anyway: it shows why they aren't there, and can forget or add one.
+      if (host.interactive && host.terminal.rich && !query && !savedLocalServers().length) {
         const available = await session.selectModel({ signal: host.commandAbort?.signal }).catch(() => undefined);
         if (available?.models && !available.models.length) {
           // A model server Casper was told about (OLLAMA_HOST and the like) that didn't answer: say why first.
@@ -254,7 +256,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       const result = await session.selectModel({ query: query || undefined,
         persist: !sessionOnly, signal: host.commandAbort?.signal,
         picker: host.interactive ? host.terminal.modelPickerHost() : undefined,
-        ...(host.interactive && query ? { choose: chooseModel(host.terminal, query, host.commandAbort?.signal) } : {}) });
+        ...(host.interactive && query ? { choose: chooseModel(host.terminal, query, host.commandAbort?.signal) } : {}) })
+        .finally(() => syncModelServers(host));
       // Words that name several models and no question to ask: the list, nothing changed.
       if (result.candidates) throw new Error(severalModelsMessage(query, result.candidates));
       // A cancelled picker changes nothing; the status block was already shown at startup.
@@ -1498,6 +1501,8 @@ export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider
     if (!runtime.authenticate) { host.output.write("[login] This runtime does not support login.\n"); return false; }
     const result = await runtime.authenticate({ provider, ...(list ? { list } : {}), ...(host.projectContext?.otherLogins === false ? { others: false } : {}),
       terminalHost: picker, signal: host.commandAbort?.signal });
+    if (result.status === "saved" && result.servers?.length) return await serversAdded(host, result.servers, result.lines ?? []);
+    if (result.status === "cancelled") for (const line of result.lines ?? []) host.output.write(`[login] ${terminalText(line)}\n`);
     if (result.status === "saved") {
       // Login never starts a conversation: with none open yet, the first request picks the model.
       host.loginProvider = provider;
@@ -1516,6 +1521,28 @@ export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider
     else host.output.write(loginFailureText(result));
   } catch { host.output.write("[login] Sign-in didn't finish. Nothing was saved. Type /login to try again.\n"); }
   return false;
+}
+
+/** Your model servers as the looks now know them (after you add or forget one), for the next start and the banner. */
+function syncModelServers(host: CommandHost): void {
+  if (host.projectContext) host.projectContext.modelServers = [...savedLocalServers()];
+}
+
+/** /login added model servers: say so, and open /model on the first one's models (nothing is picked for you). */
+async function serversAdded(host: CommandHost, servers: string[], lines: string[]): Promise<boolean> {
+  for (const line of lines) host.output.write(`[login] ${terminalText(line)}\n`);
+  syncModelServers(host);
+  host.loginProvider = servers[0];
+  host.signedIn = true;
+  if (!host.interactive || !host.terminal.rich) { host.output.write(`[login] /model picks one of its models.\n`); return true; }
+  const session = await host.ensureRuntime();
+  const result = await session.selectModel?.({ scope: servers[0], persist: true, signal: host.commandAbort?.signal, picker: host.terminal.modelPickerHost() })
+    .finally(() => syncModelServers(host)).catch(() => undefined);
+  if (result?.selected) {
+    host.output.write(`[model] ${terminalText(`${result.status.provider}/${result.status.model}`)} selected and saved as your Casper default.\n`);
+    host.updateFooter();
+  } else host.output.write("[login] No model picked yet; /model picks one when you're ready.\n");
+  return true;
 }
 
 /** /status: how much disk the undo copies take, and where (no copy is made to find out). */

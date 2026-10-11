@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { clearLocalServers, discoverLocalServers, localModelDefaults, localServerFound, localServers, localServerSettled, onLocalServer, onThisComputer, probeBudget, registerLocalServers, sameAddress, serverRoot, SERVER_SIDE_TIP, type LocalDiscovery, type LocalFound } from "../src/runtime/local-models";
+import { clearLocalServers, configureLocalServers, discoverLocalServers, dropLocalServers, forgetLocalServer, localModelDefaults, localServerFound, localServers, localServerSettled, onLocalServer, onThisComputer, probeBudget, registerLocalServers, rememberLocalServer, sameAddress, serverRoot, SERVER_SIDE_TIP, type LocalDiscovery, type LocalFound } from "../src/runtime/local-models";
 import { PiModels } from "../src/runtime/pi-models";
 import { isolatedEnvironment } from "../src/platform/environment";
 import { removeTempDir } from "./support/temp-dir";
@@ -107,11 +107,11 @@ test("CASPER_LOCAL_MODELS=off looks for nothing, even where a server's variable 
 
 test("a server that is not running is skipped without a word; one whose variable is set says so", async () => {
   const refused = (() => Promise.reject(new Error("refused"))) as unknown as typeof fetch;
-  expect(await discoverLocalServers({ env: {}, fetch: refused })).toEqual({ servers: [], problems: [] });
+  expect(await discoverLocalServers({ env: {}, fetch: refused })).toMatchObject({ servers: [], problems: [] });
   const closed = closedPort();
   // A real closed port: Bun's own "refused" error is read as such.
   const found = await discoverLocalServers({ env: { VLLM_BASE_URL: closed }, fetch: ((url: string, init?: RequestInit) => url.startsWith(closed) ? fetch(url, init) : refused(url)) as typeof fetch });
-  expect(found).toEqual({ servers: [], problems: [{ provider: "vllm", root: closed, cause: "refused",
+  expect(found).toMatchObject({ servers: [], problems: [{ provider: "vllm", root: closed, cause: "refused",
     text: `vLLM at ${closed} (VLLM_BASE_URL) refused the connection (nothing is listening on that port).` }] });
 });
 
@@ -308,7 +308,8 @@ test("found once a day per process; /model probes again and keeps each server bu
   // A refresh that finds LM Studio but not Ollama: LM Studio's new list, and Ollama's last one kept (helpers need it).
   const again = await localServers({ refresh: true });
   expect(calls).toBe(2);
-  expect(again).toEqual({ servers: [{ ...lmStudio, models: [{ id: "llava-7b" }] }, found("http://127.0.0.1:11434/v1")[0]!], problems: [busy] });
+  expect(again).toEqual({ servers: [{ ...lmStudio, models: [{ id: "llava-7b" }] }, found("http://127.0.0.1:11434/v1")[0]!], problems: [busy],
+    looked: ["ollama", "lm-studio", "llama.cpp", "vllm"] });
   expect(await localServers({ cachedOnly: true })).toBe(again);
 });
 
@@ -533,4 +534,168 @@ test("a look that just ended isn't repeated at once: the wait is counted from wh
     await session.selectModel({ query: "ollama/qwen3:8b", persist: false }).catch(() => undefined);
     console.log(JSON.stringify({ looks, staleMs }));`);
   expect(result).toEqual({ looks: 1, staleMs: 15_000 });
+}, 60_000);
+
+test("a server you added is looked at with its kind, next to this computer's; no key is ever sent to it", async () => {
+  const open = serve({ "GET /v1/models": { data: [{ id: "Qwen/Qwen3-8B", owned_by: "vllm" }] } });
+  const locked = serve({ "GET /v1/models": () => Response.json({ error: "no" }, { status: 401 }) });
+  const ollama = serve(ollamaRoutes);
+  const found = await discoverLocalServers({ env: { OLLAMA_HOST: ollama.url }, saved: [
+    { name: "vllm-box", address: open.url, kind: "vllm" },
+    { name: "locked-box", address: locked.url, kind: "vllm" },
+  ] });
+  expect(found.servers.map((server) => [server.provider, server.saved ?? false])).toEqual([["ollama", false], ["vllm-box", true]]);
+  expect(found.looked).toEqual(["ollama", "lm-studio", "llama.cpp", "vllm", "vllm-box", "locked-box"]);
+  expect(found.problems.find((problem) => problem.provider === "locked-box")).toMatchObject({ saved: true, cause: "key", text: `locked-box (vLLM at ${locked.url}) asked for a key.` });
+  expect([...open.seen, ...locked.seen, ...ollama.seen].filter((entry) => entry.authorization)).toEqual([]);
+});
+
+test("a request to one of your servers carries only the word local, never a sign-in saved under its name", async () => {
+  const box = serve({ "POST /v1/chat/completions": () => Response.json({ error: "stop here" }, { status: 400 }) });
+  const dir = await mkdtemp(path.join(os.tmpdir(), "casper-server-key-"));
+  stops.push(() => removeTempDir(dir));
+  const keyFile = path.join(dir, "auth.json");
+  // What Pi would send by name.
+  await writeFile(keyFile, JSON.stringify({ "vllm-box": { type: "api_key", key: "sk-signin-0000000000" } }), { mode: 0o600 });
+  const runtime = await ModelRuntime.create({ authPath: keyFile, modelsPath: null, refreshOnCreate: false });
+  configureLocalServers({ saved: [{ name: "vllm-box", address: box.url, kind: "vllm" }] });
+  registerLocalServers(runtime, [{ provider: "vllm-box", name: "vLLM", baseUrl: `${box.url}/v1`, models: [{ id: "m" }], saved: true }]);
+  await runtime.completeSimple(runtime.getModel("vllm-box", "m")!, { messages: [{ role: "user", content: "hi", timestamp: Date.now() }] });
+  expect(box.seen.map((entry) => entry.authorization)).toEqual(["Bearer local"]);
+});
+
+test("a look that began before you added or forgot a server ends with your list as it is now", async () => {
+  const runtime = await runtimeIn();
+  const server = (name: string) => ({ provider: name, name: "Ollama at 192.0.2.10:11434", baseUrl: `http://192.0.2.${name === "ollama-a" ? 10 : 11}:11434/v1`, models: [{ id: "qwen3:8b" }], saved: true as const });
+  const saved = (name: string) => ({ name, address: server(name).baseUrl.replace(/\/v1$/, ""), kind: "ollama" as const });
+  configureLocalServers({ saved: [saved("ollama-a")] });
+  const held = Promise.withResolvers<LocalDiscovery>();
+  localModelDefaults.discover = async (options) => { const found = await held.promise; for (const entry of found.servers) options?.each?.({ provider: entry.provider, server: entry }); return found; };
+  const look = localServers({ refresh: true });
+  // While it runs: ollama-b is added, ollama-a is forgotten.
+  configureLocalServers({ saved: [saved("ollama-b")] });
+  rememberLocalServer(server("ollama-b"));
+  registerLocalServers(runtime, [server("ollama-b")]);
+  forgetLocalServer("ollama-a");
+  held.resolve({ servers: [server("ollama-a")], problems: [], looked: ["ollama", "lm-studio", "llama.cpp", "vllm", "ollama-a"] });
+  const result = await look;
+  expect(result.servers.map((entry) => entry.provider)).toEqual(["ollama-b"]);
+  expect(result.looked).toEqual(["ollama", "lm-studio", "llama.cpp", "vllm", "ollama-b"]);
+  registerLocalServers(runtime, result.servers);
+  // An older look's list never takes out the one added since; a forgotten one is never put back.
+  expect(dropLocalServers(runtime, ["ollama", "lm-studio", "llama.cpp", "vllm", "ollama-a"])).toEqual([]);
+  expect(registerLocalServers(runtime, [server("ollama-a")])).toEqual([]);
+  expect(runtime.getModels("ollama-b").map((model) => model.id)).toEqual(["qwen3:8b"]);
+});
+
+test("localModels: false looks only at the servers you added; one at a fixed kind's address replaces it; the off switch stops all", async () => {
+  let asked: string[] = [];
+  const spy = ((url: string) => { asked.push(new URL(url).origin); return Promise.reject(new Error("refused")); }) as unknown as typeof fetch;
+  const saved = [{ name: "ollama-here", address: "http://127.0.0.1:11434", kind: "ollama" as const }];
+  const off = await discoverLocalServers({ env: {}, auto: false, saved, fetch: spy });
+  expect(off.looked).toEqual(["ollama-here"]);
+  expect([...new Set(asked)]).toEqual(["http://127.0.0.1:11434"]);
+  asked = [];
+  const on = await discoverLocalServers({ env: {}, saved, fetch: spy });
+  expect(on.looked).toEqual(["lm-studio", "llama.cpp", "vllm", "ollama-here"]);
+  asked = [];
+  expect(await discoverLocalServers({ env: { CASPER_LOCAL_MODELS: "off" }, saved, fetch: spy })).toEqual({ servers: [], problems: [] });
+  expect(asked).toEqual([]);
+});
+
+test("a server no longer looked for is taken out of the catalog; forgetting one drops it for helpers", async () => {
+  const runtime = await runtimeIn();
+  const box = { provider: "ollama-box", name: "Ollama at 192.0.2.10:11434", baseUrl: "http://192.0.2.10:11434/v1", models: [{ id: "qwen3:8b" }], saved: true as const };
+  configureLocalServers({ saved: [{ name: "ollama-box", address: "http://192.0.2.10:11434", kind: "ollama" }] });
+  expect(registerLocalServers(runtime, [...found("http://127.0.0.1:11434/v1"), box])).toEqual(["ollama", "ollama-box"]);
+  expect(dropLocalServers(runtime, ["lm-studio", "llama.cpp", "vllm", "ollama-box"])).toEqual(["ollama"]);
+  expect(runtime.getProvider("ollama")).toBeUndefined();
+  expect(runtime.getModels("ollama-box").map((model) => model.id)).toEqual(["qwen3:8b"]);
+  localModelDefaults.discover = async () => ({ servers: [box], problems: [], looked: ["ollama-box"] });
+  expect((await localServers()).servers.map((server) => server.provider)).toEqual(["ollama-box"]);
+  configureLocalServers({ saved: [] });
+  forgetLocalServer("ollama-box");
+  localModelDefaults.discover = async () => ({ servers: [], problems: [], looked: [] });
+  expect((await localServers({ refresh: true })).servers).toEqual([]);
+});
+
+test("/model with a server you added: Ctrl+X on its row asks first (1 Keep · 2 Forget), then forgets it, and the picker opens again", async () => {
+  const ollama = serve(ollamaRoutes).url;
+  const { home, project } = await looksHome();
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await writeFile(path.join(home, ".casper/config.yaml"), `# mine\nmodelServers:\n  - name: ollama-box\n    address: ${ollama}\n    kind: ollama\n`);
+  const repo = path.resolve(import.meta.dir, "..");
+  const env = { ...isolatedEnvironment(home), TMPDIR: path.dirname(home), PI_CODING_AGENT_DIR: path.join(home, ".pi/agent"), CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" };
+  const child = Bun.spawn([process.execPath, "-e", `import { PassThrough } from "node:stream";
+    import { readFileSync } from "node:fs";
+    import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
+    import { withLoginSurface } from ${JSON.stringify(path.join(repo, "tests/support/login-surface.ts"))};
+    const runtime = new PiRuntime({ homeDir: ${JSON.stringify(home)} });
+    const session = await runtime.start({ cwd: process.cwd(), localModels: false, modelServers: [{ name: "ollama-box", address: ${JSON.stringify(ollama)}, kind: "ollama" }] });
+    const screens = []; let mounts = 0;
+    const tui = { addInputListener: () => () => {}, requestRender() {}, setFocus() {}, terminal: { rows: 30, columns: 100 } };
+    const host = {
+      mount: (operation) => { mounts++; return operation({ tui, color: false, onEOF() {}, show(browser) {
+        setTimeout(async () => {
+          await Bun.sleep(50);
+          screens.push(browser.render(100).join("\\n"));
+          if (mounts === 1) { browser.handleInput("\\x1b[B"); browser.handleInput("\\x18"); } // To ollama-box, then Ctrl+X.
+          else browser.handleInput("\\x1b"); // The picker opened again: Esc.
+        }, 0);
+      } }); },
+      run: (operation) => { const input = new PassThrough(); let shown = "";
+        setTimeout(async () => { for (let i = 0; i < 100 && !shown.includes("Forget ollama-box?"); i++) await Bun.sleep(20); input.write("2"); }, 0);
+        return withLoginSurface({ input, output: { write(text) { shown += text; screens.push(text); } }, color: false, onEOF() {} }, operation); },
+    };
+    const result = await session.selectModel({ picker: host });
+    const after = await session.selectModel({ query: "ollama-box/qwen3:8b", persist: false }).then(() => "selected", (error) => error.message);
+    console.log(JSON.stringify({ selected: result.selected, mounts, first: screens[0], text: screens.join("\\n"), config: readFileSync(${JSON.stringify(path.join(home, ".casper/config.yaml"))}, "utf8"), after }));
+    await runtime.dispose();`], { cwd: project, env, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+  const result = JSON.parse(stdout);
+  expect(result.first).toContain("ollama-box");
+  expect(result.first).toContain("+ Add server");
+  expect(result.text).toContain("1 Keep ollama-box");
+  expect(result.text).toContain("2 Forget ollama-box");
+  expect(result.text).not.toContain("key");
+  expect(result.text).toContain("No models yet. Use /login to sign in, or add a model server.");
+  expect(result.text).toContain("[model] Forgot ollama-box.");
+  expect(result.mounts).toBe(2);
+  expect(result.selected).toBe(false);
+  expect(result.config).toBe("# mine\n");
+  expect(result.after).not.toBe("selected"); // Gone from the catalog: its models can't be picked any more.
+}, 60_000);
+
+test("/login's last row adds a model server: the address, the name kept, no key; it is saved, and its models are in the catalog", async () => {
+  const ollama = serve(ollamaRoutes).url;
+  const { home, project } = await looksHome();
+  const repo = path.resolve(import.meta.dir, "..");
+  const env = { ...isolatedEnvironment(home), TMPDIR: path.dirname(home), PI_CODING_AGENT_DIR: path.join(home, ".pi/agent"), CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" };
+  const child = Bun.spawn([process.execPath, "-e", `import { PassThrough } from "node:stream";
+    import { readFileSync, existsSync } from "node:fs";
+    import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
+    import { withLoginSurface } from ${JSON.stringify(path.join(repo, "tests/support/login-surface.ts"))};
+    const runtime = new PiRuntime({ homeDir: ${JSON.stringify(home)} });
+    const session = await runtime.start({ cwd: process.cwd(), localModels: false });
+    let shown = "";
+    const until = async (text) => { for (let i = 0; i < 200 && !shown.includes(text); i++) await Bun.sleep(20); if (!shown.includes(text)) throw new Error("never saw " + text); };
+    const input = new PassThrough();
+    const host = { mount: () => { throw new Error("no picker here"); }, run: (operation) => withLoginSurface({ input, output: { write(text) { shown += text; } }, color: false, onEOF() {} }, operation) };
+    const pending = runtime.authenticate({ terminalHost: host, others: false });
+    await until("Model server on another computer"); input.write("7");
+    await until("Where is the server?"); for (const key of ${JSON.stringify(ollama.replace("http://", ""))}) input.write(key); await Bun.sleep(30); input.write("\\r");
+    await until("Name it."); await Bun.sleep(30); input.write("\\r");
+    const result = await pending;
+    const status = await session.selectModel({ query: result.servers[0] + "/qwen3:8b", persist: false }).then((selection) => selection.status, (error) => error.message);
+    console.log(JSON.stringify({ result, config: readFileSync(${JSON.stringify(path.join(home, ".casper/config.yaml"))}, "utf8"), auth: existsSync(${JSON.stringify(path.join(home, ".pi/agent/auth.json"))}) ? readFileSync(${JSON.stringify(path.join(home, ".pi/agent/auth.json"))}, "utf8") : "", status }));
+    await runtime.dispose();`], { cwd: project, env, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+  const result = JSON.parse(stdout);
+  expect(result.result).toMatchObject({ status: "saved", servers: ["ollama-127-0-0-1-" + new URL(ollama).port] });
+  expect(result.result.lines[0]).toStartWith(`Added ollama-127-0-0-1-${new URL(ollama).port}: 3 models`);
+  expect(result.config).toContain(`address: ${ollama}`);
+  expect(result.auth).not.toContain("ollama-127-0-0-1"); // No key given: nothing in the login file for it.
+  expect(result.status).toMatchObject({ provider: `ollama-127-0-0-1-${new URL(ollama).port}`, model: "qwen3:8b" });
 }, 60_000);

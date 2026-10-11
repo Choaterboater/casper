@@ -128,3 +128,58 @@ test("a failed sign-in says the reason Casper has, in plain words, and the next 
   expect(failed("\"~/.casper/agent/auth.json\" is a symbolic link; replace it with a regular file", "destination"))
     .toBe("[login] Can't save the key: \"~/.casper/agent/auth.json\" is a symbolic link; replace it with a regular file. Nothing was changed.\n");
 });
+
+test("a visible text box: the suggestion shows, the first key typed replaces it, Backspace edits, a check keeps it open", async () => {
+  const input = new PassThrough();
+  const controller = new AbortController();
+  let screen = "";
+  const pending = withLoginSurface({ input, output: { write(text) { screen += text; } }, color: false, onEOF() {} }, io => withLoginDisplay(io, controller.signal, async display => {
+    const kept = await display.textInput("Name it.", undefined, { title: "Found Ollama", initial: "ollama-myserver" });
+    const typed = await display.textInput("Name it.", undefined, { title: "Found Ollama again", initial: "ollama-myserver",
+      check: (text) => text === "bad" ? "That name won't do." : undefined });
+    return { kept, typed };
+  }));
+  try {
+    await waitFor(() => screen.includes("ollama-myserver") && screen.includes("Found Ollama"));
+    input.write("\r");
+    await waitFor(() => screen.includes("Found Ollama again"));
+    for (const key of "bad") input.write(key); // The first key replaces the suggestion.
+    await waitFor(() => screen.includes("> bad"));
+    input.write("\r");
+    await waitFor(() => screen.includes("That name won't do."));
+    input.write("\x7f"); input.write("\x7f"); input.write("\x7f");
+    for (const key of "den-pc") input.write(key);
+    await waitFor(() => screen.includes("> den-pc"));
+    input.write("\r");
+    expect(await pending).toEqual({ kept: "ollama-myserver", typed: "den-pc" });
+  } finally { controller.abort(); await pending.catch(() => {}); input.destroy(); }
+});
+
+test("an address tried before stays in the box to fix: typing adds to it", async () => {
+  const input = new PassThrough();
+  const controller = new AbortController();
+  let screen = "";
+  const pending = withLoginSurface({ input, output: { write(text) { screen += text; } }, color: false, onEOF() {} }, io => withLoginDisplay(io, controller.signal,
+    display => display.textInput("Where is the server?", undefined, { title: "Add a model server", initial: "myserver", editable: true })));
+  try {
+    await waitFor(() => screen.includes("> myserver"));
+    expect(screen).not.toContain("typing replaces it");
+    for (const key of ":5000") input.write(key);
+    await waitFor(() => screen.includes("> myserver:5000"));
+    input.write("\r");
+    expect(await pending).toBe("myserver:5000");
+  } finally { controller.abort(); await pending.catch(() => {}); input.destroy(); }
+});
+
+test("Esc in a visible text box cancels it", async () => {
+  const input = new PassThrough();
+  const controller = new AbortController();
+  let screen = "";
+  const pending = withLoginSurface({ input, output: { write(text) { screen += text; } }, color: false, onEOF() {} }, io => withLoginDisplay(io, controller.signal,
+    display => display.textInput("Where is the server?", undefined, { title: "Add a model server" })));
+  try {
+    await waitFor(() => screen.includes("Where is the server?"));
+    input.write("\x1b");
+    expect(await pending.then(() => "answered", (error: Error) => error.message)).toBe("Input cancelled");
+  } finally { controller.abort(); await pending.catch(() => {}); input.destroy(); }
+});

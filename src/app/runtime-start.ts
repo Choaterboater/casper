@@ -5,7 +5,7 @@ import { rememberTool } from "./side-question";
 import type { CasperApp } from "../app";
 import path from "node:path";
 import { hasSignIn } from "../tui/model-preference";
-import { localServerFound } from "../runtime/local-models";
+import { configureLocalServers, localServerFound } from "../runtime/local-models";
 import { formatRuntimeStartLine } from "../tui/format";
 import { boundCapabilityResult } from "../capabilities/result";
 import { hiddenSecretGate } from "../secrets/gate";
@@ -74,6 +74,7 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         ...(app.shell ? { shell: currentShell(app) } : {}),
         ...(context.cache ? { cache: context.cache } : {}),
         ...(context.localModels === false ? { localModels: false } : {}),
+        ...(context.modelServers?.length ? { modelServers: context.modelServers } : {}),
         // The project's sandbox.denyRead (GreenCLI lists its data and log folders there): the file tools refuse them too.
         privatePaths: projectPrivatePaths(app),
         currentPrivatePaths: () => projectPrivatePaths(app),
@@ -192,7 +193,13 @@ export function observeEdit(app: CasperApp, path: string): void {
  * counts: the probe starts here (the runtime reuses it), and the banner waits for it 0.3 s at most. */
 export async function checkSignIn(app: CasperApp): Promise<void> {
   app.signedIn = await hasSignIn(appAgentDir(app));
-  if (app.signedIn || app.projectContext?.localModels === false) return;
+  // Before the first look: what it covers (the automatic servers and the ones you added).
+  const saved = app.projectContext?.modelServers ?? [];
+  configureLocalServers({ auto: app.projectContext?.localModels !== false, saved });
+  if (app.signedIn) return;
+  // With servers you added, a request opens /model on them: the footer doesn't say "not signed in".
+  if (saved.length) { app.signedIn = undefined; return; }
+  if (app.projectContext?.localModels === false) return;
   // The first server with models settles it: one on another computer, slow to answer, doesn't hold up one here.
   if (await Promise.race([localServerFound(), Bun.sleep(300).then(() => false)])) app.signedIn = true;
 }

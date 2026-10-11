@@ -1,4 +1,5 @@
 import { lstat, readFile, realpath, stat, statfs } from "node:fs/promises";
+import type { ModelServer } from "../config/model-servers";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
 import { loadConfiguration, type LoadedConfiguration } from "../config/load";
@@ -233,8 +234,9 @@ async function customProviders(ctx: DoctorContext): Promise<string[]> {
 
 /** Each provider in Casper's sign-in file, any provider key in the environment, and the model servers found on this
  * computer (`localModels` false: none are looked for). Reads only which providers are there and when a sign-in runs
- * out; never a key. Nothing is sent anywhere but the keyless look at the local servers' model lists. */
-export async function checkSignIn(ctx: DoctorContext, localModels = true): Promise<DoctorLine[]> {
+ * out; never a key. Nothing is sent anywhere but the keyless look at the local servers' model lists and the ones you
+ * added. */
+export async function checkSignIn(ctx: DoctorContext, localModels = true, servers: readonly ModelServer[] = []): Promise<DoctorLine[]> {
   const now = (ctx.now ?? Date.now)();
   const lines: DoctorLine[] = [];
   let saved: Record<string, unknown> = {};
@@ -260,12 +262,15 @@ export async function checkSignIn(ctx: DoctorContext, localModels = true): Promi
   if (custom.length) signedIn.push(`${custom.join(", ")} (models.json)`);
   const fromEnv = Object.keys(ctx.env).filter((name) => ctx.env[name] && isModelProviderKeyName(name)).sort();
   if (fromEnv.length) signedIn.push(...fromEnv.map((name) => `$${name}`));
-  const found = localModels ? await localModelDefaults.discover({ env: ctx.env }).catch(() => undefined) : undefined;
-  const servers = found?.servers.filter((server) => server.models.length && !custom.includes(server.provider)) ?? [];
-  const here = servers.filter((server) => onThisComputer(server.baseUrl)).map((server) => server.provider);
+  const found = localModels || servers.length
+    ? await localModelDefaults.discover({ env: ctx.env, auto: localModels, saved: servers }).catch(() => undefined) : undefined;
+  const automatic = found?.servers.filter((server) => server.models.length && !custom.includes(server.provider) && !server.saved) ?? [];
+  // The servers you added: whether each answered (its problem says why not, below).
+  for (const server of found?.servers.filter((entry) => entry.saved) ?? []) signedIn.push(`${server.provider} (your server at ${server.baseUrl.replace(/\/v1$/, "")}, ${server.models.length} model${server.models.length === 1 ? "" : "s"})`);
+  const here = automatic.filter((server) => onThisComputer(server.baseUrl)).map((server) => server.provider);
   if (here.length) signedIn.push(`${here.join(", ")} (found on this computer)`);
   // One a variable points at on another computer: name where, since requests go over the network there.
-  for (const server of servers.filter((entry) => !onThisComputer(entry.baseUrl))) signedIn.push(`${server.provider} (at ${server.baseUrl.replace(/\/v1$/, "")})`);
+  for (const server of automatic.filter((entry) => !onThisComputer(entry.baseUrl))) signedIn.push(`${server.provider} (at ${server.baseUrl.replace(/\/v1$/, "")})`);
   if (signedIn.length) lines.unshift(ok(`Sign-in: ${signedIn.join(", ")}`));
   if (!lines.length) lines.push(fail("No model sign-in", "run casper and type /login, or start a model server such as Ollama"));
   const problems = found?.problems ?? [];

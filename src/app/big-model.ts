@@ -10,7 +10,7 @@ import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 import { modelFailedChoices, pictureChoices, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP } from "./safe-choices";
 import { runLogin } from "./commands";
 import { updateFooter } from "./footer";
-import { LOCAL_SERVERS } from "../runtime/local-models";
+import { LOCAL_SERVERS, savedLocalServers } from "../runtime/local-models";
 
 const LOGIN_PROVIDERS = ["openai-codex", "github-copilot", "anthropic", "openrouter"] as const;
 
@@ -34,14 +34,20 @@ export async function ensureModel(app: CasperApp, session: RuntimeSession): Prom
   const pickDefault = async (): Promise<boolean> => {
     const picked = await session.selectDefaultModel?.({ provider: app.loginProvider, signal }).catch(() => undefined);
     if (!picked?.selected) return false;
-    const where = LOCAL_SERVERS.some(({ id }) => id === picked.status.provider) ? "found on this computer" : "for your signed-in provider";
+    const where = LOCAL_SERVERS.some(({ id }) => id === picked.status.provider) ? "found on this computer"
+      : savedLocalServers().some(({ name }) => name === picked.status.provider) ? `on your model server ${picked.status.provider}` : "for your signed-in provider";
     app.output.write(`[model] Casper picked ${picked.status.provider}/${picked.status.model} ${where} and saved it as your default. Use /model to choose another.\n`);
     updateFooter(app);
     return true;
   };
   if (!status.provider) {
     if (await pickDefault()) return true;
-    if (canSignIn && !signal?.aborted) {
+    // Servers you added are never picked for you: with no model yet, /model opens on them (you pick).
+    if (canSignIn && !signal?.aborted && savedLocalServers().length && session.selectModel) {
+      app.output.write("[model] No model yet. Pick one from your model servers; Esc cancels.\n");
+      const picked = await session.selectModel({ persist: true, signal, picker: app.terminal.modelPickerHost() }).catch(() => undefined);
+      if (picked?.selected) { updateFooter(app); return true; }
+    } else if (canSignIn && !signal?.aborted) {
       for (const line of session.localProblems?.() ?? []) app.output.write(`[model] ${terminalText(line)}\n`);
       app.output.write("[model] No model yet. Sign in to a provider to start; Esc cancels.\n");
       if (await runLogin(app, undefined, true) && await pickDefault()) return true;

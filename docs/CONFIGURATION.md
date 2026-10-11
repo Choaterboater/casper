@@ -293,7 +293,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
-`showPages`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
+`showPages`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
@@ -451,7 +451,7 @@ Any other `sandbox` or `shell` key in a project file is named at startup and ign
 | `CASPER_TUI_WRITE_LOG` | Optional log file of raw terminal output, or an existing folder for timestamped logs. It can contain sensitive output, so `/login` is refused while it is set. |
 | `CASPER_PROFILE` | Picks the profile; see [Profiles](#profiles). |
 | `CASPER_BROWSER_EXECUTABLE` | Absolute path to the Chrome/Chromium/Edge program for browser tasks, instead of auto-detection. See [BROWSER.md](BROWSER.md). |
-| `CASPER_LOCAL_MODELS` | `off` (or `0`, `false`, `no`) looks for no model server on this computer (Ollama, LM Studio, llama.cpp, vLLM) for this run, like `localModels: false`. See [Local models](#local-models). |
+| `CASPER_LOCAL_MODELS` | `off` (or `0`, `false`, `no`) looks for no model server at all for this run: not on this computer (Ollama, LM Studio, llama.cpp, vLLM), and not the ones you added (`localModels: false` keeps those). See [Local models](#local-models). |
 | `CASPER_NETCONAN` | `off` turns the extra netconan secret check off; a path picks the netconan program. See [SECRETS.md](SECRETS.md). |
 
 Set these in your shell, not in a repository `.env` file (Casper does not read it). At startup
@@ -599,8 +599,9 @@ on this computer:
   request: your conversation is never sent on to another address. (A provider you set up in `models.json`
   is not covered by this.)
 - **Off switch.** `/settings` **Local models** (it writes `localModels: false` in `~/.casper/config.yaml`;
-  a project file can't change it). A change applies from the next start. `CASPER_LOCAL_MODELS=off` in the
-  environment does the same for one run (a script or CI).
+  a project file can't change it). A change applies from the next start. Servers you added yourself (below)
+  stay. `CASPER_LOCAL_MODELS=off` in the environment looks for none at all, yours included, for one run
+  (a script or CI).
 
 **A server on another computer.** Point the server's variable at that computer, in the shell that starts
 Casper: `OLLAMA_HOST=192.0.2.10` (the usual port is added), `LM_STUDIO_BASE_URL=http://192.0.2.10:1234`,
@@ -617,15 +618,70 @@ These servers have no password by default, so open them only on a network you tr
 home network or Wi-Fi can be read by others on that network; Tailscale or `https` keeps it private. If
 nothing answers, `/model` and `casper doctor` say why and repeat these lines.
 
+### Add a model server on another computer
+
+The easy way: no variable and no file to edit. In `/model`, go to the last row of the list on the left,
+**`+ Add server`**, and press Enter. Or type `/login` and pick the last row, **Model server on another
+computer** (when `/login` first offers a sign-in it found on this computer, pick **Sign in separately** to
+see that list). Both open the same steps:
+
+1. **Where is the server?** Type its address: `192.0.2.10`, `myserver`, `myserver:11434` or
+   `http://myserver:8000` (a copied API address such as `…/v1/models` works too). With no port, Casper tries the usual ones (11434 Ollama, 1234 LM Studio,
+   8080 llama.cpp, 8000 vLLM) and finds every server that answers, waiting up to 10 seconds. It works out
+   which kind each one is; any other server with an OpenAI-style model list is added as one.
+2. **No model server there?** Casper says why for each port (refused, didn't answer in time, can't find
+   that name, answered but isn't a model server…), and when nothing answered at all, what to set on that
+   computer (above). It offers `1 Cancel · 2 Try another address`; the address stays in the box to fix.
+3. **A server that asks for a key** (llama-server or vLLM started with `--api-key`, or a proxy) is not
+   added: Casper says so and points to `~/.casper/agent/models.json` (below), where a server with a key is
+   set up. Other servers on the same computer that need no key are still added.
+4. **Name it.** The box starts with a name made from the kind and the computer: `ollama-myserver`,
+   `ollama-192-0-2-10`. Enter keeps it; typing replaces it. The name is the first half of its models' names
+   (`ollama-myserver/qwen3:8b`). Lowercase letters, numbers and dashes; a name a provider already uses
+   (`openai`, `openrouter`, `brave`…, or one in your `models.json`) is refused.
+5. Saved, and its models show in `/model` at once. Nothing is picked for you: pick a model there. From
+   `/login`, `/model` opens on the new server.
+
+Each server is saved when its own steps end; Esc stops there and saves nothing more (with two found on one
+computer, the first is kept if you press Esc on the second). Several servers of one kind are
+fine (two Ollama computers, or one here and one there): each has its own name. A server you added that
+doesn't answer still shows in `/model`'s list, marked `off`, with why; one that answered with no models
+yet shows `0`, with what to do on that computer.
+
+**Forget one.** In `/model`, highlight it in the list on the left and press **Ctrl+X**; Casper asks
+`1 Keep ollama-myserver · 2 Forget ollama-myserver`.
+
+**Where it is kept.** The name, address and kind go in `~/.casper/config.yaml` (Casper writes them,
+keeping the rest of the file, its comments and your other entries as they are):
+
+```yaml
+modelServers:
+  - name: ollama-myserver
+    address: http://192.0.2.10:11434
+    kind: ollama        # ollama, lm-studio, llama.cpp, vllm, or openai (any other OpenAI-style server)
+```
+
+Only `~/.casper/config.yaml`: a project file can't add one, and a profile's list is ignored. A bad entry is
+skipped with a warning, never a reason Casper won't start. The AI can read that file, so a key never goes
+there (an entry with a key is skipped). Casper never asks for, keeps or sends a key for a server you
+added: each request to it carries only the word `local`, even if a sign-in in the login file has the same
+name. A server that needs a key goes in `models.json` (below).
+
+- **When.** Your servers are looked at with the others: in the background, each on its own, 10 seconds
+  for one on another computer. `localModels: false` doesn't stop them.
+- **Never picked for you.** A server you added never becomes your model by itself; with no model yet, a
+  request opens `/model` on your servers.
+
 **Your models.json still works, and wins.** A provider you set up yourself in `models.json` with the
 same name (`ollama`), or one that points at the same address under another name, is used as you wrote
-it and the found one is not added. Use the file for a server Casper doesn't look for, a server on
-another machine that needs a key, or to set exact windows.
+it and the found one is not added. Most servers on another computer are easier to add in `/model` (above);
+use the file for a server that needs a key, exact windows, extra headers, or a server Casper can't detect.
 
 **Where the file is.** `~/.casper/agent/models.json` (create it if it isn't there). If you moved
 Casper's store with `CASPER_AGENT_DIR`, it is `models.json` in that folder. Pi's own docs say
 `~/.pi/agent`; that is not where Casper reads. Only you can set this up: a project can't add a
-server address, and the AI's tools can't read or change the file.
+server address, and the AI's tools can't read or change the file (the AI can read `modelServers` in
+`~/.casper/config.yaml`, which holds no key).
 
 ```json
 {
@@ -776,6 +832,10 @@ suggestions: false   # no suggested next steps anywhere
 updates: false       # no "a newer Casper is out" line at the start of a session
 sideQuestions: false # a line starting with ? is an ordinary request, not a side question
 localModels: false   # don't look for Ollama, LM Studio, llama.cpp or vLLM on this computer
+modelServers:        # servers you added in /model (+ Add server); Casper writes it; ~/.casper/config.yaml only
+  - name: ollama-myserver
+    address: http://192.0.2.10:11434
+    kind: ollama
 pages: off           # no page checks after a UI change, in any project
 telemetry: off       # don't send Casper's name to OpenRouter (same as CASPER_TELEMETRY=0)
 ssh_login: off       # ssh never gets Casper's hidden password box (see Private ssh passwords)

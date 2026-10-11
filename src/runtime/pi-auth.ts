@@ -3,7 +3,7 @@ import os from "node:os";
 import { CredentialSynchronizationError, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { tildePath } from "../new/scaffold";
 import { privateFileProblem } from "../platform/private-file";
-import { withLoginDisplay } from "../tui/login";
+import { withLoginDisplay, type LoginDisplay } from "../tui/login";
 import { openRouterAttribution } from "./openrouter-attribution";
 import { COPILOT_POLICIES, NOT_SHARED, copilotFromGithub, copilotTokenKind, findOtherLogins, ghToken, readOtherKey, saveCredential, type OtherLogin } from "./other-logins";
 import type { RuntimeAuthenticationOptions, RuntimeAuthenticationResult, RuntimeAuthProvider } from "./types";
@@ -149,8 +149,11 @@ async function useOtherLogin(login: OtherLogin, destination: string, signal: Abo
 }
 
 /** Dedicated builtin-only runtime: no sessions, extensions, model config or network catalog refresh. */
+/** The /login row that adds a model server on another computer (src/runtime/add-model-server.ts). */
+const MODEL_SERVER_ROW = "model-server";
+
 export async function authenticatePi(options: RuntimeAuthenticationOptions, destination: string,
-  lifetime: AbortSignal): Promise<RuntimeAuthenticationResult & { provider?: string }> {
+  lifetime: AbortSignal, addServer?: (display: LoginDisplay, signal: AbortSignal) => Promise<{ names: string[]; lines: string[] }>): Promise<RuntimeAuthenticationResult & { provider?: string }> {
   const signal = AbortSignal.any([lifetime, ...(options.signal ? [options.signal] : [])]);
   if (signal.aborted) return { status: "cancelled", effect: "none" };
   if (options.provider !== undefined && !Object.hasOwn(providerNames, options.provider)) return { status: "failed", effect: "none", reason: "unavailable" };
@@ -184,10 +187,16 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
           return useOtherLogin(login, destination, display.signal);
         }
       }
-      // One numbered list (provider and method together); /login <provider> with one way skips it.
+      // One numbered list (provider and method together); /login <provider> with one way skips it. With no provider
+      // named, the last row adds a model server on another computer instead of signing in.
       const ways = signInWays(provider);
+      const rows = [...ways.map(({ id, label }) => ({ id, label })), ...(!provider && addServer ? [{ id: MODEL_SERVER_ROW, label: "Model server on another computer · type its address" }] : [])];
       pickedId ??= ways.length === 1 && !options.list ? ways[0]!.id
-        : await display.choose(provider ? `Sign in to ${providerNames[provider]}` : "Sign in", ways);
+        : await display.choose(provider ? `Sign in to ${providerNames[provider]}` : "Sign in", rows);
+      if (pickedId === MODEL_SERVER_ROW && addServer) {
+        const { names, lines } = await addServer(display, display.signal);
+        return names.length ? { status: "saved", servers: names, lines } : { status: "cancelled", effect: "none", lines };
+      }
       const way = ways.find((item) => item.id === pickedId);
       if (!way) return { status: "cancelled", effect: "none" };
       provider = way.provider;

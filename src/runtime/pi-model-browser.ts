@@ -101,6 +101,34 @@ export interface ModelBrowserOptions {
   onSelect(model: Model<Api>): void;
   onSelectAsDefault?(model: Model<Api>): void;
   onCancel(): void;
+  /** Open on this provider's models, on the list (after adding a server). */
+  initialScope?: string;
+  /** The model servers you added: each shows in the left list even with no models (off), with why. */
+  servers?(): ReadonlyArray<{ name: string; address: string; problem?: string }>;
+  /** The `+ Add server` row at the bottom of the left list, and what Enter on it does. */
+  onAddServer?(): void;
+  /** Ctrl+X on one of your servers' rows. */
+  onForgetServer?(name: string): void;
+  /** What adding or forgetting a server just said, at the top of the right side until a key is pressed. */
+  notice?: readonly string[];
+}
+
+declare module "@earendil-works/pi-tui" {
+  interface Keybindings {
+    /** Forget one of your model servers (Ctrl+X on its row in /model). */
+    "casper.models.forget": true;
+  }
+}
+
+type SidebarEntry = { label: string; provider?: string; count: number; kind: "all" | "provider" | "add"; saved?: { address: string; problem?: string } };
+const ADD_ROW = "+ Add server";
+
+/** "ollama-192-0-2-11" in 14 columns: the start and the end, which tells two servers of one kind apart. */
+function middleCut(text: string, width: number): string {
+  if (visibleWidth(text) <= width) return text;
+  if (width < 5) return truncateToWidth(text, width, "");
+  const tail = Math.ceil((width - 1) / 2);
+  return `${text.slice(0, width - 1 - tail)}…${text.slice(-tail)}`;
 }
 
 /** Casper's full-screen model browser in the spirit of omp's picker: a provider sidebar on the
@@ -125,19 +153,27 @@ export class ModelBrowser {
   private refreshStatusSuccess = false;
   /** Why model servers Casper was told about aren't listed (the local look's problems), shown under the header. */
   private localProblems: string[] = [];
+  private notice: readonly string[];
   private closed = false;
   private _focused = false;
 
   constructor(private readonly options: ModelBrowserOptions) {
     this.current = options.current;
     this.defaultModel = options.defaultModel;
-    // Words to search for mean a model is wanted: Enter picks at once. Otherwise "where from" comes first.
-    this.focus = options.initialQuery ? "main" : "sidebar";
+    // Words to search for (or a server just added) mean a model is wanted: Enter picks at once. Otherwise "where
+    // from" comes first.
+    this.focus = options.initialQuery || options.initialScope ? "main" : "sidebar";
+    this.notice = options.notice ?? [];
     this.searchInput.onSubmit = () => {
       const item = this.filteredModels[this.selectedIndex];
       if (item) this.handleSelect(item.model);
     };
     this.loadModelsFromSnapshot();
+    if (options.initialScope) {
+      this.scope = options.initialScope; this.syncSidebar(); this.applyScope();
+      // A server just added that has no models yet: its row, which says what to do on that computer.
+      if (!this.filteredModels.length) this.focus = "sidebar";
+    }
     const query = options.initialQuery;
     if (query) {
       this.searchInput.setValue(query);
@@ -189,7 +225,12 @@ export class ModelBrowser {
 
   private hintLine(): string {
     // The same words as every other picker's hint: "<key> <what it does>", joined by " · ".
-    if (this.focus === "sidebar") return this.muted("  Up/Down providers · Enter or Tab models · type to search · Esc cancels");
+    if (this.focus === "sidebar") {
+      const entry = this.sidebarEntries()[this.sidebarIndex];
+      if (entry?.kind === "add") return this.muted("  Enter adds a model server · Up/Down providers · Esc cancels");
+      // On one of your servers Ctrl+X comes first: a narrow screen cuts the end of this line.
+      return this.muted(`  ${entry?.saved && this.options.onForgetServer ? "Ctrl+X forgets this server · " : ""}Up/Down providers · Enter or Tab models · type to search · Esc cancels`);
+    }
     return this.muted(`  Tab providers · ${this.options.sessionOnly
       ? "Enter this session only · Esc cancels · /effort after selecting"
       : "Enter remember · Ctrl+S this session only · Esc cancels · /effort after selecting"}`);
@@ -226,23 +267,36 @@ export class ModelBrowser {
     return sorted;
   }
 
-  private sidebarEntries(): { label: string; provider?: string; count: number }[] {
+  private sidebarEntries(): SidebarEntry[] {
     const counts = new Map<string, number>();
     for (const item of this.allModels) counts.set(item.provider, (counts.get(item.provider) ?? 0) + 1);
+    const servers = new Map((this.options.servers?.() ?? []).map((server) => [server.name, server]));
+    // A server you added shows even with no models (it didn't answer): you can see why, and forget it.
+    for (const name of servers.keys()) if (!counts.has(name)) counts.set(name, 0);
     const providers = [...counts.keys()].sort((a, b) => a.localeCompare(b));
-    return [{ label: "All models", provider: undefined, count: this.allModels.length },
-      ...providers.map(provider => ({ label: provider, provider, count: counts.get(provider)! }))];
+    return [{ label: "All models", provider: undefined, count: this.allModels.length, kind: "all" },
+      ...providers.map((provider): SidebarEntry => {
+        const saved = servers.get(provider);
+        return { label: provider, provider, count: counts.get(provider)!, kind: "provider", ...saved ? { saved: { address: saved.address, ...saved.problem ? { problem: saved.problem } : {} } } : {} };
+      }),
+      ...this.options.onAddServer ? [{ label: ADD_ROW, count: -1, kind: "add" as const }] : []];
   }
 
   private sidebarWidth(width: number): number {
-    const labelWidth = Math.max(...this.sidebarEntries().map(entry => visibleWidth(terminalText(entry.label))), 10);
-    return Math.min(Math.max(14, labelWidth + 6), Math.max(14, Math.floor(width / 4)));
+    const entries = this.sidebarEntries();
+    const labelWidth = Math.max(...entries.map(entry => visibleWidth(terminalText(entry.label))), 10);
+    // Your servers' names can be long ("ollama-192-0-2-10"): the list may then take a third of the width.
+    const cap = entries.some((entry) => entry.saved) ? Math.floor(width / 3) : Math.floor(width / 4);
+    return Math.min(Math.max(14, labelWidth + 6), Math.max(16, cap));
   }
 
   /** Keep the provider cursor on the provider in scope after the rows change (a refresh adds or drops one); a
    * provider that is gone puts it back on "All models". */
   private syncSidebar(): void {
-    const index = this.sidebarEntries().findIndex(entry => entry.provider === this.scope);
+    const entries = this.sidebarEntries();
+    // The add row keeps its place: what it shows doesn't depend on the providers.
+    if (entries[this.sidebarIndex]?.kind === "add") { this.sidebarIndex = entries.length - 1; return; }
+    const index = entries.findIndex(entry => entry.kind !== "add" && entry.provider === this.scope);
     if (index >= 0) this.sidebarIndex = index;
     else { this.scope = undefined; this.sidebarIndex = 0; }
   }
@@ -255,10 +309,13 @@ export class ModelBrowser {
     const lines: string[] = [this.accent("Models"), ""];
     for (let i = windowStart; i < Math.min(windowStart + windowRows, entries.length); i++) {
       const entry = entries[i]!;
-      const label = truncateToWidth(entry.label, width - 4);
       const cursor = this.focus === "sidebar" && this.sidebarIndex === i ? this.selected("> ") : "  ";
-      const active = this.scope === entry.provider ? this.accent(label) : label;
-      lines.push(`${cursor}${active}${this.muted(String(entry.count).padStart(width - visibleWidth(label) - 2))}`);
+      if (entry.kind === "add") { lines.push(`${cursor}${this.accent(middleCut(entry.label, width - 2))}`); continue; }
+      // One of yours that didn't answer is "off"; one that answered with no models yet is 0.
+      const count = entry.saved?.problem && !entry.count ? "off" : String(entry.count);
+      const label = middleCut(entry.label, width - 3 - count.length);
+      const active = entry.kind !== "all" && this.scope === entry.provider ? this.accent(label) : label;
+      lines.push(`${cursor}${active}${this.muted(count.padStart(width - visibleWidth(label) - 2))}`);
     }
     return lines;
   }
@@ -288,13 +345,40 @@ export class ModelBrowser {
     this.selectedIndex = 0;
   }
 
+  /** The right side for the add row, or one of your servers that has no models: what it is, and what to do. */
+  private infoLines(width: number, height: number): string[] | undefined {
+    if (this.focus !== "sidebar") return undefined;
+    const entry = this.sidebarEntries()[this.sidebarIndex];
+    const wrap = (text: string) => wrapTextWithAnsi(text, Math.max(10, width - 2)).map((line) => `  ${line}`);
+    let body: string[] | undefined;
+    if (entry?.kind === "add") {
+      body = [this.accent("Add a model server"), "", ...wrap("A model server on another computer (Ollama, LM Studio, llama.cpp, vLLM, or any OpenAI-style server): type its address, Casper finds what runs there, and its models show here."), "", ...wrap(this.muted("Enter starts."))];
+    } else if (entry?.saved && !entry.count) {
+      body = [this.accent(terminalText(entry.label)) + this.muted(entry.saved.problem ? " · off" : " · no models"), "", ...wrap(`At ${terminalText(entry.saved.address)}.`),
+        ...entry.saved.problem ? ["", ...wrap(tint(terminalText(entry.saved.problem), "warning", this.options.color))]
+          : ["", ...wrap("No models there yet. On that computer, add one: ollama pull qwen3, or download or load one in LM Studio, llama.cpp or vLLM.")],
+        "", ...wrap(this.muted("Ctrl+X forgets it."))];
+    }
+    if (!body) return undefined;
+    body.unshift(...this.noticeLines(width));
+    while (body.length < height) body.push("");
+    return body.slice(0, height);
+  }
+
+  /** What adding or forgetting a server just said, wrapped to the pane. */
+  private noticeLines(width: number): string[] {
+    return this.notice.flatMap((line) => wrapTextWithAnsi(line, Math.max(10, width - 2))).map((line) => tint(`  ${line}`, "success", this.options.color));
+  }
+
   private mainLines(width: number, height: number): string[] {
+    const info = this.infoLines(width, height);
+    if (info) return info;
     const header = this.scope === undefined
       ? this.accent("All models") + this.muted(` (${this.allModels.length})`)
       : this.accent(terminalText(this.scope)) + this.muted(` (${this.filteredModels.length})`);
     // Why a server Casper was told about isn't listed: each reason wrapped to the pane, at most a third of it.
-    const reasons = this.localProblems.flatMap((line) => wrapTextWithAnsi(line, Math.max(10, width - 2))).slice(0, Math.max(1, Math.floor(height / 3)))
-      .map((line) => tint(`  ${line}`, "warning", this.options.color));
+    const reasons = [...this.noticeLines(width), ...this.localProblems.flatMap((line) => wrapTextWithAnsi(line, Math.max(10, width - 2)))
+      .map((line) => tint(`  ${line}`, "warning", this.options.color))].slice(0, Math.max(1, Math.floor(height / 3)));
     const lines = [header + this.statusSuffix(), ...reasons.length ? reasons : [""]];
     const searchLines = this.searchInput.render(width);
     lines.push(...searchLines, "");
@@ -362,7 +446,11 @@ export class ModelBrowser {
 
   private summaryLine(): string {
     const item = this.filteredModels[this.selectedIndex];
-    if (!item) return this.muted("  No models available. Use /login to add providers.");
+    if (!item) {
+      const saved = this.scope !== undefined && this.sidebarEntries().find((entry) => entry.provider === this.scope)?.saved;
+      if (saved) return this.muted(`  No models on ${terminalText(this.scope!)} yet.`);
+      return this.muted(this.options.onAddServer ? "  No models yet. Use /login to sign in, or add a model server." : "  No models available. Use /login to add providers.");
+    }
     const model = item.model;
     const parts: string[] = [terminalText(model.name || item.id), this.muted(`${item.provider}/${item.id}`)];
     const ctx = fmtTokens(model.contextWindow);
@@ -380,6 +468,7 @@ export class ModelBrowser {
 
   handleInput(keyData: string): void {
     const kb = getKeybindings();
+    this.notice = [];
     if (kb.matches(keyData, "tui.input.tab")) {
       this.setFocus(this.focus === "sidebar" ? "main" : "sidebar");
       this.options.tui.requestRender();
@@ -391,11 +480,28 @@ export class ModelBrowser {
         const delta = kb.matches(keyData, "tui.select.up") ? -1 : 1;
         if (entries.length) {
           this.sidebarIndex = (this.sidebarIndex + delta + entries.length) % entries.length;
-          this.scope = entries[this.sidebarIndex]!.provider;
-          // A new provider starts at its first model (the current one, when it is there).
-          this.selectedIndex = 0;
-          this.filterModels(this.searchInput.getValue());
+          const entry = entries[this.sidebarIndex]!;
+          // The add row is no provider: the list behind it stays as it was.
+          if (entry.kind !== "add") {
+            this.scope = entry.provider;
+            // A new provider starts at its first model (the current one, when it is there).
+            this.selectedIndex = 0;
+            this.filterModels(this.searchInput.getValue());
+          }
         }
+      } else if (this.sidebarEntries()[this.sidebarIndex]?.kind === "add" && kb.matches(keyData, "tui.select.confirm")) {
+        this.dispose();
+        this.options.onAddServer?.();
+        return;
+      } else if (kb.matches(keyData, "casper.models.forget")) {
+        const entry = this.sidebarEntries()[this.sidebarIndex];
+        if (entry?.saved && entry.provider && this.options.onForgetServer) {
+          this.dispose();
+          this.options.onForgetServer(entry.provider);
+          return;
+        }
+        this.refreshStatusMessage = "Only servers you added can be forgotten here.";
+        this.refreshStatusSuccess = false;
       } else if (kb.matches(keyData, "tui.select.confirm") || matchesKey(keyData, "right")) {
         this.setFocus("main");
       } else if (kb.matches(keyData, "tui.select.cancel")) {

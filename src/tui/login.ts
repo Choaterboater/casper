@@ -7,12 +7,16 @@ import { Panel, panelColor } from "./presentation";
 /** A typed or pasted password: no control characters (an escape sequence is a key press, not text). Spaces and non-ASCII are fine. */
 const PASSWORD_TEXT = /^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}]*$/u;
 
-interface LoginDisplay {
+export interface LoginDisplay {
   signal: AbortSignal;
   choose<T extends string>(title: string, items: readonly { id: T; label: string }[]): Promise<T | undefined>;
   /** A short muted note under every later screen: where the key is saved, and what the provider charges. */
   setNote(text: string): void;
   privateInput(label: string, signal?: AbortSignal, options?: PrivateInputOptions): Promise<string>;
+  /** A box whose text shows as you type (an address, a name): nothing secret goes here. */
+  textInput(label: string, signal?: AbortSignal, options?: TextInputOptions): Promise<string>;
+  /** A panel with no input while something runs (Esc still cancels). */
+  wait(title: string, text: string): void;
   device(url: string, code: string): void;
   browser(url: string): void;
 }
@@ -25,6 +29,21 @@ export interface PrivateInputOptions {
   hint?: string;
   password?: boolean;
 }
+
+export interface TextInputOptions {
+  title?: string;
+  /** The lines under the box. */
+  hint?: string;
+  /** The text the box starts with (a suggested name): Enter keeps it, the first key typed replaces it. */
+  initial?: string;
+  /** `initial` is text to fix (an address tried before), not a suggestion: typing adds to it. */
+  editable?: boolean;
+  /** Why the text can't be used, which keeps the box open; undefined when it can. */
+  check?: (text: string) => string | undefined;
+}
+
+/** Visible text: printable ASCII only (an escape sequence is a key press, not text), 512 characters at most. */
+const VISIBLE_TEXT = /^[\x20-\x7e]*$/;
 
 /** The program and arguments that open `url` in the system browser. On Windows not `cmd /c start`: cmd reads the
  * "&" between a sign-in address's query parts as "run another command" and the browser gets only the first part. */
@@ -183,6 +202,61 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
           };
           io.requestRender();
         });
+      },
+      textInput: async (label, promptSignal, inputOptions) => {
+        await fresh();
+        const inputSignal = AbortSignal.any([signal, ...(promptSignal ? [promptSignal] : [])]);
+        inputSignal.throwIfAborted();
+        const panel = new Panel(terminalText(inputOptions?.title ?? "Type it here"), io.color);
+        panel.addChild(new Text(terminalText(label), 0, 1));
+        const box = new Text("", 0, 0);
+        panel.addChild(box);
+        const problem = new Text("", 0, 0);
+        panel.addChild(problem);
+        panel.addChild(new Text(muted(terminalText(`${inputOptions?.hint ? `${inputOptions.hint}\n` : ""}Enter goes on · Esc cancels`)), 0, 1));
+        if (note) panel.addChild(new Text(muted(terminalText(note)), 0, 0));
+        mount(panel);
+        return new Promise<string>((resolve, reject) => {
+          let value = inputOptions?.initial ?? "";
+          // A suggestion is replaced by the first key typed, kept by Enter, and edited by Backspace.
+          let suggested = value.length > 0 && !inputOptions?.editable;
+          const show = () => {
+            box.setText(`${accent(">")} ${terminalText(value)}${suggested ? muted("  (Enter keeps it, typing replaces it)") : ""}▏`);
+            io.requestRender();
+          };
+          const cleanup = () => { answer = undefined; paste = undefined; inputSignal.removeEventListener("abort", abort); clearPanel(); };
+          const abort = () => { cleanup(); reject(new Error("Input cancelled")); };
+          const append = (text: string) => {
+            const typed = text.replace(/[\r\n]+/g, "");
+            if (!VISIBLE_TEXT.test(typed)) return;
+            value = (suggested ? "" : value) + typed;
+            suggested = false;
+            value = value.slice(0, 512);
+            problem.setText("");
+            show();
+          };
+          inputSignal.addEventListener("abort", abort, { once: true });
+          paste = (text) => append(text.trim());
+          answer = (key) => {
+            if (inputSignal.aborted) { abort(); return; }
+            if (matchesKey(key, "enter")) {
+              const why = inputOptions?.check?.(value.trim());
+              if (why) { problem.setText(panelColor(terminalText(why), "warning", io.color)); io.requestRender(); return; }
+              const result = value.trim(); cleanup(); resolve(result);
+            } else if (matchesKey(key, "backspace")) { value = [...value].slice(0, -1).join(""); suggested = false; problem.setText(""); show(); }
+            else if (matchesKey(key, "ctrl+u")) { value = ""; suggested = false; problem.setText(""); show(); }
+            else if (VISIBLE_TEXT.test(key) && key.length > 0) append(key);
+          };
+          show();
+        });
+      },
+      wait: (title, text) => {
+        if (signal.aborted) return;
+        clearPanel();
+        const panel = new Panel(terminalText(title), io.color);
+        panel.addChild(new Text(`${terminalText(text)}\nEsc cancels`, 0, 1));
+        if (note) panel.addChild(new Text(muted(terminalText(note)), 0, 0));
+        mount(panel);
       },
       device: (url, code) => {
         if (signal.aborted) return;

@@ -177,7 +177,7 @@ export interface CasperAppOptions {
  * modules, not only by embedders. */
 export class CasperApp {
   /** The provider of the last successful /login, preferred when Casper picks a first model. */
-  loginProvider?: RuntimeAuthProvider;
+  loginProvider?: string;
   /** The current task's stages for the footer. */
   readonly steps = new StepRail();
   /** Browser actions and debugger launches you said "Yes, for this session" to. */

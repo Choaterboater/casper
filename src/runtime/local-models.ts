@@ -1,5 +1,6 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import type { ModelServer, ServerKind } from "../config/model-servers";
 
 /** Model servers on this computer that Casper finds by itself, so their models show in /model with no models.json.
  * Each is probed at its usual loopback address, or where its variable points (which may be another computer). A
@@ -25,24 +26,45 @@ export const LOCAL_SERVERS: readonly LocalServerKind[] = [
 ];
 
 export interface LocalModel { id: string; contextWindow?: number; images?: boolean }
-export interface LocalServer { provider: LocalServerKind["id"]; name: string; /** OpenAI-style address, ends in /v1. */ baseUrl: string; models: LocalModel[] }
+export interface LocalServer {
+  /** One of the four kinds' ids for a server Casper looks for; your own name for one you added. */
+  provider: string;
+  name: string;
+  /** OpenAI-style address, ends in /v1. */
+  baseUrl: string;
+  models: LocalModel[];
+  /** A server you added (`modelServers`), not one Casper looks for by itself. */
+  saved?: true;
+}
 /** Why a server Casper was told about is not in /model. */
 export type LocalCause = "address" | "timeout" | "refused" | "key" | "name" | "other" | "redirect" | "certificate" | "http" | "unknown";
 export interface LocalProblem {
   provider: string;
+  /** A server you added: its problems show in /model, on its row and in doctor, never as a start-up notice. */
+  saved?: true;
   /** Where it was looked for (no /v1), when the address could be read. */
   root?: string;
   cause: LocalCause;
   /** One plain sentence: "Ollama at http://192.0.2.10:11434 (OLLAMA_HOST) refused the connection." */
   text: string;
 }
-export interface LocalDiscovery { servers: LocalServer[]; /** One per server whose variable is set but that did not answer. */ problems: LocalProblem[] }
+export interface LocalDiscovery {
+  servers: LocalServer[];
+  /** One per server whose variable is set, or that you added, that did not answer. */
+  problems: LocalProblem[];
+  /** The providers this look was about (unset: the four kinds). A server not on it any more is dropped, not kept. */
+  looked?: string[];
+}
 /** One server's look, as soon as it ends. */
 export interface LocalFound { provider: string; server?: LocalServer; problem?: LocalProblem }
 export interface DiscoverOptions {
   env?: Record<string, string | undefined>; timeoutMs?: number; signal?: AbortSignal; fetch?: typeof fetch;
   /** Called as each server's look ends, before the slowest one: a server on this computer is not held up by one far away. */
   each?: (found: LocalFound) => void;
+  /** Look for the four kinds on this computer and where their variables point (`localModels: false`: no). */
+  auto?: boolean;
+  /** Servers you added. Each is looked at with its kind; a fixed look at the same address is skipped. */
+  saved?: readonly ModelServer[];
 }
 
 /** Pi's own default for a model whose window is not known (models.json without contextWindow). */
@@ -110,7 +132,7 @@ const text = (value: unknown): string | undefined => typeof value === "string" &
 /** The server answered with an HTTP error. */
 class Answered extends Error { constructor(readonly status: number) { super(`answered ${status}`); } }
 /** Something answered, but not the server looked for. */
-class NotThisServer extends Error {}
+export class NotThisServer extends Error {}
 
 /** One GET or POST that must answer JSON. No headers but content-type: no key of any provider is sent. */
 async function getJson(fetcher: typeof fetch, url: string, signal: AbortSignal, body?: unknown): Promise<Json | undefined> {
@@ -140,7 +162,7 @@ function seconds(ms: number): string {
 }
 
 /** The plain words for a failed look, after "<Server> at <address>". */
-function causeWords(cause: LocalCause, kind: LocalServerKind, root: string, budget: number, status?: number): string {
+function causeWords(cause: LocalCause, kind: { name: string }, root: string, budget: number, status?: number): string {
   switch (cause) {
     case "timeout": return `didn't answer in ${seconds(budget)}`;
     case "refused": return "refused the connection (nothing is listening on that port)";
@@ -224,19 +246,32 @@ function lookingOff(env: Record<string, string | undefined>): boolean {
   return /^(?:off|0|false|no)$/i.test(env.CASPER_LOCAL_MODELS?.trim() ?? "");
 }
 
+/** The display names of the kinds, for servers you added too. */
+const KIND_LABEL: Record<ServerKind, string> = { ollama: "Ollama", "lm-studio": "LM Studio", "llama.cpp": "llama.cpp", vllm: "vLLM", openai: "OpenAI-style server" };
+
+/** One server's models at its root, read the way its kind tells them. */
+function modelsAt(kind: ServerKind, fetcher: typeof fetch, root: string, signal: AbortSignal, env: DiscoverOptions["env"]): Promise<LocalModel[]> {
+  return kind === "ollama" ? ollama(fetcher, root, signal, env)
+    : kind === "lm-studio" ? lmStudio(fetcher, root, signal)
+    : kind === "llama.cpp" ? llamaCpp(fetcher, root, signal)
+    : openAiModels(fetcher, root, signal, (model) => positive(model.max_model_len));
+}
+
+/** Where a fixed kind is looked for: its variable's address when set, else its usual one on this computer. */
+function fixedRoot(kind: LocalServerKind, env: Record<string, string | undefined>): { root?: string; variable?: string } {
+  const variable = kind.variables.find((name) => env[name]?.trim());
+  return { variable, root: variable ? serverRoot(env[variable]!, kind.defaultPort, kind.id === "ollama") : kind.root };
+}
+
 /** One server kind's look: at its variable's address when set, else its usual one on this computer. */
 async function lookAt(kind: LocalServerKind, env: Record<string, string | undefined>, fetcher: typeof fetch, options: DiscoverOptions): Promise<LocalFound> {
-  const variable = kind.variables.find((name) => env[name]?.trim());
-  const root = variable ? serverRoot(env[variable]!, kind.defaultPort, kind.id === "ollama") : kind.root;
+  const { root, variable } = fixedRoot(kind, env);
   if (!root) return { provider: kind.id, problem: { provider: kind.id, cause: "address", text: `${variable} is set to an address Casper can't use, so ${kind.name} isn't in /model.` } };
   const budget = options.timeoutMs ?? probeBudget(root);
   const timer = AbortSignal.timeout(budget);
   const signal = AbortSignal.any([timer, ...(options.signal ? [options.signal] : [])]);
   try {
-    const models = kind.id === "ollama" ? await ollama(fetcher, root, signal, env)
-      : kind.id === "lm-studio" ? await lmStudio(fetcher, root, signal)
-      : kind.id === "llama.cpp" ? await llamaCpp(fetcher, root, signal)
-      : await openAiModels(fetcher, root, signal, (model) => positive(model.max_model_len));
+    const models = await modelsAt(kind.id, fetcher, root, signal, env);
     return { provider: kind.id, server: { provider: kind.id, name: kind.name, baseUrl: `${root}/v1`, models } };
   } catch (error) {
     // Quiet when nobody asked for this server (its usual address, no variable), or when the look was called off.
@@ -250,6 +285,37 @@ async function lookAt(kind: LocalServerKind, env: Record<string, string | undefi
   }
 }
 
+/** A server's models at its root, read the way its kind tells them (the add flow). */
+export function readServerModels(kind: ServerKind, root: string, options: { fetch?: typeof fetch; signal: AbortSignal }): Promise<LocalModel[]> {
+  return modelsAt(kind, options.fetch ?? fetch, root, options.signal, process.env);
+}
+
+/** Why a look at `root` failed, and the plain words for it after "<server> at <address>". */
+export function failureWords(error: unknown, timedOut: boolean, label: string, root: string, budget: number): { cause: LocalCause; words: string } {
+  const { cause, status } = causeOf(error, timedOut);
+  return { cause, words: causeWords(cause, { name: label }, root, budget, status) };
+}
+
+/** One of your servers' look: its kind and its own budget, with no key. */
+async function lookAtSaved(server: ModelServer, env: Record<string, string | undefined>, fetcher: typeof fetch, options: DiscoverOptions): Promise<LocalFound> {
+  const root = server.address;
+  const label = { name: KIND_LABEL[server.kind] };
+  const problem = (cause: LocalCause, words: string): LocalFound =>
+    ({ provider: server.name, problem: { provider: server.name, saved: true, root, cause, text: `${server.name} (${label.name} at ${root}) ${words}.` } });
+  const budget = options.timeoutMs ?? probeBudget(root);
+  const timer = AbortSignal.timeout(budget);
+  const signal = AbortSignal.any([timer, ...(options.signal ? [options.signal] : [])]);
+  try {
+    const models = await modelsAt(server.kind, fetcher, root, signal, env);
+    let host = root; try { host = new URL(root).host; } catch { /* the root as is */ }
+    return { provider: server.name, server: { provider: server.name, name: `${label.name} at ${host}`, baseUrl: `${root}/v1`, models, saved: true } };
+  } catch (error) {
+    if (options.signal?.aborted) return { provider: server.name };
+    const { cause, status } = causeOf(error, timer.aborted);
+    return problem(cause, causeWords(cause, label, root, budget, status));
+  }
+}
+
 /** Probes the four servers at once. Each gets its own budget (`probeBudget`, or `timeoutMs`): a closed port answers at
  * once on macOS and Linux, after seconds on Windows, and another computer may be slow to reach. The runtime never
  * waits for this at its start, and `each` hears of every server as soon as its own look ends. */
@@ -257,18 +323,47 @@ export async function discoverLocalServers(options: DiscoverOptions = {}): Promi
   const env = options.env ?? process.env;
   if (lookingOff(env)) return { servers: [], problems: [] };
   const fetcher = options.fetch ?? fetch;
-  const found = await Promise.all(LOCAL_SERVERS.map(async (kind) => {
-    const result = await lookAt(kind, env, fetcher, options);
+  const saved = options.saved ?? [];
+  // A server you added at the address a fixed kind is looked for wins: that one is not looked at (no model twice).
+  const fixed = options.auto === false ? [] : LOCAL_SERVERS.filter((kind) => {
+    const { root } = fixedRoot(kind, env);
+    return !root || !saved.some((server) => sameAddress(server.address, root));
+  });
+  const looks = [...fixed.map((kind) => () => lookAt(kind, env, fetcher, options)), ...saved.map((server) => () => lookAtSaved(server, env, fetcher, options))];
+  const found = await Promise.all(looks.map(async (look) => {
+    const result = await look();
     try { options.each?.(result); } catch { /* a listener's failure is not the look's */ }
     return result;
   }));
-  return { servers: found.flatMap((entry) => entry.server ? [entry.server] : []), problems: found.flatMap((entry) => entry.problem ? [entry.problem] : []) };
+  return { servers: found.flatMap((entry) => entry.server ? [entry.server] : []), problems: found.flatMap((entry) => entry.problem ? [entry.problem] : []),
+    looked: [...fixed.map((kind) => kind.id), ...saved.map((server) => server.name)] };
 }
+
+/** What the looks are about, set before the first one (src/app/runtime-start.ts) and again after you add or forget a
+ * server. */
+interface LookSettings { auto: boolean; saved: readonly ModelServer[] }
+let settings: LookSettings = { auto: true, saved: [] };
+
+/** Set which servers the looks cover: the automatic ones (`localModels: false`: none) and the ones you added. A change
+ * makes the next look a fresh one. */
+export function configureLocalServers(next: { auto?: boolean; saved?: readonly ModelServer[] }): void {
+  const merged: LookSettings = { auto: next.auto ?? settings.auto, saved: next.saved ?? settings.saved };
+  const same = merged.auto === settings.auto && JSON.stringify(merged.saved) === JSON.stringify(settings.saved);
+  settings = merged;
+  if (!same && round) round.at = Number.NEGATIVE_INFINITY;
+}
+
+/** The servers you added, as the looks know them. */
+export function savedLocalServers(): readonly ModelServer[] { return settings.saved; }
+
+/** Whether a look would ask anything at all: the automatic servers, or one you added. */
+export function localLooksWanted(): boolean { return settings.auto || settings.saved.length > 0; }
 
 /** What the runtime calls: tests replace `discover` (tests/support/preload.ts) so no test reaches a real server.
  * `staleMs`: a model asked for by name that isn't there sends Casper looking once more only when the last look is
  * older than this. */
-export const localModelDefaults = { discover: discoverLocalServers, ttlMs: 24 * 60 * 60 * 1000, staleMs: 15_000 };
+export const localModelDefaults: { discover: typeof discoverLocalServers; ttlMs: number; staleMs: number; detectFetch?: typeof fetch } =
+  { discover: discoverLocalServers, ttlMs: 24 * 60 * 60 * 1000, staleMs: 15_000 };
 
 /** One look at the servers: the whole result, and each server's own end, so a wait for one isn't a wait for all. */
 interface Round {
@@ -284,17 +379,22 @@ interface Round {
   anyFound: Promise<boolean>;
 }
 let round: Round | undefined;
+/** Whether one of your servers is still in your list. */
+const wanted = (name: string) => settings.saved.some((server) => server.name === name);
 /** Each server's last answer in this process: a look that misses one (busy for a moment) keeps its models. */
 const lastFound = new Map<string, LocalServer>();
 const listeners = new Set<(server: LocalServer) => void>();
 
 function startRound(signal?: AbortSignal): Round {
-  const waits = new Map<string, ReturnType<typeof Promise.withResolvers<LocalServer | undefined>>>(LOCAL_SERVERS.map(({ id }) => [id, Promise.withResolvers<LocalServer | undefined>()]));
+  const ids = [...LOCAL_SERVERS.map(({ id }) => id), ...settings.saved.map((server) => server.name)];
+  const waits = new Map<string, ReturnType<typeof Promise.withResolvers<LocalServer | undefined>>>(ids.map((id) => [id, Promise.withResolvers<LocalServer | undefined>()]));
   const any = Promise.withResolvers<boolean>();
   const seen: LocalServer[] = [];
   const each = (found: LocalFound) => {
-    // A server on another computer is never picked for you, so it doesn't count as "signed in" either.
-    if (found.server?.models.length && onThisComputer(found.server.baseUrl)) any.resolve(true);
+    // A server you forgot while this look ran is not heard of again.
+    if (found.server?.saved && !wanted(found.provider)) return void waits.get(found.provider)?.resolve(undefined);
+    // A server on another computer, or one you added, is never picked for you, so it doesn't count as "signed in" either.
+    if (found.server?.models.length && !found.server.saved && onThisComputer(found.server.baseUrl)) any.resolve(true);
     if (found.server) {
       seen.push(found.server);
       for (const listener of listeners) { try { listener(found.server); } catch { /* the runtime's own problem */ } }
@@ -302,17 +402,24 @@ function startRound(signal?: AbortSignal): Round {
     waits.get(found.provider)?.resolve(found.server ?? lastFound.get(found.provider));
   };
   const none: LocalDiscovery = { servers: [], problems: [] };
-  const result = localModelDefaults.discover({ signal, each }).catch(() => none).then((fresh) => {
-    // Per server: what answered replaces what was known; one that didn't answer keeps its last models.
-    for (const server of fresh.servers) lastFound.set(server.provider, server);
-    const answered = new Set(fresh.servers.map((server) => server.provider));
+  const result = localModelDefaults.discover({ signal, each, auto: settings.auto, saved: settings.saved }).catch(() => none).then((fresh) => {
+    // Per server: what answered replaces what was known; one that didn't answer keeps its last models while it is
+    // still looked for (a server you forgot, or a fixed one skipped for yours at its address, is dropped). Yours are
+    // taken as they are now, not as they were when the look began: one added meanwhile stays, one forgotten goes.
+    const fixed = new Set(fresh.looked ?? LOCAL_SERVERS.map(({ id }) => id));
+    const keep = (provider: string) => LOCAL_SERVERS.some(({ id }) => id === provider) ? fixed.has(provider) : wanted(provider);
+    for (const provider of [...lastFound.keys()]) if (!keep(provider)) lastFound.delete(provider);
+    const servers = fresh.servers.filter((server) => keep(server.provider));
+    for (const server of servers) lastFound.set(server.provider, server);
+    const answered = new Set(servers.map((server) => server.provider));
     const kept = [...lastFound.values()].filter((server) => !answered.has(server.provider));
-    return { servers: [...fresh.servers, ...kept], problems: fresh.problems };
+    const looked = [...[...fixed].filter((provider) => LOCAL_SERVERS.some(({ id }) => id === provider)), ...settings.saved.map((server) => server.name)];
+    return { servers: [...servers, ...kept], problems: fresh.problems.filter((problem) => keep(problem.provider)), looked };
   }).finally(() => {
     current.ended = Date.now();
     for (const [id, wait] of waits) wait.resolve(lastFound.get(id));
   });
-  void result.then((found) => any.resolve(found.servers.some((server) => server.models.length > 0 && onThisComputer(server.baseUrl))));
+  void result.then((found) => any.resolve(found.servers.some((server) => server.models.length > 0 && !server.saved && onThisComputer(server.baseUrl))));
   const current: Round = { at: Date.now(), result, settled: new Map([...waits].map(([id, wait]) => [id, wait.promise])), found: seen, anyFound: any.promise };
   return current;
 }
@@ -357,9 +464,10 @@ export function localServerFound(): Promise<boolean> {
  * when this is older than `staleMs`: one that just timed out isn't asked again at once. */
 export function lastLocalLook(): number | undefined { return round ? round.ended ?? Date.now() : undefined; }
 
-/** Whether a provider is one of the model servers Casper looks for (whose models may still be on their way). */
+/** Whether a provider is one of the model servers Casper looks for, or one you added (whose models may still be on their
+ * way). */
 export function isLocalProvider(provider: string | undefined): boolean {
-  return LOCAL_SERVERS.some(({ id }) => id === provider);
+  return LOCAL_SERVERS.some(({ id }) => id === provider) || settings.saved.some((server) => server.name === provider);
 }
 
 /** Hear of each server as soon as its look ends (the main session registers it at once), starting with those the
@@ -370,10 +478,24 @@ export function onLocalServer(listener: (server: LocalServer) => void): () => vo
   return () => { listeners.delete(listener); };
 }
 
-/** Forget what was found (tests). */
-export function clearLocalServers(): void { round = undefined; lastFound.clear(); listeners.clear(); }
+/** One of your servers, just added and checked: known at once (helpers get it too), before the next look. */
+export function rememberLocalServer(server: LocalServer): void {
+  lastFound.set(server.provider, server);
+  round?.found.push(server);
+}
+
+/** Forget one server you added: its last answer goes, so a helper doesn't add it back. */
+export function forgetLocalServer(name: string): void {
+  lastFound.delete(name);
+  if (round) round.found.splice(0, round.found.length, ...round.found.filter((server) => server.provider !== name));
+}
+
+/** Forget what was found and what the looks cover (tests). */
+export function clearLocalServers(): void { round = undefined; lastFound.clear(); listeners.clear(); settings = { auto: true, saved: [] }; }
 
 type Catalog = Pick<ModelRuntime, "getProvider" | "getModels" | "getRegisteredProviderConfig" | "registerProvider">;
+/** The providers Casper registered in each catalog, so the ones no longer looked for can be taken out again. */
+const ours = new WeakMap<object, Set<string>>();
 
 /** Requests to a found server go through pi-ai's own openai-completions code, with one change: a redirect is an error,
  * never followed. A server (or something pretending to be one) can't bounce the conversation to another address. */
@@ -382,19 +504,25 @@ const refuseRedirects = (inner: typeof fetch = fetch): typeof fetch =>
   Object.assign((url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => inner(url, { ...init, redirect: "error" }), { preconnect: inner.preconnect });
 
 /** Adds each found server as a keyless provider. Its key is the literal word "local", sent only to that server:
- * Pi resolves keys per provider, and none of these names reads a key variable. Skipped: a name your models.json
- * (or Pi) already has, and a server one of your own providers already points at. Returns the names added. */
+ * Pi resolves keys per provider, and none of these names reads a key variable. One of yours is always sent "local",
+ * whatever Pi found under its name: no key is ever sent to a server you added. Skipped: a name your models.json
+ * (or Pi) already has, a server one of your own providers already points at, and one of yours you have forgotten.
+ * Returns the names added. */
 export function registerLocalServers(catalog: Catalog, servers: readonly LocalServer[]): string[] {
   const added: string[] = [];
+  const mine = ours.get(catalog) ?? new Set<string>();
+  ours.set(catalog, mine);
   for (const server of servers) {
-    const ours = catalog.getRegisteredProviderConfig(server.provider)?.apiKey === "local";
-    if (!ours && catalog.getProvider(server.provider)) continue;
-    if (catalog.getModels().some((model) => model.provider !== server.provider && !LOCAL_SERVERS.some((kind) => kind.id === model.provider)
+    if (server.saved && !settings.saved.some((saved) => saved.name === server.provider)) continue;
+    const registered = catalog.getRegisteredProviderConfig(server.provider)?.apiKey === "local";
+    if (!registered && catalog.getProvider(server.provider)) continue;
+    if (catalog.getModels().some((model) => model.provider !== server.provider && !mine.has(model.provider) && !LOCAL_SERVERS.some((kind) => kind.id === model.provider)
       && typeof model.baseUrl === "string" && sameAddress(model.baseUrl, server.baseUrl))) continue;
-    if (!server.models.length && !ours) continue;
+    if (!server.models.length && !registered) continue;
     try {
       catalog.registerProvider(server.provider, { name: server.name, baseUrl: server.baseUrl, api: "openai-completions", apiKey: "local",
-        streamSimple: (model, context, options) => completions.streamSimple(model, context, { ...options, fetch: refuseRedirects(options?.fetch) }),
+        streamSimple: (model, context, options) => completions.streamSimple(model, context, { ...options,
+          ...server.saved ? { apiKey: "local" } : {}, fetch: refuseRedirects(options?.fetch) }),
         models: server.models.map((model) => {
           const contextWindow = model.contextWindow ?? UNKNOWN_WINDOW;
           return { id: model.id, name: model.id, reasoning: false, input: model.images ? ["text", "image"] : ["text"],
@@ -404,7 +532,23 @@ export function registerLocalServers(catalog: Catalog, servers: readonly LocalSe
             compat: { supportsDeveloperRole: false, supportsReasoningEffort: false } };
         }) });
       added.push(server.provider);
+      mine.add(server.provider);
     } catch { /* A clash Pi refuses leaves your own setup as it is. */ }
   }
   return added;
+}
+
+/** Take out the servers Casper registered in this catalog that the looks are no longer about (`looked`): one you
+ * forgot, or a fixed one now skipped for yours at its address. */
+export function dropLocalServers(catalog: Catalog & Pick<ModelRuntime, "unregisterProvider">, looked: readonly string[] | undefined): string[] {
+  const mine = ours.get(catalog);
+  if (!mine || !looked) return [];
+  // Yours as they are now: an older look's list never takes out a server added since.
+  const keep = new Set([...looked.filter((provider) => LOCAL_SERVERS.some(({ id }) => id === provider) || wanted(provider)), ...settings.saved.map((server) => server.name)]);
+  const dropped = [...mine].filter((provider) => !keep.has(provider));
+  for (const provider of dropped) {
+    try { catalog.unregisterProvider(provider); } catch { /* already gone */ }
+    mine.delete(provider);
+  }
+  return dropped;
 }

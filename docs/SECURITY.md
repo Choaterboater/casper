@@ -393,7 +393,14 @@ Each row names the test that fails without it.
   machine (over the network as it is: plain `http` is not encrypted). A found server is never sent a
   provider's key, and a redirect from it is refused, never followed, so the conversation can't be passed
   on to another address. Casper never picks a server on another machine as your first model; a model
-  you saved (`ollama/…`) goes wherever that variable points now. `localModels: false` stops the looking.
+  you saved (`ollama/…`) goes wherever that variable points now. `localModels: false` stops the looking
+  (not at the servers you added, below; `CASPER_LOCAL_MODELS=off` stops those too).
+  A server you add in `/model` (`+ Add server`) or `/login` is yours only: its address is kept in
+  `~/.casper/config.yaml` (which the AI can read; a project or profile can't add one). Casper never asks
+  for, keeps or sends a key for it: each request carries only the word `local`, even if a sign-in in the
+  login file has the server's name. A server that needs a key goes in `models.json`. A provider's name
+  (`openai`, `brave`…) is refused as a server's, and the server's host is never added to the shell
+  sandbox's allowed hosts.
 - **Some things look like walls and are not.** Worktrees, read-only agent roles and connection prompts
   do not isolate anything at the OS level.
 - **No hard spending cap.** Casper shows what a task spends, and `spend.pauseAt` pauses a task at a
