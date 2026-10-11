@@ -32,6 +32,12 @@ export function resolveAutoEffort(requested: string, supported: readonly string[
 
 const LADDER = ["off", "minimal", ...LEVELS, "max"] as const;
 
+/** True when `a` is a lower level than `b` (an unknown word is never lower). */
+export function effortBelow(a: string, b: string): boolean {
+  const i = LADDER.indexOf(a as (typeof LADDER)[number]);
+  return i >= 0 && i < LADDER.indexOf(b as (typeof LADDER)[number]);
+}
+
 /** An explicit effort on a model that lacks it: the nearest supported level above, else below (Pi's
  * clamp). Undefined only for a word that is not a level, or a model with no levels at all. */
 export function nearestEffort(requested: string, supported: readonly string[]): ThinkingLevel | undefined {

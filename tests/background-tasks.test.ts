@@ -5,6 +5,7 @@ import path from "node:path";
 import { stringify } from "yaml";
 import { CasperApp } from "../src/app";
 import { helperActivityLine } from "../src/app/events";
+import { backgroundTasks } from "../src/app/task-tools";
 import { formatBackgroundTasks, runTasksCommand, tasksChoices, TASKS_QUESTION, type BackgroundTask } from "../src/app/background";
 import { SubagentManager, type HelperActivity } from "../src/agents/manager";
 import { loadProjectContext } from "../src/project/context";
@@ -97,6 +98,7 @@ test("a helper whose goal holds a lab login or a Proxmox token never shows it in
 });
 
 class ChildRuntime implements AgentRuntime {
+  constructor(readonly effort?: string) {}
   release!: () => void;
   readonly held = new Promise<void>(resolve => { this.release = resolve; });
   async start(): Promise<RuntimeSession> { throw new Error("read-only only"); }
@@ -113,6 +115,7 @@ class ChildRuntime implements AgentRuntime {
       abort: async () => { this.release(); },
       subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
       getState: () => ({ cwd: options.cwd, isStreaming: false }),
+      ...(this.effort ? { getStatus: () => ({ auth: "configured" as const, thinkingLevel: this.effort }) } : {}),
     };
   }
   async dispose() {}
@@ -136,6 +139,23 @@ test("a running helper is listed, reports its steps for the side pane, and can b
   expect(agents.runs()).toEqual([]);
   expect(helperActivityLine(activity.at(-1)!)).toBe("helper explorer stopped (cancelled)");
   expect(agents.cancelRun(run!.id)).toBe(false);
+});
+
+test("a helper's step lines say the effort it works at", async () => {
+  const child = new ChildRuntime("low");
+  const activity: HelperActivity[] = [];
+  const agents = new SubagentManager({ runtimeFactory: () => child, cleanupGraceMs: 20, onActivity: event => { activity.push(event); } });
+  cleanups.push(() => agents.close());
+  const work = agents.run({ role: "explorer", goal: "Find the login code", cwd: "/repo", projectContext: "rules" });
+  const limit = performance.now() + 5000;
+  while (!activity.some(event => event.kind === "tool" && event.event.type === "tool_end") && performance.now() < limit) await Bun.sleep(5);
+  expect(activity.map(event => helperActivityLine(event, "/repo")).slice(1)).toEqual([
+    "helper explorer (low effort) · • read · src/app.ts", "helper explorer (low effort) · ✓ read · src/app.ts",
+  ]);
+  // /tasks names it the same way.
+  expect(backgroundTasks({ subagents: agents } as unknown as CasperApp).map(entry => entry.name)).toEqual(["explorer (low effort): Find the login code"]);
+  child.release();
+  await work;
 });
 
 const SERVER = path.join(import.meta.dir, "fixtures", "service-server.ts");

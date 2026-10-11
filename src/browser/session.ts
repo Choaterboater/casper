@@ -77,7 +77,9 @@ export interface PageLoad {
   phone?: PhoneFit;
   /** Accessibility basics at desktop width. Absent for the HTTP-only fallback, or when the page could not be read. */
   a11y?: A11yFindings;
-  /** Pictures of the visible page at desktop and phone width (PNG paths outside the project), when asked for and
+  /** Exact facts about the look: images, then (at phone width) what runs past the screen and small tap targets. */
+  look?: LookFacts;
+  /** Pictures of the page at desktop (the whole page, up to 4000 px) and phone width (the visible screen) (PNG paths outside the project), when asked for and
    * they could be saved (not on Windows yet). */
   screenshots?: { desktop?: string; phone?: string };
 }
@@ -91,8 +93,20 @@ export interface A11yFindings {
   inputs: number;
   /** Visible buttons with no name: no text, aria-label, title, or alt/title inside. */
   buttons: number;
-  /** Text items below 3:1 against their background, and the lowest ratio seen (0 when none). */
-  contrast: { count: number; worst: number };
+  /** Text items below WCAG AA against their background (4.5:1, or 3:1 for large text), the lowest ratio seen
+   * (0 when none) and that pair's colors ("#bbbbbb on #ffffff"). */
+  contrast: { count: number; worst: number; colors?: string };
+}
+/** Facts a person would see wrong on the page. Notes, never a failure. */
+export interface LookFacts {
+  /** Visible images that did not load, by src. */
+  brokenImages: string[];
+  /** One image src on two or more items of a repeated group (cards, list items). */
+  repeatedImages: Array<{ src: string; items: number }>;
+  /** At phone width, the first elements whose right edge runs past the screen. */
+  overflow: string[];
+  /** At phone width, links, buttons and inputs smaller than 44x44 px, and the first few. */
+  smallTargets: { count: number; names: string[] };
 }
 /** How a page fits a phone screen: its width against the screen's, and the text fields too squashed to show a line. */
 export interface PhoneFit { viewport: number; pageWidth: number; squashed: string[] }
@@ -170,7 +184,8 @@ const A11Y_NOTES = (): A11yFindings => {
     }
     return [255, 255, 255];
   };
-  let count = 0, worst = 0, seen = 0;
+  const hex = (color: number[]) => `#${color.map(value => Math.round(value).toString(16).padStart(2, "0")).join("")}`;
+  let count = 0, worst = 0, seen = 0, colors = "";
   for (const element of Array.from(document.body?.querySelectorAll("*") ?? [])) {
     if (seen >= 400) break;
     if (!Array.from(element.childNodes).some(node => node.nodeType === Node.TEXT_NODE && text(node.textContent))) continue;
@@ -183,11 +198,96 @@ const A11Y_NOTES = (): A11yFindings => {
     const blended = fore.slice(0, 3).map((value, index) => value * fore[3] + back[index]! * (1 - fore[3]));
     const [high, low] = [luminance(blended), luminance(back)].sort((a, b) => b - a) as [number, number];
     const ratio = (high + 0.05) / (low + 0.05);
-    if (ratio < 3) { count++; worst = worst === 0 ? ratio : Math.min(worst, ratio); }
+    // WCAG AA: large text is 24px, or 18.66px (14pt) bold.
+    const size = parseFloat(style.fontSize) || 16, large = size >= 24 || (size >= 18.66 && Number(style.fontWeight) >= 700);
+    if (ratio >= (large ? 3 : 4.5)) continue;
+    count++;
+    if (worst === 0 || ratio < worst) { worst = ratio; colors = `${hex(blended)} on ${hex(back)}`; }
   }
   return { lang: Boolean(text(document.documentElement.getAttribute("lang"))), images, inputs, buttons,
-    contrast: { count, worst: Math.round(worst * 10) / 10 } };
+    // Floored, so text just below AA never prints as passing (4.48:1 shows as 4.4, not 4.5).
+    contrast: { count, worst: Math.floor(worst * 10) / 10, ...(count ? { colors } : {}) } };
 };
+/** Runs in the page: images at any width; at phone width, what runs past the screen's right edge and small tap targets. */
+const LOOK_FACTS = (phone: boolean): LookFacts => {
+  const visible = (element: Element) => (element as HTMLElement).checkVisibility?.({ checkOpacity: true, checkVisibilityCSS: true }) ?? true;
+  const words = (element: Element) => ((element as HTMLElement).innerText ?? element.textContent ?? "").replace(/\s+/g, " ").trim();
+  const name = (element: Element) => {
+    const tag = element.tagName.toLowerCase(), label = words(element).slice(0, 20);
+    return (element.id ? `${tag}#${element.id}` : element.classList[0] ? `${tag}.${element.classList[0]}` : label ? `${tag} "${label}"` : tag).slice(0, 60);
+  };
+  const source = (value: string) => {
+    try { const address = new URL(value); return (address.origin === location.origin ? address.pathname : `${address.origin}${address.pathname}`).slice(0, 120); }
+    catch { return value.slice(0, 120); }
+  };
+  const images = Array.from(document.images).filter(image => visible(image) && image.getAttribute("src"));
+  const brokenImages = [...new Set(images.filter(image => image.complete && image.naturalWidth === 0).map(image => source(image.src)))].slice(0, 5);
+  // A repeated group: siblings with the same tag and class, each a list item, an article or with a class (plain boxes
+  // like a header and a footer logo are not items). Each picture (icons left out) counts once per item.
+  const shape = (element: Element) => `${element.tagName}.${element.getAttribute("class") ?? ""}`;
+  const itemLike = (element: Element) => ["LI", "ARTICLE"].includes(element.tagName) || Boolean(element.getAttribute("class")?.trim());
+  const groups = new Map<Element, Map<string, Set<Element>>>();
+  for (const image of images) {
+    const box = image.getBoundingClientRect();
+    if (box.width < 48 || box.height < 48 || image.naturalWidth === 0) continue;
+    for (let item: Element = image; item.parentElement && item.parentElement !== document.documentElement; item = item.parentElement) {
+      const parent = item.parentElement;
+      if (!itemLike(item) || Array.from(parent.children).filter(child => shape(child) === shape(item)).length < 2) continue;
+      const bySource = groups.get(parent) ?? new Map<string, Set<Element>>();
+      groups.set(parent, bySource);
+      const src = source(image.currentSrc || image.src);
+      bySource.set(src, (bySource.get(src) ?? new Set()).add(item));
+      break;
+    }
+  }
+  const repeatedImages = Array.from(groups.values()).flatMap(bySource => Array.from(bySource, ([src, items]) => ({ src, items: items.size })))
+    .filter(entry => entry.items >= 2).sort((a, b) => b.items - a.items).slice(0, 3);
+  if (!phone) return { brokenImages, repeatedImages, overflow: [], smallTargets: { count: 0, names: [] } };
+  const width = document.documentElement.clientWidth;
+  // Inside a box that scrolls or clips sideways on purpose (a carousel) is not past the screen.
+  const clipped = (element: Element) => {
+    for (let parent = element.parentElement; parent && parent !== document.body; parent = parent.parentElement) if (getComputedStyle(parent).overflowX !== "visible") return true;
+    return false;
+  };
+  const overflow: string[] = [], named: Element[] = [];
+  for (const element of Array.from(document.body?.querySelectorAll("*") ?? [])) {
+    if (overflow.length >= 3) break;
+    const box = element.getBoundingClientRect();
+    // A drawer parked off screen (left at or past the edge) is hidden on purpose.
+    if (box.width === 0 || box.right <= width + 1 || box.left >= width || !visible(element) || clipped(element)) continue;
+    if (named.some(outer => outer.contains(element))) continue;
+    named.push(element); overflow.push(name(element));
+  }
+  const small = Array.from(document.querySelectorAll('a[href], button, input, [role="button"]')).filter(target => {
+    if (target instanceof HTMLInputElement && target.type === "hidden") return false;
+    if (!visible(target)) return false;
+    const box = target.getBoundingClientRect();
+    if (box.width === 0 || (box.width >= 44 && box.height >= 44)) return false;
+    // A link inside a sentence (words of its own right beside it, not a menu's spaces or "|") and a box with its own
+    // label are exempt, as in WCAG's target-size rule.
+    const sentence = Array.from(target.parentElement?.childNodes ?? [])
+      .some(node => node.nodeType === Node.TEXT_NODE && /[\p{L}\p{N}]/u.test(node.textContent ?? ""));
+    if (target.tagName === "A" && getComputedStyle(target).display === "inline" && sentence) return false;
+    if (target instanceof HTMLInputElement && ["checkbox", "radio"].includes(target.type) && target.labels?.length) return false;
+    return true;
+  });
+  return { brokenImages, repeatedImages, overflow, smallTargets: { count: small.length, names: small.slice(0, 3).map(name) } };
+};
+/** Runs in the page: scrolls down a screen at a time (at most 12) so lazy images start loading, then back to the top. */
+const SCROLL_THROUGH = async () => {
+  for (let step = 1; step <= 12 && window.innerHeight * step < document.documentElement.scrollHeight; step++) {
+    window.scrollTo({ top: window.innerHeight * step, behavior: "instant" });
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  window.scrollTo({ top: 0, behavior: "instant" });
+};
+/** Runs in the page: waits for animations that end (fade-ins, reveals) to finish, at most a second. */
+const ANIMATIONS_DONE = async () => {
+  const ending = document.getAnimations().filter(animation => animation.effect?.getComputedTiming().endTime !== Infinity);
+  await Promise.race([Promise.all(ending.map(animation => animation.finished.catch(() => {}))), new Promise(resolve => setTimeout(resolve, 1000))]);
+};
+/** The desktop picture's height cap, in CSS pixels. */
+const PICTURE_HEIGHT = 4000;
 const LOAD_LIMIT = 10;
 /** Page checks save at most this many pictures per session: 5 pages, desktop and phone, a few rounds. */
 const PAGE_PICTURE_LIMIT = 40;
@@ -387,14 +487,17 @@ export class BrowserSession {
     return path.join(this.options.stateDirectory, "browser", this.runId, name);
   }
 
-  /** A page check's picture of the visible page; undefined when it can't be taken or saved (never a failure). */
-  private async pagePicture(page: Page, name: string, signal: AbortSignal): Promise<string | undefined> {
+  /** A page check's picture of the visible page, or of the whole page up to `height`; undefined when it can't be
+   * taken or saved (never a failure). A whole page too big to keep falls back to the visible part. */
+  private async pagePicture(page: Page, name: string, signal: AbortSignal, height?: number): Promise<string | undefined> {
     if (this.pagePictures >= PAGE_PICTURE_LIMIT) return undefined;
     try {
       const { artifactFilesystemSupported } = await import("../visualize/artifacts");
       if (!artifactFilesystemSupported) return undefined;
-      const bytes = await page.screenshot({ type: "png", fullPage: false });
+      const width = page.viewport()?.width ?? 1280;
+      let bytes = await page.screenshot({ type: "png", ...(height ? { clip: { x: 0, y: 0, width, height }, captureBeyondViewport: true } : { fullPage: false }) });
       signal.throwIfAborted();
+      if (height && bytes.byteLength > 4 * 1024 * 1024) bytes = await page.screenshot({ type: "png", fullPage: false });
       if (bytes.byteLength > 4 * 1024 * 1024) return undefined;
       this.pagePictures++;
       return await this.savePicture(name, bytes, signal);
@@ -491,11 +594,18 @@ export class BrowserSession {
         if (streamlit) return firstLine(streamlit.innerText) ?? "exception";
         return undefined;
       });
-      // A picture of the page as a person sees it first, for the receipt and, when you allow it, the AI.
+      // Scroll through once so lazy images load and reveal-on-scroll rows show, then let animations finish.
+      await page.evaluate(SCROLL_THROUGH).catch(() => {});
+      await page.waitForNetworkIdle({ idleTime: 300, timeout: 2000 }).catch(() => {});
+      await page.evaluate(ANIMATIONS_DONE).catch(() => {});
+      combined.throwIfAborted();
+      // A picture of the whole page (rows below the fold too), for the receipt and, when you allow it, the AI.
       const shot = options.screenshots ? ++this.pageLoads : 0;
-      const desktopPicture = shot ? await this.pagePicture(page, `page-${shot}-desktop.png`, combined) : undefined;
+      const pageHeight = shot ? await page.evaluate(() => document.documentElement.scrollHeight).catch(() => 0) : 0;
+      const desktopPicture = shot ? await this.pagePicture(page, `page-${shot}-desktop.png`, combined, Math.min(Math.max(pageHeight, 800), PICTURE_HEIGHT)) : undefined;
       // Accessibility basics, at desktop width: notes for the person, never a failure. A page that can't be read gives none.
       const a11y = await page.evaluate(A11Y_NOTES).catch(() => undefined);
+      const images = await page.evaluate(LOOK_FACTS, false).catch(() => undefined);
       // The same page on a phone: layouts that only break there (a column that squashes an input, a wide table)
       // never show at the desktop size above. Each text field is compared with its own desktop height.
       const desktop = await page.evaluate(FIELD_HEIGHTS);
@@ -509,10 +619,12 @@ export class BrowserSession {
         return [`${field.name} (${field.height}px tall${wide !== undefined && wide > field.height ? `; ${wide}px on a wider screen` : ""})`];
       }).slice(0, 5);
       const phone = { viewport: PHONE.width, pageWidth: await page.evaluate(() => Math.round(document.documentElement.scrollWidth)), squashed };
+      const fit = await page.evaluate(LOOK_FACTS, true).catch(() => undefined);
+      const look = images && fit ? { ...fit, brokenImages: images.brokenImages, repeatedImages: images.repeatedImages } : undefined;
       const phonePicture = shot ? await this.pagePicture(page, `page-${shot}-phone.png`, combined) : undefined;
       const screenshots = { ...(desktopPicture ? { desktop: desktopPicture } : {}), ...(phonePicture ? { phone: phonePicture } : {}) };
       return { status: response?.status() ?? null, consoleChecked: true, consoleErrors, pageErrors, failedRequests,
-        ...(overlay ? { overlay: overlay.slice(0, LOAD_TEXT) } : {}), phone, ...(a11y ? { a11y } : {}), ...(desktopPicture || phonePicture ? { screenshots } : {}) };
+        ...(overlay ? { overlay: overlay.slice(0, LOAD_TEXT) } : {}), phone, ...(a11y ? { a11y } : {}), ...(look ? { look } : {}), ...(desktopPicture || phonePicture ? { screenshots } : {}) };
     } finally {
       combined.removeEventListener("abort", stop);
       await context?.close().catch(() => {});

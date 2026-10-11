@@ -103,6 +103,8 @@ export interface RuntimeReadOnlyStartOptions {
   reportTurn?: boolean;
   /** Casper role for this child; unset roles use the Casper startup default. */
   modelRole?: "fast" | "review";
+  /** An unset role keeps the saved effort instead of the helper default (the /security-review AI review). */
+  keepEffort?: boolean;
   /** The same secret scrubbing as the main session: a child's reads reach a model too. */
   scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
   /** A reason refuses the call before it runs (the security review keeps key and .env files from its child). */

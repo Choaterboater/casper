@@ -41,6 +41,16 @@ test("the skill is small, in Casper's own words, and covers the agreed topics", 
     "purple", "emoji", "card", "lorem", "repo's style always wins"]) expect(skill!.body).toContain(topic);
 });
 
+test("the skill asks for a chosen look: fonts that suit the product, a page shape, own image and action per item, aligned cards", () => {
+  const [skill] = webSkills();
+  const body = skill!.body;
+  expect(body).not.toContain("Use the system font stack unless");
+  for (const line of ["heading and body font pair", "never Inter alone", "system stack as the fallback", "corner radius that fits",
+    "the page's shape before writing code", "off-center hero", "uneven tile grid", "one reading column", "split screen",
+    "its own image", "its own action", "Never reuse one image with a different label", "stock or CDN images you have not checked",
+    "flex: 1", "margin-top: auto", "more than one column"]) expect(body).toContain(line);
+});
+
 test("UI work in a project with no design yet picks it", async () => {
   // Plain web words pick it in any project, even an empty one.
   for (const prompt of ["build a landing page with a signup form", "style the navbar and buttons", "create a web app to track my lab gear",

@@ -20,7 +20,9 @@ design folder), follow that instead: the repo's style always wins over this file
   accent, danger, success. Give each a dark-mode value under
   `@media (prefers-color-scheme: dark)`. Use the names in code, never raw hex in components.
 - Put all of it in one file (`theme.css` or the Tailwind theme) so the look changes in one place.
-- Use the system font stack unless the user names a font. Small corner radius (3 to 10px).
+- Choose a heading and body font pair and one accent that suit this product (a serif display
+  face for a cafe or shop, say; never Inter alone), with the system stack as the fallback, and a
+  corner radius that fits the brief.
 
 ## Structure
 
@@ -53,6 +55,14 @@ design folder), follow that instead: the repo's style always wins over this file
 - Never use color alone to carry meaning (add a word or icon to red/green states).
 - Check both light and dark values.
 
+## Repeated items
+
+- Products, services or plans: each gets its own image or visual and its own action (a button or
+  link that does something). Never reuse one image with a different label, and never link
+  stock or CDN images you have not checked.
+- Cards in a row: the card body gets `flex: 1` and the price or action `margin-top: auto`, so they
+  line up. Check a desktop row with more than one column.
+
 ## States
 
 Every view that shows data has all four: loading (a short line or skeleton), empty (says what
@@ -60,6 +70,9 @@ will appear and how to add the first one), error (what happened and what to do, 
 and the normal view. Long text and very long names must not break the layout.
 
 ## Avoid the generated look
+
+Choose the page's shape before writing code, to suit the content: an off-center hero, an
+uneven tile grid, one reading column, a split screen.
 
 These make a page look machine-made; skip them unless the user asks:
 

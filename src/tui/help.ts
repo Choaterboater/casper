@@ -248,8 +248,8 @@ Browser tasks use installed Chrome/Chromium (CASPER_BROWSER_EXECUTABLE overrides
 No automatic browser installation, personal profiles, account credentials or arbitrary page scripts.
 Clicks and typing on your own local project pages may go ahead; anything with real effects, or unclear, asks you first. One-shot runs can't ask. Ordinary outside resources still load: this is not isolation.
 Browser checks replay fixed scenarios; screenshots alone and model claims are not checks.
-After a UI change Casper saves a desktop and a phone screenshot of each changed page (no tokens); a model that can see pictures is shown them once to check the look, after one question a session (1 No · 2 Yes, show the AI the pages; /settings: always or never). Advice, never a check.
-Each checked page also gets accessibility notes under its line (images with no alt, fields with no label, nameless buttons, low contrast, no lang): notes, never a failure.
+After a UI change Casper saves a desktop (the whole page) and a phone screenshot of each changed page (no tokens); a model that can see pictures is shown them once to check the look, after one question a session (1 No · 2 Yes, show the AI the pages; /settings: always or never). Advice, never a check.
+Each checked page also gets notes under its line (images that didn't load, one picture on several cards, what runs past a phone screen, tap targets under 44 px, no alt, no label, nameless buttons, contrast below AA, no lang): notes, never a failure.
 Task-owned development servers run the project's code in the shell sandbox (files held; the network is not limited, so the page can load), and stop with the task.
 Saved screenshots (readable only by you) stay in Casper's project folder until you remove them; they may be sensitive.
 See docs/BROWSER.md for limits, input freshness, supported assertions and remaining caveats.

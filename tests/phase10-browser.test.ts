@@ -18,16 +18,21 @@ async function fixture(options: { executablePath?: string; confirm?: (request: u
   const project = path.join(root, "project"), state = path.join(root, "state");
   await mkdir(project); await mkdir(state);
   const sourceFile = path.join(project, "index.html");
+  const images: string[] = [];
   await writeFile(sourceFile, '<!doctype html><title>Browser fixture</title><h1>Hello Casper</h1><button>Save</button><script>console.error("synthetic-console-error");fetch("/missing-api")</script>');
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, async fetch(request) {
     if (new URL(request.url).pathname === "/hang") return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode("<html>")); } }), { headers: { "content-type": "text/html" } });
     if (new URL(request.url).pathname === "/missing-api") return new Response("fixture failure", { status: 503 });
+    if (new URL(request.url).pathname.endsWith(".svg")) {
+      images.push(new URL(request.url).pathname);
+      return new Response('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>', { headers: { "content-type": "image/svg+xml" } });
+    }
     return new Response(await readFile(sourceFile), { headers: { "content-type": "text/html", "cache-control": "no-store" } });
   } });
   cleanup.push(async () => { server.stop(true); });
   const session = new BrowserSession({ projectRoot: project, stateDirectory: state, executablePath: executable, ...options });
   cleanup.push(() => session.close());
-  return { root, project, sourceFile, state, session, url: `http://127.0.0.1:${server.port}` };
+  return { root, project, sourceFile, state, session, images, url: `http://127.0.0.1:${server.port}` };
 }
 
 test("invalid URLs, unknown fields and oversized scenarios fail before launching a browser", async () => {
@@ -319,17 +324,41 @@ browserTest("the page load looks at phone width: a too-wide page and a squashed 
   expect((await f.session.load(`${f.url}/`, new AbortController().signal)).phone).toEqual({ viewport: 390, pageWidth: 390, squashed: [] });
 }, 30_000);
 
-browserTest("the page load notes accessibility basics: alt, labels, button names, very low contrast, lang", async () => {
+browserTest("the page load notes accessibility basics: alt, labels, button names, contrast below WCAG AA, lang", async () => {
   const f = await fixture();
   await writeFile(f.sourceFile, `<!doctype html><html><meta name="viewport" content="width=device-width"><title>a11y</title>
     <img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="20" height="20"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="" width="20" height="20">
     <input id="email" placeholder="Email"><input id="name" aria-label="Name"><label>City <input id="city"></label><input type="hidden" name="t">
     <button></button><button aria-label="Close"></button><button><svg width="10" height="10"></svg></button><button>Save</button>
-    <p style="color:#bbb;background:#fff">faint words</p><p style="color:#222;background:#fff">plain words</p></html>`);
+    <p style="color:#bbb;background:#fff">faint words</p><p style="color:#222;background:#fff">plain words</p>
+    <p style="color:#777">gray words, 4.48:1</p><p style="color:#888;font-size:24px">large gray words, 3.5:1</p><b style="color:#888;font-size:19px">bold gray words</b></html>`);
   const bad = await f.session.load(`${f.url}/`, new AbortController().signal);
-  expect(bad.a11y).toEqual({ lang: false, images: 1, inputs: 1, buttons: 2, contrast: { count: 1, worst: 1.9 } });
+  // WCAG AA: 4.5:1 for body text, 3:1 for large text (24px, or 18.66px bold); the worst pair is named.
+  expect(bad.a11y).toEqual({ lang: false, images: 1, inputs: 1, buttons: 2, contrast: { count: 2, worst: 1.9, colors: "#bbbbbb on #ffffff" } });
   await writeFile(f.sourceFile, `<!doctype html><html lang="en"><title>ok</title><label for="q">Search</label><input id="q"><button>Go</button><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="Logo"><p>words</p></html>`);
   expect((await f.session.load(`${f.url}/`, new AbortController().signal)).a11y).toEqual({ lang: true, images: 0, inputs: 0, buttons: 0, contrast: { count: 0, worst: 0 } });
+}, 30_000);
+
+browserTest("the page load names exact facts: images that didn't load, one picture on several cards, what runs past a phone screen, small tap targets", async () => {
+  const f = await fixture();
+  const card = (src: string, label: string) => `<div class="card"><img src="${src}" alt="${label}"><p>${label}</p><a class="buy" href="#b">Buy</a></div>`;
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><meta name="viewport" content="width=device-width"><style>
+    .card img{width:100px;height:100px} .wide{width:600px;height:10px} nav a{display:inline-block;width:30px;height:20px}
+    .card .buy{display:inline-block;min-width:44px;min-height:44px} .scroller{overflow-x:auto} .scroller div{width:900px}</style>
+    <div class="cards">${card("/bean.svg", "Ethiopia")}${card("/bean.svg", "Colombia")}${card("/bean.svg", "Kenya")}${card("/other.svg", "Peru")}</div>
+    <img src="/missing.png" alt="Roaster" width="60" height="60">
+    <ul><li><img src="/tick.svg" alt="" width="16" height="16">fresh</li><li><img src="/tick.svg" alt="" width="16" height="16">fast</li></ul>
+    <div class="wide"></div><div class="scroller"><div>a wide row that scrolls on purpose</div></div>
+    <nav><a href="#a">A</a><a id="menu" href="#m">M</a></nav><p>Read <a href="#c">more</a> about it.</p>
+    <div><img src="/logo.svg" alt="Logo" width="100" height="60"></div><div><p>hi</p></div><div><img src="/logo.svg" alt="Logo" width="100" height="60"></div>
+    <nav><a href="/a">Home</a> <a href="/b">About</a> | <a href="/c">Contact</a></nav></html>`);
+  const load = await f.session.load(`${f.url}/`, new AbortController().signal);
+  // A small icon used on each list item is not a repeated product picture, nor is a logo in plain boxes (a header and a
+  // footer); a link inside a sentence is not a tap target, but each link of a menu of plain links is.
+  expect(load.look).toEqual({ brokenImages: ["/missing.png"], repeatedImages: [{ src: "/bean.svg", items: 3 }],
+    overflow: ["div.wide"], smallTargets: { count: 5, names: ['a "A"', "a#menu", 'a "Home"'] } });
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><meta name="viewport" content="width=device-width"><img src="/logo.svg" alt="Logo" width="60" height="60"><p>words</p><button style="width:48px;height:48px">Go</button></html>`);
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).look).toEqual({ brokenImages: [], repeatedImages: [], overflow: [], smallTargets: { count: 0, names: [] } });
 }, 30_000);
 
 browserTest("the contrast note reads colors Chrome keeps as oklch (Tailwind v4's palette): text, background and a see-through color", async () => {
@@ -339,13 +368,16 @@ browserTest("the contrast note reads colors Chrome keeps as oklch (Tailwind v4's
     return (await f.session.load(`${f.url}/`, new AbortController().signal)).a11y?.contrast;
   };
   // The expected ratios come from Ottosson's oklch-to-sRGB formula, not from the browser.
-  expect(await contrast(`<p style="color:oklch(0.8 0.02 260);background:oklch(0.95 0.01 260)">faint words</p>`)).toEqual({ count: 1, worst: 1.6 });
-  expect(await contrast(`<p style="color:oklch(0.75 0 0)">faint words</p>`)).toEqual({ count: 1, worst: 2.2 });
+  expect(await contrast(`<p style="color:oklch(0.8 0.02 260);background:oklch(0.95 0.01 260)">faint words</p>`)).toMatchObject({ count: 1, worst: 1.6 });
+  expect(await contrast(`<p style="color:oklch(0.75 0 0)">faint words</p>`)).toMatchObject({ count: 1, worst: 2.2 });
   // The dark oklch box is the background, not the white page behind it (#444 on white would be 9.7:1).
-  expect(await contrast(`<div style="background:oklch(0.25 0.02 260)"><p style="color:#444">dim words</p></div>`)).toEqual({ count: 1, worst: 1.6 });
+  expect(await contrast(`<div style="background:oklch(0.25 0.02 260)"><p style="color:#444">dim words</p></div>`)).toMatchObject({ count: 1, worst: 1.6 });
   // A see-through color keeps its alpha: opaque, this gray would be 18:1 on white.
-  expect(await contrast(`<p style="color:oklch(0.3 0 0 / 0.3)">faint words</p>`)).toEqual({ count: 1, worst: 1.8 });
+  expect(await contrast(`<p style="color:oklch(0.3 0 0 / 0.3)">faint words</p>`)).toMatchObject({ count: 1, worst: 1.8 });
   expect(await contrast(`<p style="color:oklch(0.2 0 0);background:oklch(0.98 0 0)">plain words</p>`)).toEqual({ count: 0, worst: 0 });
+  // Just below AA reads as below it: #777 on white is 4.48:1, not "4.5:1"; large text at 2.96:1 is not "3:1".
+  expect(await contrast(`<p style="color:#777">gray words</p>`)).toEqual({ count: 1, worst: 4.4, colors: "#777777 on #ffffff" });
+  expect(await contrast(`<p style="color:#969696;font-size:24px">big gray words</p>`)).toMatchObject({ count: 1, worst: 2.9 });
 }, 45_000);
 
 browserTest("a page check saves a desktop and a phone picture outside the project, private, and none unless asked", async () => {
@@ -362,6 +394,8 @@ browserTest("a page check saves a desktop and a phone picture outside the projec
   }
   expect(path.basename(desktop!)).toBe("page-1-desktop.png");
   expect(path.basename(phone!)).toBe("page-1-phone.png");
+  // The phone picture is the visible screen; the desktop one is the whole page.
+  expect((await readFile(phone!)).readUInt32BE(20)).toBe(844);
   // They are not the model's screenshots: its own count stays at 0.
   expect(f.session.status().screenshots).toBe(0);
 }, 30_000);
@@ -378,6 +412,19 @@ browserTest("the host-only page load reports console errors and the failed same-
   // The load uses no model operation budget and leaves the model's diagnostics empty.
   expect((await f.session.run({ action: "diagnostics" })).console).toEqual([]);
 }, 60_000);
+
+browserTest("the desktop picture is the whole page up to 4000 px, after scrolling so lazy images load", async () => {
+  const f = await fixture();
+  const height = async (body: string) => {
+    await writeFile(f.sourceFile, `<!doctype html><html lang="en"><style>body{margin:0}</style>${body}</html>`);
+    const load = await f.session.load(`${f.url}/`, new AbortController().signal, { screenshots: true });
+    return load.screenshots ? (await readFile(load.screenshots.desktop!)).readUInt32BE(20) : undefined;
+  };
+  if (!posixModes) return;
+  expect(await height(`<div style="height:2500px">a row below the fold</div>`)).toBe(2500);
+  expect(await height(`<div style="height:6000px"></div><img loading="lazy" src="/far.svg" alt="far" width="50" height="50">`)).toBe(4000);
+  expect(f.images).toContain("/far.svg");
+}, 45_000);
 
 test("the model's browser tool has no load action; page loads are host-only", async () => {
   const f = await fixture({ executablePath: "/nonexistent/chrome" });

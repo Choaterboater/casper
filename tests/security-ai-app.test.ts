@@ -97,7 +97,7 @@ test("casper \"/security-review ai\" runs one read-only review child on the revi
   await f.app.runOnce("/security-review ai", f.root);
   expect(f.children()).toBe(1);
   const options = ReviewChild.started[0]!;
-  expect(options).toMatchObject({ modelRole: "review", maxTurns: SECURITY_REVIEW_LIMITS.maxTurns, maxToolCalls: SECURITY_REVIEW_LIMITS.maxToolCalls, reportTurn: true });
+  expect(options).toMatchObject({ modelRole: "review", keepEffort: true, maxTurns: SECURITY_REVIEW_LIMITS.maxTurns, maxToolCalls: SECURITY_REVIEW_LIMITS.maxToolCalls, reportTurn: true });
   expect(options.beforeToolGate?.("read", { path: ".env" })).toMatch(/^Not read: \.env may hold secrets/);
   // The full scrubber: a .env read reaches the review with its values hidden.
   const scrubbed = await options.scrubToolOutput!("read", { path: ".env" }, ["MIST_APITOKEN=abc123-live\n"]);

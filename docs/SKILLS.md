@@ -92,8 +92,10 @@ New in v0.2.23. `web-frontend` is Casper's own short guide to building a page or
 deliberate and works for everyone: one type scale and spacing step, a few named colors with dark-mode
 values in one theme file, real HTML elements, a visible label on every field, a visible focus ring,
 44px tap targets, a 390px phone width first, 4.5:1 text contrast, and loading, empty and error states.
-It also lists what makes a page look machine-made (purple gradients, emoji as icons, everything in a
-card, lorem ipsum) so the AI skips them.
+It asks for a font pair and accent that suit the product (never Inter alone; the system stack is the
+fallback), a page shape chosen before the code, its own image and action for each product or plan,
+and cards whose prices and buttons line up in a row. It also lists what makes a page look machine-made
+(purple gradients, emoji as icons, everything in a card, lorem ipsum) so the AI skips them.
 
 - **Picked only for UI work in a project with no look of its own yet:** a request with a web word
   (web app, website, landing page, html, css, navbar, frontend …), or, in a project with a web

@@ -790,6 +790,9 @@ Where roles are used: explorer subagents and the [untrusted-text reader](READER.
 reader falls back to the session's model), reviewer subagents and the
 [acceptance check](VERIFICATION.md#independent-acceptance-check-experimental) use `review`, and
 roles that are not set fall back to Casper's startup default. See [DELEGATION.md](DELEGATION.md).
+An explorer or reviewer whose role is not set works at `low` or `medium` effort (never above
+your saved effort); set the role, with or without `:effort`, to choose instead. The
+[`/security-review` AI review](SECURITY_CHECKS.md) keeps your effort.
 
 **What is saved.** Casper owns `~/.casper/settings.json`: your default model and per-model effort,
 optional `modelRoles`, and `autoEffortModels` (full model IDs).
@@ -808,7 +811,8 @@ Cancelling a model pick before it takes effect keeps your previous choice. If Pi
 switched the model while a selection is finishing, Casper keeps that real model and effort in the
 conversation and on resume; a late cancel still stops it being saved as the default.
 
-**Automatic effort is opt-in and makes an extra provider request per prompt.** It uses the `fast`
+**Automatic effort is opt-in and makes an extra provider request per prompt** (a helper uses it
+only when its role is set; builders always can). It uses the `fast`
 role if set, otherwise the selected model, to rate only your current request (up to 8 KiB); no
 history, skills, project context or tools are sent with it. Your request may itself contain
 sensitive text, and if `fast` is a different provider, this short request goes to that provider.

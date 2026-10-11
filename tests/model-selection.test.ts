@@ -665,6 +665,38 @@ try {
   expect(await readFile(path.join(f.agent, "settings.json"), "utf8")).toBe(f.shared);
 }, 90_000);
 
+test("helpers default to low (explorer) and medium (reviewer) effort; a set role wins and builders keep the session's", async () => {
+  const f = await fixture();
+  const result = await f.run(`
+await session.selectModel({ query: 'fixture/second:high', persist: true });
+const child = async (start) => {
+  const runtime = new PiRuntime();
+  try { return (await start(runtime, { cwd: process.cwd(), signal: new AbortController().signal, maxTurns: 1, maxToolCalls: 1 })).getStatus(); }
+  finally { await runtime.dispose(); }
+};
+const explorer = await child((r, o) => r.startReadOnly({ ...o, modelRole: 'fast' }));
+const reviewer = await child((r, o) => r.startReadOnly({ ...o, modelRole: 'review' }));
+const builder = await child((r, o) => r.startBuilder(o));
+const security = await child((r, o) => r.startReadOnly({ ...o, modelRole: 'review', keepEffort: true }));
+await session.setModelRole('review', 'fixture/second:minimal');
+const setRole = await child((r, o) => r.startReadOnly({ ...o, modelRole: 'review' }));
+await session.setModelRole('review', 'fixture/second');
+const setRoleNoEffort = await child((r, o) => r.startReadOnly({ ...o, modelRole: 'review' }));
+await session.setModelRole('review');
+await session.setEffort('low', true);
+const lowSession = await child((r, o) => r.startReadOnly({ ...o, modelRole: 'review' }));
+console.log('RESULT=' + JSON.stringify({ explorer, reviewer, builder, security, setRole, setRoleNoEffort, lowSession }));`);
+  expect(result.explorer).toMatchObject({ model: "second", thinkingLevel: "low", configuredEffort: "low" });
+  expect(result.reviewer).toMatchObject({ model: "second", thinkingLevel: "medium", configuredEffort: "medium" });
+  expect(result.builder).toMatchObject({ model: "second", thinkingLevel: "high" });
+  // The /security-review AI review the person picked keeps their effort.
+  expect(result.security).toMatchObject({ model: "second", thinkingLevel: "high" });
+  expect(result.setRole).toMatchObject({ model: "second", thinkingLevel: "minimal", modelRole: "review" });
+  expect(result.setRoleNoEffort).toMatchObject({ model: "second", thinkingLevel: "high", modelRole: "review" });
+  // A default never raises a helper above the session's own effort.
+  expect(result.lowSession).toMatchObject({ model: "second", thinkingLevel: "low" });
+}, 90_000);
+
 test("cancellation after Pi activates a model retains truthful conversation state without saving defaults", async () => {
   const f = await fixture();
   await mkdir(path.join(f.agent, "extensions"));

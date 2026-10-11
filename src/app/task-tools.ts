@@ -167,7 +167,7 @@ export function backgroundTasks(app: CasperApp): BackgroundTask[] {
       stop: async () => { await stopDebugger(app); return "Stopped the debugger."; } });
   }
   for (const run of app.subagents.runs()) {
-    tasks.push({ kind: "helper", name: `${run.role}: ${run.goal}`, status: "running", startedAt: run.startedAt,
+    tasks.push({ kind: "helper", name: `${run.role}${run.effort ? ` (${run.effort} effort)` : ""}: ${run.goal}`, status: "running", startedAt: run.startedAt,
       stop: async () => app.subagents.cancelRun(run.id) ? `Stopped the ${run.role} helper.` : `The ${run.role} helper had already finished.` });
   }
   if (app.verificationWork) {

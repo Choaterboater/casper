@@ -2,7 +2,7 @@
  * Page check results and their plain receipt lines. Kept apart from the page checks themselves (Chrome, the dev
  * server) so the receipt can print them without loading a browser.
  */
-import type { A11yFindings, PhoneFit } from "../browser/session";
+import type { A11yFindings, LookFacts, PhoneFit } from "../browser/session";
 import type { SkippedPage } from "./pages";
 
 const NO_CHROME = "console not checked: no Chrome found (install Chrome or set CASPER_BROWSER_EXECUTABLE)";
@@ -32,6 +32,8 @@ export interface PageResult {
   phone?: PhoneFit;
   /** Accessibility notes ("2 inputs have no label"), only when there are some. They never fail the page. */
   a11y?: string[];
+  /** Exact facts about the look ("1 image didn't load: /img/hero.jpg"), only when there are some. They never fail the page. */
+  look?: string[];
   /** Pictures of the page at desktop and phone width (PNG paths outside the project). Never evidence. */
   screenshots?: { desktop?: string; phone?: string };
 }
@@ -95,8 +97,24 @@ export function a11yNotes(found: A11yFindings): string[] {
   if (found.inputs) notes.push(`${has(found.inputs, "input")} no label`);
   if (found.buttons) notes.push(`${has(found.buttons, "button")} no name`);
   if (found.images) notes.push(`${has(found.images, "image")} no alt text`);
-  if (found.contrast.count) notes.push(`${has(found.contrast.count, "text item")} very low contrast (${found.contrast.worst}:1)`);
+  if (found.contrast.count) {
+    const pair = found.contrast.colors ? `, ${found.contrast.colors}` : "";
+    notes.push(`${plural(found.contrast.count, "text item")} ${found.contrast.count === 1 ? "is" : "are"} below AA contrast (worst ${found.contrast.worst}:1${pair})`);
+  }
   if (!found.lang) notes.push("the page has no lang");
+  return notes;
+}
+
+/** Plain notes for what a person would see wrong: images, the same picture on several items, what runs past a
+ * phone screen and small tap targets. Empty when there are none. */
+export function lookNotes(found: LookFacts): string[] {
+  const notes: string[] = [];
+  const broken = found.brokenImages.length;
+  if (broken) notes.push(`${plural(broken, "image")} didn't load: ${found.brokenImages.join(", ")}`);
+  for (const { src, items } of found.repeatedImages) notes.push(`the same picture is on ${items} items: ${src}`);
+  if (found.overflow.length) notes.push(`at phone width ${found.overflow.join(", ")} ${found.overflow.length === 1 ? "runs" : "run"} past the screen's right edge`);
+  const { count, names } = found.smallTargets;
+  if (count) notes.push(`at phone width ${plural(count, "tap target")} ${count === 1 ? "is" : "are"} under 44×44 px: ${names.join(", ")}${count > names.length ? ", …" : ""}`);
   return notes;
 }
 
@@ -128,7 +146,8 @@ function screenshotLine(page: PageResult): string[] {
 
 /** Every line of a report: one per page and where its pictures are, the skipped pages, and why the check did not run. */
 export function formatPageReport(report: PageReport): string[] {
-  const lines = report.pages.flatMap((page) => [formatPageLine(page), ...screenshotLine(page), ...(page.a11y?.length ? [`  – ${page.path}: ${page.a11y.join(" · ")}`] : [])]);
+  const lines = report.pages.flatMap((page) => [formatPageLine(page), ...screenshotLine(page),
+    ...[page.look, page.a11y].flatMap(notes => notes?.length ? [`  – ${page.path}: ${notes.join(" · ")}`] : [])]);
   if (report.reason && !report.pages.length) {
     const tail = report.logTail?.split("\n").slice(-5).map(line => `    ${line}`).join("\n");
     lines.push(formatPagesNotChecked(report.reason) + (tail ? `. Last lines:\n${tail}` : ""));

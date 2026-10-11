@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
 import { SettingsManager, type AgentSession, type ModelRuntime, type SessionManager } from "@earendil-works/pi-coding-agent";
-import { classifyEffort, nearestEffort, resolveAutoEffort } from "./auto-effort";
+import { classifyEffort, effortBelow, nearestEffort, resolveAutoEffort } from "./auto-effort";
 import { isEffortSelection, isModelRole, resolveModelSelection, type ModelReference, type ModelRoles, type ResolvedModelSelection } from "./model-routing";
 import { matchModelWords, noModelMessage } from "./model-words";
 import type { RuntimeLoginIO, RuntimeModelInfo, RuntimeModelSelection, RuntimeModelSelectionOptions, RuntimeModelWordsMatch, RuntimeModelWordsOptions, RuntimeReadOnlyStartOptions, RuntimeStatus, RuntimeUsage } from "./types";
@@ -19,6 +19,8 @@ type Selection = { reference?: ModelReference; source: "conversation" | "default
 type Settings = ReturnType<SettingsManager["getGlobalSettings"]>;
 type Preferences = { modelRoles?: ModelRoles; autoEffortModels?: string[] };
 const ENTRY = "casper.model-selection";
+/** A helper whose role is not set works at this effort, or the saved one if lower: an explorer looks things up, a reviewer reads a diff. */
+const HELPER_EFFORT = { fast: "low", review: "medium" } as const;
 
 /** Pi takes a lock folder (settings.json.lock) even to read settings, and gives up when it is held (ELOCKED) after
  * about 200 ms. On Windows, creating that folder while another process is still deleting it fails EPERM, EACCES or
@@ -414,7 +416,7 @@ export class PiModels {
 
   async create<T extends { session: AgentSession }>(cwd: string, manager: SessionManager,
     create: (options: { settingsManager: SettingsManager; modelRuntime: ModelRuntime; model: AgentSession["model"] }) => Promise<T>,
-    readOnly?: Pick<RuntimeReadOnlyStartOptions, "modelRole"> & { compact?: boolean }): Promise<T> {
+    readOnly?: Pick<RuntimeReadOnlyStartOptions, "modelRole" | "keepEffort"> & { compact?: boolean }): Promise<T> {
     const preferences = this.preferences();
     // A repository is never trusted implicitly: projectTrusted:false is Pi's single gate for
     // `.pi/` extensions (in-process code), SYSTEM.md/APPEND_SYSTEM.md, prompts, themes and
@@ -441,8 +443,9 @@ export class PiModels {
       ? resolveModelSelection(`@${readOnly.modelRole}`, this.catalog.getModels(), roles, this.defaultReference(preferences)) : undefined;
     const reference = recorded ? { provider: recorded.provider, id: recorded.modelId } : routed?.reference ?? this.defaultReference(preferences);
     const saved = reference && recorded ? this.recorded(manager, reference) : undefined;
+    const helper = !recorded && !routed && readOnly?.modelRole && !readOnly.keepEffort ? HELPER_EFFORT[readOnly.modelRole] : undefined;
     const selection: Selection = { reference, source: recorded ? "conversation" : reference ? "default" : "none",
-      role: saved?.role ?? routed?.role, effort: saved?.effort ?? routed?.effort ?? (!recorded && reference && this.autoDefault(reference) ? "auto" : undefined) };
+      role: saved?.role ?? routed?.role, effort: saved?.effort ?? routed?.effort ?? (!recorded && !helper && reference && this.autoDefault(reference) ? "auto" : undefined) };
     const model = reference ? this.catalog.getModel(reference.provider, reference.id) : undefined;
     let initializing = true;
     const modelRuntime = new Proxy(this.catalog, {
@@ -461,6 +464,7 @@ export class PiModels {
     try {
       const result = await create({ settingsManager, modelRuntime, model });
       this.selections.set(result.session, selection);
+      if (model && helper && effortBelow(helper, result.session.thinkingLevel)) selection.effort = helper;
       if (model && selection.effort) {
         this.applyEffort(result.session, selection.effort, Boolean(recorded));
         if (!recorded) this.record(result.session);
