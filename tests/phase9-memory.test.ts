@@ -149,6 +149,16 @@ needsFifos("non-regular memory state is rejected without waiting for a FIFO writ
   } finally { clearTimeout(timer); child.kill(); }
 });
 
+test("a request longer than 4 KiB (a pasted brief) is still recorded, cut at a whole character", async () => {
+  const { store } = await fixture();
+  const brief = "Build the shop. ".repeat(300) + "é".repeat(10);
+  const saved = await store.recordOutcome({ task: brief, skills: [], modelStatus: "completed" });
+  expect(Buffer.byteLength(saved.task)).toBeLessThanOrEqual(4096);
+  expect(brief.startsWith(saved.task)).toBe(true);
+  const cut = await store.recordOutcome({ task: "a".repeat(4095) + "é", skills: [], modelStatus: "completed" });
+  expect(cut.task).toBe("a".repeat(4095));
+});
+
 test("outcome state rejects coerced enum values and unknown nested evidence fields", async () => {
   const { context, store } = await fixture();
   const saved = await store.recordOutcome({ task: "inspect", skills: [], modelStatus: "completed" });
