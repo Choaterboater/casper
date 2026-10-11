@@ -73,6 +73,10 @@ export interface ProjectContext {
   networkUpdates?: boolean;
   /** `ai_pages: off` in the user's config: the AI is never offered casper_page. Unset: on. */
   aiPages?: boolean;
+  /** `pictures: off` in the user's config: the AI is never offered make_picture. Unset: on. */
+  pictures?: boolean;
+  /** pictures.models in the user's config: image models tried after Codex in place of the free one. */
+  pictureModels?: string[];
   /** `open_pages: off` in the user's config: pages the AI makes are not opened in the browser. Unset: on. */
   openPages?: boolean;
   /** `browser_clicks: off` in the user's config: the AI's browser asks before a held action. Unset: on. */
@@ -188,6 +192,8 @@ export async function loadProjectContext(
     ...(configuration.networkUpdates !== undefined ? { networkUpdates: configuration.networkUpdates } : {}),
     ...(configuration.aiPages !== undefined ? { aiPages: configuration.aiPages } : {}),
     ...(configuration.openPages !== undefined ? { openPages: configuration.openPages } : {}),
+    ...(configuration.pictures !== undefined ? { pictures: configuration.pictures } : {}),
+    ...(configuration.pictureModels ? { pictureModels: configuration.pictureModels } : {}),
     ...(configuration.browserClicks !== undefined ? { browserClicks: configuration.browserClicks } : {}),
     ...(configuration.routineCommands !== undefined ? { routineCommands: configuration.routineCommands } : {}),
     ...(configuration.mcpAutoconnect !== undefined ? { mcpAutoconnect: configuration.mcpAutoconnect } : {}),

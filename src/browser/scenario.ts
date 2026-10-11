@@ -5,7 +5,7 @@ import { blank, webURL } from "./arguments";
 const ASSERTION_FIELDS: Record<string, string[]> = { text: ["selector", "expected"], visible: ["selector"], "no-horizontal-overflow": ["selector"], "no-overlap": ["selector", "other"] };
 function record(value: unknown): value is Record<string, unknown> { return Boolean(value && typeof value === "object" && !Array.isArray(value)); }
 
-export interface BrowserStep { action: "click" | "fill" | "press"; selector: string; value?: string; impact: "local-test" | "consequential" | "uncertain"; reason: string }
+export interface BrowserStep { action: "click" | "fill" | "press" | "select"; selector: string; value?: string; impact: "local-test" | "consequential" | "uncertain"; reason: string }
 export type BrowserAssertion = { kind: "text"; selector: string; expected: string }
   | { kind: "visible"; selector: string }
   /** Page-wide, or one element (its own scrolling content, or running past the viewport) when a selector names it. */
@@ -53,11 +53,11 @@ export function parseScenario(input: unknown): BrowserScenario {
   const scope = record(entry.scope) && Array.isArray(entry.scope.inputs) && !entry.scope.inputs.length && blank(entry.scope.exclude) ? undefined : entry.scope;
   if (scope !== undefined && !isVerificationScope(scope)) throw new Error("Browser scenario scope needs inputs: 1–32 project-relative paths (exclude is optional)");
   const steps = entry.steps ?? [];
-  if (!Array.isArray(steps) || steps.length > 12) throw new Error("Browser scenario steps must be a list of 0–12 click/fill/press steps");
+  if (!Array.isArray(steps) || steps.length > 12) throw new Error("Browser scenario steps must be a list of 0–12 click/fill/press/select steps");
   if (!Array.isArray(entry.assertions) || !entry.assertions.length || entry.assertions.length > 4) throw new Error("Browser scenario needs 1–4 assertions");
   const parsedSteps = steps.map((value, index) => {
     const step = object(value, ["action", "selector", "value", "impact", "reason"], `scenario step ${index + 1}`);
-    if (!["click", "fill", "press"].includes(String(step.action))) throw new Error(`Browser scenario step ${index + 1} action must be click, fill or press`);
+    if (!["click", "fill", "press", "select"].includes(String(step.action))) throw new Error(`Browser scenario step ${index + 1} action must be click, fill, press or select`);
     if (!["local-test", "consequential", "uncertain"].includes(String(step.impact))) throw new Error(`Browser scenario step ${index + 1} needs impact: local-test, consequential or uncertain`);
     if (step.action === "click" && step.value !== undefined) throw new Error(`Browser scenario step ${index + 1}: click does not take a value`);
     if (step.action !== "click") string(step.value, `scenario step ${index + 1} value`, 1024);

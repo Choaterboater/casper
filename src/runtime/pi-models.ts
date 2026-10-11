@@ -126,6 +126,12 @@ export class PiModels {
   get busy(): boolean { return this.selecting || this.preparing || this.authenticating; }
   setAuthenticating(active: boolean): void { this.authenticating = active; }
   invalidateAuth(provider: string): void { this.staleAuth.add(provider); }
+  signedIn(provider: string): boolean { return !this.staleAuth.has(provider) && this.catalog.hasConfiguredAuth(provider); }
+  /** The provider's key from Casper's sign-in store (or its key variable), for a request Casper makes itself. */
+  async providerKey(provider: string): Promise<string | undefined> {
+    if (!this.signedIn(provider)) return undefined;
+    return (await this.catalog.getAuth(provider).catch(() => undefined))?.auth.apiKey || undefined;
+  }
   async refreshAuth(provider: string, signal: AbortSignal): Promise<boolean> {
     try {
       const result = await this.catalog.refresh({ providers: [provider], allowNetwork: false, signal });

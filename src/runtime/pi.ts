@@ -258,6 +258,10 @@ class PiRuntimeSession implements RuntimeSession {
     return this.models.visionModel(this.runtime.session);
   }
 
+  signedIn(provider: string): boolean { return this.models.signedIn(provider); }
+
+  providerKey(provider: string): Promise<string | undefined> { return this.models.providerKey(provider); }
+
   setModelRole(role: string, selector?: string): Promise<Record<string, string>> {
     if (this.busy || this.readOnly || this.models.busy) throw new Error("Model roles cannot be changed during active work or in a read-only child.");
     return this.models.setRole(role, selector);

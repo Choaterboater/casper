@@ -752,6 +752,14 @@ Plain answers stay in the terminal, and so does a Mermaid diagram from the diagr
   [SECURITY.md](SECURITY.md#pages-the-ai-makes)). Sharing a page beyond this computer is not
   part of Casper yet.
 
+### Pictures the AI makes
+
+For a page that needs photos or illustrations, the AI makes them with its `make_picture` tool and
+saves them in the project. It uses your ChatGPT plan through your own Codex CLI first, then a free
+OpenRouter model; a paid model only when you name one ("with FLUX 3"). With neither it draws SVG.
+No question is asked. See [CONFIGURATION.md](CONFIGURATION.md#pictures-the-ai-makes) for the order,
+`pictures.models` and the off switch (`pictures: off`).
+
 ### Local debugger
 
 `/debug` lists project targets/status without a model or adapter. Configure

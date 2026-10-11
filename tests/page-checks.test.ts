@@ -129,10 +129,11 @@ test("accessibility findings are notes under the page line; they never fail the 
 
 test("exact facts about the look are a note under the page line, never a failure, and nothing when the page is clean", async () => {
   const f = await fixture();
-  const clean = { brokenImages: [], repeatedImages: [], overflow: [], smallTargets: { count: 0, names: [] } };
+  const art = { noViewBox: [], noName: [], fixedColors: [], fixedFiles: [] };
+  const clean = { brokenImages: [], repeatedImages: [], overflow: [], smallTargets: { count: 0, names: [] }, art };
   const opener = fakeOpener(url => url.pathname === "/shop"
     ? { look: { brokenImages: ["/img/hero.jpg"], repeatedImages: [{ src: "/img/bag.jpg", items: 4 }], overflow: ["div.hero", "table"],
-      smallTargets: { count: 6, names: ['a "Menu"', "button.close", "a#cart"] } } }
+      smallTargets: { count: 6, names: ['a "Menu"', "button.close", "a#cart"] }, art } }
     : { look: clean });
   const report = await new PageChecks(() => f.manager, f.service, opener, { open: ["/shop", "/ok"], skipped: [] }).run(signal());
   expect(report.status).toBe("pass");
@@ -142,6 +143,18 @@ test("exact facts about the look are a note under the page line, never a failure
       + " · at phone width div.hero, table run past the screen's right edge · at phone width 6 tap targets are under 44×44 px: a \"Menu\", button.close, a#cart, …",
     "✓ /ok loads · 0 console errors",
   ]);
+}, 30_000);
+
+test("drawn pictures get plain notes: no viewBox, no name, icons that keep light colors in dark mode", async () => {
+  const f = await fixture();
+  const art = { noViewBox: ["svg.hero", "/img/bean.svg"], noName: ["svg#map"], fixedColors: ["svg#cart"], fixedFiles: ["/img/cup.svg", "/img/bag.svg"] };
+  const opener = fakeOpener(() => ({ look: { brokenImages: [], repeatedImages: [], overflow: [], smallTargets: { count: 0, names: [] }, art } }));
+  const report = await new PageChecks(() => f.manager, f.service, opener, { open: ["/"], skipped: [] }).run(signal());
+  expect(report.status).toBe("pass");
+  expect(report.pages[0]!.look).toEqual(["2 pictures have no viewBox, so they don't scale: svg.hero, /img/bean.svg",
+    '1 picture has no name (add role="img" and a <title>, or aria-hidden="true" for decoration): svg#map',
+    "in dark mode 1 icon keeps its light colors (use currentColor or CSS variables): svg#cart",
+    "in dark mode 2 icon files keep their light colors (the page's CSS can't reach an <img>: put the SVG inline, or give the file its own prefers-color-scheme rule): /img/cup.svg, /img/bag.svg"]);
 }, 30_000);
 
 test("secrets in console text never reach the report", async () => {

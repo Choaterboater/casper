@@ -177,7 +177,9 @@ async function surfaces(installed: boolean, prompts: string[]) {
   cleanup.push(() => { browserDefaults.installed = previous; });
   const runtime = new ToolRuntime();
   const app = new CasperApp({
-    runtimeFactory: () => runtime, output: { write: () => {} },
+    runtimeFactory: () => runtime, output: { write: () => {} }, sessionHomeDir: home,
+    // No sign-in from this machine's home and no codex from its PATH: the lists are the same everywhere.
+    pictureSeams: { env: { PATH: "" } },
     loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
     loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
     loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),

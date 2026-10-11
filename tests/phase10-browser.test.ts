@@ -19,20 +19,37 @@ async function fixture(options: { executablePath?: string; confirm?: (request: u
   await mkdir(project); await mkdir(state);
   const sourceFile = path.join(project, "index.html");
   const images: string[] = [];
+  const streams: Array<{ path: string; started: number; cancelled?: number }> = [];
   await writeFile(sourceFile, '<!doctype html><title>Browser fixture</title><h1>Hello Casper</h1><button>Save</button><script>console.error("synthetic-console-error");fetch("/missing-api")</script>');
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, async fetch(request) {
     if (new URL(request.url).pathname === "/hang") return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode("<html>")); } }), { headers: { "content-type": "text/html" } });
     if (new URL(request.url).pathname === "/missing-api") return new Response("fixture failure", { status: 503 });
+    if (new URL(request.url).pathname === "/gone.svg") return new Response("gone", { status: 404 });
+    // A picture file with no length that keeps coming (or stops halfway): reading it must stop on its own.
+    // (The image itself loads, so the page does.)
+    if (new URL(request.url).pathname.startsWith("/stream-") && request.headers.get("sec-fetch-dest") !== "image") {
+      const entry: (typeof streams)[number] = { path: new URL(request.url).pathname, started: Date.now() };
+      streams.push(entry);
+      const chunk = new TextEncoder().encode(`<svg xmlns="http://www.w3.org/2000/svg">${"<!-- padding -->".repeat(4000)}`);
+      const endless = entry.path.includes("endless");
+      return new Response(new ReadableStream({
+        async pull(controller) { if (endless) { controller.enqueue(chunk); await new Promise(resolve => setTimeout(resolve, 5)); } else { controller.enqueue(chunk); await new Promise(() => {}); } },
+        cancel() { entry.cancelled = Date.now(); },
+      }), { headers: { "content-type": "image/svg+xml" } });
+    }
     if (new URL(request.url).pathname.endsWith(".svg")) {
-      images.push(new URL(request.url).pathname);
-      return new Response('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>', { headers: { "content-type": "image/svg+xml" } });
+      // Only what the page loads as an image counts, not the look check's own read of the file.
+      if (request.headers.get("sec-fetch-dest") === "image") images.push(new URL(request.url).pathname);
+      // A drawing the test wrote into the project, else a plain square.
+      const drawn = path.join(project, path.basename(new URL(request.url).pathname));
+      return new Response(existsSync(drawn) ? await readFile(drawn) : '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>', { headers: { "content-type": "image/svg+xml" } });
     }
     return new Response(await readFile(sourceFile), { headers: { "content-type": "text/html", "cache-control": "no-store" } });
   } });
   cleanup.push(async () => { server.stop(true); });
   const session = new BrowserSession({ projectRoot: project, stateDirectory: state, executablePath: executable, ...options });
   cleanup.push(() => session.close());
-  return { root, project, sourceFile, state, session, images, url: `http://127.0.0.1:${server.port}` };
+  return { root, project, sourceFile, state, session, images, streams, url: `http://127.0.0.1:${server.port}` };
 }
 
 test("invalid URLs, unknown fields and oversized scenarios fail before launching a browser", async () => {
@@ -339,6 +356,7 @@ browserTest("the page load notes accessibility basics: alt, labels, button names
   expect((await f.session.load(`${f.url}/`, new AbortController().signal)).a11y).toEqual({ lang: true, images: 0, inputs: 0, buttons: 0, contrast: { count: 0, worst: 0 } });
 }, 30_000);
 
+const NO_ART = { noViewBox: [], noName: [], fixedColors: [], fixedFiles: [] };
 browserTest("the page load names exact facts: images that didn't load, one picture on several cards, what runs past a phone screen, small tap targets", async () => {
   const f = await fixture();
   const card = (src: string, label: string) => `<div class="card"><img src="${src}" alt="${label}"><p>${label}</p><a class="buy" href="#b">Buy</a></div>`;
@@ -356,10 +374,72 @@ browserTest("the page load names exact facts: images that didn't load, one pictu
   // A small icon used on each list item is not a repeated product picture, nor is a logo in plain boxes (a header and a
   // footer); a link inside a sentence is not a tap target, but each link of a menu of plain links is.
   expect(load.look).toEqual({ brokenImages: ["/missing.png"], repeatedImages: [{ src: "/bean.svg", items: 3 }],
-    overflow: ["div.wide"], smallTargets: { count: 5, names: ['a "A"', "a#menu", 'a "Home"'] } });
+    overflow: ["div.wide"], smallTargets: { count: 5, names: ['a "A"', "a#menu", 'a "Home"'] }, art: NO_ART });
   await writeFile(f.sourceFile, `<!doctype html><html lang="en"><meta name="viewport" content="width=device-width"><img src="/logo.svg" alt="Logo" width="60" height="60"><p>words</p><button style="width:48px;height:48px">Go</button></html>`);
-  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).look).toEqual({ brokenImages: [], repeatedImages: [], overflow: [], smallTargets: { count: 0, names: [] } });
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).look).toEqual({ brokenImages: [], repeatedImages: [], overflow: [], smallTargets: { count: 0, names: [] }, art: NO_ART });
 }, 30_000);
+
+browserTest("the page load checks drawn pictures: no viewBox, no name, and icons whose colors stay light in dark mode; a rich illustration gets no note", async () => {
+  const f = await fixture();
+  const svg = (attributes: string, inside: string) => `<svg xmlns="http://www.w3.org/2000/svg" ${attributes}>${inside}</svg>`;
+  // A polished illustration: the skill's kit (gradients, filters, patterns, fixed colors), words on a gauge and more than 150 shapes.
+  const ticks = Array.from({ length: 160 }, (_, index) => `<rect x="${index % 40}" y="${100 + Math.floor(index / 40)}" width=".5" height=".5" fill="#333"/>`).join("");
+  const kit = await readFile(path.join(import.meta.dir, "../skills/web/frontend/illustration-kit.svg"), "utf8");
+  const illustration = kit.replace("<svg ", '<svg id="espresso" width="480" height="240" ').replace("</svg>", `<text x="20" y="20">9 bar</text>${ticks}</svg>`);
+  await writeFile(path.join(f.project, "flat-art.svg"), svg('width="120" height="120"', '<circle cx="50" cy="50" r="40" fill="#c84"/>'));
+  await writeFile(path.join(f.project, "flat-icon.svg"), svg('viewBox="0 0 16 16"', '<circle cx="8" cy="8" r="8" fill="#c84"/>'));
+  await writeFile(path.join(f.project, "themed-icon.svg"), svg('viewBox="0 0 16 16"', '<style>circle{fill:#c84}@media (prefers-color-scheme:dark){circle{fill:#fc8}}</style><circle cx="8" cy="8" r="8"/>'));
+  const page = (dark: boolean) => `<!doctype html><html lang="en"><meta name="viewport" content="width=device-width"><style>
+    :root{--bg:#fff;--ink:#222} ${dark ? "@media (prefers-color-scheme:dark){:root{--bg:#111;--ink:#eee}}" : ""} body{background:var(--bg);color:var(--ink)}</style>
+    ${illustration}
+    ${svg('id="unnamed" width="120" height="120" viewBox="0 0 100 100"', '<circle cx="50" cy="50" r="40" fill="var(--ink)"/>')}
+    ${svg('id="decor" width="120" height="120" viewBox="0 0 100 100" aria-hidden="true"', '<circle cx="50" cy="50" r="40" fill="#c33"/>')}
+    ${svg('id="cart" width="20" height="20" viewBox="0 0 16 16" aria-hidden="true"', '<path d="M1 1h3l2 9h8" fill="none" stroke="#c33"/>')}
+    ${svg('id="menu" width="20" height="20" viewBox="0 0 16 16" aria-hidden="true"', '<path d="M1 4h14M1 8h14" stroke="currentColor"/>')}
+    ${svg('id="star" width="20" height="20" viewBox="0 0 16 16"', '<path d="M8 1l2 5h5l-4 3 2 5-5-3-5 3 2-5-4-3h5z" fill="currentColor"/>')}
+    <button style="color:inherit;background:none">${svg('id="save" width="20" height="20" viewBox="0 0 16 16"', '<path d="M2 2h12v12H2z" fill="currentColor"/>')} Save</button>
+    <img src="/flat-art.svg" alt="Bean" width="120" height="120"><img src="/flat-icon.svg" alt="" width="16" height="16">
+    <img src="/themed-icon.svg" alt="" width="16" height="16"></html>`;
+  await writeFile(f.sourceFile, page(true));
+  // The illustration keeps its own colors and gets no note; a big picture with fixed colors is art, not an icon.
+  // A small icon needs a name too, unless it is hidden or sits in a control (the button's own words name it).
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).look!.art).toEqual({ noViewBox: ["/flat-art.svg"],
+    noName: ["svg#unnamed", "svg#star"], fixedColors: ["svg#cart"], fixedFiles: ["/flat-icon.svg"] });
+  // A page that stays light has no dark mode for the icons to follow.
+  await writeFile(f.sourceFile, page(false));
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).look!.art).toMatchObject({ fixedColors: [], fixedFiles: [] });
+}, 30_000);
+
+browserTest("a picture file with no length stops being read after 256 KB, and a cancel stops the drawn-picture step", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><img src="/stream-endless.svg" alt="Big" width="120" height="120"></html>`);
+  const started = Date.now();
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).look!.art).toEqual(NO_ART);
+  const read = f.streams.filter(entry => entry.path === "/stream-endless.svg").at(-1)!;
+  // Stopped once past the limit, well before the 2 s time limit on each file.
+  expect(read.cancelled! - read.started).toBeLessThan(1500);
+  // A cancel while a file is being read ends the load at once, not after the file's time limit.
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><img src="/stream-stuck.svg" alt="Stuck" width="120" height="120"></html>`);
+  const controller = new AbortController();
+  const before = f.streams.length;
+  const work = f.session.load(`${f.url}/`, controller.signal);
+  while (f.streams.length < before + 1 && Date.now() - started < 20_000) await new Promise(resolve => setTimeout(resolve, 20));
+  const cancelled = Date.now();
+  controller.abort();
+  await expect(work).rejects.toThrow();
+  expect(Date.now() - cancelled).toBeLessThan(1500);
+}, 45_000);
+
+browserTest("the drawn-picture step's own reads of picture files never count as failed requests", async () => {
+  const f = await fixture();
+  // One file it gives up on past 256 KB, one past its 2 s time limit, and one that is gone (named once, not twice).
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><img src="/stream-endless.svg" alt="Big" width="120" height="120">
+    <img src="/stream-stuck.svg" alt="Slow" width="120" height="120"><img src="/gone.svg" alt="Gone" width="120" height="120"></html>`);
+  const load = await f.session.load(`${f.url}/`, new AbortController().signal);
+  expect(f.streams.map(entry => entry.path).sort()).toEqual(["/stream-endless.svg", "/stream-stuck.svg"]);
+  expect(load.failedRequests).toEqual([{ url: `${f.url}/gone.svg`, status: 404 }]);
+  expect(load.look!.art).toEqual(NO_ART);
+}, 45_000);
 
 browserTest("the contrast note reads colors Chrome keeps as oklch (Tailwind v4's palette): text, background and a see-through color", async () => {
   const f = await fixture();
@@ -425,6 +505,41 @@ browserTest("the desktop picture is the whole page up to 4000 px, after scrollin
   expect(await height(`<div style="height:6000px"></div><img loading="lazy" src="/far.svg" alt="far" width="50" height="50">`)).toBe(4000);
   expect(f.images).toContain("/far.svg");
 }, 45_000);
+
+browserTest("select picks an option by value or label and fires change; fill on a <select> says to use select", async () => {
+  const f = await fixture({ allowActions: () => true });
+  await writeFile(f.sourceFile, `<!doctype html><select id="size" onchange="document.querySelector('#out').textContent=this.value"><option value="sm">Small</option><option value="lg">Large</option></select><p id="out"></p><input id="name">`);
+  await f.session.run({ action: "open", url: f.url });
+  const act = (action: string, selector: string, value: string) => f.session.run({ action, selector, value, impact: "local-test", reason: "Synthetic fixture" });
+  await expect(act("fill", "#size", "lg")).rejects.toThrow("use action select");
+  await expect(act("select", "#name", "lg")).rejects.toThrow("Select takes a <select>");
+  await expect(act("select", "#size", "Huge")).rejects.toThrow('no option "Huge"; its options are sm (Small), lg (Large)');
+  expect(await act("select", "#size", "Large")).toMatchObject({ executed: true, selected: { value: "lg", label: "Large" } });
+  const check = await f.session.run({ action: "check", scenario: { name: "Pick small", url: f.url, scope: { inputs: ["index.html"] },
+    steps: [{ action: "select", selector: "#size", value: "lg", impact: "local-test", reason: "Synthetic" }, { action: "select", selector: "#size", value: "Small", impact: "local-test", reason: "Synthetic" }],
+    assertions: [{ kind: "text", selector: "#out", expected: "sm" }] } });
+  expect(check.status).toBe("pass");
+}, 20_000);
+
+browserTest("a button below the screen that only appears once scrolled to (a reveal animation) is scrolled into view and clicked", async () => {
+  const f = await fixture({ allowActions: () => true });
+  await writeFile(f.sourceFile, `<!doctype html><style>html{scroll-behavior:smooth}.reveal{transform:scale(0);transition:transform .3s}.reveal.shown{transform:none}</style>
+<div style="height:3000px"></div><section class="reveal"><button id="go" onclick="document.querySelector('#out').textContent='clicked'">Go</button></section><p id="out"></p>
+<script>new IntersectionObserver(es => es.forEach(e => e.isIntersecting && e.target.classList.add("shown"))).observe(document.querySelector(".reveal"))</script>`);
+  const check = await f.session.run({ action: "check", scenario: { name: "Go below", url: f.url, scope: { inputs: ["index.html"] },
+    steps: [{ action: "click", selector: "#go", impact: "local-test", reason: "Synthetic" }], assertions: [{ kind: "text", selector: "#out", expected: "clicked" }] } });
+  expect(check.status).toBe("pass");
+}, 20_000);
+
+test("a session runs 200 operations and records 24 checks; the check limit says to replay the ids it has", async () => {
+  const f = await fixture({ executablePath: "/nonexistent/chrome" });
+  const scenario = { name: "Heading", url: f.url, steps: [], assertions: [{ kind: "visible", selector: "h1" }] };
+  // A check is recorded before the browser starts, so a missing browser still counts it.
+  for (let i = 0; i < 24; i++) await expect(f.session.run({ action: "check", scenario })).rejects.toThrow("Browser was not found");
+  await expect(f.session.run({ action: "check", scenario })).rejects.toThrow("Browser check limit reached (24 per session); replay the ids your checks returned");
+  for (let i = 25; i < 200; i++) await f.session.run({ action: "diagnostics" });
+  await expect(f.session.run({ action: "diagnostics" })).rejects.toThrow("Browser operation limit reached (200 per session)");
+});
 
 test("the model's browser tool has no load action; page loads are host-only", async () => {
   const f = await fixture({ executablePath: "/nonexistent/chrome" });

@@ -7,7 +7,7 @@ import { parseScenario, scopeOf, viewport, type BrowserScenario, type BrowserChe
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { Browser, Page } from "puppeteer-core";
+import type { Browser, HTTPRequest, Page } from "puppeteer-core";
 import type { ArtifactDirectory } from "../visualize/artifacts";
 import { isolatedEnvironment } from "../platform/environment";
 import { discoverBrowser } from "./discovery";
@@ -36,7 +36,7 @@ export interface BrowserSessionOptions {
 }
 export interface MetadataApproval { address: string; url: string }
 export interface BrowserApproval { action: string; url: string; selector: string; target: string; value?: string; reason: string; impact: string }
-const INTERACTIONS = ["click", "fill", "press"];
+const INTERACTIONS = ["click", "fill", "press", "select"];
 const DANGEROUS = /\b(delete|remove|destroy|purchase|pay|checkout|buy|send|publish|deploy|sign.?in|log.?in|password|credit.?card)\b/i;
 function localURL(source: string): boolean {
   try { return ["localhost", "127.0.0.1", "[::1]"].includes(new URL(source).hostname); } catch { return false; }
@@ -49,7 +49,7 @@ export function serveHolds(script: { command: string; impact: string; allowAll?:
   return script.impact !== "local-test" || DANGEROUS.test(script.command) || /\b(install|add|npx|dlx|sudo|rm|curl|wget)\b/.test(script.command);
 }
 
-/** Whether a click, fill or press asks first: undefined runs it; `word` is the known label that held a local test.
+/** Whether a click, fill, press or select asks first: undefined runs it; `word` is the known label that held a local test.
  * With browser clicks on (allowAll), every action runs; off, only a local test on a local page without a known label does. */
 export function actionHold(action: { impact: string; url: string; target: string; allowAll?: boolean }): { word?: string } | undefined {
   if (action.allowAll) return undefined;
@@ -77,7 +77,7 @@ export interface PageLoad {
   phone?: PhoneFit;
   /** Accessibility basics at desktop width. Absent for the HTTP-only fallback, or when the page could not be read. */
   a11y?: A11yFindings;
-  /** Exact facts about the look: images, then (at phone width) what runs past the screen and small tap targets. */
+  /** Exact facts about the look: images and drawn pictures (art) at desktop width, then (at phone width) what runs past the screen and small tap targets. */
   look?: LookFacts;
   /** Pictures of the page at desktop (the whole page, up to 4000 px) and phone width (the visible screen) (PNG paths outside the project), when asked for and
    * they could be saved (not on Windows yet). */
@@ -107,6 +107,21 @@ export interface LookFacts {
   overflow: string[];
   /** At phone width, links, buttons and inputs smaller than 44x44 px, and the first few. */
   smallTargets: { count: number; names: string[] };
+  /** Drawn pictures at desktop width: inline `<svg>` and same-origin `.svg` images. */
+  art: ArtFacts;
+}
+/** What a hand-drawn SVG gets wrong, each list naming the first few (`svg#hero`, `/img/bean.svg`). A rich
+ * illustration (many shapes, gradients, words such as a gauge's numbers) is never a fault. */
+export interface ArtFacts {
+  /** Pictures at least 48 px each way with no `viewBox`, so they don't scale. */
+  noViewBox: string[];
+  /** Inline pictures with no `<title>`, `aria-label` or `aria-labelledby`, not hidden with `aria-hidden` and not inside
+   * a link, button or label (whose own words name it). */
+  noName: string[];
+  /** Inline icons (under 64 px each way) whose colors stay the same when the page itself turns dark (only checked when it does). */
+  fixedColors: string[];
+  /** The same for icon files shown with `<img>`, which the page's CSS can't reach. */
+  fixedFiles: string[];
 }
 /** How a page fits a phone screen: its width against the screen's, and the text fields too squashed to show a line. */
 export interface PhoneFit { viewport: number; pageWidth: number; squashed: string[] }
@@ -209,7 +224,7 @@ const A11Y_NOTES = (): A11yFindings => {
     contrast: { count, worst: Math.floor(worst * 10) / 10, ...(count ? { colors } : {}) } };
 };
 /** Runs in the page: images at any width; at phone width, what runs past the screen's right edge and small tap targets. */
-const LOOK_FACTS = (phone: boolean): LookFacts => {
+const LOOK_FACTS = (phone: boolean): Omit<LookFacts, "art"> => {
   const visible = (element: Element) => (element as HTMLElement).checkVisibility?.({ checkOpacity: true, checkVisibilityCSS: true }) ?? true;
   const words = (element: Element) => ((element as HTMLElement).innerText ?? element.textContent ?? "").replace(/\s+/g, " ").trim();
   const name = (element: Element) => {
@@ -273,6 +288,68 @@ const LOOK_FACTS = (phone: boolean): LookFacts => {
   });
   return { brokenImages, repeatedImages, overflow, smallTargets: { count: small.length, names: small.slice(0, 3).map(name) } };
 };
+/** One drawn picture as read in the page: an inline one by its place among the page's top-level `<svg>`s, a file by its
+ * own dark-mode rule. `big` is at least 48 px each way, `icon` under 64. */
+interface ArtItem { name: string; big: boolean; icon: boolean; viewBox: boolean; named: boolean; index?: number; fixedInFile?: boolean }
+/** Runs in the page: the background and each top-level `<svg>`'s colors (fill, stroke, gradient stops); unless only
+ * colors are asked for, the drawn pictures too (at most 40 inline and 10 same-origin files of up to 256 KB). */
+const ART_FACTS = async (colorsOnly: boolean): Promise<{ background: string; colors: string[]; items: ArtItem[] }> => {
+  const shapes = "path, rect, circle, ellipse, line, polyline, polygon";
+  const blank = (color: string) => /^(none|transparent|rgba\(0, 0, 0, 0\))$/.test(color);
+  const background = [document.body, document.documentElement].map(element => element ? getComputedStyle(element).backgroundColor : "")
+    .find(color => color && !blank(color)) ?? "";
+  const inline = Array.from(document.querySelectorAll("svg")).filter(svg => !svg.parentElement?.closest("svg"));
+  const colors = inline.map(svg => Array.from(svg.querySelectorAll(`${shapes}, text, stop`)).slice(0, 300).flatMap(element => {
+    const style = getComputedStyle(element);
+    return element.tagName === "stop" ? [style.stopColor] : [style.fill, style.stroke];
+  }).filter(color => !blank(color)).join(" "));
+  const items: ArtItem[] = [];
+  if (colorsOnly) return { background, colors, items };
+  /** Its size when it shows, else undefined. */
+  const size = (element: Element) => {
+    const box = element.getBoundingClientRect();
+    const shown = box.width > 0 && box.height > 0 && ((element as HTMLElement).checkVisibility?.({ checkOpacity: true, checkVisibilityCSS: true }) ?? true);
+    return shown ? { big: box.width >= 48 && box.height >= 48, icon: box.width < 64 && box.height < 64 } : undefined;
+  };
+  inline.forEach((svg, index) => {
+    const shown = size(svg);
+    if (items.length >= 40 || !shown) return;
+    const title = svg.querySelector(":scope > title")?.textContent?.trim();
+    const name = svg.id ? `svg#${svg.id}` : svg.classList[0] ? `svg.${svg.classList[0]}` : title ? `svg "${title.slice(0, 20)}"` : `svg no. ${index + 1}`;
+    const role = svg.getAttribute("role");
+    // A link, button or label is named by its own words (the accessibility check notes one that has none).
+    const named = Boolean(title || svg.getAttribute("aria-label")?.trim() || svg.getAttribute("aria-labelledby")?.trim())
+      || Boolean(svg.closest('[aria-hidden="true"], a[href], button, label, summary, [role="button"], [role="link"]')) || role === "presentation" || role === "none";
+    items.push({ name: name.slice(0, 60), ...shown, viewBox: svg.hasAttribute("viewBox"), named, index });
+  });
+  const address = (image: HTMLImageElement) => new URL(image.currentSrc || image.src, location.href);
+  // An image that didn't load is already a broken image (and a failed request): it is not read again.
+  const files = Array.from(document.images).filter(image => size(image) && !(image.complete && image.naturalWidth === 0)
+    && address(image).origin === location.origin && /\.svg$/i.test(address(image).pathname));
+  for (const image of [...new Map(files.map(image => [address(image).href, image])).values()].slice(0, 10)) {
+    try {
+      // Marked as the check's own read, so one it gives up on (past the size or time limit) is not a failed request.
+      const response = await fetch(address(image), { signal: AbortSignal.timeout(2000), headers: { "x-casper-check": "art" } });
+      if (!response.ok || !response.body || Number(response.headers.get("content-length") ?? 0) > 256_000) continue;
+      // Read in parts and stop past the limit, so a file with no length (or one that never ends) is never held whole.
+      const reader = response.body.getReader(), decoder = new TextDecoder();
+      let source = "";
+      for (let part = await reader.read(); !part.done; part = await reader.read()) {
+        source += decoder.decode(part.value, { stream: true });
+        if (source.length > 256_000) break;
+      }
+      if (source.length > 256_000) { void reader.cancel().catch(() => {}); continue; }
+      const svg = new DOMParser().parseFromString(source, "image/svg+xml").documentElement;
+      if (svg.tagName.toLowerCase() !== "svg") continue;
+      // Inside an <img> the page's CSS can't reach the picture: only its own dark-mode rule changes its colors.
+      const colored = /(?:fill|stroke|stop-color)\s*(?:=\s*["']|:\s*)(?!none|currentColor|transparent|inherit|url)[#a-z]/i.test(source);
+      // An <img> is named by its alt, which the accessibility check reads.
+      items.push({ name: address(image).pathname.slice(0, 120), ...size(image)!, viewBox: svg.hasAttribute("viewBox"), named: true,
+        fixedInFile: colored && !source.includes("prefers-color-scheme") });
+    } catch {}
+  }
+  return { background, colors, items };
+};
 /** Runs in the page: scrolls down a screen at a time (at most 12) so lazy images start loading, then back to the top. */
 const SCROLL_THROUGH = async () => {
   for (let step = 1; step <= 12 && window.innerHeight * step < document.documentElement.scrollHeight; step++) {
@@ -297,6 +374,22 @@ const LOAD_TEXT = 300;
 const TYPED_FIELDS = ["", "text", "search", "tel", "url", "email", "number"];
 /** Fields a person sets through a picker: fill sets their value and fires input and change. */
 const PICKED_FIELDS = ["date", "time", "datetime-local", "month", "week", "color", "range"];
+
+/** Scrolls a control to the middle of the screen at once (a page's smooth scrolling aside), then waits up to a
+ * second for its box to have a size and hold still: a section that grows or fades in once scrolled to has finished. */
+async function settleInView(element: import("puppeteer-core").ElementHandle): Promise<void> {
+  await element.evaluate(async el => {
+    el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+    const box = () => { const r = el.getBoundingClientRect(); return r.width >= 1 && r.height >= 1 ? `${r.x},${r.y},${r.width},${r.height}` : ""; };
+    let last = box();
+    for (const end = performance.now() + 1000; performance.now() < end;) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const now = box();
+      if (now && now === last) return;
+      last = now;
+    }
+  });
+}
 
 /** One task's disposable browser. No user profiles, arbitrary evaluation or browser installation. */
 /** The scenario's inputs as they are now; a check that names none is told how to get a fresh pass when the whole project can't be watched. */
@@ -349,7 +442,7 @@ export class BrowserSession {
   run(input: unknown, signal?: AbortSignal): Promise<Record<string, unknown>> {
     if (this.controller.signal.aborted) return Promise.reject(new Error("Browser session is closed"));
     if (this.work) return Promise.reject(new Error("Browser is busy; wait for the current operation"));
-    if (++this.operations > 64) return Promise.reject(new Error("Browser operation limit reached (64 per session)"));
+    if (++this.operations > 200) return Promise.reject(new Error("Browser operation limit reached (200 per session)"));
     const work = this.perform(input, signal);
     this.work = work;
     void work.finally(() => { if (this.work === work) this.work = undefined; }).catch(() => {});
@@ -569,8 +662,10 @@ export class BrowserSession {
         if (failedRequests.length >= LOAD_LIMIT * 2) return;
         try { const address = new URL(source); failedRequests.push({ url: `${address.origin}${address.pathname}`.slice(0, 512), ...detail }); } catch {}
       };
-      page.on("response", response => { if (response.status() >= 400) failed(response.url(), { status: response.status() }); });
-      page.on("requestfailed", request => failed(request.url(), { error: (request.failure()?.errorText ?? "request failed").slice(0, 200) }));
+      // The drawn-picture step's own reads of picture files (marked by ART_FACTS) are not the page's requests.
+      const own = (request: HTTPRequest) => request.headers()["x-casper-check"] === "art";
+      page.on("response", response => { if (response.status() >= 400 && !own(response.request())) failed(response.url(), { status: response.status() }); });
+      page.on("requestfailed", request => { if (!own(request)) failed(request.url(), { error: (request.failure()?.errorText ?? "request failed").slice(0, 200) }); });
       const timeout = this.options.navigationTimeoutMs ?? (this.loads++ === 0 ? 30_000 : 10_000);
       const response = await page.goto(target, { waitUntil: "load", timeout });
       combined.throwIfAborted();
@@ -606,6 +701,7 @@ export class BrowserSession {
       // Accessibility basics, at desktop width: notes for the person, never a failure. A page that can't be read gives none.
       const a11y = await page.evaluate(A11Y_NOTES).catch(() => undefined);
       const images = await page.evaluate(LOOK_FACTS, false).catch(() => undefined);
+      const art = await this.artFacts(page, combined);
       // The same page on a phone: layouts that only break there (a column that squashes an input, a wide table)
       // never show at the desktop size above. Each text field is compared with its own desktop height.
       const desktop = await page.evaluate(FIELD_HEIGHTS);
@@ -620,7 +716,7 @@ export class BrowserSession {
       }).slice(0, 5);
       const phone = { viewport: PHONE.width, pageWidth: await page.evaluate(() => Math.round(document.documentElement.scrollWidth)), squashed };
       const fit = await page.evaluate(LOOK_FACTS, true).catch(() => undefined);
-      const look = images && fit ? { ...fit, brokenImages: images.brokenImages, repeatedImages: images.repeatedImages } : undefined;
+      const look = images && fit ? { ...fit, brokenImages: images.brokenImages, repeatedImages: images.repeatedImages, art } : undefined;
       const phonePicture = shot ? await this.pagePicture(page, `page-${shot}-phone.png`, combined) : undefined;
       const screenshots = { ...(desktopPicture ? { desktop: desktopPicture } : {}), ...(phonePicture ? { phone: phonePicture } : {}) };
       return { status: response?.status() ?? null, consoleChecked: true, consoleErrors, pageErrors, failedRequests,
@@ -630,6 +726,40 @@ export class BrowserSession {
       await context?.close().catch(() => {});
       release();
     }
+  }
+
+  /** The drawn pictures' facts. When the page turns its own background dark in dark mode, each icon's colors are
+   * compared in both modes, set on purpose (Chrome's default follows the computer): one that stays the same keeps its
+   * light look on a dark page. An illustration's own colors are its art, so they are left alone. */
+  private async artFacts(page: Page, signal: AbortSignal): Promise<ArtFacts> {
+    const found: ArtFacts = { noViewBox: [], noName: [], fixedColors: [], fixedFiles: [] };
+    signal.throwIfAborted();
+    const facts = await page.evaluate(ART_FACTS, false).catch(() => undefined);
+    signal.throwIfAborted();
+    if (!facts?.items.length) return found;
+    let light: Awaited<ReturnType<typeof ART_FACTS>> | undefined, dark: typeof light;
+    if (facts.items.some(item => item.icon && (item.fixedInFile || (item.index !== undefined && facts.colors[item.index])))) {
+      const scheme = async (value: string) => {
+        signal.throwIfAborted();
+        await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value }]);
+        await page.evaluate(ANIMATIONS_DONE).catch(() => {});
+        return page.evaluate(ART_FACTS, true);
+      };
+      try { light = await scheme("light"); dark = await scheme("dark"); } catch {} finally {
+        await page.emulateMediaFeatures().catch(() => {});
+        if (!signal.aborted) await page.evaluate(ANIMATIONS_DONE).catch(() => {});
+      }
+      signal.throwIfAborted();
+    }
+    const turnsDark = Boolean(light && dark && dark.background !== light.background);
+    for (const item of facts.items) {
+      if (item.big && !item.viewBox) found.noViewBox.push(item.name);
+      if (!item.named) found.noName.push(item.name);
+      if (!item.icon || !turnsDark) continue;
+      if (item.index === undefined) { if (item.fixedInFile) found.fixedFiles.push(item.name); }
+      else if (light?.colors[item.index] && dark?.colors[item.index] === light.colors[item.index]) found.fixedColors.push(item.name);
+    }
+    return { noViewBox: found.noViewBox.slice(0, 3), noName: found.noName.slice(0, 3), fixedColors: found.fixedColors.slice(0, 3), fixedFiles: found.fixedFiles.slice(0, 3) };
   }
 
   invalidate(): void { this.revision++; }
@@ -655,7 +785,7 @@ export class BrowserSession {
     if (input.action === "check") {
       const scenario = parseScenario(input.scenario);
       await this.askMetadata(scenario.url, signal);
-      if (this.scenarios.size >= 8) throw new Error("Browser scenario limit reached (8 per session)");
+      if (this.scenarios.size >= 24) throw new Error("Browser check limit reached (24 per session); replay the ids your checks returned instead of recording new ones");
       id = randomUUID();
       this.scenarios.set(id, { scenario, revision: this.revision, check: { id, name: scenario.name,
         scenarioSha256: createHash("sha256").update(JSON.stringify(scenario)).digest("hex"), url: scenario.url, viewport: scenario.viewport,
@@ -740,9 +870,11 @@ export class BrowserSession {
     const before = await describe();
     if (/^(password|file)$/i.test(before.type) || /password|one-time-code|cc-/i.test(before.autocomplete)) throw new Error("Credential, payment and file-upload inputs are outside this browser slice");
     const type = before.type.toLowerCase();
+    if (action === "fill" && before.tag === "SELECT") throw new Error("Fill does not set a <select>; use action select with the option's value or label");
     if (action === "fill" && before.tag !== "TEXTAREA" && (before.tag !== "INPUT" || !(TYPED_FIELDS.includes(type) || PICKED_FIELDS.includes(type)))) {
       throw new Error(`Fill takes a textarea or an input of type ${[...TYPED_FIELDS.filter(Boolean), ...PICKED_FIELDS].join(", ")}`);
     }
+    if (action === "select" && before.tag !== "SELECT") throw new Error("Select takes a <select>; use fill for a text field, or click the options of a custom menu");
     const hold = actionHold({ impact: String(input.impact), url: before.url, target: before.target, allowAll: this.options.allowActions?.() });
     if (hold) {
       const approved = await this.options.confirm?.({ action, selector, url: before.url, target: before.target,
@@ -756,9 +888,24 @@ export class BrowserSession {
     signal.throwIfAborted();
     const element = await page.$(selector);
     if (!element) throw new Error("Browser target disappeared");
+    let selected: { value: string; label: string } | undefined;
     try {
+      await settleInView(element);
       // No automatic retry after a potentially consequential action.
       if (action === "click") await element.click();
+      else if (action === "select") {
+        // By the option's value first, then its label, as a person picks it; input and change fire as they would.
+        const picked = await element.evaluate((el, next) => {
+          const options = [...(el as HTMLSelectElement).options];
+          const option = options.find(o => o.value === next) ?? options.find(o => o.label.trim() === next.trim());
+          if (!option || option.disabled) return { missing: options.slice(0, 20).map(o => o.value === o.label.trim() ? o.value : `${o.value} (${o.label.trim()})`) };
+          option.selected = true;
+          el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true }));
+          return { picked: { value: option.value, label: option.label.trim() } };
+        }, value!);
+        if (!picked.picked) throw new Error(`The select has no option ${JSON.stringify(value!.slice(0, 40))}; its options are ${(picked.missing ?? []).join(", ").slice(0, 600)}`);
+        selected = picked.picked;
+      }
       else if (action === "press") await element.press(value as import("puppeteer-core").KeyInput);
       else if (before.tag === "INPUT" && PICKED_FIELDS.includes(type)) {
         // A date, time, color or range field is set by its picker, not by keystrokes: set the value as the picker would.
@@ -776,7 +923,7 @@ export class BrowserSession {
       }
     } finally { await element.dispose(); }
     signal.throwIfAborted();
-    return { action, url: page.url(), executed: true, guidance: "Action execution is not proof of the expected result. Inspect or replay assertions." };
+    return { action, url: page.url(), executed: true, ...(selected ? { selected } : {}), guidance: "Action execution is not proof of the expected result. Inspect or replay assertions." };
   }
 
   private start(): Promise<Page> {

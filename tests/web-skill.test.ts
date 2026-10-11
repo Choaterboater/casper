@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ProjectModel } from "../src/project/model";
@@ -49,6 +49,75 @@ test("the skill asks for a chosen look: fonts that suit the product, a page shap
     "the page's shape before writing code", "off-center hero", "uneven tile grid", "one reading column", "split screen",
     "its own image", "its own action", "Never reuse one image with a different label", "stock or CDN images you have not checked",
     "flex: 1", "margin-top: auto", "more than one column"]) expect(body).toContain(line);
+});
+
+test("the skill tells icons from illustrations: icons follow dark mode, illustrations read the kit and build lit, layered art", () => {
+  const body = webSkills()[0]!.body;
+  for (const line of ["## Drawing SVG", "Icons (small UI glyphs)", "currentColor", "aria-hidden", "Illustrations (hero, product, about art)",
+    "illustration-kit.svg", "back to front", "top-left", "side face", "top face", "cast shadow", 'role="img"', "<title>", "<desc>",
+    "viewBox", "no fixed size", "make_picture"]) expect(body).toContain(line);
+  // The rules that pushed art toward flat clip-art are gone.
+  for (const line of ["one simple motif", "no text inside", "a few clean shapes"]) expect(body).not.toContain(line);
+  expect(Buffer.byteLength(body)).toBeLessThanOrEqual(MAX_BUNDLED_BODY_BYTES);
+});
+
+/** A strict enough XML check for the kit: every tag is closed in order, attributes are quoted, nothing is left over. */
+function xmlElements(text: string): Array<{ name: string; attributes: Record<string, string> }> {
+  const elements: Array<{ name: string; attributes: Record<string, string> }> = [];
+  const open: string[] = [];
+  const rest = text.replace(/<!--[\s\S]*?-->/g, "").replace(/<(\/?)([A-Za-z][\w:-]*)((?:\s+[\w:-]+="[^"<]*")*)\s*(\/?)>/g, (_, close: string, name: string, attributes: string, self: string) => {
+    if (close) { expect(open.pop()).toBe(name); return ""; }
+    const pairs: Record<string, string> = {};
+    for (const [, key, value] of attributes.matchAll(/([\w:-]+)="([^"]*)"/g)) {
+      expect(pairs[key!]).toBeUndefined();
+      pairs[key!] = value!;
+    }
+    elements.push({ name, attributes: pairs });
+    if (!self) open.push(name);
+    return "";
+  });
+  expect(open).toEqual([]);
+  // Only the title and description text is left; no stray markup.
+  expect(rest).not.toMatch(/[<>]/);
+  return elements;
+}
+
+test("the illustration kit is valid SVG with unique ids, the listed materials, shadows and textures, each with a comment", () => {
+  const kit = webSkills()[0]!.files["illustration-kit.svg"]!;
+  expect(kit.length).toBeLessThan(8 * 1024);
+  const elements = xmlElements(kit);
+  expect(elements[0]!.name).toBe("svg");
+  expect(elements[0]!.attributes).toMatchObject({ xmlns: "http://www.w3.org/2000/svg", viewBox: "0 0 240 120" });
+  const ids = elements.flatMap(({ attributes }) => attributes.id ? [attributes.id] : []);
+  expect(new Set(ids).size).toBe(ids.length);
+  for (const id of ["steel", "chrome", "walnut", "light-wood", "ceramic", "glass", "paint", "enamel", "fabric", "paper", "stone",
+    "contact-shadow", "cast-shadow", "glow", "sheen", "brushed", "grain"]) {
+    expect(ids).toContain(id);
+    // A one-line comment says what each one is for, right above it.
+    expect(kit).toMatch(new RegExp(`<!-- [^\\n]+ -->\\n<[a-zA-Z]+ id="${id}"`));
+  }
+  const byId = new Map(elements.filter(({ attributes }) => attributes.id).map((element) => [element.attributes.id!, element]));
+  expect(byId.get("contact-shadow")!.name).toBe("filter");
+  expect(byId.get("cast-shadow")!.name).toBe("filter");
+  expect(elements.filter(({ name }) => name === "feGaussianBlur").length).toBeGreaterThanOrEqual(3);
+  // Steel and chrome are 7-stop bands of light and dark.
+  for (const id of ["steel", "chrome"]) expect(kit.split(`id="${id}"`)[1]!.split("</linearGradient>")[0]!.match(/<stop /g)).toHaveLength(7);
+  expect(kit).toContain("change only the hue");
+  // Every url(#…) its shapes use is defined in it.
+  for (const [, used] of kit.matchAll(/="url\(#([\w-]+)\)"/g)) expect(ids).toContain(used!);
+});
+
+test("the kit is never in the prompt: the skill names it, and its folder is given only when the skill is picked", async () => {
+  const body = webSkills()[0]!.body;
+  expect(body).not.toContain("<linearGradient");
+  const prompt = "build a landing page with a hero illustration";
+  const loaded = await (await registry()).loadForTask(prompt, model(), classifyTask(prompt));
+  const text = formatSelectedSkills(loaded);
+  expect(text).not.toContain("<linearGradient");
+  const folder = /^Base directory: (.+)$/m.exec(text)?.[1];
+  expect(folder).toBeDefined();
+  expect(await readFile(path.join(folder!, "illustration-kit.svg"), "utf8")).toBe(webSkills()[0]!.files["illustration-kit.svg"]!);
+  if (process.platform !== "win32") expect((await stat(folder!)).mode & 0o077).toBe(0);
 });
 
 test("UI work in a project with no design yet picks it", async () => {

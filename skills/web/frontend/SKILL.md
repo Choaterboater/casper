@@ -63,6 +63,24 @@ design folder), follow that instead: the repo's style always wins over this file
 - Cards in a row: the card body gets `flex: 1` and the price or action `margin-top: auto`, so they
   line up. Check a desktop row with more than one column.
 
+## Drawing SVG
+
+Icons (small UI glyphs): one stroke width and style for all of them, `currentColor` or the CSS
+variables so they follow dark mode, a few shapes, `aria-hidden="true"` or a `<title>`.
+
+Illustrations (hero, product, about art) should look like a polished product picture:
+
+- First read `illustration-kit.svg` in this skill's base directory and copy the materials
+  (steel, chrome, wood, ceramic, glass, paint, enamel, paper, stone, fabric), shadows and
+  textures you need into `<defs>`.
+- Build back to front: background and wall glow, ground, cast shadow, the main body's faces,
+  details, highlights.
+- One light from the top-left: a lit side, a darker side face and a top face for depth, shadows
+  falling down-right. Soft contact and cast shadows from the kit's filters.
+- Add a little real detail (screws, seams, a dial's ticks, labels).
+- `role="img"` with `<title>` and `<desc>`; a `viewBox` and no fixed size, sized with CSS.
+- For photo-like images, use make_picture when it is offered.
+
 ## States
 
 Every view that shows data has all four: loading (a short line or skeleton), empty (says what
@@ -88,4 +106,5 @@ Prefer plain alignment to a grid, real words, one accent used rarely, and whites
 ## Check it
 
 Open the page at 390px and at desktop width. Tab through it. Read it in dark mode. Casper's page
-check opens changed pages and notes missing labels, alt text, button names and low contrast.
+check opens changed pages and notes missing labels, alt text, button names, low contrast, and
+SVGs with no viewBox or name and icons that stay light in dark mode.

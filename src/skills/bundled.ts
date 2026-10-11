@@ -1,3 +1,7 @@
+import { rmSync } from "node:fs";
+import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { ProjectModel } from "../project/model";
 import type { TaskClassification } from "../task/classify";
 import { normaliseLineEndings, parseSkillMetadata, splitSkill, type SkillMetadata } from "./metadata";
@@ -8,6 +12,7 @@ import clearpassSource from "../../skills/network/clearpass/SKILL.md" with { typ
 import junosSource from "../../skills/network/junos/SKILL.md" with { type: "text" };
 import mistSource from "../../skills/network/mist/SKILL.md" with { type: "text" };
 import frontendSource from "../../skills/web/frontend/SKILL.md" with { type: "text" };
+import illustrationKit from "../../skills/web/frontend/illustration-kit.svg" with { type: "text" };
 
 /** A bundled skill rides along with one request, so it stays small (about 1,500 tokens). */
 export const MAX_BUNDLED_BODY_BYTES = 6 * 1024;
@@ -225,12 +230,14 @@ export interface BundledWebSkill {
   body: string;
   source: string;
   path: string;
+  /** Files the body points to by name, read by the AI only when it needs one (never part of the prompt). */
+  files: Record<string, string>;
 }
 
 export type AnyBundledSkill = BundledSkill | BundledWebSkill;
 
 /** Parse and check one bundled web skill. A broken one is a build error, so this throws. */
-export function parseWebSkill(text: string, filePath: string): BundledWebSkill {
+export function parseWebSkill(text: string, filePath: string, files: Record<string, string> = {}): BundledWebSkill {
   const source = normaliseLineEndings(text);
   const { header, body } = splitSkill(source);
   const metadata = parseSkillMetadata(header);
@@ -239,15 +246,37 @@ export function parseWebSkill(text: string, filePath: string): BundledWebSkill {
     throw new Error(`${metadata.name}: the description is one line of at most ${MAX_BUNDLED_DESCRIPTION} characters`);
   }
   if (Buffer.byteLength(body) > MAX_BUNDLED_BODY_BYTES) throw new Error(`${metadata.name}: the body is larger than 6 KiB`);
-  return { kind: "web", metadata, header, body, source, path: filePath };
+  return { kind: "web", metadata, header, body, source, path: filePath, files };
 }
 
 let cachedWeb: BundledWebSkill[] | undefined;
 
 /** The web skills shipped inside Casper (today: web-frontend). */
 export function webSkills(): BundledWebSkill[] {
-  cachedWeb ??= [parseWebSkill(frontendSource, "skills/web/frontend/SKILL.md")];
+  cachedWeb ??= [parseWebSkill(frontendSource, "skills/web/frontend/SKILL.md", { "illustration-kit.svg": illustrationKit })];
   return cachedWeb;
+}
+
+const skillFolders = new Map<string, Promise<string | undefined>>();
+
+/** A folder holding a bundled skill's files, so the AI's read tool can open them: made once per run in a new
+ * temporary folder only this user can open, and removed when Casper exits. Undefined when the skill has no files or
+ * the folder could not be made. */
+export function bundledSkillFolder(skill: BundledWebSkill): Promise<string | undefined> {
+  if (!Object.keys(skill.files).length) return Promise.resolve(undefined);
+  let folder = skillFolders.get(skill.metadata.name);
+  if (!folder) {
+    folder = (async () => {
+      const made = await mkdtemp(path.join(os.tmpdir(), `casper-${skill.metadata.name}-`));
+      // "exit" runs only synchronous work.
+      process.once("exit", () => { try { rmSync(made, { recursive: true, force: true }); } catch {} });
+      await chmod(made, 0o700);
+      for (const [name, text] of Object.entries(skill.files)) await writeFile(path.join(made, name), text, { flag: "wx" });
+      return made;
+    })().catch(() => undefined);
+    skillFolders.set(skill.metadata.name, folder);
+  }
+  return folder;
 }
 
 /** Words that make a request UI work in any project. Matched as whole words or phrases after normaliseWords. */

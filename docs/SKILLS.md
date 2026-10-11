@@ -94,7 +94,16 @@ values in one theme file, real HTML elements, a visible label on every field, a 
 44px tap targets, a 390px phone width first, 4.5:1 text contrast, and loading, empty and error states.
 It asks for a font pair and accent that suit the product (never Inter alone; the system stack is the
 fallback), a page shape chosen before the code, its own image and action for each product or plan,
-and cards whose prices and buttons line up in a row. It also lists what makes a page look machine-made
+and cards whose prices and buttons line up in a row. For SVG it tells icons from illustrations: icons
+use one stroke style and `currentColor` or the theme colors so they follow dark mode; an illustration
+(hero, product, about art) is built back to front with one light from the top-left, a side and top face
+for depth, soft shadows and a little real detail, `role="img"` with `<title>` and `<desc>`, and a
+`viewBox`. For its materials the AI first reads `illustration-kit.svg`, a file shipped with the skill
+(brushed steel, chrome, wood, ceramic, glass, paint, enamel, paper, stone and fabric, contact and cast
+shadows, a glow, a sheen and brushed-metal and grain textures, each ready to copy). The kit is never in the
+prompt: when the skill is picked, Casper writes it to a new temporary folder only you can open, names that
+folder as the skill's base directory, and removes it when Casper exits. For photo-like images the skill
+asks for `make_picture` when that tool is offered. It also lists what makes a page look machine-made
 (purple gradients, emoji as icons, everything in a card, lorem ipsum) so the AI skips them.
 
 - **Picked only for UI work in a project with no look of its own yet:** a request with a web word

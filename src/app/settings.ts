@@ -54,6 +54,11 @@ async function webKeys(home: string): Promise<string[]> {
   return isMap(await userConfigValue(home, ["web"])) ? ["web", "enabled"] : ["web"];
 }
 
+/** pictures: on/off goes into pictures.enabled when your pictures: is a mapping (models are listed), so they stay. */
+async function picturesKeys(home: string): Promise<string[]> {
+  return isMap(await userConfigValue(home, ["pictures"])) ? ["pictures", "enabled"] : ["pictures"];
+}
+
 /** reader: on/off goes into reader.enabled when your reader: is a mapping (paths are listed), so the paths stay. */
 async function readerKeys(home: string): Promise<string[]> {
   return isMap(await userConfigValue(home, ["reader"])) ? ["reader", "enabled"] : ["reader"];
@@ -161,6 +166,9 @@ export function settingRows(context: ProjectContext): Setting[] {
     onOffRow("Pages the AI makes", context.aiPages !== false,
       "When seeing beats reading (options side by side, a mock-up, a dashboard, a diagram, a report for others), the AI makes a page on this computer and you see it in your browser. Off: the AI is not offered it, so it costs no tokens; /pages still lists the ones made.",
       ["ai_pages"], true, "task"),
+    onOffRow("Pictures the AI makes", context.pictures !== false,
+      "For a page that needs photos or illustrations, the AI makes them with your ChatGPT plan through Codex, or a free OpenRouter model; a paid model only when you name one. With neither, it draws SVG.",
+      picturesKeys, true, "task"),
     onOffRow("Open pages in the browser", context.openPages !== false,
       "A page the AI makes opens in your browser the first time in a session, and its tab reloads itself after each change. Off: Casper prints the link only (as it always does over SSH or with no desktop).",
       ["open_pages"], true, "step"),

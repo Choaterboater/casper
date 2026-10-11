@@ -358,6 +358,10 @@ export interface RuntimeSession {
   /** A signed-in model that can see images, for a request with pictures on one that can't: the user's model
    * roles first, then the provider's default. Undefined when none can. Makes no call. */
   visionModel?(): RuntimeModelInfo | undefined;
+  /** A provider (openrouter, openai) has a sign-in or key. Makes no call. */
+  signedIn?(provider: string): boolean;
+  /** That provider's key, for a request Casper makes itself (make_picture); never shown. Undefined when none. */
+  providerKey?(provider: string): Promise<string | undefined>;
   setModelRole?(role: string, selector?: string): Promise<Record<string, string>>;
   setEffort?(level: string, persist: boolean): Promise<RuntimeStatus>;
   getUsage?(): RuntimeUsage;

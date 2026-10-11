@@ -58,6 +58,14 @@ async function runSandboxed(options: ToolRunOptions, network: "none" | "ask"): P
  * would run the go toolchain on the repo): so they run as they are. */
 export const runInstallStep: ToolRunner = (options) => runPlanned(options, { file: options.file, args: [...options.args], shell: false });
 
+/** Your own Codex CLI making one picture (make_picture): it needs the network and its own ~/.codex sign-in, works in
+ * an empty temp folder under Codex's own sandbox, and gets Casper's arguments only, so it runs as it is too. */
+export const runCodex: ToolRunner = runInstallStep;
+
+/** macOS's sips or ImageMagick shrinking a picture make_picture saved: Casper's fixed arguments on a copy in a temp
+ * folder, no network needed and no shell, so it runs as it is. */
+export const runImageTool: ToolRunner = runInstallStep;
+
 const runPlanned = (options: ToolRunOptions, plan: SandboxedSpawn): Promise<ToolRunResult> => new Promise((resolve) => {
   const maxStdout = options.maxStdoutBytes ?? DEFAULT_STDOUT_BYTES;
   const stdout: Buffer[] = [];
