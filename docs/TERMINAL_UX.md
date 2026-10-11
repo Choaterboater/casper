@@ -755,7 +755,7 @@ Plain answers stay in the terminal, and so does a Mermaid diagram from the diagr
 ### Local debugger
 
 `/debug` lists project targets/status without a model or adapter. Configure
-`.casper/debug.json`, then `/debug start <target>` for fresh exact execution consent.
+`.casper/debug.json`, then `/debug start <target>` launches as typed (it prints what it runs, no box).
 `/debug breakpoints <path> <1,2|clear>`, `threads`, `stack <thread>`, `scopes <frame>`,
 `variables <handle>`, `continue <thread>` and `stop` provide bounded local inspection.
 Handles expire when execution resumes. Values may contain secrets; they are neither

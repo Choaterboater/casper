@@ -1,4 +1,4 @@
-"""Real terminal consent and shutdown around the production debugger commands."""
+"""A real terminal launch and shutdown around the production debugger commands."""
 import importlib.util
 import json
 import os
@@ -34,20 +34,9 @@ def case(bun, repo, root, ending):
     debuggee = None
     try:
         s.until("│ idle")
-        # Pretyped yes is a draft, not consent to the subsequent exact launch preview.
-        s.send("/debug start example\nyes")
-        s.until("Launch this debugger target?")
-        # A box ignores keys for a moment after it opens; Enter then picks 1, No.
-        time.sleep(0.5)
-        s.send("\r")
-        s.until("Debugger launch denied")
-        assert not (root / "project/adapter-started").exists()
-        s.until_ready()
-        s.send("\x01\x0b/debug start example\r")
-        # Wait for a second actual question, not the old transcript line.
-        s.until_new("Launch this debugger target?")
-        time.sleep(0.5)
-        s.send("2")
+        # The typed command is the yes: a one-line notice, then the launch, with no box.
+        s.send("/debug start example\r")
+        s.until("[debug] Not sandboxed")
         s.until('"state":"stopped"')
         debuggee = int((root / "project/debuggee-pid").read_text())
         adapter = int((root / "project/adapter-started").read_text())
@@ -73,4 +62,4 @@ if __name__ == "__main__":
     for ending in ("stop", "eof", "sigterm"):
         directory = pathlib.Path(root) / ending; directory.mkdir()
         case(bun, repo, directory, ending)
-    print("DEBUG PTY PASS: fresh consent, stop, EOF, SIGTERM and owned-process cleanup")
+    print("DEBUG PTY PASS: launch as typed, stop, EOF, SIGTERM and owned-process cleanup")

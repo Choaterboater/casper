@@ -181,7 +181,7 @@ export class CasperApp {
   loginProvider?: string;
   /** The current task's stages for the footer. */
   readonly steps = new StepRail();
-  /** Browser actions and debugger launches you said "Yes, for this session" to. */
+  /** Browser actions you said "Yes, for this session" to. */
   readonly sessionYes = new SessionYes((preview, question, options, signal) => recordedApproval(this, preview, question, options, signal));
   readonly runtimeFactory: () => AgentRuntime | Promise<AgentRuntime>;
   readonly subagents: SubagentManager;

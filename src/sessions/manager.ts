@@ -107,7 +107,7 @@ function terminalSafe(value: string): string {
 
 function patchPreview(branch: NamedSessionBranch, action: ReturnAction, patch: WorktreePatch, verification?: VerificationStatus): string {
   return [
-    "Return-to-main confirmation",
+    "Returning to main",
     `session branch: ${JSON.stringify(branch.name)}`,
     `action: ${action}`,
     `candidate workspace: ${branch.workspacePath}`,

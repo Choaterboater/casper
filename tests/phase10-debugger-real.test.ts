@@ -20,7 +20,7 @@ async function until(check: () => boolean) {
 
 for (const finish of ["exit", "stop", "crash"] as const) realTest(`real installed debugpy: breakpoint, variables and ${finish} cleanup`, async () => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-debugpy-")));
-  const session = new DebugSession({ projectRoot: root, confirm: async () => true });
+  const session = new DebugSession({ projectRoot: root });
   try {
     await mkdir(path.join(root, ".casper"));
     await writeFile(path.join(root, "fixture.py"), `import os, time\nanswer = 41\nanswer += 1\nopen('real-pid', 'w').write(str(os.getpid()))\ntime.sleep(${finish === "exit" ? "0.1" : "30"})\n`);

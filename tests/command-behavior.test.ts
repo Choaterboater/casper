@@ -94,7 +94,7 @@ test("/effort names the model's own levels, and a level the model lacks is not s
   expect(effortProblem("bogus", undefined)).toContain("Unknown effort bogus");
 });
 
-test("the help says what /branch and /switch do: only /switch main apply|discard asks", () => {
+test("the help says /branch, /switch and /switch main apply|discard run as typed", () => {
   const branch = COMMAND_REGISTRY.find((command) => command.name === "branch")!;
   const switching = COMMAND_REGISTRY.find((command) => command.name === "switch")!;
   expect(branch.description).not.toContain("asks first");
@@ -102,7 +102,9 @@ test("the help says what /branch and /switch do: only /switch main apply|discard
   const row = (start: string) => FULL_HELP_TEXT.split("\n").find((line) => line.trimStart().startsWith(start))!;
   expect(row("/branch <name>")).not.toContain("(asks first)");
   expect(row("/switch <branch>")).not.toContain("(asks first)");
-  expect(row("/switch main apply")).toContain("asks first");
+  expect(row("/switch main apply")).not.toContain("asks first");
+  expect(row("/switch main discard")).not.toContain("asks first");
+  expect(switching.description).not.toContain("asks first");
   expect(FULL_HELP_TEXT).not.toContain("/branch, /switch and making or removing a workspace ask you first.");
 });
 

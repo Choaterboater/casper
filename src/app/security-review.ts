@@ -191,7 +191,8 @@ export function aiReviewQuestion(scope: ReviewScope, model: string, cost: string
   ].join("\n");
 }
 
-/** The AI review after the tools: a numbered ask with Stop first and the cost shown, then one bounded read-only child. */
+/** The AI review after the tools: a numbered ask with Stop first and the cost shown (none when /security-review ai was
+ * typed: the cost is printed), then one bounded read-only child. */
 async function aiReview(host: SecurityReviewHost, report: SecurityReport, explicit: boolean): Promise<void> {
   const ai = host.ai;
   if (!ai || host.signal?.aborted) return;
@@ -213,7 +214,8 @@ async function aiReview(host: SecurityReviewHost, report: SecurityReport, explic
   }
   const gitleaksRan = report.tools.some((tool) => tool.id === "gitleaks" && (tool.status === "ok" || tool.status === "problems"));
   const question = aiReviewQuestion(scope, terminalText(model.name), reviewCostWords(scope, model.inputCostPerMillion), gitleaksRan);
-  if (canAsk) {
+  // Typing /security-review ai is the yes: the cost line is printed and no box asks again.
+  if (canAsk && !explicit) {
     const answer = await host.pick(terminalText(question), AI_REVIEW_CHOICES.map((choice) => ({ ...choice })), host.signal);
     if (answer !== AI_REVIEW_CHOICES[1].label) { host.write(`${AI_REVIEW_STOPPED}\n`); return; }
   } else host.write(`${question}\nRunning it because you asked with /security-review ai.\n`);

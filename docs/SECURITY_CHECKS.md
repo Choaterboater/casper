@@ -116,8 +116,10 @@ added. `--json` prints one versioned document (`version: 1`) with the same facts
 ## The AI review
 
 After the tools, `/security-review` offers one more step: the AI reads the changed
-code for security problems. It is the only part that costs tokens, so it asks first,
-with the cost, and Enter stops:
+code for security problems. It is the only part that costs tokens, so plain
+`/security-review` asks first, with the cost, and Enter stops. Typing
+`/security-review ai` is the yes: it prints the same lines without the `1 · 2` choice
+and runs the review.
 
 ```
 Next: the AI can read the 3 files for security problems (changes since main).
@@ -158,6 +160,6 @@ This is the AI's opinion of the code it read. It does not prove the code has no 
 - **Ignores stay yours.** Nothing the AI says can approve or hide an ignore. Only an
   ignore you committed, or one you approved with your own `3`, counts.
 - **Scripts.** A one-shot or `--json` run never starts the AI review by itself: it says
-  so and spends nothing. `casper "/security-review ai"` runs it without asking (the
-  cost is printed first), and with `--json` the receipt's `usage` says what it spent.
+  so and spends nothing. `casper "/security-review ai"` runs it without asking, like
+  `/security-review ai` in a session (the cost is printed first), and with `--json` the receipt's `usage` says what it spent.
   `casper security` never calls a model.

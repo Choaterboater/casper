@@ -4,7 +4,7 @@ import { NO, YES_ONCE, YES_SESSION, type Choice } from "./safe-choices";
 export type ApproveBox = (preview: string, question: string, options: Choice[], signal?: AbortSignal) => Promise<string | undefined>;
 
 /**
- * Approval boxes that offer "Yes, for this session" (a browser action, a debugger launch): 1 No · 2 Yes, this once ·
+ * Approval boxes that offer "Yes, for this session" (a browser action): 1 No · 2 Yes, this once ·
  * 3 Yes, for this session. A session yes covers that key until Casper exits or forget(); nobody to ask is a No.
  */
 export class SessionYes {

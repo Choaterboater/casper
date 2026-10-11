@@ -178,6 +178,21 @@ test("a run that can't ask never spends tokens unless /security-review ai asked 
   await expect(runSecurityReview(explicit.host, ["ai", "now"])).rejects.toThrow(SECURITY_REVIEW_USAGE);
 });
 
+test("/security-review ai typed where Casper can ask runs the AI review with no cost box, printing the cost line first", async () => {
+  const root = await branchRepo("casper-ai-typed-");
+  const home = await temp("casper-ai-home-");
+  const tools = await fakeTools(home);
+  const fake = fakeAI(GOOD);
+  // Enter at the AI ask would stop it: typing ai is the yes, so no AI ask is shown.
+  const s = host(root, home, tools.find, "<enter>", fake.ai);
+  await runSecurityReview(s.host, ["ai"]);
+  expect(s.asked.some((question) => question.startsWith("Next: the AI can read"))).toBe(false);
+  expect(fake.runs).toHaveLength(1);
+  expect(s.output()).toMatch(/Next: the AI can read[\s\S]*It runs on fixture\/reviewer: at least about/);
+  expect(s.output()).toContain("Running it because you asked with /security-review ai.");
+  expect(s.output()).not.toContain(AI_REVIEW_STOPPED);
+});
+
 test("with no model signed in, the AI review says so and spends nothing; a stopped-early review says it may have missed things", async () => {
   const root = await branchRepo("casper-ai-nomodel-");
   const home = await temp("casper-ai-home-");

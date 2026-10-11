@@ -13,7 +13,7 @@ import { removeTempDir } from "./support/temp-dir";
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 const adapter = path.join(import.meta.dir, "fixtures/dap-adapter.ts");
-async function fixture(confirm: (preview: string, signal: AbortSignal) => Promise<boolean> = async () => true, mode = "normal") {
+async function fixture(notice: (preview: string) => void = () => {}, mode = "normal") {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-debug-")));
   cleanups.push(async () => {
     // Teardown fallback for a deliberately broken production cleanup in fault probes.
@@ -26,7 +26,7 @@ async function fixture(confirm: (preview: string, signal: AbortSignal) => Promis
   const target = { command: process.execPath, args: [adapter, mode], adapterID: "fixture", program: "program.py", breakpoints: { "program.py": [2] } };
   const config = path.join(root, ".casper/debug.json");
   await writeFile(config, JSON.stringify({ targets: { example: target } }));
-  const session = new DebugSession({ projectRoot: root, confirm });
+  const session = new DebugSession({ projectRoot: root, notice });
   cleanups.push(() => session.close());
   return { root, config, target, session };
 }
@@ -53,26 +53,8 @@ test("DAP launch configures before awaiting launch, inspects stopped values and 
   expect(f.session.status().state).toBe("closed");
 });
 
-test("closing during an unresponsive approval revokes startup without waiting for the answer", async () => {
-  let release!: (answer: boolean) => void;
-  let entered!: () => void;
-  const approval = new Promise<boolean>(resolve => { release = resolve; });
-  const ready = new Promise<void>(resolve => { entered = resolve; });
-  const f = await fixture(async () => { entered(); return approval; });
-  const launch = f.session.run({ action: "start", target: "example" });
-  void launch.catch(() => {});
-  await ready;
-  const closing = f.session.close();
-  const settled = await Promise.race([closing.then(() => true), Bun.sleep(300).then(() => false)]);
-  release(true); await launch.catch(() => {}); await closing;
-  expect(settled).toBe(true);
-  expect(await Bun.file(path.join(f.root, "adapter-started")).exists()).toBe(false);
-});
-
-needsSymlinks("changed configuration, unsupported fields and redirected program paths cannot launch", async () => {
-  const f = await fixture(async () => { await writeFile(f.config, JSON.stringify({ targets: { example: { ...f.target, programArgs: ["changed"] } } })); return true; });
-  await expect(f.session.run({ action: "start", target: "example" })).rejects.toThrow("target field changed: programArgs");
-  expect(await Bun.file(path.join(f.root, "adapter-started")).exists()).toBe(false);
+needsSymlinks("unsupported fields and redirected program paths cannot launch", async () => {
+  const f = await fixture();
   await writeFile(f.config, JSON.stringify({ targets: { example: { ...f.target, attach: true } } }));
   await expect(f.session.run({ action: "start", target: "example" })).rejects.toThrow("Invalid");
   await symlink(adapter, path.join(f.root, "outside.py"));
@@ -82,7 +64,7 @@ needsSymlinks("changed configuration, unsupported fields and redirected program 
 
 test("protocol errors, unsupported adapters and cancellation drain startup without leaking processes", async () => {
   for (const mode of ["malformed", "unsupported", "hang"]) {
-    const f = await fixture(async () => true, mode);
+    const f = await fixture(undefined, mode);
     const controller = new AbortController();
     const work = f.session.run({ action: "start", target: "example" }, controller.signal);
     if (mode === "hang") {
@@ -99,7 +81,7 @@ test("protocol errors, unsupported adapters and cancellation drain startup witho
 });
 
 test("inspection results that cross stop epochs are rejected instead of reviving stale references", async () => {
-  const f = await fixture(async () => true, "late");
+  const f = await fixture(undefined, "late");
   await f.session.run({ action: "start", target: "example" });
   const stack = await f.session.run({ action: "stack", threadId: 1 });
   const scopes = await f.session.run({ action: "scopes", frame: String(stack.items?.[0]?.handle) });
@@ -107,7 +89,7 @@ test("inspection results that cross stop epochs are rejected instead of reviving
 });
 
 test("debug values stay bounded after terminal escaping and raw provider diagnostics never escape", async () => {
-  const f = await fixture(async () => true, "large");
+  const f = await fixture(undefined, "large");
   await f.session.run({ action: "start", target: "example" });
   const stack = await f.session.run({ action: "stack", threadId: 1 });
   const scopes = await f.session.run({ action: "scopes", frame: String(stack.items?.[0]?.handle) });
@@ -115,7 +97,7 @@ test("debug values stay bounded after terminal escaping and raw provider diagnos
   expect(result.truncated).toBe(true);
   expect(Buffer.byteLength(formatTerminalJSON(result))).toBeLessThanOrEqual(16_384);
   expect(formatTerminalJSON(result)).not.toMatch(/[\x1b\x9b]/);
-  const other = await fixture(async () => true, "error");
+  const other = await fixture(undefined, "error");
   await other.session.run({ action: "start", target: "example" });
   expect((await rejection(other.session.run({ action: "stack", threadId: 1 }))).message).toContain("Debugger request failed");
 });
@@ -123,7 +105,7 @@ test("debug values stay bounded after terminal escaping and raw provider diagnos
 test("reverse requests cannot execute commands, and forged process IDs cannot kill unrelated processes", async () => {
   const unrelated = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], { stdio: "ignore" });
   cleanups.push(async () => { unrelated.kill("SIGKILL"); });
-  const f = await fixture(async () => true, "reverse");
+  const f = await fixture(undefined, "reverse");
   await writeFile(f.config, JSON.stringify({ targets: { example: { ...f.target, args: [adapter, "reverse", String(unrelated.pid)] } } }));
   await f.session.run({ action: "start", target: "example" });
   expect(() => process.kill(unrelated.pid!, 0)).not.toThrow();
@@ -141,7 +123,7 @@ test("reverse requests cannot execute commands, and forged process IDs cannot ki
 });
 
 test("an adapter ignoring disconnect cannot leave its TERM-resistant debuggee running", async () => {
-  const f = await fixture(async () => true, "ignore-disconnect");
+  const f = await fixture(undefined, "ignore-disconnect");
   await f.session.run({ action: "start", target: "example" });
   const pid = Number(await readFile(path.join(f.root, "debuggee-pid"), "utf8"));
   expect(() => process.kill(pid, 0)).not.toThrow();
@@ -152,7 +134,7 @@ test("an adapter ignoring disconnect cannot leave its TERM-resistant debuggee ru
 
 test("cancelling immediately after adapter launch drains its separately grouped debuggee", async () => {
   for (let repeat = 0; repeat < 8; repeat++) {
-    const f = await fixture(async () => true, "hang-launch");
+    const f = await fixture(undefined, "hang-launch");
     const controller = new AbortController();
     const work = f.session.run({ action: "start", target: "example" }, controller.signal);
     void work.catch(() => {});
@@ -168,23 +150,26 @@ test("cancelling immediately after adapter launch drains its separately grouped 
 }, 30_000);
 
 test("debugger request deadlines are enforced without caller cancellation", async () => {
-  const f = await fixture(async () => true, "hang");
+  const f = await fixture(undefined, "hang");
   await expect(f.session.run({ action: "start", target: "example" })).rejects.toThrow("timed out");
   const pid = Number(await readFile(path.join(f.root, "adapter-started"), "utf8"));
   expect(await processGone(pid)).toBe(true);
   expect(f.session.status().state).toBe("failed");
 }, 10_000);
 
-test("debugger metadata and denied launch never start an adapter", async () => {
-  let preview = "";
-  const f = await fixture(async text => { preview = text; return false; });
+test("debugger metadata never starts an adapter; a typed start shows what it launches, then launches with no question", async () => {
+  const previews: string[] = [];
+  const f = await fixture(text => { previews.push(text); });
   expect(await f.session.targets()).toEqual(["example"]);
   expect(f.session.status().state).toBe("idle");
-  await expect(f.session.run({ action: "start", target: "example" })).rejects.toThrow("denied");
-  // The preview is JSON, so a Windows path shows each backslash escaped.
-  const shown = (text: string) => JSON.stringify(text).slice(1, -1);
-  expect(preview).toContain(shown(path.join(f.root, "program.py")));
-  expect(preview).toContain(shown(process.execPath));
   expect(f.session.status().ownedAdapterPid).toBeUndefined();
   expect(await Bun.file(path.join(f.root, "adapter-started")).exists()).toBe(false);
+  expect(previews).toEqual([]);
+  expect(await f.session.run({ action: "start", target: "example" })).toMatchObject({ state: "stopped" });
+  // The preview is JSON, so a Windows path shows each backslash escaped.
+  const shown = (text: string) => JSON.stringify(text).slice(1, -1);
+  expect(previews).toHaveLength(1);
+  expect(previews[0]).toContain(shown(path.join(f.root, "program.py")));
+  expect(previews[0]).toContain(shown(process.execPath));
+  expect(await Bun.file(path.join(f.root, "adapter-started")).exists()).toBe(true);
 });

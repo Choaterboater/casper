@@ -138,8 +138,8 @@ Local commands:
   /branch                           Show named conversations and their workspaces
   /branch <name>                    Copy this conversation into a named one with its own workspace and move there (you typed it: no box)
   /switch <branch>                  Switch to a named conversation and its workspace (you typed it: no box)
-  /switch main apply                Check, review and apply that workspace's changes, then clean up (asks first)
-  /switch main discard              Review and throw away that workspace's changes, then clean up (asks first)
+  /switch main apply                Check, show and apply that workspace's changes, then clean up
+  /switch main discard              Show and throw away that workspace's changes, then clean up
   /delegate <explorer|reviewer> <goal>  Run a read-only helper AI on one goal
   /crew <job>                       The manual way: a builder AI does the job in its own copy; then 1 Keep the copy · 2 Apply to my folder · 3 Throw it away
   /crew                             Crew copies still here; /crew apply <n> or /crew drop <n>
@@ -186,7 +186,7 @@ Local commands:
   /tasks stop <n>|all               Stop one of them, or all, without the question
   /pane [on|off]                    The steps split beside Casper in tmux or iTerm2 (120+ columns); saved
   /debug                            Debugger state and .casper/debug.json targets
-  /debug start <target>             Start the debugger and your program (asks first, every time)
+  /debug start <target>             Start the debugger and your program (not sandboxed; no box, you typed it)
   /debug breakpoints <path> <lines|clear>  Replace one file's breakpoint lines (first line is 1)
   /debug threads|stack <thread>     Show threads, or one thread's stack
   /debug scopes <frame>             Show the scopes of a frame from the stack
@@ -199,14 +199,14 @@ Local commands:
   /verify add <name>                Save a ready-made check Casper found (Ansible) in .casper/project.yaml
   /verify <lab check>               Run a lab check on your own lab (lab.hosts); asks first, never auto
   /security-review                  Run the pinned security tools here (no model), then offer an AI review: 1 Stop here · 2 Run the AI review, with its cost; Enter spends nothing
-  /security-review ai               The same; where Casper can't ask (one-shot, --json), runs the AI review
+  /security-review ai               The same, and runs the AI review with no box (the cost is printed first)
   /security-review update           Download osv-scanner's advisory data (asks first)
   /security-review ignores          List ignores you approved; approve or remove them
   /exit, /quit                      Exit interactive mode (during a task it stops the task first, like Ctrl+C twice); no-op in one-shot mode
 
 Unknown slash commands are rejected locally, never sent to a model.
 /model opens on the providers (Up/Down picks whose models show; Enter, Tab or Right goes to the list). Enter selects and saves ~/.casper/settings.json; Ctrl+S selects for this session only. Exact IDs are remembered too; /model --session <id> opts out.
-During a task, /model and /effort apply from the model's next step; the step already running keeps its model and effort.
+During a task, /model and /effort apply from the model's next step; the step already running and helpers already working keep their model and effort.
 During a task every command runs at once, with whatever follows it (/permissions all, /settings, /login, /memory remember ...); a picker or question it opens closes when the task asks you something. Only the ones that would change the task's conversation, workspace or files, or start model work of their own, wait for it: /clear, /new, /resume, /compact, /undo, /redo, /branch <name>, /switch, /project <name>, /project new, /plan, /verify, /security-review, /delegate, /crew. Esc stops the task.
 Words you type at the start of a request, then : , or a new line, set that task only and are not sent to the model: think hard (top effort), quick (low effort), big model or use the big model (your big model, the reason role), fast model or use the fast model (your fast role), plan first (like /plan). ultrathink anywhere in your line is top effort too. Casper says what each word did in one line, and again when it goes back. Pasted text never counts, and words never grant permission.
 Side questions: a line you start with ? (? what does ECONNRESET mean) goes to your fast model on the side with no tools, idle or during a task. The answer shows as a side answer; it is not added to the conversation and the AI never sees it. /usage counts its cost; /settings turns side questions off. /btw <question> asks the same way and still works with them off, since it is typed on purpose.
@@ -253,7 +253,7 @@ Task-owned development servers run the project's code in the shell sandbox (file
 Saved screenshots (readable only by you) stay in Casper's project folder until you remove them; they may be sensitive.
 See docs/BROWSER.md for limits, input freshness, supported assertions and remaining caveats.
 Services from .casper/project.yaml run the project's code in the shell sandbox (files held; the network is not limited, so you can reach them); they stay up between prompts and stop on exit, /clear, /resume, /branch and /switch. Ctrl+C cancels only a startup. See docs/SERVICES.md.
-/switch main apply and /switch main discard ask you first; /branch <name> and /switch <name> run as typed.
+/branch, /switch and /switch main apply|discard run as typed (you asked); apply and discard show the diff first.
 Helpers from /delegate get read/grep/find/ls only; no edit/write/bash/MCP/LSP and no helpers of their own.
 For a big job with separate parts the AI starts builders itself (up to 3 at once; "run a crew" or "split this up" asks for it, "by yourself" stops it, /settings turns it off).
 A builder edits and runs commands only in its own copy (a Git worktree), in the same sandbox; what would ask you is not run and is listed. No MCP, no helpers.

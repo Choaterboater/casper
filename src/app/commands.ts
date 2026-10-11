@@ -222,7 +222,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       return;
     }
     if (/^\/model(?:\s|$)/.test(prompt)) {
-      if (host.subagents.isBusy) throw new Error("Wait for active subagents before changing models.");
+      // Helpers already working started with their own model; the change is for the main conversation's next turn.
+      const helpers = host.subagents.isBusy;
       const session = await host.ensureRuntime();
       host.commandAbort?.signal.throwIfAborted();
       // /model big <selector|clear> is plain words for the reason role: the model Casper offers when repairs run out.
@@ -270,6 +271,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         ? "[model] Selected and saved as the Casper default for new conversations.\n"
         : "[model] Selected for this conversation only; startup default unchanged.\n");
       if (result.selected) host.output.write(`[model] The next request sends this conversation's context to ${result.status.provider}.\n`);
+      if (result.selected && helpers) host.output.write("[model] Helpers already working keep their model; your next message uses this one.\n");
       if (result.models) {
         host.output.write(result.models.length ? result.models.map((model) => `  ${model.provider}/${model.id}`).join("\n") + "\n" : "No models with configured credentials. Use /login to configure a supported provider.\n");
         host.output.write("Use /model <provider/model-id> to select. Selection does not send a prompt.\n");
@@ -277,7 +279,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       return;
     }
     if (/^\/effort(?:\s|$)/.test(prompt)) {
-      if (host.subagents.isBusy) throw new Error("Wait for active subagents before changing effort.");
+      const helpers = host.subagents.isBusy;
       const session = await host.ensureRuntime();
       // --session before or after the level.
       const { rest: level, session: sessionOnly } = sessionFlag(prompt.slice(7));
@@ -304,6 +306,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       }
       if (!session.setEffort) throw new Error("This runtime does not support effort controls.");
       host.output.write(`${formatRuntimeStatus(await session.setEffort(choice.level, choice.persist))}\n`);
+      if (helpers) host.output.write("[effort] Helpers already working keep their effort; your next message uses this one.\n");
       host.updateFooter();
       return;
     }
@@ -733,8 +736,8 @@ async function handleDebugCommand(host: CommandHost, prompt: string): Promise<vo
       host.commandAbort?.signal.throwIfAborted();
       if (host.closing) return;
       host.debugSession = new DebugSession({ projectRoot: host.activeWorkspaceRoot(),
-        confirm: (preview, signal) => host.sessionYes.approve(`debug:${preview}`, `Debugger launch:\n${preview}\nThe adapter and the program run code, not sandboxed. Debug values may contain secrets.\n`,
-          "Launch this debugger target?", signal),
+        // You typed /debug start: that is the yes. What it launches is shown, with no second box.
+        notice: preview => host.output.write(`[debug] Not sandboxed: the adapter and your program run as you; debug values may hold secrets.\n${preview}\n`),
       });
       const debug = host.debugSession;
       host.lifecycle.add({ name: "debug", close: () => debug.close() });
@@ -746,7 +749,7 @@ async function handleDebugCommand(host: CommandHost, prompt: string): Promise<vo
   }
 
 function debugProgressMessage(request: DebugRequest): string {
-    if (request.action === "start") return `Starting ${request.target}; approval may be required, then Casper waits for adapter initialization and the first stop.`;
+    if (request.action === "start") return `Starting ${request.target}; Casper waits for adapter initialization and the first stop.`;
     if (request.action === "continue") return `Continuing thread ${request.threadId}; waiting for the debugger to acknowledge resume.`;
     if (request.action === "breakpoints") return `Updating breakpoints for ${request.path || "source"}.`;
     if (request.action === "threads") return "Listing debugger threads.";
@@ -1634,7 +1637,7 @@ export function permissionsText(sandbox: ShellSandbox | undefined): string {
     "Web lookups (web_search, web_fetch) read public pages without asking. Private and local addresses, other ports, and a search or address holding a secret are refused; what comes back has its secrets hidden. /settings turns them off.",
     "The untrusted-text reader (casper_read_untrusted) reads a file, a read-only command or an MCP tool through a separate model call with no tools; the AI gets only JSON that matches its schema, never the text. It changes nothing; an MCP tool keeps its own approval. /settings turns it off.",
     "The shell commands you said yes to, for this session or always for this project, are listed by /allowed, which also takes them back.",
-    "MCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals. The AI can't approve anything for you.",
+    "MCP and consequential browser operations have their own exact approvals; /debug start and workspace moves run because you typed them. The AI can't approve anything for you.",
     "No SAFE/YOLO or read-only mode is implied. /verify and /services may execute project scripts (the declared checks and service commands). See docs/SECURITY.md.",
   ].join("\n");
 }
