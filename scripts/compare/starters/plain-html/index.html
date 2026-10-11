@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bourbon Shelf</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Bourbon Shelf</h1>
+  <form id="add">
+    <input name="name" placeholder="Bottle name" required>
+    <input name="proof" type="number" min="80" max="160" step="0.1" placeholder="Proof" required>
+    <button type="submit">Add</button>
+  </form>
+  <ul id="bottles"></ul>
+  <p id="empty">No bottles yet.</p>
+  <script src="app.js"></script>
+</body>
+</html>

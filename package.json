@@ -15,7 +15,8 @@
     "test:timings": "bun test --parallel --timings=tests/timings.json --update-timings --path-ignore-patterns='tests/eval-*' --path-ignore-patterns='tests/phase10-debugger-real.test.ts'",
     "test:evals": "bun test --parallel tests/eval-",
     "build:release": "bun run scripts/build-release.ts",
-    "check": "bun run typecheck && bun run lint && bun run test"
+    "check": "bun run typecheck && bun run lint && bun run test",
+    "compare": "bun scripts/compare/compare.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.296",

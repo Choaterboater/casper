@@ -30,6 +30,10 @@ release targets with `bun run build:release -- --all`. [Host testing](PLATFORM_V
 The optional [evaluation suite](EVALUATION.md) runs real model tasks and may cost
 provider usage: `bun tools/eval.ts --list` shows the tasks.
 
+The [blind compare](../scripts/compare/README.md) (`bun run compare run web`) has Casper v0.2.32,
+this checkout's Casper and SkyN3t build the same prompt, then shows you the three apps without
+saying which is which, so you can pick the best one. It also costs provider usage.
+
 New here? [How Casper is built](ARCHITECTURE.md): the main pieces, how one request runs, and where to start a change.
 
 Project notes: [design decision](adr/0001-casper-own-product.md),
