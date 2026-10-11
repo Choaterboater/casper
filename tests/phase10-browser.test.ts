@@ -67,9 +67,31 @@ browserTest("visibility and rectangle overlap replay separately from input fresh
     assertions: [{ kind: "visible", selector: "#a" }, { kind: "no-overlap", selector: "#a", other: "#b" }] } });
   expect(baseline).toMatchObject({ status: "fail", assertions: [{ status: "pass" }, { status: "fail" }] });
   await writeFile(f.sourceFile, html(100));
-  expect(await f.session.run({ action: "replay", id: baseline.id })).toMatchObject({ status: "pass", freshness: "unavailable", baseline: "fail" });
-  expect((await f.session.report()).status).toBe("incomplete");
+  expect(await f.session.run({ action: "replay", id: baseline.id })).toMatchObject({ status: "pass", freshness: "fresh", baseline: "fail" });
+  expect((await f.session.report()).status).toBe("pass");
 }, 20_000);
+
+browserTest("a check that names no scope watches the project folder, leaving out dependency and build folders", async () => {
+  const f = await fixture();
+  await mkdir(path.join(f.project, "node_modules"));
+  const result = await f.session.run({ action: "check", scenario: { name: "Heading", url: f.url, steps: [], assertions: [{ kind: "text", selector: "h1", expected: "Hello Casper" }] } });
+  expect(result).toMatchObject({ status: "pass", freshness: "fresh" });
+  // Another program's write inside node_modules is not one of the page's inputs.
+  await writeFile(path.join(f.project, "node_modules", "cache.json"), "{}");
+  expect(await f.session.report()).toMatchObject({ status: "pass", checks: [{ freshness: "fresh" }] });
+  // A write Casper's tools did not make, to a project file, still makes the pass stale.
+  await writeFile(path.join(f.project, "style.css"), "h1{color:red}");
+  expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ freshness: "stale" }] });
+}, 20_000);
+
+browserTest("a project too big to watch whole says to name the files the page depends on", async () => {
+  const f = await fixture();
+  await mkdir(path.join(f.project, "big"));
+  await Promise.all(Array.from({ length: 4200 }, (_, i) => writeFile(path.join(f.project, "big", `${i}.txt`), "")));
+  const result = await f.session.run({ action: "check", scenario: { name: "Heading", url: f.url, steps: [], assertions: [{ kind: "text", selector: "h1", expected: "Hello Casper" }] } });
+  expect(result).toMatchObject({ status: "pass", freshness: "unavailable" });
+  expect(String(result.reason)).toContain("scope.inputs");
+}, 30_000);
 
 browserTest("tool observations remain within the byte budget after terminal-control escaping", async () => {
   const f = await fixture();
