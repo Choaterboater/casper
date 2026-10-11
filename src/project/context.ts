@@ -77,6 +77,8 @@ export interface ProjectContext {
   openPages?: boolean;
   /** `browser_clicks: off` in the user's config: the AI's browser asks before a held action. Unset: on. */
   browserClicks?: boolean;
+  /** `routine_commands: off` in the user's config: with no sandbox, routine shell commands ask too. Unset: on. */
+  routineCommands?: boolean;
   /** `mcp_autoconnect: off` in the user's config: their own MCP servers wait for /mcp connect. Unset: on. */
   mcpAutoconnect?: boolean;
   /** `lsp_autostart: off` in the user's config: their own language servers wait for /lsp connect. Unset: on. */
@@ -187,6 +189,7 @@ export async function loadProjectContext(
     ...(configuration.aiPages !== undefined ? { aiPages: configuration.aiPages } : {}),
     ...(configuration.openPages !== undefined ? { openPages: configuration.openPages } : {}),
     ...(configuration.browserClicks !== undefined ? { browserClicks: configuration.browserClicks } : {}),
+    ...(configuration.routineCommands !== undefined ? { routineCommands: configuration.routineCommands } : {}),
     ...(configuration.mcpAutoconnect !== undefined ? { mcpAutoconnect: configuration.mcpAutoconnect } : {}),
     ...(configuration.lspAutostart !== undefined ? { lspAutostart: configuration.lspAutostart } : {}),
     ...(configuration.toolDownloads !== undefined ? { toolDownloads: configuration.toolDownloads } : {}),

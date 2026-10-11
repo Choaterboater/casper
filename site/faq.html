@@ -192,7 +192,7 @@ Make this change? → No
             <li>The sandbox is <strong>a fence, not proof</strong>. On Linux and macOS the AI's shell
             reaches only listed hosts, and Casper asks <code>Reach 198.51.100.20 (build-server)?</code>
             before <code>ssh</code>, <code>scp</code> or <code>rsync</code>. On Windows there is no
-            sandbox: the AI's shell asks before each command that changes something (reads like <code>ls</code> don't). With the sandbox off, a program that
+            sandbox: the AI's shell asks before each command that changes something (reads like <code>ls</code> and routine work like <code>npm test</code> or <code>git commit</code> don't; <code>sudo</code>, <code>curl … | sh</code>, a force push and a new package still ask). With the sandbox off, a program that
             opens its own connection (a Python script, <code>curl</code>) still reaches a switch with
             no question.</li>
             <li>A login counts as read-only only when the product itself says so (through an
@@ -233,7 +233,7 @@ Make this change? → No
           outside the project, a host the sandbox does not know, the browser and a few
           downloads. The sandbox is off unless you turn it on (<code>sandbox: on</code> in <code>~/.casper/config.yaml</code>,
           or <code>/sandbox on</code>): until then the AI's shell asks before each command that changes something (reads
-          like <code>ls</code> don't). With it on, on Linux and macOS, the AI's shell and the checks run in it
+          like <code>ls</code> and routine work like <code>npm test</code> or <code>git commit</code> don't, as in Claude Code's auto mode; <code>sudo</code>, <code>curl … | sh</code>, a force push and a new package still ask). With it on, on Linux and macOS, the AI's shell and the checks run in it
           (<code>/sandbox</code> shows what it holds, <code>/allowed</code> the commands you said yes to). Checks run your project's own commands without asking first. If the sandbox blocks a check (an <code>EPERM</code> from a test that opens a socket, say), Casper says so, does not try to fix your code, and asks whether to run the checks outside the sandbox.</p>
           <p>When an <code>ssh</code> you allowed asks for a password, Casper shows its own hidden box and the password goes to
           ssh only; the AI never sees it (<code>ssh_login: off</code> turns it off).</p>
@@ -554,7 +554,7 @@ on in ~/.casper/config.yaml)</pre>
 
           <dt>Casper says it "asks before commands that change things"</dt>
           <dd>On Linux without bubblewrap and socat (and in WSL), and on Windows, there is no shell sandbox, so the
-          AI's shell asks before each command that changes something. <code>/sandbox</code> or <code>casper doctor</code>
+          AI's shell asks before each command that changes something, except routine work like <code>npm test</code> or <code>git commit</code> (<strong>Routine commands</strong> in <code>/settings</code>). <code>/sandbox</code> or <code>casper doctor</code>
           shows the exact line to install the full sandbox. Casper fetches its own ripgrep when none is installed.</dd>
 
           <dt>No colours or live footer</dt>

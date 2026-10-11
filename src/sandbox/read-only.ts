@@ -689,6 +689,19 @@ export function readOnlyCommand(command: string, where?: ReadPlace | string): bo
   return parts !== undefined && partReads(parts, placeOf(where)).reads.every(Boolean);
 }
 
+/** The line's commands as this check reads them, each with whether it only reads and the folders it may run in (a cd in
+ * the project moves them), for a check of the commands that do not read (see routineCommand). Undefined when the line
+ * can't be read: a character outside the safe set, a redirect, a substitution, a subshell or a background job. A command
+ * with a * or ? that can't be told apart from a quoted part has `globs` undefined. */
+export function lineCommands(command: string, where?: ReadPlace | string):
+  { root: string; realRoot: string; commands: Array<{ words: string[]; globs: boolean; reads: boolean; folders: string[] }> } | undefined {
+  const parts = lineParts(command);
+  if (!parts) return undefined;
+  const place = placeOf(where);
+  const { reads, folders } = partReads(parts, place);
+  return { root: place.root, realRoot: place.realRoot, commands: parts.map((part, at) => ({ words: part.words, globs: part.globs?.size !== 0, reads: reads[at]!, folders: folders[at]! })) };
+}
+
 /** Shell builtins that change the shell itself (its folder, variables, aliases, options): what runs after them on the line
  * is no longer what the check saw, so they are never the one command a "don't ask again" answer covers. */
 const SHELL_STATE = new Set(["cd", "pushd", "popd", "export", "set", "unset", "alias", "unalias", "declare", "typeset", "local", "readonly",

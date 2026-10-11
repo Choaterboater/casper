@@ -705,7 +705,7 @@ tree digest), or how many past three. The per-file table (a bounded `git diff --
 with `--verbose`; `/diff` shows the task's full changes.
 `/permissions details` explains actual boundaries from the state Casper is in: whether the shell
 sandbox holds shell commands and checks here, or (without it) that the AI's shell asks
-before each command that changes something (reads like `ls` don't). `/sandbox` lists what it holds and `/allowed` the commands you said yes to.
+before each command that changes something (reads like `ls` and routine work like `npm test` or `git commit` don't; `sudo`, `curl … | sh`, a force push and a new package still ask). `/sandbox` lists what it holds and `/allowed` the commands you said yes to.
 With the sandbox on, a plain `git push` or `gh pr create` the AI runs asks `Run outside the sandbox with your GitHub
 login?  git push -u origin main` (1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project;
 Enter or Esc is No; a `gh pr merge`, `close`, `reopen`, `ready`, `review` or `checkout`, `gh issue close` or `reopen`,

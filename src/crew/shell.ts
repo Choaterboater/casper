@@ -26,6 +26,7 @@ export function crewShell(sandbox: ShellSandbox, copy: string, note: (line: stri
     write: (text) => { for (const line of text.split("\n")) if (line.trim()) note(line.trim()); },
     planning: () => false,
     ...(ask?.host.stopAsking ? { stopAsking: () => ask.host.stopAsking!() } : {}),
+    ...(ask?.host.routineCommands ? { routineCommands: () => ask.host.routineCommands!() } : {}),
   }, held, sandbox.store);
   return { ...shell, close: async () => { await shell.close(); await held.close(); } };
 }

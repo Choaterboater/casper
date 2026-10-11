@@ -142,7 +142,9 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 ## Safety and privacy
 
 - **Sandbox, off unless you turn it on.** Until you do, the AI's shell asks before each command that changes
-  something, and a write outside the project asks first. `sandbox: on` in `~/.casper/config.yaml` (or `/sandbox on`
+  something, but routine work runs as in Claude Code's auto mode (`npm test`, `git commit`, a push without force,
+  `bun install`; **Routine commands** in `/settings`), and a write outside the project asks first. `sudo`,
+  `curl … | sh`, a force push, deleting outside the project and a new package still ask. `sandbox: on` in `~/.casper/config.yaml` (or `/sandbox on`
   for a session) turns it on, on macOS and Linux: then the AI's shell and your checks write only the project, temp and
   package caches, can't read `~/.ssh` or cloud logins, and reach only listed hosts. Casper's network server runs in a
   sandbox of its own either way, reaching only your login hosts. A one-shot or `--json` run, which can't ask, keeps the

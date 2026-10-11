@@ -29,6 +29,8 @@ export interface PermissionsView {
   /** Why the shell is not sandboxed here ("Windows"), and whether it then asks before each command. */
   sandboxReason?: string;
   shellAsks?: boolean;
+  /** Routine commands (on unless false): with no sandbox, routine work runs without the box too. */
+  routine?: boolean;
   scripts: string;
   asking: boolean;
   sandboxOn: boolean;
@@ -70,7 +72,7 @@ export function permissionsSummary(view: PermissionsView): string {
   const asks = view.asking ? "asks" : "Yes until you quit";
   const shell = view.sandboxOn
     ? `in the sandbox (the project, temp and caches; other folders and hosts: ${asks})`
-    : `not sandboxed here (${view.sandboxReason ?? "no sandbox"}), ${!view.shellAsks ? "doesn't ask" : view.asking ? "asks before each command but plain reads" : "Yes until you quit"}`;
+    : `not sandboxed here (${view.sandboxReason ?? "no sandbox"}), ${!view.shellAsks ? "doesn't ask" : view.asking ? `asks before each command but plain reads${view.routine === false ? " (Routine commands off)" : " and routine work"}` : "Yes until you quit"}`;
   const lab = view.labDevices ? `; ${plural(view.labDevices, "lab device")}: ${view.labAsks === false ? "no asking" : "asks"} (/lab ssh on|off)` : "";
   const before = view.sandboxOn
     ? `a new host, ${view.outsideWritesAsk ? "a write outside the project or " : ""}another machine`

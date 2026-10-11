@@ -318,7 +318,9 @@ test("with --no-sandbox or sandbox: off, writes outside the project don't ask, a
   expect(full).toContain("Writes outside the project: with the sandbox off they don't ask.");
   expect(full).not.toContain("Writes outside the project: Casper asks");
   // Where writes do ask (Windows, no sandbox but the file tools still ask), the line lists them.
-  expect(permissionsSummary({ ...view, shellAsks: true, outsideWritesAsk: true })).toContain("Asking is on: Casper asks before shell commands, writes outside the project and other machines.");
+  expect(permissionsSummary({ ...view, shellAsks: true, outsideWritesAsk: true })).toContain("Asking is on: Casper asks before shell commands, writes outside the project and other machines.");  // Routine work (npm test, git commit) runs without the box unless Routine commands is off.
+  expect(permissionsSummary({ ...view, shellAsks: true })).toContain("asks before each command but plain reads and routine work");
+  expect(permissionsSummary({ ...view, shellAsks: true, routine: false })).toContain("asks before each command but plain reads (Routine commands off)");
 });
 
 test("/permissions allow <folder> suggests write <folder>, and write and forget are any case", () => {
