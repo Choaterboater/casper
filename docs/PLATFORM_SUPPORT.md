@@ -1,6 +1,6 @@
 # Platform support — macOS, Linux, Windows
 
-**What this is:** what Casper 0.2.31 does on each operating system, and what has
+**What this is:** what Casper 0.2.32 does on each operating system, and what has
 really been tested on each. **When you'd use it:** before you run Casper on a new
 kind of machine, or when something works on your Mac but not on Windows or Linux.
 

@@ -36,7 +36,7 @@
   <main id="main">
     <div class="container">
       <h1>Questions and answers</h1>
-      <p class="lead">Straight answers about Casper 0.2.31. Click a question to open it. If something
+      <p class="lead">Straight answers about Casper 0.2.32. Click a question to open it. If something
       breaks, jump to <a href="#troubleshooting">troubleshooting</a>.</p>
 
       <nav class="toc" aria-label="On this page">
@@ -278,7 +278,7 @@ Make this change? → No
 ▌ <span class="dim">–</span> Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or
 sandbox: on in ~/.casper/config.yaml)
 Next: 1 Show diff · 2 Undo</pre>
-            <figcaption>Captured from Casper 0.2.31 with a scripted stand-in for the AI. It adds no test, so the
+            <figcaption>Captured from Casper 0.2.32 with a scripted stand-in for the AI. It adds no test, so the
             verdict stays "Not verified".</figcaption>
           </figure>
           <p>Some changes need no proof: test-only, docs-only and refactor changes. The receipt says
@@ -297,7 +297,7 @@ Next: 1 Show diff · 2 Undo</pre>
 
         <details>
           <summary>Why did it ask me something?</summary>
-          <p>Casper stops and asks when the next step is yours to decide. In 0.2.31 that includes:</p>
+          <p>Casper stops and asks when the next step is yours to decide. In 0.2.32 that includes:</p>
           <ul>
             <li>an MCP call that may change something (<code>1 No · 2 Yes, this once · 3 Yes, for this session</code>);</li>
             <li>connecting an MCP server the first time, or turning its writes on;</li>
@@ -309,7 +309,7 @@ Next: 1 Show diff · 2 Undo</pre>
             it;</li>
             <li>a model error that repeated, to retry or stop;</li>
             <li>the request checklist before a code change (edit it, or <kbd>Esc</kbd> to skip);</li>
-            <li><code>Next: 1 Show diff · 2 Undo</code> after each task (Enter runs nothing);</li>
+            <li><code>Next: 1 Show diff · 2 Undo</code> after each task (Enter runs nothing; not in a folder too big to compare);</li>
             <li>before the AI's shell reaches another machine, or writes outside the project;</li>
             <li>a shell command to a host the sandbox does not know;</li>
             <li>a retry on your big model when repairs run out, with a rough cost;</li>
@@ -386,8 +386,8 @@ on in ~/.casper/config.yaml)</pre>
           <p>Run <code>casper update</code>. It finds the newest preview and runs that release's own
           installer, with the same checks. <code>casper update --check</code> only says whether there
           is one, and a session tells you in one line when one is out. Nothing updates on its own.
-          The install commands pin a version: running the v0.2.31 command again just reinstalls
-          v0.2.31.</p>
+          The install commands pin a version: running the v0.2.32 command again just reinstalls
+          v0.2.32.</p>
           <p>If a new download fails any check, your old install stays as it was.</p>
         </details>
 
@@ -569,7 +569,7 @@ on in ~/.casper/config.yaml)</pre>
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.31</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.32</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

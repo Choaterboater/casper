@@ -1,4 +1,4 @@
-# Casper 0.2.31 · /help in a 100-column terminal
+# Casper 0.2.32 · /help in a 100-column terminal
 
 ❯ /help
 Casper — your coding companion

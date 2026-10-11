@@ -1,4 +1,4 @@
-# Casper 0.2.31 · a change that breaks a test; one repair try; still failing
+# Casper 0.2.32 · a change that breaks a test; one repair try; still failing
 
 ❯ speed up sum in src/sum.js
 

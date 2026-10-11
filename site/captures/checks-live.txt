@@ -1,4 +1,4 @@
-# Casper 0.2.31 · /verify: one line per check as it finishes, then the receipt
+# Casper 0.2.32 · /verify: one line per check as it finishes, then the receipt
 
 ❯ /verify
 
