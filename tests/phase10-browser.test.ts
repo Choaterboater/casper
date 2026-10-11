@@ -160,6 +160,23 @@ test("with browser clicks on every action runs; off, only a local test on a loca
   expect(actionHold({ impact: "local-test", url: remote, target: "Save" })).toEqual({});
 });
 
+test("serve files hands out the project's own files on a loopback port with no package.json, and closing the session stops it", async () => {
+  const f = await fixture();
+  await writeFile(path.join(f.project, "style.css"), "h1{color:red}");
+  await writeFile(path.join(f.root, "secret.txt"), "outside the project");
+  const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("") });
+  const port = probe.port; probe.stop(true);
+  const url = `http://127.0.0.1:${port}/`;
+  expect(await f.session.run({ action: "serve", script: "files", url, impact: "local-test", reason: "Preview the static site" })).toMatchObject({ ready: true, url });
+  expect(await (await fetch(url)).text()).toContain("Hello Casper");
+  const css = await fetch(`${url}style.css`);
+  expect(css.headers.get("content-type")).toContain("text/css");
+  expect((await fetch(`${url}%2e%2e/secret.txt`)).status).toBe(404);
+  expect((await fetch(`${url}missing.html`)).status).toBe(404);
+  await f.session.close();
+  await expect(fetch(url)).rejects.toThrow();
+});
+
 browserTest("screenshot writes refuse redirected artifact directories", async () => {
   const f = await fixture();
   const outside = path.join(f.root, "outside"); await mkdir(outside);
