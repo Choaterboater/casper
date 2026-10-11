@@ -207,6 +207,11 @@ test("a repository with no commits offers no builders and says why", async () =>
   expect(await builderAvailability({ root: repo, homeDir: home, off: false, sandbox: "ready" })).toBe("the repository has no commits yet");
 });
 
+test("builders run when the sandbox is off and commands ask first: their commands come to your box", async () => {
+  const { home, repo } = await repository();
+  expect(await builderAvailability({ root: repo, homeDir: home, off: false, sandbox: "asks" })).toBeUndefined();
+});
+
 test("request words steer builders", () => {
   expect(builderSteer("Use a crew for this")).toBe("split");
   expect(builderSteer("split this up please")).toBe("split");
@@ -330,6 +335,19 @@ const done = (options: BuilderRunOptions): SubagentResult => ({ role: "builder",
   toolsUsed: [], toolErrors: [], truncated: false, usage: null });
 const quietHost = (repo: string, home: string, runBuilder: AutoBuildHost["runBuilder"]): AutoBuildHost => ({ root: repo, homeDir: home, projectContext: "rules",
   runBuilder, shell: () => ({ wrap: async (command) => ({ command }), close: async () => {} }), observeEdit: () => {}, say: () => {} });
+
+test("each builder's start line has the number its box questions go by", async () => {
+  const { home, repo } = await repository();
+  const lines: string[] = [];
+  const labels: string[] = [];
+  const builders = autoBuilders({ ...quietHost(repo, home, async (options) => done(options)),
+    shell: (_copy, _note, label) => { labels.push(label); return { wrap: async (command) => ({ command }), close: async () => {} }; },
+    say: (line) => { lines.push(line); } }, undefined, undefined);
+  await builders.run({ goal: "first" });
+  await builders.run({ goal: "second" });
+  expect(labels).toEqual(["Builder 1", "Builder 2"]);
+  expect(lines.filter((line) => line.includes("is working in its own copy")).map((line) => line.split(" is ")[0])).toEqual(["Builder 1", "Builder 2"]);
+}, 30_000);
 
 test("a change that would write the hidden-secret marker into a file is kept in its copy, not applied", async () => {
   const { home, repo } = await repository();

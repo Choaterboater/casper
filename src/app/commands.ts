@@ -1688,6 +1688,13 @@ async function runCrew(host: CommandHost, argument: string): Promise<void> {
     projectContext: formatProjectContext(context),
     notReviewed: () => host.crewParts?.notReviewed() ?? [],
     runBuilder: (options) => host.subagents.runBuilder(options),
-    shell: (copy, note) => sandbox ? crewShell(sandbox, copy, note) : undefined,
+    // Its commands that need a yes come to your box, named for it, and /permissions all counts as for yours.
+    shell: (copy, note) => sandbox ? crewShell(sandbox, copy, note, { label: "Builder 1", host: {
+      canAsk: () => host.interactive && host.terminal.canAsk && !host.closing,
+      pick: (question, options, signal, settings) => host.terminal.pick(question, options, signal ?? host.commandAbort?.signal, settings?.record ? { record: settings.record } : {}),
+      write: (text) => { if (!host.closing) host.output.write(text); },
+      planning: () => false,
+      stopAsking: () => host.stopAsking && host.interactive && host.terminal.canAsk && !host.closing,
+    } }) : undefined,
   }, argument);
 }

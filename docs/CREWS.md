@@ -84,9 +84,9 @@ turn builders off for itself, never back on for you. Read-only helpers
 ([DELEGATION.md](DELEGATION.md)) still work.
 
 **When builders are not offered.** Outside a Git repository, in a `/branch`
-copy instead of the project's main folder, or where no sandbox runs (Windows,
-or the sandbox can't start), the AI is not offered builders; its tool says why
-in a few words, and it does the job itself.
+copy instead of the project's main folder, the AI is not offered builders; its
+tool says why in a few words, and it does the job itself. Builders run with the
+sandbox off too (the default): their commands ask in your box, as below.
 
 ## /crew: the manual way
 
@@ -117,21 +117,25 @@ commit since. `/undo` does not cover `/crew apply`.
 
 - The built-in tools: `read`, `edit`, `write`, `bash`, `grep`, `find`, `ls`.
 - No MCP tools (so no network changes), no `delegate`, no crew of its own, and
-  it can't ask you anything.
+  it can't ask you questions of its own.
 - Its edits stay in the copy: an edit or write anywhere else is refused.
 - Files you made private (`sandbox.denyRead`) stay private in the copy too.
 - Its commands run in the same shell sandbox as yours, with the copy as the
-  project. A write outside the copy, a host you have not allowed, or a command
-  that would need your OK is not run. The builder reads why and goes on; the
-  report lists it under "Not run". Nothing waits on you.
+  project. A command that needs your OK (one that changes things with the
+  sandbox off, another machine to reach) asks in your box, named for the
+  builder: `Builder 2 wants to run: npm install`. Your remembered answers and
+  `/permissions all` count for it as for the AI's own commands. A write outside
+  the copy or a host you have not allowed is not run. Where Casper can't ask
+  (one-shot, `--json`, a pipe) nothing is asked: the builder reads why and goes
+  on, and the report lists it under "Not run".
 - It can't move your branches or make commits: Git's folder it shares with
   your folder is read-only to it.
 - The sandbox has one network gate for the whole session, and it can't tell
   whose command reaches out. So while a builder's command runs, a host nobody
   allowed is refused for your own commands too, not asked; Casper says so in
-  one line.
-- With the sandbox off (`--no-sandbox` or `sandbox: off`) its commands run with
-  your permissions, as the AI's own do.
+  one line. After `/permissions all` such a host is allowed for the session.
+- With the sandbox off (the default, `--no-sandbox` or `sandbox: off`) its
+  commands run with your permissions, as the AI's own do.
 - Secret files such as `.env` are not in the copy (Git does not track them).
   A test that needs one fails there; the report says so.
 

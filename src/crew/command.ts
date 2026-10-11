@@ -30,7 +30,7 @@ export interface CrewHost {
   runBuilder(options: BuilderRunOptions): Promise<SubagentResult>;
   /** Parts a builder landed in the last task that no reviewer finished, for bare /crew. */
   notReviewed?(): PartNotReviewed[];
-  /** The builder's shell around its copy; `note` gets what was not run because it needed your OK. */
+  /** The builder's shell around its copy; `note` gets what was not run because Casper couldn't ask you or you said no. */
   shell(copy: string, note: (line: string) => void): (RuntimeShell & { close(): Promise<void> }) | undefined;
 }
 

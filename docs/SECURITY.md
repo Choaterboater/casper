@@ -472,7 +472,7 @@ is every fact and the exact way to be asked less for each kind. A mistyped word 
   `/permissions write <folder>` allows one ahead of time). A folder is never offered, and a saved one is not used, when it is, holds or sits inside a protected place.
   A link out of an allowed folder does not carry the allowance with it.
 - **Until you quit.** `/permissions` (in a terminal, not during a task) and `/permissions all` ask `1 Keep asking · 2 Stop asking until I quit`. On 2, the shell's own questions (a command, a host, a write outside the
-  project, another machine) are answered `Yes, for this session` without showing them; the footer says `ASKING OFF · /permissions ask`. It lives in memory only, is
+  project, another machine) are answered `Yes, for this session` without showing them, builders' included (a host while a builder's command runs too); the footer says `ASKING OFF · /permissions ask`. It lives in memory only, is
   never saved or read from a project file, only your typed command and your answer set it, and `/permissions ask` or quitting ends it. A one-shot or `--json` run
   refuses it (`--no-sandbox` is the flag for one run).
 - **For good.** `sandbox: allowedDomains`, `allowWrite` and `off` in `~/.casper/config.yaml`; `--allow-host`, `--allow-write`, `--allow-reach` and `--no-sandbox` for one run.

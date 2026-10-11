@@ -162,7 +162,8 @@ test("only the person's typed command can set the switch: nothing the AI can cal
     }
   };
   walk(root);
-  expect(found.sort()).toEqual(["app.ts", "app/commands.ts", "app/footer.ts", "app/sandbox.ts", "app/wiring.ts"]);
+  // crew/shell.ts and sandbox/manager.ts only read it: a builder's box, and a host while a builder runs.
+  expect(found.sort()).toEqual(["app.ts", "app/commands.ts", "app/footer.ts", "app/sandbox.ts", "app/wiring.ts", "crew/shell.ts", "sandbox/manager.ts"]);
 });
 
 /** `typed`: each command runs as if typed while a task runs. */

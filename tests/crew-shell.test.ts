@@ -4,6 +4,9 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { SandboxHost } from "../src/app/sandbox";
+import { SHELL_CANT_ASK } from "../src/app/sandbox";
+import { YES_SESSION } from "../src/app/safe-choices";
 import { crewShell } from "../src/crew/shell";
 import { linuxSandboxProblem } from "../src/sandbox/linux";
 import { ShellSandbox } from "../src/sandbox/manager";
@@ -170,4 +173,61 @@ needsSandbox("in the real sandbox a builder can't read your private file in your
   expect((await run("git update-ref refs/heads/main HEAD~1")).status).not.toBe(0);
   expect((await run("git status --short")).status).toBe(0);
   expect(git(main, "rev-parse", "main").stdout.trim()).toBe(head);
+});
+
+/** The main session's box, as a builder's shell reaches it: records each question and answers `answer`. */
+function sessionBox(answer: string | undefined, options: { stopAsking?: boolean; canAsk?: boolean } = {}) {
+  const asked: string[] = [];
+  const host: SandboxHost = { canAsk: () => options.canAsk ?? true, pick: async (question) => { asked.push(question); return answer; },
+    write: () => {}, planning: () => false, stopAsking: () => options.stopAsking ?? false };
+  return { host, asked };
+}
+
+test("with the sandbox off, a builder's command that needs a yes is asked in your box, named for the builder, and a yes for the session covers it", async () => {
+  const { home, main, copy, store } = await folders();
+  const sandbox = new ShellSandbox({ root: () => main, home, store, tempDirs: [], offByDefault: true });
+  expect(sandbox.asksFirst).toBe(true);
+  const box = sessionBox(YES_SESSION);
+  const shell = crewShell(sandbox, copy, () => {}, { host: box.host, label: "Builder 2" })!;
+  cleanup.push(() => shell.close());
+  expect(await shell.approve!("npm install left-pad")).toBeUndefined();
+  expect(box.asked).toEqual(["Builder 2 wants to run: npm install left-pad"]);
+  // Remembered for the session: the next one runs without a box.
+  expect(await shell.approve!("npm install left-pad")).toBeUndefined();
+  expect(box.asked).toHaveLength(1);
+});
+
+test("a builder's command follows /permissions all and your remembered answers, and a run that can't ask skips it and reports it", async () => {
+  const { home, main, copy, store } = await folders();
+  const sandbox = new ShellSandbox({ root: () => main, home, store, tempDirs: [], offByDefault: true });
+  const all = sessionBox(undefined, { stopAsking: true });
+  const stopped = crewShell(sandbox, copy, () => {}, { host: all.host, label: "Builder 1" })!;
+  cleanup.push(() => stopped.close());
+  expect(await stopped.approve!("make build")).toBeUndefined();
+  expect(all.asked).toEqual([]);
+  await store.addCommand("cargo build");
+  const box = sessionBox(undefined);
+  const remembered = crewShell(sandbox, copy, () => {}, { host: box.host, label: "Builder 3" })!;
+  cleanup.push(() => remembered.close());
+  expect(await remembered.approve!("cargo build")).toBeUndefined();
+  expect(box.asked).toEqual([]);
+  const notes: string[] = [];
+  const oneShot = sessionBox(YES_SESSION, { canAsk: false });
+  const skipped = crewShell(sandbox, copy, (line) => notes.push(line), { host: oneShot.host, label: "Builder 4" })!;
+  cleanup.push(() => skipped.close());
+  expect(await skipped.approve!("rm -rf build")).toBe(SHELL_CANT_ASK);
+  expect(oneShot.asked).toEqual([]);
+});
+
+test("after /permissions all, a host is allowed while a builder's command runs too", async () => {
+  const { home, main, copy, store } = await folders();
+  const fake = recordingEngine();
+  const sandbox = new ShellSandbox({ root: () => main, home, store, tempDirs: [], engine: fake.engine, problem: () => undefined, platform: "darwin",
+    askHost: () => Promise.resolve("no"), stopAsking: () => true });
+  cleanup.push(() => sandbox.close());
+  const copySandbox = sandbox.forCopy(copy);
+  cleanup.push(() => copySandbox.close());
+  const run = await copySandbox.wrap("curl https://example.org", { cwd: copy });
+  expect(await fake.ask("example.org")).toBe(true);
+  copySandbox.finished(run.id);
 });

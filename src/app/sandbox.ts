@@ -121,6 +121,7 @@ export function createSessionSandbox(host: SandboxHost, context: ProjectContext,
     ...(options.allow?.reach?.length ? { allowReach: options.allow.reach } : {}),
     askHost: (name) => host.canAsk() ? sessionYesOr(host, hostQuestion(name), [...HOST_CHOICES]).then((answer): HostAnswer =>
       answer === YES_ONCE ? "once" : answer === YES_SESSION ? "session" : answer === YES_ALWAYS ? "project" : "no") : undefined,
+    stopAsking: () => Boolean(host.stopAsking?.()),
     askWrite: (targets, from, { file }) => {
       if (!host.canAsk()) return undefined;
       const shown = writePlaces(targets.map((target) => displayPath(target, options.root(), options.home)));
