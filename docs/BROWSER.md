@@ -130,7 +130,8 @@ is left to show the page works`.
 
 Supported assertions:
 
-- `text`: exact comparison of trimmed `textContent` (nonempty expected text).
+- `text`: exact comparison of `textContent` (nonempty expected text), with runs of
+  spaces and line breaks counted as one space on both sides and the ends trimmed.
 - `visible`: positive geometry and browser visibility checks.
 - `no-horizontal-overflow`: the page's width does not exceed the viewport's; with
   a `selector`, that one element's content fits its box and the element stays
@@ -138,7 +139,13 @@ Supported assertions:
 - `no-overlap`: element rectangles do not intersect, with positive geometry;
   the primary element must be visible. This is not pixel/aesthetic acceptance.
 
-Assertions poll for up to one second each. Complex navigation, shadow DOM,
+Assertions poll for up to one second each. When a selector matches no element,
+or a text does not match, the failed assertion also lists under `near` up to 3
+real elements on the page most like the one asked for (by id, class, tag or
+text), such as `h1#page-title "Hello Casper"`. On a replay it also has a
+`hint`: `If the check itself is wrong, record a corrected check and withdraw
+this one; if the page is wrong, fix it.` (not on the run that records it: a
+check recorded before the edit is meant to fail then). It still fails. Complex navigation, shadow DOM,
 iframes, uploads, authenticated workflows and slow asynchronous readiness are not
 comprehensive browser-test-framework replacements.
 

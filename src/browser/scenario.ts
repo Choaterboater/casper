@@ -25,7 +25,9 @@ export interface BrowserCheck {
   freshness: "fresh" | "stale" | "unavailable"; scope?: VerificationScope; reason?: string;
   /** The AI's reason for withdrawing it, shown on the receipt. */
   withdrawn?: string;
-  assertions: Array<{ kind: string; status: "pass" | "fail"; actual: unknown }>;
+  assertions: Array<{ kind: string; status: "pass" | "fail"; actual: unknown
+    /** On a selector that matched nothing or a wrong text: up to 3 real elements most like it, and what to do. */
+    near?: string[]; hint?: string }>;
 }
 export interface BrowserReport { status: "pass" | "fail" | "incomplete"; checks: BrowserCheck[]; guidance: string }
 /** Drops null and blank placeholders; a real value under a key this object does not take is named in the error. */

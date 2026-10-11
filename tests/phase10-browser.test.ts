@@ -336,6 +336,32 @@ browserTest("the end replay keeps to this task's local tests, even with Browser 
   expect((await f.session.report()).checks.find(c => c.id === local.id)).toMatchObject({ freshness: "stale" });
 }, 30_000);
 
+browserTest("a failing check names up to 3 real elements like it, and on a replay how to fix a wrong check; text ignores runs of whitespace", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, '<!doctype html><h1 id="page-title">Hello\n   Casper</h1><button class="save-button">Save</button><p class="status">Saved   ok</p>');
+  const run = (assertions: unknown[]) => f.session.run({ action: "check", scenario: { name: "Hints", url: f.url, scope: { inputs: ["index.html"] }, steps: [], assertions } });
+  // Line breaks and runs of spaces count as one space on both sides; the text must otherwise match.
+  expect(await run([{ kind: "text", selector: "h1", expected: "Hello Casper" }, { kind: "text", selector: ".status", expected: " Saved    ok " }]))
+    .toMatchObject({ status: "pass", assertions: [{ status: "pass", actual: "Hello Casper" }, { status: "pass", actual: "Saved ok" }] });
+  const hint = "If the check itself is wrong, record a corrected check and withdraw this one; if the page is wrong, fix it.";
+  const recorded = await run([{ kind: "visible", selector: "#title" }, { kind: "text", selector: "#save-btn", expected: "Save" },
+    { kind: "text", selector: "h1", expected: "hello casper" }, { kind: "visible", selector: "button" }]) as { id: string; status: string; assertions: Array<Record<string, unknown>> };
+  // Recorded before an edit a check is meant to fail: the real elements, but no hint to withdraw it.
+  expect(recorded.status).toBe("fail");
+  expect((recorded.assertions[0]!.near as string[])[0]).toBe('h1#page-title "Hello Casper"');
+  expect(recorded.assertions.some(a => "hint" in a)).toBe(false);
+  const failed = await f.session.run({ action: "replay", id: recorded.id }) as { status: string; assertions: Array<Record<string, unknown>> };
+  expect(failed.status).toBe("fail");
+  expect(failed.assertions[0]).toMatchObject({ status: "fail", actual: "Expected one element; found 0", hint });
+  expect((failed.assertions[0]!.near as string[])[0]).toBe('h1#page-title "Hello Casper"');
+  expect(failed.assertions[1]).toMatchObject({ status: "fail", hint });
+  expect((failed.assertions[1]!.near as string[])[0]).toBe('button.save-button "Save"');
+  // A wrong text says what is there and still fails: case is not ignored.
+  expect(failed.assertions[2]).toMatchObject({ status: "fail", actual: "Hello Casper", hint });
+  expect((failed.assertions[2]!.near as string[]).length).toBeLessThanOrEqual(3);
+  expect(failed.assertions[3]).toEqual({ kind: "visible", status: "pass", actual: true });
+}, 30_000);
+
 browserTest("a failed check the AI wrote wrong can be withdrawn with a reason: it stays in the report, never decides it, and is never replayed", async () => {
   const f = await fixture();
   await writeFile(f.sourceFile, "<!doctype html><h1>Hello Casper</h1>");

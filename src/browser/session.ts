@@ -394,6 +394,8 @@ async function settleInView(element: import("puppeteer-core").ElementHandle): Pr
   });
 }
 
+const BROKEN_CHECK_HINT = "If the check itself is wrong, record a corrected check and withdraw this one; if the page is wrong, fix it.";
+
 /** One task's disposable browser. No user profiles, arbitrary evaluation or browser installation. */
 /** The scenario's inputs as they are now; a check that names none is told how to get a fresh pass when the whole project can't be watched. */
 async function inputState(root: string, scenario: BrowserScenario, signal?: AbortSignal): Promise<InputState> {
@@ -867,16 +869,38 @@ export class BrowserSession {
       }
       for (const assertion of scenario.assertions) {
         signal.throwIfAborted();
-        const evaluate = () => page.evaluate(a => {
+        // withNear: on a selector that matches nothing or a wrong text, up to 3 real elements most like what was asked for.
+        const evaluate = (withNear = false) => page.evaluate((a, withNear): { pass: boolean; actual: unknown; near?: string[] } => {
+          const norm = (value: string | null) => (value ?? "").replace(/\s+/g, " ").trim();
+          const nearest = (): string[] => {
+            const words = (a.selector ?? "").toLowerCase().match(/[a-z][\w-]{2,}/g) ?? [];
+            const expected = a.kind === "text" ? norm(a.expected).toLowerCase() : "";
+            const scored: Array<{ score: number; text: string; el: Element }> = [];
+            for (const el of [...document.body?.querySelectorAll("*") ?? []].slice(0, 3000)) {
+              if (["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"].includes(el.tagName)) continue;
+              const tokens = [el.tagName.toLowerCase(), el.id.toLowerCase(), ...[...el.classList].map(c => c.toLowerCase()),
+                ...["name", "aria-label", "data-testid"].map(n => (el.getAttribute(n) ?? "").toLowerCase())].filter(Boolean);
+              const text = norm(el.textContent);
+              let score = 0;
+              for (const word of words) score += Math.max(0, ...tokens.map(t => t === word ? 3 : t.length > 2 && (t.includes(word) || word.includes(t)) ? 2 : 0));
+              const lower = text.toLowerCase();
+              if (expected && lower.length <= expected.length * 2 + 40) score += lower === expected ? 5 : lower.includes(expected) || (lower.length > 2 && expected.includes(lower)) ? 3 : 0;
+              if (score) scored.push({ score, text, el });
+            }
+            // Best first; on a tie the innermost element (shortest text).
+            return scored.sort((x, y) => y.score - x.score || x.text.length - y.text.length).slice(0, 3).map(({ el, text }) =>
+              `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}${[...el.classList].slice(0, 2).map(c => `.${c}`).join("")}${text ? ` "${text.slice(0, 60)}"` : ""}`);
+          };
           if (a.kind === "no-horizontal-overflow" && !a.selector) return { pass: document.documentElement.scrollWidth <= innerWidth, actual: { width: document.documentElement.scrollWidth, viewport: innerWidth } };
           const matches = document.querySelectorAll(a.selector!);
-          if (matches.length !== 1) return { pass: false, actual: `Expected one element; found ${matches.length}` };
+          if (matches.length !== 1) return { pass: false, actual: `Expected one element; found ${matches.length}`, ...(withNear && !matches.length ? { near: nearest() } : {}) };
           const el = matches[0]!;
           const r = el.getBoundingClientRect();
           // One element: content wider than the box (a table cut off behind a scroller), or the box past the viewport.
           if (a.kind === "no-horizontal-overflow") return { pass: el.scrollWidth <= el.clientWidth + 1 && r.right <= innerWidth + 1,
             actual: { contentWidth: el.scrollWidth, boxWidth: el.clientWidth, right: Math.round(r.right), viewport: innerWidth } };
-          if (a.kind === "text") return { pass: (el.textContent ?? "").trim() === a.expected, actual: (el.textContent ?? "").trim().slice(0, 1024) };
+          // Runs of spaces and line breaks count as one space on both sides; otherwise the text must match exactly.
+          if (a.kind === "text") { const pass = norm(el.textContent) === norm(a.expected); return { pass, actual: norm(el.textContent).slice(0, 1024), ...(withNear && !pass ? { near: nearest() } : {}) }; }
           const visible = el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && r.width > 0 && r.height > 0;
           if (a.kind === "visible") return { pass: visible, actual: visible };
           const other = document.querySelectorAll(a.other);
@@ -884,11 +908,15 @@ export class BrowserSession {
           const b = other[0]!.getBoundingClientRect();
           const overlap = r.left < b.right && r.right > b.left && r.top < b.bottom && r.bottom > b.top;
           return { pass: visible && b.width > 0 && b.height > 0 && !overlap, actual: { overlap } };
-        }, assertion);
+        }, assertion, withNear);
         let result = await evaluate();
         const deadline = performance.now() + 1000;
         while (!result.pass && performance.now() < deadline) { await new Promise(resolve => setTimeout(resolve, 50)); signal.throwIfAborted(); result = await evaluate(); }
-        check.assertions.push({ kind: assertion.kind, status: result.pass ? "pass" : "fail", actual: result.actual });
+        if (!result.pass) result = await evaluate(true);
+        // Still a failure: the hint only says which way to go, a wrong check or a wrong page. Only on a replay: a check
+        // recorded before the edit is meant to fail then, and must not be withdrawn for it.
+        check.assertions.push({ kind: assertion.kind, status: result.pass ? "pass" : "fail", actual: result.actual,
+          ...(result.near?.length ? { near: result.near } : {}), ...(result.near && input.action !== "check" ? { hint: BROKEN_CHECK_HINT } : {}) });
       }
       check.status = check.assertions.every(a => a.status === "pass") ? "pass" : "fail";
       const after = await inputState(this.options.projectRoot, scenario, signal);
