@@ -159,7 +159,7 @@ export function settingRows(context: ProjectContext): Setting[] {
       "A page the AI makes opens in your browser the first time in a session, and its tab reloads itself after each change. Off: Casper prints the link only (as it always does over SSH or with no desktop).",
       ["open_pages"], true, "step"),
     { label: "New-version notice", value: context.updates === false ? "off" : "on",
-      question: `The line that says a newer Casper is out is ${context.updates === false ? "off" : "on"}.`, keep: `Keep it ${context.updates === false ? "off" : "on"}`,
+      question: `The line and the footer note that say a newer Casper is out are ${context.updates === false ? "off" : "on"}.`, keep: `Keep it ${context.updates === false ? "off" : "on"}`,
       choices: [context.updates === false ? { label: "Turn it on", keys: ["updates"], value: true, shown: "on" } : { label: "Turn it off", keys: ["updates"], value: false, shown: "off" }] },
     onOffRow("Suggestions", context.suggestions !== false,
       "The numbered next steps under a task's receipt (zero tokens).", ["suggestions"], true),

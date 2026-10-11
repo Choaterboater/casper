@@ -6,7 +6,7 @@ import path from "node:path";
 import { HANDOFF_SCRIPT, compareVersions, defaultRunner, gitEnv, newestRelease, runUpdate, type Fetcher, type ProcessRunner } from "../src/update/command";
 import { runningFromBinary } from "../src/update/mode";
 import { UPDATE_LOG, lastUpdateFailure, startUpdateLog, updateFailureLines } from "../src/update/handoff-log";
-import { CHECK_EVERY_MS, refreshUpdateCheck, updateChecksOff, updateNotice } from "../src/update/notice";
+import { CHECK_EVERY_MS, refreshUpdateCheck, updateChecksOff, updateFooterNote, updateNotice } from "../src/update/notice";
 import { testReleaseKey, type TestKey } from "./support/release-signing";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -645,6 +645,8 @@ test("notice: a release binary shows the newer release from the last check, and 
   await refreshUpdateCheck(options);
   expect(github.asked).toHaveLength(1);
   expect(await updateNotice(options)).toBe("Casper 0.2.22 is out (you have 0.2.21). Run casper update to install it.");
+  // The footer keeps a short note of it.
+  expect(await updateFooterNote(options)).toBe("Casper 0.2.22 is out · casper update");
   // Within a day it does not ask again; after a day it does.
   now += CHECK_EVERY_MS - 1;
   await refreshUpdateCheck(options);
@@ -654,6 +656,7 @@ test("notice: a release binary shows the newer release from the last check, and 
   expect(github.asked).toHaveLength(2);
   // Once updated, the same saved release is not newer.
   expect(await updateNotice({ ...options, currentVersion: "0.2.22" })).toBeUndefined();
+  expect(await updateFooterNote({ ...options, currentVersion: "0.2.22" })).toBeUndefined();
 });
 
 test("notice: a failed release lookup saves nothing and shows nothing", async () => {
@@ -676,8 +679,10 @@ test("notice: a checkout counts what it is behind, and the count goes away once 
   await commitVersion(upstream, "0.2.23");
   await refreshUpdateCheck({ ...options, now: () => Date.now() + CHECK_EVERY_MS });
   expect(await updateNotice(options)).toBe("The Casper checkout is 2 changes behind. Run casper update to pull them.");
+  expect(await updateFooterNote(options)).toBe("Casper is 2 changes behind · casper update");
   git(checkout, "pull", "-q", "--ff-only");
   expect(await updateNotice(options)).toBeUndefined();
+  expect(await updateFooterNote(options)).toBeUndefined();
 });
 
 test("notice: a checkout branch with no remote is quiet", async () => {
@@ -687,6 +692,135 @@ test("notice: a checkout branch with no remote is quiet", async () => {
   const { run } = checkoutRunner();
   await refreshUpdateCheck({ install: { kind: "checkout", root: checkout }, currentVersion: "0.2.21", stateDir, run, env: GIT_ENV });
   expect(await readdir(stateDir)).toEqual([]);
+});
+
+/** A session's app, as far as the new-version line and the footer note use it: the footer's update note is recorded. */
+function noticeApp(home: string, fetch: Fetcher, clock: { now: number }, updates?: boolean) {
+  const notes: Array<string | undefined> = [];
+  const lines: string[] = [];
+  const drawn: string[] = [];
+  const app = {
+    updateCheck: { install: { kind: "binary" as const, executable: "/opt/casper/casper" }, currentVersion: "0.2.21", fetch, env: {}, now: () => clock.now },
+    sessionHomeDir: home, homeDir: () => home, updateCheckAbort: new AbortController(), updatedInSession: false, updateNote: undefined as string | undefined,
+    projectContext: { info: { name: "project", root: home }, ...(updates === false ? { updates } : {}) } as { info: { name: string; root: string }; updates?: boolean },
+    output: { write: (text: string) => { lines.push(text); } },
+    terminal: { rich: false, setTitle: () => { drawn.push("title"); }, setBadge: () => { drawn.push("badge"); }, setStatus: () => { drawn.push("status"); },
+      setUpdate: (text?: string) => { notes.push(text); } },
+  };
+  return { app, notes, lines, drawn };
+}
+
+/** Each ask the fake GitHub gets, as a promise for the nth one. */
+function countedGitHub(releases: FakeRelease[] | (() => Response)) {
+  const github = fakeGitHub(releases);
+  const waits: Array<() => void> = [];
+  const asked = (n: number) => new Promise<void>((resolve) => { if (github.asked.length >= n) resolve(); else waits.push(() => { if (github.asked.length >= n) resolve(); }); });
+  const fetch: Fetcher = async (url, init) => { const response = await github.fetch(url, init); for (const wait of waits) wait(); return response; };
+  return { github, fetch, asked };
+}
+
+test("notice: a session puts the footer note up when its background check finds a newer release, and looks again while open", async () => {
+  const { reportNewerCasper, updateTick } = await import("../src/app/wiring");
+  const { updateFooter } = await import("../src/app/footer");
+  const home = await tempDir("casper-notice-home-");
+  const { github, fetch, asked } = countedGitHub([{ tag_name: "v0.2.22" }, { tag_name: "v0.2.21" }]);
+  const clock = { now: 1_000_000 };
+  const { app, notes, lines, drawn } = noticeApp(home, fetch, clock);
+  const saved = { CI: process.env.CI, CASPER_NO_UPDATE_CHECK: process.env.CASPER_NO_UPDATE_CHECK, tick: updateTick.ms };
+  delete process.env.CI; delete process.env.CASPER_NO_UPDATE_CHECK;
+  updateTick.ms = 20;
+  const settled = async () => { const count = notes.length; for (let i = 0; i < 200 && notes.length === count; i++) await new Promise((resolve) => setTimeout(resolve, 5)); };
+  try {
+    type App = Parameters<typeof reportNewerCasper>[0];
+    // Nothing checked yet: no line and no note; the check runs in the background and the note comes up when it ends.
+    await reportNewerCasper(app as unknown as App, app.projectContext as unknown as Parameters<typeof reportNewerCasper>[1]);
+    expect(lines).toEqual([]);
+    await asked(1);
+    await settled();
+    expect(notes.at(-1)).toBe("Casper 0.2.22 is out · casper update");
+    // Only the note: the start never draws the status line, whose "idle" would say Casper reads keys before it does.
+    expect(drawn).toEqual([]);
+    // A later tick within the day reads the saved check and asks GitHub nothing; a day later it asks again.
+    await settled();
+    expect(github.asked).toHaveLength(1);
+    clock.now += CHECK_EVERY_MS;
+    await asked(2);
+    // Turned off in /settings mid-session: the note goes and no tick asks GitHub any more.
+    app.projectContext.updates = false;
+    updateFooter(app as unknown as App);
+    expect(notes.at(-1)).toBeUndefined();
+    clock.now += CHECK_EVERY_MS;
+    await settled(); await settled();
+    expect(github.asked).toHaveLength(2);
+    // Back on, and /doctor installed the update in this session: restart, not update.
+    delete app.projectContext.updates;
+    app.updatedInSession = true;
+    updateFooter(app as unknown as App);
+    expect(notes.at(-1)).toBe("Casper updated · restart to use it");
+    // Closing the session stops the ticks.
+    app.updateCheckAbort.abort();
+    const count = notes.length;
+    clock.now += CHECK_EVERY_MS;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(notes).toHaveLength(count);
+    expect(github.asked).toHaveLength(2);
+  } finally {
+    app.updateCheckAbort.abort();
+    updateTick.ms = saved.tick;
+    for (const name of ["CI", "CASPER_NO_UPDATE_CHECK"] as const) if (saved[name] !== undefined) process.env[name] = saved[name];
+  }
+});
+
+test("notice: a failed look is not tried again for a day, however often the session's tick runs", async () => {
+  const { reportNewerCasper, updateTick } = await import("../src/app/wiring");
+  const home = await tempDir("casper-notice-home-");
+  const { github, fetch, asked } = countedGitHub(() => new Response("busy", { status: 503 }));
+  const clock = { now: 1_000_000 };
+  const { app, notes } = noticeApp(home, fetch, clock);
+  const saved = { CI: process.env.CI, CASPER_NO_UPDATE_CHECK: process.env.CASPER_NO_UPDATE_CHECK, tick: updateTick.ms };
+  delete process.env.CI; delete process.env.CASPER_NO_UPDATE_CHECK;
+  updateTick.ms = 20;
+  try {
+    type App = Parameters<typeof reportNewerCasper>[0];
+    await reportNewerCasper(app as unknown as App, app.projectContext as unknown as Parameters<typeof reportNewerCasper>[1]);
+    await asked(1);
+    // GitHub was busy: nothing is saved, and many ticks within the day ask nothing more.
+    clock.now += CHECK_EVERY_MS - 1;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(github.asked).toHaveLength(1);
+    expect(notes.filter(Boolean)).toEqual([]);
+    // A day after the try, it asks once more.
+    clock.now += 1;
+    await asked(2);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(github.asked).toHaveLength(2);
+  } finally {
+    app.updateCheckAbort.abort();
+    updateTick.ms = saved.tick;
+    for (const name of ["CI", "CASPER_NO_UPDATE_CHECK"] as const) if (saved[name] !== undefined) process.env[name] = saved[name];
+  }
+});
+
+test("notice: with updates: false a session says nothing, shows no note and asks GitHub nothing", async () => {
+  const { reportNewerCasper } = await import("../src/app/wiring");
+  const home = await tempDir("casper-notice-home-");
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await writeFile(path.join(home, ".casper", "update-check.json"), JSON.stringify({ checkedAt: 1, kind: "binary", version: "0.2.22" }));
+  const { github, fetch } = countedGitHub([{ tag_name: "v0.2.23" }]);
+  const { app, notes, lines } = noticeApp(home, fetch, { now: 1_000_000_000 }, false);
+  const saved = { CI: process.env.CI, CASPER_NO_UPDATE_CHECK: process.env.CASPER_NO_UPDATE_CHECK };
+  delete process.env.CI; delete process.env.CASPER_NO_UPDATE_CHECK;
+  try {
+    type App = Parameters<typeof reportNewerCasper>[0];
+    await reportNewerCasper(app as unknown as App, app.projectContext as unknown as Parameters<typeof reportNewerCasper>[1]);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(lines).toEqual([]);
+    expect(notes.filter(Boolean)).toEqual([]);
+    expect(github.asked).toEqual([]);
+  } finally {
+    app.updateCheckAbort.abort();
+    for (const name of ["CI", "CASPER_NO_UPDATE_CHECK"] as const) if (saved[name] !== undefined) process.env[name] = saved[name];
+  }
 });
 
 test("notice: CASPER_NO_UPDATE_CHECK or CI turns it off", () => {

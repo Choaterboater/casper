@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import { TerminalSurface } from "../src/tui/surface";
+import { tint } from "../src/tui/format";
 
 /** The MCP writes badge and ctrl+o on the rich surface. */
 function makeSurface() {
@@ -45,6 +46,47 @@ test("the ASKING OFF badge is set apart from the idle hint, and a narrow window 
     // Allow all with no writes-only server: the short form says ALLOW ALL, not WRITES.
     surface.setBadge("ALLOW ALL: aruba-central · Ctrl+O");
     expect(surface.footerLine(30)).toStartWith("ALLOW ALL · Ctrl+O");
+  } finally { surface.close(); }
+});
+
+test("a newer Casper sits at the end of the idle footer, before idle, and never pushes out the folder and the model", () => {
+  const { surface } = makeSurface();
+  try {
+    surface.start();
+    const status = "demo-project │ provider/model · high │ ctx 27%~ │ idle";
+    surface.setStatus(status, process.cwd());
+    const plain = (width: number) => { surface.setUpdate(undefined); const line = surface.footerLine(width); surface.setUpdate("Casper 0.2.33 is out · casper update"); return line; };
+    const before = plain(120);
+    surface.setUpdate("Casper 0.2.33 is out · casper update");
+    expect(surface.footerLine(120)).toBe("type / for commands │ demo-project │ provider/model · high │ ctx 27%~ │ Casper 0.2.33 is out · casper update │ idle");
+    // Narrower: the details are cut after the model, then the note loses its "· casper update".
+    expect(surface.footerLine(90)).toStartWith("demo-project │ provider/model · high │ ");
+    expect(surface.footerLine(90)).toEndWith(" │ Casper 0.2.33 is out · casper update │ idle");
+    expect(surface.footerLine(75)).toStartWith("demo-project │ provider/model · high │ ");
+    expect(surface.footerLine(75)).toEndWith(" │ Casper 0.2.33 is out │ idle");
+    // No room beside the folder and the model: the footer is as it was without the note.
+    for (const width of [60, 30]) expect(surface.footerLine(width)).toBe(plain(width));
+    // With the ASKING OFF badge it still comes before idle.
+    surface.setBadge("ASKING OFF · /permissions ask");
+    expect(surface.footerLine(200)).toEndWith("│ Casper 0.2.33 is out · casper update │ idle");
+    surface.setBadge(undefined);
+    // While working the note steps aside; once updated it is gone.
+    surface.setStatus("demo-project │ provider/model · high │ ctx 27%~", process.cwd());
+    expect(surface.footerLine(120)).not.toContain("is out");
+    surface.setStatus(status, process.cwd());
+    surface.setUpdate(undefined);
+    expect(surface.footerLine(120)).toBe(before);
+  } finally { surface.close(); }
+});
+
+test("the footer's new-version note is in the accent colour, set apart from the muted details", () => {
+  const input = new PassThrough();
+  const surface = new TerminalSurface({ input, output: { write: () => {}, columns: 80, rows: 24 }, color: true, onEOF: () => {} }, () => {}, () => {});
+  try {
+    surface.start();
+    surface.setStatus("demo-project │ provider/model · high │ ctx 27%~ │ idle", process.cwd());
+    surface.setUpdate("Casper 0.2.33 is out · casper update");
+    expect(surface.footerLine(200)).toContain(tint("Casper 0.2.33 is out · casper update", "accent", true));
   } finally { surface.close(); }
 });
 

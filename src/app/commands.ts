@@ -172,6 +172,8 @@ export interface CommandHost {
   browserSession(): BrowserSession;
   serviceManager(): ServiceManager;
   updateFooter(): void;
+  /** /doctor installed a newer Casper: the footer says to restart. */
+  updateInstalled?(): void;
   handleBranchCommand(prompt: string): Promise<void>;
   handleSwitchCommand(prompt: string): Promise<void>;
   getLastTaskResult(): TaskResult | undefined;

@@ -139,7 +139,8 @@ export interface CasperAppOptions {
   /** Embedder shorthand: true = "offer" (model-selected casper_check plus bounded repair),
    * false = "off". Ignored when verificationMode is set. */
   autoVerify?: boolean;
-  /** The install a session checks for a newer Casper (see src/update/notice.ts); unset, no line and no check. */
+  /** The install a session checks for a newer Casper (see src/update/notice.ts); unset, no line, no footer note and no
+   * check. */
   updateCheck?: { install: Install; currentVersion: string };
   /** `casper new` on a terminal: ask what is missing, build the project in ~/Projects and open Casper there. */
   newProject?: { template?: string; name?: string };
@@ -261,6 +262,10 @@ export class CasperApp {
   private readonly startupWarnings: readonly string[];
   readonly updateCheck?: { install: Install; currentVersion: string };
   readonly updateCheckAbort = new AbortController();
+  /** What the last check found that is newer, for the footer (src/app/wiring.ts reportNewerCasper). */
+  updateNote?: string;
+  /** /doctor installed a newer Casper in this session: the footer says to restart, not to update. */
+  updatedInSession = false;
   readonly runModel?: string;
   readonly runEffort?: string;
   runConversation?: CasperAppOptions["conversation"];
@@ -835,6 +840,7 @@ export class CasperApp {
   async confirmYes(preview: string, question: string, signal?: AbortSignal): Promise<boolean> { return confirmYes(this, preview, question, signal); }
 
   updateFooter(): void { updateFooter(this); }
+  updateInstalled(): void { this.updatedInSession = true; updateFooter(this); }
 }
 
 export { PAGES_ANSWER_ONLY_PROOF, PAGES_ONLY_PROOF, proofSkipReason } from "./app/task-run";
