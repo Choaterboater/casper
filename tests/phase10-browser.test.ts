@@ -372,7 +372,7 @@ browserTest("a failed check the AI wrote wrong can be withdrawn with a reason: i
   expect(right).toMatchObject({ status: "pass", freshness: "fresh" });
   expect((await f.session.report()).status).toBe("fail");
   // A passing check, a missing reason or an unknown id is refused.
-  await expect(f.session.run({ action: "withdraw", id: right.id, reason: "not needed" })).rejects.toThrow("Only a failed check can be withdrawn; this one passed");
+  await expect(f.session.run({ action: "withdraw", id: right.id, reason: "not needed" })).rejects.toThrow("Only a failed or unfinished check can be withdrawn; this one passed");
   await expect(f.session.run({ action: "withdraw", id: wrong.id })).rejects.toThrow("Browser reason is missing");
   await expect(f.session.run({ action: "withdraw", id: "nope", reason: "x" })).rejects.toThrow("Unknown browser check id");
   expect(await f.session.run({ action: "withdraw", id: wrong.id, reason: "expected text had a typo" }))
@@ -408,6 +408,24 @@ browserTest("a failed check can't be withdrawn once anything changed after it: a
   await writeFile(f.sourceFile, "<!doctype html><h1>Hello again</h1>");
   await expect(f.session.run({ action: "withdraw", id: other.id, reason: "wrong text" })).rejects.toThrow("Declared local inputs changed after this browser check: fix the page and replay it");
   expect(await f.session.report()).toMatchObject({ status: "fail", checks: [{ status: "fail" }, { status: "fail" }] });
+}, 30_000);
+
+browserTest("a new check that stops part way gives its id back, and can be withdrawn until anything changes", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, "<!doctype html><button>A</button><button>B</button><h1>Hi</h1>");
+  const scenario = { name: "Two buttons", url: f.url, scope: { inputs: ["index.html"] },
+    steps: [{ action: "click", selector: "button", impact: "local-test", reason: "Test" }], assertions: [{ kind: "visible", selector: "h1" }] };
+  const error = await f.session.run({ action: "check", scenario }).catch((e: Error) => e.message);
+  const id = /check id ([\w-]+)/.exec(String(error))?.[1];
+  expect(error).toContain("replay it once the page is ready, or withdraw it if the check is wrong");
+  expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ id, status: "incomplete" }] });
+  expect(await f.session.run({ action: "withdraw", id, reason: "selector matched both buttons" })).toMatchObject({ status: "withdrawn" });
+  expect(await f.session.report()).toMatchObject({ checks: [{ id, status: "withdrawn" }] });
+  // After an edit or command it may be a real failure: replay it instead.
+  const again = await f.session.run({ action: "check", scenario }).catch((e: Error) => e.message);
+  const second = /check id ([\w-]+)/.exec(String(again))?.[1];
+  f.session.invalidate();
+  await expect(f.session.run({ action: "withdraw", id: second, reason: "x" })).rejects.toThrow("A change was made after this check was recorded: replay it");
 }, 30_000);
 
 browserTest("the browser tool's screenshot comes with the picture, and its text no longer says to read the PNG", async () => {

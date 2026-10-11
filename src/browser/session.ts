@@ -928,6 +928,9 @@ export class BrowserSession {
       return structuredClone(check) as unknown as Record<string, unknown>;
     } catch (error) {
       check.status = "incomplete"; check.reason = "Browser reproduction did not finish; no passing evidence.";
+      // A new check that stopped part way still gets its id back: replay it once the page is ready, or withdraw it.
+      if (input.action === "check" && error instanceof Error && !signal.aborted)
+        throw new Error(`${error.message} (check id ${id}: replay it once the page is ready, or withdraw it if the check is wrong)`);
       throw error;
     }
   }
@@ -944,7 +947,15 @@ export class BrowserSession {
     if (!entry) throw new Error("Unknown browser check id; withdraw an id a check returned in this session");
     const status = entry.check.status;
     if (status === "withdrawn") throw new Error("This check is already withdrawn");
-    if (status !== "fail") throw new Error(`Only a failed check can be withdrawn; this one ${status === "pass" ? "passed" : "did not finish"}`);
+    if (status === "pass") throw new Error("Only a failed or unfinished check can be withdrawn; this one passed");
+    // One that never finished has no inputs recorded: nothing run since it was recorded is enough.
+    if (status === "incomplete") {
+      if (entry.recordedRevision !== this.revision || entry.revision !== entry.recordedRevision)
+        throw new Error("A change was made after this check was recorded: replay it; it can't be withdrawn now");
+      entry.check = { ...entry.check, status: "withdrawn", withdrawn: reason };
+      return { id, name: entry.check.name, status: "withdrawn", reason,
+        guidance: "It no longer decides the result; the receipt names it with your reason. Record a corrected check for what it meant to test." };
+    }
     const now = await this.current(entry);
     if (now.freshness === "stale") throw new Error(`${(now.reason ?? "A change was made after this check failed").replace(/\.$/, "")}: fix the page and replay it; it can't be withdrawn now`);
     if (now.freshness !== "fresh") throw new Error(`Casper can't tell whether anything changed since this check failed (${(now.reason ?? "its inputs were not recorded").replace(/\.$/, "")}); replay it`);
