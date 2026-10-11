@@ -937,7 +937,9 @@ whose declared inputs are unchanged. New requests and each `/verify` start fresh
 
 **What is kept.** The terminal shows the plain receipt and the end of a failing check's output,
 not full logs; `--verbose` adds one line per check run. Each output stream keeps at most 8 KiB
-(start and end, with a marker where it was cut); that is what repair receives. No log database or
+(start and end, with a marker where it was cut), plus up to 20 distinct error lines from the cut
+middle (`error TS`, `Cannot find module`, `file:line:col: error`, `FAIL`, `AssertionError`, ...) under
+`Lines from the cut middle:`, at most 2 KiB; that is what repair receives. No log database or
 unlimited raw log file is created. Saved task outcomes and `/memory outcomes` keep exit codes,
 scope, freshness and a short reason, but no output. Your own acceptance (`/memory accept`) starts
 unknown. Older saved outcomes stay readable and are labeled as legacy.
