@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { BrowserServer } from "./server";
 import { readReferenceFile, referenceText } from "../references/files";
-import { workspaceState } from "../verify/workspace-state";
-import { parseScenario, viewport, type BrowserScenario, type BrowserCheck, type BrowserReport } from "./scenario";
+import { type InputState, workspaceState } from "../verify/workspace-state";
+import { parseScenario, scopeOf, viewport, type BrowserScenario, type BrowserCheck, type BrowserReport } from "./scenario";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -180,6 +180,13 @@ const TYPED_FIELDS = ["", "text", "search", "tel", "url", "email", "number"];
 const PICKED_FIELDS = ["date", "time", "datetime-local", "month", "week", "color", "range"];
 
 /** One task's disposable browser. No user profiles, arbitrary evaluation or browser installation. */
+/** The scenario's inputs as they are now; a check that names none is told how to get a fresh pass when the whole project can't be watched. */
+async function inputState(root: string, scenario: BrowserScenario, signal?: AbortSignal): Promise<InputState> {
+  const state = await workspaceState(root, scopeOf(scenario), signal);
+  return state.fingerprint || scenario.scope ? state
+    : { reason: `${state.reason} With no scope.inputs Casper watches the whole project; name the files the page depends on.` };
+}
+
 export class BrowserSession {
   private readonly controller = new AbortController();
   private browser?: Browser;
@@ -497,7 +504,7 @@ export class BrowserSession {
       const check = structuredClone(entry.check);
       if (entry.revision !== this.revision) { check.freshness = "stale"; check.reason = "Code/tool writes observed after this browser check."; }
       else if (entry.fingerprint) {
-        const current = await workspaceState(this.options.projectRoot, entry.scenario.scope);
+        const current = await inputState(this.options.projectRoot, entry.scenario);
         if (!current.fingerprint) { check.freshness = "unavailable"; check.reason = current.reason; }
         else if (current.fingerprint !== entry.fingerprint) { check.freshness = "stale"; check.reason = "Declared local inputs changed after this browser check."; }
       }
@@ -527,7 +534,7 @@ export class BrowserSession {
     const check: BrowserCheck = { ...entry.check, status: "incomplete", freshness: "unavailable", assertions: [], reason: undefined };
     entry.check = check; entry.fingerprint = undefined; entry.revision = this.revision;
     try {
-      const before = await workspaceState(this.options.projectRoot, scenario.scope, signal);
+      const before = await inputState(this.options.projectRoot, scenario, signal);
       await this.start(); signal.throwIfAborted();
       await this.page!.browserContext().close();
       const page = await this.newPage();
@@ -566,7 +573,7 @@ export class BrowserSession {
         check.assertions.push({ kind: assertion.kind, status: result.pass ? "pass" : "fail", actual: result.actual });
       }
       check.status = check.assertions.every(a => a.status === "pass") ? "pass" : "fail";
-      const after = await workspaceState(this.options.projectRoot, scenario.scope, signal);
+      const after = await inputState(this.options.projectRoot, scenario, signal);
       if (before.fingerprint && after.fingerprint && before.fingerprint === after.fingerprint && entry.revision === this.revision) {
         check.freshness = "fresh"; entry.fingerprint = after.fingerprint;
       } else { check.freshness = before.fingerprint && after.fingerprint ? "stale" : "unavailable"; check.reason = before.reason ?? after.reason ?? "Declared inputs changed during browser reproduction."; }

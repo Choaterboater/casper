@@ -12,6 +12,12 @@ export type BrowserAssertion = { kind: "text"; selector: string; expected: strin
   | { kind: "no-horizontal-overflow"; selector?: string }
   | { kind: "no-overlap"; selector: string; other: string };
 export interface BrowserScenario { name: string; url: string; viewport: { width: number; height: number }; steps: BrowserStep[]; assertions: BrowserAssertion[]; scope?: VerificationScope }
+
+/** A check that names no scope watches the project folder, without dependency, build and cache folders at its top.
+ * Still a bounded observation: a project too big to watch says so, and nothing counts as fresh. */
+export const PROJECT_SCOPE: VerificationScope = { inputs: ["."], exclude: [".git", "node_modules", ".venv", "venv", "__pycache__",
+  "dist", "build", "out", "target", "coverage", ".next", ".nuxt", ".svelte-kit", ".vite", ".turbo", ".cache", ".parcel-cache"] };
+export const scopeOf = (scenario: BrowserScenario): VerificationScope => scenario.scope ?? PROJECT_SCOPE;
 export interface BrowserCheck {
   id: string; name: string; scenarioSha256: string; url: string; viewport: { width: number; height: number };
   status: "pass" | "fail" | "incomplete"; baseline: "pass" | "fail" | "incomplete";

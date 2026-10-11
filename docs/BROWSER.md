@@ -130,8 +130,12 @@ page is right, that every requirement is met, or that the model's summary is
 correct.
 
 Freshness compares declared local inputs before/after replay and at task reporting.
-Observed native writes/shell actions invalidate earlier evidence. Missing,
-unsupported or over-budget input scope means freshness unavailable. These are
+Observed native writes/shell actions invalidate earlier evidence. A check that
+names no `scope.inputs` watches the whole project folder, leaving out dependency,
+build and cache folders at its top (`node_modules`, `.git`, `dist`, `build`,
+`.next`, `.venv` and the like). Unsupported or over-budget input scope (a project
+too big to watch whole, a file over 1 MiB) means freshness unavailable, and the
+check says to name the files the page depends on. These are
 bounded, non-atomic filesystem observations: they do **not** prove which build the
 server is serving, that the input scope is complete, or that external state stayed
 unchanged. Screenshots and model claims never count as assertion passes.
