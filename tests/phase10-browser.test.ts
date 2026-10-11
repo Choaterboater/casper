@@ -426,6 +426,41 @@ browserTest("the desktop picture is the whole page up to 4000 px, after scrollin
   expect(f.images).toContain("/far.svg");
 }, 45_000);
 
+browserTest("select picks an option by value or label and fires change; fill on a <select> says to use select", async () => {
+  const f = await fixture({ allowActions: () => true });
+  await writeFile(f.sourceFile, `<!doctype html><select id="size" onchange="document.querySelector('#out').textContent=this.value"><option value="sm">Small</option><option value="lg">Large</option></select><p id="out"></p><input id="name">`);
+  await f.session.run({ action: "open", url: f.url });
+  const act = (action: string, selector: string, value: string) => f.session.run({ action, selector, value, impact: "local-test", reason: "Synthetic fixture" });
+  await expect(act("fill", "#size", "lg")).rejects.toThrow("use action select");
+  await expect(act("select", "#name", "lg")).rejects.toThrow("Select takes a <select>");
+  await expect(act("select", "#size", "Huge")).rejects.toThrow('no option "Huge"; its options are sm (Small), lg (Large)');
+  expect(await act("select", "#size", "Large")).toMatchObject({ executed: true, selected: { value: "lg", label: "Large" } });
+  const check = await f.session.run({ action: "check", scenario: { name: "Pick small", url: f.url, scope: { inputs: ["index.html"] },
+    steps: [{ action: "select", selector: "#size", value: "lg", impact: "local-test", reason: "Synthetic" }, { action: "select", selector: "#size", value: "Small", impact: "local-test", reason: "Synthetic" }],
+    assertions: [{ kind: "text", selector: "#out", expected: "sm" }] } });
+  expect(check.status).toBe("pass");
+}, 20_000);
+
+browserTest("a button below the screen that only appears once scrolled to (a reveal animation) is scrolled into view and clicked", async () => {
+  const f = await fixture({ allowActions: () => true });
+  await writeFile(f.sourceFile, `<!doctype html><style>html{scroll-behavior:smooth}.reveal{transform:scale(0);transition:transform .3s}.reveal.shown{transform:none}</style>
+<div style="height:3000px"></div><section class="reveal"><button id="go" onclick="document.querySelector('#out').textContent='clicked'">Go</button></section><p id="out"></p>
+<script>new IntersectionObserver(es => es.forEach(e => e.isIntersecting && e.target.classList.add("shown"))).observe(document.querySelector(".reveal"))</script>`);
+  const check = await f.session.run({ action: "check", scenario: { name: "Go below", url: f.url, scope: { inputs: ["index.html"] },
+    steps: [{ action: "click", selector: "#go", impact: "local-test", reason: "Synthetic" }], assertions: [{ kind: "text", selector: "#out", expected: "clicked" }] } });
+  expect(check.status).toBe("pass");
+}, 20_000);
+
+test("a session runs 200 operations and records 24 checks; the check limit says to replay the ids it has", async () => {
+  const f = await fixture({ executablePath: "/nonexistent/chrome" });
+  const scenario = { name: "Heading", url: f.url, steps: [], assertions: [{ kind: "visible", selector: "h1" }] };
+  // A check is recorded before the browser starts, so a missing browser still counts it.
+  for (let i = 0; i < 24; i++) await expect(f.session.run({ action: "check", scenario })).rejects.toThrow("Browser was not found");
+  await expect(f.session.run({ action: "check", scenario })).rejects.toThrow("Browser check limit reached (24 per session); replay the ids your checks returned");
+  for (let i = 25; i < 200; i++) await f.session.run({ action: "diagnostics" });
+  await expect(f.session.run({ action: "diagnostics" })).rejects.toThrow("Browser operation limit reached (200 per session)");
+});
+
 test("the model's browser tool has no load action; page loads are host-only", async () => {
   const f = await fixture({ executablePath: "/nonexistent/chrome" });
   const schema = browserTool(f.session).inputSchema as { properties: { action: { enum: string[] } } };

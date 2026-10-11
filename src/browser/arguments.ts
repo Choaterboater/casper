@@ -3,6 +3,7 @@ export const BROWSER_ACTION_FIELDS = {
   open: ["url"], inspect: [], screenshot: [], diagnostics: [], viewport: ["width", "height"],
   check: ["scenario"], replay: ["id"], serve: ["script", "url", "impact", "reason"],
   click: ["selector", "impact", "reason"], fill: ["selector", "value", "impact", "reason"], press: ["selector", "value", "impact", "reason"],
+  select: ["selector", "value", "impact", "reason"],
 } as const satisfies Record<string, readonly string[]>;
 export type BrowserAction = keyof typeof BROWSER_ACTION_FIELDS;
 export const BROWSER_ACTIONS = Object.keys(BROWSER_ACTION_FIELDS) as BrowserAction[];

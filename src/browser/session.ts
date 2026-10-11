@@ -36,7 +36,7 @@ export interface BrowserSessionOptions {
 }
 export interface MetadataApproval { address: string; url: string }
 export interface BrowserApproval { action: string; url: string; selector: string; target: string; value?: string; reason: string; impact: string }
-const INTERACTIONS = ["click", "fill", "press"];
+const INTERACTIONS = ["click", "fill", "press", "select"];
 const DANGEROUS = /\b(delete|remove|destroy|purchase|pay|checkout|buy|send|publish|deploy|sign.?in|log.?in|password|credit.?card)\b/i;
 function localURL(source: string): boolean {
   try { return ["localhost", "127.0.0.1", "[::1]"].includes(new URL(source).hostname); } catch { return false; }
@@ -49,7 +49,7 @@ export function serveHolds(script: { command: string; impact: string; allowAll?:
   return script.impact !== "local-test" || DANGEROUS.test(script.command) || /\b(install|add|npx|dlx|sudo|rm|curl|wget)\b/.test(script.command);
 }
 
-/** Whether a click, fill or press asks first: undefined runs it; `word` is the known label that held a local test.
+/** Whether a click, fill, press or select asks first: undefined runs it; `word` is the known label that held a local test.
  * With browser clicks on (allowAll), every action runs; off, only a local test on a local page without a known label does. */
 export function actionHold(action: { impact: string; url: string; target: string; allowAll?: boolean }): { word?: string } | undefined {
   if (action.allowAll) return undefined;
@@ -298,6 +298,22 @@ const TYPED_FIELDS = ["", "text", "search", "tel", "url", "email", "number"];
 /** Fields a person sets through a picker: fill sets their value and fires input and change. */
 const PICKED_FIELDS = ["date", "time", "datetime-local", "month", "week", "color", "range"];
 
+/** Scrolls a control to the middle of the screen at once (a page's smooth scrolling aside), then waits up to a
+ * second for its box to have a size and hold still: a section that grows or fades in once scrolled to has finished. */
+async function settleInView(element: import("puppeteer-core").ElementHandle): Promise<void> {
+  await element.evaluate(async el => {
+    el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+    const box = () => { const r = el.getBoundingClientRect(); return r.width >= 1 && r.height >= 1 ? `${r.x},${r.y},${r.width},${r.height}` : ""; };
+    let last = box();
+    for (const end = performance.now() + 1000; performance.now() < end;) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const now = box();
+      if (now && now === last) return;
+      last = now;
+    }
+  });
+}
+
 /** One task's disposable browser. No user profiles, arbitrary evaluation or browser installation. */
 /** The scenario's inputs as they are now; a check that names none is told how to get a fresh pass when the whole project can't be watched. */
 async function inputState(root: string, scenario: BrowserScenario, signal?: AbortSignal): Promise<InputState> {
@@ -349,7 +365,7 @@ export class BrowserSession {
   run(input: unknown, signal?: AbortSignal): Promise<Record<string, unknown>> {
     if (this.controller.signal.aborted) return Promise.reject(new Error("Browser session is closed"));
     if (this.work) return Promise.reject(new Error("Browser is busy; wait for the current operation"));
-    if (++this.operations > 64) return Promise.reject(new Error("Browser operation limit reached (64 per session)"));
+    if (++this.operations > 200) return Promise.reject(new Error("Browser operation limit reached (200 per session)"));
     const work = this.perform(input, signal);
     this.work = work;
     void work.finally(() => { if (this.work === work) this.work = undefined; }).catch(() => {});
@@ -655,7 +671,7 @@ export class BrowserSession {
     if (input.action === "check") {
       const scenario = parseScenario(input.scenario);
       await this.askMetadata(scenario.url, signal);
-      if (this.scenarios.size >= 8) throw new Error("Browser scenario limit reached (8 per session)");
+      if (this.scenarios.size >= 24) throw new Error("Browser check limit reached (24 per session); replay the ids your checks returned instead of recording new ones");
       id = randomUUID();
       this.scenarios.set(id, { scenario, revision: this.revision, check: { id, name: scenario.name,
         scenarioSha256: createHash("sha256").update(JSON.stringify(scenario)).digest("hex"), url: scenario.url, viewport: scenario.viewport,
@@ -740,9 +756,11 @@ export class BrowserSession {
     const before = await describe();
     if (/^(password|file)$/i.test(before.type) || /password|one-time-code|cc-/i.test(before.autocomplete)) throw new Error("Credential, payment and file-upload inputs are outside this browser slice");
     const type = before.type.toLowerCase();
+    if (action === "fill" && before.tag === "SELECT") throw new Error("Fill does not set a <select>; use action select with the option's value or label");
     if (action === "fill" && before.tag !== "TEXTAREA" && (before.tag !== "INPUT" || !(TYPED_FIELDS.includes(type) || PICKED_FIELDS.includes(type)))) {
       throw new Error(`Fill takes a textarea or an input of type ${[...TYPED_FIELDS.filter(Boolean), ...PICKED_FIELDS].join(", ")}`);
     }
+    if (action === "select" && before.tag !== "SELECT") throw new Error("Select takes a <select>; use fill for a text field, or click the options of a custom menu");
     const hold = actionHold({ impact: String(input.impact), url: before.url, target: before.target, allowAll: this.options.allowActions?.() });
     if (hold) {
       const approved = await this.options.confirm?.({ action, selector, url: before.url, target: before.target,
@@ -756,9 +774,24 @@ export class BrowserSession {
     signal.throwIfAborted();
     const element = await page.$(selector);
     if (!element) throw new Error("Browser target disappeared");
+    let selected: { value: string; label: string } | undefined;
     try {
+      await settleInView(element);
       // No automatic retry after a potentially consequential action.
       if (action === "click") await element.click();
+      else if (action === "select") {
+        // By the option's value first, then its label, as a person picks it; input and change fire as they would.
+        const picked = await element.evaluate((el, next) => {
+          const options = [...(el as HTMLSelectElement).options];
+          const option = options.find(o => o.value === next) ?? options.find(o => o.label.trim() === next.trim());
+          if (!option || option.disabled) return { missing: options.slice(0, 20).map(o => o.value === o.label.trim() ? o.value : `${o.value} (${o.label.trim()})`) };
+          option.selected = true;
+          el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true }));
+          return { picked: { value: option.value, label: option.label.trim() } };
+        }, value!);
+        if (!picked.picked) throw new Error(`The select has no option ${JSON.stringify(value!.slice(0, 40))}; its options are ${(picked.missing ?? []).join(", ").slice(0, 600)}`);
+        selected = picked.picked;
+      }
       else if (action === "press") await element.press(value as import("puppeteer-core").KeyInput);
       else if (before.tag === "INPUT" && PICKED_FIELDS.includes(type)) {
         // A date, time, color or range field is set by its picker, not by keystrokes: set the value as the picker would.
@@ -776,7 +809,7 @@ export class BrowserSession {
       }
     } finally { await element.dispose(); }
     signal.throwIfAborted();
-    return { action, url: page.url(), executed: true, guidance: "Action execution is not proof of the expected result. Inspect or replay assertions." };
+    return { action, url: page.url(), executed: true, ...(selected ? { selected } : {}), guidance: "Action execution is not proof of the expected result. Inspect or replay assertions." };
   }
 
   private start(): Promise<Page> {

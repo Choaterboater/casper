@@ -60,7 +60,7 @@ project file can't turn it back on.
 These commands do not use a model. When you ask in plain words, the model uses
 its normal edit and shell tools plus one `browser` tool. Its actions are
 `open`, `inspect`, `diagnostics`, `screenshot`, `viewport`, `click`, `fill`, `press`,
-`serve`, `check` and `replay`. There is no arbitrary JavaScript/CDP endpoint.
+`select`, `serve`, `check` and `replay`. There is no arbitrary JavaScript/CDP endpoint.
 Inspection supplies bounded text and control metadata, including selectors for
 IDs; controls without IDs require an explicit CSS selector. Selectors must match
 exactly one element for interactions and element assertions.
@@ -69,6 +69,11 @@ exactly one element for interactions and element assertions.
 textarea, and sets a date, time, datetime-local, month, week, color or range field
 the way a picker would; password and file fields are not supported. Values must
 be nonempty, single-line text, up to 1,024 bytes.
+`select` picks an option of a `<select>` by its value, or else its label, and
+fires `input` and `change`; `fill` on a `<select>` says to use `select`.
+Before `click`, `fill`, `press` or `select`, Casper scrolls the element into view
+and waits up to a second for it to settle, so a button below the screen, or one
+that grows or fades in once scrolled to, can be used.
 `press` supports `Enter`, `Tab`, `Escape`, `ArrowUp`, `ArrowDown`, `ArrowLeft`,
 `ArrowRight`, `Space` and `Backspace`.
 
@@ -201,7 +206,7 @@ After a forced SIGKILL of Casper or a power loss, cleanup may not happen.
 
 ## Bounds and artifacts
 
-- Serialized operations; 64 operations and 8 immutable scenarios per session.
+- Serialized operations; 200 operations and 24 immutable scenarios per session (past 24, replay the ids you have).
 - Scenarios: 16 KiB, 12 steps, 1–4 assertions; total arguments: 20,000 bytes.
 - Operation deadline: 15 seconds (30 for check/replay), including approval wait;
   navigation/server readiness: 10 seconds.

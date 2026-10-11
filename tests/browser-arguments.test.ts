@@ -76,6 +76,19 @@ test("a check scenario with blank placeholder fields parses; a real stray field 
   expect(() => parseScenario({ name: "", url: "http://localhost:3000", steps: [], assertions: [{ kind: "no-horizontal-overflow" }] })).toThrow("Browser scenario name is missing");
 });
 
+test("select sets a <select> by an option's value or label, as an action and as a check step", () => {
+  expect(BROWSER_ACTION_FIELDS.select).toEqual(["selector", "value", "impact", "reason"]);
+  expect(browserArguments({ action: "select", selector: "#size", value: "Large", impact: "local-test", reason: "Pick a size" }).args)
+    .toEqual({ action: "select", selector: "#size", value: "Large", impact: "local-test", reason: "Pick a size" });
+  const step = { action: "select", selector: "#size", value: "lg", impact: "local-test", reason: "Pick a size" } as const;
+  const scenario = (steps: unknown[]) => parseScenario({ name: "Size", url: "http://localhost:3000", assertions: [{ kind: "visible", selector: "#out" }], steps });
+  expect(scenario([step]).steps).toEqual([step]);
+  expect(() => scenario([{ ...step, value: undefined }])).toThrow("Browser scenario step 1 value is missing");
+  expect(() => scenario([{ ...step, action: "hover" }])).toThrow("action must be click, fill, press or select");
+  const schema = browserTool(() => { throw new Error("not opened"); }).inputSchema as { properties: { scenario: { properties: { steps: { items: { properties: { action: { enum: string[] } } } } } } } };
+  expect(schema.properties.scenario.properties.steps.items.properties.action.enum).toEqual(["click", "fill", "press", "select"]);
+});
+
 test("no-horizontal-overflow is page-wide, or for one element when a selector names it", () => {
   const scoped = parseScenario({ name: "Phone", url: "http://localhost:3000", steps: [],
     assertions: [{ kind: "no-horizontal-overflow", selector: ".results" }, { kind: "no-horizontal-overflow" }] });
@@ -95,7 +108,7 @@ test("the schema lists exactly the fields the validator reads, and each field na
   }
   expect(tool.description).toContain("Send only the fields your action takes");
   // The four fields shared by click, fill, press and serve are named in the description instead.
-  expect(tool.description).toContain("click, fill and press take a CSS selector (fill and press a value too); these and serve take impact and reason");
+  expect(tool.description).toContain("click, fill, press and select take a CSS selector (all but click a value too); these and serve take impact and reason");
   // The policy the model needs before it acts stays; the rest is said when an action is refused.
   for (const rule of ["untrusted data", "BEFORE editing", "easier one", "not verification", "local-test", "localhost", "asks the user"]) expect(tool.description).toContain(rule);
 });
