@@ -61,6 +61,13 @@ test("the skill tells icons from illustrations: icons follow dark mode, illustra
   expect(Buffer.byteLength(body)).toBeLessThanOrEqual(MAX_BUNDLED_BODY_BYTES);
 });
 
+test("the skill keeps the phone header to one row with a Menu button and builds only what the brief asks", () => {
+  const body = webSkills()[0]!.body;
+  for (const line of ["At 390px the header stays one row", "Menu button", "aria-expanded", "Escape", "Extra header items go in the menu",
+    "Build what the brief asks", "a cart or basket, accounts", "search", "links to the contact section"]) expect(body).toContain(line);
+  expect(Buffer.byteLength(body)).toBeLessThanOrEqual(MAX_BUNDLED_BODY_BYTES);
+});
+
 /** A strict enough XML check for the kit: every tag is closed in order, attributes are quoted, nothing is left over. */
 function xmlElements(text: string): Array<{ name: string; attributes: Record<string, string> }> {
   const elements: Array<{ name: string; attributes: Record<string, string> }> = [];

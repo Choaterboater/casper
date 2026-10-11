@@ -26,6 +26,8 @@ design folder), follow that instead: the repo's style always wins over this file
 
 ## Structure
 
+- Build what the brief asks: don't add features it did not ask for (a cart or basket, accounts,
+  search). A call to action with nothing behind it links to the contact section.
 - Real elements: `header`, `nav`, `main`, `section`, `footer`, `h1` to `h3` in order (one
   `h1`), `button` for actions, `a` for going somewhere, `ul`/`ol` for lists, `table` for
   tables of data.
@@ -47,6 +49,8 @@ design folder), follow that instead: the repo's style always wins over this file
   without a replacement. Everything works with Tab, Enter and Escape.
 - Lay out for a 390px wide phone first, then widen. No sideways scroll; long words and tables
   wrap or scroll inside their own box.
+- At 390px the header stays one row: the brand and a Menu button (`aria-expanded`, Escape
+  closes it) that opens the nav. Extra header items go in the menu.
 - Respect `prefers-reduced-motion`: no needed meaning in animation.
 
 ## Color and contrast

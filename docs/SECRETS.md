@@ -257,8 +257,8 @@ Casper.
 - A command the AI sent stays in the saved conversation as the AI wrote it; only
   what Casper shows and keeps is scrubbed.
 - `casper learn` reads repo text without this scrubbing.
-- Pictures are not scrubbed. A picture the AI reads (`read` on a PNG, JPEG, GIF or WebP,
-  including browser screenshots), one you paste or drop, and the page screenshots it
+- Pictures are not scrubbed. A picture the AI reads (`read` on a PNG, JPEG, GIF or WebP),
+  a browser screenshot, one you paste or drop, and the page screenshots it
   looks at go to the provider as they are. Keep screenshots of terminals or configs out
   of folders the AI reads.
 - If the check itself fails on a tool's output, the AI gets `Output not shown:

@@ -78,6 +78,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     confirmShare: (file, host) => confirmYes(app, `${terminalText(file)} is on another computer, ${terminalText(host)}.\nOpening it sends your Windows login (a hash of it) to that computer.\n`,
       "Attach this picture?", app.commandAbort?.signal) });
   app.pastedImages = undefined;
+  // Browser checks recorded or replayed from here on belong to this task; Casper's end replay covers only those.
+  const taskStarted = performance.now();
   for (const note of attached.notes) app.output.write(`[image] ${terminalText(note)}\n`);
   // Whether the request names a target, and how much it asks, is read from what you typed: a saved picture's
   // `[image 1] is the file …` line names a file Casper made, not what to change.
@@ -399,6 +401,12 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     const classifiedAfter = classifications();
     if (classifiedBefore === undefined || classifiedAfter !== classifiedBefore) app.observations.recordUntrackedModelUse();
     const observations = app.observations.snapshot(changedPaths, changedDuringChecks);
+    // This task's checks that ran before a later edit or command: Casper replays them once, so the model need not
+    // replay to count. Not after a failed or cancelled task.
+    if (execution === "completed" && !app.closing && app.browser) await app.browser.replayStale(taskStarted, app.commandAbort?.signal, (name) => {
+      app.events.ensureLineBreak();
+      app.output.write(`• Casper replaying browser check: ${terminalText(name)}\n`);
+    }).catch(() => {});
     const browser = !app.closing && app.browser ? await app.browser.report() : undefined;
     const outsideWrites = outsideWritesReceipt(app.sandbox);
     // Parts builders landed that no reviewer finished: one plain line, never a failure.

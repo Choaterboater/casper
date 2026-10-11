@@ -127,6 +127,23 @@ the project checks. In one-shot mode a failed assertion makes the exit code 1,
 and an incomplete or stale browser check makes it 2, unless a failed or cancelled
 task already set a stronger result. Inspecting a page alone is not a check.
 
+When a task finishes (not when it fails or is cancelled), Casper replays once,
+before the receipt and with no model turn, each check this task recorded or
+replayed that ran before a later edit or command, so the model need not replay a
+check just to count it. Checks from earlier tasks in the session are left alone.
+The fresh result counts: a pass is a pass, a failure is a failure with its
+evidence. Only pages on this computer are replayed, and only steps that would run
+with Browser clicks off: a `local-test` step whose label has no word such as
+"send", "buy" or "delete". Nothing is asked: any other step, an address that would
+need a yes, a busy or closed browser, or a replay that can't finish keeps the
+check as it was, and the receipt still says `ran before a later edit or command
+(replay to count)`. A line names each check as it is replayed. All of these
+replays share one minute; one that runs out of time is given up and the browser
+stays open.
+
+A screenshot larger than 2000 px or 4.5 MB of base64 is shrunk before it is sent,
+as Pi's `read` shrinks pictures, so it stays under the provider's per-image limit.
+
 Casper still runs the project's own checks after edits, as usual (see
 [VERIFICATION.md](VERIFICATION.md)). A failed browser check does not start
 Casper's repair loop; ask the model to fix it and replay the check. A passing
@@ -224,10 +241,12 @@ After a forced SIGKILL of Casper or a power loss, cleanup may not happen.
   `page-<n>-phone.png`, at most 40 per session); they don't count toward the
   model's 16. See "Screenshots" in [VERIFICATION.md](VERIFICATION.md#page-checks).
 
-Use native `read` on a returned PNG path to deliver image content to a
-vision-capable model. Tests verify actual image content in the Pi provider request,
-not merely a path. A text-only model or saved screenshot alone does not establish
-that the model viewed/understood it. Model/provider retention policy still applies.
+A screenshot comes back to the model as a picture with the tool's result when
+the model can see images, so it needs no extra `read`. A text-only model gets the
+saved path and a note that the picture was left out. Tests verify the actual image
+in the Pi provider request. Page pixels are untrusted data, like page text. A saved
+screenshot alone does not establish that the model understood it. Model/provider
+retention policy still applies.
 
 
 Screenshot file output currently requires macOS/Linux. Windows screenshot capture
