@@ -67,7 +67,9 @@ exactly one element for interactions and element assertions.
 
 `fill` replaces the text in a text, search, tel, url, email or number input, or a
 textarea, and sets a date, time, datetime-local, month, week, color or range field
-the way a picker would; password and file fields are not supported. Values must
+the way a picker would. A password field is filled only as a `local-test` on a page
+on this computer, so the AI can test a login it built with a made-up test account;
+card-number, one-time-code and file fields are not supported. Values must
 be nonempty, single-line text, up to 1,024 bytes.
 `select` picks an option of a `<select>` by its value, or else its label, and
 fires `input` and `change`; `fill` on a `<select>` says to use `select`.
@@ -198,7 +200,7 @@ AI can test what it built (**Browser clicks: on** in `/settings`). Turn it off (
 known consequential label, a nonlocal interaction or `consequential`/`uncertain` impact
 asks you first: `1 No · 2 Yes, this once · 3 Yes, for this session`; a run that can't
 ask says no, and the refusal names the label word that held a local test (a "Send
-message" button holds on `send`). Personal credential/payment/file inputs are refused. Consequential actions are not automatically
+message" button holds on `send`). Payment, one-time-code and file inputs are refused, and a password field anywhere but a local test on this computer. Consequential actions are not automatically
 retried. DOM checks and clicks are not an atomic transaction.
 
 **This is a behavioral permission policy, not network isolation or a sandbox.**

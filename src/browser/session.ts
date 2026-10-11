@@ -990,10 +990,14 @@ export class BrowserSession {
         target: [el.getAttribute("aria-label"), el.textContent, el.getAttribute("name"), el.getAttribute("href")].filter(Boolean).join(" ").slice(0, 1024) };
     }, selector);
     const before = await describe();
-    if (/^(password|file)$/i.test(before.type) || /password|one-time-code|cc-/i.test(before.autocomplete)) throw new Error("Credential, payment and file-upload inputs are outside this browser slice");
     const type = before.type.toLowerCase();
+    if (type === "file" || /one-time-code|cc-/i.test(before.autocomplete)) throw new Error("Payment, one-time-code and file-upload inputs are outside this browser slice");
+    // A password field: only a made-up test account on a page on this computer, so the AI can test a login it built.
+    const password = type === "password" || /password/i.test(before.autocomplete);
+    if (password && (!localURL(before.url) || String(input.impact) !== "local-test"))
+      throw new Error("A password field is filled only as a local test on a page on this computer, with a made-up test account");
     if (action === "fill" && before.tag === "SELECT") throw new Error("Fill does not set a <select>; use action select with the option's value or label");
-    if (action === "fill" && before.tag !== "TEXTAREA" && (before.tag !== "INPUT" || !(TYPED_FIELDS.includes(type) || PICKED_FIELDS.includes(type)))) {
+    if (action === "fill" && before.tag !== "TEXTAREA" && (before.tag !== "INPUT" || !(TYPED_FIELDS.includes(type) || password || PICKED_FIELDS.includes(type)))) {
       throw new Error(`Fill takes a textarea or an input of type ${[...TYPED_FIELDS.filter(Boolean), ...PICKED_FIELDS].join(", ")}`);
     }
     if (action === "select" && before.tag !== "SELECT") throw new Error("Select takes a <select>; use fill for a text field, or click the options of a custom menu");
@@ -1004,7 +1008,7 @@ export class BrowserSession {
     const hold = held?.word && this.unattended && allowAll ? undefined : held;
     if (hold) {
       const approved = !this.unattended && await this.options.confirm?.({ action, selector, url: before.url, target: before.target,
-        ...(value === undefined ? {} : { value }), reason, impact: String(input.impact) }, signal);
+        ...(value === undefined ? {} : { value: password ? "••••••••" : value }), reason, impact: String(input.impact) }, signal);
       signal.throwIfAborted();
       if (!approved) throw new Error(`Browser action requires human approval; not executed. ${!localURL(before.url) ? "It is on a page that is not on this computer."
         : hold.word ? `Its label has "${hold.word}", so it asks even as a local test; other local-test actions on this page run without asking.`

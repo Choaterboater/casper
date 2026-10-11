@@ -483,7 +483,27 @@ browserTest("fill types into number, email and date fields; password stays out; 
     { kind: "no-horizontal-overflow", selector: "#wide" }] } });
   expect(result).toMatchObject({ status: "fail", assertions: [{ status: "pass" }, { status: "pass" }, { status: "fail" }] });
   await f.session.run({ action: "open", url: f.url });
-  await expect(f.session.run({ action: "fill", selector: "#secret", value: "x", impact: "local-test", reason: "Synthetic" })).rejects.toThrow("Credential");
+  // A password field takes a made-up test password only as a local test on a page on this computer.
+  await expect(f.session.run({ action: "fill", selector: "#secret", value: "x", impact: "uncertain", reason: "Login" })).rejects.toThrow("A password field is filled only as a local test");
+  expect(await f.session.run({ action: "fill", selector: "#secret", value: "test-pass-123", impact: "local-test", reason: "Synthetic test account" })).toMatchObject({ executed: true });
+}, 25_000);
+
+browserTest("a check can log in to a local page with a made-up password; payment and file inputs stay out", async () => {
+  // Browser clicks on, the default: a "Log in" button on a local page runs without asking.
+  const f = await fixture({ allowActions: () => true });
+  await writeFile(f.sourceFile, `<!doctype html><main><input id="user" type="email"><input id="pw" type="password" autocomplete="current-password">
+    <button id="go">Log in</button><p id="out"></p><input id="card" autocomplete="cc-number"><input id="up" type="file"></main>
+    <script>document.getElementById("go").onclick = () => { document.getElementById("out").textContent =
+      document.getElementById("pw").value === "test-pass-123" ? "Signed in" : "Wrong password"; };</script>`);
+  const result = await f.session.run({ action: "check", scenario: { name: "Log in", url: f.url, scope: { inputs: ["index.html"] }, steps: [
+    { action: "fill", selector: "#user", value: "a@example.test", impact: "local-test", reason: "Made-up test account" },
+    { action: "fill", selector: "#pw", value: "test-pass-123", impact: "local-test", reason: "Made-up test password" },
+    { action: "click", selector: "#go", impact: "local-test", reason: "Log in to the local test account" },
+  ], assertions: [{ kind: "text", selector: "#out", expected: "Signed in" }] } });
+  expect(result).toMatchObject({ status: "pass" });
+  await f.session.run({ action: "open", url: f.url });
+  await expect(f.session.run({ action: "fill", selector: "#card", value: "4242424242424242", impact: "local-test", reason: "x" })).rejects.toThrow("Payment, one-time-code and file-upload");
+  await expect(f.session.run({ action: "fill", selector: "#up", value: "a.txt", impact: "local-test", reason: "x" })).rejects.toThrow("Payment, one-time-code and file-upload");
 }, 25_000);
 
 browserTest("local synthetic interactions proceed while consequential actions require approval", async () => {
