@@ -13,50 +13,51 @@ writes your answer into `~/.casper/config.yaml` for you, keeping your comments a
 
 ```text
 Settings (saved in ~/.casper/config.yaml for you):
-  Web lookups: on (DuckDuckGo) · Browser tool: on · Starter templates: on
-  Diagram tool: on · Pages the AI makes: on · Open pages in the browser: on
-  New-version notice: on · Suggestions: on · Side questions with ?: on
-  Built-in skills: on · GitHub tool: on · Packs: on · Spend notes: at $1 a task
-  Spend pause: off · Prompt cache: auto · Local models: on · Page checks: on
-  Show the AI the pages: ask once a session · Work shown: normal
-  Theme: default · Untrusted-text reader: on · Helpers that build: on
-  Playwright tests: on · Send Casper's name to OpenRouter: on
-  Sign-ins from other tools: on · Network server updates: on
-  Private ssh passwords: on
+  Web lookups: on (DuckDuckGo) · Browser tool: on · Browser clicks: on
+  Starter templates: on · Diagram tool: on · Pages the AI makes: on
+  Open pages in the browser: on · New-version notice: on · Suggestions: on
+  Side questions with ?: on · Built-in skills: on · GitHub tool: on · Packs: on
+  Spend notes: at $1 a task · Spend pause: off · Prompt cache: auto
+  Local models: on · Page checks: on · Show the AI the pages: ask once a session
+  Work shown: normal · Theme: default · Untrusted-text reader: on
+  Helpers that build: on · Playwright tests: on
+  Send Casper's name to OpenRouter: on · Sign-ins from other tools: on
+  Network server updates: on · Private ssh passwords: on
 Pick one to change:
   1 Done                              nothing changes
   2 Web lookups                       on (DuckDuckGo)
   3 Browser tool                      on
-  4 Starter templates                 on
-  5 Diagram tool                      on
-  6 Pages the AI makes                on
-  7 Open pages in the browser         on
-  8 New-version notice                on
-  9 Suggestions                       on
- 10 Side questions with ?             on
- 11 Built-in skills                   on
- 12 GitHub tool                       on
- 13 Packs                             on
- 14 Spend notes                       at $1 a task
- 15 Spend pause                       off
- 16 Prompt cache                      auto
- 17 Local models                      on
- 18 Page checks                       on
- 19 Show the AI the pages             ask once a session
- 20 Work shown                        normal
- 21 Theme                             default
- 22 Untrusted-text reader             on
- 23 Helpers that build                on
- 24 Playwright tests                  on
- 25 Send Casper's name to OpenRouter  on
- 26 Sign-ins from other tools         on
- 27 Network server updates            on
- 28 Private ssh passwords             on
+  4 Browser clicks                    on
+  5 Starter templates                 on
+  6 Diagram tool                      on
+  7 Pages the AI makes                on
+  8 Open pages in the browser         on
+  9 New-version notice                on
+ 10 Suggestions                       on
+ 11 Side questions with ?             on
+ 12 Built-in skills                   on
+ 13 GitHub tool                       on
+ 14 Packs                             on
+ 15 Spend notes                       at $1 a task
+ 16 Spend pause                       off
+ 17 Prompt cache                      auto
+ 18 Local models                      on
+ 19 Page checks                       on
+ 20 Show the AI the pages             ask once a session
+ 21 Work shown                        normal
+ 22 Theme                             default
+ 23 Untrusted-text reader             on
+ 24 Helpers that build                on
+ 25 Playwright tests                  on
+ 26 Send Casper's name to OpenRouter  on
+ 27 Sign-ins from other tools         on
+ 28 Network server updates            on
+ 29 Private ssh passwords             on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
-Every row has its number: past 9, type it and press Enter (`Type 1-28 + Enter or Up/Down + Enter`).
+Every row has its number: past 9, type it and press Enter (`Type 1-29 + Enter or Up/Down + Enter`).
 A plain terminal (`TERM=dumb`) asks the same list as numbered lines.
 A change applies from now on (built-in skills, packs, the prompt cache and local models from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Changed while a task runs, it also says when the
@@ -112,6 +113,11 @@ It is on. Turn it off with `/settings` (it writes `browser: false`): the AI is n
 `browser` tool. The page checks after a change still run, since they are Casper's own check, not
 the AI's browser; `/browser`, typed by you, still works. A project file (or a profile it picks)
 can't turn it on or off.
+
+Its clicks, typing and key presses run without asking, on any page, so it can test what it
+built (**Browser clicks**). Turn that off with `/settings` (it writes `browser_clicks: false`) and a
+Send or Delete button, an action that isn't a local test, or one on a page elsewhere asks first.
+Password, payment and file fields are never filled either way.
 
 ### Starter templates
 

@@ -120,7 +120,7 @@ export function browserSession(app: CasperApp): BrowserSession {
   if (!app.browser || app.browser.status().state === "closed") app.browser = new BrowserSession({
     projectRoot: app.activeWorkspaceRoot(), stateDirectory: app.projectContext!.stateDirectory,
     confirm: (request, signal) => app.sessionYes.approve("browser", `Browser action:\n${formatTerminalJSON(request)}\n`, "Allow this browser action?", signal),
-    confirmMetadata: metadataQuestion(app.sessionYes),
+    confirmMetadata: metadataQuestion(app.sessionYes), allowActions: () => app.projectContext?.browserClicks !== false,
   });
   // Capture the instance: the field is cleared after explicit closes (revoke, /clear),
   // but the registered close must still close the session it was registered for.

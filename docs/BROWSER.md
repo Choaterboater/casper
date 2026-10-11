@@ -138,15 +138,15 @@ unchanged. Screenshots and model claims never count as assertion passes.
 
 ## Permissions and ownership
 
-Every interaction/server start declares `impact` and a reason. `local-test` is
-only for requested, synthetic, nonconsequential work in the trusted local project.
-Known consequential labels, nonlocal interactions and `consequential`/`uncertain`
-impact ask you first: `1 No · 2 Yes, this once · 3 Yes, for this session` (3: browser
-actions don't ask again until Casper exits or the workspace changes). One-shot/cooked input
-cannot grant that approval. Personal credential/payment/file inputs are refused. Approval is
-repeated on replay; denied actions are not executed and consequential actions are
-not automatically retried. An approval preview is rechecked before acting, but
-DOM checks and clicks are not an atomic transaction.
+Every interaction/server start declares `impact` and a reason. Clicks, typing and
+key presses run without asking, on any page, a Send or Delete button included, so the
+AI can test what it built (**Browser clicks: on** in `/settings`). Turn it off (it writes
+`browser_clicks: false` in `~/.casper/config.yaml`; a project can't change it) and a
+known consequential label, a nonlocal interaction or `consequential`/`uncertain` impact
+asks you first: `1 No · 2 Yes, this once · 3 Yes, for this session`; a run that can't
+ask says no, and the refusal names the label word that held a local test (a "Send
+message" button holds on `send`). Personal credential/payment/file inputs are refused. Consequential actions are not automatically
+retried. DOM checks and clicks are not an atomic transaction.
 
 **This is a behavioral permission policy, not network isolation or a sandbox.**
 Ordinary external resources/read-only navigation work. Local pages and repository

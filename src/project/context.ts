@@ -75,6 +75,8 @@ export interface ProjectContext {
   aiPages?: boolean;
   /** `open_pages: off` in the user's config: pages the AI makes are not opened in the browser. Unset: on. */
   openPages?: boolean;
+  /** `browser_clicks: off` in the user's config: the AI's browser asks before a held action. Unset: on. */
+  browserClicks?: boolean;
   /** `telemetry: off` in the user's config: no OpenRouter app-name headers. Unset: on. */
   telemetry?: boolean;
   rules: {
@@ -180,6 +182,7 @@ export async function loadProjectContext(
     ...(configuration.networkUpdates !== undefined ? { networkUpdates: configuration.networkUpdates } : {}),
     ...(configuration.aiPages !== undefined ? { aiPages: configuration.aiPages } : {}),
     ...(configuration.openPages !== undefined ? { openPages: configuration.openPages } : {}),
+    ...(configuration.browserClicks !== undefined ? { browserClicks: configuration.browserClicks } : {}),
     ...(configuration.toolDownloads !== undefined ? { toolDownloads: configuration.toolDownloads } : {}),
     rules: {
       profile: configuration.profileRules,
