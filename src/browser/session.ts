@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { BrowserServer } from "./server";
+import { StaticServer } from "./static-server";
 import { readReferenceFile, referenceText } from "../references/files";
 import { type InputState, workspaceState } from "../verify/workspace-state";
 import { parseScenario, scopeOf, viewport, type BrowserScenario, type BrowserCheck, type BrowserReport } from "./scenario";
@@ -208,7 +209,7 @@ export class BrowserSession {
   private closeWork?: Promise<void>;
   private cleanupError?: ProcessCleanupError;
   private artifacts?: ArtifactDirectory;
-  private server?: BrowserServer;
+  private server?: BrowserServer | StaticServer;
   private readonly runId = randomUUID();
   private screenshotCount = 0;
   /** Page-check pictures taken this session (their own limit; the model's 16 screenshots are apart). */
@@ -397,10 +398,16 @@ export class BrowserSession {
 
   private async serve(input: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
     if (this.server) throw new Error("Only one development server is allowed per browser session");
-    if (input.script !== "dev" && input.script !== "start") throw new Error("Browser serve needs script: \"dev\" or \"start\" (a package.json script name)");
+    if (input.script !== "dev" && input.script !== "start" && input.script !== "files") throw new Error("Browser serve needs script: \"dev\" or \"start\" (a package.json script name), or \"files\" for a folder of plain files");
     if (!["local-test", "consequential", "uncertain"].includes(String(input.impact))) throw new Error("Browser serve needs impact: local-test, consequential or uncertain");
     const reason = text(input.reason, "reason", 512), url = webURL(input.url);
     if (!localURL(url)) throw new Error("Browser serve url must be a loopback address like http://127.0.0.1:3000");
+    // Plain files run no command, so nothing needs approving; Casper serves them and stops them with the session.
+    if (input.script === "files") {
+      const files = new StaticServer(); this.server = files;
+      try { return await files.start(this.options.projectRoot, url, signal); }
+      catch (error) { await files.close(); this.server = undefined; throw error; }
+    }
     const source = referenceText(await readReferenceFile(path.join(this.options.projectRoot, "package.json"), 65_536));
     const manifest: unknown = JSON.parse(source);
     if (!record(manifest) || !record(manifest.scripts)) throw new Error("Project has no development scripts");
