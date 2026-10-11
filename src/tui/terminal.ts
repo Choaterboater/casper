@@ -152,6 +152,9 @@ export class InteractiveTerminal {
   /** The MCP writes badge ("WRITES: <servers> · Ctrl+O"); kept here too, so the plain terminal can report it. */
   setBadge(text?: string): void { this.badgeText = text; this.surface?.setBadge(text); }
   get badge(): string | undefined { return this.badgeText; }
+  /** A newer Casper is out: the short note at the end of the idle footer. Nothing on the plain terminal, which has the
+   * `[update]` line at the start. */
+  setUpdate(text?: string): void { this.surface?.setUpdate(text); }
   /** ctrl+o on the rich terminal: turn writes off everywhere. The handler returns true when any were on. */
   setWritesRevert(handler: (() => boolean) | undefined): void { this.surface?.setWritesRevert(handler); }
   /** Work in progress on the rich terminal: the open group's steps under the AI's words, and the status row above the

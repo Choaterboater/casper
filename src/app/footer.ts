@@ -14,6 +14,12 @@ import { formatFooterSpend } from "../task/spend";
 import { phaseEvent, type PhaseEvent } from "./json-events";
 import { editUserConfig } from "../config/user-write";
 
+/** The footer's new-version note as things stand now: none while the setting is off (/settings can turn it off
+ * mid-session), restart once /doctor updated Casper, else what the last check found (src/app/wiring.ts). */
+export function updateNoteText(app: CasperApp): string | undefined {
+  return app.projectContext?.updates === false ? undefined : app.updatedInSession ? "Casper updated · restart to use it" : app.updateNote;
+}
+
 export function updateFooter(app: CasperApp): void {
   if (!app.projectContext) return;
   app.terminal.setTitle(windowTitle(conversationName(app), app.commandActive));
@@ -25,6 +31,7 @@ export function updateFooter(app: CasperApp): void {
   const asking = app.stopAsking ? ["ASKING OFF · /permissions ask"] : [];
   const mcp = parts.length ? [`${parts.join(" · ")} · ${app.terminal.rich ? "Ctrl+O" : "/mcp writes off"}`] : [];
   app.terminal.setBadge([...asking, ...mcp].join(" · ") || undefined);
+  app.terminal.setUpdate(updateNoteText(app));
   try {
     const project = app.projectContext.info;
     const status = app.session?.getStatus?.();

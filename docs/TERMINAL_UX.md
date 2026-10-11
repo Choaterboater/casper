@@ -248,7 +248,12 @@ estimated context occupancy, the current task's tokens and its cost from the mod
 (`task 48.2k tok · $0.31`; from the second task on, the session's total too, so a new task never
 looks like a reset: `task 40k tok · session 1.1M tok · $0.04` while working, `session 1.1M tok · $0.04` idle; a free model shows tokens only; a subscription sign-in shows
 `sub ≈$0.31`, what the tokens would cost pay-per-token; /usage has the session totals split into
-out, new and cached, `43.7k out · 131k new · 4.9M cached`, the same token format). While a stage runs, the task's stages
+out, new and cached, `43.7k out · 131k new · 4.9M cached`, the same token format). When a newer Casper is out, the
+idle footer ends with a short note right before `idle`, in the accent colour, until you update:
+`Casper 0.2.33 is out · casper update` (a source checkout: `Casper is 2 changes behind · casper update`). A
+narrower window drops its `· casper update`, and one with no room for it beside the folder and the model leaves it
+out; after `/doctor` updates Casper it says `Casper updated · restart to use it` ([Configuration](CONFIGURATION.md)
+has the once-a-day check and `updates: false`). While a stage runs, the task's stages
 lead the footer, each marked ✓ once done, then the elapsed time (right after the spinner, `⠋ 0s │ …`, before the first stage);
 the time counts the whole task, a question's wait included, like the live rows' step times:
 `⠋ checklist ✓ · building ✓ · checks · 1m05s │ project…`; in a narrow window only the stage running now

@@ -17,7 +17,7 @@ import { VisualizationRouter } from "../visualize/router";
 import { DEFAULT_WEB } from "../config/load";
 import { casperAgentDir } from "../runtime/agent-store";
 import { loginValuesFrom, WebLookup, webProvider } from "../web/lookup";
-import { refreshUpdateCheck, updateChecksOff, updateNotice } from "../update/notice";
+import { CHECK_EVERY_MS, refreshUpdateCheck, updateChecksOff, updateFooterNote, updateNotice, type NoticeOptions } from "../update/notice";
 import { createSessionSandbox, runtimeShell, type SandboxHost } from "./sandbox";
 import { forgetSshSecrets } from "../ssh/login";
 import { withLoginDisplay } from "../tui/login";
@@ -28,7 +28,7 @@ import { loginMissingAnswer } from "../mcp/network/ask-login";
 import { loginFile } from "../mcp/network/logins";
 import { confirmCapability, confirmKind, answerServerQuestion, oneAtATime } from "./approvals";
 import { networkLoginHost, ownSecretValues } from "./network-host";
-import { updateFooter } from "./footer";
+import { updateFooter, updateNoteText } from "./footer";
 import { checksPlan } from "./verification";
 import { mcpServerSandbox } from "../mcp/sandbox";
 import { trustProjectFile } from "./project-file";
@@ -206,12 +206,43 @@ export async function bannerChecks(app: CasperApp, context: ProjectContext): Pro
   return plan.mode === "off" || hasChecks(plan) ? { checks: describeChecksPlan(plan) } : {};
 }
 
+/** How often a session left open looks at the saved check; the check itself still asks at most once a day. Tests make
+ * it short. */
+export const updateTick = { ms: 60 * 60 * 1000 };
+
 /** A session (never a one-shot run) says when a newer Casper is out, from the last check, then checks again in the
- * background at most once a day. Off with `updates: false`, CASPER_NO_UPDATE_CHECK=1 or CI. */
+ * background at most once a day. The footer keeps a short note of it until you update, also when a check during the
+ * session finds it. Off with `updates: false` (also when /settings turns it off mid-session), CASPER_NO_UPDATE_CHECK=1
+ * or CI. */
 export async function reportNewerCasper(app: CasperApp, context: ProjectContext): Promise<void> {
-  if (!app.updateCheck || context.updates === false || updateChecksOff(process.env)) return;
-  const options = { ...app.updateCheck, stateDir: path.join(app.sessionHomeDir ?? os.homedir(), ".casper"), signal: app.updateCheckAbort.signal };
-  const line = await updateNotice(options).catch(() => undefined);
-  if (line) app.output.write(`[update] ${line}\n`);
-  void refreshUpdateCheck(options);
+  if (!app.updateCheck || updateChecksOff(process.env)) return;
+  const signal = app.updateCheckAbort.signal;
+  const options: NoticeOptions = { ...app.updateCheck, stateDir: path.join(app.sessionHomeDir ?? os.homedir(), ".casper"), signal };
+  const on = () => (app.projectContext ?? context).updates !== false;
+  if (on()) {
+    const line = await updateNotice(options).catch(() => undefined);
+    if (line) app.output.write(`[update] ${line}\n`);
+  }
+  // Only the note itself: the whole footer is drawn once Casper reads keys. Drawn earlier, its "idle" would say Casper
+  // is ready while it is still starting, and an Enter typed then would be lost.
+  const note = () => updateFooterNote(options).then((text) => {
+    if (signal.aborted) return;
+    app.updateNote = text;
+    app.terminal.setUpdate(updateNoteText(app));
+  }, () => undefined);
+  // One look at a time, and at most one try a day from this session: a failed one (offline, GitHub busy) saves nothing,
+  // so refreshUpdateCheck's own once-a-day rule alone would try again at every tick.
+  const now = options.now ?? Date.now;
+  let tried = Number.NEGATIVE_INFINITY;
+  let running: Promise<void> | undefined;
+  const check = () => running ??= (async () => {
+    if (on() && !signal.aborted && now() - tried >= CHECK_EVERY_MS) { tried = now(); await refreshUpdateCheck(options); }
+    await note();
+  })().finally(() => { running = undefined; });
+  if (signal.aborted) return;
+  void check();
+  // A session left open looks again every hour: the saved check another session made shows here too.
+  const tick = setInterval(() => void check(), updateTick.ms);
+  tick.unref?.();
+  signal.addEventListener("abort", () => clearInterval(tick), { once: true });
 }

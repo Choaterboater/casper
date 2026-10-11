@@ -70,7 +70,7 @@ export interface LoadedConfiguration {
   repair: { maxAttempts: number; bigModelLastTry?: boolean };
   /** `suggestions: false` turns every suggestion off (user or profile only). */
   suggestions?: boolean;
-  /** `updates: false` turns off the line that says a newer Casper is out (user or profile only). */
+  /** `updates: false` turns off the line and the footer note that say a newer Casper is out (user or profile only). */
   updates?: boolean;
   /** `sideQuestions: false`: a line that starts with `?` is an ordinary request, not a side question (user or profile only). */
   sideQuestions?: boolean;

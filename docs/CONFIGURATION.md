@@ -829,7 +829,7 @@ loading with an error if it tries.
 repair:
   bigModelLastTry: true
 suggestions: false   # no suggested next steps anywhere
-updates: false       # no "a newer Casper is out" line at the start of a session
+updates: false       # no "a newer Casper is out" line at the start of a session, nor its note in the footer
 sideQuestions: false # a line starting with ? is an ordinary request, not a side question
 localModels: false   # don't look for Ollama, LM Studio, llama.cpp or vLLM on this computer
 modelServers:        # servers you added in /model (+ Add server); Casper writes it; ~/.casper/config.yaml only
@@ -850,10 +850,13 @@ casper-network-mcp releases newer than the one it pins; see [MCP.md](MCP.md). `t
 and `CASPER_OFFLINE=1` stop it too.
 
 A session checks for a newer Casper at most once a day, in the background (no model, no
-tokens), and shows what the last check found as one `[update]` line at the start. A release
-install asks GitHub for the newest release; a source checkout fetches and counts how far its
-branch is behind. `updates: false`, `CASPER_NO_UPDATE_CHECK=1` or `CI` turns it off; a project
-cannot. `casper update` installs or pulls it; `casper update --check` only says whether there is one.
+tokens), and shows what the last check found as one `[update]` line at the start. The footer
+keeps a short note of it before `idle` until you update (`Casper 0.2.33 is out · casper update`; a
+source checkout: `Casper is 2 changes behind · casper update`), also when a check during the
+session finds it, and a session left open looks again once a day. A release install asks GitHub
+for the newest release; a source checkout fetches and counts how far its branch is behind.
+`updates: false`, `CASPER_NO_UPDATE_CHECK=1` or `CI` turns it off; a project cannot. Turned off
+in `/settings` during a session, the note goes at once. `casper update` installs or pulls it; `casper update --check` only says whether there is one.
 
 ### What a task spends
 

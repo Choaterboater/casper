@@ -204,6 +204,8 @@ export class TerminalSurface {
   /** "ASKING OFF · /permissions ask" while the shell stops asking, and "ALLOW ALL: <servers>" or "WRITES: <servers>"
    * with "· Ctrl+O" while an MCP server has writes on; drawn first, and shortened before anything of it is cut off. */
   private badge?: string;
+  /** A newer Casper is out: a short note kept at the end of the idle footer, before `idle` (src/update/notice.ts). */
+  private update?: string;
   /** ctrl+o: turn writes off everywhere. True when something was on. */
   private onWritesRevert?: () => boolean;
   private cwd = "";
@@ -548,6 +550,17 @@ export class TerminalSurface {
     if (!this.status) return truncateToWidth(this.muted("Casper · / for commands"), width);
     if (!idle) return truncateToWidth(this.muted(this.status), width);
     // Idle: the hint first when the whole line fits; otherwise the details are cut, never the state at the end.
+    if (this.update) {
+      // A newer Casper sits right before `idle`, in the accent colour: whole, or without its "· casper update" when the
+      // window is narrower. It never pushes out the folder and the model; with no room left beside them it waits.
+      const core = Math.min(visibleWidth(details), visibleWidth(details.split(" │ ").slice(0, 2).join(" │ ")));
+      for (const note of [this.update, this.update.split(" · ")[0]!]) {
+        const shown = `${this.muted(" │ ")}${this.accent(note)}${this.muted(IDLE_TAIL)}`;
+        if (visibleWidth(`${IDLE_HINT} │ ${details} │ ${note}${IDLE_TAIL}`) <= width) return `${this.muted(`${IDLE_HINT} │ ${details}`)}${shown}`;
+        const room = width - visibleWidth(` │ ${note}${IDLE_TAIL}`);
+        if (room >= core) return `${this.muted(truncateToWidth(details, room, "…"))}${shown}`;
+      }
+    }
     if (visibleWidth(`${IDLE_HINT} │ ${this.status}`) <= width) return this.muted(`${IDLE_HINT} │ ${this.status}`);
     const room = width - visibleWidth(IDLE_TAIL);
     return this.muted(room > 3 ? `${truncateToWidth(details, room, "…")}${IDLE_TAIL}` : truncateToWidth(this.status, width));
@@ -593,6 +606,12 @@ export class TerminalSurface {
     const next = text ? terminalText(text).replace(/\s+/g, " ").trim() || undefined : undefined;
     if (next === this.badge) return;
     this.badge = next;
+    this.render();
+  }
+  setUpdate(text?: string): void {
+    const next = text ? terminalText(text).replace(/\s+/g, " ").trim() || undefined : undefined;
+    if (next === this.update) return;
+    this.update = next;
     this.render();
   }
   /** The footer line at this width (for tests and the layout checks). */
