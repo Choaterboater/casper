@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { REPEAT_NOTE } from "../src/runtime/loop-guard";
+import { ELISION_NOTE } from "../src/runtime/elision";
 import { posixOnly } from "./support/platform";
 import { cleanEnv } from "./support/env";
 import { removeTempDir } from "./support/temp-dir";
@@ -27,7 +28,7 @@ function lastToolText(payload: Payload | undefined): string {
 }
 
 /** The same read with nothing changed: a note on the 3rd, skipped on the 5th, and a write starts the count again. */
-posixOnly("a repeated read gets a note, then is skipped, until a write resets it", async () => {
+posixOnly("a repeated read gets a note, then is skipped, until a write resets it; a write with a placeholder gets a note", async () => {
   let step = 0;
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-loop-guard-"));
   cleanup.push(() => removeTempDir(root));
@@ -39,7 +40,7 @@ posixOnly("a repeated read gets a note, then is skipped, until a write resets it
     payloads.push(await request.json());
     const now = step++;
     if (now < 5 || now === 6) return call(now, "read", { path: "notes.txt" });
-    if (now === 5) return call(now, "write", { path: "other.txt", content: "x\n" });
+    if (now === 5) return call(now, "write", { path: "other.txt", content: "x\n# ... rest unchanged\n" });
     return answer("done");
   } });
   cleanup.push(async () => { server.stop(true); });
@@ -58,6 +59,9 @@ posixOnly("a repeated read gets a note, then is skipped, until a write resets it
   expect(lastToolText(payloads[3])).toContain(REPEAT_NOTE);
   expect(lastToolText(payloads[5])).toContain("Skipped as a repeat");
   expect(lastToolText(payloads[5])).toContain("LOOP_NOTES_TEXT");
+  // The write left a placeholder where code was: its result carries the note (src/runtime/elision.ts).
+  expect(lastToolText(payloads[6])).toContain(ELISION_NOTE);
+  expect(lastToolText(payloads[5])).not.toContain(ELISION_NOTE);
   expect(lastToolText(payloads[7])).toContain("LOOP_NOTES_TEXT");
   expect(lastToolText(payloads[7])).not.toContain(REPEAT_NOTE);
   expect(lastToolText(payloads[7])).not.toContain("Skipped");

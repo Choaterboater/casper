@@ -42,6 +42,7 @@ import { classifyPath, fileToolGate, gitInternalsCommand, privatePathCommand, re
 import { withoutProviderKeys } from "../platform/environment";
 import { cacheRetentionFor, type PromptCacheSetting } from "./cache";
 import { LoopGuard } from "./loop-guard";
+import { ELISION_NOTE, elisionTexts, newElisions } from "./elision";
 import { nativeEditPath, observationInput, editPatch, observationOutput, patchLineCounts, writeLineCounts, type ToolObservationInput } from "./observation";
 import type {
   AgentRuntime,
@@ -974,6 +975,20 @@ export class PiRuntime implements AgentRuntime {
           try { text = await options.afterFileEdit(file, ctx.signal); }
           catch { text = "LSP diagnostics unavailable after edit; the file was written. Do not treat missing diagnostics as clean."; }
           if (text) return { content: [...event.content, { type: "text" as const, text }] };
+        });
+        // A write or edit that leaves "// ... existing code ..." where code was gets a note (src/runtime/elision.ts).
+        const oldFiles = new Map<string, string | undefined>();
+        pi.on("agent_start", () => oldFiles.clear());
+        if (!readOnly) pi.on("tool_call", (event) => {
+          if (event.toolName === "write" && typeof event.input.path === "string" && oldFiles.size < 64)
+            oldFiles.set(event.toolCallId, readSmallText(resolveToolPath(event.input.path, cwd, pathContext.home)) ?? undefined);
+        });
+        if (!readOnly) pi.on("tool_result", (event) => {
+          const oldFile = oldFiles.get(event.toolCallId);
+          oldFiles.delete(event.toolCallId);
+          if (event.isError) return;
+          const texts = elisionTexts(event.toolName, event.input, oldFile);
+          if (texts && newElisions(texts.before, texts.after).length) return { content: [...event.content, { type: "text" as const, text: ELISION_NOTE }] };
         });
         pi.on("tool_result", (event) => {
           const note = loopGuard.after(event.toolCallId, event.toolName, event.input,
