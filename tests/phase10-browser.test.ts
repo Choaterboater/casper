@@ -425,16 +425,25 @@ browserTest("a failed check can't be withdrawn once anything changed after it: a
   expect(await f.session.report()).toMatchObject({ status: "fail", checks: [{ status: "fail" }, { status: "fail" }] });
 }, 30_000);
 
-browserTest("a new check that stops part way gives its id back, and can be withdrawn until anything changes", async () => {
+browserTest("a new check whose step selector matches several elements is not kept, so it can't hold the result at incomplete", async () => {
   const f = await fixture();
   await writeFile(f.sourceFile, "<!doctype html><button>A</button><button>B</button><h1>Hi</h1>");
-  const scenario = { name: "Two buttons", url: f.url, scope: { inputs: ["index.html"] },
-    steps: [{ action: "click", selector: "button", impact: "local-test", reason: "Test" }], assertions: [{ kind: "visible", selector: "h1" }] };
+  const error = await f.session.run({ action: "check", scenario: { name: "Two buttons", url: f.url, scope: { inputs: ["index.html"] },
+    steps: [{ action: "click", selector: "button", impact: "local-test", reason: "Test" }], assertions: [{ kind: "visible", selector: "h1" }] } }).catch((e: Error) => e.message);
+  expect(error).toContain("it matches 2: name one element and record the check again (nothing was recorded)");
+  expect((await f.session.report()).checks).toHaveLength(0);
+}, 30_000);
+
+browserTest("a new check that stops part way gives its id back, and can be withdrawn until anything changes", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, "<!doctype html><h1>Hi</h1>");
+  const scenario = { name: "Save button", url: f.url, scope: { inputs: ["index.html"] },
+    steps: [{ action: "click", selector: "#save", impact: "local-test", reason: "Test" }], assertions: [{ kind: "visible", selector: "h1" }] };
   const error = await f.session.run({ action: "check", scenario }).catch((e: Error) => e.message);
   const id = /check id ([\w-]+)/.exec(String(error))?.[1];
   expect(error).toContain("replay it once the page is ready, or withdraw it if the check is wrong");
   expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ id, status: "incomplete" }] });
-  expect(await f.session.run({ action: "withdraw", id, reason: "selector matched both buttons" })).toMatchObject({ status: "withdrawn" });
+  expect(await f.session.run({ action: "withdraw", id, reason: "wrong selector" })).toMatchObject({ status: "withdrawn" });
   expect(await f.session.report()).toMatchObject({ checks: [{ id, status: "withdrawn" }] });
   // After an edit or command it may be a real failure: replay it instead.
   const again = await f.session.run({ action: "check", scenario }).catch((e: Error) => e.message);

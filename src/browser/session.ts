@@ -928,6 +928,12 @@ export class BrowserSession {
       return structuredClone(check) as unknown as Record<string, unknown>;
     } catch (error) {
       check.status = "incomplete"; check.reason = "Browser reproduction did not finish; no passing evidence.";
+      // A step selector that matches several elements is a check written wrong, not a page that isn't ready: nothing is
+      // kept, so it can't hold the result at incomplete. One that matches nothing may be a feature not built yet.
+      if (input.action === "check" && error instanceof Error && /exactly one element; it matches ([2-9]|\d{2,})/.test(error.message)) {
+        this.scenarios.delete(id);
+        throw new Error(`${error.message}: name one element and record the check again (nothing was recorded)`);
+      }
       // A new check that stopped part way still gets its id back: replay it once the page is ready, or withdraw it.
       if (input.action === "check" && error instanceof Error && !signal.aborted)
         throw new Error(`${error.message} (check id ${id}: replay it once the page is ready, or withdraw it if the check is wrong)`);
@@ -978,7 +984,7 @@ export class BrowserSession {
     const page = this.page!;
     const describe = () => page.evaluate((selector) => {
       const matches = document.querySelectorAll(selector);
-      if (matches.length !== 1) throw new Error("Browser selector must match exactly one element");
+      if (matches.length !== 1) throw new Error(`Browser selector must match exactly one element; it matches ${matches.length}`);
       const el = matches[0]!;
       return { url: location.href, tag: el.tagName, type: el.getAttribute("type") ?? "", autocomplete: el.getAttribute("autocomplete") ?? "",
         target: [el.getAttribute("aria-label"), el.textContent, el.getAttribute("name"), el.getAttribute("href")].filter(Boolean).join(" ").slice(0, 1024) };
