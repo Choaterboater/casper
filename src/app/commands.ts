@@ -1638,9 +1638,9 @@ export function permissionsText(sandbox: ShellSandbox | undefined): string {
     : `Shell commands and checks are not sandboxed here (${sandbox?.failure ?? sandbox?.state.reason ?? "no sandbox"}): they run with your permissions, files and network, without your AI provider keys.${sandbox?.asksFirst ? " Casper asks before each shell command the AI runs, except plain reads like ls or git status." : ""}`;
   return [
     shell,
-    `The AI's file tools (read, edit, write, grep, find, ls) stay out of private places and git's own files and never follow a link out of the project. ${sandbox && !sandbox.asksOutsideWrites
+    `The AI's file tools (read, edit, write, grep, find, ls) stay out of private places and git's own files; a link out of the project counts as the place it leads to. ${sandbox && !sandbox.asksOutsideWrites
       ? "With the sandbox off, an edit or write outside the project doesn't ask." : "An edit or write outside the project asks first (temp and caches don't; --no-sandbox turns this off)."}`,
-    "Web lookups (web_search, web_fetch) read public pages without asking. Private and local addresses, other ports, and a search or address holding a secret are refused; what comes back has its secrets hidden. /settings turns them off.",
+    "Web lookups (web_search, web_fetch) read public pages without asking. Private and local addresses and a search or address holding a secret are refused; what comes back has its secrets hidden. /settings turns them off.",
     "The untrusted-text reader (casper_read_untrusted) reads a file, a read-only command or an MCP tool through a separate model call with no tools; the AI gets only JSON that matches its schema, never the text. It changes nothing; an MCP tool keeps its own approval. /settings turns it off.",
     "The shell commands you said yes to, for this session or always for this project, are listed by /allowed, which also takes them back.",
     "MCP and consequential browser operations have their own exact approvals; /debug start and workspace moves run because you typed them. The AI can't approve anything for you.",

@@ -3,7 +3,7 @@ import { BlockList, isIP } from "node:net";
 import { NotExecutedError } from "../capabilities/result";
 
 /**
- * Where a web lookup may go: public http(s) addresses on ports 80 and 443, never a private, local or
+ * Where a web lookup may go: public http(s) addresses on any port, never a private, local or
  * cloud-metadata address. Every hop of a fetch is checked again, and the request goes to the address
  * that was checked (src/web/lookup.ts), so a DNS answer can't change between the check and the connect.
  */
@@ -54,9 +54,9 @@ export function publicAddress(ip: string): boolean {
 }
 
 /**
- * The URL a lookup may request: http or https only, no user name or password, ports 80 and 443 only, no
- * #fragment, and http upgraded to https. `upgrade: false` (a redirect) refuses http instead, so a page
- * can't move a lookup from https down to http.
+ * The URL a lookup may request: http or https only, no user name or password, any port, no #fragment,
+ * and http upgraded to https (port 80 becomes 443; another port is kept). `upgrade: false` (a redirect)
+ * refuses http instead, so a page can't move a lookup from https down to http.
  */
 export function webTarget(input: unknown, upgrade = true): URL {
   if (typeof input !== "string" || !input.trim()) throw new NotExecutedError("no web address given");
@@ -66,11 +66,11 @@ export function webTarget(input: unknown, upgrade = true): URL {
   try { url = new URL(input.trim()); } catch { throw new NotExecutedError("that is not a web address"); }
   if (url.protocol !== "http:" && url.protocol !== "https:") throw new NotExecutedError(`only http and https addresses can be looked up, not ${url.protocol.replace(/:$/, "")}`);
   if (url.username || url.password) throw new NotExecutedError("the web address holds a user name or password");
-  if (url.port && url.port !== "80" && url.port !== "443") throw new NotExecutedError(`only ports 80 and 443 can be looked up, not ${url.port}`);
   if (url.protocol === "http:") {
     if (!upgrade) throw new NotExecutedError("the page sent the lookup from https to plain http");
+    const port = url.port;
     url.protocol = "https:";
-    url.port = "";
+    url.port = port === "80" ? "" : port;
   }
   url.hash = "";
   if (!url.hostname) throw new NotExecutedError("the web address has no host");

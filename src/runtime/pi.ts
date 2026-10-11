@@ -38,7 +38,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { gitGuardReason } from "./git-guard";
-import { classifyPath, fileToolGate, gitInternalsCommand, privatePathCommand, resolveToolPath } from "../platform/project-paths";
+import { classifyPath, fileToolGate, gitInternalsCommand, privatePathCommand, realpathLongest, resolveToolPath } from "../platform/project-paths";
 import { withoutProviderKeys } from "../platform/environment";
 import { cacheRetentionFor, type PromptCacheSetting } from "./cache";
 import { nativeEditPath, observationInput, editPatch, observationOutput, patchLineCounts, writeLineCounts, type ToolObservationInput } from "./observation";
@@ -885,7 +885,7 @@ export class PiRuntime implements AgentRuntime {
           else if (event.toolName === "bash" && typeof event.input.timeout === "number" && event.input.timeout > BASH_TIMEOUT_CAP_SECONDS) event.input.timeout = BASH_TIMEOUT_CAP_SECONDS;
           const risky = event.toolName === "bash" && typeof event.input.command === "string" ? gitGuardReason(event.input.command) : undefined;
           if (risky) return { block: true, reason: risky };
-          // Private files, links out of the project and git's own files (see src/platform/project-paths.ts).
+          // Private files, git's own files and protected places, also where a link out of the project leads (see src/platform/project-paths.ts).
           const pathReason = fileToolGate(event.toolName, event.input, pathContext);
           if (pathReason) return { block: true, reason: pathReason };
           const gitInternals = (event.toolName === "bash" || event.toolName === "powershell") && typeof event.input.command === "string"
@@ -903,8 +903,11 @@ export class PiRuntime implements AgentRuntime {
           // An edit or write outside the project asks first (temp, caches and your allowWrite don't), after the
           // refusals above so a call refused anyway never asks.
           if ((event.toolName === "edit" || event.toolName === "write") && typeof event.input.path === "string" && options.shell?.outsideWrite) {
-            const absolute = resolveToolPath(event.input.path, cwd, pathContext.home);
-            if (classifyPath(absolute, pathContext, true) === "outside") {
+            const named = resolveToolPath(event.input.path, cwd, pathContext.home);
+            const kind = classifyPath(named, pathContext, true);
+            // A link out of the project is asked about where it leads.
+            const absolute = kind === "linksOut" ? realpathLongest(named) : named;
+            if (kind === "outside" || kind === "linksOut") {
               const reason = await options.shell.outsideWrite(absolute);
               if (reason) return { block: true, reason };
               outside.set(event.toolCallId, absolute);

@@ -23,6 +23,10 @@ beforeAll(async () => {
   if (POSIX) {
     await symlink(path.join(root, "outside/secret.txt"), path.join(project, "notes.md"));
     await symlink(path.join(home, ".ssh"), path.join(project, "keys"));
+    await mkdir(path.join(home, ".casper"), { recursive: true });
+    await symlink(path.join(home, ".casper"), path.join(project, "casper-home"));
+    await mkdir(path.join(root, "other/.git/hooks"), { recursive: true });
+    await symlink(path.join(root, "other"), path.join(project, "other"));
   }
   context = { root: project, home, agentDir: path.join(home, "agent") };
 });
@@ -63,10 +67,16 @@ test("Casper's own MCP servers, profiles, saved conversations and records are pr
   expect(fileToolGate("read", { path: path.join(home, ".casper/config.yaml") }, context)).toBeUndefined();
 });
 
-test.skipIf(!POSIX)("links out of the project are refused; a link to a private place is private", () => {
+test.skipIf(!POSIX)("a link out of the project counts as the place it leads to; a link to a private place is private", () => {
   expect(classifyPath(path.join(project, "notes.md"), context, false)).toBe("linksOut");
-  expect(fileToolGate("read", { path: "notes.md" }, context)).toBe("Not read: notes.md is a link to a place outside this project. Casper doesn't follow links out.");
-  expect(fileToolGate("edit", { path: "notes.md", edits: [] }, context)).toBe("Not done: notes.md is a link to a place outside this project. Casper doesn't follow links out.");
+  // Read like any outside file; an edit or write goes on to the outside-write question.
+  for (const tool of ["read", "grep", "find", "ls"]) expect(fileToolGate(tool, { path: "notes.md", pattern: "x" }, context)).toBeUndefined();
+  expect(fileToolGate("edit", { path: "notes.md", edits: [] }, context)).toBeUndefined();
+  expect(fileToolGate("write", { path: "other/new.md", content: "x" }, context)).toBeUndefined();
+  // Where it leads is checked: git's own files and protected places stay refused.
+  expect(fileToolGate("write", { path: "other/.git/hooks/pre-commit", content: "x" }, context)).toBe("Not done: .git/hooks belongs to git itself. Casper doesn't let the AI change it.");
+  expect(fileToolGate("write", { path: "casper-home/config.yaml", content: "x" }, context)).toContain(".casper/config.yaml holds your shell, git or Casper settings. Casper doesn't let the AI change it.");
+  expect(fileToolGate("read", { path: "casper-home/config.yaml" }, context)).toBeUndefined();
   expect(fileToolGate("read", { path: "keys/id_test" }, context)).toContain("~/.ssh is private");
   expect(fileToolGate("grep", { pattern: "x", path: "keys" }, context)).toContain("~/.ssh is private");
 });

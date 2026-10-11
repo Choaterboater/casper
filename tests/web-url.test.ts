@@ -11,13 +11,14 @@ test("every private, local and metadata range is refused; public addresses pass"
   for (const ip of ["93.184.215.14", "1.1.1.1", "172.32.0.1", "2606:4700::1111", "::ffff:8.8.8.8"]) expect(publicAddress(ip)).toBe(true);
 });
 
-test("addresses: http and https only, no password, ports 80 and 443 only, http upgraded, fragment dropped", () => {
+test("addresses: http and https only, no password, any port on a public host, http upgraded, fragment dropped", () => {
   expect(webTarget("http://docs.example.com/a?b=1#top").href).toBe("https://docs.example.com/a?b=1");
   expect(webTarget("http://docs.example.com:80/").href).toBe("https://docs.example.com/");
   expect(webTarget("https://docs.example.com:443/x").href).toBe("https://docs.example.com/x");
   expect(() => webTarget("https://user:pw@docs.example.com/")).toThrow(NotExecutedError);
   expect(() => webTarget("https://user@docs.example.com/")).toThrow("user name or password");
-  expect(() => webTarget("https://docs.example.com:8080/")).toThrow("only ports 80 and 443");
+  expect(webTarget("https://docs.example.com:8443/api").href).toBe("https://docs.example.com:8443/api");
+  expect(webTarget("http://docs.example.com:8080/").href).toBe("https://docs.example.com:8080/");
   expect(() => webTarget("file:///etc/passwd")).toThrow("only http and https");
   expect(() => webTarget("ftp://example.com/")).toThrow("only http and https");
   expect(() => webTarget("not a url")).toThrow(NotExecutedError);

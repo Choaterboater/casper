@@ -326,10 +326,13 @@ export function fileToolGate(toolName: string, input: Record<string, unknown> | 
   for (const candidate of toolName === "read" ? readVariants(absolute) : [absolute]) {
     const place = privatePlace(candidate, context);
     if (place) return `${verb}: ${place} is private (${whyPrivate(place, context)}). Casper keeps it from the AI.`;
-    const kind = classifyPath(candidate, context, write);
-    if (kind === "linksOut") return `${verb}: ${given} is a link to a place outside this project. Casper doesn't follow links out.`;
-    if (kind === "gitInternal") return `Not done: ${gitInternalPart(candidate, context.root, home)} belongs to git itself. Casper doesn't let the AI change it.`;
-    if (kind === "protected") return `Not done: ${displayPath(candidate, context.root, home)} holds your shell, git or Casper settings. Casper doesn't let the AI change it.`;
+    // A link out of the project counts as the place it leads to: read like any outside file, written after the
+    // outside-write question (src/runtime/pi.ts), and refused where that place is git's own or protected.
+    let target = candidate;
+    let kind = classifyPath(candidate, context, write);
+    if (kind === "linksOut") { target = realpathLongest(candidate); kind = classifyPath(target, context, write); }
+    if (kind === "gitInternal") return `Not done: ${gitInternalPart(target, context.root, home)} belongs to git itself. Casper doesn't let the AI change it.`;
+    if (kind === "protected") return `Not done: ${displayPath(target, context.root, home)} holds your shell, git or Casper settings. Casper doesn't let the AI change it.`;
   }
   // grep reads every file under its folder, hidden ones too; find lists their names (fd --hidden).
   if (toolName === "grep" || toolName === "find") {

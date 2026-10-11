@@ -1,4 +1,5 @@
 import { afterEach, expect } from "bun:test";
+import { realpathSync } from "node:fs";
 import { access, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -174,19 +175,17 @@ async function linkedProject({ root, home, project }: { root: string; home: stri
   await writeFile(path.join(project, ".git/config"), "[core]\n\tbare = false\n");
 }
 
-posixOnly("the AI's file tools don't follow links out of the project or read private files", async () => {
+posixOnly("the AI's file tools read through a link out of the project like any outside file, never private files", async () => {
   const { sent, result } = await run([
     { name: "read", args: { path: "notes.md" } },
     { name: "read", args: { path: "~/.ssh/id_test" } },
-    { name: "grep", args: { pattern: "SECRET", path: "docs" } },
     { name: "ls", args: { path: "docs" } },
   ], {}, linkedProject);
-  expect(sent).not.toContain("OUTSIDE_SECRET_TEXT");
+  expect(sent).toContain("OUTSIDE_SECRET_TEXT");
+  expect(sent).toContain("secret.txt");
   expect(sent).not.toContain("PRIVATE_SSH_KEY_TEXT");
-  expect(sent).not.toContain("secret.txt");
-  expect(sent).toContain("Not read: notes.md is a link to a place outside this project. Casper doesn't follow links out.");
   expect(sent).toContain("Not read: ~/.ssh is private (keys and logins). Casper keeps it from the AI.");
-  expect((result.toolEnds as Array<{ isError: boolean }>).every((end) => end.isError)).toBe(true);
+  expect((result.toolEnds as Array<{ isError: boolean }>).filter((end) => end.isError)).toHaveLength(1);
 }, 30_000);
 
 posixOnly("a read-only child gets the same file guard", async () => {
@@ -194,9 +193,8 @@ posixOnly("a read-only child gets the same file guard", async () => {
     { name: "read", args: { path: "notes.md" } },
     { name: "find", args: { pattern: "*", path: "~/.ssh" } },
   ], { FIXTURE_READ_ONLY: "1" }, linkedProject);
-  expect(sent).not.toContain("OUTSIDE_SECRET_TEXT");
+  expect(sent).toContain("OUTSIDE_SECRET_TEXT");
   expect(sent).not.toContain("id_test");
-  expect(sent).toContain("Casper doesn't follow links out.");
   expect(sent).toContain("~/.ssh is private");
 }, 30_000);
 
@@ -204,20 +202,17 @@ posixOnly("the AI can't write git hooks or git config, by file tools or by shell
   const { sent, project } = await run([
     { name: "write", args: { path: ".git/hooks/pre-commit", content: "#!/bin/sh\necho pwned\n" } },
     { name: "edit", args: { path: ".git/config", edits: [{ oldText: "bare = false", newText: "bare = false\n\tfsmonitor = ./x" }] } },
-    { name: "write", args: { path: "docs/new.md", content: "through the link" } },
     { name: "bash", args: { command: "printf '#!/bin/sh\\n' > .git/hooks/post-checkout", timeout: 10 } },
     { name: "bash", args: { command: "git config core.hooksPath .githooks", timeout: 10 } },
     { name: "write", args: { path: "src/ok.md", content: "fine" } },
   ], {}, linkedProject);
   expect(sent).toContain("Not done: .git/hooks belongs to git itself. Casper doesn't let the AI change it.");
   expect(sent).toContain("Not done: .git/config belongs to git itself.");
-  expect(sent).toContain("Not done: docs/new.md is a link to a place outside this project.");
   expect(sent).toContain("Not run: this command changes .git/hooks");
   expect(sent).toContain("Not run: `git config core.hooksPath` changes how git runs programs.");
   const gone = async (file: string) => access(file).then(() => false, () => true);
   expect(await gone(path.join(project, ".git/hooks/pre-commit"))).toBe(true);
   expect(await gone(path.join(project, ".git/hooks/post-checkout"))).toBe(true);
-  expect(await gone(path.join(path.dirname(project), "outside/new.md"))).toBe(true);
   expect(await readFile(path.join(project, ".git/config"), "utf8")).toBe("[core]\n\tbare = false\n");
   expect(await readFile(path.join(project, "src/ok.md"), "utf8")).toBe("fine");
 }, 30_000);
@@ -238,6 +233,17 @@ posixOnly("an edit or write outside the project waits for the session's question
   const allowed = await run(tools, { FIXTURE_OUTSIDE: "allow" }, outsideDir);
   expect(await readFile(path.join(allowed.root, "outside", "servers.json"), "utf8")).toBe("{}");
   expect(allowed.result.outsideAsked).toHaveLength(1);
+  expect(allowed.result.outsideWrote).toEqual(allowed.result.outsideAsked);
+}, 60_000);
+
+posixOnly("a write through a link out of the project asks about the place it leads to; No writes nothing", async () => {
+  const tools = [{ name: "write", args: { path: "docs/new.md", content: "through the link" } }];
+  const no = await run(tools, { FIXTURE_OUTSIDE: "no" }, linkedProject);
+  expect(no.sent).toContain("Not done: the user said no to writing it.");
+  expect(no.result.outsideAsked).toEqual([path.join(realpathSync(no.root), "outside", "new.md")]);
+  expect(await access(path.join(no.root, "outside", "new.md")).then(() => true, () => false)).toBe(false);
+  const allowed = await run(tools, { FIXTURE_OUTSIDE: "allow" }, linkedProject);
+  expect(await readFile(path.join(allowed.root, "outside", "new.md"), "utf8")).toBe("through the link");
   expect(allowed.result.outsideWrote).toEqual(allowed.result.outsideAsked);
 }, 60_000);
 

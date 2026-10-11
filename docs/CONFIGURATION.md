@@ -74,7 +74,7 @@ run), `/settings` lists them. `/details <level>` saves the work shown the same w
 ### Web lookups
 
 The AI can search the web and read public pages, with no question: `web_search` uses DuckDuckGo
-by default, and `web_fetch` reads one page. Both reach only public `https` pages on ports 80 and 443
+by default, and `web_fetch` reads one page. Both reach only public `https` pages, on any port
 (`http` is upgraded), checked again on every redirect; a search or address holding a secret is
 refused and never sent, and secrets on a page are hidden before the AI sees it. Turn them off with
 `/settings` (it writes `web: false`, or `web.enabled: false` when your `web:` sets a provider).

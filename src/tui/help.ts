@@ -242,7 +242,7 @@ A plain terminal (TERM=dumb or output redirected) can't answer approvals.
 Piped line input drops unfinished input when a question opens; NO_COLOR is supported.
 LSP connection runs a configured program. Your own language servers (~/.casper/lsp.json) start with the session (My language servers in /settings); a project's .casper/lsp.json needs /lsp connect: review it first.
 An LSP rename asks you first; one-shot runs can't rename.
-Web lookups (web_search, web_fetch) are on by default and never ask. They reach only public https pages on ports 80 and 443 (http is upgraded), checked again on every redirect; a search or address holding a secret is refused, never sent. Search is DuckDuckGo by default; web: { provider: brave } uses Brave Search with the key saved as "brave" in Casper's login file (~/.casper/agent/auth.json), and web: { provider: searxng, searxngUrl: <address> } your own SearXNG.
+Web lookups (web_search, web_fetch) are on by default and never ask. They reach only public https pages, on any port (http is upgraded), checked again on every redirect; a search or address holding a secret is refused, never sent. Search is DuckDuckGo by default; web: { provider: brave } uses Brave Search with the key saved as "brave" in Casper's login file (~/.casper/agent/auth.json), and web: { provider: searxng, searxngUrl: <address> } your own SearXNG.
 /settings turns them off (web: off in ~/.casper/config.yaml); a project file can't change web:.
 Browser tasks use installed Chrome/Chromium (CASPER_BROWSER_EXECUTABLE overrides detection).
 No automatic browser installation, personal profiles, account credentials or arbitrary page scripts.
