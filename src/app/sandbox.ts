@@ -21,6 +21,7 @@ import { forgetOnceSecrets } from "../secrets/typed";
 import { githubLoginChoices, HOST_CHOICES, NO, REACH_CHOICES, shellCommandChoices, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
 import { githubLoginCommand, githubRunEnv, LOGIN_FAILED, startsGitOrGh, type GithubLoginCommand } from "../sandbox/github-login";
 import { commandCore, commandPrefix, matchesPrefix, readOnlyCommand } from "../sandbox/read-only";
+import { routineCommand } from "../sandbox/routine";
 
 /**
  * The session's shell sandbox, as the app uses it: the host question, the ask-only fallback for the AI's shell
@@ -40,6 +41,9 @@ export interface SandboxHost {
   stopAsking?(): boolean;
   /** Your lab list (names or addresses): ssh to these doesn't ask, unless /lab ssh off. */
   labHosts?(): readonly string[];
+  /** Routine commands (routine_commands, on unless turned off): with no sandbox, routine work (see routineCommand) runs
+   * without the box. Unset: off, every command that is not a read asks. */
+  routineCommands?(): boolean;
   /** The private ssh login: Casper's own hidden box for a password or passphrase ssh asks for. Unset: a run that can't ask. */
   ssh?: SshLoginHost;
 }
@@ -341,6 +345,8 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       // Commands that only read run without a box, like they would in the sandbox.
       const where = { root: sandbox.root, home: sandbox.home, denyRead: sandbox.policy().denyRead };
       if (readOnlyCommand(command, where)) return undefined;
+      // So does routine work (git commit, npm test, bun install, rm -rf dist), as in Claude Code's auto mode, unless you turned it off.
+      if (host.routineCommands?.() && routineCommand(command, where)) return undefined;
       // `cd app && npm test 2>&1 | tail -25`: the one command that is not a read is what a remembered answer covers.
       const core = commandCore(command, where);
       if (sessionCommands.has(command) || [...sessionPrefixes].some((prefix) => matchesPrefix(command, prefix) || (core !== undefined && matchesPrefix(core, prefix)))) return undefined;

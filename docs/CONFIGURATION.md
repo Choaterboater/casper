@@ -14,53 +14,54 @@ writes your answer into `~/.casper/config.yaml` for you, keeping your comments a
 ```text
 Settings (saved in ~/.casper/config.yaml for you):
   Web lookups: on (DuckDuckGo) · Browser tool: on · Browser clicks: on
-  Starter templates: on · Diagram tool: on · Pages the AI makes: on
-  Open pages in the browser: on · New-version notice: on · Suggestions: on
-  Side questions with ?: on · Built-in skills: on · GitHub tool: on · Packs: on
-  Spend notes: at $1 a task · Spend pause: off · Prompt cache: auto
-  Local models: on · Page checks: on · Show the AI the pages: ask once a session
-  Work shown: normal · Theme: default · Untrusted-text reader: on
-  Helpers that build: on · Playwright tests: on
-  Send Casper's name to OpenRouter: on · Sign-ins from other tools: on
-  Network server updates: on · My MCP servers: on · My language servers: on
-  Private ssh passwords: on
+  Routine commands: on · Starter templates: on · Diagram tool: on
+  Pages the AI makes: on · Open pages in the browser: on
+  New-version notice: on · Suggestions: on · Side questions with ?: on
+  Built-in skills: on · GitHub tool: on · Packs: on · Spend notes: at $1 a task
+  Spend pause: off · Prompt cache: auto · Local models: on · Page checks: on
+  Show the AI the pages: ask once a session · Work shown: normal
+  Theme: default · Untrusted-text reader: on · Helpers that build: on
+  Playwright tests: on · Send Casper's name to OpenRouter: on
+  Sign-ins from other tools: on · Network server updates: on
+  My MCP servers: on · My language servers: on · Private ssh passwords: on
 Pick one to change:
   1 Done                              nothing changes
   2 Web lookups                       on (DuckDuckGo)
   3 Browser tool                      on
   4 Browser clicks                    on
-  5 Starter templates                 on
-  6 Diagram tool                      on
-  7 Pages the AI makes                on
-  8 Open pages in the browser         on
-  9 New-version notice                on
- 10 Suggestions                       on
- 11 Side questions with ?             on
- 12 Built-in skills                   on
- 13 GitHub tool                       on
- 14 Packs                             on
- 15 Spend notes                       at $1 a task
- 16 Spend pause                       off
- 17 Prompt cache                      auto
- 18 Local models                      on
- 19 Page checks                       on
- 20 Show the AI the pages             ask once a session
- 21 Work shown                        normal
- 22 Theme                             default
- 23 Untrusted-text reader             on
- 24 Helpers that build                on
- 25 Playwright tests                  on
- 26 Send Casper's name to OpenRouter  on
- 27 Sign-ins from other tools         on
- 28 Network server updates            on
- 29 My MCP servers                    on
- 30 My language servers               on
- 31 Private ssh passwords             on
+  5 Routine commands                  on
+  6 Starter templates                 on
+  7 Diagram tool                      on
+  8 Pages the AI makes                on
+  9 Open pages in the browser         on
+ 10 New-version notice                on
+ 11 Suggestions                       on
+ 12 Side questions with ?             on
+ 13 Built-in skills                   on
+ 14 GitHub tool                       on
+ 15 Packs                             on
+ 16 Spend notes                       at $1 a task
+ 17 Spend pause                       off
+ 18 Prompt cache                      auto
+ 19 Local models                      on
+ 20 Page checks                       on
+ 21 Show the AI the pages             ask once a session
+ 22 Work shown                        normal
+ 23 Theme                             default
+ 24 Untrusted-text reader             on
+ 25 Helpers that build                on
+ 26 Playwright tests                  on
+ 27 Send Casper's name to OpenRouter  on
+ 28 Sign-ins from other tools         on
+ 29 Network server updates            on
+ 30 My MCP servers                    on
+ 31 My language servers               on
+ 32 Private ssh passwords             on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
-Every row has its number: past 9, type it and press Enter (`Type 1-31 + Enter or Up/Down + Enter`).
+Every row has its number: past 9, type it and press Enter (`Type 1-32 + Enter or Up/Down + Enter`).
 A plain terminal (`TERM=dumb`) asks the same list as numbered lines.
 A change applies from now on (built-in skills, packs, the prompt cache, local models, My MCP servers and My language servers from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Changed while a task runs, it also says when the
@@ -121,6 +122,18 @@ Its clicks, typing and key presses run without asking, on any page, so it can te
 built, and so does starting the project's dev server (**Browser clicks**). Turn that off with `/settings` (it writes `browser_clicks: false`) and a
 Send or Delete button, an action that isn't a local test, or one on a page elsewhere asks first.
 Password, payment and file fields are never filled either way.
+
+### Routine commands
+
+With the sandbox off (the default where you type to Casper), routine shell commands run without
+asking, as Claude Code's auto mode does: git's everyday commands and a push to a remote the project
+already has, `gh pr create` and the like, installs from the project's own files (`npm ci`, `bun install`,
+`pip install -r requirements.txt`), the project's builds, tests, linters and formatters, and making,
+copying, moving or removing files in the project. `sudo`, `curl … | sh`, a force push, deleting
+outside the project, a new package (`npm install left-pad`) and copying or committing a private file
+(`cp .env x`) still ask. It is on. Turn it off with
+`/settings` (it writes `routine_commands: false`) and every command that is not a plain read asks.
+A project file can't set it. See [SECURITY.md](SECURITY.md) for the full list.
 
 ### Starter templates
 
@@ -418,7 +431,8 @@ Casper itself:
 New in v0.2.17. The shell sandbox (see [SECURITY.md](SECURITY.md)) is set only in your own files
 (`~/.casper/config.yaml` or a profile). Since v0.2.31 it is **off unless you turn it on** where you type to Casper:
 `sandbox: on` (or `sandbox: { enabled: true }`) turns it on for every session, and `/sandbox on` for one. While it is
-off, the AI's shell asks before each command that changes something and a write outside the project asks first.
+off, the AI's shell asks before each command that changes something, except routine work (**Routine commands** above),
+and a write outside the project asks first.
 A one-shot or `--json` run can't ask, so it keeps the sandbox where one can run, as before. Casper's network server
 keeps its own sandbox either way.
 

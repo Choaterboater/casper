@@ -234,7 +234,8 @@ commands.
   when installed.
 - **No shell sandbox yet.** The banner and `/status` say
   `shell     not sandboxed (Windows has no sandbox yet) · Casper asks before AI shell commands that change things`,
-  and the AI's shell asks `Run this command?` before each command that changes something, with `1 No` first
+  and the AI's shell asks `Run this command?` before each command that changes something but routine work (git commit,
+  `npm test`, `bun install`, files made or removed in the project: **Routine commands** in `/settings`), with `1 No` first
   (reads like `ls`, `cat` or `git status` don't ask, also after a `cd /c/Users/me/project &&` into the project, with
   `app/*.py` globs, `2>&1` or `python --version`; 3 and 4 cover a command prefix such as `npm test` or
   `python -m pytest`, also inside a line like `cd app && npm test 2>&1 | tail -25`). A yes leaves no extra line; a

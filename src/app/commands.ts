@@ -1595,7 +1595,7 @@ async function handlePermissions(host: CommandHost, prompt: string, duringWork =
   await sandbox?.loadRemembered();
   const all = await sandbox?.store?.allowed() ?? [];
   const entries = all.filter((entry) => entry.kind !== "checks" && entry.kind !== "github");
-  const basics = permissionsText(sandbox).split("\n");
+  const basics = permissionsText(sandbox, host.projectContext?.routineCommands !== false).split("\n");
   const context = host.projectContext;
   const reach = await sandbox?.store?.reachHosts() ?? [];
   const forGood = sandbox?.rememberedWriteFolders() ?? [];
@@ -1603,7 +1603,7 @@ async function handlePermissions(host: CommandHost, prompt: string, duringWork =
   const asked = host.mcp?.writesOn({ own: false }) ?? [];
   const view: PermissionsView = {
     shell: basics[0]!, scripts: basics.at(-1)!,
-    sandboxReason: sandbox?.failure ?? sandbox?.state.reason, shellAsks: Boolean(sandbox?.asksFirst),
+    sandboxReason: sandbox?.failure ?? sandbox?.state.reason, shellAsks: Boolean(sandbox?.asksFirst), routine: context?.routineCommands !== false,
     asking: !host.stopAsking, sandboxOn: Boolean(sandbox?.on), outsideWritesAsk: sandbox?.asksOutsideWrites !== false,
     commandsSession: entries.filter((entry) => entry.session).length, commandsSaved: entries.filter((entry) => !entry.session).length,
     listedHosts: sandbox?.on ? sandbox.allowedHosts().length : 0, rememberedHosts: sandbox?.rememberedHosts() ?? [], reachHosts: reach,
@@ -1632,10 +1632,10 @@ async function stopAskingBox(host: CommandHost, sayStill = true, task = "\n"): P
 }
 
 /** The lines /permissions shows about the shell, from the state it is in now. */
-export function permissionsText(sandbox: ShellSandbox | undefined): string {
+export function permissionsText(sandbox: ShellSandbox | undefined, routine = true): string {
   const shell = sandbox?.on
     ? "Shell commands and checks run in a sandbox: they can write only in this project, temp and package caches (other folders ask), can't read your private folders, and reach only listed hosts (others ask). They don't see your AI provider keys. MCP servers, language servers, the debugger and the browser are not in the sandbox."
-    : `Shell commands and checks are not sandboxed here (${sandbox?.failure ?? sandbox?.state.reason ?? "no sandbox"}): they run with your permissions, files and network, without your AI provider keys.${sandbox?.asksFirst ? " Casper asks before each shell command the AI runs, except plain reads like ls or git status." : ""}`;
+    : `Shell commands and checks are not sandboxed here (${sandbox?.failure ?? sandbox?.state.reason ?? "no sandbox"}): they run with your permissions, files and network, without your AI provider keys.${sandbox?.asksFirst ? ` Casper asks before each shell command the AI runs, except plain reads like ls or git status${routine ? " and routine work like npm test or git commit (Routine commands in /settings)" : ""}.` : ""}`;
   return [
     shell,
     `The AI's file tools (read, edit, write, grep, find, ls) stay out of private places and git's own files; a link out of the project counts as the place it leads to. ${sandbox && !sandbox.asksOutsideWrites
@@ -1695,6 +1695,7 @@ async function runCrew(host: CommandHost, argument: string): Promise<void> {
       write: (text) => { if (!host.closing) host.output.write(text); },
       planning: () => false,
       stopAsking: () => host.stopAsking && host.interactive && host.terminal.canAsk && !host.closing,
+      routineCommands: () => host.projectContext?.routineCommands !== false,
     } }) : undefined,
   }, argument);
 }

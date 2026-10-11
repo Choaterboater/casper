@@ -63,7 +63,7 @@ function fakeModel() {
   return { server, release, requests, conversations };
 }
 
-async function startCasper(options: { terminal?: Terminal; env?: Record<string, string>; cols?: number; rows?: number } = {}): Promise<Started> {
+async function startCasper(options: { terminal?: Terminal; env?: Record<string, string>; cols?: number; rows?: number; config?: string } = {}): Promise<Started> {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-conpty-"));
   const home = path.join(root, "home");
   const project = path.join(root, "project");
@@ -72,6 +72,7 @@ async function startCasper(options: { terminal?: Terminal; env?: Record<string, 
   await mkdir(path.join(home, ".casper"), { recursive: true });
   await mkdir(project, { recursive: true });
   await writeFile(path.join(project, "README.md"), "# demo\n"); // An empty folder would offer a new project first.
+  if (options.config) await writeFile(path.join(home, ".casper/config.yaml"), options.config);
   const { server, release, requests, conversations } = fakeModel();
   await writeFile(path.join(agent, "models.json"), JSON.stringify({ providers: { fixture: {
     baseUrl: `http://127.0.0.1:${server.port}/v1`, api: "openai-completions", apiKey: "local-fixture-not-a-secret", models: [{ id: "fixture" }],
@@ -116,7 +117,8 @@ async function exitWith(s: ConptySession, keys: () => void): Promise<number | nu
 }
 
 conpty("ConPTY: a small task, undo and redo, and a shell command that asks first", async () => {
-  const { s, project } = await startCasper();
+  // Routine commands off: mkdir in the project would otherwise run without the box this test is about.
+  const { s, project } = await startCasper({ config: "routine_commands: false\n" });
   expect(s.text()).toContain("not sandboxed (Windows has no sandbox yet)");
   s.send("make hello\n");
   // A finished step folds into one row that says what was done.
@@ -295,7 +297,7 @@ conpty("ConPTY: Windows Terminal gets rounded corners and color, the old console
 }, 180_000);
 
 conpty("ConPTY: the old console draws every mark in ASCII, not only the spinner", async () => {
-  const { s } = await startCasper({ terminal: "old-console" });
+  const { s } = await startCasper({ terminal: "old-console", config: "routine_commands: false\n" });
   s.send("make hello\n");
   await s.until("* edited hello.txt");
   await idle(s);
