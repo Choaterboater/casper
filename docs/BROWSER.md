@@ -159,10 +159,10 @@ before the receipt and with no model turn, each check this task recorded or
 replayed that ran before a later edit or command, so the model need not replay a
 check just to count it. Checks from earlier tasks in the session are left alone.
 The fresh result counts: a pass is a pass, a failure is a failure with its
-evidence. Only pages on this computer are replayed, and only steps that would run
-with Browser clicks off: a `local-test` step whose label has no word such as
-"send", "buy" or "delete". Nothing is asked: any other step, an address that would
-need a yes, a busy or closed browser, or a replay that can't finish keeps the
+evidence. Only pages on this computer are replayed, and only `local-test` steps;
+one whose label has a word such as "send", "buy" or "delete" (a contact form's
+Send) only with Browser clicks on, as it ran for the model. Nothing is asked: any
+other step, an address that would need a yes, a busy or closed browser, or a replay that can't finish keeps the
 check as it was, and the receipt still says `ran before a later edit or command
 (replay to count)`. A withdrawn check is never replayed. A line names each check
 as it is replayed. All of these replays share one minute; one that runs out of time is given up and the browser

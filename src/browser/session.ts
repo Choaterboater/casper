@@ -802,7 +802,7 @@ export class BrowserSession {
   /**
    * At the end of a task, before the receipt: Casper replays once each finished check this task ran (since `since`)
    * that a later edit or command made stale, with no model turn, so its fresh result counts. Only checks of a page on
-   * this computer, and only steps that would run with Browser clicks off (local-test, no "send" or "buy" label);
+   * this computer, and only local-test steps (one labelled "send" or "buy" only with Browser clicks on);
    * nothing is asked. A step or address that would need the person, a busy or closed browser, or a replay that can't
    * finish keeps the check as it was, and the browser stays open. All replays share one minute.
    */
@@ -991,7 +991,11 @@ export class BrowserSession {
       throw new Error(`Fill takes a textarea or an input of type ${[...TYPED_FIELDS.filter(Boolean), ...PICKED_FIELDS].join(", ")}`);
     }
     if (action === "select" && before.tag !== "SELECT") throw new Error("Select takes a <select>; use fill for a text field, or click the options of a custom menu");
-    const hold = actionHold({ impact: String(input.impact), url: before.url, target: before.target, allowAll: !this.unattended && this.options.allowActions?.() });
+    const allowAll = this.options.allowActions?.();
+    const held = actionHold({ impact: String(input.impact), url: before.url, target: before.target, allowAll: !this.unattended && allowAll });
+    // Casper's own end replay: with Browser clicks on, a local test on this computer runs whatever its label ("Send" on
+    // a contact form), as it did when the model ran it; any other step still never runs unasked.
+    const hold = held?.word && this.unattended && allowAll ? undefined : held;
     if (hold) {
       const approved = !this.unattended && await this.options.confirm?.({ action, selector, url: before.url, target: before.target,
         ...(value === undefined ? {} : { value }), reason, impact: String(input.impact) }, signal);

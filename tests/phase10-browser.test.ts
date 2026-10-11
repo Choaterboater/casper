@@ -313,6 +313,17 @@ browserTest("the end replay never asks: a step that needs the person, or a close
   expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ status: "pass", freshness: "stale" }] });
 }, 30_000);
 
+browserTest("with Browser clicks off the end replay never presses a local \"Send\" button: the check stays as it was", async () => {
+  const f = await fixture({ allowActions: () => false, confirm: async () => true });
+  await writeFile(f.sourceFile, '<!doctype html><button id="go" onclick="document.querySelector(\'#out\').textContent=\'done\'">Send</button><p id="out"></p>');
+  const send = await f.session.run({ action: "check", scenario: { name: "send", url: f.url, scope: { inputs: ["index.html"] },
+    steps: [{ action: "click", selector: "#go", impact: "local-test", reason: "Test" }], assertions: [{ kind: "text", selector: "#out", expected: "done" }] } });
+  expect(send).toMatchObject({ status: "pass" });
+  f.session.invalidate();
+  await f.session.replayStale(0);
+  expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ status: "pass", freshness: "stale" }] });
+}, 30_000);
+
 browserTest("the end replay keeps to this task's local tests, even with Browser clicks on", async () => {
   const asked: unknown[] = [];
   const f = await fixture({ allowActions: () => true, confirm: async request => { asked.push(request); return true; } });
@@ -323,6 +334,9 @@ browserTest("the end replay keeps to this task's local tests, even with Browser 
   expect(uncertain).toMatchObject({ status: "pass" });
   const local = await f.session.run({ action: "check", scenario: { ...step("local-test"), name: "local", steps: [], assertions: [{ kind: "visible", selector: "#go" }] } });
   expect(local).toMatchObject({ status: "pass" });
+  // A local test of the "Send" button: with clicks on it ran for the model, so Casper's replay runs it too.
+  const send = await f.session.run({ action: "check", scenario: { ...step("local-test"), name: "send" } });
+  expect(send).toMatchObject({ status: "pass" });
   f.session.invalidate();
   // The uncertain "Send" click ran with clicks on when the model asked; Casper's own replay never repeats it, or asks.
   await f.session.replayStale(0);
@@ -330,6 +344,7 @@ browserTest("the end replay keeps to this task's local tests, even with Browser 
   const all = (await f.session.report()).checks;
   expect(all.find(c => c.id === uncertain.id)).toMatchObject({ freshness: "stale" });
   expect(all.find(c => c.id === local.id)).toMatchObject({ freshness: "fresh" });
+  expect(all.find(c => c.id === send.id)).toMatchObject({ status: "pass", freshness: "fresh" });
   // A check from before this task started is left alone.
   f.session.invalidate();
   await f.session.replayStale(performance.now());
