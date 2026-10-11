@@ -184,6 +184,12 @@ sandbox it or prevent code from reading project `.env` files. Obvious risky
 commands and uncertain effects require approval; no dependency installer is
 provided. Scripts must respect PORT/HOST or already specify the requested port.
 
+`serve` with `script: "files"` is for a folder of plain files (an `index.html`, no
+`package.json` script). No command runs and nothing asks: Casper itself serves the
+project folder on the loopback URL, a folder's `index.html` included, and stops it
+with the browser session, so no preview server is left behind. A path or link that
+leads out of the project is not found.
+
 Existing listeners are never replaced or killed. Readiness means an HTTP response,
 not application correctness or an atomic proof of port ownership. Only Casper-owned processes are targeted: POSIX uses best-effort group signalling,
 Windows uses verified descendants. Unconfirmed cleanup blocks replacement. One server is allowed per session. Model-task end,
