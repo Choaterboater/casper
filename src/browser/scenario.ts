@@ -20,8 +20,11 @@ export const PROJECT_SCOPE: VerificationScope = { inputs: ["."], exclude: [".git
 export const scopeOf = (scenario: BrowserScenario): VerificationScope => scenario.scope ?? PROJECT_SCOPE;
 export interface BrowserCheck {
   id: string; name: string; scenarioSha256: string; url: string; viewport: { width: number; height: number };
-  status: "pass" | "fail" | "incomplete"; baseline: "pass" | "fail" | "incomplete";
+  /** withdrawn: it failed and the AI withdrew it as written wrong before anything changed; it never decides the result. */
+  status: "pass" | "fail" | "incomplete" | "withdrawn"; baseline: "pass" | "fail" | "incomplete";
   freshness: "fresh" | "stale" | "unavailable"; scope?: VerificationScope; reason?: string;
+  /** The AI's reason for withdrawing it, shown on the receipt. */
+  withdrawn?: string;
   assertions: Array<{ kind: string; status: "pass" | "fail"; actual: unknown }>;
 }
 export interface BrowserReport { status: "pass" | "fail" | "incomplete"; checks: BrowserCheck[]; guidance: string }

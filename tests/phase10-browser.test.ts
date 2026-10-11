@@ -336,6 +336,54 @@ browserTest("the end replay keeps to this task's local tests, even with Browser 
   expect((await f.session.report()).checks.find(c => c.id === local.id)).toMatchObject({ freshness: "stale" });
 }, 30_000);
 
+browserTest("a failed check the AI wrote wrong can be withdrawn with a reason: it stays in the report, never decides it, and is never replayed", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, "<!doctype html><h1>Hello Casper</h1>");
+  const scenario = (name: string, expected: string) => ({ name, url: f.url, scope: { inputs: ["index.html"] }, steps: [], assertions: [{ kind: "text", selector: "h1", expected }] });
+  const wrong = await f.session.run({ action: "check", scenario: scenario("Heading", "Hello Caspr") });
+  expect(wrong).toMatchObject({ status: "fail", freshness: "fresh" });
+  const right = await f.session.run({ action: "check", scenario: scenario("Heading b", "Hello Casper") });
+  expect(right).toMatchObject({ status: "pass", freshness: "fresh" });
+  expect((await f.session.report()).status).toBe("fail");
+  // A passing check, a missing reason or an unknown id is refused.
+  await expect(f.session.run({ action: "withdraw", id: right.id, reason: "not needed" })).rejects.toThrow("Only a failed check can be withdrawn; this one passed");
+  await expect(f.session.run({ action: "withdraw", id: wrong.id })).rejects.toThrow("Browser reason is missing");
+  await expect(f.session.run({ action: "withdraw", id: "nope", reason: "x" })).rejects.toThrow("Unknown browser check id");
+  expect(await f.session.run({ action: "withdraw", id: wrong.id, reason: "expected text had a typo" }))
+    .toMatchObject({ id: wrong.id, name: "Heading", status: "withdrawn", reason: "expected text had a typo" });
+  expect(await f.session.report()).toMatchObject({ status: "pass", checks: [
+    { id: wrong.id, status: "withdrawn", withdrawn: "expected text had a typo", baseline: "fail" }, { id: right.id, status: "pass" }] });
+  await expect(f.session.run({ action: "withdraw", id: wrong.id, reason: "again" })).rejects.toThrow("already withdrawn");
+  await expect(f.session.run({ action: "replay", id: wrong.id })).rejects.toThrow("This check was withdrawn; record a new check");
+  // After a later edit Casper's end replay runs the other check, never the withdrawn one.
+  f.session.invalidate();
+  const replayed: string[] = [];
+  await f.session.replayStale(0, undefined, name => replayed.push(name));
+  expect(replayed).toEqual(["Heading b"]);
+  expect(await f.session.report()).toMatchObject({ status: "pass", checks: [{ id: wrong.id, status: "withdrawn" }, { id: right.id, status: "pass", freshness: "fresh" }] });
+}, 30_000);
+
+browserTest("a failed check can't be withdrawn once anything changed after it: an edit, a command or its files", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, "<!doctype html><h1>Hello Casper</h1>");
+  const failing = await f.session.run({ action: "check", scenario: { name: "Heading", url: f.url, scope: { inputs: ["index.html"] }, steps: [],
+    assertions: [{ kind: "text", selector: "h1", expected: "Saved" }] } });
+  expect(failing).toMatchObject({ status: "fail", freshness: "fresh" });
+  // An edit or command Casper saw after the failure.
+  f.session.invalidate();
+  await expect(f.session.run({ action: "withdraw", id: failing.id, reason: "wrong text" })).rejects.toThrow("Code/tool writes observed after this browser check: fix the page and replay it");
+  // Replayed after that change it still fails, fresh: the failure may be real (a fix that didn't work), so still refused.
+  expect(await f.session.run({ action: "replay", id: failing.id })).toMatchObject({ status: "fail", freshness: "fresh" });
+  await expect(f.session.run({ action: "withdraw", id: failing.id, reason: "wrong text" })).rejects.toThrow("A change was made after this check was recorded");
+  // A check whose file changes on disk after it failed.
+  const other = await f.session.run({ action: "check", scenario: { name: "Heading 2", url: f.url, scope: { inputs: ["index.html"] }, steps: [],
+    assertions: [{ kind: "text", selector: "h1", expected: "Saved" }] } });
+  expect(other).toMatchObject({ status: "fail", freshness: "fresh" });
+  await writeFile(f.sourceFile, "<!doctype html><h1>Hello again</h1>");
+  await expect(f.session.run({ action: "withdraw", id: other.id, reason: "wrong text" })).rejects.toThrow("Declared local inputs changed after this browser check: fix the page and replay it");
+  expect(await f.session.report()).toMatchObject({ status: "fail", checks: [{ status: "fail" }, { status: "fail" }] });
+}, 30_000);
+
 browserTest("the browser tool's screenshot comes with the picture, and its text no longer says to read the PNG", async () => {
   const f = await fixture();
   const tool = browserTool(f.session);

@@ -402,7 +402,9 @@ async function inputState(root: string, scenario: BrowserScenario, signal?: Abor
     : { reason: `${state.reason} With no scope.inputs Casper watches the whole project; name the files the page depends on.` };
 }
 
-interface RecordedCheck { scenario: BrowserScenario; check: BrowserCheck; fingerprint?: string; revision: number; /** performance.now() when it last ran. */ ranAt: number }
+interface RecordedCheck { scenario: BrowserScenario; check: BrowserCheck; fingerprint?: string; revision: number; /** performance.now() when it last ran. */ ranAt: number
+  /** The revision and input fingerprint of the run that recorded it: a withdraw needs both unchanged since then. */
+  recordedRevision: number; recordedFingerprint?: string }
 
 export class BrowserSession {
   private readonly controller = new AbortController();
@@ -485,6 +487,7 @@ export class BrowserSession {
     this.deadline = { hold: () => clearTimeout(timer), resume: () => { clearTimeout(timer); timer = setTimeout(stop, limit); } };
     try {
       if (input.action === "check" || input.action === "replay") return await this.check(input, combined);
+      if (input.action === "withdraw") return await this.withdraw(input);
       if (input.action === "serve") return await this.serve(input, combined);
       if (input.action === "diagnostics") return { console: structuredClone(this.logs), network: structuredClone(this.requests), dropped: this.dropped,
         server: this.server?.diagnostics(), guidance: "Bounded diagnostics, not verification. URL queries/fragments are omitted; content may still be sensitive." };
@@ -806,7 +809,8 @@ export class BrowserSession {
     try {
       for (const [id, entry] of this.scenarios) {
         if (this.controller.signal.aborted || signal?.aborted || this.work || !this.page || performance.now() > this.replayUntil - 1_000) return;
-        if (entry.ranAt < since || !localURL(entry.scenario.url) || entry.check.status === "incomplete" || (await this.current(entry)).freshness !== "stale") continue;
+        if (entry.ranAt < since || !localURL(entry.scenario.url) || entry.check.status === "incomplete" || entry.check.status === "withdrawn"
+          || (await this.current(entry)).freshness !== "stale") continue;
         const kept = { check: entry.check, fingerprint: entry.fingerprint, revision: entry.revision, ranAt: entry.ranAt };
         onReplay?.(entry.check.name);
         this.unattended = true;
@@ -821,7 +825,9 @@ export class BrowserSession {
   async report(): Promise<BrowserReport> {
     const checks: BrowserCheck[] = [];
     for (const entry of this.scenarios.values()) checks.push(await this.current(entry));
-    return { status: checks.some(check => check.status === "fail") ? "fail" : !checks.length || checks.some(check => check.status !== "pass" || check.freshness !== "fresh") ? "incomplete" : "pass",
+    // A withdrawn check stays in the report, named, but never decides the result.
+    const counted = checks.filter(check => check.status !== "withdrawn");
+    return { status: counted.some(check => check.status === "fail") ? "fail" : !counted.length || counted.some(check => check.status !== "pass" || check.freshness !== "fresh") ? "incomplete" : "pass",
       checks, guidance: "Only these browser assertions were checked. Freshness covers declared local inputs, not the server build, external services or all requested behavior. Screenshots and model claims are not acceptance. Run relevant repository checks too." };
   }
 
@@ -832,12 +838,13 @@ export class BrowserSession {
       await this.askMetadata(scenario.url, signal);
       if (this.scenarios.size >= 24) throw new Error("Browser check limit reached (24 per session); replay the ids your checks returned instead of recording new ones");
       id = randomUUID();
-      this.scenarios.set(id, { scenario, revision: this.revision, check: { id, name: scenario.name,
+      this.scenarios.set(id, { scenario, revision: this.revision, recordedRevision: this.revision, check: { id, name: scenario.name,
         scenarioSha256: createHash("sha256").update(JSON.stringify(scenario)).digest("hex"), url: scenario.url, viewport: scenario.viewport,
         status: "incomplete", baseline: "incomplete", freshness: "unavailable", scope: scenario.scope, assertions: [] }, ranAt: performance.now() });
     } else {
       id = text(input.id, "id", 64);
       if (!this.scenarios.has(id)) throw new Error("Unknown browser check id; replay an id a check returned in this session, or record a check first");
+      if (this.scenarios.get(id)!.check.status === "withdrawn") throw new Error("This check was withdrawn; record a new check instead of replaying it");
       await this.askMetadata(this.scenarios.get(id)!.scenario.url, signal);
     }
     const entry = this.scenarios.get(id)!;
@@ -887,6 +894,7 @@ export class BrowserSession {
       const after = await inputState(this.options.projectRoot, scenario, signal);
       if (before.fingerprint && after.fingerprint && before.fingerprint === after.fingerprint && entry.revision === this.revision) {
         check.freshness = "fresh"; entry.fingerprint = after.fingerprint;
+        if (input.action === "check") entry.recordedFingerprint = after.fingerprint;
       } else { check.freshness = before.fingerprint && after.fingerprint ? "stale" : "unavailable"; check.reason = before.reason ?? after.reason ?? "Declared inputs changed during browser reproduction."; }
       if (input.action === "check") check.baseline = check.status;
       return structuredClone(check) as unknown as Record<string, unknown>;
@@ -894,6 +902,30 @@ export class BrowserSession {
       check.status = "incomplete"; check.reason = "Browser reproduction did not finish; no passing evidence.";
       throw error;
     }
+  }
+
+  /**
+   * Takes a check the AI wrote wrong (a wrong expected text or selector) out of what decides the result. Only a check
+   * whose last run failed, with nothing changed since it was recorded (no edit or command, its inputs the same): a
+   * page fixed after the failure is replayed, never withdrawn. The check stays in the report as withdrawn, with the reason.
+   */
+  private async withdraw(input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const id = text(input.id, "id", 64);
+    const reason = text(input.reason, "reason", 200);
+    const entry = this.scenarios.get(id);
+    if (!entry) throw new Error("Unknown browser check id; withdraw an id a check returned in this session");
+    const status = entry.check.status;
+    if (status === "withdrawn") throw new Error("This check is already withdrawn");
+    if (status !== "fail") throw new Error(`Only a failed check can be withdrawn; this one ${status === "pass" ? "passed" : "did not finish"}`);
+    const now = await this.current(entry);
+    if (now.freshness === "stale") throw new Error(`${(now.reason ?? "A change was made after this check failed").replace(/\.$/, "")}: fix the page and replay it; it can't be withdrawn now`);
+    if (now.freshness !== "fresh") throw new Error(`Casper can't tell whether anything changed since this check failed (${(now.reason ?? "its inputs were not recorded").replace(/\.$/, "")}); replay it`);
+    // A replay after a change resets freshness, so a check that still fails after a fix must not look withdrawable.
+    if (entry.recordedRevision !== this.revision || entry.fingerprint !== entry.recordedFingerprint)
+      throw new Error("A change was made after this check was recorded, so its failure may be real: fix the page, or record a corrected check; it can't be withdrawn");
+    entry.check = { ...entry.check, status: "withdrawn", withdrawn: reason };
+    return { id, name: entry.check.name, status: "withdrawn", reason,
+      guidance: "It no longer decides the result; the receipt names it with your reason. Record a corrected check for what it meant to test." };
   }
 
   private async interact(input: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {

@@ -60,7 +60,7 @@ project file can't turn it back on.
 These commands do not use a model. When you ask in plain words, the model uses
 its normal edit and shell tools plus one `browser` tool. Its actions are
 `open`, `inspect`, `diagnostics`, `screenshot`, `viewport`, `click`, `fill`, `press`,
-`select`, `serve`, `check` and `replay`. There is no arbitrary JavaScript/CDP endpoint.
+`select`, `serve`, `check`, `replay` and `withdraw`. There is no arbitrary JavaScript/CDP endpoint.
 Inspection supplies bounded text and control metadata, including selectors for
 IDs; controls without IDs require an explicit CSS selector. Selectors must match
 exactly one element for interactions and element assertions.
@@ -108,6 +108,26 @@ Each execution uses fresh browser storage. IDs last for this task/session only;
 there is no durable scenario library. A baseline that never failed is not proof of
 reproducing the user's bug.
 
+A check the model wrote wrong (an expected text or a selector that was never
+right) can be taken out of the result with
+`{"action":"withdraw","id":"<returned-id>","reason":"expected text had a typo"}`.
+The reason is required (one line, up to 200 bytes). Casper accepts it only when
+the check's last run failed and nothing changed since the check was recorded: no
+edit or command after it, and its inputs are the same. Otherwise it refuses and
+says why, such as `Code/tool writes observed after this browser check: fix the
+page and replay it`, so a page fixed after a failure is replayed, never
+withdrawn. A check that still fails when replayed after a change can't be
+withdrawn either, since its failure may be real. Withdrawing a check that
+passed or did not finish is refused too, and so is replaying a withdrawn id. A
+withdrawn check stays visible: its status is `withdrawn` in the JSON report, with
+the reason under `withdrawn`, and the receipt says
+`– 1 check withdrawn by the AI: <name> (<reason>)`. It does not fail the task, it
+does not count as a pass, and Casper's end-of-task replay skips it. The rule
+against swapping a check for an easier one stays: a corrected check is recorded
+as a new check and must pass on its own. If every browser check was withdrawn,
+the task is incomplete: `– Incomplete — every browser check was withdrawn; none
+is left to show the page works`.
+
 Supported assertions:
 
 - `text`: exact comparison of trimmed `textContent` (nonempty expected text).
@@ -137,8 +157,8 @@ with Browser clicks off: a `local-test` step whose label has no word such as
 "send", "buy" or "delete". Nothing is asked: any other step, an address that would
 need a yes, a busy or closed browser, or a replay that can't finish keeps the
 check as it was, and the receipt still says `ran before a later edit or command
-(replay to count)`. A line names each check as it is replayed. All of these
-replays share one minute; one that runs out of time is given up and the browser
+(replay to count)`. A withdrawn check is never replayed. A line names each check
+as it is replayed. All of these replays share one minute; one that runs out of time is given up and the browser
 stays open.
 
 A screenshot larger than 2000 px or 4.5 MB of base64 is shrunk before it is sent,

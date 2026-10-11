@@ -62,3 +62,23 @@ test("a failed task does not replay browser checks", async () => {
   const { calls } = await endOfTask(true, true);
   expect(calls).toEqual(["report"]);
 }, 30_000);
+
+test("a check the AI withdrew shows on the receipt with its reason, and the passing ones still count", async () => {
+  process.env.TERM = "xterm-256color";
+  const app = await richApp(() => quietRuntime());
+  (app.app as unknown as { browser: BrowserSession }).browser = {
+    status: () => ({ state: "ready" }), assertCleanup: () => {}, replayStale: async () => {},
+    report: async (): Promise<BrowserReport> => ({ status: "pass", guidance: "g", checks: [
+      { ...check("fresh"), id: "c0", name: "Heading", status: "withdrawn", baseline: "fail", withdrawn: "expected text had a typo" }, check("fresh")] }),
+    close: async () => {},
+  } as unknown as BrowserSession;
+  try {
+    await app.until(text => text.includes("idle"));
+    app.input.write("make the save button work\r");
+    await app.until(text => text.includes("withdrawn by the AI"));
+    const screen = app.screen();
+    expect(screen).toContain("1 check withdrawn by the AI: Heading (expected text had a typo)");
+    expect(screen).toContain("✓ browser checks passed (1)");
+    expect(screen).not.toContain("Browser checks failed");
+  } finally { await app.close(); }
+}, 30_000);

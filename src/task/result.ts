@@ -228,6 +228,11 @@ function remoteNotRunVerdict(remotes: NonNullable<TaskResult["remoteNotRun"]>, s
   return `${count === 1 ? "a command" : "commands"} to ${remotes.map((remote) => safe(remote.host)).join(", ")} did not run`;
 }
 
+/** The browser checks that decide the result: all but the ones the AI withdrew as written wrong. */
+function countedBrowserChecks(checks: BrowserReport["checks"]): BrowserReport["checks"] {
+  return checks.filter((check) => check.status !== "withdrawn");
+}
+
 /** Why browser checks that all passed still leave the task incomplete: an edit or command ran after some or all of
  * them, or Casper can't tie them to the final files. Each says "them" only when it covers every check. */
 function browserPassedVerdict(checks: BrowserReport["checks"]): string {
@@ -298,7 +303,7 @@ export function formatTaskResult(task: TaskResult): string {
     lines.push(receiptLine("undo", task.undo.available ? `available${task.receipt ? ` (/undo ${task.receipt})` : ""}${task.undo.left?.length ? `; no copy of ${task.undo.left.map((entry) => safe(entry.path)).join(", ")}` : ""}` : `not available: ${safe(task.undo.reason)}`));
   }
   if (task.browser) {
-    lines.push(receiptLine("browser", `assertions ${task.browser.status}: ${task.browser.checks.map(check => `${safe(check.name)}:${check.status}, inputs ${check.freshness}, baseline ${check.baseline}`).join("; ")}. Declared local scope only; server build/external state and overall acceptance not certified.`));
+    lines.push(receiptLine("browser", `assertions ${task.browser.status}: ${task.browser.checks.map(check => `${safe(check.name)}:${check.status}${check.withdrawn ? ` (${safe(check.withdrawn)})` : ""}, inputs ${check.freshness}, baseline ${check.baseline}`).join("; ")}. Declared local scope only; server build/external state and overall acceptance not certified.`));
   }
   return lines.join("\n");
 }
@@ -525,26 +530,31 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
   for (const risky of task.riskyLines ?? []) lines.push(`– Risky config lines (not a check): ${safe(risky.file)}:${risky.line} ${safe(risky.text)} — ${risky.reason}`);
   if (task.riskyMore) lines.push(`– Risky config lines (not a check): and ${task.riskyMore} more`);
   if (task.browser) {
-    const failed = task.browser.checks.filter((check) => check.status === "fail").map((check) => safe(check.name));
+    // Checks the AI withdrew as written wrong: named with its reason, never counted for or against the result.
+    const withdrawn = task.browser.checks.filter((check) => check.status === "withdrawn");
+    const checks = countedBrowserChecks(task.browser.checks);
+    const failed = checks.filter((check) => check.status === "fail").map((check) => safe(check.name));
     // The answer may say the checks passed; the receipt is Casper's record, so it says where they differ.
     const claimed = task.browserClaimed ? " — the answer above says they passed" : "";
-    if (task.browser.status === "pass") fold(`✓ Browser checks passed (${task.browser.checks.length})`, `browser checks passed (${task.browser.checks.length})`);
+    if (task.browser.status === "pass") fold(`✓ Browser checks passed (${checks.length})`, `browser checks passed (${checks.length})`);
     else if (task.browser.status === "fail") lines.push(`✗ Browser checks failed: ${failed.join(", ")}${claimed}`);
     else {
       // Incomplete: count what passed, name what did not finish, and say why a pass does not count
       // (a later edit or command made it stale, or Casper can't tie it to the final files).
-      const passed = task.browser.checks.filter((check) => check.status === "pass");
-      const open = task.browser.checks.filter((check) => check.status !== "pass").map((check) => safe(check.name));
+      const passed = checks.filter((check) => check.status === "pass");
+      const open = checks.filter((check) => check.status !== "pass").map((check) => safe(check.name));
       const stale = passed.filter((check) => check.freshness === "stale").length;
       const untied = passed.filter((check) => check.freshness === "unavailable").length;
       // "all" and "them" only when they cover every check, never one that did not finish.
-      const total = task.browser.checks.length, every = (count: number) => count === total;
+      const total = checks.length, every = (count: number) => count === total;
       const notes = [open.length ? `not finished: ${open.join(", ")}` : "",
         stale ? `${every(stale) ? "all" : stale} ran before a later edit or command (replay to count)` : "",
         untied ? `Casper can't tie ${every(untied) ? "them" : `${untied} of them`} to the final files` : ""].filter(Boolean);
-      if (passed.length) lines.push(`– Browser checks: ${passed.length} of ${task.browser.checks.length} passed${notes.length ? `; ${notes.join("; ")}` : ""}`);
-      else lines.push(claimed ? `– Browser checks did not finish${claimed}; Casper saw no passing browser check` : "– Browser checks incomplete");
+      if (passed.length) lines.push(`– Browser checks: ${passed.length} of ${checks.length} passed${notes.length ? `; ${notes.join("; ")}` : ""}`);
+      else if (checks.length || claimed) lines.push(claimed ? `– Browser checks did not finish${claimed}; Casper saw no passing browser check` : "– Browser checks incomplete");
     }
+    if (withdrawn.length) lines.push(`– ${withdrawn.length} ${withdrawn.length === 1 ? "check" : "checks"} withdrawn by the AI: ${withdrawn
+      .map((check) => `${safe(check.name)}${check.withdrawn ? ` (${safe(check.withdrawn)})` : ""}`).join(", ")}`);
   }
   const verdict = withVerdict(task, lines, options);
   return { lines: verdict.lines, undo: undoLines(task, options, safe), folds, ...(verdict.short ? { short: verdict.short } : {}) };
@@ -649,9 +659,12 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
         : task.remoteNotRun?.length ? `– Incomplete — ${remoteNotRunVerdict(task.remoteNotRun, safe)}`
         : task.wroteToolCallAsText ? "– Did not act — the model wrote a tool call as text instead of using it"
         : report?.reason === NO_CHECKS_FOUND && !report.results.length ? NO_CHECKS_LINE
-        // Every browser check ran and passed, but not on the final files: say that, not "not every check ran".
+        // The AI withdrew every browser check it recorded: nothing is left to show the page works.
         : task.browser?.status === "incomplete" && report?.status !== "incomplete" && task.browser.checks.length > 0
-          && task.browser.checks.every((check) => check.status === "pass") ? `– Incomplete — ${browserPassedVerdict(task.browser.checks)}`
+          && !countedBrowserChecks(task.browser.checks).length ? "– Incomplete — every browser check was withdrawn; none is left to show the page works"
+        // Every browser check ran and passed, but not on the final files: say that, not "not every check ran".
+        : task.browser?.status === "incomplete" && report?.status !== "incomplete" && countedBrowserChecks(task.browser.checks).length > 0
+          && countedBrowserChecks(task.browser.checks).every((check) => check.status === "pass") ? `– Incomplete — ${browserPassedVerdict(countedBrowserChecks(task.browser.checks))}`
         : "– Incomplete — not every check ran", ...body];
       break;
     case "verified":
