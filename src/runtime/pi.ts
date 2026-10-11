@@ -41,6 +41,7 @@ import { gitGuardReason } from "./git-guard";
 import { classifyPath, fileToolGate, gitInternalsCommand, privatePathCommand, realpathLongest, resolveToolPath } from "../platform/project-paths";
 import { withoutProviderKeys } from "../platform/environment";
 import { cacheRetentionFor, type PromptCacheSetting } from "./cache";
+import { LoopGuard } from "./loop-guard";
 import { nativeEditPath, observationInput, editPatch, observationOutput, patchLineCounts, writeLineCounts, type ToolObservationInput } from "./observation";
 import type {
   AgentRuntime,
@@ -933,6 +934,14 @@ export class PiRuntime implements AgentRuntime {
             if (reason) { outside.delete(event.toolCallId); return { block: true, reason, terminate: true }; }
           }
         });
+        // The same read, grep, find or ls again with nothing changed: a note at the 3rd, skipped from the 5th. After the
+        // gates above, since Pi stops at the first block: a skipped repeat still counts toward a subagent's limits and the spend pause.
+        const loopGuard = new LoopGuard();
+        pi.on("agent_start", () => loopGuard.reset());
+        pi.on("tool_call", (event) => {
+          const reason = loopGuard.before(event.toolCallId, event.toolName, event.input);
+          if (reason) return { block: true, reason };
+        });
         if (!readOnly) pi.on("tool_result", (event) => {
           const absolute = outside.get(event.toolCallId);
           if (absolute === undefined) return;
@@ -965,6 +974,11 @@ export class PiRuntime implements AgentRuntime {
           try { text = await options.afterFileEdit(file, ctx.signal); }
           catch { text = "LSP diagnostics unavailable after edit; the file was written. Do not treat missing diagnostics as clean."; }
           if (text) return { content: [...event.content, { type: "text" as const, text }] };
+        });
+        pi.on("tool_result", (event) => {
+          const note = loopGuard.after(event.toolCallId, event.toolName, event.input,
+            event.content.flatMap((block) => block.type === "text" ? [block.text] : []));
+          if (note) return { content: [...event.content, { type: "text" as const, text: note }] };
         });
         const withFileLocks = <T>(paths: string[], work: () => Promise<T>): Promise<T> => {
           const ordered = [...new Set(paths)].sort();
