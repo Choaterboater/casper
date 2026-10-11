@@ -142,7 +142,7 @@ packs: off # default on
 ### GitHub tool
 
 The AI checks this repo's pull requests and CI through GitHub's `gh` tool when a request names them
-(see [GITHUB.md](GITHUB.md)). It is on, and asks once per repo first. Turn it off with `/settings` (it
+(see [GITHUB.md](GITHUB.md)). It is on, and asks nothing: it only acts on the folder's own `origin`. Turn it off with `/settings` (it
 writes `github: false`): the AI is never offered the `github` tool. A project file (or a profile it
 picks) can't turn it on or off: `github:` in `.casper/project.yaml` stops configuration loading with
 an error.

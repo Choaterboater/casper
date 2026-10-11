@@ -178,7 +178,7 @@ export function settingRows(context: ProjectContext): Setting[] {
       choices: [context.skills.bundled === false ? { label: "Turn them on", keys: ["skills", "bundled"], value: true, shown: "on" }
         : { label: "Turn them off", keys: ["skills", "bundled"], value: false, shown: "off" }] },
     onOffRow("GitHub tool", context.github !== false,
-      "The AI reads this repo's pull requests and CI through GitHub's gh tool when you ask, after your yes for the repo. It never sees your GitHub login. It re-runs failed checks only after another yes.", ["github"], false, "task"),
+      "The AI reads this repo's pull requests and CI through GitHub's gh tool when you ask, and re-runs failed checks (once per pull request per 10 minutes), without asking. It never sees your GitHub login.", ["github"], false, "task"),
     onOffRow("Packs", context.packs !== false,
       "Skill packs you added with /pack add. Their skills cost no tokens until a request fits one. A change applies from the next start.", ["packs"], true),
     money("noteAt", "Spend notes", ["are", "come"], "A quiet line says what a task has spent; it never stops the task."),

@@ -51,8 +51,7 @@ export async function prepareCapabilities(app: CasperApp, task: string): Promise
       app.shell?.approve ? (command, signal, options) => app.shell!.approve!(command, signal, options) : undefined),
     githubOff: app.projectContext?.github === false,
     githubTool: () => githubTool({
-      root: () => app.activeWorkspaceRoot(), interactive: () => app.interactive && !app.closing, reruns: app.githubReruns,
-      approve: (key, preview, question, signal) => app.sessionYes.approve(key, preview, question, signal), secrets: () => ownSecretValues(app),
+      root: () => app.activeWorkspaceRoot(), reruns: app.githubReruns, secrets: () => ownSecretValues(app),
     }),
     offered: app.offeredTools,
   });

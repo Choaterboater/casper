@@ -317,7 +317,6 @@ Next: 1 Show diff · 2 Undo</pre>
             <li>a picture in your request when the model can't see pictures: send without it, or switch for that request;</li>
             <li>a public link for <code>/preview</code> (your network needs no question);</li>
             <li>each fix <code>casper doctor</code> offers;</li>
-            <li>the first time the AI looks at this repo's pull requests and CI on GitHub, and before it re-runs failed checks;</li>
             <li>an <code>ssh</code> password, in Casper's own hidden box (the AI never sees it);</li>
             <li>adding a pack, after it shows what the pack brings (<code>1 No · 2 Yes, add it · 3 Show me what's inside</code>);</li>
             <li>which product, when you type <code>/mcp login</code> on its own;</li>
@@ -459,8 +458,8 @@ on in ~/.casper/config.yaml)</pre>
           <code>gh</code> is signed in (<code>gh auth login</code>, in your own terminal). Ask "check my PRs" or
           "why did CI fail on 12?". Casper runs <code>gh</code> itself with a short fixed list of actions (open pull
           requests, one pull request's checks, the failing step and last log lines, re-run failed checks). The AI
-          never sees your GitHub login, and what GitHub sends back is marked as other people's words. The first use
-          in a repo asks, and re-running failed checks asks first. It does not push, open or merge anything.
+          never sees your GitHub login, and what GitHub sends back is marked as other people's words. It acts only on
+          the folder's own repo, so it asks nothing; one pull request is re-run at most once per 10 minutes. It does not push, open or merge anything.
           Turn it off with <b>GitHub tool</b> in <code>/settings</code>. See
           <a href="https://github.com/Choaterboater/casper/blob/main/docs/GITHUB.md">GITHUB.md</a>.</p>
         </details>
