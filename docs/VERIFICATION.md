@@ -693,11 +693,19 @@ Finding them costs no model tokens; only that one turn does. They need Chrome; `
 verification off) turns them off with the rest of the check.
 
 **Look notes.** The same way, Casper names what a person would see wrong: images that didn't load (by
-`src`), one picture used on two or more items of a repeated group such as product cards (icons under
-48 px left out), and at phone width the first elements that run past the screen's right edge (not
-inside a box that scrolls sideways on purpose) and links, buttons and inputs smaller than 44×44 px (a
-link inside a sentence is left out). They are one note above the accessibility one, and nothing when
-the page is clean. They go to the model in the same one repair turn as the accessibility notes:
+`src`), one picture used on two or more items of a repeated group such as product cards (icons under 48
+px left out), and at phone width the first elements that run past the screen's right edge (not inside a
+box that scrolls sideways on purpose) and links, buttons and inputs smaller than 44×44 px (a link inside
+a sentence is left out). Drawn pictures (inline `<svg>` and the site's own `.svg` images) get notes too:
+one of 48 px or more with no `viewBox`; an inline one of any size with no name (`<title>`, `aria-label`
+or `aria-labelledby`), unless it has `aria-hidden="true"` or sits inside a link, button or label, whose
+own words name it; and an icon (under 64 px each way) whose colors stay the same when the page itself
+turns dark (checked only when its background changes in dark mode). For an icon file shown with `<img>`
+the note says to put the SVG inline or give the file its own `prefers-color-scheme` rule, since the
+page's CSS can't reach it. A rich illustration is never noted for its own colors, gradients, words or
+number of shapes, and Casper's own reads of the `.svg` files never count as failed requests. They are
+one note above the accessibility one, and nothing when the page is clean. They go to the model in the
+same one repair turn as the accessibility notes:
 
 ```text
 ✓ /shop loads · 0 console errors

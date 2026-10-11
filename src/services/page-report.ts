@@ -106,7 +106,7 @@ export function a11yNotes(found: A11yFindings): string[] {
 }
 
 /** Plain notes for what a person would see wrong: images, the same picture on several items, what runs past a
- * phone screen and small tap targets. Empty when there are none. */
+ * phone screen, small tap targets and drawn pictures. Empty when there are none. */
 export function lookNotes(found: LookFacts): string[] {
   const notes: string[] = [];
   const broken = found.brokenImages.length;
@@ -115,6 +115,12 @@ export function lookNotes(found: LookFacts): string[] {
   if (found.overflow.length) notes.push(`at phone width ${found.overflow.join(", ")} ${found.overflow.length === 1 ? "runs" : "run"} past the screen's right edge`);
   const { count, names } = found.smallTargets;
   if (count) notes.push(`at phone width ${plural(count, "tap target")} ${count === 1 ? "is" : "are"} under 44×44 px: ${names.join(", ")}${count > names.length ? ", …" : ""}`);
+  const { noViewBox, noName, fixedColors, fixedFiles } = found.art;
+  const one = (list: string[]) => list.length === 1;
+  if (noViewBox.length) notes.push(`${plural(noViewBox.length, "picture")} ${one(noViewBox) ? "has" : "have"} no viewBox, so ${one(noViewBox) ? "it doesn't" : "they don't"} scale: ${noViewBox.join(", ")}`);
+  if (noName.length) notes.push(`${plural(noName.length, "picture")} ${one(noName) ? "has" : "have"} no name (add role="img" and a <title>, or aria-hidden="true" for decoration): ${noName.join(", ")}`);
+  if (fixedColors.length) notes.push(`in dark mode ${plural(fixedColors.length, "icon")} ${one(fixedColors) ? "keeps its" : "keep their"} light colors (use currentColor or CSS variables): ${fixedColors.join(", ")}`);
+  if (fixedFiles.length) notes.push(`in dark mode ${plural(fixedFiles.length, "icon file")} ${one(fixedFiles) ? "keeps its" : "keep their"} light colors (the page's CSS can't reach an <img>: put the SVG inline, or give the file its own prefers-color-scheme rule): ${fixedFiles.join(", ")}`);
   return notes;
 }
 

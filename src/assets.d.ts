@@ -25,3 +25,9 @@ declare module "*/embedded/rg.exe" {
   const filename: string;
   export default filename;
 }
+
+/** A bundled skill's SVG file, imported as text (src/skills/bundled.ts). */
+declare module "*.svg" {
+  const text: string;
+  export default text;
+}

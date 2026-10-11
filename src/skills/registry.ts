@@ -8,7 +8,7 @@ import { projectStateDirectory, type ProjectModel } from "../project/model";
 import type { TaskClassification } from "../task/classify";
 import { MAX_SKILL_BYTES, parseSkillMetadata, readSkillHeader, splitSkill, type SkillMetadata } from "./metadata";
 import { scoreSkill } from "./rank";
-import { allBundledSkills, MAX_BUNDLED_ACTIVE, parseSkillRule, safetyProblems, scoreBundledSkill, scoreSkillRule, type AnyBundledSkill } from "./bundled";
+import { allBundledSkills, bundledSkillFolder, MAX_BUNDLED_ACTIVE, parseSkillRule, safetyProblems, scoreBundledSkill, scoreSkillRule, type AnyBundledSkill } from "./bundled";
 
 export const SKILL_IMPORTS = ["pi", "agents", "claude", "codex"] as const;
 export type SkillImport = typeof SKILL_IMPORTS[number];
@@ -303,7 +303,9 @@ export class SkillRegistry {
   private async readBody(entry: SkillEntry): Promise<LoadedSkill> {
     const { summary } = entry;
     if (entry.bundled) {
-      return { skill: structuredClone(summary), body: entry.bundled.body, sha256: digest(entry.bundled.source) };
+      // A web skill's files (the illustration kit) go in a folder the AI can read; the prompt names only the folder.
+      const folder = entry.bundled.kind === "web" ? await bundledSkillFolder(entry.bundled) : undefined;
+      return { skill: { ...structuredClone(summary), ...(folder ? { baseDir: folder } : {}) }, body: entry.bundled.body, sha256: digest(entry.bundled.source) };
     }
     if (await realpath(summary.filePath) !== summary.filePath) throw new Error("skill path changed; restart Casper to re-index");
     const details = await stat(summary.filePath);
@@ -453,7 +455,7 @@ export function formatSelectedSkills(skills: LoadedSkill[]): string {
     ...skills.map(({ skill, body }) => [
       `--- Skill ${skill.id} ---`,
       ...(skill.source === "bundled"
-        ? ["Source: bundled with Casper; trust: trusted"]
+        ? ["Source: bundled with Casper; trust: trusted", ...(skill.baseDir ? [`Base directory: ${skill.baseDir}`] : [])]
         // A pack's folder is private to the AI's tools: its skill is this text alone.
         : skill.source === "pack" ? [`Source: pack ${skill.pack}; trust: ${skill.trust}`]
         : [`Source: ${skill.source}; trust: ${skill.trust}`, `File: ${skill.filePath}`, `Base directory: ${skill.baseDir}`]),

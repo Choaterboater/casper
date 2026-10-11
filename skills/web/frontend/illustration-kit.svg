@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 120" role="img">
+<title>Illustration kit</title>
+<desc>Materials, shadows and textures for product art. Copy the defs you use into your own svg and fill shapes with url(#id). Light comes from the top-left: the lit face takes the gradient as is, the side face uses the -side variant or a darker fill.</desc>
+<defs>
+<!-- Recipe. 1 Silhouette and perspective first; texture can't fix wrong geometry. 2 Back to front: wall, ground,
+ cast shadow, rear faces, front faces, controls, highlights. 3 Ground every object twice: a tight dark contact shadow
+ right under it and a broader, lighter cast shadow. 4 Blur only shadows, glow and steam, never the subject's outline;
+ widen a filter's x/y/width/height so the blur isn't clipped. 5 Highlights on light-facing edges only. 6 Ceramic is
+ warm off-white, never pure white; shade the side away from the light. Crema is gold-brown with a thin light edge.
+ Glass: sparse translucent shapes, bright thin edges, the background showing through. Wood grain follows the long
+ axis. 7 One reflection across several faces: gradientUnits="userSpaceOnUse". 8 Check the render at the size it
+ is shown; drop detail that vanishes there. -->
+<!-- brushed steel: soft light and dark bands across a body face -->
+<linearGradient id="steel" x1="0" y1="0" x2="1" y2="0.2">
+<stop offset="0" stop-color="#8d949b"/><stop offset=".12" stop-color="#d9dde1"/><stop offset=".3" stop-color="#a7adb3"/><stop offset=".5" stop-color="#eef0f2"/><stop offset=".68" stop-color="#9aa1a8"/><stop offset=".86" stop-color="#c9cdd2"/><stop offset="1" stop-color="#6f767d"/>
+</linearGradient>
+<!-- brushed steel in shadow: the side face of the same body -->
+<linearGradient id="steel-side" x1="0" y1="0" x2="1" y2="0">
+<stop offset="0" stop-color="#7b8288"/><stop offset=".5" stop-color="#5f666c"/><stop offset="1" stop-color="#454b50"/>
+</linearGradient>
+<!-- chrome: hard contrast bands for trim, knobs, spouts -->
+<linearGradient id="chrome" x1="0" y1="0" x2="1" y2="0">
+<stop offset="0" stop-color="#3b4046"/><stop offset=".18" stop-color="#f4f6f8"/><stop offset=".32" stop-color="#7e858c"/><stop offset=".5" stop-color="#ffffff"/><stop offset=".64" stop-color="#2f3439"/><stop offset=".82" stop-color="#c4c9ce"/><stop offset="1" stop-color="#4a5056"/>
+</linearGradient>
+<!-- walnut: dark warm wood -->
+<linearGradient id="walnut" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#7a4e31"/><stop offset=".45" stop-color="#5c3720"/><stop offset="1" stop-color="#3e2414"/>
+</linearGradient>
+<!-- light wood: oak or birch -->
+<linearGradient id="light-wood" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#e6c79c"/><stop offset=".5" stop-color="#d4ae7b"/><stop offset="1" stop-color="#b98f5c"/>
+</linearGradient>
+<!-- ceramic: glazed cup or tile, bright top-left -->
+<radialGradient id="ceramic" cx=".3" cy=".25" r=".9">
+<stop offset="0" stop-color="#ffffff"/><stop offset=".55" stop-color="#eeebe6"/><stop offset="1" stop-color="#c9c4bc"/>
+</radialGradient>
+<!-- glass: see-through with a bright edge; put it over what is behind -->
+<linearGradient id="glass" x1="0" y1="0" x2="1" y2="0">
+<stop offset="0" stop-color="#ffffff" stop-opacity=".55"/><stop offset=".15" stop-color="#dff1f8" stop-opacity=".2"/><stop offset=".8" stop-color="#bfe0ec" stop-opacity=".12"/><stop offset="1" stop-color="#ffffff" stop-opacity=".45"/>
+</linearGradient>
+<!-- matte paint template: change only the hue (210) in all three stops -->
+<linearGradient id="paint" x1="0" y1="0" x2=".3" y2="1">
+<stop offset="0" stop-color="hsl(210,55%,62%)"/><stop offset=".6" stop-color="hsl(210,50%,50%)"/><stop offset="1" stop-color="hsl(210,48%,38%)"/>
+</linearGradient>
+<!-- enamel: glossy paint with a sharp highlight band -->
+<linearGradient id="enamel" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#e2574c"/><stop offset=".08" stop-color="#ffb3a8"/><stop offset=".16" stop-color="#d94436"/><stop offset="1" stop-color="#8f2219"/>
+</linearGradient>
+<!-- paper: warm white sheet -->
+<linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0" stop-color="#fffdf8"/><stop offset="1" stop-color="#ece6da"/>
+</linearGradient>
+<!-- stone: a polished counter top or floor -->
+<linearGradient id="stone" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0" stop-color="#d8d5cf"/><stop offset=".5" stop-color="#c4c0b8"/><stop offset="1" stop-color="#a9a49b"/>
+</linearGradient>
+<!-- wall glow: light falling on the back wall from the top-left -->
+<radialGradient id="glow" cx=".25" cy=".2" r=".8">
+<stop offset="0" stop-color="#fff6e5" stop-opacity=".9"/><stop offset="1" stop-color="#fff6e5" stop-opacity="0"/>
+</radialGradient>
+<!-- highlight sheen: lay over a lit face, fades to nothing -->
+<linearGradient id="sheen" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0" stop-color="#ffffff" stop-opacity=".7"/><stop offset=".35" stop-color="#ffffff" stop-opacity=".15"/><stop offset=".6" stop-color="#ffffff" stop-opacity="0"/>
+</linearGradient>
+<!-- contact shadow: a dark ellipse right under an object, blurred a little -->
+<filter id="contact-shadow" x="-30%" y="-100%" width="160%" height="300%">
+<feGaussianBlur stdDeviation="2"/>
+</filter>
+<!-- cast shadow: a wide soft shape thrown down-right, away from the light -->
+<filter id="cast-shadow" x="-40%" y="-150%" width="180%" height="400%">
+<feGaussianBlur stdDeviation="8"/>
+</filter>
+<!-- soft glow: blur for light spots, steam or a lit screen -->
+<filter id="soft-glow" x="-50%" y="-50%" width="200%" height="200%">
+<feGaussianBlur stdDeviation="4"/>
+</filter>
+<!-- brushed metal: fine lines laid over a steel fill -->
+<pattern id="brushed" width="40" height="3" patternUnits="userSpaceOnUse">
+<path d="M0 .5h40M0 2h40" stroke="#ffffff" stroke-opacity=".12" stroke-width=".5"/>
+</pattern>
+<!-- fine grain: wood grain over a walnut or light-wood fill -->
+<pattern id="grain" width="60" height="8" patternUnits="userSpaceOnUse">
+<path d="M0 2c15-1 30 1 60 0M0 6c20 1 35-1 60 0" fill="none" stroke="#000000" stroke-opacity=".12" stroke-width=".6"/>
+</pattern>
+<!-- fabric: a woven cross-hatch for cloth or a towel -->
+<pattern id="fabric" width="4" height="4" patternUnits="userSpaceOnUse">
+<path d="M0 0l4 4M4 0l-4 4" stroke="#000000" stroke-opacity=".08" stroke-width=".5"/>
+</pattern>
+</defs>
+<!-- the kit in use: wall, glow, counter, cast and contact shadow, a steel box with a side face, sheen, grain -->
+<rect width="240" height="80" fill="#e9e4dc"/>
+<rect width="240" height="80" fill="url(#glow)"/>
+<rect y="80" width="240" height="40" fill="url(#stone)"/>
+<ellipse cx="128" cy="96" rx="58" ry="8" fill="#000000" opacity=".25" filter="url(#cast-shadow)"/>
+<ellipse cx="110" cy="92" rx="44" ry="3" fill="#000000" opacity=".45" filter="url(#contact-shadow)"/>
+<path d="M70 30h70v62h-70z" fill="url(#steel)"/>
+<path d="M70 30h70v62h-70z" fill="url(#brushed)"/>
+<path d="M140 30l14-8v62l-14 8z" fill="url(#steel-side)"/>
+<path d="M70 30l14-8h70l-14 8z" fill="#e3e6e9"/>
+<path d="M70 30h70v30h-70z" fill="url(#sheen)"/>
+<rect x="180" y="62" width="40" height="22" rx="2" fill="url(#walnut)"/>
+<rect x="180" y="62" width="40" height="22" rx="2" fill="url(#grain)"/>
+</svg>
