@@ -180,8 +180,10 @@ through a shell, with project `node_modules/.bin` on PATH, isolated temporary HO
 PORT/HOST from the explicit unprivileged loopback HTTP URL, no inherited credential
 environment, Bun auto-install disabled and npm offline mode. It does not invoke
 package-manager lifecycle hooks. Inspect the script first: these settings do not
-sandbox it or prevent code from reading project `.env` files. Obvious risky
-commands and uncertain effects require approval; no dependency installer is
+sandbox it or prevent code from reading project `.env` files. With **Browser
+clicks** on (the default) it starts without asking, unless the script runs a
+download through a shell (`curl … | sh`) or uses `sudo`; turned off, obvious
+risky commands and uncertain effects ask first. No dependency installer is
 provided. Scripts must respect PORT/HOST or already specify the requested port.
 
 `serve` with `script: "files"` is for a folder of plain files (an `index.html`, no

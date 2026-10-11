@@ -41,6 +41,14 @@ const DANGEROUS = /\b(delete|remove|destroy|purchase|pay|checkout|buy|send|publi
 function localURL(source: string): boolean {
   try { return ["localhost", "127.0.0.1", "[::1]"].includes(new URL(source).hostname); } catch { return false; }
 }
+/** Whether starting a package.json dev or start script asks first. With browser clicks on (allowAll) only a script
+ * that runs a download through a shell or uses sudo asks, as Claude Code's auto mode also stops those; off, any
+ * effect other than local-test and any obvious risky command asks. */
+export function serveHolds(script: { command: string; impact: string; allowAll?: boolean }): boolean {
+  if (script.allowAll) return /\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z|da)?sh\b/.test(script.command) || /\bsudo\b/.test(script.command);
+  return script.impact !== "local-test" || DANGEROUS.test(script.command) || /\b(install|add|npx|dlx|sudo|rm|curl|wget)\b/.test(script.command);
+}
+
 /** Whether a click, fill or press asks first: undefined runs it; `word` is the known label that held a local test.
  * With browser clicks on (allowAll), every action runs; off, only a local test on a local page without a known label does. */
 export function actionHold(action: { impact: string; url: string; target: string; allowAll?: boolean }): { word?: string } | undefined {
@@ -412,8 +420,7 @@ export class BrowserSession {
     const manifest: unknown = JSON.parse(source);
     if (!record(manifest) || !record(manifest.scripts)) throw new Error("Project has no development scripts");
     const command = text(manifest.scripts[input.script], "development command", 2048);
-    const risky = DANGEROUS.test(command) || /\b(install|add|npx|dlx|sudo|rm|curl|wget)\b/.test(command);
-    if (input.impact !== "local-test" || risky) {
+    if (serveHolds({ command, impact: String(input.impact), allowAll: this.options.allowActions?.() })) {
       if (!await this.options.confirm?.({ action: "serve", url, selector: `package.json scripts.${input.script}`, target: command, reason, impact: String(input.impact) }, signal)) throw new Error("Development command requires human approval; not started");
     }
     signal.throwIfAborted();
