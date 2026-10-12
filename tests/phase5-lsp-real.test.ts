@@ -23,8 +23,7 @@ function manager(dir: string, name: string, args: string[], languages: Record<st
   return value;
 }
 async function check(command: string[], cwd: string) {
-  const proc = Bun.spawn(command, { cwd, stdout: "pipe", stderr: "pipe" });
-  const { stdout, stderr, exit } = await finished(proc);
+  const { stdout, stderr, exit } = await finished(() => Bun.spawn(command, { cwd, stdout: "pipe", stderr: "pipe" }));
   expect({ stdout: exit === 0 ? "" : stdout, stderr, exit }).toEqual({ stdout: "", stderr: "", exit: 0 });
 }
 

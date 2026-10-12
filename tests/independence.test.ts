@@ -19,11 +19,10 @@ async function fixture() {
   await mkdir(home); await mkdir(project);
   const env = { ...isolatedEnvironment(home), CASPER_OFFLINE: "1" };
   async function run(args: string[], additions: Record<string, string> = {}, entry = cli) {
-    const child = Bun.spawn([process.execPath, entry, ...args], {
-      cwd: project, env: { ...env, ...additions }, stdin: "ignore", stdout: "pipe", stderr: "pipe",
-    });
     // A hang guard: a run takes 1-7 s on a Windows CI runner, and a slow one passed 25 s.
-    const { stdout, stderr, exit } = await finished(child);
+    const { stdout, stderr, exit } = await finished(() => Bun.spawn([process.execPath, entry, ...args], {
+      cwd: project, env: { ...env, ...additions }, stdin: "ignore", stdout: "pipe", stderr: "pipe",
+    }));
     return { stdout, stderr, exit };
   }
   return { root, home, project, run };

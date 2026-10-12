@@ -131,10 +131,9 @@ flakyOn("win32")("real CLI/Pi tool surface appends LSP diagnostics to native wri
   await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture", retry: { enabled: false } }));
   await mkdir(path.join(home, ".casper"), { recursive: true });
   await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
-  const proc = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), "--lsp", "fixture", "Inspect and modify a.ts"], {
+  const { stdout, stderr, exit } = await finished(() => Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), "--lsp", "fixture", "Inspect and modify a.ts"], {
     cwd: project, env: cleanEnv({ HOME: home, CASPER_AGENT_DIR: agentDir, PI_CODING_AGENT_DIR: agentDir, CASPER_OFFLINE: "1", PI_TELEMETRY: "0" }), stdout: "pipe", stderr: "pipe",
-  });
-  const { stdout, stderr, exit } = await finished(proc);
+  }));
   expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
   expect(stdout).toContain("LSP_WORKFLOW_COMPLETE");
   expect(payloads[0].tools.filter((tool) => tool.function.name === "lsp")).toHaveLength(1);

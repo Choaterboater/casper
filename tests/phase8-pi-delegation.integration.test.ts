@@ -129,7 +129,7 @@ try { await app.runInteractive(); } finally { await app.close(); }
   expect(JSON.stringify(f.payloads[2]?.messages)).not.toContain(json(worktree!));
   expect(git("status", "--porcelain")).toBe("");
   expect(git("worktree", "list", "--porcelain").match(/^worktree /gm)).toHaveLength(1);
-}, 90_000);
+}, childTestLimit());
 
 test("review regression: truncated tool loops still obey the model-turn ceiling", async () => {
   let requests = 0;
@@ -137,7 +137,7 @@ test("review regression: truncated tool loops still obey the model-turn ceiling"
   const result = await f.run([adapter, f.project, "length"]);
   expect(result.exit).toBe(0);
   expect(requests).toBe(2);
-});
+}, childTestLimit());
 
 test("review regression: cancelling during auth preflight cannot start a later request", async () => {
   const f = await fixture(() => answer("must not be requested"));
@@ -145,7 +145,7 @@ test("review regression: cancelling during auth preflight cannot start a later r
   expect(result.exit).toBe(0);
   expect(JSON.parse(result.stdout.split("READONLY_RESULT=")[1]!).cancelled).toBe(true);
   expect(f.payloads).toHaveLength(0);
-});
+}, childTestLimit());
 
 test("parent cancellation during auth preflight prevents a late request and leaves the session usable", async () => {
   const f = await fixture(() => answer("AFTER_CANCEL_OK"));
@@ -208,7 +208,7 @@ test("the main session honors a settings.json retry budget: it recovers within i
   expect(exhausted.exit).not.toBe(0);
   expect(exhausted.stdout + exhausted.stderr).toContain("rate-limited upstream");
   expect(f.payloads).toHaveLength(6);
-}, childTestLimit());
+}, childTestLimit(2));
 
 test("a provider retry says so as it happens, and the error line waits until the retries run out", async () => {
   let throttles = 1;
@@ -225,7 +225,7 @@ test("a provider retry says so as it happens, and the error line waits until the
   expect(exhausted.exit).not.toBe(0);
   expect(exhausted.stdout).toContain("trying again");
   expect(exhausted.stdout.indexOf("[error]")).toBeGreaterThan(exhausted.stdout.indexOf("trying again"));
-}, childTestLimit());
+}, childTestLimit(2));
 
 test("real CLI delegation reports a child that recovered from a 429 as completed", async () => {
   // Pi's real 2 s first backoff: the CLI offers no retry override for children, by design.

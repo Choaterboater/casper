@@ -71,8 +71,7 @@ export default function(pi) {
   // killAfterMs is a hang guard; a test with a longer limit can pass a longer one. A run takes 2-5 s, but a slow
   // Windows CI runner took past 10 s (killed, exit 143), so the test's own limit is the usual bound.
   async function run(args: string[], overrides: Record<string, string | undefined> = {}, killAfterMs = CHILD_KILL_MS) {
-    const child = Bun.spawn([process.execPath, ...args], { cwd: project, env: { ...env, ...overrides }, stdout: "pipe", stderr: "pipe" });
-    const { stdout, stderr, exit } = await finished(child, killAfterMs);
+    const { stdout, stderr, exit } = await finished(() => Bun.spawn([process.execPath, ...args], { cwd: project, env: { ...env, ...overrides }, stdout: "pipe", stderr: "pipe" }), killAfterMs);
     return { stdout, stderr, exit };
   }
   return { project, agent, payloads, headers, run };

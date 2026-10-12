@@ -139,10 +139,9 @@ test("an evaluation nested inside another Git repository refuses to start a runt
   const env = { ...isolatedEnvironment(home), TMPDIR: temp, TMP: temp, TEMP: temp };
   expect((await runFixture(["git", "init", "--quiet", root], { env })).status).toBe(0);
   const config = await readFile(path.join(root, ".git/config"), "utf8");
-  const child = Bun.spawn([process.execPath, "--no-install", path.join(repoRoot, "tests/fixtures/eval-nested-workspace.ts"), home], {
+  const { stdout, stderr, exit: exitCode } = await finished(() => Bun.spawn([process.execPath, "--no-install", path.join(repoRoot, "tests/fixtures/eval-nested-workspace.ts"), home], {
     cwd: root, env, stdout: "pipe", stderr: "pipe",
-  });
-  const { stdout, stderr, exit: exitCode } = await finished(child);
+  }));
   expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
   const observed = JSON.parse(stdout);
   expect(observed.factories).toBe(0);
@@ -614,10 +613,9 @@ needsSymlinks("the grading CLI rejects candidate-owned observations reached thro
   await symlink(prepared.root, alias, "dir");
   await symlink(inside, linkedObservation, "file");
   const grade = async (root: string, record: string) => {
-    const child = Bun.spawn([process.execPath, "--no-install", path.join(repoRoot, "tools/eval.ts"), "--grade", root, "--observation", record, "--json", path.join(host, "export.json")], {
+    const { stdout, stderr, exit: exitCode } = await finished(() => Bun.spawn([process.execPath, "--no-install", path.join(repoRoot, "tools/eval.ts"), "--grade", root, "--observation", record, "--json", path.join(host, "export.json")], {
       env: isolatedEnvironment(host), stdout: "pipe", stderr: "pipe",
-    });
-    const { stdout, stderr, exit: exitCode } = await finished(child);
+    }));
     return { stdout, stderr, exitCode };
   };
   for (const [root, record] of [[alias, inside], [prepared.root, linkedObservation]]) {

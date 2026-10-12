@@ -6,7 +6,7 @@ import { isolatedEnvironment } from "../src/platform/environment";
 import os from "node:os";
 import path from "node:path";
 import { removeTempDir } from "./support/temp-dir";
-import { CHILD_KILL_MS, childTestLimit, finished } from "./support/limits";
+import { childTestLimit, finished } from "./support/limits";
 
 // Nearly every test here starts a real Bun child (support/limits.ts): its limit covers the child's own guard.
 setDefaultTimeout(childTestLimit());
@@ -33,21 +33,17 @@ async function fixture() {
   } }));
   const env = { ...isolatedEnvironment(home), CASPER_AGENT_DIR: agent, PI_CODING_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" };
   async function run(body: string) {
-    const child = Bun.spawn([process.execPath, "-e", `import { PiRuntime } from ${JSON.stringify(adapter)};
+    // A real Pi runtime in a fresh Bun child; a slow Windows CI runner has needed more than 25 s.
+    const { stdout, stderr, exit } = await finished(() => Bun.spawn([process.execPath, "-e", `import { PiRuntime } from ${JSON.stringify(adapter)};
 const runtime = new PiRuntime();
 try { const session = await runtime.start({ cwd: process.cwd(), localModels: false }); ${body} } finally { await runtime.dispose(); }`],
-      { cwd: project, env, stdout: "pipe", stderr: "pipe" });
-    const timer = setTimeout(() => child.kill(), CHILD_KILL_MS); // A real Pi runtime in a fresh Bun child; a slow Windows CI runner has needed more than 25 s.
-    try {
-      const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-      expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
-      return JSON.parse(stdout.split("RESULT=")[1]!);
-    } finally { clearTimeout(timer); }
+      { cwd: project, env, stdout: "pipe", stderr: "pipe" }));
+    expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+    return JSON.parse(stdout.split("RESULT=")[1]!);
   }
   async function cli(...args: string[]) {
-    const child = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts"), ...args],
-      { cwd: project, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-    const { stdout, stderr, exit } = await finished(child);
+    const { stdout, stderr, exit } = await finished(() => Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts"), ...args],
+      { cwd: project, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" }));
     return { stdout, stderr, exit };
   }
   return { home, project, agent, casper, shared, env, run, cli };
@@ -78,7 +74,7 @@ test("local diff remains usable when workspace changes exceed the display budget
   expect(result.stdout).toContain("truncated");
   expect(await readFile(path.join(f.project, "tracked.txt"), "utf8")).toBe("after\n".repeat(15000));
   // Git and one CLI run: about 2 s on Windows CI, but up to 21 s on a slow runner (it failed at 30 s), so 2x that.
-}, 60_000);
+}, childTestLimit());
 
 test("local diff in a repository with no commits yet says so in plain words, not a git error", async () => {
   const f = await fixture();
@@ -139,7 +135,7 @@ console.log('RESULT=' + JSON.stringify({ before: before.sessionId, after: after.
   expect(result.resumed).toBe(result.before);
   expect(result.saved.length).toBeGreaterThanOrEqual(2);
   expect(await readFile(path.join(f.project, ".pi/settings.json"), "utf8")).toBe(f.shared);
-}, 90_000);
+}, childTestLimit(6));
 
 test("remembered effort survives switching away and back within the same conversation", async () => {
   const f = await fixture();
@@ -179,7 +175,7 @@ test("effort is validated, remembered for the default, and session-only changes 
   await f.cli("/effort", "low", "--session");
   expect(await f.run(`console.log('RESULT=' + JSON.stringify(session.getStatus()));`)).toMatchObject({ thinkingLevel: "high" });
   expect(await readFile(path.join(f.agent, "settings.json"), "utf8")).toBe(f.shared);
-}, 90_000);
+}, childTestLimit(6));
 
 test("model selection changes the conversation without adopting or rewriting shared Pi defaults", async () => {
   const f = await fixture();
@@ -194,7 +190,7 @@ console.log('RESULT=' + JSON.stringify({ initial, selected, status: session.getS
   expect(await readFile(path.join(f.project, ".pi/settings.json"), "utf8")).toBe(f.shared);
   expect(await readFile(path.join(f.agent, "auth.json"), "utf8")).toBe("{}\n");
   expect(await readFile(path.join(f.casper, "settings.json"), "utf8").catch(() => "absent")).toBe("absent");
-}, 90_000);
+}, childTestLimit());
 
 test("plain /model lists locally; an exact selection is remembered across fresh conversations", async () => {
   const f = await fixture();
@@ -211,7 +207,7 @@ test("plain /model lists locally; an exact selection is remembered across fresh 
   expect(restored.stdout).not.toContain("\u001b[");
   expect((await f.cli("/model", "--session", "fixture/first")).exit).toBe(0);
   expect((await f.cli("/model")).stdout).toContain(" model     fixture/second · effort");
-}, 180_000);
+}, childTestLimit(5));
 
 // python3 runs the standard-library PTY fixture; Windows has no equivalent here.
 posixOnly("production CLI hosts Pi's picker without losing terminal ownership", async () => {
@@ -232,7 +228,7 @@ try { await session.selectModel({ query: 'nonexistent/model', picker: picker('no
 const partial = await session.selectModel({ query: 'secon', picker: picker('secon') });
 console.log('RESULT=' + JSON.stringify({ error, opened, partial: partial.selected }));`);
   expect(result).toEqual({ error: 'No model matches "nonexistent/model". /model to see all. Model unchanged.', opened: ["secon"], partial: false });
-}, 90_000);
+}, childTestLimit());
 
 test("/model <loose words> selects the one model they name, asks when several, and names the closest when none", async () => {
   const f = await fixture();
@@ -260,7 +256,7 @@ console.log('RESULT=' + JSON.stringify({ words: [words.status.model, words.from]
     none: expect.stringMatching(/^No model matches "opus 9"; closest: fixture\/claude-opus-.*\. \/model to see all\. Model unchanged\.$/),
     match: { kind: "one", model: { provider: "fixture", id: "claude-opus-5" } },
   });
-}, 90_000);
+}, childTestLimit());
 
 test("picker catalog diagnostics stay readable without executing terminal controls in color or NO_COLOR", async () => {
   const f = await fixture();
@@ -295,7 +291,7 @@ console.log('RESULT=' + JSON.stringify(screens));`);
     expect(screen.output).toContain("\x1b[?2004h"); // Pi's own renderer controls must still work.
     expect(/\x1b\[(?:[0-9:]*;)*(?:3[0-9]|4[0-9]|9[0-7]|10[0-7])(?:[;:][0-9;:]*)?m/.test(screen.output)).toBe(screen.color); // NO_COLOR: no colour SGR.
   }
-}, 90_000);
+}, childTestLimit());
 
 test("picker refresh failures neutralize provider labels and thrown diagnostics without hiding the error", async () => {
   const f = await fixture();
@@ -341,7 +337,7 @@ console.log('RESULT=' + JSON.stringify(screens));`);
     expect(screen.output).not.toMatch(/[\u009b\u202e]/u);
     expect(/\x1b\[(?:[0-9:]*;)*(?:3[0-9]|4[0-9]|9[0-7]|10[0-7])(?:[;:][0-9;:]*)?m/.test(screen.output)).toBe(screen.color); // NO_COLOR: no colour SGR.
   }
-}, 60_000);
+}, childTestLimit());
 
 test("unavailable defaults and restored models block generation without choosing another provider", async () => {
   const f = await fixture();
@@ -353,7 +349,7 @@ console.log('RESULT=' + JSON.stringify({ before, failure }));`);
   expect(result.before).toMatchObject({ provider: "fixture", model: "removed", selectionSource: "default" });
   expect(result.before.blocked).toContain("unavailable");
   expect(result.failure).toContain("no fallback");
-}, 90_000);
+}, childTestLimit());
 
 test("restoring an unavailable conversation never falls back to the usable Casper default", async () => {
   const f = await fixture();
@@ -371,7 +367,7 @@ console.log('RESULT=' + JSON.stringify({ status: session.getStatus(), failure })
   expect(restored.status).toMatchObject({ provider: "fixture", model: "second", selectionSource: "conversation", defaultModel: { provider: "fixture", id: "first" } });
   expect(restored.status.blocked).toContain("unavailable");
   expect(restored.failure).toContain("no fallback");
-}, 90_000);
+}, childTestLimit(2));
 
 test("a restored model with missing auth stays identifiable and cannot send a prompt", async () => {
   const f = await fixture();
@@ -389,7 +385,7 @@ console.log('RESULT=' + JSON.stringify({ status: session.getStatus(), failure })
   // This fixture is a provider with an address and no key line, so the message says where to add one.
   expect(restored.failure).toContain("fixture at ");
   expect(restored.failure).toContain("needs an apiKey line in models.json");
-}, 90_000);
+}, childTestLimit(2));
 
 test("missing auth, unknown models and cancelled selection leave the active model and default unchanged", async () => {
   const f = await fixture();
@@ -423,7 +419,7 @@ console.log('RESULT=' + JSON.stringify({ failure, unchanged, selected: session.g
   expect(result.failure).toContain("Ambiguous");
   expect(result.unchanged).toMatchObject({ provider: "fixture", model: "second" });
   expect(result.selected).toMatchObject({ provider: "other", model: "first" });
-}, 60_000);
+}, childTestLimit());
 
 needsPosixModes("failed default persistence reports failure while retaining the explicitly selected conversation model", async () => {
   const f = await fixture();
@@ -557,7 +553,7 @@ await session.selectModel({ query: 'fixture/second' });
 console.log('RESULT=' + JSON.stringify({ entries: SessionManager.open(manager.getSessionFile()).getEntries() }));`);
   expect(JSON.stringify(result.entries)).toContain("OLD_BRANCH");
   expect(JSON.stringify(result.entries)).toContain("ACTIVE_BRANCH");
-}, 60_000);
+}, childTestLimit());
 
 test("concurrent model changes and prompts cannot race an active selection", async () => {
   const f = await fixture();
@@ -597,7 +593,7 @@ ModelRuntime.prototype.checkAuth = original; ModelRuntime.prototype.hasConfigure
 console.log('RESULT=' + JSON.stringify({ failure, status: session.getStatus() }));`);
   expect(result.failure).toContain("active work");
   expect(result.status.model).toBe("first");
-}, 90_000);
+}, childTestLimit());
 
 test("corrupt Casper defaults fail visibly without resetting the file or adopting Pi preferences", async () => {
   const f = await fixture();
@@ -607,7 +603,7 @@ test("corrupt Casper defaults fail visibly without resetting the file or adoptin
   expect(result.stderr).toContain("Cannot read Casper model defaults");
   expect(await readFile(path.join(f.casper, "settings.json"), "utf8")).toBe('{"defaultProvider":');
   expect(await readFile(path.join(f.agent, "settings.json"), "utf8")).toBe(f.shared);
-}, 90_000);
+}, childTestLimit());
 
 needsSymlinks("a Casper settings alias cannot rewrite shared Pi settings", async () => {
   const f = await fixture();
@@ -616,7 +612,7 @@ needsSymlinks("a Casper settings alias cannot rewrite shared Pi settings", async
   expect(result.exit).toBe(1);
   expect(result.stderr).toContain("unshared");
   expect(await readFile(path.join(f.agent, "settings.json"), "utf8")).toBe(f.shared);
-}, 90_000);
+}, childTestLimit());
 
 test("explicit default save is Casper-owned; restored conversations and forks retain their own model", async () => {
   const f = await fixture();
@@ -642,7 +638,7 @@ console.log('RESULT=' + JSON.stringify({ fresh, restored: session.getStatus() })
   expect(JSON.parse(await readFile(path.join(f.casper, "settings.json"), "utf8"))).toEqual({ defaultProvider: "fixture", defaultModel: "first", defaultThinkingLevel: "off", modelThinkingLevels: { "fixture/first": "off" } });
   expect(await readFile(path.join(f.agent, "settings.json"), "utf8")).toBe(f.shared);
   expect(await readFile(path.join(f.project, ".pi/settings.json"), "utf8")).toBe(f.shared);
-}, 60_000);
+}, childTestLimit(2));
 
 test("role edits do not reroute an existing conversation and children use explicit Casper roles", async () => {
   const f = await fixture();
@@ -667,7 +663,7 @@ try {
   expect(result.restored).toMatchObject({ model: "second", configuredEffort: "auto" });
   expect(result.child.model).toBe("first");
   expect(await readFile(path.join(f.agent, "settings.json"), "utf8")).toBe(f.shared);
-}, 90_000);
+}, childTestLimit());
 
 test("helpers default to low (explorer) and medium (reviewer) effort; a set role wins and builders keep the session's", async () => {
   const f = await fixture();
@@ -699,7 +695,7 @@ console.log('RESULT=' + JSON.stringify({ explorer, reviewer, builder, security, 
   expect(result.setRoleNoEffort).toMatchObject({ model: "second", thinkingLevel: "high", modelRole: "review" });
   // A default never raises a helper above the session's own effort.
   expect(result.lowSession).toMatchObject({ model: "second", thinkingLevel: "low" });
-}, 90_000);
+}, childTestLimit());
 
 test("cancellation after Pi activates a model retains truthful conversation state without saving defaults", async () => {
   const f = await fixture();
@@ -735,7 +731,7 @@ console.log('RESULT=' + JSON.stringify({ error, current, restored: session.getSt
   expect(result.restored.blocked).toBeUndefined();
   const preferences = JSON.parse(await readFile(path.join(f.casper, "settings.json"), "utf8"));
   expect(preferences.defaultModel).toBe("first");
-}, 60_000);
+}, childTestLimit());
 
 test("automatic effort classifies only the raw request, affects generation and survives resume without changing defaults", async () => {
   const f = await fixture();
@@ -775,7 +771,7 @@ console.log('RESULT=' + JSON.stringify({ classified, usage, fresh, restored, fix
   expect(result.fresh).toMatchObject({ configuredEffort: "auto", thinkingLevel: "high" });
   expect(result.restored).toMatchObject({ configuredEffort: "auto", thinkingLevel: "low" });
   expect(result.fixed).toMatchObject({ configuredEffort: "medium", thinkingLevel: "medium" });
-}, 60_000);
+}, childTestLimit());
 
 test("classifier cancellation prevents generation and late results cannot alter effort", async () => {
   const f = await fixture();

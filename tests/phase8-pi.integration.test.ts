@@ -45,7 +45,7 @@ test("OpenRouter traffic carries Casper's app attribution while other providers 
   const none = f.headers[2]!;
   expect([none.get("http-referer"), none.get("x-openrouter-title"), none.get("x-openrouter-categories"), none.get("x-openrouter-app-visibility")])
     .toEqual([null, null, null, null]);
-}, childTestLimit());
+}, childTestLimit(3));
 
 test("real /delegate reads evidence but cannot write, shell, recurse, or load ambient extensions/settings", async () => {
   let step = 0;
@@ -98,7 +98,7 @@ test("a parent session never executes project .pi extensions or injects project 
     expect({ args, executed: await Bun.file(marker).exists() }).toEqual({ args, executed: false });
   }
   expect(f.payloads).toHaveLength(1);
-}, childTestLimit());
+}, childTestLimit(4));
 
 needsSymlinks("a project context file that links outside the project is never sent to the provider", async () => {
   const f = await fixture(() => answer("CONTEXT_FILE_GUARD"));
@@ -118,7 +118,7 @@ needsSymlinks("a project context file that links outside the project is never se
   expect({ exit: contained.exit, stderr: contained.stderr }).toEqual({ exit: 0, stderr: "" });
   expect(f.payloads).toHaveLength(2);
   expect(JSON.stringify(f.payloads[1])).toContain("IN_REPO_CONTEXT_LOADS");
-}, 90_000);
+}, childTestLimit(2));
 
 test("the parent system prompt states Casper's identity exactly once, first, with or without a user SYSTEM.md", async () => {
   const f = await fixture(() => answer("IDENTITY_FIXTURE"));
@@ -144,7 +144,7 @@ test("the parent system prompt states Casper's identity exactly once, first, wit
     for (const rule of PI_TOOL_RULES) expect(system(index)).toContain(`- ${rule}`);
     expect(system(index)).toContain("capped at 3600");
   }
-}, childTestLimit());
+}, childTestLimit(2));
 
 test("read-only Pi refuses a source containing its active state before initialization", async () => {
   const f = await fixture(() => answer("must not be requested"));
@@ -154,7 +154,7 @@ test("read-only Pi refuses a source containing its active state before initializ
   expect(result.stderr).toContain("overlaps writable runtime state");
   expect(f.payloads).toEqual([]);
   expect(await snapshot(f.agent)).toEqual(before);
-});
+}, childTestLimit());
 
 needsSymlinks("ordinary parent Pi startup remains allowed when state is inside its workspace", async () => {
   const f = await fixture(() => answer("ORDINARY_PARENT_UNCHANGED"));

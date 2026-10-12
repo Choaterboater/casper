@@ -424,10 +424,10 @@ test("--mcp refuses a project definition that shadows the user's server and neve
   const env = cleanEnv({ HOME: home, PI_OFFLINE: "1", PI_TELEMETRY: "0" });
   // Start in the folder's real spelling, the one the message names: macOS adds /private, and a Windows TEMP can be
   // an 8.3 name (RUNNER~1) that a child keeps as given.
-  const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), "--mcp", "github", "Summarize"], {
-    cwd: await realpath(project), env, stdout: "pipe", stderr: "pipe", stdin: "ignore",
-  });
-  const { stdout, stderr, exit } = await finished(child);
+  const cwd = await realpath(project);
+  const { stdout, stderr, exit } = await finished(() => Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), "--mcp", "github", "Summarize"], {
+    cwd, env, stdout: "pipe", stderr: "pipe", stdin: "ignore",
+  }));
   expect(exit).toBe(1);
   const text = stdout + stderr;
   expect(text).toContain(`defined by project file ${path.join(await realpath(project), ".mcp.json")}`);
