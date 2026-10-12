@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, realpath, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { actionHold, BrowserSession, serveHolds } from "../src/browser/session";
+import { actionHold, BrowserSession, choiceLinks, serveHolds } from "../src/browser/session";
 import { browserTool } from "../src/browser/tools";
 import { needsSymlinks, posixModes } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
@@ -784,6 +784,39 @@ browserTest("the page load notes what feels wrong to use: developer text, a focu
     <input autofocus aria-label="Search"><article class="card"><p>Bean</p><footer>Card footer</footer></article>
     <p><button>Open</button></p><dialog open>Saved</dialog></html>`);
   expect((await f.session.load(`${f.url}/`, new AbortController().signal)).feel).toEqual({ devText: [], shift: { score: 0, moved: [], unsized: [] }, covered: [] });
+}, 30_000);
+
+browserTest("developer text in a field's label or a fieldset's legend is noted; the same words as a field's value, placeholder or option are not", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><form><label for="when">Date &amp; time (Europe/London)</label><input id="when">
+    <fieldset><legend>Size: {{size}}</legend><label><input type="radio" name="size"> Small</label></fieldset><label>Pick [object Object] <select><option>One</option></select></label></form></html>`);
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).feel!.devText).toEqual(["Date & time (Europe/London)", "Size: {{size}}", "Pick [object Object]"]);
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><form><label for="when">Date and time</label><input id="when" value="2026-10-11T09:30">
+    <label for="zone">Time zone</label><input id="zone" placeholder="Europe/Paris"><fieldset><legend>Size</legend><label><input type="radio" name="size" value="{{size}}"> Small</label></fieldset>
+    <label>Zone <select><option>Europe/London</option></select></label><textarea aria-label="Notes">undefined</textarea></form></html>`);
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).feel!.devText).toEqual([]);
+}, 30_000);
+
+browserTest("the page load lists links whose query makes a choice; a light load with those choices names the ones the page does not show as chosen", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><a href="/book?staff=ana-sousa">Ana</a><a href="/book?service=cut&amp;utm_source=mail">Cut</a>
+    <a href="/shop?page=2">Next</a><a href="/cart?action=add&amp;id=3">Add</a><a href="/list?status=delete">Bin</a><a href="/go?next=/home">Go</a>
+    <a href="/menu.pdf?v=1">Menu</a><a href="/book?staff=ana-sousa#top">Top</a><a href="https://example.com/?staff=ana">Elsewhere</a></html>`);
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).choiceLinks).toEqual(["/book?staff=ana-sousa", "/book?service=cut&utm_source=mail"]);
+  // They take turns by the keys they set, so the first few cover every kind of choice.
+  expect(choiceLinks(["/book?service=a", "/book?service=b", "/book?service=c", "/book?staff=x", "/book?staff=y", "/book?staff=y"], `${f.url}/`))
+    .toEqual(["/book?service=a", "/book?staff=x", "/book?service=b", "/book?staff=y", "/book?service=c"]);
+  const light = (choices: Array<[string, string]>) => f.session.load(`${f.url}/book`, new AbortController().signal, { light: true, choices });
+  // The page ignores the choice: nothing shows ana-sousa, and the staff field keeps its first option.
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><h1>Book</h1><select name="staff"><option value="any">Anyone</option><option value="ana-sousa">Ana Sousa</option></select>
+    <select name="size"><option value="1">Small</option><option value="2">Large</option></select><input type="hidden" name="date" value="2026-10-12"></html>`);
+  expect((await light([["staff", "ana-sousa"], ["size", "2"], ["date", "2026-10-12"], ["id", "7"]])).unchosen).toEqual(["ana-sousa", "2", "2026-10-12"]);
+  // Clean twin: a selected option, a checked radio's label, a field's value or the words near the top show each choice.
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><h1>Book with Ana Sousa</h1><p>Monday 12 October</p>
+    <select name="size"><option value="1">Small</option><option value="2" selected>Large</option></select>
+    <label><input type="radio" name="service" value="c1" checked> Cut and finish</label><input name="ref" value="Spring offer"></html>`);
+  expect((await light([["staff", "ana-sousa"], ["size", "2"], ["date", "2026-10-12"], ["service", "cut-and-finish"], ["ref", "spring-offer"], ["id", "7"],
+    ["order", "a1b2c3d4"], ["user_id", "ana-sousa-x"]])).unchosen).toBeUndefined();
 }, 30_000);
 
 browserTest("a picture that arrives late with no size makes the layout jump and is named; the same picture with width and height does not", async () => {

@@ -71,6 +71,9 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 /** What one host page load saw. `failedRequests` holds every request that failed or answered 400 or more,
  * from any origin; the page check decides which ones count. */
+/** How a page check opens a page. `light`: a page the changed one links to, only checked to answer without errors and
+ * show something; `choices`: with `light`, the choices the link's query made, to check the page shows them as chosen. */
+export interface PageLoadOptions { settle?: "streamlit"; screenshots?: boolean; light?: boolean; choices?: Array<[string, string]> }
 export interface PageLoad {
   /** The main document's HTTP status; null when there was no response. */
   status: number | null;
@@ -94,8 +97,12 @@ export interface PageLoad {
   screenshots?: { desktop?: string; phone?: string };
   /** Same-origin paths the page links to that are safe to open with a GET (see `followableLinks`), up to 20. Absent in a light load. */
   links?: string[];
+  /** Same-origin links whose query makes a choice (`/book?staff=ana-sousa`, see `choiceLinks`), up to 20. Absent in a light load. */
+  choiceLinks?: string[];
   /** A light load only: the page shows nothing (no text, picture or control). */
   blank?: boolean;
+  /** A light load given `choices` only: the chosen values the page does not show as chosen. */
+  unchosen?: string[];
 }
 /** Counts of common accessibility misses on a loaded page. They are notes for the person, never a failure. */
 export interface A11yFindings {
@@ -522,6 +529,49 @@ const ANIMATIONS_DONE = async () => {
 const PAGE_LINKS = () => [...document.querySelectorAll("a[href]")]
   .filter(link => !link.hasAttribute("download") && !/\bnofollow\b/i.test(link.getAttribute("rel") ?? ""))
   .map(link => link.getAttribute("href")!.includes("#") ? "" : (link as HTMLAnchorElement).href).filter(Boolean).slice(0, 200);
+/** Runs in the page: the chosen values (from a link's query) the page does not show as chosen: not a selected option,
+ * a checked box or its label, a field's value, nor visible text in the first screen and a half. A value under 3
+ * characters, an id-like value (any digit, unless a date) or an id key counts only where a field is named after its
+ * key, and then only that field's value. */
+const CHOICES_SHOWN = (choices: Array<[string, string]>): string[] => {
+  const plain = (text: string) => ` ${text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()} `;
+  const visible = (element: Element) => (element as HTMLElement).checkVisibility?.({ checkOpacity: true, checkVisibilityCSS: true }) ?? true;
+  const held = (field: Element): string[] => {
+    if (field instanceof HTMLSelectElement) return [...field.selectedOptions].flatMap(option => [option.value, option.text]);
+    if (field instanceof HTMLInputElement && (field.type === "checkbox" || field.type === "radio")) {
+      return field.checked ? [field.value, ...[...field.labels ?? []].map(label => label.innerText)] : [];
+    }
+    return [(field as HTMLInputElement).value];
+  };
+  const fields = [...document.querySelectorAll('input:not([type="hidden"]), select, textarea')].filter(visible);
+  const shown: string[] = fields.flatMap(held);
+  const walker = document.createTreeWalker(document.body ?? document.documentElement, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(), seen = 0; node && seen < 3000; node = walker.nextNode()) {
+    const parent = node.parentElement;
+    if (!parent || !node.textContent?.trim() || parent.closest("script, style, noscript, template, option") || !visible(parent)) continue;
+    seen++;
+    if (parent.getBoundingClientRect().top < innerHeight * 1.5) shown.push(node.textContent);
+  }
+  const page = plain(shown.join(" | "));
+  return choices.filter(([key, value]) => {
+    // An id the page need not print (7, a1b2c3, a UUID; a key such as id or user_id) counts only in a field named after its key.
+    if (value.length < 3 || (/\d/.test(value) && !/^\d{4}-\d{2}-\d{2}$/.test(value)) || /(?:^|[_-])id$|[a-z]Id$|^uuid$/i.test(key)) {
+      const named = fields.filter(field => field.getAttribute("name") === key || field.id === key);
+      return named.length > 0 && !named.flatMap(held).some(text => text.trim().toLowerCase() === value.toLowerCase());
+    }
+    const wanted = [value];
+    // A date is shown as a date: "12 October", "Oct 12", "12/10/2026".
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      const date = new Date(`${value}T12:00:00`);
+      for (const locale of [document.documentElement.lang || "en", "en-GB", "en-US"]) {
+        for (const style of [{ day: "numeric", month: "long" }, { day: "numeric", month: "short" }, { day: "numeric", month: "numeric", year: "numeric" }] as const) {
+          try { wanted.push(date.toLocaleDateString(locale, style)); } catch {}
+        }
+      }
+    }
+    return !wanted.some(text => plain(text).trim() && page.includes(plain(text)));
+  }).map(([, value]) => value.slice(0, 40)).slice(0, 3);
+};
 /** Runs in the page: nothing shows, no text and no visible picture or control. */
 const BLANK_PAGE = () => {
   const body = document.body;
@@ -538,6 +588,10 @@ const UNSAFE_LINK = /(log|sign)[-_]?(out|off)|delete|remove|destroy|reset|unsubs
 const ACTION_WORDS = new Set(["add", "toggle", "complete", "done", "mark", "approve", "confirm", "accept", "decline", "reject", "archive", "restore",
   "vote", "like", "unlike", "follow", "unfollow", "subscribe", "wipe", "erase", "deactivate", "disable", "enable", "exit", "kill", "stop", "start",
   "restart", "shutdown", "seed", "flush", "send", "empty", "drop", "ban", "block", "publish", "unpublish", "increment", "decrement", "pay", "buy"]);
+/** Query keys that steer an action, a redirect or a secret: a link with one is never followed. */
+const ACTION_KEY = /^(?:_?method|action|do|cmd|command|op|operation|task|redirect\w*|return\w*|next|continue|callback|url|goto|token|csrf\w*|nonce|sig|signature|key|api_?key|session\w*|sid|auth\w*|code|state)$/i;
+/** Query keys that page, sort, track or style rather than choose: they are not checked. */
+const NOT_A_CHOICE = /^(?:utm_\w+|mc_\w+|ref|src|source|fbclid|gclid|page|p|offset|limit|per_?page|sort\w*|order\w*|dir|direction|view|tab|lang|locale|hl|theme|mode|format|v|ver|version|t|ts|_|cache|embed|debug|preview|q|query|search|s|from|to|back)$/i;
 /** Files that are not pages. A path with no extension, or .html/.htm, is a page. */
 const PAGE_FILE = /\.html?$/i;
 /** The same-origin page paths among these links that a light GET can open: never one with a query or a fragment, an
@@ -560,6 +614,42 @@ export function followableLinks(hrefs: readonly string[], pageUrl: string): stri
     paths.add(path);
   }
   return [...paths];
+}
+/** The choices a same-origin link's query makes (`/book?staff=ana-sousa` chooses staff ana-sousa), decoded, at most 5;
+ * undefined for a link that is not a safe page link with a choice: a `#`, an API path, a file, an unsafe or action
+ * word in its path, keys or values, or a key that steers an action, a redirect or a secret. Keys that page, sort or
+ * track are left out. */
+export function linkChoices(href: string, pageUrl: string): { link: string; choices: Array<[string, string]> } | undefined {
+  const page = new URL(pageUrl);
+  let link: URL;
+  try { link = new URL(href, page); } catch { return undefined; }
+  if (link.origin !== page.origin || href.includes("#") || link.hash || !link.search) return undefined;
+  let plain = link.pathname;
+  try { plain = decodeURIComponent(link.pathname); } catch {}
+  const last = plain.split("/").pop() ?? "";
+  if (/(^|\/)api(\/|$)/i.test(plain) || (last.includes(".") && !PAGE_FILE.test(last))) return undefined;
+  const pairs = [...link.searchParams].map(([key, value]) => [key.trim(), value.trim()] as [string, string]);
+  const words = [plain, ...pairs.flat()].join("/");
+  if (UNSAFE_LINK.test(words) || words.toLowerCase().split(/[/_.\-\s=&]+/).some(word => ACTION_WORDS.has(word))) return undefined;
+  if (pairs.some(([key]) => ACTION_KEY.test(key) || !/^[a-z][\w.\-[\]]{0,39}$/i.test(key))) return undefined;
+  const choices = pairs.filter(([key, value]) => value && !NOT_A_CHOICE.test(key)).slice(0, 5);
+  return choices.length ? { link: `${link.pathname}${link.search}`, choices } : undefined;
+}
+/** The same-origin links among these whose query makes a choice (see `linkChoices`), path and query, at most 20, taking
+ * turns by the keys they set (staff, service, staff, service), so the first few cover every kind of choice. */
+export function choiceLinks(hrefs: readonly string[], pageUrl: string): string[] {
+  const groups = new Map<string, string[]>(), seen = new Set<string>();
+  for (const href of hrefs) {
+    const found = linkChoices(href, pageUrl);
+    if (!found || seen.has(found.link)) continue;
+    seen.add(found.link);
+    const keys = `${new URL(found.link, pageUrl).pathname}?${found.choices.map(([key]) => key).sort().join("&")}`;
+    groups.set(keys, [...groups.get(keys) ?? [], found.link]);
+  }
+  const links: string[] = [];
+  for (let turn = 0; links.length < 20 && [...groups.values()].some(group => group.length > turn); turn++)
+    for (const group of groups.values()) if (group[turn] && links.length < 20) links.push(group[turn]!);
+  return links;
 }
 /** The desktop picture's height cap, in CSS pixels. */
 const PICTURE_HEIGHT = 4000;
@@ -955,14 +1045,13 @@ export class BrowserSession {
    * page errors, failed requests and the first line of a framework error overlay (Vite, Next.js, Streamlit).
    * Page text is diagnostic data, never instructions. One load runs at a time per session.
    */
-  async load(url: string, signal?: AbortSignal, options: { settle?: "streamlit"; screenshots?: boolean; light?: boolean } = {}): Promise<PageLoad> {
-    const found: { links?: string[] } = {};
+  async load(url: string, signal?: AbortSignal, options: PageLoadOptions = {}): Promise<PageLoad> {
+    const found: { links?: string[]; choiceLinks?: string[] } = {};
     const loaded = await this.loadPage(url, signal, options, found);
-    return found.links?.length ? { ...loaded, links: found.links } : loaded;
+    return { ...loaded, ...found.links?.length ? { links: found.links } : {}, ...found.choiceLinks?.length ? { choiceLinks: found.choiceLinks } : {} };
   }
 
-  private async loadPage(url: string, signal: AbortSignal | undefined, options: { settle?: "streamlit"; screenshots?: boolean; light?: boolean },
-    found: { links?: string[] }): Promise<PageLoad> {
+  private async loadPage(url: string, signal: AbortSignal | undefined, options: PageLoadOptions, found: { links?: string[]; choiceLinks?: string[] }): Promise<PageLoad> {
     const target = webURL(url);
     if (!localURL(target)) throw new Error("Page checks only open loopback addresses");
     if (this.controller.signal.aborted) throw new Error("Browser session is closed");
@@ -1022,11 +1111,16 @@ export class BrowserSession {
         return undefined;
       });
       // A light load (a page the changed one links to): does it answer, error or show nothing. No facts, phone or pictures.
+      // With `choices` (from a link's query), also the values the page does not show as chosen.
       if (options.light) {
+        const unchosen = options.choices?.length ? await page.evaluate(CHOICES_SHOWN, options.choices).catch(() => [] as string[]) : [];
         return { status: response?.status() ?? null, consoleChecked: true, consoleErrors, pageErrors, failedRequests,
-          ...(overlay ? { overlay: overlay.slice(0, LOAD_TEXT) } : {}), ...(await page.evaluate(BLANK_PAGE).catch(() => false) ? { blank: true } : {}) };
+          ...(overlay ? { overlay: overlay.slice(0, LOAD_TEXT) } : {}), ...(await page.evaluate(BLANK_PAGE).catch(() => false) ? { blank: true } : {}),
+          ...(unchosen.length ? { unchosen: unchosen.map(value => value.slice(0, LOAD_TEXT)) } : {}) };
       }
-      found.links = followableLinks(await page.evaluate(PAGE_LINKS).catch(() => [] as string[]), String(target));
+      const hrefs = await page.evaluate(PAGE_LINKS).catch(() => [] as string[]);
+      found.links = followableLinks(hrefs, String(target));
+      found.choiceLinks = choiceLinks(hrefs, String(target));
       // Scroll through once so lazy images load and reveal-on-scroll rows show, then let animations finish.
       await page.evaluate(SCROLL_THROUGH).catch(() => {});
       await page.waitForNetworkIdle({ idleTime: 300, timeout: 2000 }).catch(() => {});
