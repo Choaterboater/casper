@@ -37,6 +37,8 @@ async function fixture(options: { executablePath?: string; confirm?: (request: u
         cancel() { entry.cancelled = Date.now(); },
       }), { headers: { "content-type": "image/svg+xml" } });
     }
+    // A picture that arrives late, after the words around it are on screen.
+    if (new URL(request.url).pathname.startsWith("/late-")) await Bun.sleep(700);
     if (new URL(request.url).pathname.endsWith(".svg")) {
       // Only what the page loads as an image counts, not the look check's own read of the file.
       if (request.headers.get("sec-fetch-dest") === "image") images.push(new URL(request.url).pathname);
@@ -616,6 +618,43 @@ browserTest("the page load names exact facts: images that didn't load, one pictu
     overflow: ["div.wide"], smallTargets: { count: 5, names: ['a "A"', "a#menu", 'a "Home"'] }, art: NO_ART });
   await writeFile(f.sourceFile, `<!doctype html><html lang="en"><meta name="viewport" content="width=device-width"><img src="/logo.svg" alt="Logo" width="60" height="60"><p>words</p><button style="width:48px;height:48px">Go</button></html>`);
   expect((await f.session.load(`${f.url}/`, new AbortController().signal)).look).toEqual({ brokenImages: [], repeatedImages: [], overflow: [], smallTargets: { count: 0, names: [] }, art: NO_ART });
+}, 30_000);
+
+browserTest("the page load notes what feels wrong to use: developer text, a focus ring round the page, a huge phone footer, a control under a fixed bar; a clean twin has none", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><meta name="viewport" content="width=device-width"><style>
+    main:focus{outline:3px solid #36f} .bar{position:fixed;bottom:0;left:0;right:0;height:200px;background:#eee} footer{height:600px}</style>
+    <main tabindex="-1" id="content"><p>Total: undefined</p><p>[object Object]</p><p>You have 1 bags</p></main>
+    <footer><a href="/contact">Contact</a></footer><p><button>Pay</button></p><div class="bar">Added to bag</div>
+    <script>document.getElementById("content").focus()</script></html>`);
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).feel).toEqual({ devText: ["Total: undefined", "[object Object]", "You have 1 bags"],
+    shift: { score: 0, moved: [], unsized: [] }, focusRing: "main#content", footer: 600, covered: ['button "Pay" (under div.bar)'] });
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><meta name="viewport" content="width=device-width">
+    <p>Ref 3f2a9c1e-1b2c-4d5e-8f90-1234567890ab</p><p>Opens 9:00 Europe/London</p><p>Posted 2026-10-11T09:30:00Z</p></html>`);
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).feel!.devText).toEqual(["3f2a9c1e-1b2c-4d5e-8f90-123456", "Opens 9:00 Europe/London", "Posted 2026-10-11T09:30:00Z"]);
+  // Code, a time-zone picker, "1 glass", "Step 1 is", "$1 drinks", "table 1 seats 4", a field focused on load, a card's own footer, a dialog over a button
+  // and a picture sized by CSS that arrives late are all fine.
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><meta name="viewport" content="width=device-width"><style>
+    .card footer{height:600px} dialog{position:fixed;bottom:0;margin:0;width:100%;height:60px;border:0}</style>
+    <p>Returns <code>undefined</code></p><label>Time zone <select><option>Europe/London</option></select></label>
+    <p>1 glass of water</p><p>Step 1 is easy</p><p>Happy hour: $1 drinks</p><p>table 1 seats 4, option 1 gives more</p><img src="/late-cup.svg" alt="Cup" style="width:200px;height:200px">
+    <input autofocus aria-label="Search"><article class="card"><p>Bean</p><footer>Card footer</footer></article>
+    <p><button>Open</button></p><dialog open>Saved</dialog></html>`);
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).feel).toEqual({ devText: [], shift: { score: 0, moved: [], unsized: [] }, covered: [] });
+}, 30_000);
+
+browserTest("a picture that arrives late with no size makes the layout jump and is named; the same picture with width and height does not", async () => {
+  const f = await fixture();
+  const page = (size: string) => `<!doctype html><html lang="en"><img src="/late-hero.svg" alt="Hero"${size}>
+    <p id="intro">Fresh beans, roasted this week.</p><p>${"Words. ".repeat(300)}</p><button>Buy</button></html>`;
+  await writeFile(path.join(f.project, "late-hero.svg"), '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700"><rect width="1200" height="700"/></svg>');
+  await writeFile(f.sourceFile, page(""));
+  const jumped = (await f.session.load(`${f.url}/`, new AbortController().signal)).feel!.shift;
+  expect(jumped.score).toBeGreaterThanOrEqual(0.1);
+  expect(jumped.moved).toContain("p#intro");
+  expect(jumped.unsized).toEqual(["/late-hero.svg"]);
+  await writeFile(f.sourceFile, page(' width="1200" height="700"'));
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).feel!.shift.score).toBeLessThan(0.1);
 }, 30_000);
 
 browserTest("the page load checks drawn pictures: no viewBox, no name, and icons whose colors stay light in dark mode; a rich illustration gets no note", async () => {

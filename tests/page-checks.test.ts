@@ -145,6 +145,28 @@ test("exact facts about the look are a note under the page line, never a failure
   ]);
 }, 30_000);
 
+test("what feels wrong to use joins the look notes, secrets hidden, and never changes the page's status", async () => {
+  const f = await fixture();
+  const look = { brokenImages: ["/img/hero.jpg"], repeatedImages: [], overflow: [], smallTargets: { count: 0, names: [] }, art: { noViewBox: [], noName: [], fixedColors: [], fixedFiles: [] } };
+  const quiet = { devText: [], shift: { score: 0.09, moved: ["div.list"], unsized: [] }, covered: [] };
+  const opener = fakeOpener(url => url.pathname === "/book"
+    ? { look, feel: { devText: ["[object Object]", "1 bags", "token=abc123secret"], shift: { score: 0.24, moved: ["div.slots", "p#total"], unsized: ["/img/room.jpg"] },
+      focusRing: "main#content", footer: 610, covered: ['button "Pay" (under div.toast)'] } }
+    : { feel: quiet });
+  const report = await new PageChecks(() => f.manager, f.service, opener, { open: ["/book", "/ok"], skipped: [] }).run(signal());
+  expect(report.status).toBe("pass");
+  expect(report.pages.map(page => page.status)).toEqual(["pass", "pass"]);
+  expect(report.pages[0]!.look).toEqual(["1 image didn't load: /img/hero.jpg",
+    'people can see developer or broken text: "[object Object]", "1 bags", "token=<redacted>',
+    "the layout jumps while loading (shift 0.24): div.slots, p#total moved; give these images width and height or an aspect-ratio: /img/room.jpg",
+    "main#content has a focus ring as the page opens (move focus there only from a skip link, or give it outline: none; :focus-visible still matches a script's focus)",
+    "at phone width the footer is 610px tall, over half the screen",
+    'at phone width a fixed layer covers a control: button "Pay" (under div.toast)']);
+  // A shift under 0.1 is no note, and a page with nothing to say has no look line.
+  expect(report.pages[1]!.look).toBeUndefined();
+  expect(formatPageReport(report)[2]).toBe("✓ /ok loads · 0 console errors");
+}, 30_000);
+
 test("drawn pictures get plain notes: no viewBox, no name, icons that keep light colors in dark mode", async () => {
   const f = await fixture();
   const art = { noViewBox: ["svg.hero", "/img/bean.svg"], noName: ["svg#map"], fixedColors: ["svg#cart"], fixedFiles: ["/img/cup.svg", "/img/bag.svg"] };
