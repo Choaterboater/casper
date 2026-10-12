@@ -60,14 +60,16 @@ project file can't turn it back on.
 These commands do not use a model. When you ask in plain words, the model uses
 its normal edit and shell tools plus one `browser` tool. Its actions are
 `open`, `inspect`, `diagnostics`, `screenshot`, `viewport`, `click`, `fill`, `press`,
-`select`, `serve`, `check` and `replay`. There is no arbitrary JavaScript/CDP endpoint.
+`select`, `serve`, `check`, `replay` and `withdraw`. There is no arbitrary JavaScript/CDP endpoint.
 Inspection supplies bounded text and control metadata, including selectors for
 IDs; controls without IDs require an explicit CSS selector. Selectors must match
 exactly one element for interactions and element assertions.
 
 `fill` replaces the text in a text, search, tel, url, email or number input, or a
 textarea, and sets a date, time, datetime-local, month, week, color or range field
-the way a picker would; password and file fields are not supported. Values must
+the way a picker would. A password field is filled only as a `local-test` on a page
+on this computer, so the AI can test a login it built with a made-up test account;
+card-number, one-time-code and file fields are not supported. Values must
 be nonempty, single-line text, up to 1,024 bytes.
 `select` picks an option of a `<select>` by its value, or else its label, and
 fires `input` and `change`; `fill` on a `<select>` says to use `select`.
@@ -108,9 +110,34 @@ Each execution uses fresh browser storage. IDs last for this task/session only;
 there is no durable scenario library. A baseline that never failed is not proof of
 reproducing the user's bug.
 
+A check the model wrote wrong (an expected text or a selector that was never
+right) can be taken out of the result with
+`{"action":"withdraw","id":"<returned-id>","reason":"expected text had a typo"}`.
+The reason is required (one line, up to 200 bytes). Casper accepts it only when
+the check's last run failed and nothing changed since the check was recorded: no
+edit or command after it, and its inputs are the same. Otherwise it refuses and
+says why, such as `Code/tool writes observed after this browser check: fix the
+page and replay it`, so a page fixed after a failure is replayed, never
+withdrawn. A check that still fails when replayed after a change can't be
+withdrawn either, since its failure may be real. A new check that stops part
+way (a step's element is not there yet) still returns its id in the error: replay
+it once the page is ready, or withdraw it while no edit or command has run since.
+A new check whose step selector matches several elements is not kept at all: the
+error says how many it matched, and the check is recorded again with one element.
+Withdrawing a check that passed is refused, and so is replaying a withdrawn id. A
+withdrawn check stays visible: its status is `withdrawn` in the JSON report, with
+the reason under `withdrawn`, and the receipt says
+`– 1 check withdrawn by the AI: <name> (<reason>)`. It does not fail the task, it
+does not count as a pass, and Casper's end-of-task replay skips it. The rule
+against swapping a check for an easier one stays: a corrected check is recorded
+as a new check and must pass on its own. If every browser check was withdrawn,
+the task is incomplete: `– Incomplete — every browser check was withdrawn; none
+is left to show the page works`.
+
 Supported assertions:
 
-- `text`: exact comparison of trimmed `textContent` (nonempty expected text).
+- `text`: exact comparison of `textContent` (nonempty expected text), with runs of
+  spaces and line breaks counted as one space on both sides and the ends trimmed.
 - `visible`: positive geometry and browser visibility checks.
 - `no-horizontal-overflow`: the page's width does not exceed the viewport's; with
   a `selector`, that one element's content fits its box and the element stays
@@ -118,7 +145,13 @@ Supported assertions:
 - `no-overlap`: element rectangles do not intersect, with positive geometry;
   the primary element must be visible. This is not pixel/aesthetic acceptance.
 
-Assertions poll for up to one second each. Complex navigation, shadow DOM,
+Assertions poll for up to one second each. When a selector matches no element,
+or a text does not match, the failed assertion also lists under `near` up to 3
+real elements on the page most like the one asked for (by id, class, tag or
+text), such as `h1#page-title "Hello Casper"`. On a replay it also has a
+`hint`: `If the check itself is wrong, record a corrected check and withdraw
+this one; if the page is wrong, fix it.` (not on the run that records it: a
+check recorded before the edit is meant to fail then). It still fails. Complex navigation, shadow DOM,
 iframes, uploads, authenticated workflows and slow asynchronous readiness are not
 comprehensive browser-test-framework replacements.
 
@@ -132,13 +165,13 @@ before the receipt and with no model turn, each check this task recorded or
 replayed that ran before a later edit or command, so the model need not replay a
 check just to count it. Checks from earlier tasks in the session are left alone.
 The fresh result counts: a pass is a pass, a failure is a failure with its
-evidence. Only pages on this computer are replayed, and only steps that would run
-with Browser clicks off: a `local-test` step whose label has no word such as
-"send", "buy" or "delete". Nothing is asked: any other step, an address that would
-need a yes, a busy or closed browser, or a replay that can't finish keeps the
+evidence. Only pages on this computer are replayed, and only `local-test` steps;
+one whose label has a word such as "send", "buy" or "delete" (a contact form's
+Send) only with Browser clicks on, as it ran for the model. Nothing is asked: any
+other step, an address that would need a yes, a busy or closed browser, or a replay that can't finish keeps the
 check as it was, and the receipt still says `ran before a later edit or command
-(replay to count)`. A line names each check as it is replayed. All of these
-replays share one minute; one that runs out of time is given up and the browser
+(replay to count)`. A withdrawn check is never replayed. A line names each check
+as it is replayed. All of these replays share one minute; one that runs out of time is given up and the browser
 stays open.
 
 A screenshot larger than 2000 px or 4.5 MB of base64 is shrunk before it is sent,
@@ -171,7 +204,7 @@ AI can test what it built (**Browser clicks: on** in `/settings`). Turn it off (
 known consequential label, a nonlocal interaction or `consequential`/`uncertain` impact
 asks you first: `1 No · 2 Yes, this once · 3 Yes, for this session`; a run that can't
 ask says no, and the refusal names the label word that held a local test (a "Send
-message" button holds on `send`). Personal credential/payment/file inputs are refused. Consequential actions are not automatically
+message" button holds on `send`). Payment, one-time-code and file inputs are refused, and a password field anywhere but a local test on this computer. Consequential actions are not automatically
 retried. DOM checks and clicks are not an atomic transaction.
 
 **This is a behavioral permission policy, not network isolation or a sandbox.**

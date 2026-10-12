@@ -9,6 +9,10 @@ helps most.
 
 Supported versions: the latest release only. Fixes go into the next release.
 
+Some behaviour that looks like a hole is deliberate (the sandbox off by default, routine commands and browser
+clicks without a box, web lookups on). [ADR 2](adr/0002-deliberate-choices.md) lists each one with its off switch
+and guard rails; such a choice is a problem only when its guard rail breaks.
+
 ## The shell sandbox
 
 Since v0.2.31 the sandbox is **off unless you turn it on** where you type to Casper: `sandbox: on` in

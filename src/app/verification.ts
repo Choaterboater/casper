@@ -105,6 +105,8 @@ export async function runVerification(app: CasperApp, checks: readonly CheckName
       },
       // Out of tries: one numbered offer to try once more on the big model. Only a person answers it; one-shot
       // and --json runs never get it, so they never spend on a bigger model on their own.
+      // A round that changed nothing still gets the big model's last try (src/verify/repair-loop.ts).
+      lastTryDiffers: context.repair.bigModelLastTry === true && Boolean(app.session && bigModelOf(app, app.session)),
       onRepairLimit: repair && app.interactive && app.terminal.canAsk ? (failures, signal) => askBigModelRetry(app, failures, signal) : undefined,
       onLabFailure: (repair || labOnly) && app.interactive
         ? (failures, signal) => askLabFailure({ pick: (question, options, answerSignal) => exactPick(app, question, options, answerSignal) }, failures, signal) : undefined,

@@ -14,5 +14,6 @@
 - Before opening a PR run `bun run typecheck`, `bunx oxlint`, every test file that mentions the files you changed, and always `tests/doc-claims.test.ts`, `site.test.ts`, `help-text.test.ts`, `path-inside.test.ts`, `fixed-tokens.test.ts`. Docs and the site are part of a change.
 - Use `isOutside` from `src/platform/inside` for path checks, never a hand-written `startsWith("..")`. Do not use Windows-invalid file names in tests. A request must not grow the fixed prompt: `fixed-tokens` fails first, so shorten text before raising its cap.
 - A known slow test uses `flakyOn("win32")` and the list in `tests/flaky-list.test.ts`; read the real failing line of a red job before calling it a flake or re-running it.
+- Reviewers (AI or human) read `docs/adr/0002-deliberate-choices.md` before flagging permission or security behaviour: a listed choice is not a finding unless its guard rail is broken.
 - A change to the sandbox, approval boxes, the private-places list, secrets handling or `.github/workflows` needs the owner's review before merge: say so in the PR.
 - A PR stacked on another one is rebased after the first is squash-merged by cherry-picking only its own commit onto the new `origin/main`.

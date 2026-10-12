@@ -47,6 +47,14 @@ function outcome(value: unknown): value is TaskOutcome {
     && (value.coverage === undefined || value.coverage === "not-certified")
     && Object.keys(value).every((key) => ["id", "task", "skills", "modelStatus", "verification", "verificationMeaning", "coverage", "checks", "repairAttempts", "accepted", "createdAt"].includes(key));
 }
+/** The longest start of value that fits in max UTF-8 bytes, never splitting a character. */
+function firstBytes(value: string, max: number): string {
+  if (Buffer.byteLength(value) <= max) return value;
+  let out = "", bytes = 0;
+  for (const char of value) { bytes += Buffer.byteLength(char); if (bytes > max) break; out += char; }
+  return out;
+}
+
 function text(value: string, max: number, field: string): string {
   if (!string(value, max) || !value.trim()) throw new Error(`${field} must be nonempty and at most ${max} UTF-8 bytes`);
   return value.trim();
@@ -100,7 +108,8 @@ export class ProjectMemory {
   async recordOutcome(input: { task: string; skills: string[]; modelStatus: TaskOutcome["modelStatus"]; verification?: VerificationReport }): Promise<TaskOutcome> {
     const summary = input.verification ? summarizeVerification(input.verification) : undefined;
     const result: TaskOutcome = {
-      id: randomUUID(), createdAt: new Date().toISOString(), task: text(input.task, 4096, "Task"),
+      // A long request (a whole brief pasted in) is kept cut to its first 4 KiB, not refused: the outcome still counts.
+      id: randomUUID(), createdAt: new Date().toISOString(), task: text(firstBytes(input.task.trim(), 4096), 4096, "Task"),
       skills: [...input.skills], modelStatus: input.modelStatus,
       verification: summary?.status ?? "not-run", verificationMeaning: "command-execution",
       // The record keeps Casper's own check names and fields: a named check ("aruba-check") or a check's label

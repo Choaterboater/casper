@@ -394,6 +394,8 @@ async function settleInView(element: import("puppeteer-core").ElementHandle): Pr
   });
 }
 
+const BROKEN_CHECK_HINT = "If the check itself is wrong, record a corrected check and withdraw this one; if the page is wrong, fix it.";
+
 /** One task's disposable browser. No user profiles, arbitrary evaluation or browser installation. */
 /** The scenario's inputs as they are now; a check that names none is told how to get a fresh pass when the whole project can't be watched. */
 async function inputState(root: string, scenario: BrowserScenario, signal?: AbortSignal): Promise<InputState> {
@@ -402,7 +404,9 @@ async function inputState(root: string, scenario: BrowserScenario, signal?: Abor
     : { reason: `${state.reason} With no scope.inputs Casper watches the whole project; name the files the page depends on.` };
 }
 
-interface RecordedCheck { scenario: BrowserScenario; check: BrowserCheck; fingerprint?: string; revision: number; /** performance.now() when it last ran. */ ranAt: number }
+interface RecordedCheck { scenario: BrowserScenario; check: BrowserCheck; fingerprint?: string; revision: number; /** performance.now() when it last ran. */ ranAt: number
+  /** The revision and input fingerprint of the run that recorded it: a withdraw needs both unchanged since then. */
+  recordedRevision: number; recordedFingerprint?: string }
 
 export class BrowserSession {
   private readonly controller = new AbortController();
@@ -485,6 +489,7 @@ export class BrowserSession {
     this.deadline = { hold: () => clearTimeout(timer), resume: () => { clearTimeout(timer); timer = setTimeout(stop, limit); } };
     try {
       if (input.action === "check" || input.action === "replay") return await this.check(input, combined);
+      if (input.action === "withdraw") return await this.withdraw(input);
       if (input.action === "serve") return await this.serve(input, combined);
       if (input.action === "diagnostics") return { console: structuredClone(this.logs), network: structuredClone(this.requests), dropped: this.dropped,
         server: this.server?.diagnostics(), guidance: "Bounded diagnostics, not verification. URL queries/fragments are omitted; content may still be sensitive." };
@@ -797,7 +802,7 @@ export class BrowserSession {
   /**
    * At the end of a task, before the receipt: Casper replays once each finished check this task ran (since `since`)
    * that a later edit or command made stale, with no model turn, so its fresh result counts. Only checks of a page on
-   * this computer, and only steps that would run with Browser clicks off (local-test, no "send" or "buy" label);
+   * this computer, and only local-test steps (one labelled "send" or "buy" only with Browser clicks on);
    * nothing is asked. A step or address that would need the person, a busy or closed browser, or a replay that can't
    * finish keeps the check as it was, and the browser stays open. All replays share one minute.
    */
@@ -806,7 +811,8 @@ export class BrowserSession {
     try {
       for (const [id, entry] of this.scenarios) {
         if (this.controller.signal.aborted || signal?.aborted || this.work || !this.page || performance.now() > this.replayUntil - 1_000) return;
-        if (entry.ranAt < since || !localURL(entry.scenario.url) || entry.check.status === "incomplete" || (await this.current(entry)).freshness !== "stale") continue;
+        if (entry.ranAt < since || !localURL(entry.scenario.url) || entry.check.status === "incomplete" || entry.check.status === "withdrawn"
+          || (await this.current(entry)).freshness !== "stale") continue;
         const kept = { check: entry.check, fingerprint: entry.fingerprint, revision: entry.revision, ranAt: entry.ranAt };
         onReplay?.(entry.check.name);
         this.unattended = true;
@@ -821,7 +827,9 @@ export class BrowserSession {
   async report(): Promise<BrowserReport> {
     const checks: BrowserCheck[] = [];
     for (const entry of this.scenarios.values()) checks.push(await this.current(entry));
-    return { status: checks.some(check => check.status === "fail") ? "fail" : !checks.length || checks.some(check => check.status !== "pass" || check.freshness !== "fresh") ? "incomplete" : "pass",
+    // A withdrawn check stays in the report, named, but never decides the result.
+    const counted = checks.filter(check => check.status !== "withdrawn");
+    return { status: counted.some(check => check.status === "fail") ? "fail" : !counted.length || counted.some(check => check.status !== "pass" || check.freshness !== "fresh") ? "incomplete" : "pass",
       checks, guidance: "Only these browser assertions were checked. Freshness covers declared local inputs, not the server build, external services or all requested behavior. Screenshots and model claims are not acceptance. Run relevant repository checks too." };
   }
 
@@ -832,12 +840,13 @@ export class BrowserSession {
       await this.askMetadata(scenario.url, signal);
       if (this.scenarios.size >= 24) throw new Error("Browser check limit reached (24 per session); replay the ids your checks returned instead of recording new ones");
       id = randomUUID();
-      this.scenarios.set(id, { scenario, revision: this.revision, check: { id, name: scenario.name,
+      this.scenarios.set(id, { scenario, revision: this.revision, recordedRevision: this.revision, check: { id, name: scenario.name,
         scenarioSha256: createHash("sha256").update(JSON.stringify(scenario)).digest("hex"), url: scenario.url, viewport: scenario.viewport,
         status: "incomplete", baseline: "incomplete", freshness: "unavailable", scope: scenario.scope, assertions: [] }, ranAt: performance.now() });
     } else {
       id = text(input.id, "id", 64);
       if (!this.scenarios.has(id)) throw new Error("Unknown browser check id; replay an id a check returned in this session, or record a check first");
+      if (this.scenarios.get(id)!.check.status === "withdrawn") throw new Error("This check was withdrawn; record a new check instead of replaying it");
       await this.askMetadata(this.scenarios.get(id)!.scenario.url, signal);
     }
     const entry = this.scenarios.get(id)!;
@@ -860,16 +869,38 @@ export class BrowserSession {
       }
       for (const assertion of scenario.assertions) {
         signal.throwIfAborted();
-        const evaluate = () => page.evaluate(a => {
+        // withNear: on a selector that matches nothing or a wrong text, up to 3 real elements most like what was asked for.
+        const evaluate = (withNear = false) => page.evaluate((a, withNear): { pass: boolean; actual: unknown; near?: string[] } => {
+          const norm = (value: string | null) => (value ?? "").replace(/\s+/g, " ").trim();
+          const nearest = (): string[] => {
+            const words = (a.selector ?? "").toLowerCase().match(/[a-z][\w-]{2,}/g) ?? [];
+            const expected = a.kind === "text" ? norm(a.expected).toLowerCase() : "";
+            const scored: Array<{ score: number; text: string; el: Element }> = [];
+            for (const el of [...document.body?.querySelectorAll("*") ?? []].slice(0, 3000)) {
+              if (["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"].includes(el.tagName)) continue;
+              const tokens = [el.tagName.toLowerCase(), el.id.toLowerCase(), ...[...el.classList].map(c => c.toLowerCase()),
+                ...["name", "aria-label", "data-testid"].map(n => (el.getAttribute(n) ?? "").toLowerCase())].filter(Boolean);
+              const text = norm(el.textContent);
+              let score = 0;
+              for (const word of words) score += Math.max(0, ...tokens.map(t => t === word ? 3 : t.length > 2 && (t.includes(word) || word.includes(t)) ? 2 : 0));
+              const lower = text.toLowerCase();
+              if (expected && lower.length <= expected.length * 2 + 40) score += lower === expected ? 5 : lower.includes(expected) || (lower.length > 2 && expected.includes(lower)) ? 3 : 0;
+              if (score) scored.push({ score, text, el });
+            }
+            // Best first; on a tie the innermost element (shortest text).
+            return scored.sort((x, y) => y.score - x.score || x.text.length - y.text.length).slice(0, 3).map(({ el, text }) =>
+              `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}${[...el.classList].slice(0, 2).map(c => `.${c}`).join("")}${text ? ` "${text.slice(0, 60)}"` : ""}`);
+          };
           if (a.kind === "no-horizontal-overflow" && !a.selector) return { pass: document.documentElement.scrollWidth <= innerWidth, actual: { width: document.documentElement.scrollWidth, viewport: innerWidth } };
           const matches = document.querySelectorAll(a.selector!);
-          if (matches.length !== 1) return { pass: false, actual: `Expected one element; found ${matches.length}` };
+          if (matches.length !== 1) return { pass: false, actual: `Expected one element; found ${matches.length}`, ...(withNear && !matches.length ? { near: nearest() } : {}) };
           const el = matches[0]!;
           const r = el.getBoundingClientRect();
           // One element: content wider than the box (a table cut off behind a scroller), or the box past the viewport.
           if (a.kind === "no-horizontal-overflow") return { pass: el.scrollWidth <= el.clientWidth + 1 && r.right <= innerWidth + 1,
             actual: { contentWidth: el.scrollWidth, boxWidth: el.clientWidth, right: Math.round(r.right), viewport: innerWidth } };
-          if (a.kind === "text") return { pass: (el.textContent ?? "").trim() === a.expected, actual: (el.textContent ?? "").trim().slice(0, 1024) };
+          // Runs of spaces and line breaks count as one space on both sides; otherwise the text must match exactly.
+          if (a.kind === "text") { const pass = norm(el.textContent) === norm(a.expected); return { pass, actual: norm(el.textContent).slice(0, 1024), ...(withNear && !pass ? { near: nearest() } : {}) }; }
           const visible = el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && r.width > 0 && r.height > 0;
           if (a.kind === "visible") return { pass: visible, actual: visible };
           const other = document.querySelectorAll(a.other);
@@ -877,23 +908,69 @@ export class BrowserSession {
           const b = other[0]!.getBoundingClientRect();
           const overlap = r.left < b.right && r.right > b.left && r.top < b.bottom && r.bottom > b.top;
           return { pass: visible && b.width > 0 && b.height > 0 && !overlap, actual: { overlap } };
-        }, assertion);
+        }, assertion, withNear);
         let result = await evaluate();
         const deadline = performance.now() + 1000;
         while (!result.pass && performance.now() < deadline) { await new Promise(resolve => setTimeout(resolve, 50)); signal.throwIfAborted(); result = await evaluate(); }
-        check.assertions.push({ kind: assertion.kind, status: result.pass ? "pass" : "fail", actual: result.actual });
+        if (!result.pass) result = await evaluate(true);
+        // Still a failure: the hint only says which way to go, a wrong check or a wrong page. Only on a replay: a check
+        // recorded before the edit is meant to fail then, and must not be withdrawn for it.
+        check.assertions.push({ kind: assertion.kind, status: result.pass ? "pass" : "fail", actual: result.actual,
+          ...(result.near?.length ? { near: result.near } : {}), ...(result.near && input.action !== "check" ? { hint: BROKEN_CHECK_HINT } : {}) });
       }
       check.status = check.assertions.every(a => a.status === "pass") ? "pass" : "fail";
       const after = await inputState(this.options.projectRoot, scenario, signal);
       if (before.fingerprint && after.fingerprint && before.fingerprint === after.fingerprint && entry.revision === this.revision) {
         check.freshness = "fresh"; entry.fingerprint = after.fingerprint;
+        if (input.action === "check") entry.recordedFingerprint = after.fingerprint;
       } else { check.freshness = before.fingerprint && after.fingerprint ? "stale" : "unavailable"; check.reason = before.reason ?? after.reason ?? "Declared inputs changed during browser reproduction."; }
       if (input.action === "check") check.baseline = check.status;
       return structuredClone(check) as unknown as Record<string, unknown>;
     } catch (error) {
       check.status = "incomplete"; check.reason = "Browser reproduction did not finish; no passing evidence.";
+      // A step selector that matches several elements is a check written wrong, not a page that isn't ready: nothing is
+      // kept, so it can't hold the result at incomplete. One that matches nothing may be a feature not built yet.
+      if (input.action === "check" && error instanceof Error && /exactly one element; it matches ([2-9]|\d{2,})/.test(error.message)) {
+        this.scenarios.delete(id);
+        throw new Error(`${error.message}: name one element and record the check again (nothing was recorded)`);
+      }
+      // A new check that stopped part way still gets its id back: replay it once the page is ready, or withdraw it.
+      if (input.action === "check" && error instanceof Error && !signal.aborted)
+        throw new Error(`${error.message} (check id ${id}: replay it once the page is ready, or withdraw it if the check is wrong)`);
       throw error;
     }
+  }
+
+  /**
+   * Takes a check the AI wrote wrong (a wrong expected text or selector) out of what decides the result. Only a check
+   * whose last run failed, with nothing changed since it was recorded (no edit or command, its inputs the same): a
+   * page fixed after the failure is replayed, never withdrawn. The check stays in the report as withdrawn, with the reason.
+   */
+  private async withdraw(input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const id = text(input.id, "id", 64);
+    const reason = text(input.reason, "reason", 200);
+    const entry = this.scenarios.get(id);
+    if (!entry) throw new Error("Unknown browser check id; withdraw an id a check returned in this session");
+    const status = entry.check.status;
+    if (status === "withdrawn") throw new Error("This check is already withdrawn");
+    if (status === "pass") throw new Error("Only a failed or unfinished check can be withdrawn; this one passed");
+    // One that never finished has no inputs recorded: nothing run since it was recorded is enough.
+    if (status === "incomplete") {
+      if (entry.recordedRevision !== this.revision || entry.revision !== entry.recordedRevision)
+        throw new Error("A change was made after this check was recorded: replay it; it can't be withdrawn now");
+      entry.check = { ...entry.check, status: "withdrawn", withdrawn: reason };
+      return { id, name: entry.check.name, status: "withdrawn", reason,
+        guidance: "It no longer decides the result; the receipt names it with your reason. Record a corrected check for what it meant to test." };
+    }
+    const now = await this.current(entry);
+    if (now.freshness === "stale") throw new Error(`${(now.reason ?? "A change was made after this check failed").replace(/\.$/, "")}: fix the page and replay it; it can't be withdrawn now`);
+    if (now.freshness !== "fresh") throw new Error(`Casper can't tell whether anything changed since this check failed (${(now.reason ?? "its inputs were not recorded").replace(/\.$/, "")}); replay it`);
+    // A replay after a change resets freshness, so a check that still fails after a fix must not look withdrawable.
+    if (entry.recordedRevision !== this.revision || entry.fingerprint !== entry.recordedFingerprint)
+      throw new Error("A change was made after this check was recorded, so its failure may be real: fix the page, or record a corrected check; it can't be withdrawn");
+    entry.check = { ...entry.check, status: "withdrawn", withdrawn: reason };
+    return { id, name: entry.check.name, status: "withdrawn", reason,
+      guidance: "It no longer decides the result; the receipt names it with your reason. Record a corrected check for what it meant to test." };
   }
 
   private async interact(input: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
@@ -907,23 +984,31 @@ export class BrowserSession {
     const page = this.page!;
     const describe = () => page.evaluate((selector) => {
       const matches = document.querySelectorAll(selector);
-      if (matches.length !== 1) throw new Error("Browser selector must match exactly one element");
+      if (matches.length !== 1) throw new Error(`Browser selector must match exactly one element; it matches ${matches.length}`);
       const el = matches[0]!;
       return { url: location.href, tag: el.tagName, type: el.getAttribute("type") ?? "", autocomplete: el.getAttribute("autocomplete") ?? "",
         target: [el.getAttribute("aria-label"), el.textContent, el.getAttribute("name"), el.getAttribute("href")].filter(Boolean).join(" ").slice(0, 1024) };
     }, selector);
     const before = await describe();
-    if (/^(password|file)$/i.test(before.type) || /password|one-time-code|cc-/i.test(before.autocomplete)) throw new Error("Credential, payment and file-upload inputs are outside this browser slice");
     const type = before.type.toLowerCase();
+    if (type === "file" || /one-time-code|cc-/i.test(before.autocomplete)) throw new Error("Payment, one-time-code and file-upload inputs are outside this browser slice");
+    // A password field: only a made-up test account on a page on this computer, so the AI can test a login it built.
+    const password = type === "password" || /password/i.test(before.autocomplete);
+    if (password && (!localURL(before.url) || String(input.impact) !== "local-test"))
+      throw new Error("A password field is filled only as a local test on a page on this computer, with a made-up test account");
     if (action === "fill" && before.tag === "SELECT") throw new Error("Fill does not set a <select>; use action select with the option's value or label");
-    if (action === "fill" && before.tag !== "TEXTAREA" && (before.tag !== "INPUT" || !(TYPED_FIELDS.includes(type) || PICKED_FIELDS.includes(type)))) {
+    if (action === "fill" && before.tag !== "TEXTAREA" && (before.tag !== "INPUT" || !(TYPED_FIELDS.includes(type) || password || PICKED_FIELDS.includes(type)))) {
       throw new Error(`Fill takes a textarea or an input of type ${[...TYPED_FIELDS.filter(Boolean), ...PICKED_FIELDS].join(", ")}`);
     }
     if (action === "select" && before.tag !== "SELECT") throw new Error("Select takes a <select>; use fill for a text field, or click the options of a custom menu");
-    const hold = actionHold({ impact: String(input.impact), url: before.url, target: before.target, allowAll: !this.unattended && this.options.allowActions?.() });
+    const allowAll = this.options.allowActions?.();
+    const held = actionHold({ impact: String(input.impact), url: before.url, target: before.target, allowAll: !this.unattended && allowAll });
+    // Casper's own end replay: with Browser clicks on, a local test on this computer runs whatever its label ("Send" on
+    // a contact form), as it did when the model ran it; any other step still never runs unasked.
+    const hold = held?.word && this.unattended && allowAll ? undefined : held;
     if (hold) {
       const approved = !this.unattended && await this.options.confirm?.({ action, selector, url: before.url, target: before.target,
-        ...(value === undefined ? {} : { value }), reason, impact: String(input.impact) }, signal);
+        ...(value === undefined ? {} : { value: password ? "••••••••" : value }), reason, impact: String(input.impact) }, signal);
       signal.throwIfAborted();
       if (!approved) throw new Error(`Browser action requires human approval; not executed. ${!localURL(before.url) ? "It is on a page that is not on this computer."
         : hold.word ? `Its label has "${hold.word}", so it asks even as a local test; other local-test actions on this page run without asking.`

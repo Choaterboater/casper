@@ -313,6 +313,17 @@ browserTest("the end replay never asks: a step that needs the person, or a close
   expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ status: "pass", freshness: "stale" }] });
 }, 30_000);
 
+browserTest("with Browser clicks off the end replay never presses a local \"Send\" button: the check stays as it was", async () => {
+  const f = await fixture({ allowActions: () => false, confirm: async () => true });
+  await writeFile(f.sourceFile, '<!doctype html><button id="go" onclick="document.querySelector(\'#out\').textContent=\'done\'">Send</button><p id="out"></p>');
+  const send = await f.session.run({ action: "check", scenario: { name: "send", url: f.url, scope: { inputs: ["index.html"] },
+    steps: [{ action: "click", selector: "#go", impact: "local-test", reason: "Test" }], assertions: [{ kind: "text", selector: "#out", expected: "done" }] } });
+  expect(send).toMatchObject({ status: "pass" });
+  f.session.invalidate();
+  await f.session.replayStale(0);
+  expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ status: "pass", freshness: "stale" }] });
+}, 30_000);
+
 browserTest("the end replay keeps to this task's local tests, even with Browser clicks on", async () => {
   const asked: unknown[] = [];
   const f = await fixture({ allowActions: () => true, confirm: async request => { asked.push(request); return true; } });
@@ -323,6 +334,9 @@ browserTest("the end replay keeps to this task's local tests, even with Browser 
   expect(uncertain).toMatchObject({ status: "pass" });
   const local = await f.session.run({ action: "check", scenario: { ...step("local-test"), name: "local", steps: [], assertions: [{ kind: "visible", selector: "#go" }] } });
   expect(local).toMatchObject({ status: "pass" });
+  // A local test of the "Send" button: with clicks on it ran for the model, so Casper's replay runs it too.
+  const send = await f.session.run({ action: "check", scenario: { ...step("local-test"), name: "send" } });
+  expect(send).toMatchObject({ status: "pass" });
   f.session.invalidate();
   // The uncertain "Send" click ran with clicks on when the model asked; Casper's own replay never repeats it, or asks.
   await f.session.replayStale(0);
@@ -330,10 +344,112 @@ browserTest("the end replay keeps to this task's local tests, even with Browser 
   const all = (await f.session.report()).checks;
   expect(all.find(c => c.id === uncertain.id)).toMatchObject({ freshness: "stale" });
   expect(all.find(c => c.id === local.id)).toMatchObject({ freshness: "fresh" });
+  expect(all.find(c => c.id === send.id)).toMatchObject({ status: "pass", freshness: "fresh" });
   // A check from before this task started is left alone.
   f.session.invalidate();
   await f.session.replayStale(performance.now());
   expect((await f.session.report()).checks.find(c => c.id === local.id)).toMatchObject({ freshness: "stale" });
+}, 30_000);
+
+browserTest("a failing check names up to 3 real elements like it, and on a replay how to fix a wrong check; text ignores runs of whitespace", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, '<!doctype html><h1 id="page-title">Hello\n   Casper</h1><button class="save-button">Save</button><p class="status">Saved   ok</p>');
+  const run = (assertions: unknown[]) => f.session.run({ action: "check", scenario: { name: "Hints", url: f.url, scope: { inputs: ["index.html"] }, steps: [], assertions } });
+  // Line breaks and runs of spaces count as one space on both sides; the text must otherwise match.
+  expect(await run([{ kind: "text", selector: "h1", expected: "Hello Casper" }, { kind: "text", selector: ".status", expected: " Saved    ok " }]))
+    .toMatchObject({ status: "pass", assertions: [{ status: "pass", actual: "Hello Casper" }, { status: "pass", actual: "Saved ok" }] });
+  const hint = "If the check itself is wrong, record a corrected check and withdraw this one; if the page is wrong, fix it.";
+  const recorded = await run([{ kind: "visible", selector: "#title" }, { kind: "text", selector: "#save-btn", expected: "Save" },
+    { kind: "text", selector: "h1", expected: "hello casper" }, { kind: "visible", selector: "button" }]) as { id: string; status: string; assertions: Array<Record<string, unknown>> };
+  // Recorded before an edit a check is meant to fail: the real elements, but no hint to withdraw it.
+  expect(recorded.status).toBe("fail");
+  expect((recorded.assertions[0]!.near as string[])[0]).toBe('h1#page-title "Hello Casper"');
+  expect(recorded.assertions.some(a => "hint" in a)).toBe(false);
+  const failed = await f.session.run({ action: "replay", id: recorded.id }) as { status: string; assertions: Array<Record<string, unknown>> };
+  expect(failed.status).toBe("fail");
+  expect(failed.assertions[0]).toMatchObject({ status: "fail", actual: "Expected one element; found 0", hint });
+  expect((failed.assertions[0]!.near as string[])[0]).toBe('h1#page-title "Hello Casper"');
+  expect(failed.assertions[1]).toMatchObject({ status: "fail", hint });
+  expect((failed.assertions[1]!.near as string[])[0]).toBe('button.save-button "Save"');
+  // A wrong text says what is there and still fails: case is not ignored.
+  expect(failed.assertions[2]).toMatchObject({ status: "fail", actual: "Hello Casper", hint });
+  expect((failed.assertions[2]!.near as string[]).length).toBeLessThanOrEqual(3);
+  expect(failed.assertions[3]).toEqual({ kind: "visible", status: "pass", actual: true });
+}, 30_000);
+
+browserTest("a failed check the AI wrote wrong can be withdrawn with a reason: it stays in the report, never decides it, and is never replayed", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, "<!doctype html><h1>Hello Casper</h1>");
+  const scenario = (name: string, expected: string) => ({ name, url: f.url, scope: { inputs: ["index.html"] }, steps: [], assertions: [{ kind: "text", selector: "h1", expected }] });
+  const wrong = await f.session.run({ action: "check", scenario: scenario("Heading", "Hello Caspr") });
+  expect(wrong).toMatchObject({ status: "fail", freshness: "fresh" });
+  const right = await f.session.run({ action: "check", scenario: scenario("Heading b", "Hello Casper") });
+  expect(right).toMatchObject({ status: "pass", freshness: "fresh" });
+  expect((await f.session.report()).status).toBe("fail");
+  // A passing check, a missing reason or an unknown id is refused.
+  await expect(f.session.run({ action: "withdraw", id: right.id, reason: "not needed" })).rejects.toThrow("Only a failed or unfinished check can be withdrawn; this one passed");
+  await expect(f.session.run({ action: "withdraw", id: wrong.id })).rejects.toThrow("Browser reason is missing");
+  await expect(f.session.run({ action: "withdraw", id: "nope", reason: "x" })).rejects.toThrow("Unknown browser check id");
+  expect(await f.session.run({ action: "withdraw", id: wrong.id, reason: "expected text had a typo" }))
+    .toMatchObject({ id: wrong.id, name: "Heading", status: "withdrawn", reason: "expected text had a typo" });
+  expect(await f.session.report()).toMatchObject({ status: "pass", checks: [
+    { id: wrong.id, status: "withdrawn", withdrawn: "expected text had a typo", baseline: "fail" }, { id: right.id, status: "pass" }] });
+  await expect(f.session.run({ action: "withdraw", id: wrong.id, reason: "again" })).rejects.toThrow("already withdrawn");
+  await expect(f.session.run({ action: "replay", id: wrong.id })).rejects.toThrow("This check was withdrawn; record a new check");
+  // After a later edit Casper's end replay runs the other check, never the withdrawn one.
+  f.session.invalidate();
+  const replayed: string[] = [];
+  await f.session.replayStale(0, undefined, name => replayed.push(name));
+  expect(replayed).toEqual(["Heading b"]);
+  expect(await f.session.report()).toMatchObject({ status: "pass", checks: [{ id: wrong.id, status: "withdrawn" }, { id: right.id, status: "pass", freshness: "fresh" }] });
+}, 30_000);
+
+browserTest("a failed check can't be withdrawn once anything changed after it: an edit, a command or its files", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, "<!doctype html><h1>Hello Casper</h1>");
+  const failing = await f.session.run({ action: "check", scenario: { name: "Heading", url: f.url, scope: { inputs: ["index.html"] }, steps: [],
+    assertions: [{ kind: "text", selector: "h1", expected: "Saved" }] } });
+  expect(failing).toMatchObject({ status: "fail", freshness: "fresh" });
+  // An edit or command Casper saw after the failure.
+  f.session.invalidate();
+  await expect(f.session.run({ action: "withdraw", id: failing.id, reason: "wrong text" })).rejects.toThrow("Code/tool writes observed after this browser check: fix the page and replay it");
+  // Replayed after that change it still fails, fresh: the failure may be real (a fix that didn't work), so still refused.
+  expect(await f.session.run({ action: "replay", id: failing.id })).toMatchObject({ status: "fail", freshness: "fresh" });
+  await expect(f.session.run({ action: "withdraw", id: failing.id, reason: "wrong text" })).rejects.toThrow("A change was made after this check was recorded");
+  // A check whose file changes on disk after it failed.
+  const other = await f.session.run({ action: "check", scenario: { name: "Heading 2", url: f.url, scope: { inputs: ["index.html"] }, steps: [],
+    assertions: [{ kind: "text", selector: "h1", expected: "Saved" }] } });
+  expect(other).toMatchObject({ status: "fail", freshness: "fresh" });
+  await writeFile(f.sourceFile, "<!doctype html><h1>Hello again</h1>");
+  await expect(f.session.run({ action: "withdraw", id: other.id, reason: "wrong text" })).rejects.toThrow("Declared local inputs changed after this browser check: fix the page and replay it");
+  expect(await f.session.report()).toMatchObject({ status: "fail", checks: [{ status: "fail" }, { status: "fail" }] });
+}, 30_000);
+
+browserTest("a new check whose step selector matches several elements is not kept, so it can't hold the result at incomplete", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, "<!doctype html><button>A</button><button>B</button><h1>Hi</h1>");
+  const error = await f.session.run({ action: "check", scenario: { name: "Two buttons", url: f.url, scope: { inputs: ["index.html"] },
+    steps: [{ action: "click", selector: "button", impact: "local-test", reason: "Test" }], assertions: [{ kind: "visible", selector: "h1" }] } }).catch((e: Error) => e.message);
+  expect(error).toContain("it matches 2: name one element and record the check again (nothing was recorded)");
+  expect((await f.session.report()).checks).toHaveLength(0);
+}, 30_000);
+
+browserTest("a new check that stops part way gives its id back, and can be withdrawn until anything changes", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, "<!doctype html><h1>Hi</h1>");
+  const scenario = { name: "Save button", url: f.url, scope: { inputs: ["index.html"] },
+    steps: [{ action: "click", selector: "#save", impact: "local-test", reason: "Test" }], assertions: [{ kind: "visible", selector: "h1" }] };
+  const error = await f.session.run({ action: "check", scenario }).catch((e: Error) => e.message);
+  const id = /check id ([\w-]+)/.exec(String(error))?.[1];
+  expect(error).toContain("replay it once the page is ready, or withdraw it if the check is wrong");
+  expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ id, status: "incomplete" }] });
+  expect(await f.session.run({ action: "withdraw", id, reason: "wrong selector" })).toMatchObject({ status: "withdrawn" });
+  expect(await f.session.report()).toMatchObject({ checks: [{ id, status: "withdrawn" }] });
+  // After an edit or command it may be a real failure: replay it instead.
+  const again = await f.session.run({ action: "check", scenario }).catch((e: Error) => e.message);
+  const second = /check id ([\w-]+)/.exec(String(again))?.[1];
+  f.session.invalidate();
+  await expect(f.session.run({ action: "withdraw", id: second, reason: "x" })).rejects.toThrow("A change was made after this check was recorded: replay it");
 }, 30_000);
 
 browserTest("the browser tool's screenshot comes with the picture, and its text no longer says to read the PNG", async () => {
@@ -367,7 +483,27 @@ browserTest("fill types into number, email and date fields; password stays out; 
     { kind: "no-horizontal-overflow", selector: "#wide" }] } });
   expect(result).toMatchObject({ status: "fail", assertions: [{ status: "pass" }, { status: "pass" }, { status: "fail" }] });
   await f.session.run({ action: "open", url: f.url });
-  await expect(f.session.run({ action: "fill", selector: "#secret", value: "x", impact: "local-test", reason: "Synthetic" })).rejects.toThrow("Credential");
+  // A password field takes a made-up test password only as a local test on a page on this computer.
+  await expect(f.session.run({ action: "fill", selector: "#secret", value: "x", impact: "uncertain", reason: "Login" })).rejects.toThrow("A password field is filled only as a local test");
+  expect(await f.session.run({ action: "fill", selector: "#secret", value: "test-pass-123", impact: "local-test", reason: "Synthetic test account" })).toMatchObject({ executed: true });
+}, 25_000);
+
+browserTest("a check can log in to a local page with a made-up password; payment and file inputs stay out", async () => {
+  // Browser clicks on, the default: a "Log in" button on a local page runs without asking.
+  const f = await fixture({ allowActions: () => true });
+  await writeFile(f.sourceFile, `<!doctype html><main><input id="user" type="email"><input id="pw" type="password" autocomplete="current-password">
+    <button id="go">Log in</button><p id="out"></p><input id="card" autocomplete="cc-number"><input id="up" type="file"></main>
+    <script>document.getElementById("go").onclick = () => { document.getElementById("out").textContent =
+      document.getElementById("pw").value === "test-pass-123" ? "Signed in" : "Wrong password"; };</script>`);
+  const result = await f.session.run({ action: "check", scenario: { name: "Log in", url: f.url, scope: { inputs: ["index.html"] }, steps: [
+    { action: "fill", selector: "#user", value: "a@example.test", impact: "local-test", reason: "Made-up test account" },
+    { action: "fill", selector: "#pw", value: "test-pass-123", impact: "local-test", reason: "Made-up test password" },
+    { action: "click", selector: "#go", impact: "local-test", reason: "Log in to the local test account" },
+  ], assertions: [{ kind: "text", selector: "#out", expected: "Signed in" }] } });
+  expect(result).toMatchObject({ status: "pass" });
+  await f.session.run({ action: "open", url: f.url });
+  await expect(f.session.run({ action: "fill", selector: "#card", value: "4242424242424242", impact: "local-test", reason: "x" })).rejects.toThrow("Payment, one-time-code and file-upload");
+  await expect(f.session.run({ action: "fill", selector: "#up", value: "a.txt", impact: "local-test", reason: "x" })).rejects.toThrow("Payment, one-time-code and file-upload");
 }, 25_000);
 
 browserTest("local synthetic interactions proceed while consequential actions require approval", async () => {

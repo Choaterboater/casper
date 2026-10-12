@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import type { CheckName, VerificationResult } from "./evidence";
 import { withoutProviderKeys } from "../platform/environment";
 import { osSupportsProcessGroups, ownSpawnedTree, type OwnedProcesses, terminateTree } from "../platform/processes";
@@ -7,18 +8,30 @@ import { currentSandbox, type SandboxWrapOptions, type ShellSandbox } from "../s
 
 const OUTPUT_BYTES = 8192;
 
+// A line that names the real failure in a long build or test log: a compiler error, a missing import, a failed
+// test or assertion.
+const DIAGNOSTIC = /error TS\d+|is not exported|has no exported member|Cannot find module|Module not found|ModuleNotFoundError|ImportError|AssertionError|SyntaxError|:\d+:\d+:?\s*(?:error|fatal)\b|^\s*(?:FAIL\b|\(fail\)|✗|✕|×)/;
+const MIDDLE_LINES = 20;
+const MIDDLE_BYTES = 2048;
+const LINE_CHARS = 300;
+
 // Drain all output, retaining a bounded head and tail of each stream. A sandbox refusal and a test's own time
 // limit are looked for in all of it as it streams: in a long test run that line sits in the middle, which the head
-// and tail cut out.
+// and tail cut out. So are up to 20 distinct error lines, which go back in between the head and the tail.
 class OutputCapture {
   private head = Buffer.alloc(0);
   private tail = Buffer.alloc(0);
   private size = 0;
   private carry = "";
+  private decoder = new StringDecoder("utf8");
+  private line = "";
+  private lineStart = 0;
+  private found: { text: string; start: number; end: number }[] = [];
   denial?: string;
   slowTest = false;
 
   add(chunk: Buffer): void {
+    const at = this.size;
     this.size += chunk.length;
     if (!this.denial || !this.slowTest) {
       const text = this.carry + chunk.toString("latin1");
@@ -26,10 +39,34 @@ class OutputCapture {
       this.slowTest ||= TEST_TIMED_OUT.test(text);
       this.carry = text.slice(-64); // A line split across two chunks.
     }
+    if (this.found.length < MIDDLE_LINES) this.scan(chunk, at);
     const headBytes = Math.min(chunk.length, OUTPUT_BYTES / 2 - this.head.length);
     if (headBytes > 0) this.head = Buffer.concat([this.head, chunk.subarray(0, headBytes)]);
     const remainder = chunk.subarray(headBytes);
     this.tail = Buffer.concat([this.tail, remainder]).subarray(-OUTPUT_BYTES / 2);
+  }
+
+  private scan(chunk: Buffer, at: number): void {
+    let pos = 0;
+    let index: number;
+    while ((index = chunk.indexOf(10, pos)) !== -1) {
+      this.line += this.decoder.write(chunk.subarray(pos, index));
+      this.keep(at + index);
+      pos = index + 1;
+      this.lineStart = at + pos;
+      if (this.found.length >= MIDDLE_LINES) return;
+    }
+    // Only the start of a very long line is looked at.
+    if (this.line.length < 4 * LINE_CHARS) this.line += this.decoder.write(chunk.subarray(pos));
+  }
+
+  private keep(end: number): void {
+    const text = this.line.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").trimEnd().slice(0, LINE_CHARS);
+    this.line = "";
+    this.decoder = new StringDecoder("utf8");
+    if (end > OUTPUT_BYTES / 2 && DIAGNOSTIC.test(text) && !this.found.some((line) => line.text === text)) {
+      this.found.push({ text, start: this.lineStart, end });
+    }
   }
 
   get truncated(): boolean { return this.size > OUTPUT_BYTES; }
@@ -37,7 +74,22 @@ class OutputCapture {
     // Decode intact output as one buffer: the head/tail boundary can bisect
     // a multibyte character even when no bytes were discarded.
     if (!this.truncated) return Buffer.concat([this.head, this.tail]).toString("utf8");
-    return this.head.toString("utf8") + "\n[...output truncated...]\n" + this.tail.toString("utf8");
+    const tail = this.tail.toString("utf8");
+    return this.head.toString("utf8") + "\n[...output truncated...]\n" + this.middle(tail) + tail;
+  }
+
+  /** The error lines that fell between the head and the tail, within MIDDLE_BYTES. */
+  private middle(tail: string): string {
+    const cut = this.size - this.tail.length;
+    const lines: string[] = [];
+    let bytes = 0;
+    for (const line of this.found) {
+      if (line.start >= cut || tail.includes(line.text)) continue;
+      bytes += Buffer.byteLength(line.text) + 1;
+      if (bytes > MIDDLE_BYTES) break;
+      lines.push(line.text);
+    }
+    return lines.length ? `Lines from the cut middle:\n${lines.join("\n")}\n[...]\n` : "";
   }
 }
 

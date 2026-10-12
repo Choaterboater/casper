@@ -16,7 +16,7 @@ touch, what it sees, how its work is checked, and what the receipt says.
 | Start-up | `src/cli.ts`, `src/cli-main.ts`, `src/cli-args.ts` | Reads flags, builds one `CasperApp`, runs one request (`runOnce`) or the prompt loop (`runInteractive`). |
 | The app | `src/app.ts` | `CasperApp`: the session's state and the owner of every subsystem. The work itself lives in `src/app/`. |
 | Session modules | `src/app/` | One file per job. `command-loop.ts` reads a line; `commands.ts` runs slash commands; `task-run.ts` runs one request from prompt to receipt; `wiring.ts` opens a workspace; `runtime-start.ts` starts the model; `verification.ts` runs checks and repairs; `undo.ts` is `/undo`, `/diff`, `/receipt`; `approvals.ts`, `session-yes.ts` and `safe-choices.ts` are the approval boxes; `sandbox.ts` is the sandbox's questions and receipt lines; `events.ts` and `footer.ts` are what shows while work runs. |
-| Model runtime | `src/runtime/` | `pi.ts` is the adapter over Pi: it registers Casper's tools, gates every tool call before it runs and scrubs every tool result before the model reads it. `types.ts` is the seam (`AgentRuntime`, `RuntimeTool`) tests fake. `git-guard.ts` refuses git commands that throw away your work. Model choice and routing are `model-routing.ts`, `pi-models.ts`. |
+| Model runtime | `src/runtime/` | `pi.ts` is the adapter over Pi: it registers Casper's tools, gates every tool call before it runs and scrubs every tool result before the model reads it. `types.ts` is the seam (`AgentRuntime`, `RuntimeTool`) tests fake. `git-guard.ts` refuses git commands that throw away your work; `loop-guard.ts` stops the same read repeating with nothing changed; `elision.ts` notes a write that leaves `// ... existing code ...` where code was. Model choice and routing are `model-routing.ts`, `pi-models.ts`. |
 | Tools for a task | `src/app/capabilities.ts`, `src/app/task-tools.ts` | `assembleTaskTools` decides which tools one request is offered: MCP, helpers, `ask`, `casper_session` (Casper's own state, read-only), `casper_check`, LSP, references, web, browser, services and diagrams. |
 | Capabilities broker | `src/capabilities/` | MCP tools reach the model through two tools, `find_capability` and `call_capability` (`broker.ts`). `labels.ts` and `kinds.ts` judge how risky a call is; `approval.ts` builds the box; `validate.ts` checks arguments against the schema. |
 | MCP | `src/mcp/` | `manager.ts` connects servers and holds writes on or off; `config.ts` and `import.ts` find definitions; `consent.ts` remembers approval; `presets.ts` holds the rules for known network servers. `mcp/network/` sets up Casper's own network server and its logins. `mcp/check/` is `casper mcp check`. |
@@ -46,9 +46,14 @@ From the prompt to the receipt, in `src/app/task-run.ts` (`runModelTask`) unless
    places, git's own files, the plan turn's gate, writes outside the project). Every shell command goes through
    `casperBashOperations`, which asks first when no sandbox runs and wraps the command when one does. Every tool
    result is scrubbed before the model reads it. MCP calls go through the broker and its approval box.
+   The same `read`, `grep`, `find` or `ls` call with no other tool call in between gets a note on the 3rd try
+   and is skipped from the 5th, with the earlier result handed back (`src/runtime/loop-guard.ts`).
+   A write or edit that adds a placeholder comment where code was (`// ... existing code ...`, `# ... rest unchanged`)
+   gets a note to write the file in full or use edit; it never blocks (`src/runtime/elision.ts`).
 6. Casper snapshots again and plans the checks from what changed (`planAutoChecks` in `src/verify/mode.ts`), plus smoke and page checks.
 7. `runVerification` (`src/app/verification.ts`) runs them in the sandbox, with up to three repair turns by default (`repair.maxAttempts`)
-   (`src/verify/repair-loop.ts`).
+   (`src/verify/repair-loop.ts`). A round that changed no files and left the same failure ends the repairs
+   (or goes straight to the big model's last try, or the offer at the limit).
 8. When the checks pass on a code change, `finishChange` and `proveChange` run the tests on the copy without the
    change: they must fail there and pass with it. The optional acceptance test runs after that.
 9. The receipt: `app.lastTaskResult` is built, `taskUndo.finish` saves the second copy and the receipt

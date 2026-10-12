@@ -220,7 +220,7 @@ export function storedTaskResult(task: TaskResult): TaskResult {
   if (copy.checklist) copy.checklist = copy.checklist.map(redactPreview);
   // Browser assertions keep what the page showed, and a URL may carry a token in its query.
   if (copy.browser) copy.browser = { ...copy.browser, guidance: redactPreview(copy.browser.guidance), checks: copy.browser.checks.map((check) => ({ ...check,
-    url: redactPreview(check.url), ...(check.reason ? { reason: redactPreview(check.reason) } : {}),
+    url: redactPreview(check.url), ...(check.reason ? { reason: redactPreview(check.reason) } : {}), ...(check.withdrawn ? { withdrawn: redactPreview(check.withdrawn) } : {}),
     assertions: check.assertions.map((assertion) => ({ ...assertion, actual: redactPreview(typeof assertion.actual === "string" ? assertion.actual
       : JSON.stringify(assertion.actual) ?? "").slice(0, 512) })) })) };
   if (copy.proofSkipped) copy.proofSkipped = redactPreview(copy.proofSkipped);

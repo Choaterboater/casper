@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answerClaimsBrowserPass, checksPassed, formatReceipt, formatShortReceipt, formatTaskResult, liveCheckLine, taskOutcome, undoPathsShown, type TaskResult } from "../src/task/result";
+import { answerClaimsBrowserPass, checksPassed, formatReceipt, formatShortReceipt, formatTaskResult, liveCheckLine, taskExitCode, taskOutcome, undoPathsShown, type TaskResult } from "../src/task/result";
 import type { VerificationReport, VerificationResult } from "../src/verify/evidence";
 import { COMMIT_CHECK_LABEL, DRY_RUN_LABEL } from "../src/network/checks";
 
@@ -404,4 +404,34 @@ test("browser checks that passed but no longer count say why, never with an empt
   expect(replayed).toContain("– Browser checks: 2 of 2 passed; 1 ran before a later edit or command (replay to count)");
   const partlyUntied = formatReceipt(done({ changedPaths: [], browser: checks(["pass", "fresh"], ["pass", "unavailable"]) }));
   expect(partlyUntied.split("\n")[0]).toBe("– Incomplete — the browser checks passed, but Casper can't tie some of them to the final files");
+});
+
+test("a browser check the AI withdrew is named with its reason and never decides the result", () => {
+  // The session's report already leaves it out of the status; the receipt counts only the others and names it.
+  const browser = { status: "pass", checks: [
+    { name: "Heading", status: "withdrawn", withdrawn: "expected text had a typo", freshness: "fresh", baseline: "fail" },
+    { name: "Heading b", status: "pass", freshness: "fresh", baseline: "pass" }] } as unknown as TaskResult["browser"];
+  const task = done({ changedPaths: [], browser });
+  const receipt = formatReceipt(task);
+  expect(receipt).not.toContain("Browser checks failed");
+  expect(receipt).toContain("– 1 check withdrawn by the AI: Heading (expected text had a typo)");
+  expect(taskExitCode(undefined, task)).toBe(0);
+  expect(formatTaskResult(task)).toContain("Heading:withdrawn (expected text had a typo)");
+  // Two withdrawn, the rest stale: counted without them, and "them" covers only the counted checks.
+  const stale = { status: "incomplete", checks: [
+    { name: "A", status: "withdrawn", withdrawn: "wrong selector", freshness: "stale" },
+    { name: "B", status: "withdrawn", withdrawn: "wrong text", freshness: "fresh" },
+    { name: "C", status: "pass", freshness: "stale" }] } as unknown as TaskResult["browser"];
+  const staleReceipt = formatReceipt(done({ changedPaths: [], browser: stale }));
+  expect(staleReceipt.split("\n")[0]).toBe("– Incomplete — the browser checks passed, but an edit or command ran after them");
+  expect(staleReceipt).toContain("– Browser checks: 1 of 1 passed; all ran before a later edit or command (replay to count)");
+  expect(staleReceipt).toContain("– 2 checks withdrawn by the AI: A (wrong selector), B (wrong text)");
+  // Every check withdrawn: incomplete (no browser evidence left), and the verdict says why, not "not every check ran".
+  const none = done({ changedPaths: [], browser: { status: "incomplete", checks: [
+    { name: "A", status: "withdrawn", withdrawn: "wrong selector", freshness: "fresh", baseline: "fail" }] } as unknown as TaskResult["browser"] });
+  const noneReceipt = formatReceipt(none);
+  expect(noneReceipt.split("\n")[0]).toBe("– Incomplete — every browser check was withdrawn; none is left to show the page works");
+  expect(noneReceipt).not.toContain("Browser checks incomplete");
+  expect(noneReceipt).toContain("– 1 check withdrawn by the AI: A (wrong selector)");
+  expect(taskExitCode(undefined, none)).toBe(2);
 });

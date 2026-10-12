@@ -154,6 +154,43 @@ verification:
     expect(result.stdout).toBe("a".repeat(4095) + "étail");
   });
 
+  test("keeps the real error lines from the middle that long output cuts out", async () => {
+    const { root } = await fixture();
+    const noise = (n: number) => Array.from({ length: n }, (_, i) => `  compiling module ${i} of the workspace ... ok`).join("\n");
+    const log = [
+      "$ tsc -p . && bun test", noise(150),
+      "src/api/client.ts(12,3): error TS2305: Module '\"./types\"' has no exported member 'Session'.",
+      "src/api/client.ts(12,3): error TS2305: Module '\"./types\"' has no exported member 'Session'.",
+      noise(150),
+      "\u001b[31mtests/login.test.ts:40:7: error: Expected 200, received 500\u001b[0m",
+      "SyntaxError: Export named 'loadUser' not found in module 'src/user.ts'.",
+      "(fail) login > rejects a bad password ✗",
+      noise(300), "TAIL: 1 fail, 41 pass",
+    ].join("\n");
+    await writeFile(path.join(root, "log.txt"), log);
+    await writeFile(path.join(root, "print.js"), `process.stdout.write(require("fs").readFileSync("log.txt", "utf8")); process.exit(1);`);
+    const result = await runCommandCheck({ name: "test", argv: [process.execPath, "print.js"], cwd: root, timeoutMs: CHECK_LIMIT_MS });
+    expect(result.truncated).toBe(true);
+    const middle = result.stdout.split("Lines from the cut middle:\n")[1]!.split("\n[...]\n")[0]!.split("\n");
+    expect(middle).toEqual([
+      "src/api/client.ts(12,3): error TS2305: Module '\"./types\"' has no exported member 'Session'.",
+      "tests/login.test.ts:40:7: error: Expected 200, received 500",
+      "SyntaxError: Export named 'loadUser' not found in module 'src/user.ts'.",
+      "(fail) login > rejects a bad password ✗",
+    ]);
+    expect(result.stdout.startsWith("$ tsc")).toBe(true);
+    expect(result.stdout.endsWith("TAIL: 1 fail, 41 pass")).toBe(true);
+    // Many errors: at most 20 distinct, and the added part stays bounded.
+    await writeFile(path.join(root, "log.txt"), [noise(200), Array.from({ length: 60 }, (_, i) => `FAIL test ${i} ${"x".repeat(400)}`).join("\n"), noise(200)].join("\n"));
+    const many = await runCommandCheck({ name: "test", argv: [process.execPath, "print.js"], cwd: root, timeoutMs: CHECK_LIMIT_MS });
+    const kept = many.stdout.split("Lines from the cut middle:\n")[1]!.split("\n[...]\n")[0]!.split("\n");
+    expect(kept.length).toBeGreaterThan(1);
+    expect(kept.length).toBeLessThanOrEqual(20);
+    expect(kept[0]!.startsWith("FAIL test 0 ")).toBe(true);
+    expect(many.stdout.length).toBeLessThan(8192 + 2048 + 100);
+    expect(many.stdout.endsWith("... ok")).toBe(true);
+  });
+
   test("reports unavailable tools and spawn errors as failures, not passes or hidden skips", async () => {
     const { root } = await fixture();
     const missing = await runCommandCheck({ name: "lint", command: "casper-nonexistent-tool-34562", cwd: root, timeoutMs: CHECK_LIMIT_MS });
