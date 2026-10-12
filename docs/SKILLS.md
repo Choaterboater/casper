@@ -1,7 +1,7 @@
 # Skills and the network skills pack
 
 A skill is a short how-to file the AI reads only when a request needs it. Casper ships six network
-skills, three home lab skills and one frontend skill inside the `casper` binary, and you can add your own.
+skills, four home lab skills and one frontend skill inside the `casper` binary, and you can add your own.
 
 The network skills pack is new in v0.2.18; releases before it have no bundled skills.
 Your own skills work the same way in both; see [CONFIGURATION.md](CONFIGURATION.md#skills).
@@ -83,7 +83,7 @@ skills:
 
 A project's `.casper/project.yaml` cannot turn the pack off: the skills only make the AI more
 careful, so a repository must not be able to remove them. `skills.maxActive: 0` turns all skill
-loading off, bundled ones included. `/status` shows `skills    10 indexed (10 bundled)` or
+loading off, bundled ones included. `/status` shows `skills    11 indexed (11 bundled)` or
 `bundled: off`.
 
 ## The home lab skills
@@ -93,14 +93,20 @@ loading off, bundled ones included. `/status` shows `skills    10 indexed (10 bu
 | `homelab-media-stack` | Radarr, Sonarr and the other *arr apps, Prowlarr, Plex, Jellyfin, Emby, qBittorrent, SABnzbd, NZBGet: status and health calls, one `/data` mount for hardlinks, PUID/PGID, remote path mappings, API keys, Gluetun and a VPN leak check |
 | `homelab-docker-compose` | A Docker Compose health and drift sweep: `docker compose ps` and `config --quiet`, health checks, restart loops, `:latest` images that moved on, config hash drift, orphans, volumes and bind mounts, `.env` kept out of git, a rollback tag before an update |
 | `homelab-proxmox` | Proxmox VE and Backup Server: `pvesh get /cluster/resources`, `qm list`, `pct list`, `pvesm status`, quorum, full storage, API tokens (`user@realm!name`, privilege separation), `qm snapshot`/`pct snapshot` before a change with the rollback line, vzdump and PBS |
+| `homelab-network-troubleshooting` | Finding where traffic stops, one layer at a time: link and Wi-Fi, address and DHCP lease, gateway, DNS (local against public resolver, split DNS, Pi-hole/AdGuard), `traceroute`/`mtr`, listeners and ports (`ss -tlnp`, `nc -vz`, `Test-NetConnection`), TLS with `openssl s_client`, `curl -v`, MTU, firewall rules as reads, `tcpdump` only after asking, Docker networking; rules saved before a firewall, route or DNS change, with the undo line |
 
 They are picked and limited the same way as the network skills (two per request, network and home
 lab together), and their "Changing things (Casper asks)" part opens with the same stop-and-ask line.
 They have five parts: When to use · Read first · Changing things (Casper asks) · Common traps · Public
-docs. Only product names pick them: "radarr won't import from qbittorrent", "check my proxmox cluster
-for full storage" and "my compose stack keeps restarting" each pick one; "docker", "docker compose",
+docs. Only product and tool names pick them: "radarr won't import from qbittorrent", "check my proxmox cluster
+for full storage", "my compose stack keeps restarting" and "traceroute shows packet loss" each pick one; "docker", "docker compose",
 "qm" and "pct" count only next to a word such as unhealthy, restarting, drift, vm or lxc, so "write a
-docker compose file for the api" or "show the cpu pct in the status bar" pick nothing. `/skills block homelab-proxmox@bundled`
+docker compose file for the api" or "show the cpu pct in the status bar" pick nothing. For the network
+troubleshooting skill only tool names and plain symptoms pick it (traceroute, tcpdump, nslookup, mtu,
+"dns not resolving", "no route to host"); "connection refused", "dns", "ping" and "mtu" count only next to
+a word such as lan, router, firewall or vpn, and words such as parser, tests, component or websocket rule it
+out, so "connection refused from postgres in the test", "parse tcpdump output into json" or "add DNS
+records to the terraform" pick nothing. `/skills block homelab-proxmox@bundled`
 stops one.
 
 ## The frontend skill

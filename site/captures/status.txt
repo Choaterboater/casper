@@ -9,7 +9,7 @@
  profile   default
  branch    main
  model     none yet · your first request picks one (/model to choose)
- skills    10 indexed (10 bundled); imports: none (/skills diagnostics)
+ skills    11 indexed (11 bundled); imports: none (/skills diagnostics)
  mcp       1 configured (/mcp for connection status)
  lsp       0 configured (/lsp for connection status)
  browser   idle; disposable local browser (/browser)

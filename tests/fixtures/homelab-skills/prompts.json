@@ -18,7 +18,17 @@
     { "prompt": "docker container unhealthy after the update", "expect": ["homelab-docker-compose"] },
     { "prompt": "find images that drifted from the tags in compose.yaml", "expect": ["homelab-docker-compose"] },
     { "prompt": "docker compose shows orphan containers", "expect": ["homelab-docker-compose"] },
-    { "prompt": "my jellyfin compose stack keeps restarting", "expect": ["homelab-docker-compose", "homelab-media-stack"] }
+    { "prompt": "my jellyfin compose stack keeps restarting", "expect": ["homelab-docker-compose", "homelab-media-stack"] },
+    { "prompt": "traceroute shows packet loss after the third hop", "expect": ["homelab-network-troubleshooting"] },
+    { "prompt": "dns not resolving on my laptop since the router swap", "expect": ["homelab-network-troubleshooting"] },
+    { "prompt": "tcpdump on eth0 to see if the syn reaches the server", "expect": ["homelab-network-troubleshooting"] },
+    { "prompt": "cannot ping the default gateway from the new vlan box", "expect": ["homelab-network-troubleshooting"] },
+    { "prompt": "large downloads hang over the vpn, could it be mtu", "expect": ["homelab-network-troubleshooting"] },
+    { "prompt": "ssh says no route to host for 192.0.2.10", "expect": ["homelab-network-troubleshooting"] },
+    { "prompt": "connection refused on port 8443 from another host on the lan", "expect": ["homelab-network-troubleshooting"] },
+    { "prompt": "my dhcp lease keeps expiring every hour", "expect": ["homelab-network-troubleshooting"] },
+    { "prompt": "nslookup gives a different answer than dig with the pi-hole", "expect": ["homelab-network-troubleshooting"] },
+    { "prompt": "connection timed out to my server from outside, is it the firewall", "expect": ["homelab-network-troubleshooting"] }
   ],
   "skip": [
     "build a todo app",
@@ -42,6 +52,20 @@
     "use docker volumes for the dev database",
     "jest snapshot tests fail for the pct column",
     "this function is too complex for perplexity",
-    "add a grid container and a job queue, then plot the results"
+    "add a grid container and a job queue, then plot the results",
+    "add DNS records to the terraform",
+    "fetch fails with CORS in the browser",
+    "connection refused from postgres in the test",
+    "add a ping endpoint for health checks",
+    "parse the dig output in the dns module",
+    "write a dhcp option parser in rust",
+    "implement a traceroute visualizer in React",
+    "parse tcpdump output into json",
+    "connection refused on port 5432 when running the tests",
+    "configure the default gateway route in kong",
+    "add packet loss simulation to the game netcode",
+    "the dns resolution test is flaky in ci",
+    "calculate the mtu for the framing layer",
+    "websocket connection refused behind nginx on port 443"
   ]
 }

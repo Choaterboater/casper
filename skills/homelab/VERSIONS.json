@@ -7,6 +7,10 @@
     "version": 1,
     "sha256": "744addfe79746f1b249347f5ba643b0f7f640a927ca1122d4ad6524bb16214c4"
   },
+  "homelab-network-troubleshooting": {
+    "version": 1,
+    "sha256": "faffed89998333fa17b6e427d6a2d0d1f7375b3a42fe5880a9c07a78ce36edac"
+  },
   "homelab-proxmox": {
     "version": 1,
     "sha256": "6d96ecf2b1c0f3986b5eac8d7f5b4468a29ff0836cad4fff7db922dd30333dbf"

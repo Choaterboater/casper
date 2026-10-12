@@ -13,6 +13,7 @@ import junosSource from "../../skills/network/junos/SKILL.md" with { type: "text
 import mistSource from "../../skills/network/mist/SKILL.md" with { type: "text" };
 import dockerSource from "../../skills/homelab/docker/SKILL.md" with { type: "text" };
 import mediaSource from "../../skills/homelab/media/SKILL.md" with { type: "text" };
+import nettroubleSource from "../../skills/homelab/nettrouble/SKILL.md" with { type: "text" };
 import proxmoxSource from "../../skills/homelab/proxmox/SKILL.md" with { type: "text" };
 import frontendSource from "../../skills/web/frontend/SKILL.md" with { type: "text" };
 import illustrationKit from "../../skills/web/frontend/illustration-kit.svg" with { type: "text" };
@@ -25,7 +26,7 @@ export const MAX_BUNDLED_ACTIVE = 2;
 
 export const NETWORK_PLATFORMS = ["mist", "central", "central-classic", "aoscx", "junos", "clearpass"] as const;
 export type NetworkPlatform = typeof NETWORK_PLATFORMS[number];
-export const HOMELAB_PLATFORMS = ["media", "docker", "proxmox"] as const;
+export const HOMELAB_PLATFORMS = ["media", "docker", "proxmox", "nettrouble"] as const;
 export type HomelabPlatform = typeof HOMELAB_PLATFORMS[number];
 /** A bundled skill family with triggers: its name starts with `<family>-` and it lives in skills/<family>/. */
 export type SkillFamily = "network" | "homelab";
@@ -231,6 +232,7 @@ export function bundledSkills(): BundledSkill[] {
 const HOMELAB_SOURCES: Array<[string, string]> = [
   [dockerSource, "skills/homelab/docker/SKILL.md"],
   [mediaSource, "skills/homelab/media/SKILL.md"],
+  [nettroubleSource, "skills/homelab/nettrouble/SKILL.md"],
   [proxmoxSource, "skills/homelab/proxmox/SKILL.md"],
 ];
 

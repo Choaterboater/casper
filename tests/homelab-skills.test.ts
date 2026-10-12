@@ -18,7 +18,7 @@ import { removeTempDir } from "./support/temp-dir";
 // the network skills. Nothing is fetched: links are checked by host only.
 const ROOT = path.join(import.meta.dir, "..");
 const HOMELAB = path.join(ROOT, "skills", "homelab");
-const FOLDERS = ["docker", "media", "proxmox"];
+const FOLDERS = ["docker", "media", "nettrouble", "proxmox"];
 
 async function source(folder: string): Promise<string> {
   return normaliseLineEndings(await readFile(path.join(HOMELAB, folder, "SKILL.md"), "utf8"));
@@ -47,19 +47,25 @@ function linesOutsideWriteBlocks(text: string): string[] {
 }
 
 /** A command or call that changes something, in backticks. */
-const WRITE_CALL = new RegExp("`(?:(?:POST|PUT|PATCH|DELETE) [^`]+`|docker compose (?:up|down|restart|pull|rm|stop|start)\\b|"
+const WRITE_CALL = new RegExp("`(?:sudo )?(?:(?:POST|PUT|PATCH|DELETE) [^`]+`|docker compose (?:up|down|restart|pull|rm|stop|start)\\b|"
   + "docker (?:restart|stop|rm|kill|pull|run|system prune|image prune|volume rm)\\b|(?:qm|pct) (?:stop|start|shutdown|reboot|snapshot|"
-  + "rollback|destroy|set|delsnapshot|migrate)\\b|vzdump\\b|pvecm expected|apt (?:upgrade|full-upgrade)\\b|chown\\b)");
+  + "rollback|destroy|set|delsnapshot|migrate)\\b|vzdump\\b|pvecm expected|apt (?:upgrade|full-upgrade)\\b|chown\\b|"
+  + "ip (?:route|addr|link) (?:add|del|replace|change|set|flush)\\b|nft (?:add|insert|replace|delete|flush|-f)\\b|iptables(?:-restore| -[AIDRFPX])|"
+  + "ufw (?:allow|deny|reject|delete|enable|disable|reset)\\b|pfctl -[fFed]\\b|resolvectl (?:dns|domain|revert|flush-caches)\\b|"
+  + "ipconfig /(?:flushdns|release|renew)|dscacheutil -flushcache)");
 const SIGN_IN_LINE = /sign in|login|\/auth\//i;
 
 /** Public doc hosts the skills may link to. github.com only for the projects' own repositories. */
 const DOC_HOSTS = new Set([
   "wiki.servarr.com", "trash-guides.info", "jellyfin.org", "support.plex.tv", "sabnzbd.org", "docs.docker.com",
-  "pve.proxmox.com", "pbs.proxmox.com", "github.com",
+  "pve.proxmox.com", "pbs.proxmox.com", "github.com", "man7.org", "www.tcpdump.org", "wiki.nftables.org", "curl.se",
+  "www.rfc-editor.org",
 ]);
 const GITHUB_PATHS = /^\/(?:qdm12\/gluetun-wiki|qbittorrent\/qBittorrent)(?:\/|$)/;
 /** Hosts a skill may name outside its docs: the public IP echo used in the VPN leak check. */
 const CHECK_HOSTS = new Set(["ifconfig.io"]);
+/** Well-known addresses a skill may name: Docker's DNS, the systemd-resolved stub and a public resolver to compare with. */
+const CHECK_IPS = new Set(["127.0.0.11", "127.0.0.53", "1.1.1.1"]);
 
 describe("bundled home lab skills: format", () => {
   test("every skill folder is bundled into Casper, and nothing else is", async () => {
@@ -82,7 +88,7 @@ describe("bundled home lab skills: format", () => {
     expect(skill.rule.family).toBe("homelab");
     expect(Buffer.byteLength(body)).toBeLessThanOrEqual(MAX_BUNDLED_BODY_BYTES);
     expect(body.split("\n").filter((line) => line.startsWith("## "))).toEqual([...HOMELAB_SECTIONS]);
-    expect(section(body, "## Read first")).toMatch(/\bGET\b|docker compose ps|pvesh get|qm list/);
+    expect(section(body, "## Read first")).toMatch(/\bGET\b|docker compose ps|pvesh get|qm list|ip route|ss -tlnp/);
     const changing = section(body, CHANGING_SECTION).split("\n").map((line) => line.trim()).filter(Boolean);
     expect(changing[0]).toBe(STOP_AND_ASK_LINE);
     expect(changing[1]).toBe(CASPER_ASKS_LINE);
@@ -149,7 +155,7 @@ describe("bundled home lab skills: wording and placeholders", () => {
     expect(text).not.toMatch(/(?:Token|Bearer|X-Api-Key:) (?!\$|<)[A-Za-z0-9._-]{16,}/);
     expect(text).not.toMatch(/\bpass(?:word|wd)?\s*[:=]\s*["'][^"'<$]{3,}["']/i);
     for (const ip of text.match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g) ?? []) {
-      expect({ ip, doc: ip === "127.0.0.1" || /^(?:192\.0\.2|198\.51\.100|203\.0\.113)\./.test(ip) }).toEqual({ ip, doc: true });
+      expect({ ip, doc: ip === "127.0.0.1" || CHECK_IPS.has(ip) || /^(?:192\.0\.2|198\.51\.100|203\.0\.113)\./.test(ip) }).toEqual({ ip, doc: true });
     }
     for (const host of text.match(/\b(?:[a-z0-9-]+\.)+(?:com|net|org|io|tv|info|local|lan|corp|internal|home|arpa)\b/gi) ?? []) {
       const lower = host.toLowerCase();
@@ -160,7 +166,8 @@ describe("bundled home lab skills: wording and placeholders", () => {
       if (/^https?:\/\/</.test(link)) continue;
       const url = new URL(link);
       expect({ link, protocol: url.protocol }).toEqual({ link, protocol: "https:" });
-      expect({ link, allowed: DOC_HOSTS.has(url.hostname) || CHECK_HOSTS.has(url.hostname) }).toEqual({ link, allowed: true });
+      const placeholder = /(?:^|\.)example\.(?:com|net|org)$/.test(url.hostname);
+      expect({ link, allowed: DOC_HOSTS.has(url.hostname) || CHECK_HOSTS.has(url.hostname) || placeholder }).toEqual({ link, allowed: true });
       if (url.hostname === "github.com") expect({ link, project: GITHUB_PATHS.test(url.pathname) }).toEqual({ link, project: true });
     }
   });
@@ -178,6 +185,15 @@ describe("bundled home lab skills: wording and placeholders", () => {
     for (const topic of ["pvesh get /cluster/resources", "qm list", "pct list", "pvesm status", "qm snapshot", "pct snapshot",
       "qm rollback", "user@realm!name", "privilege separation", "Quorum", "Storage full", "vzdump", "PBS", "pve.proxmox.com/wiki"]) {
       expect({ topic, found: body("homelab-proxmox").includes(topic) }).toEqual({ topic, found: true });
+    }
+    for (const topic of ["ip -br addr", "ip route", "ipconfig getifaddr", "ping -c 4 <gateway>", "dig @<local resolver>", "resolvectl status",
+      "split DNS", "Pi-hole/AdGuard", "traceroute -n", "mtr -rwc", "tracert -d", "ss -tlnp", "lsof -nP", "nc -vz", "Test-NetConnection",
+      "openssl s_client -connect host.example.com:443 -servername host.example.com", "-dates", "curl -v", "ping -M do -s 1472",
+      "ping -D -s 1472", "nft list ruleset", "iptables -S", "ufw status", "pfctl -sr", "tcpdump -ni <if> -c 100 host 192.0.2.10",
+      "ask the user first", "never upload", "127.0.0.11", "127.0.0.1:8080:80", "network_mode: host", "IPv6", "nft-backup.conf", "undo",
+      "VPN split tunnel", "IPv6 preferred but broken", "Captive portal", "Double NAT", "DNS cache", "flushdns", "dscacheutil -flushcache",
+      "resolvectl flush-caches", "Asymmetric routing", "ICMP blocked", "man7.org", "wiki.nftables.org", "curl.se", "rfc-editor.org"]) {
+      expect({ topic, found: body("homelab-network-troubleshooting").includes(topic) }).toEqual({ topic, found: true });
     }
   });
 });

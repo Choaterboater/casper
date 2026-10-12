@@ -59,8 +59,8 @@ Picked and checked by the same code as a network skill; it shares the limit of t
 `tests/homelab-skills.test.ts` checks the rest.
 
 - `name` starts with `homelab-`; one-line `description` of at most 200 characters; body at most 6 KiB.
-- `casper-skill.platform`: media, docker or proxmox. Strong triggers are product names only (radarr,
-  jellyfin, plex, gluetun, proxmox, pvesh, vzdump, compose stack …). Never a common word (docker,
+- `casper-skill.platform`: media, docker, proxmox or nettrouble. Strong triggers are product names only (radarr,
+  jellyfin, plex, gluetun, proxmox, pvesh, vzdump, compose stack, traceroute, tcpdump, nslookup …). Never a common word (docker,
   compose, container, vm, lxc, storage, backup, media, vpn, server, stack, restart …). `docker`, `qm`
   and `pct` may only be weak triggers; so is `docker compose`, which ordinary app work names too. A weak trigger needs one of the skill's own
   `triggers.context` words (or "home lab", "self hosted") in the same request.
@@ -68,12 +68,12 @@ Picked and checked by the same code as a network skill; it shares the limit of t
   asks) · Common traps · Public docs. "Changing things" opens with the same two lines as a network
   skill, and the same overclaiming words are refused.
 - "Read first" names status and list calls (`/api/v3/health`, `docker compose ps`, `pvesh get`,
-  `qm list` …). A change command (restart, `up -d`, `qm stop`, `vzdump`, any `POST`/`PUT`/`DELETE`
+  `qm list`, `ip route`, `ss -tlnp` …). A change command (restart, `up -d`, `qm stop`, `vzdump`, a route, firewall or DNS change, any `POST`/`PUT`/`DELETE`
   call) appears only under "Changing things", on a `WRITE:` line or in a `# WRITE` block, with a
   snapshot or saved copy first and the undo line. qBittorrent's login POST may sit under "Read first".
 - Keys and tokens from environment variables only. Placeholders only (`<vmid>`, `<container>`,
-  `<pve_host>`, 192.0.2.x, `*.example.com`). Links are `https://` official docs (wiki.servarr.com,
-  jellyfin.org, support.plex.tv, docs.docker.com, pve.proxmox.com, pbs.proxmox.com, the projects'
+  `<pve_host>`, 192.0.2.x, `*.example.com`; the well-known 127.0.0.11, 127.0.0.53 and 1.1.1.1 may be named). Links are `https://` official docs (wiki.servarr.com,
+  jellyfin.org, support.plex.tv, docs.docker.com, pve.proxmox.com, pbs.proxmox.com, man7.org, tcpdump.org, the nftables wiki, curl.se, RFCs, the projects'
   own GitHub repos), at least two under "Public docs".
 
 ## Changing a skill
