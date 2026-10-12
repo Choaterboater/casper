@@ -1106,7 +1106,9 @@ colors:
 After a UI change in a web project, the page check saves a desktop and a phone screenshot of each
 changed page (no tokens). `showPages` says whether a model that can see pictures is shown them once,
 so it can fix what loads but looks wrong (see [VERIFICATION.md](VERIFICATION.md#page-checks)). Each
-look uses tokens. `/settings` changes it by number; a project file can't set it.
+look uses tokens. `off` also leaves the picture out of the model's own browser checks, which
+otherwise bring the final page's picture (see [BROWSER.md](BROWSER.md)). `/settings` changes it by
+number; a project file can't set it.
 
 ```yaml
 # ~/.casper/config.yaml or a profile's config.yaml

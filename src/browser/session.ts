@@ -32,6 +32,8 @@ export interface BrowserSessionOptions {
    * redirect, a frame or a fetch. Without it nobody can say yes, and those addresses are not opened.
    */
   confirmMetadata?: (request: MetadataApproval, signal: AbortSignal) => Promise<boolean>;
+  /** Whether a check or replay sends the final page's picture (showPages: off turns it off). Read at each check; unset: yes. */
+  checkPictures?: () => boolean;
   /** Browser clicks (browser_clicks, on unless turned off): every action runs without asking. Read at each action. */
   allowActions?: () => boolean;
   /** The session's services: serve then runs in the same slot as Casper's page checks (one owner for the dev server). */
@@ -657,6 +659,26 @@ const LOAD_LIMIT = 10;
 /** Page checks save at most this many pictures per session: 5 pages, desktop and phone, a few rounds. */
 const PAGE_PICTURE_LIMIT = 40;
 const LOAD_TEXT = 300;
+/** A check or replay ends with the page as it was left: its text up to this many characters and this many controls,
+ * so the model has no open, inspect or screenshot to do next. */
+const FINAL_TEXT = 1500;
+const FINAL_ELEMENTS = 20;
+/** Final-page pictures a session's checks and replays may send (their own limit; the model's 16 screenshots are apart). */
+const FINAL_PICTURE_LIMIT = 30;
+/** The final page gets at most this long, and none when the check has used most of its 30 s, so it never makes a check overrun. */
+const FINAL_PAGE_MS = 3_000;
+const FINAL_PAGE_AFTER_MS = 25_000;
+/** A check's result with its final page stays this small (JSON bytes), under the 16 KiB result cap, so it is never cut. */
+const FINAL_RESULT_BYTES = 14_000;
+/** What inspect reads (and, shorter, a check's final page): title, visible text, size and the page's controls with a selector. */
+const PAGE_SUMMARY = (textLimit: number, elementLimit: number) => ({ title: document.title.slice(0, 512),
+  text: (document.body?.innerText ?? "").slice(0, textLimit), url: location.href,
+  viewport: { width: innerWidth, height: innerHeight }, width: document.documentElement.scrollWidth,
+  elements: [...document.querySelectorAll("button,a,input,textarea,select,[role=button]")].slice(0, elementLimit).map(el => ({
+    tag: el.tagName, id: el.id.slice(0, 128), name: (el.getAttribute("name") ?? "").slice(0, 128), type: el.getAttribute("type"),
+    label: (el.getAttribute("aria-label") ?? el.textContent ?? "").slice(0, 128),
+    selector: el.id ? `#${CSS.escape(el.id)}` : undefined,
+  })) });
 
 /** Fields fill types into, like a person would. Password and file stay out (checked before this). */
 const TYPED_FIELDS = ["", "text", "search", "tel", "url", "email", "number"];
@@ -809,6 +831,8 @@ export class BrowserSession {
   private screenshotCount = 0;
   /** Page-check pictures taken this session (their own limit; the model's 16 screenshots are apart). */
   private pagePictures = 0;
+  /** Final-page pictures checks and replays sent this session. */
+  private finalPictures = 0;
   private readonly logs: Array<{ type: string; text: string }> = [];
   private readonly requests: Array<{ url: string; status?: number; error?: string }> = [];
   private dropped = 0;
@@ -900,14 +924,7 @@ export class BrowserSession {
       const held = await this.metadataAfter(page, combined);
       if (input.action === "viewport") { const size = viewport({ width: input.width, height: input.height }); await page.setViewport(size); return { viewport: size }; }
       if (input.action === "inspect") {
-        const observation = await page.evaluate(() => ({ title: document.title.slice(0, 512),
-          text: (document.body?.innerText ?? "").slice(0, 8000), url: location.href,
-          viewport: { width: innerWidth, height: innerHeight }, width: document.documentElement.scrollWidth,
-          elements: [...document.querySelectorAll("button,a,input,textarea,select,[role=button]")].slice(0, 40).map(el => ({
-            tag: el.tagName, id: el.id.slice(0, 128), name: (el.getAttribute("name") ?? "").slice(0, 128), type: el.getAttribute("type"),
-            label: (el.getAttribute("aria-label") ?? el.textContent ?? "").slice(0, 128),
-            selector: el.id ? `#${CSS.escape(el.id)}` : undefined,
-          })) }));
+        const observation = await page.evaluate(PAGE_SUMMARY, 8000, 40);
         return { ...observation, ...held };
       }
       if (this.screenshotCount >= 16) throw new Error("Browser screenshot limit reached (16 per session)");
@@ -1287,6 +1304,7 @@ export class BrowserSession {
     const recording = input.action === "check" || entry.check.baseline === "incomplete";
     const check: BrowserCheck = { ...entry.check, status: "incomplete", freshness: "unavailable", assertions: [], reason: undefined, notes: undefined };
     entry.check = check; entry.fingerprint = undefined; entry.revision = this.revision; entry.ranAt = performance.now();
+    const startedAt = performance.now();
     try {
       const before = await inputState(this.options.projectRoot, scenario, signal);
       await this.start(); signal.throwIfAborted();
@@ -1371,7 +1389,10 @@ export class BrowserSession {
         if (recording) entry.recordedFingerprint = after.fingerprint;
       } else { check.freshness = before.fingerprint && after.fingerprint ? "stale" : "unavailable"; check.reason = before.reason ?? after.reason ?? "Declared inputs changed during browser reproduction."; }
       if (recording) { check.baseline = check.status; entry.recordedRevision = entry.revision; }
-      return structuredClone(check) as unknown as Record<string, unknown>;
+      const result = structuredClone(check) as unknown as Record<string, unknown>;
+      // The check is decided: reading the page after it can't change that, fail it or make it overrun.
+      if (performance.now() - startedAt > FINAL_PAGE_AFTER_MS) return result;
+      return { ...result, ...await this.finalPage(page, signal, FINAL_RESULT_BYTES - Buffer.byteLength(JSON.stringify(result))).catch(() => ({})) };
     } catch (error) {
       check.status = "incomplete"; check.reason = error instanceof ServerGone ? `Could not check. ${error.message}` : "Browser reproduction did not finish; no passing evidence.";
       // A step selector that matches several elements is a check written wrong, not a page that isn't ready: nothing is
@@ -1385,6 +1406,34 @@ export class BrowserSession {
         throw new Error(`${error.message} (check id ${id}: replay it once the page is ready, or withdraw it if the check is wrong)`);
       throw error;
     }
+  }
+
+  /**
+   * The page as the check left it, for the model only (never kept in the report): its short text and controls, and its
+   * picture (sent when the model sees images, unless showPages is off). Casper's own end replays skip it; a part that
+   * can't be read in time is left out, never a failure. Fewer controls, then shorter text, keep it within `budget` bytes.
+   */
+  private async finalPage(page: Page, signal: AbortSignal, budget: number): Promise<Record<PropertyKey, unknown>> {
+    if (this.unattended || signal.aborted) return {};
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<undefined>(resolve => { timer = setTimeout(() => resolve(undefined), FINAL_PAGE_MS); });
+    const inTime = <T>(work: Promise<T>) => Promise.race([work.catch(() => undefined), late]);
+    try {
+      const summary = await inTime(page.evaluate(PAGE_SUMMARY, FINAL_TEXT, FINAL_ELEMENTS));
+      if (!summary || signal.aborted) return {};
+      const finalPage: Record<string, unknown> & typeof summary = { ...summary, note: "The page after the steps; no need to open, inspect or screenshot it again." };
+      // Room for the picture's path.
+      const size = () => Buffer.byteLength(JSON.stringify(finalPage)) + 300;
+      while (size() > budget && finalPage.elements.length) finalPage.elements = finalPage.elements.slice(0, Math.floor(finalPage.elements.length / 2));
+      if (size() > budget) finalPage.text = finalPage.text.slice(0, Math.max(0, finalPage.text.length - (size() - budget)));
+      if (size() > budget) return {};
+      if (this.options.checkPictures?.() === false || this.finalPictures >= FINAL_PICTURE_LIMIT) return { finalPage };
+      const bytes = await inTime(page.screenshot({ type: "png", fullPage: false }));
+      if (!bytes || signal.aborted || bytes.byteLength > 4 * 1024 * 1024) return { finalPage };
+      this.finalPictures++;
+      finalPage.screenshot = await this.savePicture(`check-${this.finalPictures}.png`, bytes, signal).catch(() => undefined);
+      return { finalPage, [SCREENSHOT_PNG]: Buffer.from(bytes).toString("base64") };
+    } finally { clearTimeout(timer); }
   }
 
   /**

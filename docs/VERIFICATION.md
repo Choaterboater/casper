@@ -693,7 +693,8 @@ in any CSS colour, Tailwind v4's `oklch()` too, naming the worst pair), and a pa
 show as one note under the page line and never fail the page. When a page has notes and repair is on
 with a try left, the model gets one repair turn per task with only those notes ("fix only these; don't
 weaken checks"), shown as `↻ page notes 1/3` and never on your big model, then the pages are checked
-once more; a clean page asks the model nothing:
+once more. That turn tells the model Casper checks the pages again itself, so it need not run its own
+browser check, replay or screenshot to confirm the notes; a clean page asks the model nothing:
 
 ```text
 ✓ /signup loads · 0 console errors

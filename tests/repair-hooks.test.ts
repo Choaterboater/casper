@@ -5,7 +5,7 @@ import path from "node:path";
 import type { PageReport } from "../src/services/page-checks";
 import type { VerificationResult } from "../src/verify/evidence";
 import { VerifierRegistry } from "../src/verify/registry";
-import { verifyAndRepair, withHostChecks } from "../src/verify/repair-loop";
+import { PAGE_NOTES_RECHECKED, verifyAndRepair, withHostChecks } from "../src/verify/repair-loop";
 import { VerificationTask } from "../src/verify/task";
 
 // Its own empty folder: the shared temp folder fills with other test files during a parallel run.
@@ -128,6 +128,8 @@ test("page notes on a passing page get one repair turn with only those notes, th
   expect(prompts[0]).toContain("Fix only the page notes below");
   expect(prompts[0]).toContain("very low contrast (1.8:1)");
   expect(prompts[0]).not.toContain("Failure evidence");
+  // Casper runs the pages again itself (opened twice below), so the model is told its own browser check is not needed.
+  expect(prompts[0]).toContain(PAGE_NOTES_RECHECKED);
   // Notes never fail the page: the report passes and keeps them for the receipt.
   expect(opened).toBe(2);
   expect(report).toMatchObject({ status: "pass", repairAttempts: 1, pages: { status: "pass" } });
@@ -159,6 +161,8 @@ test("a clean page, repair off or a spent budget never asks the model about page
     repair: async (text) => { prompts.push(text); } });
   expect(prompts).toHaveLength(1);
   expect(prompts[0]).not.toContain("Fix only the page notes");
+  // A failure repair still checks its own fix as it likes: only the notes turn says Casper re-measures.
+  expect(prompts[0]).not.toContain(PAGE_NOTES_RECHECKED);
   expect(report).toMatchObject({ status: "pass", repairAttempts: 1, pages: { status: "pass" } });
 });
 
