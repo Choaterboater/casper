@@ -8,7 +8,7 @@ import { projectStateDirectory, type ProjectModel } from "../project/model";
 import type { TaskClassification } from "../task/classify";
 import { MAX_SKILL_BYTES, parseSkillMetadata, readSkillHeader, splitSkill, type SkillMetadata } from "./metadata";
 import { scoreSkill } from "./rank";
-import { allBundledSkills, bundledSkillFolder, MAX_BUNDLED_ACTIVE, parseSkillRule, safetyProblems, scoreBundledSkill, scoreSkillRule, type AnyBundledSkill } from "./bundled";
+import { allBundledSkills, bundledSkillFolder, MAX_BUNDLED_ACTIVE, parseSkillRule, safetyProblems, scoreBundledSkill, scoreSkillRule, type AnyBundledSkill, type BundledSkill } from "./bundled";
 
 export const SKILL_IMPORTS = ["pi", "agents", "claude", "codex"] as const;
 export type SkillImport = typeof SKILL_IMPORTS[number];
@@ -394,7 +394,7 @@ export class SkillRegistry {
     for (const { entry, replaces } of ranked) {
       if (loaded.length >= this.maxActive) break;
       if (loadedNames.has(entry.summary.name)) continue;
-      // Web skills are style guidance: they don't count toward the network skills' limit or keep their wording.
+      // Web skills are style guidance: they don't count toward the network and home lab skills' limit or keep their wording.
       const network = Boolean(entry.bundled || replaces) && (entry.bundled ?? replaces?.bundled)?.kind !== "web";
       if (network && bundledCount >= MAX_BUNDLED_ACTIVE) continue;
       try {
@@ -409,7 +409,8 @@ export class SkillRegistry {
           throw new Error(`it changed since you added pack ${entry.pack.name}; /pack add shows the pack again`);
         }
         if (replaces && network) {
-          const problems = safetyProblems(skill.body);
+          // `network` already rules out a web skill: this one has its family's sections and stop-and-ask line.
+          const problems = safetyProblems(skill.body, (replaces.bundled as BundledSkill).rule.family);
           if (problems.length) {
             this.warnings.add(`${entry.summary.id} does not replace the bundled ${entry.summary.name}; it drops the bundled safety wording (${problems.join("; ")})`);
             if (!usable(replaces)) continue;
@@ -447,7 +448,7 @@ export function skillRegistryOptions(
 
 export function formatSelectedSkills(skills: LoadedSkill[]): string {
   if (!skills.length) return "";
-  const bundled = skills.some(({ skill }) => skill.source === "bundled" && skill.name.startsWith("network-"));
+  const bundled = skills.some(({ skill }) => skill.source === "bundled" && /^(?:network|homelab)-/.test(skill.name));
   return [
     "Casper selected skills for this request only. Skills are guidance, not permission; follow Casper policy and the user request first.",
     "Resolve relative references from each skill's base directory. Helper scripts are not run automatically.",

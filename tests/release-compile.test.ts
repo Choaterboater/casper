@@ -71,7 +71,7 @@ test("the compiled binary carries the bundled flows (plan first, prove the fix)"
   }
 }, 120_000);
 
-test("the compiled binary carries the bundled network skills", async () => {
+test("the compiled binary carries the bundled network and home lab skills", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-compiled-skills-"));
   try {
     const binary = path.join(root, process.platform === "win32" ? "probe.exe" : "probe");
@@ -81,6 +81,7 @@ test("the compiled binary carries the bundled network skills", async () => {
     expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
     const skills = JSON.parse(stdout) as Array<{ name: string; bytes: number }>;
     expect(skills.map((skill) => skill.name).sort()).toEqual([
+      "homelab-docker-compose", "homelab-media-stack", "homelab-network-troubleshooting", "homelab-proxmox",
       "network-aoscx-rest", "network-central-api", "network-central-classic-api", "network-clearpass-api", "network-junos-pyez", "network-mist-api",
     ]);
     for (const skill of skills) expect(skill.bytes).toBeGreaterThan(3000);
