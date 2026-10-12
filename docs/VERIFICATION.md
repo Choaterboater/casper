@@ -764,7 +764,8 @@ does not show ana-sousa as chosen`.
 `– Pages not checked: node_modules is missing. Run bun install first (Casper doesn't install packages)`.
 A dev server that stops before it is ready, or doesn't answer on its port in time (45 s for one Casper found), makes the check
 incomplete, with the server's last lines. When the command checks still fail after the last repair, the
-pages never opened: `– Pages not checked: command checks failed`.
+pages never opened: `– Pages not checked: command checks failed`. A check the sandbox blocked doesn't count
+here: smoke checks and pages still run, and their notes still reach the model, while the task ends incomplete.
 
 **Turning them off for every project.** Pick **Page checks** in `/settings` (it writes `pages: off`
 in `~/.casper/config.yaml`). In your own config `pages:` is only on or off. A project file can still
