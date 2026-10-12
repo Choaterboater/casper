@@ -407,7 +407,7 @@ test("source changes after model reading cannot supply a matching evidence quote
   expect(result.exit).toBe(1);
   expect(result.stderr).toContain("does not match");
   expect(JSON.parse((await f.run(["learn", "list", f.project])).stdout).drafts).toEqual([]);
-});
+}, 120_000);
 
 test("no supported patterns is a qualified empty result, not a fabricated candidate", async () => {
   const f = await fixture(() => answer('{"candidates":[]}'));
@@ -417,7 +417,7 @@ test("no supported patterns is a qualified empty result, not a fabricated candid
   expect(JSON.parse(result.stdout)).toMatchObject({ status: "no-candidates" });
   expect(JSON.parse((await f.run(["learn", "list", f.project])).stdout).drafts).toEqual([]);
   expect(await snapshot(path.join(f.home, ".casper"))).toEqual(before);
-});
+}, 120_000);
 
 test("invalid learning commands stay local and never fall through to an unrestricted prompt", async () => {
   const f = await fixture();

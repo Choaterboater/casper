@@ -47,9 +47,9 @@ export async function prepareCapabilities(app: CasperApp, task: string): Promise
     reader: appReaderTool({ context: app.projectContext, session: () => app.session, shell: app.shell, broker: app.broker, root: app.activeWorkspaceRoot(), home: app.homeDir(), agentDir: appAgentDir(app), privatePaths: projectPrivatePaths(app), onUsage: (usage) => app.observations.recordModelCall(usage), signal: app.commandAbort?.signal }),
     browserReady: app.browser?.status().state === "ready", browserInstalled: await app.browserInstalled, browser: () => browserSession(app),
     browserSignal: app.commandAbort?.signal, browserOff: app.projectContext?.browser === false, diagramOff: app.projectContext?.diagrams === false,
-    services: { declared: Object.keys(app.projectContext?.services ?? {}).length > 0, live: app.services?.live({ detected: false }) ?? false },
+    services: { declared: Object.keys(app.projectContext?.services ?? {}).length > 0, live: (app.services?.live({ detected: false }) ?? false) || Boolean(app.backgroundCommands?.list().length) },
     serviceTool: () => serviceTool(() => serviceManager(app), app.commandAbort?.signal, () => app.smokeTask,
-      app.shell?.approve ? (command, signal, options) => app.shell!.approve!(command, signal, options) : undefined),
+      app.shell?.approve ? (command, signal, options) => app.shell!.approve!(command, signal, options) : undefined, () => app.backgroundCommands),
     githubOff: app.projectContext?.github === false,
     githubTool: () => githubTool({
       root: () => app.activeWorkspaceRoot(), reruns: app.githubReruns, secrets: () => ownSecretValues(app),
@@ -147,7 +147,7 @@ export async function stopDebugger(app: CasperApp): Promise<void> {
   }
 }
 
-/** /tasks: dev servers, the browser, the debugger, helpers and checks that run now, each with its own stop. */
+/** /tasks: dev servers, slow commands, the browser, the debugger, helpers and checks that run now, each with its own stop. */
 export function backgroundTasks(app: CasperApp): BackgroundTask[] {
   const tasks: BackgroundTask[] = [];
   const services = app.services && !app.services.closed ? app.services : undefined;
@@ -156,6 +156,11 @@ export function backgroundTasks(app: CasperApp): BackgroundTask[] {
     tasks.push({ kind: "dev server", name: service.name, ...(service.startedAt !== undefined ? { startedAt: service.startedAt } : {}),
       status: `${service.state === "ready" ? "running" : "starting"}${service.origin ? ` at ${service.origin}` : ""}${service.stale ? " · stale (restarts before next use)" : ""}`,
       stop: async () => await services!.stop(service.name) ? `Stopped ${service.name}.` : `${service.name} had already stopped.` });
+  }
+  const commands = app.backgroundCommands;
+  for (const command of commands?.list() ?? []) {
+    tasks.push({ kind: "command", name: `${command.id} ${command.command}`, status: "running", startedAt: command.startedAt,
+      stop: async () => await commands!.stop(command.id) ? `Stopped ${command.id}.` : `${command.id} had already ended.` });
   }
   const browser = app.browser;
   const browserState = browser?.status().state;

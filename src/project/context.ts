@@ -84,6 +84,8 @@ export interface ProjectContext {
   browserClicks?: boolean;
   /** `routine_commands: off` in the user's config: with no sandbox, routine shell commands ask too. Unset: on. */
   routineCommands?: boolean;
+  /** `slow_commands: off` in the user's config: a command without its own timeout is stopped at the limit. Unset: on. */
+  slowCommands?: boolean;
   /** `mcp_autoconnect: off` in the user's config: their own MCP servers wait for /mcp connect. Unset: on. */
   mcpAutoconnect?: boolean;
   /** `lsp_autostart: off` in the user's config: their own language servers wait for /lsp connect. Unset: on. */
@@ -202,6 +204,7 @@ export async function loadProjectContext(
     ...(configuration.pictureModels ? { pictureModels: configuration.pictureModels } : {}),
     ...(configuration.browserClicks !== undefined ? { browserClicks: configuration.browserClicks } : {}),
     ...(configuration.routineCommands !== undefined ? { routineCommands: configuration.routineCommands } : {}),
+    ...(configuration.slowCommands !== undefined ? { slowCommands: configuration.slowCommands } : {}),
     ...(configuration.mcpAutoconnect !== undefined ? { mcpAutoconnect: configuration.mcpAutoconnect } : {}),
     ...(configuration.lspAutostart !== undefined ? { lspAutostart: configuration.lspAutostart } : {}),
     ...(configuration.notifications !== undefined ? { notifications: configuration.notifications } : {}),

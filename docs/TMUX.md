@@ -60,8 +60,9 @@ Casper and its side pane are where you left them.
 
 ## What runs in the background: /tasks
 
-`/tasks` shows one numbered list of what Casper keeps running: dev servers, the browser, the debugger,
-helpers and checks, each with a plain status and how long it has run. Then it asks:
+`/tasks` shows one numbered list of what Casper keeps running: dev servers, slow commands moved to the
+background (`command cmd-1 npm run build`), the browser, the debugger, helpers and checks, each with a
+plain status and how long it has run. Then it asks:
 
 ```
 Stop something?

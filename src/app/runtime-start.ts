@@ -25,6 +25,7 @@ import { spendNote, spendGate } from "./spend-gate";
 import { ensureSessionWorkspace } from "./session-branches";
 import { projectPrivatePaths } from "./wiring";
 import { severalModelsMessage } from "./model-words";
+import { BackgroundCommands } from "../runtime/background-commands";
 
 /** One adapter-construction owner, shared by auth and session startup. */
 export function acquireRuntime(app: CasperApp): Promise<AgentRuntime> {
@@ -231,5 +232,23 @@ export function currentShell(app: CasperApp): RuntimeShell {
     outsideWrite: async (absolute) => app.shell?.outsideWrite?.(absolute),
     wroteOutside: (absolute) => app.shell?.wroteOutside?.(absolute),
     logDir: async () => app.shell?.logDir?.(),
+    background: () => app.projectContext?.slowCommands === false ? undefined : backgroundCommands(app),
   };
+}
+
+/** The session's slow commands, made on first use. When one ends, the conversation gets a note, its output tail
+ * scrubbed as bash output is (the AI reads it next turn, or now as a steer while a task runs). */
+export function backgroundCommands(app: CasperApp): BackgroundCommands | undefined {
+  if (app.closing) return undefined;
+  if (!app.backgroundCommands) {
+    const commands = app.backgroundCommands = new BackgroundCommands({
+      notify: async (note, command) => {
+        if (app.closing || !app.session?.appendContext) return;
+        const scrubbed = await scrubToolOutput(app.scrubber, "bash", { command }, [note], undefined, { configs: app.scrubFiles, networkLoginFile: networkLoginFile(app) });
+        await app.session.appendContext(`${scrubbed?.texts[0] ?? note}${scrubbed?.note ? `\n${scrubbed.note}` : ""}`);
+      },
+    });
+    app.lifecycle.add({ name: "background-commands", close: () => commands.close() });
+  }
+  return app.backgroundCommands;
 }

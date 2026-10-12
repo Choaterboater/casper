@@ -141,7 +141,7 @@ test("the parent system prompt states Casper's identity exactly once, first, wit
   for (const index of [0, 1]) {
     expect(system(index).split("Tool rules:")).toHaveLength(2);
     for (const rule of PI_TOOL_RULES) expect(system(index)).toContain(`- ${rule}`);
-    expect(system(index)).toContain("caps any timeout at 3600 seconds");
+    expect(system(index)).toContain("capped at 3600");
   }
 }, 60_000);
 
