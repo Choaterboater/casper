@@ -627,6 +627,46 @@ function watchState(key: string): string | undefined {
   return `${watch.changes}|${location.href}|${focus}|${scrollX},${scrollY}|${form}`;
 }
 
+interface PageOutline { title: string; text: string[]; controls: string[]; focus: string; target?: string }
+
+/** A compact outline of what a person sees: the title, visible text lines, controls by role and name (button "Save"),
+ * the focused element and the action's target, named the same way; at most 400 entries, so it stays cheap on a long page. */
+function pageOutline(target?: Element): PageOutline {
+  const clean = (value: string | null | undefined) => (value ?? "").replace(/\s+/g, " ").trim();
+  const shown = (el: Element) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && el.checkVisibility({ visibilityProperty: true, opacityProperty: true }); };
+  const role = (el: Element) => el.getAttribute("role") ?? ({ A: "link", BUTTON: "button", SELECT: "select", TEXTAREA: "textbox", SUMMARY: "button" } as Record<string, string>)[el.tagName]
+    ?? (el.tagName === "INPUT" ? (({ checkbox: "checkbox", radio: "radio", submit: "button", button: "button", range: "slider" } as Record<string, string>)[(el as HTMLInputElement).type] ?? "textbox") : el.tagName.toLowerCase());
+  const name = (el: Element) => clean(el.getAttribute("aria-label") || (el as HTMLInputElement).labels?.[0]?.innerText || (el as HTMLElement).innerText
+    || el.getAttribute("placeholder") || el.getAttribute("title") || el.getAttribute("name") || (["submit", "button"].includes((el as HTMLInputElement).type) ? (el as HTMLInputElement).value : "")).slice(0, 60);
+  const describe = (el: Element) => `${role(el)}${name(el) ? ` "${name(el)}"` : ""}`;
+  const outline: PageOutline = { title: document.title, text: [], controls: [], focus: "" };
+  const walker = document.createTreeWalker(document.body ?? document.documentElement, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(), seen = 0; node && seen < 5000 && outline.text.length + outline.controls.length < 400; node = walker.nextNode(), seen++) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const line = clean(node.textContent);
+      if (line && node.parentElement && !node.parentElement.closest("script, style, noscript, template, button, a, select, textarea, label, option") && shown(node.parentElement)) outline.text.push(line.slice(0, 200));
+    } else if ((node as Element).matches("a[href], button, input:not([type=hidden]), select, textarea, summary, [role=button], [role=link], [role=checkbox], [role=tab], [role=menuitem], [role=switch], [contenteditable=true]") && shown(node as Element))
+      outline.controls.push(describe(node as Element));
+  }
+  const active = document.activeElement;
+  if (active && active !== document.body && active !== document.documentElement) outline.focus = describe(active);
+  if (target) outline.target = describe(target);
+  return outline;
+}
+
+/** What an action changed on the page, from outlines before and after: the title, text that appeared (a toast, an
+ * error, a status), controls added or removed (up to 5 each) and where focus moved. Undefined when none of these did. */
+function outlineChanges(before: PageOutline, after: PageOutline): Record<string, unknown> | undefined {
+  const minus = (a: string[], b: string[]) => { const left = new Map<string, number>(); for (const x of b) left.set(x, (left.get(x) ?? 0) + 1);
+    return a.filter(x => { const n = left.get(x) ?? 0; if (n) left.set(x, n - 1); return !n; }); };
+  const appeared = minus(after.text, before.text).join(" | ");
+  const added = [...new Set(minus(after.controls, before.controls))].slice(0, 5), removed = [...new Set(minus(before.controls, after.controls))].slice(0, 5);
+  const changes = { ...(after.title !== before.title ? { title: after.title } : {}), ...(appeared ? { appeared: appeared.length > 400 ? `${appeared.slice(0, 399)}…` : appeared } : {}),
+    ...(added.length ? { controlsAdded: added } : {}), ...(removed.length ? { controlsRemoved: removed } : {}),
+    ...(after.focus !== before.focus && after.focus ? { focus: after.focus } : {}) };
+  return Object.keys(changes).length ? changes : undefined;
+}
+
 /** A native dialog Casper dismissed, as the action's result names it. */
 function dialogNote(dialog: { type: string; message: string }): string {
   const answer = dialog.type === "alert" ? "closed it" : dialog.type === "beforeunload" ? "stayed on the page" : "answered Cancel";
@@ -1316,6 +1356,7 @@ export class BrowserSession {
     if (!element) throw new Error("Browser target disappeared");
     let selected: { value: string; label: string } | undefined;
     let note: string | undefined;
+    let outlineBefore: PageOutline | undefined, urlBefore = "", focusHere = false;
     const key = `__casper_${randomUUID().replace(/-/g, "")}`;
     try {
       await settleInView(element);
@@ -1336,6 +1377,8 @@ export class BrowserSession {
         Object.defineProperty(window, key, { value: watch, configurable: true });
       }, key);
       const initial = await page.evaluate(watchState, key);
+      outlineBefore = await page.evaluate(pageOutline, element).catch(() => undefined);
+      urlBefore = page.url();
       const requests = this.requestsStarted, popups = this.popups;
       this.dialogs.length = 0;
       // No automatic retry after a potentially consequential action.
@@ -1385,11 +1428,18 @@ export class BrowserSession {
         note = action === "click" ? `nothing changed after clicking ${cover.target}` : `nothing changed after pressing ${value} on ${cover.target}`;
     } finally {
       await page.evaluate(key => { (window as unknown as Record<string, { observer?: MutationObserver }>)[key]?.observer?.disconnect(); }, key).catch(() => {});
+      focusHere = await element.evaluate(el => el.isConnected && el.contains(document.activeElement)).catch(() => false);
       await element.dispose();
     }
     signal.throwIfAborted();
     const dialogs = this.dialogs.map(dialogNote);
-    return { action, url: page.url(), executed: true, ...(selected ? { selected } : {}), ...(note ? { note } : {}), ...(dialogs.length ? { dialogs } : {}),
+    // What changed, as a person would see it; a page still opening after a new address gives only the address.
+    const outlineAfter = outlineBefore && !note ? await page.evaluate(pageOutline).catch(() => undefined) : undefined;
+    // Focus on the element the action used (or the same control drawn again) is not news: only focus that moved
+    // elsewhere (an error field, a dialog) is named.
+    const { focus, ...seen } = outlineBefore && outlineAfter ? outlineChanges(outlineBefore, outlineAfter) ?? {} : {};
+    const changes = { ...(page.url() !== urlBefore ? { previousUrl: urlBefore } : {}), ...seen, ...(focus && !focusHere && focus !== outlineBefore?.target ? { focus } : {}) };
+    return { action, url: page.url(), executed: true, ...(selected ? { selected } : {}), ...(Object.keys(changes).length ? { changes } : {}), ...(note ? { note } : {}), ...(dialogs.length ? { dialogs } : {}),
       guidance: "Action execution is not proof of the expected result. Inspect or replay assertions." };
   }
 

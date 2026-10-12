@@ -90,6 +90,14 @@ whose watch is cut short gets no note. A native `alert`, `confirm`, `prompt` or 
 is still dismissed (Cancel, or stay on the page), and the result lists it under
 `dialogs`, such as `confirm dialog "Clear this item?": Casper answered Cancel`;
 a check lists both under `notes`, by step.
+The result also says what the action changed, as a person would see it, under
+`changes`: the address it left (`previousUrl`), a new `title`, text that
+appeared (`appeared`, such as a toast, an error or a status, up to 400
+characters), up to 5 controls added or removed (`controlsAdded`,
+`controlsRemoved`, such as `button "Try again"`) and where `focus` moved (not
+onto the element the action used, nor the same control drawn again). Casper
+compares a short outline of the page's visible text and controls (at most 400
+entries) taken before and after; when none of these changed, `changes` is left out.
 `press` supports `Enter`, `Tab`, `Escape`, `ArrowUp`, `ArrowDown`, `ArrowLeft`,
 `ArrowRight`, `Space` and `Backspace`.
 

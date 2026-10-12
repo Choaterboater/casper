@@ -547,6 +547,33 @@ browserTest("a covered button fails its click naming the cover; a click that cha
   expect(await f.session.run(step("#new"))).not.toHaveProperty("note");
 }, 40_000);
 
+browserTest("an action's result says what changed on the page: text that appeared, controls added or removed, focus, title and address", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, `<!doctype html><title>Form</title><h1>Sign up</h1><input id="email" aria-label="Email"><button id="send">Join</button>
+    <button id="next" onclick="location.hash = 'two'">Next</button><button id="plain" onclick="this.after('Done')">Plain</button><div id="box"><button id="redraw">Redraw</button></div><script>
+    document.getElementById("box").onclick = () => { const b = document.createElement("button"); b.textContent = "Redraw"; b.id = "redraw";
+      document.getElementById("box").replaceChildren(b, "Again"); b.focus(); };</script><p class="toast" hidden>Check your email address</p><script>
+    document.getElementById("send").onclick = () => { document.querySelector(".toast").hidden = false; document.title = "Form (1 error)";
+      document.getElementById("send").remove(); const retry = document.createElement("button"); retry.textContent = "Try again"; document.body.append(retry);
+      document.getElementById("email").focus(); };</script>`);
+  await f.session.run({ action: "open", url: f.url });
+  const step = (selector: string) => ({ action: "click", selector, impact: "local-test", reason: "Test" });
+  const sent = await f.session.run(step("#send"));
+  expect(sent.changes).toEqual({ title: "Form (1 error)", appeared: "Check your email address", controlsAdded: ['button "Try again"'],
+    controlsRemoved: ['button "Join"'], focus: 'textbox "Email"' });
+  // Focus landing on the clicked button is not named.
+  const plain = await f.session.run(step("#plain"));
+  expect(plain.changes).toEqual({ appeared: "Done" });
+  // Nor on the same button drawn again.
+  const redrawn = await f.session.run(step("#redraw"));
+  expect(redrawn.changes).toEqual({ appeared: "Again" });
+  const typed = await f.session.run({ action: "fill", selector: "#email", value: "a@example.com", impact: "local-test", reason: "Test" });
+  expect(typed).not.toHaveProperty("changes");
+  const moved = await f.session.run(step("#next"));
+  expect(moved.changes).toMatchObject({ previousUrl: `${f.url}/` });
+  expect(moved.url).toBe(`${f.url}/#two`);
+}, 40_000);
+
 browserTest("a new check that stops part way gives its id back, and can be withdrawn until anything changes", async () => {
   const f = await fixture();
   await writeFile(f.sourceFile, "<!doctype html><h1>Hi</h1>");
