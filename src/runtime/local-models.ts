@@ -25,7 +25,14 @@ export const LOCAL_SERVERS: readonly LocalServerKind[] = [
   { id: "vllm", name: "vLLM", variables: ["VLLM_BASE_URL"], root: "http://127.0.0.1:8000", defaultPort: 8000 },
 ];
 
-export interface LocalModel { id: string; contextWindow?: number; images?: boolean }
+export interface LocalModel {
+  id: string; contextWindow?: number; images?: boolean;
+  /** Ollama: the model can think, so the effort setting reaches it (as reasoning_effort). */
+  thinking?: true;
+  /** Ollama: fields every request to this model carries: keep_alive, and the temperature and top_p its Modelfile sets
+   * (Ollama's /v1 otherwise runs every model at 1.0 and unloads it after 5 minutes). */
+  request?: Record<string, number | string>;
+}
 export interface LocalServer {
   /** One of the four kinds' ids for a server Casper looks for; your own name for one you added. */
   provider: string;
@@ -176,6 +183,25 @@ function causeWords(cause: LocalCause, kind: { name: string }, root: string, bud
   }
 }
 
+/** How long Ollama keeps a model loaded after a request: OLLAMA_KEEP_ALIVE where Casper runs (a duration such as 1h,
+ * or seconds, -1 for ever), else 30 minutes, so a pause to read or think doesn't cost a reload (Ollama's own is 5). */
+export function ollamaKeepAlive(raw: string | undefined): number | string {
+  const value = raw?.trim() ?? "";
+  if (/^-?\d+$/.test(value)) return Number(value);
+  return /^-?(?:\d+(?:\.\d+)?(?:ns|us|µs|ms|s|m|h))+$/.test(value) ? value : "30m";
+}
+
+/** The temperature and top_p a Modelfile sets (/api/show parameters), and nothing it doesn't. */
+export function modelfileSampling(parameters: unknown): { temperature?: number; top_p?: number } {
+  const lines = typeof parameters === "string" ? parameters : "";
+  const read = (name: string) => {
+    const value = Number(new RegExp(`(?:^|\\n)\\s*${name}\\s+(\\S+)`).exec(lines)?.[1]);
+    return Number.isFinite(value) && value >= 0 ? value : undefined;
+  };
+  const temperature = read("temperature"); const topP = read("top_p");
+  return { ...(temperature !== undefined ? { temperature } : {}), ...(topP !== undefined && topP > 0 && topP <= 1 ? { top_p: topP } : {}) };
+}
+
 /** Ollama: /api/tags lists the models, /api/show tells each one's abilities and a num_ctx set in its Modelfile.
  * The window, as Ollama picks it: a loaded model's own (/api/ps), else its Modelfile num_ctx, else OLLAMA_CONTEXT_LENGTH
  * (the server's default for every model; Casper's environment may not be the server's, so it comes last). */
@@ -183,6 +209,7 @@ async function ollama(fetcher: typeof fetch, root: string, signal: AbortSignal, 
   const tags = await getJson(fetcher, `${root}/api/tags`, signal);
   if (!tags || !Array.isArray(tags.models)) throw new NotThisServer();
   const serverWindow = positive(env?.OLLAMA_CONTEXT_LENGTH);
+  const keepAlive = ollamaKeepAlive(env?.OLLAMA_KEEP_ALIVE);
   const loaded = new Map<string, number>();
   await getJson(fetcher, `${root}/api/ps`, signal).then((ps) => {
     for (const entry of list(ps?.models)) {
@@ -204,7 +231,8 @@ async function ollama(fetcher: typeof fetch, root: string, signal: AbortSignal, 
       ?? positive(Object.entries(info ?? {}).find(([key]) => key.endsWith(".context_length"))?.[1]);
     const window = loaded.get(id) ?? numCtx ?? serverWindow;
     return { id, ...(window ? { contextWindow: trained ? Math.min(window, trained) : window } : trained ? { contextWindow: Math.min(trained, UNKNOWN_WINDOW) } : {}),
-      ...(capabilities?.includes("vision") ? { images: true } : {}) };
+      ...(capabilities?.includes("vision") ? { images: true } : {}), ...(capabilities?.includes("thinking") ? { thinking: true } : {}),
+      request: { ...modelfileSampling(show?.parameters), keep_alive: keepAlive } };
   }));
   return models.filter((model) => model !== undefined);
 }
@@ -525,11 +553,15 @@ export function registerLocalServers(catalog: Catalog, servers: readonly LocalSe
           ...server.saved ? { apiKey: "local" } : {}, fetch: refuseRedirects(options?.fetch) }),
         models: server.models.map((model) => {
           const contextWindow = model.contextWindow ?? UNKNOWN_WINDOW;
-          return { id: model.id, name: model.id, reasoning: false, input: model.images ? ["text", "image"] : ["text"],
+          return { id: model.id, name: model.id, reasoning: Boolean(model.thinking), input: model.images ? ["text", "image"] : ["text"],
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow,
             maxTokens: Math.min(16_384, Math.max(1_024, Math.floor(contextWindow / 4))),
+            // An Ollama model that thinks takes reasoning_effort (off is "none"; older servers know low, medium, high).
+            ...(model.thinking ? { thinkingLevelMap: { off: "none", minimal: "low" } } : {}),
+            ...(model.request ? { samplingParams: model.request } : {}),
             // Most local servers know neither the developer role nor reasoning_effort (docs/CONFIGURATION.md, Local models).
-            compat: { supportsDeveloperRole: false, supportsReasoningEffort: false } };
+            // max_tokens, not max_completion_tokens: Ollama's /v1 reads only max_tokens, so the output cap reached nothing.
+            compat: { supportsDeveloperRole: false, supportsReasoningEffort: Boolean(model.thinking), maxTokensField: "max_tokens" } };
         }) });
       added.push(server.provider);
       mine.add(server.provider);
