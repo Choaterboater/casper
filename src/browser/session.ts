@@ -863,7 +863,7 @@ export class BrowserSession {
       const notOpened = await this.navigate(page, scenario.url, signal);
       if (notOpened.notOpened) throw new Error(`The page reached for a cloud metadata address (${notOpened.notOpened.join(", ")}) and the person said no`);
       for (const step of scenario.steps) {
-        signal.throwIfAborted(); await this.interact({ ...step }, signal);
+        signal.throwIfAborted(); await this.interact({ ...step }, signal, true);
         const after = await this.metadataAfter(page, signal);
         if (after.notOpened) throw new Error(`The page reached for a cloud metadata address (${after.notOpened.join(", ")}) and the person said no`);
       }
@@ -973,7 +973,7 @@ export class BrowserSession {
       guidance: "It no longer decides the result; the receipt names it with your reason. Record a corrected check for what it meant to test." };
   }
 
-  private async interact(input: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
+  private async interact(input: Record<string, unknown>, signal: AbortSignal, waitForTarget = false): Promise<Record<string, unknown>> {
     const selector = text(input.selector, "selector", 512);
     if (!["local-test", "consequential", "uncertain"].includes(String(input.impact))) throw new Error(`Browser ${String(input.action)} needs impact: local-test, consequential or uncertain`);
     const reason = text(input.reason, "reason", 512);
@@ -989,6 +989,16 @@ export class BrowserSession {
       return { url: location.href, tag: el.tagName, type: el.getAttribute("type") ?? "", autocomplete: el.getAttribute("autocomplete") ?? "",
         target: [el.getAttribute("aria-label"), el.textContent, el.getAttribute("name"), el.getAttribute("href")].filter(Boolean).join(" ").slice(0, 1024) };
     }, selector);
+    // A check step waits up to 5 s for content that loads later (a time slot, a fetched list): while its selector
+    // matches nothing, or its one element is disabled. Several matches still fail at once (a check written wrong).
+    if (waitForTarget) {
+      const until = performance.now() + 5_000;
+      const pending = () => page.evaluate((selector) => {
+        const matches = document.querySelectorAll(selector);
+        return matches.length === 0 || (matches.length === 1 && ((matches[0] as HTMLButtonElement).disabled === true || matches[0]!.getAttribute("aria-disabled") === "true"));
+      }, selector).catch((error: unknown) => /context was destroyed|navigat|detached/i.test(String(error))); // a page still opening after the last step
+      while (performance.now() < until && await pending()) { await new Promise(resolve => setTimeout(resolve, 100)); signal.throwIfAborted(); }
+    }
     const before = await describe();
     const type = before.type.toLowerCase();
     if (type === "file" || /one-time-code|cc-/i.test(before.autocomplete)) throw new Error("Payment, one-time-code and file-upload inputs are outside this browser slice");

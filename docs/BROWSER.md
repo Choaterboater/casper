@@ -145,7 +145,11 @@ Supported assertions:
 - `no-overlap`: element rectangles do not intersect, with positive geometry;
   the primary element must be visible. This is not pixel/aesthetic acceptance.
 
-Assertions poll for up to one second each. When a selector matches no element,
+A check's step waits up to 5 seconds for its element while the selector matches
+nothing or the one element it matches is disabled, so a time slot or list that
+loads later is clicked once it is there; a selector that matches several
+elements still fails at once, and the re-check after an approval box does not
+wait. Assertions poll for up to one second each. When a selector matches no element,
 or a text does not match, the failed assertion also lists under `near` up to 3
 real elements on the page most like the one asked for (by id, class, tag or
 text), such as `h1#page-title "Hello Casper"`. On a replay it also has a

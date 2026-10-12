@@ -434,6 +434,30 @@ browserTest("a new check whose step selector matches several elements is not kep
   expect((await f.session.report()).checks).toHaveLength(0);
 }, 30_000);
 
+browserTest("a check step waits up to 5 s for its target to appear or be enabled; several matches fail at once", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, `<!doctype html><h1>Slots</h1><button id="go" disabled>Go</button><p id="out"></p><script>
+    setTimeout(() => { const b = document.createElement("button"); b.id = "slot"; b.textContent = "10:00";
+      b.onclick = () => { document.getElementById("out").textContent += "slot "; }; document.body.append(b); }, 1500);
+    setTimeout(() => { const g = document.getElementById("go"); g.disabled = false; g.onclick = () => { document.getElementById("out").textContent += "go"; }; }, 1000);</script>`);
+  const late = await f.session.run({ action: "check", scenario: { name: "Late slot", url: f.url, scope: { inputs: ["index.html"] }, steps: [
+    { action: "click", selector: "#slot", impact: "local-test", reason: "Pick a slot" },
+    { action: "click", selector: "#go", impact: "local-test", reason: "Continue" }],
+    assertions: [{ kind: "text", selector: "#out", expected: "slot go" }] } });
+  expect(late).toMatchObject({ status: "pass" });
+  let started = performance.now();
+  const never = await f.session.run({ action: "check", scenario: { name: "Missing", url: f.url, scope: { inputs: ["index.html"] },
+    steps: [{ action: "click", selector: "#never", impact: "local-test", reason: "Test" }], assertions: [{ kind: "visible", selector: "h1" }] } }).catch((e: Error) => e.message);
+  expect(never).toContain("it matches 0");
+  expect(performance.now() - started).toBeGreaterThan(4_900);
+  await writeFile(f.sourceFile, "<!doctype html><button>A</button><button>B</button><h1>Hi</h1>");
+  started = performance.now();
+  const two = await f.session.run({ action: "check", scenario: { name: "Two", url: f.url, scope: { inputs: ["index.html"] },
+    steps: [{ action: "click", selector: "button", impact: "local-test", reason: "Test" }], assertions: [{ kind: "visible", selector: "h1" }] } }).catch((e: Error) => e.message);
+  expect(two).toContain("it matches 2");
+  expect(performance.now() - started).toBeLessThan(4_000);
+}, 40_000);
+
 browserTest("a new check that stops part way gives its id back, and can be withdrawn until anything changes", async () => {
   const f = await fixture();
   await writeFile(f.sourceFile, "<!doctype html><h1>Hi</h1>");
