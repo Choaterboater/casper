@@ -5,6 +5,7 @@ import path from "node:path";
 import { looksLikeRefusedLogin } from "../ssh/auth-failed";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
 import { DEFAULT_COMMAND_LIMIT_SECONDS } from "./background-commands";
+import { pidFile, STALLED_EXIT_CODE, stalledMessage, watchStall } from "./stalled-commands";
 import { matchConversation } from "../sessions/resume";
 import { PiModels } from "./pi-models";
 import { configureLocalServers, dropLocalServers, forgetLocalServer, localServers, localServerSettled, localServersHereSettled, onLocalServer, registerLocalServers, rememberLocalServer, savedLocalServers } from "./local-models";
@@ -1181,6 +1182,8 @@ function readSmallText(file: string): string | undefined | null {
  * that file goes in a private folder of Casper's (os.tmpdir() is read at that moment), not the shared temp folder.
  * A command run without its own timeout gets the default limit; with slow commands on, one still running then moves
  * to the shell's background commands (same process, same sandbox wrap) and the call returns its output so far.
+ * Such a command that stalls (no output and no CPU for a while, src/runtime/stalled-commands.ts) is ended, in the
+ * foreground or the background, with the reason added to its output.
  */
 export function casperBashOperations(shell: RuntimeShell | undefined, local: BashOperations = createLocalBashOperations()): BashOperations {
   return {
@@ -1192,11 +1195,19 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
       const background = options.timeout === undefined ? shell?.background?.() : undefined;
       const limit = options.timeout ?? background?.limitSeconds ?? DEFAULT_COMMAND_LIMIT_SECONDS;
       const startedAt = Date.now();
-      let tail = "", seen = "";
+      let tail = "", seen = "", recent = "", stalled: string | undefined;
       /** Once in the background, its output goes there. */
       let moved: ((data: Buffer) => void) | undefined;
+      // Not for a command given its own timeout, nor one on Casper's ssh login (the other machine's work can't be seen).
+      const stallSeconds = options.timeout === undefined && !wrapped.ssh ? shell?.stallSeconds?.() : undefined;
+      const pid = stallSeconds ? pidFile(logDir) : undefined;
+      const watch = stallSeconds && pid ? watchStall({ seconds: stallSeconds, root: pid.root, onStall: () => {
+        stalled = stalledMessage(command, recent, stallSeconds);
+        stop.abort();
+      } }) : undefined;
       const onData = (data: Buffer) => {
         if (wrapped.id || wrapped.ssh?.afterAuthFail) tail = (tail + data.toString("utf8")).slice(-16_384);
+        if (watch) { watch.output(); recent = (recent + data.toString("utf8")).slice(-4_096); }
         if (moved) { moved(data); return; }
         if (background) seen = (seen + data.toString("utf8")).slice(-16_384);
         if (!logDir) { options.onData(data); return; }
@@ -1215,7 +1226,15 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
           // The private ssh login's pointer goes to this one command, after the shell's environment was cleaned.
           const env = wrapped.ssh?.env || wrapped.env
             ? { ...(options.env ?? withoutProviderKeys(process.env, shell?.keepEnv ?? [])), ...wrapped.env, ...wrapped.ssh?.env } : options.env;
-          const result = await local.exec(wrapped.command, cwd, { ...options, signal: stop.signal, timeout: background ? undefined : limit, ...(env ? { env } : {}), onData });
+          let result: { exitCode: number | null };
+          try {
+            result = await local.exec(`${pid?.prefix ?? ""}${wrapped.command}`, cwd, { ...options, signal: stop.signal, timeout: background ? undefined : limit, ...(env ? { env } : {}), onData });
+          } catch (error) {
+            if (!stalled) throw error;
+            watch?.stop();
+            onData(Buffer.from(stalled));
+            result = { exitCode: STALLED_EXIT_CODE };
+          }
           if (wrapped.id && result.exitCode !== 0 && shell?.refused) {
             const line = await shell.refused(wrapped.id, tail);
             if (line) onData(Buffer.from(`\n${line}\n`));
@@ -1225,6 +1244,8 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
           if (wrapped.ssh?.afterAuthFail && looksLikeRefusedLogin(tail)) onData(Buffer.from(`\n${wrapped.ssh.afterAuthFail}\n`));
           return result;
         } finally {
+          watch?.stop();
+          pid?.remove();
           options.signal?.removeEventListener("abort", forward);
           if (wrapped.id) shell?.finished?.(wrapped.id);
           await wrapped.ssh?.done?.().catch(() => {});
