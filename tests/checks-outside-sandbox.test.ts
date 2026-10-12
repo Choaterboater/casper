@@ -77,6 +77,10 @@ test("what counts as the sandbox's own refusal", () => {
   expect(sandboxDenialInOutput("OSError: out of pty devices")).toContain("no terminal");
   expect(sandboxDenialInOutput("expected 3 but got 4")).toBeUndefined();
   expect(sandboxDenialInOutput("EPERMISSIVE mode on")).toBeUndefined();
+  // macOS refusing Chromium's service lookup: the browser never started, so no page was checked.
+  expect(sandboxDenialInOutput("FATAL mach_port_rendezvous_mac.cc:159 bootstrap_check_in org.chromium.Chromium.MachPortRendezvousServer: Permission denied (1100)"))
+    .toContain("blocked by the sandbox");
+  expect(sandboxDenialInOutput("ssh: Permission denied (publickey)")).toBeUndefined();
 });
 
 posixOnly("sandbox.checks: outside in your own config runs checks unwrapped and says so; inside never does", async () => {
@@ -148,7 +152,7 @@ test("a blocked check starts no repair and the report says the check could not b
   const report = await verifyAndRepair({ registry, checks: ["test"], cwd: "/p", request: "x", repair: async () => { repairs++; } });
   expect(repairs).toBe(0);
   expect(runs.length).toBe(1);
-  expect(report.status).toBe("fail");
+  expect(report.status).toBe("incomplete");
   expect(report.reason).toContain("could not be checked");
   expect(report.reason).toContain("sandbox blocked something, not because of a bug in your code");
   expect(report.reason).toContain("!<command>");
@@ -164,7 +168,7 @@ test("answering 'once' runs the blocked check again outside; 'no' leaves it; sti
   expect(yes.runs.length).toBe(2);
   const no = blockedRegistry(() => false);
   const left = await verifyAndRepair({ registry: no.registry, checks: ["test"], cwd: "/p", request: "x", repair: async () => { repairs++; }, onBlocked: async () => undefined });
-  expect(left.status).toBe("fail");
+  expect(left.status).toBe("incomplete");
   expect(no.runs.length).toBe(1);
   expect(repairs).toBe(0);
 });

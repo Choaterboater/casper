@@ -268,8 +268,9 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
         continue;
       }
       if (choice === "repair") repairable = [...new Set([...repairable, ...unfinished])];
-      else if (!repairable.length && !hostFailures) {
-        return report("fail", `${unfinished.map((result) => `${result.name} ${result.ended === "timeout" ? "timed out" : "could not start"}`).join(", ")}; it did not finish, so Casper did not repair it.`);
+      else if (!repairable.length && !hostFailures && failures.every((result) => result.ended && result.ended !== "blocked")) {
+        // It never ran to the end, so it neither passed nor failed: incomplete (exit 2), not a failure of the code.
+        return report("incomplete", `${unfinished.map((result) => `${result.name} ${result.ended === "timeout" ? "timed out" : "could not start"}`).join(", ")}; it did not finish, so Casper did not repair it.`);
       }
     }
     // A check the sandbox blocked is not the code failing: ask once whether to run it outside, never repair it.
@@ -296,8 +297,10 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
     }
     // Failures that are not the model's to fix (a check said so itself): nothing to repair.
     if (!repairable.length && !hostFailures && !notes.length) {
-      if (failures.every((result) => result.ended === "blocked")) {
-        return report("fail", `${failures.map((result) => result.name).join(", ")} could not be checked, and Casper did not try to fix it. ${SANDBOX_CHECK_BLOCKED}`);
+      // Checks that never ran (the sandbox refused them, they timed out or could not start) are incomplete, not failed.
+      if (failures.every((result) => result.ended)) {
+        const blocked = failures.some((result) => result.ended === "blocked");
+        return report("incomplete", `${failures.map((result) => result.name).join(", ")} could not be checked, and Casper did not try to fix it.${blocked ? ` ${SANDBOX_CHECK_BLOCKED}` : ""}`);
       }
       return report("fail", `${failures.map((result) => result.name).join(", ")} did not pass, and it is not a failure Casper asks the model to fix.`);
     }

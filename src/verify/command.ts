@@ -280,9 +280,9 @@ export async function blockedBySandbox(sandbox: Pick<ShellSandbox, "blockedReaso
 }
 
 /** What a check prints when the sandbox, not the code, said no: EPERM / "Operation not permitted" (a unix socket, a
- * loopback address, a spawned program, /dev/fd), "out of pty devices" (no terminal for a terminal test), or the
- * sandbox's own wording. Only read for a run the sandbox held. */
-const DENIAL = /\bEPERM\b|operation not permitted|out of pty devices|blocked by the sandbox|sandbox[-\w]*\W+deny|\bdeny\(\d+\)/i;
+ * loopback address, a spawned program, /dev/fd), "out of pty devices" (no terminal for a terminal test), a macOS
+ * service lookup refused by number (Chromium: "bootstrap_check_in ...: Permission denied (1100)"), or the sandbox's own wording. Only read for a run the sandbox held. */
+const DENIAL = /\bEPERM\b|operation not permitted|out of pty devices|blocked by the sandbox|sandbox[-\w]*\W+deny|\bdeny\(\d+\)|Permission denied \(\d+\)|\bbootstrap_check_in\b/i;
 export function sandboxDenialInOutput(output: string): string | undefined {
   const found = DENIAL.exec(output)?.[0];
   if (!found) return undefined;
