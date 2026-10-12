@@ -914,6 +914,32 @@
           <li>Short notices to the model about the harness state (zaly).</li>
           <li><code>/goal verify &lt;command&gt;</code> (OMK).</li>
           <li>Image placeholders filled in parallel (OpenUI).</li>
+          <li>Browser steps wait until the target is visible, enabled and not covered, say when a click changed nothing, and report confirm and alert dialogs (Playwright, PostHog).</li>
+          <li>Each browser action says what changed on the page, so no screenshot is needed (Playwright MCP, browser-use).</li>
+          <li>Several browser steps in one call (browser-use).</li>
+          <li>Lean or full guidance per model: habit skills only for weaker models (Aider, Codex).</li>
+          <li>Broken tool arguments from small models repaired before they fail (opencode).</li>
+          <li>Edits that point at line anchors instead of retyping old text, for small and local models; a stale anchor is refused (omp).</li>
+          <li>Selected checks run in parallel, and a repair reruns the failing one first (lefthook).</li>
+          <li>A skill loads the first time a matching file is touched (Claude Code).</li>
+          <li>Slow commands move to the background instead of being stopped (Kimi CLI).</li>
+          <li><code>/rewind</code> to any earlier prompt (Gemini CLI).</li>
+          <li><code>/goal</code> keeps working until Casper's checks pass (Codex CLI).</li>
+          <li><code>/review</code> of uncommitted work, a branch or a commit (Codex CLI).</li>
+          <li>Your own slash commands from Markdown files (Gemini CLI).</li>
+          <li><code>/export</code>, and <code>/share</code> a session as a secret gist (opencode).</li>
+          <li>Notifications in more terminals, only when the terminal is not in front (Codex CLI).</li>
+          <li>Home lab skills: a media stack (*arr apps, Plex, Emby, Jellyfin, downloaders, a VPN leak check), a Docker and Compose health and drift sweep, Proxmox, RouterOS, OPNsense and Home Assistant.</li>
+          <li>Everyday server and database reads without a box, on this computer and over ssh (kubectl-ai, DBHub).</li>
+          <li>Compose folders checked with each app's own config validator.</li>
+          <li>Safe container updates with a rollback image and a config backup (dockcheck, WUD).</li>
+          <li>Read-only MCP presets for home lab servers whose code was read first.</li>
+          <li>A Proxmox snapshot undo line on the receipt.</li>
+          <li>Terraform, OpenTofu and cloud-init checks.</li>
+          <li>Postgres migrations checked in PGlite, with migration safety notes (squawk).</li>
+          <li>A network troubleshooting skill (NetClaw).</li>
+          <li>Containerlab labs used without being asked.</li>
+          <li>NAPALM dry-run diffs and Batfish before-and-after impact.</li>
         </ul>
       </section>
     </div>
