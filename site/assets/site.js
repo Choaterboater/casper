@@ -112,6 +112,37 @@
   window.addEventListener("hashchange", revealHash);
   revealHash();
 
+  // "On this page": the link for the section in view is marked, and kept in view in the sidebar.
+  var toc = document.querySelector(".toc");
+  var tocLinks = toc ? Array.prototype.filter.call(toc.querySelectorAll('a[href^="#"]'), function (link) {
+    return document.getElementById(link.getAttribute("href").slice(1));
+  }) : [];
+  if (tocLinks.length) {
+    var current = null;
+    var pending = false;
+    var markCurrent = function () {
+      pending = false;
+      var found = null;
+      tocLinks.forEach(function (link) {
+        var target = document.getElementById(link.getAttribute("href").slice(1));
+        if (target.getClientRects().length && target.getBoundingClientRect().top <= 120) found = link;
+      });
+      if (found === current) return;
+      if (current) current.removeAttribute("aria-current");
+      current = found;
+      if (!current) return;
+      current.setAttribute("aria-current", "location");
+      if (toc.scrollHeight > toc.clientHeight) {
+        var top = current.getBoundingClientRect().top - toc.getBoundingClientRect().top + toc.scrollTop;
+        if (top < toc.scrollTop || top > toc.scrollTop + toc.clientHeight - 40) toc.scrollTop = top - toc.clientHeight / 3;
+      }
+    };
+    window.addEventListener("scroll", function () {
+      if (!pending) { pending = true; window.requestAnimationFrame(markCurrent); }
+    }, { passive: true });
+    markCurrent();
+  }
+
   // 4. Divider lines in terminal captures
   var terms = document.querySelectorAll("pre.term");
   Array.prototype.forEach.call(terms, function (term) {

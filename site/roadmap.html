@@ -35,28 +35,30 @@
 
   <main id="main">
     <div class="container">
-      <h1>Roadmap</h1>
-      <p class="lead">Where Casper has been, and where it is going next. The things still on the workbench
-      first. Then the released things.</p>
-
-      <aside class="callout note">
-        <strong class="callout-title">How to read this page</strong>
-        <p><strong>Released</strong> means you can install it today. Every Casper release so far is an
-        early preview: not signed, and not a stable release. A published release is never changed;
-        every fix ships under a new version number.</p>
-        <p><span class="badge soon">built, not released</span> means it is built and in the code, and
-        ships with the next preview.</p>
-        <p><span class="badge soon">planned, not started</span> means it is the next thing planned, with a
-        version number. Nobody has started building it yet, and the details may still change.</p>
-        <p><span class="badge">idea, not scheduled</span> means it is agreed as a direction, but
-        has no version and nobody is building it yet.</p>
-      </aside>
-
       <div class="contents-layout">
+      <header class="page-head">
+        <h1>Roadmap</h1>
+        <p class="lead">Where Casper has been, and where it is going next. The things still on the workbench
+        first. Then the released things.</p>
+
+        <aside class="callout note">
+          <strong class="callout-title">How to read this page</strong>
+          <p><strong>Released</strong> means you can install it today. Every Casper release so far is an
+          early preview: not signed, and not a stable release. A published release is never changed;
+          every fix ships under a new version number.</p>
+          <p><span class="badge soon">built, not released</span> means it is built and in the code, and
+          ships with the next preview.</p>
+          <p><span class="badge soon">planned, not started</span> means it is the next thing planned, with a
+          version number. Nobody has started building it yet, and the details may still change.</p>
+          <p><span class="badge">idea, not scheduled</span> means it is agreed as a direction, but
+          has no version and nobody is building it yet.</p>
+        </aside>
+      </header>
+
       <nav class="toc" aria-label="On this page">
         <strong>On this page</strong>
         <ul>
-          <li><a href="#next">Next release, built, not released</a></li>
+          <li><a href="#next">Next release</a></li>
           <li><a href="#coming">Planned, not started</a>
             <ul>
               <li><a href="#v030">v0.3: crews</a></li>
@@ -65,37 +67,37 @@
           <li><a href="#later">Later, not scheduled</a>
             <ul>
               <li><a href="#packs">Vendor packs</a></li>
-              <li><a href="#ops-chat">Ask about your infrastructure</a></li>
+              <li><a href="#ops-chat">Ask about your setup</a></li>
               <li><a href="#quarantine">Saved readers</a></li>
-              <li><a href="#schedule">Scheduled jobs with an AI on call</a></li>
+              <li><a href="#schedule">Scheduled jobs</a></li>
               <li><a href="#terminal-check">Terminal check</a></li>
               <li><a href="#community">Community lessons</a></li>
               <li><a href="#policy">Tool rules you write</a></li>
-              <li><a href="#ideas">Ideas to borrow, not started</a></li>
+              <li><a href="#ideas">Ideas to borrow</a></li>
             </ul>
           </li>
           <li><a href="#released">Released</a>
             <ul>
-              <li><a href="#v0232">v0.2.32: a model server added by its address, no undo in a folder too big to compare, a new-version note in the footer</a></li>
-              <li><a href="#v0231">v0.2.31: steps under the AI's words, the sandbox off unless you turn it on, Pi 1.1.0</a></li>
-              <li><a href="#v0230">v0.2.30: Claude through Claude Code, pages the AI makes, fewer wasted repairs</a></li>
-              <li><a href="#v0229">v0.2.29: commands during a task, models on this computer, sign-ins from other tools</a></li>
-              <li><a href="#v0228">v0.2.28: one table of commands, screens that say things once, git push with your login</a></li>
-              <li><a href="#v0227">v0.2.27: skill packs, colour themes, a clickable /mcp, pasted pictures and files</a></li>
-              <li><a href="#v0226">v0.2.26: local models, updating on Windows, opening where you launched</a></li>
-              <li><a href="#v0225">v0.2.25: a stricter plain-read check, reviewers for builders, a calmer start</a></li>
-              <li><a href="#v0224">v0.2.24: builders the AI starts, plain words, an off switch for every default</a></li>
-              <li><a href="#v0223">v0.2.23: casper doctor, a sandboxed network server, a reader for untrusted text</a></li>
-              <li><a href="#v0222">v0.2.22: one box for every yes, a network server Casper sets up</a></li>
-              <li><a href="#v0221">v0.2.21: a clearer screen, pages at phone width</a></li>
+              <li><a href="#v0232">v0.2.32: remote model servers</a></li>
+              <li><a href="#v0231">v0.2.31: steps and sandbox off</a></li>
+              <li><a href="#v0230">v0.2.30: Claude Code sign-in</a></li>
+              <li><a href="#v0229">v0.2.29: commands mid-task</a></li>
+              <li><a href="#v0228">v0.2.28: one command table</a></li>
+              <li><a href="#v0227">v0.2.27: skill packs, themes</a></li>
+              <li><a href="#v0226">v0.2.26: local models</a></li>
+              <li><a href="#v0225">v0.2.25: a stricter plain read</a></li>
+              <li><a href="#v0224">v0.2.24: builders, plain words</a></li>
+              <li><a href="#v0223">v0.2.23: casper doctor</a></li>
+              <li><a href="#v0222">v0.2.22: one box for every yes</a></li>
+              <li><a href="#v0221">v0.2.21: a clearer screen</a></li>
               <li><a href="#v0220">v0.2.20: fewer layers</a></li>
-              <li><a href="#v0219">v0.2.19: asks before reaching other machines</a></li>
+              <li><a href="#v0219">v0.2.19: asks before remote</a></li>
               <li><a href="#v0218">v0.2.18: network skills</a></li>
-              <li><a href="#v0217">v0.2.17: undo, receipts and a sandbox</a></li>
+              <li><a href="#v0217">v0.2.17: undo and receipts</a></li>
               <li><a href="#v0216">v0.2.16: build new things</a></li>
-              <li><a href="#v0215">v0.2.15: MCP for network servers, writes off</a></li>
-              <li><a href="#v0214">v0.2.14: see it build, trust the result</a></li>
-              <li><a href="#v0213">v0.2.13: Casper runs the checks</a></li>
+              <li><a href="#v0215">v0.2.15: network MCP</a></li>
+              <li><a href="#v0214">v0.2.14: see it build</a></li>
+              <li><a href="#v0213">v0.2.13: Casper checks</a></li>
               <li><a href="#v010">v0.1.0: the first preview</a></li>
             </ul>
           </li>

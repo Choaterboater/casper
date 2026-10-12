@@ -54,8 +54,9 @@
   --radius: 8px;
   --radius-sm: 6px;
   --gutter: 16px;
-  --max: 74rem;
-  --measure: 42rem;
+  --max: 80rem;              /* every page, header and footer share these edges */
+  --measure: 42rem;          /* readable line length on the home page */
+  --toc-width: 15rem;
   --shadow: none;
 }
 
@@ -143,10 +144,20 @@ main > .container > :first-child { margin-top: 0; }
 section { margin-bottom: 2.5rem; }
 
 /*
-  Inner pages (every page but the home page): text uses the full page width,
-  lined up with the header, like the terminal captures, cards and tables.
+  Inner pages: text keeps a readable line length (about 75 characters);
+  terminal captures, card grids, tables and commands use the whole column.
 */
-body:not(.home) { --measure: none; }
+body:not(.home) { --measure: 46rem; }
+.page-head { margin-bottom: 2.25rem; }
+.page-head > :first-child { margin-top: 0; }
+.page-head > :last-child { margin-bottom: 0; }
+.page-sections section.prose { max-width: none; }
+.page-head > :not(aside),
+.page-sections section > :is(h2, h3, h4, p, ul, ol, dl, blockquote, .prose),
+.page-sections figcaption:not(.center),
+.contents-layout :is(aside, details, .card) :is(p, ul, ol, dl) {
+  max-width: var(--measure);
+}
 
 .skip-link {
   position: absolute;
@@ -567,26 +578,75 @@ details.release[open] { padding-bottom: 1.1rem; }
 .release-heading h3 { flex: 1 1 22rem; margin: 0; }
 .release-heading .badge { white-space: normal; }
 
-/* Table of contents on long pages */
+/*
+  "On this page": a box at the top on narrow screens; from 1200px a sticky
+  sidebar beside the page, its top level with the title.
+  Every inner page: <div class="contents-layout"> <header class="page-head">
+  <nav class="toc"> <div class="page-sections">. Keep link text short.
+*/
 .toc {
   background: var(--surface-2);
   border-radius: var(--radius);
-  padding: 0.9rem 1.2rem;
+  padding: 0.9rem 1rem;
   margin: 1rem 0 2rem;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
 }
-.toc ul { margin: 0.3rem 0 0; }
+.toc > strong {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+.toc ul { list-style: none; margin: 0; padding: 0; }
+.toc li + li { margin-top: 0; }
+.toc ul ul { margin: 0.1rem 0 0.3rem 0.7rem; border-left: 1px solid var(--border); }
+.toc a {
+  display: block;
+  padding: 0.28rem 0.6rem;
+  border-left: 2px solid transparent;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--muted);
+  text-decoration: none;
+}
+.toc ul ul a { margin-left: -1px; }
+.toc a:hover { color: var(--text); background: var(--surface); }
+.toc a[aria-current] { color: var(--accent); border-left-color: var(--accent); background: var(--accent-soft); }
 .page-sections { min-width: 0; }
 
 @media (min-width: 1200px) {
-  .contents-layout { display: grid; grid-template-columns: 17rem minmax(0, 1fr); gap: 2rem; align-items: start; }
-  .contents-layout > .toc { position: sticky; top: 5rem; max-height: calc(100vh - 6rem); overflow-y: auto; margin-top: 0; }
+  .contents-layout {
+    display: grid;
+    grid-template-columns: var(--toc-width) minmax(0, 1fr);
+    column-gap: 3rem;
+    align-items: start;
+  }
+  .contents-layout > .page-head { grid-column: 2; }
+  .contents-layout > .toc {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    position: sticky;
+    top: 4.75rem;
+    max-height: calc(100vh - 6rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    margin: 0;
+    padding: 0 0.25rem 0 0;
+    background: transparent;
+    font-size: 0.875rem;
+  }
+  .contents-layout > .toc > strong { padding-left: calc(0.6rem + 2px); }
+  .contents-layout > .page-sections { grid-column: 2; grid-row: 2; }
   .contents-layout > .page-sections > section:first-child > h2 { margin-top: 0; }
 }
 
 @media (max-width: 599px) {
   button, .btn, [role="tab"] { min-height: 44px; }
-  .toc a { display: block; padding: 10px 0; }
+  .toc a { display: flex; align-items: center; min-height: 44px; padding-top: 6px; padding-bottom: 6px; }
   code, kbd, samp, pre, :not(pre) > code,
   pre.term, body:not(.home) pre.term { font-size: max(13px, 0.8125rem); }
 }
@@ -632,5 +692,3 @@ details.release[open] { padding-bottom: 1.1rem; }
 .not-found .hero-logo { width: 96px; height: 96px; display: block; margin: 0 auto 1rem; }
 .not-found .lead { margin-left: auto; margin-right: auto; }
 
-/* Wide monitors: use more of the screen; the contents sidebar takes the extra room, text stays readable. */
-@media (min-width: 1600px) { :root { --max: 92rem; } }
