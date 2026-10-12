@@ -45,7 +45,9 @@ async function gitIgnored(cwd: string, signal?: AbortSignal): Promise<Set<string
     if (!await lstat(path.join(cwd, ".gitignore")).then(stat => stat.isFile(), () => false)) return undefined;
     gitDir = await emptyRepo();
     if (!gitDir) return undefined;
-    repo = [`--git-dir=${gitDir}`, `--work-tree=${cwd}`];
+    // The work tree is "." (git already runs in cwd): an absolute path can differ from what git resolves for cwd, as with
+    // Windows short names (RUNNER~1), and git then refuses the folder.
+    repo = [`--git-dir=${gitDir}`, "--work-tree=."];
   }
   return new Promise(resolve => {
     execFile("git", safeGitArgs([...repo, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"]),
