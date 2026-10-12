@@ -18,8 +18,9 @@ jobs:
     # Draft PRs wait until "Ready for review"; pushes to main and manual runs always run.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: macos-15
-    # Normal job: 8.7 min p90 of the last 40 successful runs (max 9.1). 18 is about 2x p90.
-    timeout-minutes: 20
+    # Normal job: 8.7 min p90 of the last 40 successful runs (max 9.1). 25 leaves room for the 18-minute
+    # suite step plus the browser test's own step after it.
+    timeout-minutes: 25
     defaults:
       run:
         shell: bash
@@ -57,11 +58,22 @@ jobs:
         run: bun test tests/sandbox-live.test.ts tests/sandbox-wiring.test.ts tests/sandbox-policy.test.ts 2>&1 | tee "$RUNNER_TEMP/macos-preview/sandbox.log"
       - name: Full regression suite (files in parallel)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        # Normal step: 7.5 min p90 (max 7.9). tools/stall-guard.sh stops a run silent for 180 s and writes
-        # stall-dump.txt next to the log (every process, each test worker's children, and a `sample` of
-        # where a worker on the CPU is stuck).
-        timeout-minutes: 13
-        run: bash tools/stall-guard.sh "$RUNNER_TEMP/macos-preview/full-suite.log" 180 "$RUNNER_TEMP/macos-preview/stall-dump.txt" -- bun run test
+        # Normal step: 7.5 min p90 (max 7.9); three runs were cut off at the old 13 while still printing.
+        # tools/stall-guard.sh stops a run silent for 180 s and writes stall-dump.txt next to the log (every
+        # process, each test worker's children, and a `sample` of where a worker on the CPU is stuck), then
+        # runs the file(s) Bun was still running once more on their own (once per job). This is `bun run test`
+        # in three steps: the browser test, which grew to 300 s here under load and finished last, and the
+        # real debugger test each run on their own after it.
+        timeout-minutes: 18
+        run: bash tools/stall-guard.sh "$RUNNER_TEMP/macos-preview/full-suite.log" 180 "$RUNNER_TEMP/macos-preview/stall-dump.txt" -- bun run test:suite --path-ignore-patterns='tests/phase10-browser.test.ts'
+      - name: Browser test (runs alone, after the suite)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        timeout-minutes: 8
+        run: bash tools/stall-guard.sh "$RUNNER_TEMP/macos-preview/browser.log" 180 "$RUNNER_TEMP/macos-preview/stall-dump-browser.txt" -- bun test tests/phase10-browser.test.ts
+      - name: Real debugger test (runs alone, as in bun run test)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        timeout-minutes: 5
+        run: bash tools/stall-guard.sh "$RUNNER_TEMP/macos-preview/debugger-real.log" 180 "$RUNNER_TEMP/macos-preview/stall-dump-debugger.txt" -- bun test tests/phase10-debugger-real.test.ts
       - name: Retain host verification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
