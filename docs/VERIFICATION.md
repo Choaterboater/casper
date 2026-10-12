@@ -796,6 +796,32 @@ the AI as a failure to fix.
 Turn it off with `/settings` → Playwright tests (it writes `verification.e2e: false`; a project
 file can set it too). A project that names its own `verify.checks.e2e` keeps that one instead.
 
+## Docker Compose files
+
+When a project has Docker Compose files, Casper finds a `compose` check and runs Compose's own
+validator on them, so a typo (bad indentation, an unknown key, a `${VAR}` that is not set, a wrong
+port mapping) shows up before `docker compose up`. It runs after each change to a compose file or a
+stack's folder, through `/verify compose`, and through the AI's `casper_check`.
+
+- Files: `compose.yaml`, `compose.yml`, `docker-compose.yaml` and `docker-compose.yml`, at the top of
+  the project and in folders up to two levels down (`media/compose.yaml`, `stacks/dns/compose.yaml`),
+  never in hidden folders, `node_modules` or linked folders; at most 20 files and 500 folders read,
+  found again on each run.
+- Each file runs `docker compose -f <file> config --quiet` in its own folder, so that folder's `.env`
+  is read. `config` needs no Docker daemon and never pulls or starts anything. `--quiet` matters:
+  plain `config` prints the file with the `.env` values filled in.
+- A failure names each file and Compose's error:
+  `✗ compose failed (media/compose.yaml is not valid — … additional properties 'imagee' not allowed)`.
+  Compose's errors can repeat a `.env` value (`invalid hostPort: <value>`): secret-named and other long
+  values from that folder's `.env` are shown as `<secret hidden>`.
+
+Casper never installs Docker. Without `docker` on PATH, or without its `compose` command, the check
+only skips and says so; neither goes to the AI as a failure to fix. Like every check, it runs in the
+shell sandbox where one runs.
+
+Turn it off with `/settings` → Compose files (it writes `verification.compose: false`; a project file
+can set it too). A project that names its own `verify.checks.compose` keeps that one instead.
+
 ## SQL migrations check
 
 New in v0.2.16.
@@ -846,7 +872,8 @@ Casper knows four checks: `typecheck`, `lint`, `test` and `build`. For each one 
 From v0.2.16 a project can also name its own checks under
 `verify.checks.<name>` (see [Configuration](#configuration)), Casper finds a `migrations` check
 (see [SQL migrations check](#sql-migrations-check)), from v0.2.23 an `e2e` check for the project's
-own Playwright tests (see [End-to-end tests](#end-to-end-tests-playwright)), and it finds ready-made checks for Ansible
+own Playwright tests (see [End-to-end tests](#end-to-end-tests-playwright)), a `compose` check for its
+Docker Compose files (see [Docker Compose files](#docker-compose-files)), and it finds ready-made checks for Ansible
 playbooks (see [NETWORK-CHECKS.md](NETWORK-CHECKS.md)).
 
 From v0.2.19 a Python project with `test*.py` files that use `unittest`, and no pytest, gets
@@ -891,6 +918,7 @@ repair:
 | `verification.checklist` | any config file | unset (interactive code changes only) |
 | `verification.acceptance` | any config file | `false` |
 | `verification.e2e` | any config file | `true` (the found Playwright check runs) |
+| `verification.compose` | any config file | `true` (the found Compose check runs) |
 | `repair.maxAttempts` | any config file | `3`, 0 to 10 |
 
 "Any config file" means `~/.casper/config.yaml`, the profile's `config.yaml` or the project

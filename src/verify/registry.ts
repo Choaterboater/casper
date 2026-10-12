@@ -7,6 +7,7 @@ import { isBuiltinCheck, labOnlyByYou, modelNamedChecks, type NamedCheckSpec } f
 import { detectedMigrations, MIGRATIONS_CHECK, migrationsRunnable, runDetectedMigrations } from "./migrations-check";
 import { migrationsScope } from "./migrations";
 import { detectedE2e, E2E_CHECK, e2eNotInstalled, e2eResult } from "./e2e";
+import { COMPOSE_CHECK, COMPOSE_COMMAND, composeScope, detectedCompose, DOCKER_MISSING, runComposeCheck } from "./compose";
 import type { VerificationScope } from "./scope";
 
 export interface Verifier {
@@ -36,7 +37,7 @@ export interface ForProjectOptions {
   /** Runs a device (lab) check after asking the person in a numbered box (the app passes one for /verify and for the
    * AI's casper_check in an interactive session). Without it a lab check never starts. */
   runLab?: NamedCheckRunner;
-  /** Tool PATH, temp folder and home for the default preset runner. */
+  /** Tool PATH, temp folder and home for the default preset runner. The compose check looks for docker on this PATH too. */
   network?: NetworkToolContext;
 }
 
@@ -177,13 +178,24 @@ export class VerifierRegistry {
           : !installed ? { name: E2E_CHECK, cwd, status: "skip", ...nothing, reason: e2eNotInstalled(model.packageManager), repair: "never" }
           : e2eResult(await runCommandCheck({ name: E2E_CHECK, command, cwd, timeoutMs: limit(runOptions?.timeoutMs), signal, onCleanupFailure: onCleanup, ...wrap })) });
     }
+    // The project's Docker Compose files (unless it named its own `compose`), checked with Compose's own validator.
+    // No docker on PATH: it only skips and says why.
+    const compose = detectedCompose(model);
+    if (compose) {
+      const plan = structuredClone(compose);
+      const env = options.network?.path ? { env: { ...process.env, PATH: options.network.path } } : {};
+      registry.register({ name: COMPOSE_CHECK, command: COMPOSE_COMMAND, scope: composeScope(plan), ...(plan.docker ? {} : { runnable: false as const }),
+        run: async (signal, runOptions) => cleanupFailed ? blocked(COMPOSE_CHECK)
+          : !plan.docker ? { name: COMPOSE_CHECK, cwd, status: "skip", ...nothing, reason: DOCKER_MISSING, repair: "never" }
+          : runComposeCheck({ root: cwd, timeoutMs: limit(runOptions?.timeoutMs), signal, onCleanupFailure: onCleanup, ...wrap, ...env }) });
+    }
     return registry;
   }
 }
 
 /** The names /verify runs when none are given: the built-in checks and every named check but lab ones. */
-export function defaultVerifyNames(model: Pick<ProjectModel, "namedChecks" | "migrations" | "e2e">): CheckName[] {
+export function defaultVerifyNames(model: Pick<ProjectModel, "namedChecks" | "migrations" | "e2e" | "compose">): CheckName[] {
   const migrations = detectedMigrations(model);
   return [...CHECK_NAMES, ...modelNamedChecks(model.namedChecks), ...(migrations && migrationsRunnable(migrations) ? [MIGRATIONS_CHECK] : []),
-    ...(detectedE2e(model)?.installed ? [E2E_CHECK] : [])];
+    ...(detectedE2e(model)?.installed ? [E2E_CHECK] : []), ...(detectedCompose(model)?.docker ? [COMPOSE_CHECK] : [])];
 }

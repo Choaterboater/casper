@@ -8,6 +8,7 @@ import type { VisualizationSettings } from "../visualize/router";
 import type { ProjectInfo } from "./inspect";
 import { loadProjectModel, projectStateDirectory, type ProjectModel } from "./model";
 import { detectMigrations } from "../verify/migrations";
+import { detectCompose } from "../verify/compose";
 import { detectE2e } from "../verify/e2e";
 import { detectAnsible } from "../network/ansible";
 import type { LabSettings } from "../network/spec";
@@ -142,8 +143,11 @@ export async function loadProjectContext(
   const ansible = await detectAnsible(info.root).catch(() => undefined);
   // And Playwright tests the project already has, unless verification.e2e is false (/settings).
   const e2e = configuration.verification.e2e === false ? undefined : await detectE2e(info.root, detected.packageManager).catch(() => undefined);
+  // And Docker Compose files, checked with Compose's own validator, unless verification.compose is false (/settings).
+  const compose = configuration.verification.compose === false ? undefined : await detectCompose(info.root).catch(() => undefined);
   let model = migrations ? { ...detected, migrations } : detected;
   if (e2e && !model.namedChecks?.e2e) model = { ...model, e2e };
+  if (compose && !model.namedChecks?.compose) model = { ...model, compose };
   if (ansible) {
     const found: Record<string, NamedCheckSpec> = {};
     for (const [name, spec] of Object.entries(ansible.checks)) if (!model.namedChecks?.[name]) found[name] = spec;

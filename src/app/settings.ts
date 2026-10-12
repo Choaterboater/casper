@@ -138,6 +138,7 @@ export function settingRows(context: ProjectContext): Setting[] {
   const spend = context.spend ?? DEFAULT_SPEND_LIMITS;
   const display = context.display ?? "normal";
   const e2e = context.verification.e2e !== false;
+  const compose = context.verification.compose !== false;
   const build = context.delegate?.build !== false;
   const amount = (dollars: number | undefined) => dollars === undefined ? "off" : `at ${formatLimit(dollars)} a task`;
   const money = (key: "noteAt" | "pauseAt", label: string, verbs: [off: string, on: string], about: string): Setting => {
@@ -220,6 +221,11 @@ export function settingRows(context: ProjectContext): Setting[] {
       keep: `Keep them ${e2e ? "on" : "off"}`,
       choices: [e2e ? { label: "Turn them off", keys: ["verification", "e2e"], value: false, shown: "off" }
         : { label: "Turn them on", keys: ["verification", "e2e"], value: true, shown: "on" }] },
+    { label: "Compose files", value: compose ? "on" : "off", applies: "task",
+      question: `Casper checks a project's Docker Compose files with docker compose config after each change to them, when docker is installed. It is ${compose ? "on" : "off"}.`,
+      keep: `Keep it ${compose ? "on" : "off"}`,
+      choices: [compose ? { label: "Turn it off", keys: ["verification", "compose"], value: false, shown: "off" }
+        : { label: "Turn it on", keys: ["verification", "compose"], value: true, shown: "on" }] },
     onOffRow("Send Casper's name to OpenRouter", context.telemetry !== false,
       "On OpenRouter requests Casper sends only the app name and site, so OpenRouter files the use under Casper (kept out of its public rankings for now); nothing about your code. CASPER_TELEMETRY=0 turns it off too.",
       ["telemetry"], false, "step"),

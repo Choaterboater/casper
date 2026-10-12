@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { ComposePlan } from "../verify/compose";
 import type { E2ePlan } from "../verify/e2e";
 import type { ProjectInfo } from "./inspect";
 import type { NamedCheckSpec } from "../verify/named";
@@ -39,6 +40,8 @@ export interface ProjectModel {
   namedChecks?: Record<string, NamedCheckSpec>;
   /** Playwright tests the project already has (the e2e check); found when the project is opened, never cached. */
   e2e?: E2ePlan;
+  /** Docker Compose files the project has (the compose check); found when the project is opened, never cached. */
+  compose?: ComposePlan;
   /** SQL migrations found in the project (the migrations check); found when the project is opened, never cached. */
   migrations?: MigrationPlan;
   /** Ready-made checks Casper found for the project (Ansible playbooks) that the project has not saved under

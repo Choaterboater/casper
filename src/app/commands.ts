@@ -53,6 +53,7 @@ import type { RuntimeAuthenticationResult, RuntimeAuthProvider, RuntimeSession, 
 import { describeChecksPlan, type ChecksPlan } from "../verify/mode";
 import { detectedMigrations, MIGRATIONS_CHECK } from "../verify/migrations-check";
 import { detectedE2e, E2E_CHECK } from "../verify/e2e";
+import { COMPOSE_CHECK, detectedCompose } from "../verify/compose";
 import { TOOL_CALL_LIMIT, type TaskObservations } from "../task/observations";
 import { formatTaskResult, NO_CHECKS_FOUND, type PartNotReviewed, type TaskResult } from "../task/result";
 import { UndoStore } from "../task/undo";
@@ -630,7 +631,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       const named = host.projectContext?.model.namedChecks ?? {};
       const found = host.projectContext?.model.foundChecks ?? {};
       const detected = [...(host.projectContext && detectedMigrations(host.projectContext.model) ? [MIGRATIONS_CHECK] : []),
-        ...(host.projectContext && detectedE2e(host.projectContext.model) ? [E2E_CHECK] : [])];
+        ...(host.projectContext && detectedE2e(host.projectContext.model) ? [E2E_CHECK] : []),
+        ...(host.projectContext && detectedCompose(host.projectContext.model) ? [COMPOSE_CHECK] : [])];
       const unsaved = args.find((arg) => Object.hasOwn(found, arg) && !Object.hasOwn(named, arg));
       if (unsaved) {
         host.output.write(`[verify] ${unsaved} is a check Casper found but you have not saved, so it does not run. /verify add ${unsaved} saves it in .casper/project.yaml.\n`);

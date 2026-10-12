@@ -51,7 +51,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/btw <question>` | A side question, idle or during a task: your fast model answers with no tools, and the conversation never sees it (like a line you start with `?`; works with side questions off) |
 | `/suggestions [on\|off]` | List the suggested next steps, or turn them on or off |
 | `/details [quiet\|normal\|detailed]` | How much work shows, remembered like `/effort` (`--session` for this session only); alone, the level now; Ctrl+T shows the last step in full |
-| `/settings`, `/config` | Shows every switch and where it stands at a glance, then changes one by number: web lookups, the AI's browser and diagram tools, the new-version notice, suggestions, side questions with ?, built-in skills, spend notes and pause, the prompt cache, page checks, showing the AI the pages, the work shown, the untrusted-text reader, helpers that build, Playwright tests and sending Casper's name to OpenRouter ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
+| `/settings`, `/config` | Shows every switch and where it stands at a glance, then changes one by number: web lookups, the AI's browser and diagram tools, the new-version notice, suggestions, side questions with ?, built-in skills, spend notes and pause, the prompt cache, page checks, showing the AI the pages, the work shown, the untrusted-text reader, helpers that build, Playwright tests, Compose files and sending Casper's name to OpenRouter ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
 | `/theme` | The Theme row of `/settings` on its own: pick the screen's colours |
 | `/hotkeys` | The keys Casper uses, one a line |
 | `/copy [n]` | Copy the last answer, or its code block n, to the clipboard |
