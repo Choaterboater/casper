@@ -56,6 +56,7 @@ import { attachImages } from "./images";
 import { confirmYes } from "./approvals";
 import { lookPrompt, pageLook, SHOW_PAGES_CHOICES, SHOW_PAGES_QUESTION } from "../services/page-look";
 import { offerNewProject, childProjectOfTask, runChildChecks, offerWorkFolder } from "./workspace";
+import { settlePictures } from "./pictures";
 import { runVerification, writeCheckResult, taskNetworkOptions, checksPlan, saveFoundCheck, projectAfterSetup } from "./verification";
 import { reportSkillWarnings } from "./wiring";
 import { ensureRuntime } from "./runtime-start";
@@ -262,6 +263,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         if (app.closing || app.commandAbort?.signal.aborted) return;
       }
       await session.prompt([
+        // A picture that failed after the last request ended, told once.
+        ...app.pendingPictures.takeUnseen(),
         memoryContext,
         skillContext,
         formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving, typed,
@@ -275,6 +278,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       ].filter(Boolean).join("\n\n"), app.commandAbort?.signal, { request: prompt, maxTurns: app.maxTurns, ...(images.length ? { images } : {}) });
       await retryModelFailure(app, session, prompt);
     } finally {
+      // Pictures still being made are finished before the work is looked at, also when the turn failed.
+      await settlePictures(app);
       // A switch to a model that sees pictures was for this request's own turn; checks and repairs run on yours.
       if (visionBack && !app.closing) await restoreModel(app, session, visionBack);
     }
@@ -764,7 +769,9 @@ export async function showPagesAllowed(app: CasperApp): Promise<boolean> {
  * is not the task's stop: Casper goes on with the checks and the proof. True when that budget ended it. */
 export async function promptRound(app: CasperApp, session: RuntimeSession, text: string, request: string, images?: RuntimeImage[]): Promise<boolean> {
   const roundBudget = app.maxTurns === undefined || ROUND_MAX_TURNS < app.maxTurns;
-  await session.prompt(text, app.commandAbort?.signal, { request, maxTurns: roundBudget ? ROUND_MAX_TURNS : app.maxTurns, ...(images?.length ? { images } : {}) });
+  try { await session.prompt(text, app.commandAbort?.signal, { request, maxTurns: roundBudget ? ROUND_MAX_TURNS : app.maxTurns, ...(images?.length ? { images } : {}) }); }
+  // A picture the round made is there before the checks and the proof look again.
+  finally { await settlePictures(app); }
   if (!roundBudget || app.taskTurnLimit === undefined) return false;
   app.taskTurnLimit = undefined;
   return true;

@@ -35,6 +35,8 @@ export interface RuntimeStartOptions {
   beforeToolGate?: (toolName: string, input: Record<string, unknown> | undefined) => string | undefined;
   /** May wait (for a question) before a tool call runs; a reason stops the model's turn. Casper's spend pause. */
   beforeToolWait?: (toolName: string, signal?: AbortSignal) => Promise<string | undefined>;
+  /** May wait for background work the call would touch (a picture being made); returns notes for its result. */
+  beforeToolNotes?: (toolName: string, input: Record<string, unknown>, signal?: AbortSignal) => Promise<string[]>;
   /** Hide device secrets in native tool output (read, bash, powershell, grep) before the model sees
    * it. Gets every text block of one result; returns the replaced blocks and a note, or undefined
    * to leave the result as it is. Also called for failed commands, whose output is still shown. */

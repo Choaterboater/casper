@@ -174,7 +174,8 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
 - **Guard rails:** Casper never reads or reuses Codex's sign-in; Codex runs in an empty temp folder under its own
   `-s read-only` sandbox and gets none of Casper's or the shell's keys (only PATH, HOME, user, locale, temp,
   Codex-home, proxy, certificate and Windows system variables); a description holding a secret is never sent; every picture is recorded in the task's
-  spend, $0 ones too.
+  spend, $0 ones too. The paid-model check runs when the call is made, before the picture goes to the background
+  (`src/pictures/pending.ts`); the task's end waits for every picture, so its cost is in that task's receipt.
 - **A finding:** Codex's token is read or sent by Casper; Codex gets an API key or Casper's keys; a paid model
   runs without the user's request naming it or `pictures.models` listing it.
 

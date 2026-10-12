@@ -67,6 +67,8 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
           ?? ((changes) => changes ? editGateReason(app, changes) : undefined)(fileChangeTool(toolName, input)),
         // At the spend pause the next tool call waits for the answer (Stop here is the Enter choice).
         beforeToolWait: (_toolName, signal) => spendGate(app, signal),
+        // A picture still being made that the call could touch is finished first; a failure is told to the call.
+        beforeToolNotes: (toolName, input, signal) => app.pendingPictures.before(toolName, input, app.activeWorkspaceRoot(), signal),
         // Config files and config-looking command output (/secrets files off stops these for this
         // session), plus .env, credential files and secret env values (always).
         scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(app.scrubber, toolName, input, texts, signal, { configs: app.scrubFiles, networkLoginFile: networkLoginFile(app) }),

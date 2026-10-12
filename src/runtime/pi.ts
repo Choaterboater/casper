@@ -965,6 +965,19 @@ export class PiRuntime implements AgentRuntime {
           const reason = loopGuard.before(event.toolCallId, event.toolName, event.input);
           if (reason) return { block: true, reason };
         });
+        // After every refusal above: a refused call never waits. A picture the call would touch is finished first.
+        const waitNotes = new Map<string, string[]>();
+        if (options.beforeToolNotes) {
+          pi.on("tool_call", async (event, ctx) => {
+            const notes = await options.beforeToolNotes!(event.toolName, event.input, ctx.signal);
+            if (notes.length) waitNotes.set(event.toolCallId, notes);
+          });
+          pi.on("tool_result", (event) => {
+            const notes = waitNotes.get(event.toolCallId);
+            waitNotes.delete(event.toolCallId);
+            if (notes) return { content: [...event.content, ...notes.map((text) => ({ type: "text" as const, text }))] };
+          });
+        }
         if (!readOnly) pi.on("tool_result", (event) => {
           const absolute = outside.get(event.toolCallId);
           if (absolute === undefined) return;

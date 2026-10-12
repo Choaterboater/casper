@@ -7,6 +7,7 @@ import { openNoFollow } from "../platform/files";
 import { codexSignedIn, findCodex } from "../pictures/codex";
 import { pictureTool } from "../pictures/tool";
 import type { RuntimeTool } from "../runtime/types";
+import { terminalText } from "../tui/format";
 import { ownSecretValues } from "./network-host";
 import { appAgentDir, observeEdit } from "./runtime-start";
 
@@ -36,6 +37,7 @@ export async function pictureToolFor(app: CasperApp, wanted: boolean): Promise<R
     record: (usage) => app.observations.recordModelCall(usage),
     saved: (file) => observeEdit(app, file),
     shrink: { env },
+    background: app.pendingPictures,
   });
   return app.pictureTool;
 }
@@ -52,4 +54,10 @@ async function signedIn(app: CasperApp, provider: "openrouter" | "openai", env: 
       return Boolean(saved && typeof saved === "object" && Object.hasOwn(saved, provider));
     } finally { await file.close(); }
   } catch { return false; }
+}
+
+/** The end of a request's turn: every picture still being made is finished before the checks run. A failure no tool
+ * call was told about is shown, and goes to the model with its next tool result or request. */
+export async function settlePictures(app: CasperApp, signal = app.commandAbort?.signal): Promise<void> {
+  for (const failure of await app.pendingPictures.settle(signal)) app.output.write(`[picture] ${terminalText(failure)}\n`);
 }
