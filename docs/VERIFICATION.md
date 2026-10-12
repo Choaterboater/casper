@@ -721,10 +721,32 @@ same one repair turn as the accessibility notes:
   – /shop: 1 image didn't load: /img/hero.jpg · the same picture is on 4 items: /img/bag.jpg
 ```
 
+**Feel notes.** Casper also names what would feel wrong to use, as more look notes in the same turn.
+At desktop width: developer or broken text a person can see (`[object Object]`, `Invalid Date`, `NaN`,
+`{{…}}` or `${…}`, raw JSON, ISO timestamps, HTML entities shown as text, lorem ipsum, UUIDs and long hex
+ids, `undefined` or `null` alone or after `:` or a currency sign, a time zone such as `Europe/London`
+outside a picker, and "1 bags"), quoted and cut to 30 characters, never inside `code`, `pre` or a field;
+the layout jumping while it loads (a shift score of 0.1 or more, with what moved and the images that
+have no `width` and `height` or `aspect-ratio`); and a focus ring drawn round `main`, the heading or a
+big box as the page opens (a field or button focused on load is fine). At phone width: a page footer
+taller than half the screen (a card's own footer is left out), and a control a fixed or sticky layer
+covers at the top or the bottom of the page (a dialog is meant to cover it). Each is one note naming
+at most 3, and none ever fails a page.
+
 **Chrome.** Pages are opened in a fresh headless Chrome (`CASPER_BROWSER_EXECUTABLE`, else an installed
 Chrome or Chromium; Casper never downloads one). Without Chrome, Casper only fetches the page and says so:
 `✓ /dashboard answers (HTTP 200) · console not checked: no Chrome found (install Chrome or set
 CASPER_BROWSER_EXECUTABLE)`. That is never a failure.
+
+**Links.** After the changed pages, Casper opens up to 5 pages they link to on the same site, each once
+and never one it already opened: a plain GET that waits for the page to settle and looks for an error
+overlay, console errors and a page that shows nothing (no phone size, notes or pictures, so a second or
+two each). It never follows a link with a query or a `#`, a `download` or `rel="nofollow"` link, an
+`/api/` path, a file that isn't a page, a path with log out, sign out, delete, remove, destroy,
+reset, unsubscribe, cancel, clear or admin in it, or one with an action word such as `add`, `confirm`
+or `toggle` as a part (`/cart/add/3`), and it never sends a form. What is wrong is a look note on the
+page that links there (`link /about returns 404`, `link /help is blank`; a page that asks to sign in
+first, 401 or 403, is not); those pages were not changed in the task, so this never fails a page.
 
 **When pages are not checked.** A project Casper can't start is a note, never a failure:
 `– Pages not checked: node_modules is missing. Run bun install first (Casper doesn't install packages)`.

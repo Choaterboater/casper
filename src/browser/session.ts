@@ -82,9 +82,15 @@ export interface PageLoad {
   a11y?: A11yFindings;
   /** Exact facts about the look: images and drawn pictures (art) at desktop width, then (at phone width) what runs past the screen and small tap targets. */
   look?: LookFacts;
+  /** What makes the page feel wrong to use: developer text, layout jumps, a focus ring on load, a huge phone footer, controls under a fixed layer. */
+  feel?: FeelFacts;
   /** Pictures of the page at desktop (the whole page, up to 4000 px) and phone width (the visible screen) (PNG paths outside the project), when asked for and
    * they could be saved (not on Windows yet). */
   screenshots?: { desktop?: string; phone?: string };
+  /** Same-origin paths the page links to that are safe to open with a GET (see `followableLinks`), up to 20. Absent in a light load. */
+  links?: string[];
+  /** A light load only: the page shows nothing (no text, picture or control). */
+  blank?: boolean;
 }
 /** Counts of common accessibility misses on a loaded page. They are notes for the person, never a failure. */
 export interface A11yFindings {
@@ -125,6 +131,19 @@ export interface ArtFacts {
   fixedColors: string[];
   /** The same for icon files shown with `<img>`, which the page's CSS can't reach. */
   fixedFiles: string[];
+}
+/** What a person using the page would feel is wrong. Notes, never a failure. Lists name the first 3. */
+export interface FeelFacts {
+  /** At desktop width, developer or broken text people can see ("[object Object]", a UUID, "1 bags"), quoted and cut to 30 characters. */
+  devText: string[];
+  /** At desktop width, how far the layout jumped while loading (CLS, its largest window), what moved and the images with no size. */
+  shift: { score: number; moved: string[]; unsized: string[] };
+  /** At desktop width, a page region (main, the heading, a big box) drawn with a focus ring as the page opens. */
+  focusRing?: string;
+  /** At phone width, the page footer's height when it is over half the screen. */
+  footer?: number;
+  /** At phone width, controls a fixed or sticky layer covers at the top or the bottom of the page: `button "Pay" (under div.toast)`. */
+  covered: string[];
 }
 /** How a page fits a phone screen: its width against the screen's, and the text fields too squashed to show a line. */
 export interface PhoneFit { viewport: number; pageWidth: number; squashed: string[] }
@@ -353,6 +372,134 @@ const ART_FACTS = async (colorsOnly: boolean): Promise<{ background: string; col
   }
   return { background, colors, items };
 };
+/** Runs in each new page before its own scripts: keeps the layout shifts not caused by input, with what moved. */
+const WATCH_SHIFTS = () => {
+  const name = (node: Node | null | undefined) => {
+    if (!(node instanceof Element)) return "";
+    const tag = node.tagName.toLowerCase();
+    return (node.id ? `${tag}#${node.id}` : node.classList[0] ? `${tag}.${node.classList[0]}` : tag).slice(0, 60);
+  };
+  const shifts: Array<{ value: number; time: number; moved: string[] }> = [];
+  Object.defineProperty(window, "__casperShifts", { value: shifts });
+  type Shift = { value: number; startTime: number; hadRecentInput: boolean; sources?: Array<{ node?: Node | null }> };
+  try {
+    new PerformanceObserver(list => {
+      for (const entry of list.getEntries() as unknown as Shift[]) {
+        if (!entry.hadRecentInput && shifts.length < 500) shifts.push({ value: entry.value, time: entry.startTime, moved: (entry.sources ?? []).map(source => name(source.node)).filter(Boolean) });
+      }
+    }).observe({ type: "layout-shift", buffered: true });
+  } catch {}
+};
+/** Runs in the page: what makes it feel wrong to use. At desktop width, developer or broken text, layout jumps and a
+ * focus ring drawn round a page region on load; at phone width, a huge footer and controls a fixed layer covers. */
+const FEEL_FACTS = (phone: boolean): FeelFacts => {
+  const visible = (element: Element) => (element as HTMLElement).checkVisibility?.({ checkOpacity: true, checkVisibilityCSS: true }) ?? true;
+  const words = (element: Element) => ((element as HTMLElement).innerText ?? element.textContent ?? "").replace(/\s+/g, " ").trim();
+  const name = (element: Element) => {
+    const tag = element.tagName.toLowerCase(), label = words(element).slice(0, 20);
+    return (element.id ? `${tag}#${element.id}` : element.classList[0] ? `${tag}.${element.classList[0]}` : label ? `${tag} "${label}"` : tag).slice(0, 60);
+  };
+  const facts: FeelFacts = { devText: [], shift: { score: 0, moved: [], unsized: [] }, covered: [] };
+  if (!phone) {
+    // Developer or broken text: never inside code, a form's own value or a script.
+    const always = [/\[object Object\]/, /\bInvalid Date\b/, /\bNaN\b/, /\{\{[^{}]{0,60}\}\}/, /\$\{[^{}]{0,60}\}/, /^(?:\[\s*)?\{\s*"[^"]{1,40}"\s*:/,
+      /\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/, /&(?:amp|lt|gt|quot|apos|nbsp|copy|mdash|ndash|hellip|[lr][sd]quo|#\d{2,5}|#x[\da-f]{2,4});/i, /\blorem ipsum\b/i,
+      /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i, /^(?:undefined|null)$/, /[:$€£¥]\s*(?:undefined|null)\b/];
+    const hexId = /\b[0-9a-f]{24,}\b/i;
+    const zone = /\b(?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific|Etc)\/[A-Z][A-Za-z_]+(?:\/[A-Z][A-Za-z_]+)?\b/;
+    // "1 bags": a 1 that is not part of a number, a price ("$1 drinks") or a name ("Step 1 is"), then a plural that is
+    // not a verb ("table 1 seats 4", "option 1 gives").
+    const one = /(?<![\p{L}\p{N}.,#/$€£¥₹+\-–−:]|\b\p{Lu}\p{L}*\s+)1\s+(\p{Ll}{2,}s)\b(?!\s+\d)/u;
+    const singular = new Set(["news", "series", "species", "yes", "its", "this", "was", "has", "does", "goes", "plus", "minus", "always", "perhaps", "sometimes",
+      "means", "lens", "gas", "bus", "vs", "as", "kudos", "physics", "maths", "mathematics", "economics", "ethics", "politics", "analytics", "pants", "jeans",
+      "scissors", "thanks", "whereas", "besides", "towards", "afterwards", "gets", "takes", "gives", "makes", "seats", "sleeps", "costs", "needs", "includes",
+      "wins", "starts", "ends", "runs", "opens", "closes", "shows", "leads", "comes", "holds", "covers", "offers", "contains", "requires", "allows", "lets",
+      "says", "works", "looks", "seems", "becomes", "remains", "stays", "lasts", "applies", "saves", "earns", "pays", "counts", "fits", "serves", "feeds"]);
+    const found = new Set<string>();
+    const walker = document.createTreeWalker(document.body ?? document.documentElement, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(), seen = 0; node && found.size < 3 && seen < 3000; node = walker.nextNode()) {
+      const parent = node.parentElement, text = (node.textContent ?? "").replace(/\s+/g, " ").trim();
+      if (!parent || !text || parent.closest("code, pre, kbd, samp, var, script, style, noscript, template, textarea, [contenteditable]") || !visible(parent)) continue;
+      seen++;
+      let at = -1, length = 0;
+      for (const pattern of always) { const match = pattern.exec(text); if (match) { at = match.index; length = match[0].length; break; } }
+      const hex = at < 0 ? hexId.exec(text) : null;
+      if (hex && /\d/.test(hex[0]) && /[a-f]/i.test(hex[0])) { at = hex.index; length = hex[0].length; }
+      const place = at < 0 && !parent.closest("select, datalist, option") ? zone.exec(text) : null;
+      if (place) { at = place.index; length = place[0].length; }
+      const plural = at < 0 ? one.exec(text) : null;
+      if (plural && !singular.has(plural[1]!) && !/(?:ss|us|is)$/.test(plural[1]!)) { at = plural.index; length = plural[0].length; }
+      if (at < 0) continue;
+      const start = text.length <= 30 || length >= 30 ? Math.min(at, Math.max(0, text.length - 30)) : Math.max(0, at - Math.floor((30 - length) / 2));
+      found.add(text.slice(start, start + 30));
+    }
+    facts.devText = [...found];
+    // Layout shifts in session windows (a gap under 1 s, at most 5 s long), as Chrome's CLS counts them.
+    const shifts = ((window as unknown as { __casperShifts?: Array<{ value: number; time: number; moved: string[] }> }).__casperShifts ?? []);
+    let best = { score: 0, moved: [] as string[] }, current = { score: 0, moved: [] as string[], start: -Infinity, last: -Infinity };
+    for (const shift of shifts) {
+      if (shift.time - current.last >= 1000 || shift.time - current.start >= 5000) current = { score: 0, moved: [], start: shift.time, last: shift.time };
+      current.score += shift.value; current.last = shift.time; current.moved.push(...shift.moved);
+      if (current.score > best.score) best = { score: current.score, moved: [...current.moved] };
+    }
+    const unsized = best.score <= 0 ? [] : Array.from(document.images).filter(image => visible(image) && image.getAttribute("src") && !(image.hasAttribute("width") && image.hasAttribute("height"))
+      && getComputedStyle(image).aspectRatio === "auto").map(image => {
+      try { const address = new URL(image.currentSrc || image.src); return (address.origin === location.origin ? address.pathname : `${address.origin}${address.pathname}`).slice(0, 60); }
+      catch { return image.src.slice(0, 60); }
+    });
+    facts.shift = { score: Math.round(best.score * 100) / 100, moved: [...new Set(best.moved)].slice(0, 3), unsized: [...new Set(unsized)].slice(0, 3) };
+    // A focus ring round a page region as the page opens. A field or button focused on load is fine.
+    const active = document.activeElement;
+    if (active && active !== document.body && active !== document.documentElement && visible(active)
+      && !active.matches('input, select, textarea, button, a[href], summary, iframe, [contenteditable], [role="button"]')) {
+      const box = active.getBoundingClientRect(), style = getComputedStyle(active);
+      const region = active.matches('main, h1, [role="main"]') || box.width * box.height >= 0.25 * innerWidth * innerHeight;
+      const ring = style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0 && !/^(?:transparent|rgba\(.*,\s*0\))$/.test(style.outlineColor);
+      if (region && ring) facts.focusRing = name(active);
+    }
+    return facts;
+  }
+  // The page footer, not one inside a card, an article or a section.
+  const footers = Array.from(document.querySelectorAll('footer, [role="contentinfo"]')).filter(footer => visible(footer)
+    && !footer.parentElement?.closest('article, aside, section, nav, li, dialog, footer, [role="dialog"], [class*="card" i]'));
+  const tallest = Math.max(0, ...footers.map(footer => footer.getBoundingClientRect().height));
+  if (tallest > innerHeight * 0.5) facts.footer = Math.round(tallest);
+  // Fixed and sticky layers, not dialogs: a dialog is meant to cover the page.
+  const screen = innerWidth * innerHeight;
+  const layers: Element[] = [];
+  for (const element of Array.from(document.body?.querySelectorAll("*") ?? []).slice(0, 5000)) {
+    const position = getComputedStyle(element).position;
+    if ((position !== "fixed" && position !== "sticky") || layers.some(layer => layer.contains(element)) || !visible(element)) continue;
+    const box = element.getBoundingClientRect();
+    const shown = Math.max(0, Math.min(box.right, innerWidth) - Math.max(box.left, 0)) * Math.max(0, Math.min(box.bottom, innerHeight) - Math.max(box.top, 0));
+    if (!shown || shown >= 0.6 * screen || element.closest('dialog, [role="dialog"], [role="alertdialog"], [aria-modal="true"]')) continue;
+    layers.push(element);
+  }
+  if (!layers.length) return facts;
+  const controls = Array.from(document.querySelectorAll('a[href], button, input:not([type="hidden"]), select, textarea, [role="button"]'))
+    .filter(control => visible(control) && !layers.some(layer => layer.contains(control)));
+  const covered = new Set<string>();
+  // At the top only a layer at the top is checked, at the bottom one at the bottom: anywhere else a person scrolls the control out from under it.
+  for (const where of ["top", "bottom"] as const) {
+    window.scrollTo({ top: where === "top" ? 0 : document.documentElement.scrollHeight, behavior: "instant" });
+    for (const control of controls) {
+      if (covered.size >= 3) break;
+      const box = control.getBoundingClientRect();
+      const x = box.left + box.width / 2, y = box.top + box.height / 2;
+      if (!box.width || !box.height || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) continue;
+      const hit = document.elementFromPoint(x, y);
+      if (!hit || control.contains(hit) || hit.contains(control)) continue;
+      const layer = layers.find(candidate => candidate.contains(hit));
+      if (!layer) continue;
+      const area = layer.getBoundingClientRect();
+      if ((area.top + area.height / 2 < innerHeight / 2) !== (where === "top")) continue;
+      covered.add(`${name(control)} (under ${name(layer)})`);
+    }
+  }
+  window.scrollTo({ top: 0, behavior: "instant" });
+  facts.covered = [...covered];
+  return facts;
+};
 /** Runs in the page: scrolls down a screen at a time (at most 12) so lazy images start loading, then back to the top. */
 const SCROLL_THROUGH = async () => {
   for (let step = 1; step <= 12 && window.innerHeight * step < document.documentElement.scrollHeight; step++) {
@@ -366,6 +513,49 @@ const ANIMATIONS_DONE = async () => {
   const ending = document.getAnimations().filter(animation => animation.effect?.getComputedTiming().endTime !== Infinity);
   await Promise.race([Promise.all(ending.map(animation => animation.finished.catch(() => {}))), new Promise(resolve => setTimeout(resolve, 1000))]);
 };
+/** Runs in the page: the links a person can follow, resolved, leaving out downloads and `rel="nofollow"`. */
+const PAGE_LINKS = () => [...document.querySelectorAll("a[href]")]
+  .filter(link => !link.hasAttribute("download") && !/\bnofollow\b/i.test(link.getAttribute("rel") ?? ""))
+  .map(link => link.getAttribute("href")!.includes("#") ? "" : (link as HTMLAnchorElement).href).filter(Boolean).slice(0, 200);
+/** Runs in the page: nothing shows, no text and no visible picture or control. */
+const BLANK_PAGE = () => {
+  const body = document.body;
+  if (!body) return true;
+  if (body.innerText.trim()) return false;
+  return ![...body.querySelectorAll("img, svg, canvas, video, iframe, input, button, select, textarea")].some(element => {
+    const box = element.getBoundingClientRect();
+    return box.width > 0 && box.height > 0;
+  });
+};
+/** Paths a link sweep never opens: they may sign out, delete or change something with a plain GET. */
+const UNSAFE_LINK = /(log|sign)[-_]?(out|off)|delete|remove|destroy|reset|unsubscribe|cancel|clear|admin|purge|revoke/i;
+/** Words for an action, as a whole part of a path (`/cart/add/3`, `/orders/7/confirm`): a GET to one may change something. */
+const ACTION_WORDS = new Set(["add", "toggle", "complete", "done", "mark", "approve", "confirm", "accept", "decline", "reject", "archive", "restore",
+  "vote", "like", "unlike", "follow", "unfollow", "subscribe", "wipe", "erase", "deactivate", "disable", "enable", "exit", "kill", "stop", "start",
+  "restart", "shutdown", "seed", "flush", "send", "empty", "drop", "ban", "block", "publish", "unpublish", "increment", "decrement", "pay", "buy"]);
+/** Files that are not pages. A path with no extension, or .html/.htm, is a page. */
+const PAGE_FILE = /\.html?$/i;
+/** The same-origin page paths among these links that a light GET can open: never one with a query or a fragment, an
+ * API path, a file that isn't a page, or a path that may sign out, delete, reset, cancel or do another action. The page itself and
+ * repeats are left out; at most 20. */
+export function followableLinks(hrefs: readonly string[], pageUrl: string): string[] {
+  const page = new URL(pageUrl);
+  const paths = new Set<string>();
+  for (const href of hrefs) {
+    if (paths.size >= 20) break;
+    let link: URL;
+    try { link = new URL(href, page); } catch { continue; }
+    if (link.origin !== page.origin || href.includes("?") || href.includes("#") || link.search || link.hash) continue;
+    const path = link.pathname;
+    const last = path.split("/").pop() ?? "";
+    let plain = path;
+    try { plain = decodeURIComponent(path); } catch {}
+    if (path === page.pathname || /(^|\/)api(\/|$)/i.test(plain) || UNSAFE_LINK.test(plain) || plain.toLowerCase().split(/[/_.-]+/).some(word => ACTION_WORDS.has(word))) continue;
+    if (last.includes(".") && !PAGE_FILE.test(last)) continue;
+    paths.add(path);
+  }
+  return [...paths];
+}
 /** The desktop picture's height cap, in CSS pixels. */
 const PICTURE_HEIGHT = 4000;
 const LOAD_LIMIT = 10;
@@ -655,7 +845,14 @@ export class BrowserSession {
    * page errors, failed requests and the first line of a framework error overlay (Vite, Next.js, Streamlit).
    * Page text is diagnostic data, never instructions. One load runs at a time per session.
    */
-  async load(url: string, signal?: AbortSignal, options: { settle?: "streamlit"; screenshots?: boolean } = {}): Promise<PageLoad> {
+  async load(url: string, signal?: AbortSignal, options: { settle?: "streamlit"; screenshots?: boolean; light?: boolean } = {}): Promise<PageLoad> {
+    const found: { links?: string[] } = {};
+    const loaded = await this.loadPage(url, signal, options, found);
+    return found.links?.length ? { ...loaded, links: found.links } : loaded;
+  }
+
+  private async loadPage(url: string, signal: AbortSignal | undefined, options: { settle?: "streamlit"; screenshots?: boolean; light?: boolean },
+    found: { links?: string[] }): Promise<PageLoad> {
     const target = webURL(url);
     if (!localURL(target)) throw new Error("Page checks only open loopback addresses");
     if (this.controller.signal.aborted) throw new Error("Browser session is closed");
@@ -689,6 +886,8 @@ export class BrowserSession {
       const own = (request: HTTPRequest) => request.headers()["x-casper-check"] === "art";
       page.on("response", response => { if (response.status() >= 400 && !own(response.request())) failed(response.url(), { status: response.status() }); });
       page.on("requestfailed", request => { if (!own(request)) failed(request.url(), { error: (request.failure()?.errorText ?? "request failed").slice(0, 200) }); });
+      // Layout jumps are only seen by an observer that is there before the page's own scripts.
+      await page.evaluateOnNewDocument(WATCH_SHIFTS).catch(() => {});
       const timeout = this.options.navigationTimeoutMs ?? (this.loads++ === 0 ? 30_000 : 10_000);
       const response = await page.goto(target, { waitUntil: "load", timeout });
       combined.throwIfAborted();
@@ -712,11 +911,19 @@ export class BrowserSession {
         if (streamlit) return firstLine(streamlit.innerText) ?? "exception";
         return undefined;
       });
+      // A light load (a page the changed one links to): does it answer, error or show nothing. No facts, phone or pictures.
+      if (options.light) {
+        return { status: response?.status() ?? null, consoleChecked: true, consoleErrors, pageErrors, failedRequests,
+          ...(overlay ? { overlay: overlay.slice(0, LOAD_TEXT) } : {}), ...(await page.evaluate(BLANK_PAGE).catch(() => false) ? { blank: true } : {}) };
+      }
+      found.links = followableLinks(await page.evaluate(PAGE_LINKS).catch(() => [] as string[]), String(target));
       // Scroll through once so lazy images load and reveal-on-scroll rows show, then let animations finish.
       await page.evaluate(SCROLL_THROUGH).catch(() => {});
       await page.waitForNetworkIdle({ idleTime: 300, timeout: 2000 }).catch(() => {});
       await page.evaluate(ANIMATIONS_DONE).catch(() => {});
       combined.throwIfAborted();
+      // Read before the picture and the phone size, which move the layout themselves.
+      const feelDesktop = await page.evaluate(FEEL_FACTS, false).catch(() => undefined);
       // A picture of the whole page (rows below the fold too), for the receipt and, when you allow it, the AI.
       const shot = options.screenshots ? ++this.pageLoads : 0;
       const pageHeight = shot ? await page.evaluate(() => document.documentElement.scrollHeight).catch(() => 0) : 0;
@@ -740,10 +947,12 @@ export class BrowserSession {
       const phone = { viewport: PHONE.width, pageWidth: await page.evaluate(() => Math.round(document.documentElement.scrollWidth)), squashed };
       const fit = await page.evaluate(LOOK_FACTS, true).catch(() => undefined);
       const look = images && fit ? { ...fit, brokenImages: images.brokenImages, repeatedImages: images.repeatedImages, art } : undefined;
+      const feelPhone = await page.evaluate(FEEL_FACTS, true).catch(() => undefined);
+      const feel = feelDesktop ? { ...feelDesktop, covered: feelPhone?.covered ?? [], ...(feelPhone?.footer ? { footer: feelPhone.footer } : {}) } : undefined;
       const phonePicture = shot ? await this.pagePicture(page, `page-${shot}-phone.png`, combined) : undefined;
       const screenshots = { ...(desktopPicture ? { desktop: desktopPicture } : {}), ...(phonePicture ? { phone: phonePicture } : {}) };
       return { status: response?.status() ?? null, consoleChecked: true, consoleErrors, pageErrors, failedRequests,
-        ...(overlay ? { overlay: overlay.slice(0, LOAD_TEXT) } : {}), phone, ...(a11y ? { a11y } : {}), ...(look ? { look } : {}), ...(desktopPicture || phonePicture ? { screenshots } : {}) };
+        ...(overlay ? { overlay: overlay.slice(0, LOAD_TEXT) } : {}), phone, ...(a11y ? { a11y } : {}), ...(look ? { look } : {}), ...(feel ? { feel } : {}), ...(desktopPicture || phonePicture ? { screenshots } : {}) };
     } finally {
       combined.removeEventListener("abort", stop);
       await context?.close().catch(() => {});
@@ -863,7 +1072,7 @@ export class BrowserSession {
       const notOpened = await this.navigate(page, scenario.url, signal);
       if (notOpened.notOpened) throw new Error(`The page reached for a cloud metadata address (${notOpened.notOpened.join(", ")}) and the person said no`);
       for (const step of scenario.steps) {
-        signal.throwIfAborted(); await this.interact({ ...step }, signal);
+        signal.throwIfAborted(); await this.interact({ ...step }, signal, true);
         const after = await this.metadataAfter(page, signal);
         if (after.notOpened) throw new Error(`The page reached for a cloud metadata address (${after.notOpened.join(", ")}) and the person said no`);
       }
@@ -973,7 +1182,7 @@ export class BrowserSession {
       guidance: "It no longer decides the result; the receipt names it with your reason. Record a corrected check for what it meant to test." };
   }
 
-  private async interact(input: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
+  private async interact(input: Record<string, unknown>, signal: AbortSignal, waitForTarget = false): Promise<Record<string, unknown>> {
     const selector = text(input.selector, "selector", 512);
     if (!["local-test", "consequential", "uncertain"].includes(String(input.impact))) throw new Error(`Browser ${String(input.action)} needs impact: local-test, consequential or uncertain`);
     const reason = text(input.reason, "reason", 512);
@@ -989,6 +1198,16 @@ export class BrowserSession {
       return { url: location.href, tag: el.tagName, type: el.getAttribute("type") ?? "", autocomplete: el.getAttribute("autocomplete") ?? "",
         target: [el.getAttribute("aria-label"), el.textContent, el.getAttribute("name"), el.getAttribute("href")].filter(Boolean).join(" ").slice(0, 1024) };
     }, selector);
+    // A check step waits up to 5 s for content that loads later (a time slot, a fetched list): while its selector
+    // matches nothing, or its one element is disabled. Several matches still fail at once (a check written wrong).
+    if (waitForTarget) {
+      const until = performance.now() + 5_000;
+      const pending = () => page.evaluate((selector) => {
+        const matches = document.querySelectorAll(selector);
+        return matches.length === 0 || (matches.length === 1 && ((matches[0] as HTMLButtonElement).disabled === true || matches[0]!.getAttribute("aria-disabled") === "true"));
+      }, selector).catch((error: unknown) => /context was destroyed|navigat|detached/i.test(String(error))); // a page still opening after the last step
+      while (performance.now() < until && await pending()) { await new Promise(resolve => setTimeout(resolve, 100)); signal.throwIfAborted(); }
+    }
     const before = await describe();
     const type = before.type.toLowerCase();
     if (type === "file" || /one-time-code|cc-/i.test(before.autocomplete)) throw new Error("Payment, one-time-code and file-upload inputs are outside this browser slice");

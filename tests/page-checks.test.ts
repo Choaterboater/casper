@@ -16,6 +16,7 @@ const server = Bun.serve({ hostname: process.env.HOST, port: Number(process.env.
   const url = new URL(request.url);
   if (url.pathname === "/boom") console.error("Uncaught app exception\\nTraceback (most recent call last):\\n  File \\"app.py\\", line 9, in <module>\\n    site = row['site']\\nKeyError: 'site'");
   if (url.pathname === "/broken") return new Response("oops", { status: 500 });
+  if (url.pathname === "/missing") return new Response("no", { status: 404 });
   return new Response("<html>ok</html>", { headers: { "content-type": "text/html" } });
 } });
 console.log("listening", server.port);
@@ -145,6 +146,28 @@ test("exact facts about the look are a note under the page line, never a failure
   ]);
 }, 30_000);
 
+test("what feels wrong to use joins the look notes, secrets hidden, and never changes the page's status", async () => {
+  const f = await fixture();
+  const look = { brokenImages: ["/img/hero.jpg"], repeatedImages: [], overflow: [], smallTargets: { count: 0, names: [] }, art: { noViewBox: [], noName: [], fixedColors: [], fixedFiles: [] } };
+  const quiet = { devText: [], shift: { score: 0.09, moved: ["div.list"], unsized: [] }, covered: [] };
+  const opener = fakeOpener(url => url.pathname === "/book"
+    ? { look, feel: { devText: ["[object Object]", "1 bags", "token=abc123secret"], shift: { score: 0.24, moved: ["div.slots", "p#total"], unsized: ["/img/room.jpg"] },
+      focusRing: "main#content", footer: 610, covered: ['button "Pay" (under div.toast)'] } }
+    : { feel: quiet });
+  const report = await new PageChecks(() => f.manager, f.service, opener, { open: ["/book", "/ok"], skipped: [] }).run(signal());
+  expect(report.status).toBe("pass");
+  expect(report.pages.map(page => page.status)).toEqual(["pass", "pass"]);
+  expect(report.pages[0]!.look).toEqual(["1 image didn't load: /img/hero.jpg",
+    'people can see developer or broken text: "[object Object]", "1 bags", "token=<redacted>',
+    "the layout jumps while loading (shift 0.24): div.slots, p#total moved; give these images width and height or an aspect-ratio: /img/room.jpg",
+    "main#content has a focus ring as the page opens (move focus there only from a skip link, or give it outline: none; :focus-visible still matches a script's focus)",
+    "at phone width the footer is 610px tall, over half the screen",
+    'at phone width a fixed layer covers a control: button "Pay" (under div.toast)']);
+  // A shift under 0.1 is no note, and a page with nothing to say has no look line.
+  expect(report.pages[1]!.look).toBeUndefined();
+  expect(formatPageReport(report)[2]).toBe("✓ /ok loads · 0 console errors");
+}, 30_000);
+
 test("drawn pictures get plain notes: no viewBox, no name, icons that keep light colors in dark mode", async () => {
   const f = await fixture();
   const art = { noViewBox: ["svg.hero", "/img/bean.svg"], noName: ["svg#map"], fixedColors: ["svg#cart"], fixedFiles: ["/img/cup.svg", "/img/bag.svg"] };
@@ -155,6 +178,32 @@ test("drawn pictures get plain notes: no viewBox, no name, icons that keep light
     '1 picture has no name (add role="img" and a <title>, or aria-hidden="true" for decoration): svg#map',
     "in dark mode 1 icon keeps its light colors (use currentColor or CSS variables): svg#cart",
     "in dark mode 2 icon files keep their light colors (the page's CSS can't reach an <img>: put the SVG inline, or give the file its own prefers-color-scheme rule): /img/cup.svg, /img/bag.svg"]);
+}, 30_000);
+
+test("pages the changed ones link to are opened lightly, at most 5 and never twice; what is wrong is a note on the linking page and never fails it", async () => {
+  const f = await fixture();
+  const light: string[] = [];
+  const base = fakeOpener(url => url.pathname === "/book"
+    ? { links: ["/logout", "/api/x", "/x?y=1", "/book", "/two", "/account", "/missing", "/broken", "/help", "/noisy", "/sixth"] }
+    : url.pathname === "/two" ? { links: ["/missing", "/seventh"] }
+    : url.pathname === "/account" ? { status: 401 }
+    : url.pathname === "/help" ? { blank: true }
+    : url.pathname === "/noisy" ? { consoleErrors: ["TypeError: rows is undefined token=abc123secret"] } : {});
+  const opener: PageOpener = { ...base, load: (url, signal, options) => {
+    if (options?.light) light.push(new URL(url).pathname);
+    expect(options?.light ? options.screenshots : false).toBe(false);
+    return base.load(url, signal, options);
+  } };
+  const report = await new PageChecks(() => f.manager, f.service, opener, { open: ["/book", "/two"], skipped: [] }).run(signal());
+  expect(report.status).toBe("pass");
+  expect(report.pages.map(page => page.status)).toEqual(["pass", "pass"]);
+  // A page that asks to sign in (401) is working as built: no note.
+  expect(light).toEqual(["/account", "/missing", "/broken", "/help", "/noisy"]);
+  expect(base.urls.map(url => new URL(url).pathname).filter(path => path === "/two")).toHaveLength(1);
+  expect(report.pages[0]!.look).toEqual(["link /missing returns 404", "link /broken returns 500", "link /help is blank",
+    "link /noisy has 1 console error: TypeError: rows is undefined token=<redacted>"]);
+  expect(report.pages[1]!.look).toBeUndefined();
+  expect(formatPageReport(report)[0]).toBe("✓ /book loads · 0 console errors");
 }, 30_000);
 
 test("secrets in console text never reach the report", async () => {

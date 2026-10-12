@@ -199,7 +199,7 @@ export function settingRows(context: ProjectContext): Setting[] {
       "Casper looks for Ollama, LM Studio, llama.cpp and vLLM on this computer and lists their models in /model, with no sign-in and no models.json. Servers you added in /model stay either way. A change applies from the next start.",
       ["localModels"], true),
     onOffRow("Page checks", context.pageChecks !== false,
-      "After a UI change Casper opens the changed pages in its own browser and checks they load, in every project. A project file can turn them off for itself, not back on.",
+      "After a UI change Casper opens the changed pages in its own browser and checks they load and notes what feels wrong to use, in every project. A project file can turn them off for itself, not back on.",
       ["pages"], true, "task"),
     showPagesRow(context.showPages ?? "ask"),
     { label: "Work shown", value: display, question: `Work shown: ${display} (${DISPLAY_WORDS[display]}).`, keep: `Keep ${display}`,

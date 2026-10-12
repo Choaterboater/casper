@@ -2,7 +2,7 @@
  * Page check results and their plain receipt lines. Kept apart from the page checks themselves (Chrome, the dev
  * server) so the receipt can print them without loading a browser.
  */
-import type { A11yFindings, LookFacts, PhoneFit } from "../browser/session";
+import type { A11yFindings, FeelFacts, LookFacts, PhoneFit } from "../browser/session";
 import type { SkippedPage } from "./pages";
 
 const NO_CHROME = "console not checked: no Chrome found (install Chrome or set CASPER_BROWSER_EXECUTABLE)";
@@ -121,6 +121,22 @@ export function lookNotes(found: LookFacts): string[] {
   if (noName.length) notes.push(`${plural(noName.length, "picture")} ${one(noName) ? "has" : "have"} no name (add role="img" and a <title>, or aria-hidden="true" for decoration): ${noName.join(", ")}`);
   if (fixedColors.length) notes.push(`in dark mode ${plural(fixedColors.length, "icon")} ${one(fixedColors) ? "keeps its" : "keep their"} light colors (use currentColor or CSS variables): ${fixedColors.join(", ")}`);
   if (fixedFiles.length) notes.push(`in dark mode ${plural(fixedFiles.length, "icon file")} ${one(fixedFiles) ? "keeps its" : "keep their"} light colors (the page's CSS can't reach an <img>: put the SVG inline, or give the file its own prefers-color-scheme rule): ${fixedFiles.join(", ")}`);
+  return notes;
+}
+
+/** Plain notes for what would feel wrong to use: developer text on the page, layout jumps while loading, a focus
+ * ring round the page on load, a footer taller than half a phone screen and controls under a fixed layer. Empty when there are none. */
+export function feelNotes(found: FeelFacts): string[] {
+  const notes: string[] = [];
+  if (found.devText.length) notes.push(`people can see developer or broken text: ${found.devText.map(text => `"${text}"`).join(", ")}`);
+  const { score, moved, unsized } = found.shift;
+  if (score >= 0.1) {
+    notes.push(`the layout jumps while loading (shift ${score})${moved.length ? `: ${moved.join(", ")} moved` : ""}`
+      + (unsized.length ? `; give these images width and height or an aspect-ratio: ${unsized.join(", ")}` : ""));
+  }
+  if (found.focusRing) notes.push(`${found.focusRing} has a focus ring as the page opens (move focus there only from a skip link, or give it outline: none; :focus-visible still matches a script's focus)`);
+  if (found.footer) notes.push(`at phone width the footer is ${found.footer}px tall, over half the screen`);
+  if (found.covered.length) notes.push(`at phone width a fixed layer covers ${found.covered.length === 1 ? "a control" : "controls"}: ${found.covered.join(", ")}`);
   return notes;
 }
 
