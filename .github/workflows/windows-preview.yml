@@ -1,6 +1,11 @@
 name: Windows preview
+# Pushes to main, the nightly run and manual runs test everything. A pull request runs the fast tier of the
+# suite in four parts, and the heavy tier (real processes, ConPTY, the build and installers) too when it
+# changes a path where OS behaviour matters (tools/test-tier.ts). Linux runs everything on every pull request.
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
   push:
     branches: [main]
     paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'docs/WINDOWS.md', 'docs/PLATFORM_VERIFICATION.md', 'package.json', 'bun.lock', 'tsconfig.json', 'bunfig.toml', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/windows-preview.yml']
@@ -15,8 +20,41 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  # The build, the real-console screen and both installers. The full suite runs beside it in four parts.
+  # Whole suite, or only its fast tier: a pull request that changes no path where OS behaviour matters.
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      tier: ${{ steps.tier.outputs.tier }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # A pull request checks out its merge commit: HEAD^1 is main, so the diff is the PR's own change.
+          fetch-depth: 2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.0'
+      - name: Choose the tests (whole suite, or the fast tier on a pull request that leaves OS behaviour alone)
+        id: tier
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then { git diff --no-renames --name-only HEAD^1 HEAD || true; } > "$RUNNER_TEMP/changed.txt"; else : > "$RUNNER_TEMP/changed.txt"; fi
+          bun tools/test-tier.ts decide "$EVENT" < "$RUNNER_TEMP/changed.txt" > "$RUNNER_TEMP/tier.txt"
+          tier="$(head -n 1 "$RUNNER_TEMP/tier.txt")"
+          case "$tier" in full | fast) ;; *) echo "test-tier.ts printed no tier"; exit 1 ;; esac
+          echo "tier=$tier" >> "$GITHUB_OUTPUT"
+          { echo "## Windows"; tail -n +2 "$RUNNER_TEMP/tier.txt"; } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # The build, the real-console screen and both installers (heavy: whole-suite runs only). The suite runs
+  # beside it in four parts.
   standalone:
+    needs: changes
+    # Runs unless the tier is "fast": if the changes job itself failed, the whole suite runs, and no check is
+    # skipped (a skipped job would count as passed for a required check).
+    if: ${{ !cancelled() && needs.changes.outputs.tier != 'fast' }}
     runs-on: windows-latest
     # Normal job: 7.3 min p90 (standalone), 9.1 (suite part 1), of the last 40 successful runs. 20 is 2x p90 or more.
     timeout-minutes: 20
@@ -125,6 +163,8 @@ jobs:
   # The suite `bun run test` runs, split by tests/timings.json into four parts of about equal time
   # (tools/test-shard.ts), each on its own runner at the same time.
   suite:
+    needs: changes
+    if: ${{ !cancelled() }}
     runs-on: windows-latest
     # Normal job: 7.3 min p90 (standalone), 9.1 (suite part 1), of the last 40 successful runs. 20 is 2x p90 or more.
     timeout-minutes: 20
@@ -135,6 +175,8 @@ jobs:
     defaults:
       run:
         shell: pwsh
+    env:
+      TIER: ${{ needs.changes.outputs.tier || 'full' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -155,19 +197,20 @@ jobs:
           New-Item -ItemType Directory -Force .artifacts/windows-verification | Out-Null
           bun install --frozen-lockfile
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Full regression suite, part ${{ matrix.part }} of 4 (files in parallel)
+      - name: Regression suite (whole or fast tier), part ${{ matrix.part }} of 4 (files in parallel)
         # Normal step: 5.0 min p90 (max 7.3) with one worker per core (4). Three workers leave a core for the
         # Bun, git and language-server children the tests start, which hung silently at start under full load;
         # the same work on 3 workers instead of 4 is about 9.7 min at the old max, still under 13.
         timeout-minutes: 13
         run: |
-          $files = @(bun tools/test-shard.ts 4 ${{ matrix.part }})
+          $files = @(bun tools/test-shard.ts 4 ${{ matrix.part }} $env:TIER)
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "Part ${{ matrix.part }}: $($files.Count) files"
+          "Part ${{ matrix.part }} ($env:TIER): $($files.Count) files"
+          "Part ${{ matrix.part }}: $env:TIER tier, $($files.Count) files" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
           bun test --parallel=3 --timings=tests/timings.json @files 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/full-suite-${{ matrix.part }}.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Real debugger test (runs alone, as in bun run test)
-        if: matrix.part == 3
+        if: matrix.part == 3 && env.TIER == 'full'
         run: |
           bun test tests/phase10-debugger-real.test.ts 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/debugger-real.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

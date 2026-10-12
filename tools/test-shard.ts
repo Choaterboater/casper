@@ -4,7 +4,9 @@
  * yet counts as an average one. Same files as `bun run test`: no tests/eval-*, and the real debugger test runs
  * on its own after the suite.
  *
- *   bun tools/test-shard.ts <count> <index>   prints shard <index> (1-based), one file per line
+ *   bun tools/test-shard.ts <count> <index> [full|fast]   prints shard <index> (1-based), one file per line, of the
+ *                                                         whole suite (full, the default) or its fast tier
+ *                                                         (tools/test-tier.ts)
  */
 import { readdir, readFile } from "node:fs/promises";
 
@@ -36,8 +38,11 @@ export function shardFiles(files: readonly string[], timings: Readonly<Record<st
 }
 
 if (import.meta.main) {
-  const [count, index] = process.argv.slice(2).map(Number);
+  const [count, index] = process.argv.slice(2, 4).map(Number);
+  const tier = process.argv[4] ?? "full";
+  if (tier !== "full" && tier !== "fast") throw new Error(`tier ${tier}: must be full or fast`);
   let timings: Record<string, number> = {};
   try { timings = (JSON.parse(await readFile("tests/timings.json", "utf8")) as { files?: Record<string, number> }).files ?? {}; } catch {}
-  for (const file of shardFiles(await suiteFiles(), timings, count ?? 0, index ?? 0)) console.log(file);
+  const files = tier === "fast" ? (await (await import("./test-tier")).tiers("tests", timings)).fast : await suiteFiles();
+  for (const file of shardFiles(files, timings, count ?? 0, index ?? 0)) console.log(file);
 }

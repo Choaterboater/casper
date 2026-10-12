@@ -1,6 +1,10 @@
 name: Linux preview
+# Linux runs the whole suite on every pull request, push to main, nightly and manual run. macOS and Windows
+# run only the fast tier on a pull request that leaves OS behaviour alone (tools/test-tier.ts).
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
   push:
     branches: [main]
     paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'docs/**', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/linux-preview.yml']
@@ -36,6 +40,7 @@ jobs:
       - name: Record host and PTY prerequisites
         run: |
           mkdir -p "$RUNNER_TEMP/linux-preview"
+          printf '## Linux\n### Tests: the whole suite\n\nLinux runs every test on every pull request, push, nightly and manual run.\n' >> "$GITHUB_STEP_SUMMARY"
           {
             printf 'Commit: %s\nRunner image: %s %s\n' "$GITHUB_SHA" "$ImageOS" "$ImageVersion"
             uname -a

@@ -1,6 +1,11 @@
 name: macOS preview
+# Pushes to main, the nightly run and manual runs test everything. A pull request runs the fast tier of the
+# suite, and the heavy tier (real processes, the sandbox, the browser) too when it changes a path where OS
+# behaviour matters (tools/test-tier.ts). Linux runs everything on every pull request.
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
   push:
     branches: [main]
     paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'docs/**', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/macos-preview.yml']
@@ -31,9 +36,23 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # A pull request checks out its merge commit: HEAD^1 is main, so the diff is the PR's own change.
+          fetch-depth: 2
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: '1.4.0'
+      - name: Choose the tests (whole suite, or the fast tier on a pull request that leaves OS behaviour alone)
+        id: tier
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/macos-preview"
+          if [ "$EVENT" = pull_request ]; then { git diff --no-renames --name-only HEAD^1 HEAD || true; } > "$RUNNER_TEMP/macos-preview/changed.txt"; else : > "$RUNNER_TEMP/macos-preview/changed.txt"; fi
+          bun tools/test-tier.ts decide "$EVENT" < "$RUNNER_TEMP/macos-preview/changed.txt" > "$RUNNER_TEMP/macos-preview/tier.txt"
+          tier="$(head -n 1 "$RUNNER_TEMP/macos-preview/tier.txt")"
+          case "$tier" in full | fast) ;; *) echo "test-tier.ts printed no tier"; exit 1 ;; esac
+          echo "tier=$tier" >> "$GITHUB_OUTPUT"
+          { echo "## macOS"; tail -n +2 "$RUNNER_TEMP/macos-preview/tier.txt"; } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Record host
         run: |
           mkdir -p "$RUNNER_TEMP/macos-preview"
@@ -53,11 +72,11 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run typecheck 2>&1 | tee "$RUNNER_TEMP/macos-preview/typecheck.log"
       - name: The shell sandbox on macOS (sandbox-exec)
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.tier.outputs.tier == 'full' }}
         timeout-minutes: 5
         run: bun test tests/sandbox-live.test.ts tests/sandbox-wiring.test.ts tests/sandbox-policy.test.ts 2>&1 | tee "$RUNNER_TEMP/macos-preview/sandbox.log"
       - name: Full regression suite (files in parallel)
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.tier.outputs.tier == 'full' }}
         # Normal step: 7.5 min p90 (max 7.9); three runs were cut off at the old 13 while still printing.
         # tools/stall-guard.sh stops a run silent for 180 s and writes stall-dump.txt next to the log (every
         # process, each test worker's children, and a `sample` of where a worker on the CPU is stuck), then
@@ -66,12 +85,21 @@ jobs:
         # real debugger test each run on their own after it.
         timeout-minutes: 18
         run: bash tools/stall-guard.sh "$RUNNER_TEMP/macos-preview/full-suite.log" 180 "$RUNNER_TEMP/macos-preview/stall-dump.txt" -- bun run test:suite --path-ignore-patterns='tests/phase10-browser.test.ts'
+      - name: Fast tier of the suite (files in parallel; a pull request that leaves OS behaviour alone)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.tier.outputs.tier == 'fast' }}
+        # The same guard as the full suite. The fast tier starts no real processes and takes about a minute.
+        timeout-minutes: 10
+        run: |
+          files="$(bun tools/test-tier.ts fast)"
+          echo "Fast tier: $(printf '%s\n' "$files" | wc -l | tr -d ' ') files"
+          # shellcheck disable=SC2086 # one test file per word
+          bash tools/stall-guard.sh "$RUNNER_TEMP/macos-preview/fast-suite.log" 180 "$RUNNER_TEMP/macos-preview/stall-dump.txt" -- bun test --parallel --timings=tests/timings.json $files
       - name: Browser test (runs alone, after the suite)
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.tier.outputs.tier == 'full' }}
         timeout-minutes: 8
         run: bash tools/stall-guard.sh "$RUNNER_TEMP/macos-preview/browser.log" 180 "$RUNNER_TEMP/macos-preview/stall-dump-browser.txt" -- bun test tests/phase10-browser.test.ts
       - name: Real debugger test (runs alone, as in bun run test)
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.tier.outputs.tier == 'full' }}
         timeout-minutes: 5
         run: bash tools/stall-guard.sh "$RUNNER_TEMP/macos-preview/debugger-real.log" 180 "$RUNNER_TEMP/macos-preview/stall-dump-debugger.txt" -- bun test tests/phase10-debugger-real.test.ts
       - name: Retain host verification evidence
