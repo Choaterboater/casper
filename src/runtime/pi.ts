@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { looksLikeRefusedLogin } from "../ssh/auth-failed";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
+import { DEFAULT_COMMAND_LIMIT_SECONDS } from "./background-commands";
 import { matchConversation } from "../sessions/resume";
 import { PiModels } from "./pi-models";
 import { configureLocalServers, dropLocalServers, forgetLocalServer, localServers, localServerSettled, localServersHereSettled, onLocalServer, registerLocalServers, rememberLocalServer, savedLocalServers } from "./local-models";
@@ -919,8 +920,8 @@ export class PiRuntime implements AgentRuntime {
         const outside = new Map<string, string>();
         if (!readOnly) pi.on("tool_call", async (event, ctx) => {
           // Keep Pi's native execution, output handling, and process-tree cleanup.
-          if (event.toolName === "bash" && event.input.timeout === undefined) event.input.timeout = 120;
-          else if (event.toolName === "bash" && typeof event.input.timeout === "number" && event.input.timeout > BASH_TIMEOUT_CAP_SECONDS) event.input.timeout = BASH_TIMEOUT_CAP_SECONDS;
+          // An omitted timeout stays omitted: casperBashOperations applies the default limit, and may move the command to the background.
+          if (event.toolName === "bash" && typeof event.input.timeout === "number" && event.input.timeout > BASH_TIMEOUT_CAP_SECONDS) event.input.timeout = BASH_TIMEOUT_CAP_SECONDS;
           const risky = event.toolName === "bash" && typeof event.input.command === "string" ? gitGuardReason(event.input.command) : undefined;
           if (risky) return { block: true, reason: risky };
           // Private files, git's own files and protected places, also where a link out of the project leads (see src/platform/project-paths.ts).
@@ -1075,7 +1076,7 @@ export class PiRuntime implements AgentRuntime {
               : basePrompt,
             appendSystemPromptOverride: (base) => readOnly ? base : [
               ...base,
-              `Casper applies a 120-second timeout to bash commands when timeout is omitted, and caps any timeout at ${BASH_TIMEOUT_CAP_SECONDS} seconds. Supply an explicit finite timeout in seconds for intentionally longer commands. After a search times out, narrow its scope rather than retrying the same broad search.`,
+              `A bash command without a timeout gets ${DEFAULT_COMMAND_LIMIT_SECONDS} seconds; a slow one may then move to the background (its result says so). Give an explicit timeout in seconds, capped at ${BASH_TIMEOUT_CAP_SECONDS}, to wait longer; it is stopped there. After a search times out, narrow its scope rather than retrying the same broad search.`,
               `Tool rules:\n${PI_TOOL_RULES.map((rule) => `- ${rule}`).join("\n")}`,
               "Keep repository searches rooted in the current workspace. Prefer the find, grep, and ls tools with explicit paths. Do not scan the filesystem root or unrelated directories to locate a missing project file; treat stale documentation as possible and inspect the current tree. Search outside the workspace only when the user's task requires it.",
             ],
@@ -1165,6 +1166,8 @@ function readSmallText(file: string): string | undefined | null {
  * sandbox's wrapper when one does, and the sandbox's refusal added to the output the AI reads ("[sandbox] blocked:
  * wanted to write /etc/hosts") so it stops retrying. Pi writes the full output of a long command to a temp file;
  * that file goes in a private folder of Casper's (os.tmpdir() is read at that moment), not the shared temp folder.
+ * A command run without its own timeout gets the default limit; with slow commands on, one still running then moves
+ * to the shell's background commands (same process, same sandbox wrap) and the call returns its output so far.
  */
 export function casperBashOperations(shell: RuntimeShell | undefined, local: BashOperations = createLocalBashOperations()): BashOperations {
   return {
@@ -1173,32 +1176,66 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
       if (refused) throw new Error(refused);
       const logDir = process.platform === "win32" ? undefined : await shell?.logDir?.();
       const wrapped: Awaited<ReturnType<RuntimeShell["wrap"]>> = shell ? await shell.wrap(command, cwd) : { command };
-      let tail = "";
+      const background = options.timeout === undefined ? shell?.background?.() : undefined;
+      const limit = options.timeout ?? background?.limitSeconds ?? DEFAULT_COMMAND_LIMIT_SECONDS;
+      const startedAt = Date.now();
+      let tail = "", seen = "";
+      /** Once in the background, its output goes there. */
+      let moved: ((data: Buffer) => void) | undefined;
       const onData = (data: Buffer) => {
         if (wrapped.id || wrapped.ssh?.afterAuthFail) tail = (tail + data.toString("utf8")).slice(-16_384);
+        if (moved) { moved(data); return; }
+        if (background) seen = (seen + data.toString("utf8")).slice(-16_384);
         if (!logDir) { options.onData(data); return; }
         const previous = process.env.TMPDIR;
         process.env.TMPDIR = logDir;
         try { options.onData(data); }
         finally { if (previous === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = previous; }
       };
-      try {
-        // The private ssh login's pointer goes to this one command, after the shell's environment was cleaned.
-        const env = wrapped.ssh?.env || wrapped.env
-          ? { ...(options.env ?? withoutProviderKeys(process.env, shell?.keepEnv ?? [])), ...wrapped.env, ...wrapped.ssh?.env } : options.env;
-        const result = await local.exec(wrapped.command, cwd, { ...options, ...(env ? { env } : {}), onData });
-        if (wrapped.id && result.exitCode !== 0 && shell?.refused) {
-          const line = await shell.refused(wrapped.id, tail);
-          if (line) onData(Buffer.from(`\n${line}\n`));
+      // The turn's stop reaches the command only until it moves to the background.
+      const stop = new AbortController();
+      const forward = () => stop.abort();
+      if (options.signal?.aborted) stop.abort();
+      else options.signal?.addEventListener("abort", forward, { once: true });
+      const run = (async () => {
+        try {
+          // The private ssh login's pointer goes to this one command, after the shell's environment was cleaned.
+          const env = wrapped.ssh?.env || wrapped.env
+            ? { ...(options.env ?? withoutProviderKeys(process.env, shell?.keepEnv ?? [])), ...wrapped.env, ...wrapped.ssh?.env } : options.env;
+          const result = await local.exec(wrapped.command, cwd, { ...options, signal: stop.signal, timeout: background ? undefined : limit, ...(env ? { env } : {}), onData });
+          if (wrapped.id && result.exitCode !== 0 && shell?.refused) {
+            const line = await shell.refused(wrapped.id, tail);
+            if (line) onData(Buffer.from(`\n${line}\n`));
+          }
+          if (wrapped.ssh?.afterFail && result.exitCode !== 0) onData(Buffer.from(`\n${wrapped.ssh.afterFail}\n`));
+          // Not only on a failure: `ssh host cmd; echo done` ends 0 although the login was refused.
+          if (wrapped.ssh?.afterAuthFail && looksLikeRefusedLogin(tail)) onData(Buffer.from(`\n${wrapped.ssh.afterAuthFail}\n`));
+          return result;
+        } finally {
+          options.signal?.removeEventListener("abort", forward);
+          if (wrapped.id) shell?.finished?.(wrapped.id);
+          await wrapped.ssh?.done?.().catch(() => {});
         }
-        if (wrapped.ssh?.afterFail && result.exitCode !== 0) onData(Buffer.from(`\n${wrapped.ssh.afterFail}\n`));
-        // Not only on a failure: `ssh host cmd; echo done` ends 0 although the login was refused.
-        if (wrapped.ssh?.afterAuthFail && looksLikeRefusedLogin(tail)) onData(Buffer.from(`\n${wrapped.ssh.afterAuthFail}\n`));
-        return result;
-      } finally {
-        if (wrapped.id) shell?.finished?.(wrapped.id);
-        await wrapped.ssh?.done?.().catch(() => {});
+      })();
+      if (!background) return await run;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<"late">((resolve) => { timer = setTimeout(() => resolve("late"), limit * 1000); });
+      const first = await Promise.race([run, late]).finally(() => clearTimeout(timer));
+      if (first !== "late") return first;
+      options.signal?.removeEventListener("abort", forward);
+      const handed = options.signal?.aborted ? undefined
+        : background.adopt({ command, startedAt, output: seen, done: run, stop: () => stop.abort(), ...(logDir ? { logDir } : {}) });
+      if (!handed) {
+        stop.abort();
+        await run.catch(() => {});
+        if (options.signal?.aborted) throw new Error("aborted");
+        onData(Buffer.from(`\n[Stopped at the limit: ${background.max} slow commands already run in the background.]\n`));
+        throw new Error(`timeout:${limit}`);
       }
+      onData(Buffer.from(`\n[Still running after ${limit} s, so it moved to the background as ${handed.id} (stdin closed). `
+        + `Casper adds a note when it ends.${handed.log ? ` Its output goes on in ${handed.log}.` : ""} To stop it: the service tool (stop, service ${handed.id}) when you have it; the person can use /tasks.]\n`));
+      moved = handed.write;
+      return { exitCode: 0 };
     },
   };
 }

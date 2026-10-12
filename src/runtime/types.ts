@@ -3,6 +3,7 @@ import type { ModelServer } from "../config/model-servers";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ToolObservationInput, ToolObservationOutput } from "./observation";
 import type { PromptCacheSetting } from "./cache";
+import type { BackgroundCommands } from "./background-commands";
 
 export interface RuntimeToolContext {
   /** Serialize multi-file mutations with the runtime's native file writers. */
@@ -89,6 +90,9 @@ export interface RuntimeShell {
   keepEnv?: readonly string[];
   /** A private folder (0700) for Pi's full-output logs of long commands, removed with the session. */
   logDir?(): Promise<string | undefined>;
+  /** Slow commands (on unless turned off): a command run without its own timeout that is still running at the default
+   * limit moves here instead of being stopped. Undefined: it is stopped at the limit. */
+  background?(): BackgroundCommands | undefined;
 }
 
 /** Safe preflight diagnostic; callers may surface this exact message without forwarding provider errors. */

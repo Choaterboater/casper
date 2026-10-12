@@ -9,6 +9,7 @@ import type { LabSettings } from "./network/spec";
 import { modelPreference } from "./tui/model-preference";
 import { BrowserSession } from "./browser/session";
 import { ServiceManager } from "./services/manager";
+import type { BackgroundCommands } from "./runtime/background-commands";
 import { SmokeChecks } from "./services/smoke";
 import { pageOpener, type DevServerNotice, type PageOpener } from "./services/page-checks";
 import { InteractiveTerminal, type TerminalHost } from "./tui/terminal";
@@ -200,6 +201,8 @@ export class CasperApp {
   browser?: BrowserSession;
   /** Managed services live for the session, not the task (docs/SERVICES.md). */
   services?: ServiceManager;
+  /** Slow commands moved to the background (src/runtime/background-commands.ts), for the session. */
+  backgroundCommands?: BackgroundCommands;
   debugSession?: DebugSession;
   references?: ReferenceLibrary;
   lsp?: LSPManager;

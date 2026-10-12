@@ -3,6 +3,7 @@ import type { RuntimeTool } from "../runtime/types";
 import type { ServiceSpec } from "./config";
 import type { ServiceManager } from "./manager";
 import type { SmokeChecks } from "./smoke";
+import type { BackgroundCommands } from "../runtime/background-commands";
 import { gitGuardReason } from "../runtime/git-guard";
 import { gitInternalsCommand, privatePathCommand } from "../platform/project-paths";
 
@@ -52,9 +53,11 @@ function showBody(bytes: Buffer, complete: boolean, contentType: string): string
 
 /** The model's handle on Casper's managed services. `manager` is created on first use; `smoke`
  * is the current task's smoke checks, which `check` records into and Casper replays after the change. */
+/** `commands`: slow bash commands moved to the background (cmd-1), which status lists and logs and stop take. */
 /** `approve`: the same gate the AI's bash has when no sandbox runs (a numbered question), or undefined to start. */
 export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSignal, smoke?: () => SmokeChecks | undefined,
-  approve?: (command: string, signal: AbortSignal, options?: { reached?: boolean }) => Promise<string | undefined>): RuntimeTool {
+  approve?: (command: string, signal: AbortSignal, options?: { reached?: boolean }) => Promise<string | undefined>,
+  commands?: () => BackgroundCommands | undefined): RuntimeTool {
   const describe = (services: ServiceManager, name: string) => services.status().find(service => service.name === name)!;
   /** The /preview app and public link start only after the person asks (and, for the link, says yes). */
   const allowed = (services: ServiceManager, name: string) => {
@@ -117,7 +120,18 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
   async function run(services: ServiceManager, args: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
     const start = async (name: string) => { const { restarted } = await services.ensureFresh(name, signal); return { restarted, service: describe(services, name) }; };
     const action = args.action;
-    if (action === "status") return { services: services.status().filter(service => !services.casperOnly(service.name)) };
+    const background = commands?.();
+    if (action === "status") {
+      const running = background?.list() ?? [];
+      return { services: services.status().filter(service => !services.casperOnly(service.name)),
+        ...(running.length ? { commands: running.map(({ id, command, log }) => ({ id, command, ...(log ? { log } : {}) })) } : {}) };
+    }
+    if (typeof args.service === "string" && /^cmd-\d+$/.test(args.service) && (action === "logs" || action === "stop")) {
+      const id = args.service;
+      if (!background?.has(id)) throw new Error(`${id} is not running (it ended, or was never started)`);
+      if (action === "stop") return { command: id, stopped: await background.stop(id, "model") };
+      return { command: id, logs: background.logs(id, Math.min(200, Math.max(1, Number.isInteger(args.lines) ? Number(args.lines) : 40))) };
+    }
     if (action === "request") return request(services, args, signal);
     if (action === "check" || action === "replay") {
       const checks = smoke?.();
@@ -158,7 +172,7 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
 
   return {
     name: "service",
-    description: "Run and observe the project's services (dev servers) in the background under Casper's control; do not background servers with bash. Casper gives each a loopback port (PORT/HOST env), waits until it is ready, keeps its log, restarts it after edits and stops it with the session. start a declared service by name, or an ad-hoc one by command (it must listen on $HOST:$PORT); status; logs (lines, filter); restart; stop. request sends HTTP to a service path or a loopback URL, restarting a stale or crashed service first; nothing else is reachable. Crashes are reported on your next call. For new or changed endpoint behavior, record a check before editing (check: name, service, request { method, path, headers?, body? }, expect { status?, headers?, json? subset, bodyMatches? }); Casper replays it after the change, and replay { id } reruns it.",
+    description: "Run and observe the project's services (dev servers) in the background under Casper's control; do not background servers with bash. Casper gives each a loopback port (PORT/HOST env), waits until it is ready, keeps its log, restarts it after edits and stops it with the session. start a declared service by name, or an ad-hoc one by command (it must listen on $HOST:$PORT); status; logs (lines, filter); restart; stop. logs and stop also take a slow command's id (service cmd-1). request sends HTTP to a service path or a loopback URL, restarting a stale or crashed service first; nothing else is reachable. Crashes are reported on your next call. For new or changed endpoint behavior, record a check before editing (check: name, service, request { method, path, headers?, body? }, expect { status?, headers?, json? subset, bodyMatches? }); Casper replays it after the change, and replay { id } reruns it.",
     inputSchema: { type: "object", additionalProperties: false, required: ["action"], properties: {
       action: { type: "string", enum: ["start", "status", "logs", "restart", "stop", "request", "check", "replay"] },
       service: { type: "string" }, command: { type: "string" },

@@ -255,7 +255,8 @@ flakyOn("win32")("at most 3 builders at once; a fourth is turned away and not co
   while (started < 3 && performance.now() < limit) await Bun.sleep(10);
   expect(started).toBe(3);
   for (const resolve of release) resolve();
-  for (const call of calls.slice(0, 3)) expect(data((await call).text).note).toBe("No changes were made; the copy was removed.");
+  // The whole report, so a failure shows why a copy was kept (its `kept.why`), not only that the note is missing.
+  for (const call of calls.slice(0, 3)) expect(data((await call).text)).toMatchObject({ note: "No changes were made; the copy was removed." });
   expect(await git(repo, "worktree", "list")).not.toContain("casper/crew-");
 }, 30_000);
 

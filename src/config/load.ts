@@ -136,6 +136,8 @@ export interface LoadedConfiguration {
   browserClicks?: boolean;
   /** `routine_commands: off` in your own config: with no sandbox, every shell command that is not a plain read asks. Unset: on. */
   routineCommands?: boolean;
+  /** `slow_commands: off` in your own config: a command run without its own timeout is stopped at the limit instead of moving to the background. Unset: on. */
+  slowCommands?: boolean;
   /** `mcp_autoconnect: off` in your own config: your own MCP servers wait for /mcp connect, with writes off and the change box. Unset: on. */
   mcpAutoconnect?: boolean;
   /** `lsp_autostart: off` in your own config: your own language servers wait for /lsp connect. Unset: on. */
@@ -298,7 +300,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "mcp_autoconnect", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "slow_commands", "mcp_autoconnect", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -968,6 +970,8 @@ export async function loadConfiguration(
   // Whether routine shell commands run without asking is yours too.
   if (projectDocument.routine_commands !== undefined) throw new Error("routine_commands is a user setting (~/.casper/config.yaml); a project cannot change which shell commands run without asking");
   let routineCommands: boolean | undefined;
+  if (projectDocument.slow_commands !== undefined) throw new Error("slow_commands is a user setting (~/.casper/config.yaml); a project cannot keep commands running in the background");
+  let slowCommands: boolean | undefined;
   // Whether your own MCP and language servers start by themselves is yours too.
   if (projectDocument.mcp_autoconnect !== undefined) throw new Error("mcp_autoconnect is a user setting (~/.casper/config.yaml); a project cannot start your MCP servers or stop them starting");
   if (projectDocument.lsp_autostart !== undefined) throw new Error("lsp_autostart is a user setting (~/.casper/config.yaml); a project cannot start your language servers or stop them starting");
@@ -993,6 +997,7 @@ export async function loadConfiguration(
     pictureModels = picturesSetting.models ?? pictureModels;
     browserClicks = onOffLayer(document.browser_clicks, label, "browser_clicks") ?? browserClicks;
     routineCommands = onOffLayer(document.routine_commands, label, "routine_commands") ?? routineCommands;
+    slowCommands = onOffLayer(document.slow_commands, label, "slow_commands") ?? slowCommands;
     mcpAutoconnect = onOffLayer(document.mcp_autoconnect, label, "mcp_autoconnect") ?? mcpAutoconnect;
     lspAutostart = onOffLayer(document.lsp_autostart, label, "lsp_autostart") ?? lspAutostart;
     notifications = onOffLayer(document.notifications, label, "notifications") ?? notifications;
@@ -1045,6 +1050,7 @@ export async function loadConfiguration(
     ...(pictureModels?.length ? { pictureModels } : {}),
     ...(browserClicks !== undefined ? { browserClicks } : {}),
     ...(routineCommands !== undefined ? { routineCommands } : {}),
+    ...(slowCommands !== undefined ? { slowCommands } : {}),
     ...(mcpAutoconnect !== undefined ? { mcpAutoconnect } : {}),
     ...(lspAutostart !== undefined ? { lspAutostart } : {}),
     ...(notifications !== undefined ? { notifications } : {}),

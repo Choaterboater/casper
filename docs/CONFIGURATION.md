@@ -14,8 +14,8 @@ writes your answer into `~/.casper/config.yaml` for you, keeping your comments a
 ```text
 Settings (saved in ~/.casper/config.yaml for you):
   Web lookups: on (DuckDuckGo) · Browser tool: on · Browser clicks: on
-  Routine commands: on · Starter templates: on · Diagram tool: on
-  Pages the AI makes: on · Pictures the AI makes: on
+  Routine commands: on · Slow commands: on · Starter templates: on
+  Diagram tool: on · Pages the AI makes: on · Pictures the AI makes: on
   Open pages in the browser: on · New-version notice: on · Notifications: on
   Suggestions: on · Side questions with ?: on · Built-in skills: on
   GitHub tool: on · Packs: on · Spend notes: at $1 a task · Spend pause: off
@@ -32,41 +32,42 @@ Pick one to change:
   3 Browser tool                      on
   4 Browser clicks                    on
   5 Routine commands                  on
-  6 Starter templates                 on
-  7 Diagram tool                      on
-  8 Pages the AI makes                on
-  9 Pictures the AI makes             on
- 10 Open pages in the browser         on
- 11 New-version notice                on
- 12 Notifications                     on
- 13 Suggestions                       on
- 14 Side questions with ?             on
- 15 Built-in skills                   on
- 16 GitHub tool                       on
- 17 Packs                             on
- 18 Spend notes                       at $1 a task
- 19 Spend pause                       off
- 20 Prompt cache                      auto
- 21 Local models                      on
- 22 Page checks                       on
- 23 Show the AI the pages             ask once a session
- 24 Work shown                        normal
- 25 Theme                             default
- 26 Untrusted-text reader             on
- 27 Helpers that build                on
- 28 Playwright tests                  on
- 29 Compose files                     on
- 30 Send Casper's name to OpenRouter  on
- 31 Sign-ins from other tools         on
- 32 Network server updates            on
- 33 My MCP servers                    on
- 34 My language servers               on
- 35 Private ssh passwords             on
+  6 Slow commands                     on
+  7 Starter templates                 on
+  8 Diagram tool                      on
+  9 Pages the AI makes                on
+ 10 Pictures the AI makes             on
+ 11 Open pages in the browser         on
+ 12 New-version notice                on
+ 13 Notifications                     on
+ 14 Suggestions                       on
+ 15 Side questions with ?             on
+ 16 Built-in skills                   on
+ 17 GitHub tool                       on
+ 18 Packs                             on
+ 19 Spend notes                       at $1 a task
+ 20 Spend pause                       off
+ 21 Prompt cache                      auto
+ 22 Local models                      on
+ 23 Page checks                       on
+ 24 Show the AI the pages             ask once a session
+ 25 Work shown                        normal
+ 26 Theme                             default
+ 27 Untrusted-text reader             on
+ 28 Helpers that build                on
+ 29 Playwright tests                  on
+ 30 Compose files                     on
+ 31 Send Casper's name to OpenRouter  on
+ 32 Sign-ins from other tools         on
+ 33 Network server updates            on
+ 34 My MCP servers                    on
+ 35 My language servers               on
+ 36 Private ssh passwords             on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
-Every row has its number: past 9, type it and press Enter (`Type 1-35 + Enter or Up/Down + Enter`).
+Every row has its number: past 9, type it and press Enter (`Type 1-36 + Enter or Up/Down + Enter`).
 A plain terminal (`TERM=dumb`) asks the same list as numbered lines.
 A change applies from now on (built-in skills, packs, the prompt cache, local models, My MCP servers and My language servers from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Changed while a task runs, it also says when the
@@ -139,6 +140,18 @@ outside the project, a new package (`npm install left-pad`) and copying or commi
 (`cp .env x`) still ask. It is on. Turn it off with
 `/settings` (it writes `routine_commands: false`) and every command that is not a plain read asks.
 A project file can't set it. See [SECURITY.md](SECURITY.md) for the full list.
+
+### Slow commands
+
+A shell command the AI runs without its own time limit gets 2 minutes. If it is still running then,
+it moves to the background instead of being stopped: the AI gets its output so far and an id
+(`cmd-1`), the command keeps running under the same sandbox it started in, `/tasks` lists it, and when it
+ends the AI gets a short note with its exit code and last lines of output. Its input is closed, so a
+command waiting for you to type ends instead. At most 4 run this way at once; past that a slow command
+is stopped at 2 minutes as before. A command the AI gave its own time limit is stopped at it, and servers
+still go through the service tool. Every one is stopped, with whatever it started, when Casper exits.
+It is on. Turn it off with `/settings` (it writes `slow_commands: false`) and a slow command is
+stopped at 2 minutes. A project file can't set it.
 
 ### Starter templates
 
