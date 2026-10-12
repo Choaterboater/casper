@@ -4,11 +4,173 @@
 published, and what the installers promise. **When you'd use it:** to see what is new
 before you upgrade, or when you build or publish a release yourself.
 
-Casper distributes an unsigned **v0.2.32 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.32`,
+Casper distributes an unsigned **v0.2.33 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.33`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.33: fewer interruptions, a browser the AI drives itself, and slow commands that keep running
+
+Casper asks less, as Claude Code does: with the sandbox off, routine shell commands run without the "Run this
+command?" box, and the AI's browser clicks, types, starts the project's dev script and serves a folder of plain
+files without asking. A slow command moves to the background instead of being stopped, and one that stalled ends
+with the reason. Browser checks end honestly on apps that work, page checks note what feels wrong to use, and
+pictures come from your ChatGPT plan or a free model. Ollama models run as their Modelfile says, and you get your
+own slash commands, `/rewind` and `/review`.
+
+- With the sandbox off, routine commands run without a box: git's everyday commands and a push to a known remote, `gh pr create`, installs from the project's own files, its builds, tests and linters, and files made or removed in the project (**Routine commands** in `/settings`)
+- The AI's browser clicks, types and presses keys without asking, starts the project's dev or start script, and serves a folder of plain files itself (**Browser clicks** in `/settings`); password, payment and file fields are still never filled, except a password on a local test page on this computer
+- Your own MCP servers and language servers start with the session, the GitHub tool reads pull requests and CI and re-runs failed checks without a box, and a command you typed is the yes
+- A shell command still running at 2 minutes moves to the background (**Slow commands**), and one that prints nothing and uses no CPU for 45 seconds is ended with the reason (**Stalled commands**; not on Windows)
+- Browser checks that were written wrong can be withdrawn, a check that never ran ends the task incomplete, not failed, Casper replays stale checks itself at the end, and each browser action says what it changed on the page
+- Page checks note broken pictures, low contrast, small tap targets, developer text, layout jumps and links that fail, follow a few same-site links, and get one repair turn for those notes
+- `make_picture` uses your ChatGPT plan through the Codex CLI or a free OpenRouter model, never a paid one you didn't name, and makes the picture in the background; the web skill has an SVG illustration kit
+- Ollama models use their Modelfile's temperature and top_p, the context window Ollama really serves and your `/effort`, and a tool call with the wrong shape is repaired
+- Your own slash commands from Markdown files in `~/.casper/commands`, `/rewind`, `/review`, desktop notifications in more terminals, a `compose` check, home lab skills, and secrets in app configs and compose labels hidden
+- Fewer wasted turns: a repeated read is noted, then skipped; a repair that changed nothing ends the repairs; an empty model answer is tried again three times; and a big build request is built without a plan-first panel
+
+**What now runs without asking.** These change what Casper asks before, so read them before you upgrade. Each
+has an off switch in `/settings`, and [ADR 2](adr/0002-deliberate-choices.md) lists each one with its guard rails:
+
+- **Routine commands** (`routine_commands: false` brings the box back). With the sandbox off (the default where
+  you type to Casper), git's everyday commands and a push to a remote the project already has, `gh pr create`,
+  installs from the project's own files (`npm ci`, `bun install`, `pip install -r requirements.txt`), the
+  project's builds, tests, linters and formatters, and making, copying, moving or removing files in the project
+  run without the "Run this command?" box. `sudo`, `curl … | sh`, a force push, deleting outside the project, a
+  new package (`npm install left-pad`) and copying or committing a private file (`cp .env x`) still ask.
+- **Browser clicks** (`browser_clicks: false`, your own config only). The AI's browser clicks, types and presses
+  keys on any page without asking, a "Send message" or "Delete" button included, so a one-shot run can test a
+  contact form. It also starts the project's dev or start script without asking; a script that runs a download
+  through a shell (`curl … | sh`) or uses `sudo` still asks. On a page on this computer, a local test may fill a
+  password field with a made-up account, so the AI can test a login page it built; anywhere else a password
+  field is refused, and card-number, one-time-code and file fields stay refused everywhere. With Browser clicks
+  off the old questions come back, and a refused action says which label word held it.
+- **My MCP servers** and **My language servers** (`mcp_autoconnect`, `lsp_autostart`, your own config only). Your
+  own MCP servers (`~/.casper/mcp.json`, your profile, and the ones found in Claude Code and VS Code) connect when
+  the session starts, and a change on one that isn't a network product runs without the change box; firmware,
+  delete and admin changes still ask. Mist, Central, ClearPass and the other network products keep writes off and
+  their yes/no box, and a project's server keeps its review.
+- **GitHub tool.** It reads this repo's pull requests and CI and re-runs its failed checks without a box, in
+  one-shot runs too (one pull request is re-run at most once per 10 minutes).
+- **Reads and edits through links.** The AI's read, grep, find and ls follow a link out of the project like any
+  file outside it, with no question; edit and write ask the usual write-outside question about where the link
+  leads, and private places, git's own files and your shell, git or Casper settings there stay refused.
+  `web_fetch` reads a public `https` page on any port; private, local and cloud-metadata addresses and addresses
+  with a user name or password are still refused.
+- **git.** The AI may run `git stash` (and its pop and apply), `git reset --keep` and `--merge`. Only git commands
+  that throw away uncommitted work are still blocked: `reset --hard`, `checkout --` or `-f`, restore of working
+  files, `switch -f` or `--discard-changes`, `clean` without `-n`, and `stash drop` or `clear`.
+- **Helpers that build** run with the sandbox off (the default): a builder's command that needs your OK asks in
+  your box, named for it (`Builder 2 wants to run: npm install`), and your remembered answers and `/permissions`
+  count for it.
+
+**Commands you typed.** A command you type is the yes, so it no longer asks again: `/debug start` launches with a
+one-line notice that it runs outside the sandbox, `/security-review ai` prints its cost and runs, and
+`/switch main apply|discard` shows the diff and goes ahead (a one-shot run still refuses). `/model` and `/effort`
+while helpers are busy change your next message and say helpers keep theirs.
+
+**Slow commands keep running.** A shell command the AI runs without its own time limit gets 2 minutes. If it is
+still running then, it moves to the background instead of being stopped: the AI gets its output so far and an id
+(`cmd-1`), the command keeps running under the same sandbox it started in, `/tasks` lists it, and when it ends the
+AI gets a short note with its exit code and last lines. Its input is closed, so a command waiting for you to type
+ends instead. At most 4 run this way at once; past that a slow command is stopped at 2 minutes as before. Every one
+is stopped, with whatever it started, when Casper exits. `slow_commands: false` (**Slow commands**) stops a slow
+command at 2 minutes.
+
+**Stalled commands end early.** A command without its own time limit that prints nothing new for 45 seconds while
+it and everything it started use under 1% CPU and move no bytes is waiting on nothing: a download that hung, or a
+test run that printed its results but kept a server open. Casper ends it with what it started and the AI reads
+why: `stalled: no output and no CPU for 45 s after: <its last line>`. After a finished test summary it adds that
+something is still open, to close in the test teardown. On Linux the byte count includes TCP traffic read with
+`ss`, since `curl` and `git` use calls `/proc/<pid>/io` does not count, and a network socket it can't count keeps
+the command going; on macOS it counts network traffic. A command with its own time limit, a command on Casper's
+ssh login and servers started with the service tool are never ended this way. `stalled_commands: false`
+(**Stalled commands**) lets such a command run to its limit.
+
+**Browser checks end honestly.** Casper no longer ends Incomplete or Failed on an app that works:
+
+- A browser check the AI wrote wrong (it failed and nothing changed since) can be withdrawn with a short reason:
+  `1 check withdrawn by the AI: <name> (<reason>)`. After edits it can be withdrawn by naming a passing check of
+  the same page that replaces it, and a withdrawn check is never replayed.
+- A new check whose step selector matches several elements is not kept, and the error says how many it matched;
+  one that stops part way gives its id back. A selector that matches nothing or text that is wrong lists up to 3
+  real elements most like it.
+- A check's step waits up to 5 seconds for its element while it matches nothing or is disabled, so a list that
+  loads later is clicked once it is there. `{run}` in a fill or select value is new on each run, so a sign-up
+  check passes again on a replay.
+- At the end of a task Casper replays browser checks that ran before a later edit itself, so a page that still
+  works counts as checked; with Browser clicks on that includes a local-test step such as a contact form's Send.
+- A check with no `scope.inputs` watches the project folder, leaving out dependency, build and cache folders and
+  what `.gitignore` lists, so a check that passed after the last edit counts as fresh. Before, every such
+  one-shot run exited 2.
+- A check recorded before its server ran is recorded by its first finished run, the browser tool's dev server is
+  the one page checks open, and `serve` again restarts it after code changes. A check that never ran (blocked by
+  the sandbox, timed out or could not start) ends the task incomplete, exit 2, not failed.
+
+**The browser says what happened.** A click, fill, press or select says what it changed on the page: the address
+it left, a new title, text that appeared, controls added or removed and where focus moved. A click on a covered
+target names what covers it (`button "Save" is covered by div.toast "Saved"`), a click that changed nothing says
+so, and a dialog Casper dismissed is named. The browser tool can also select and scroll. Screenshots reach a model
+that can see images straight away, and a browser check or replay brings the final page's picture and short text,
+so the AI needs no extra screenshot. The browser tool serves a folder of plain files itself (`serve` with script
+`files`): no command runs, a path out of the project is not found, and it stops with the browser session.
+
+**Page checks note what feels wrong.** Under each page the check now lists exact facts, nothing when the page is
+clean: pictures that didn't load or repeat across cards, what runs past a phone screen, tap targets under 44×44
+px, text below WCAG AA contrast with its worst colour pair, developer or broken text people can see (`[object
+Object]`, a UUID, `1 bags`), the layout jumping while it loads, a phone footer taller than half the screen and
+controls a fixed bar covers. It scrolls first so lazy pictures load, and the desktop screenshot is the whole page
+up to 4000 px. It also opens up to 5 same-site pages the changed pages link to (never a form, an `/api/` path, a
+file, or a link that could log out or delete) and a few links whose query makes a choice, and notes links that
+fail or don't show their choice. These notes never fail a page; the model gets one repair turn per task with only
+those notes (`↻ page notes`, never on your big model), then the pages are checked once more. The web skill asks
+for a font pair and accent that suit the product, its own picture for each product, a one-row phone header with a
+Menu button, and only what the brief asks.
+
+**Pictures.** `make_picture` uses what you already have, in this order, with no question: your ChatGPT plan through
+the Codex CLI you signed in to, then the free OpenRouter model `inclusionai/ming-image-0.1-design`. With neither,
+the AI draws SVG, helped by an illustration kit shipped with the web skill. A paid model runs only when your
+request names one or `pictures.models` lists it; a model the AI names on its own is ignored, and it is told why.
+Big pictures are shrunk for the web with `sips` or ImageMagick. The tool returns the path at once and makes the
+picture in the background; a read, edit or write of that file and most other tools wait for it.
+
+**Local models.** Ollama models run with their Modelfile's temperature and top_p instead of 1.0, stay loaded for
+30 minutes between requests (`OLLAMA_KEEP_ALIVE` changes it), and a thinking model takes your `/effort`. Every
+found model server is sent its output limit as `max_tokens`. An Ollama model's window is read from Ollama after its
+first answer, so the conversation stays inside what Ollama serves, with one notice when that is under half the
+model's. A tool call from a weaker model with a misnamed field, a list sent as a JSON string or a single value for
+a list is repaired and run, with a note giving the right form.
+
+**Home lab.** Docker Compose files in a project are checked with `docker compose config --quiet` in each file's own
+folder (**Compose files** in `/settings`, `verification.compose: false`). New skills cover a media stack, Docker
+Compose health and drift, Proxmox, and network troubleshooting (link, address, gateway, DNS, path, ports, TLS, HTTP
+and MTU; firewall rules saved before a change; a packet capture only after asking). When the AI reads an app's
+`config.xml` or a compose file, secret elements such as `<ApiKey>`, `<Password>` and `<Token>` are hidden, and a
+name ending in `key` hides a value that looks like a generated key.
+
+**Everyday commands.** A Markdown file in `~/.casper/commands` is your own slash command: `hello.md` is `/hello`,
+and `/hello world` sends it with your words in it; Casper's own commands win a name. `/rewind` goes back to just
+before an earlier prompt, puts its words back in the prompt, and can put the later tasks' files back. `/review`
+asks a read-only reviewer about your uncommitted changes, a branch or a commit, and keeps only findings on real
+lines of changed files. Desktop notifications now work in WezTerm, Ghostty, kitty and foot, only while the terminal
+is not in front (**Notifications** in `/settings`).
+
+**Fewer wasted turns.** The same read, grep, find or ls with nothing in between gets a note on the 3rd try and is
+skipped from the 5th. A repair that changed no files and left the same failure ends the repairs:
+`The last repair changed nothing and the failure is the same.` A check whose long output is cut keeps up to 20
+error lines from the cut middle. A write that leaves `// ... existing code ...` where code was gets a note to
+write the file in full. A model that answers with nothing is tried again three times, after 1, 2 and 4 seconds,
+before the Stop / Retry box. A big build request is built straight away with one line suggesting `/plan` next
+time. Explorer helpers work at low effort and reviewers at medium unless you set their model role. A pasted
+request over 4 KiB is now recorded in the task outcomes, cut to its first 4 KiB.
+
+**Known limits.** Stalled commands never end a command on Windows, where Casper does not read the CPU, since
+silence alone would end a quiet build. On Linux a socket the stall check can't count keeps a command going. Only 4
+slow commands run in the background at once. Windows still has no sandbox.
+
+**The site.** Every page shares one width and layout, with a short, sticky contents sidebar beside the text on wide
+screens; the roadmap starts with what's next, and the home page shows the receipt's verdict first.
 
 ## v0.2.32: a model server added by its address, no undo in a folder too big to compare, and a new-version note in the footer
 
