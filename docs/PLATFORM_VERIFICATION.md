@@ -28,15 +28,19 @@ result means.
 
 ## Prepared host gates — runs still pending
 
-Two GitHub Actions workflows run these checks for you on a GitHub build machine.
-You can start either by hand ("Run workflow"), and they also run when relevant
-files change on `main` (Linux also on pull requests). Neither one publishes a release
-or needs model credentials. The sign-in tests use fake provider answers.
+GitHub Actions workflows run these checks for you on GitHub build machines. You can start
+each by hand ("Run workflow"). They also run when relevant files change on `main`, every
+night at 03:17 UTC, and on pull requests. On a pull request Linux runs the whole suite, and
+macOS and Windows run its fast tier, plus the heavy tier when the change touches a path where
+OS behaviour matters ([what runs when](DEVELOPING.md#what-ci-runs-and-when)). A release counts
+only a push, nightly or manual run, which always runs the whole suite. None of them publishes
+a release or needs model credentials. The sign-in tests use fake provider answers.
 
 | Workflow | What it runs | Evidence it keeps |
 | --- | --- | --- |
-| [Linux preview](../.github/workflows/linux-preview.yml) | Ubuntu 24.04, Bun 1.4.0, records `python3` and its PTY modules; locked install; platform probe; typecheck; focused platform/terminal/login/model/debugger suite; full `bun run test` (files in parallel, under `tools/stall-guard.sh`, which retries a stalled file once) | `linux-preview-evidence`: host, install, probe, typecheck, focused and full-suite logs, kept 14 days, uploaded even when a check fails |
-| [Windows preview](../.github/workflows/windows-preview.yml) | `windows-latest`, Bun 1.4.0, locked install; typecheck; platform probe; ConPTY screen test (`tests/windows-screen.test.ts`, on the source and again on the built `.exe`); release-compile test; release build; installer test under Windows PowerShell 5.1 and PowerShell 7. Beside it, on four more runners at once: the full `bun run test` suite in four parts of about equal time (`tools/test-shard.ts`), 3 test files at a time on each, the real debugger test, and the eval bench tests (`bun run test:evals`). Defender's live scan is off for the run | `windows-verification-build` and `windows-verification-suite-1..4`: host and per-step logs, full-suite and eval logs included, uploaded even on failure; the built files go to `windows-preview` |
+| [Linux preview](../.github/workflows/linux-preview.yml) | Ubuntu 24.04, Bun 1.4.0, records `python3` and its PTY modules; locked install; platform probe; typecheck; focused platform/terminal/login/model/debugger suite; full `bun run test` (files in parallel, under `tools/stall-guard.sh`, which retries a stalled file once), on every run |  `linux-preview-evidence`: host, install, probe, typecheck, focused and full-suite logs, kept 14 days, uploaded even when a check fails |
+| [macOS preview](../.github/workflows/macos-preview.yml) | `macos-15`, Bun 1.4.0, ripgrep and two extra loopback addresses; locked install; typecheck; the shell sandbox (`sandbox-exec`) tests; full `bun run test` under `tools/stall-guard.sh`, with the browser test and the real debugger test each in a step of their own. A pull request that leaves OS behaviour alone runs only the fast tier (`tools/test-tier.ts`) | `macos-preview-evidence`: host, install, typecheck, the tier chosen, sandbox, suite, browser and debugger logs, kept 14 days, uploaded even when a check fails |
+| [Windows preview](../.github/workflows/windows-preview.yml) | `windows-latest`, Bun 1.4.0, locked install; typecheck; platform probe; ConPTY screen test (`tests/windows-screen.test.ts`, on the source and again on the built `.exe`); release-compile test; release build; installer test under Windows PowerShell 5.1 and PowerShell 7. Beside it, on four more runners at once: the full `bun run test` suite in four parts of about equal time (`tools/test-shard.ts`), 3 test files at a time on each, the real debugger test, and the eval bench tests (`bun run test:evals`). Defender's live scan is off for the run. A pull request that leaves OS behaviour alone runs only the fast tier in the four parts, and the eval tests (`tools/test-tier.ts`) | `windows-verification-build` and `windows-verification-suite-1..4`: host and per-step logs, full-suite and eval logs included, uploaded even on failure; the built files go to `windows-preview` |
 
 On Linux the Python PTY tests run (Windows skips them). A PTY is a fake terminal a
 test can type into. Windows has its own: `tests/windows-screen.test.ts` starts Casper in

@@ -5,6 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { parse } from "yaml";
 import { verifySshSignature } from "../src/update/signature";
+import { suiteFiles } from "../tools/test-shard";
+import { decide, tiers } from "../tools/test-tier";
 import { posixOnly } from "./support/platform";
 import { sshKeygenVerifies } from "./support/release-signing";
 import { removeTempDir } from "./support/temp-dir";
@@ -17,9 +19,9 @@ import { removeTempDir } from "./support/temp-dir";
 const DIR = path.resolve(import.meta.dir, "../.github/workflows");
 const files = readdirSync(DIR).filter((name) => /\.ya?ml$/.test(name));
 
-interface Step { uses?: string; run?: string; name?: string; with?: Record<string, unknown>; "timeout-minutes"?: number }
-interface Job { "timeout-minutes"?: number; permissions?: Record<string, string>; steps: Step[]; needs?: string | string[] }
-interface Workflow { permissions?: Record<string, string>; jobs: Record<string, Job> }
+interface Step { uses?: string; run?: string; name?: string; id?: string; if?: string; env?: Record<string, string>; with?: Record<string, unknown>; "timeout-minutes"?: number }
+interface Job { "timeout-minutes"?: number; permissions?: Record<string, string>; steps: Step[]; needs?: string | string[]; if?: string; env?: Record<string, string>; outputs?: Record<string, string> }
+interface Workflow { on?: Record<string, unknown>; permissions?: Record<string, string>; jobs: Record<string, Job> }
 const temps: string[] = [];
 afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });
 const load = (name: string): Workflow => parse(readFileSync(path.join(DIR, name), "utf8")) as Workflow;
@@ -130,6 +132,56 @@ test("the full suite runs files in parallel, slowest first, with the eval tests 
   // Windows runs each part on 3 workers, not one per core: the tests' own child processes need the room.
   const windows = load("windows-preview.yml").jobs.suite!.steps.map((step) => step.run ?? "").join("\n");
   expect(windows).toMatch(/bun test --parallel=3 --timings=tests\/timings\.json @files/);
+});
+
+test("the release counts only whole-suite runs: a push, nightly or manual run on Linux, macOS and Windows, never a pull request's", () => {
+  const gate = load("publish-release.yml").jobs.build!.steps.find((step) => /linux-preview\.yml/.test(step.run ?? ""))!.run!;
+  for (const name of ["linux-preview.yml", "macos-preview.yml", "windows-preview.yml"]) expect(gate).toContain(name);
+  expect(gate).toContain('select(.event == "push" or .event == "schedule" or .event == "workflow_dispatch")');
+  expect(gate).toContain('[ "$conclusion" = success ]');
+  // Those events always choose the whole suite.
+  for (const event of ["push", "schedule", "workflow_dispatch"]) expect(decide(event, [], new Set()).tier).toBe("full");
+});
+
+test("every preview runs nightly, and a pull request on macOS or Windows always runs at least the fast tier", async () => {
+  for (const name of ["linux-preview.yml", "macos-preview.yml", "windows-preview.yml"]) {
+    const on = load(name).on as { schedule?: Array<{ cron: string }>; push?: unknown; workflow_dispatch?: unknown };
+    expect(on.schedule?.[0]?.cron, name).toBe("17 3 * * *");
+    expect(on.push, name).toBeDefined();
+    expect(on.workflow_dispatch, name).toBeDefined();
+  }
+  // The tier comes from the event and the PR's own diff, and is only ever "full" or "fast".
+  const tierStep = (steps: Step[]) => steps.find((step) => step.id === "tier")!;
+  const mac = load("macos-preview.yml").jobs.source!;
+  const windows = load("windows-preview.yml");
+  for (const step of [tierStep(mac.steps), tierStep(windows.jobs.changes!.steps)]) {
+    expect(step.env?.EVENT).toBe("${{ github.event_name }}");
+    // --no-renames: a moved file lists its old path too, so a file moved out of an OS path still counts.
+    expect(step.run).toContain("git diff --no-renames --name-only HEAD^1 HEAD");
+    expect(step.run).toContain('bun tools/test-tier.ts decide "$EVENT"');
+    expect(step.run).toContain("case \"$tier\" in full | fast) ;; *)");
+    expect(step.run).toContain("GITHUB_STEP_SUMMARY");
+  }
+  // macOS: the whole suite when full, the fast tier when fast; heavy-only steps run only when full.
+  const ifOf = (start: string) => mac.steps.find((step) => step.name?.startsWith(start))?.if ?? "";
+  expect(ifOf("Full regression suite")).toContain("steps.tier.outputs.tier == 'full'");
+  expect(ifOf("Fast tier of the suite")).toContain("steps.tier.outputs.tier == 'fast'");
+  const fast = mac.steps.find((step) => step.name?.startsWith("Fast tier of the suite"))!;
+  expect(fast.run).toContain('files="$(bun tools/test-tier.ts fast)"');
+  expect(fast.run).toMatch(/bash tools\/stall-guard\.sh .* -- bun test --parallel --timings=tests\/timings\.json \$files/);
+  for (const start of ["The shell sandbox", "Browser test", "Real debugger test"]) expect(ifOf(start), start).toContain("steps.tier.outputs.tier == 'full'");
+  // Windows: the four parts always run, of the tier chosen; the build, ConPTY and installer job only when full.
+  expect(windows.jobs.suite!.needs).toBe("changes");
+  // If the changes job fails, the parts still run, the whole suite, and the build job too: a job skipped
+  // because a needed job failed would count as passed for a required check.
+  expect(windows.jobs.suite!.if).toBe("${{ !cancelled() }}");
+  expect(windows.jobs.suite!.env?.TIER).toBe("${{ needs.changes.outputs.tier || 'full' }}");
+  expect(windows.jobs.suite!.steps.map((step) => step.run ?? "").join("\n")).toContain("bun tools/test-shard.ts 4 ${{ matrix.part }} $env:TIER");
+  expect(windows.jobs.standalone!.if).toBe("${{ !cancelled() && needs.changes.outputs.tier != 'fast' }}");
+  expect(windows.jobs.changes!.if).toBeUndefined();
+  // No suite file is left out of every tier.
+  const { fast: quick, heavy } = await tiers();
+  expect([...quick, ...heavy].sort()).toEqual(await suiteFiles());
 });
 
 test("the build lists both installers in SHA256SUMS, and only the publish job's signing step sees the release key", () => {

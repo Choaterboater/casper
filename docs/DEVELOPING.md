@@ -49,6 +49,36 @@ Open an issue first for anything large, so we can agree on the shape before you 
 
 Security problems: see [docs/SECURITY.md](SECURITY.md) instead of opening a public issue.
 
+### What CI runs, and when
+
+The suite is split in two tiers by `tools/test-tier.ts` (`bun tools/test-tier.ts fast`, `heavy` or `sizes`
+lists them). Heavy: a test file that starts real processes or services (a Bun or shell child, git, a PTY or
+ConPTY, the browser, a language or MCP server, the sandbox, Bun itself as a server or check command, a
+configured check run for real), itself or through a `tests/support` helper it imports (directly or through
+another helper), or one that takes over 5 s in `tests/timings.json`. Fast: every other file; some still run
+`git` through Casper's own project checks. Each suite file is in exactly one tier, and
+`tests/test-tier.test.ts` checks that none is left out.
+
+| Run | Linux | macOS | Windows |
+| --- | --- | --- | --- |
+| Pull request | whole suite | fast tier; whole suite when it changes a path where OS behaviour matters | the same as macOS, in 4 parts; the build, ConPTY and installer job only with the whole suite |
+| Push to `main`, nightly (03:17 UTC), manual run | whole suite | whole suite | whole suite, build and installers |
+
+A release (`publish-release.yml`) stops unless Linux, macOS, Windows and Windows ARM64 each passed a push,
+nightly or manual run, which is always the whole suite, on the exact commit it releases. A pull request run
+never counts.
+
+Paths where OS behaviour matters (`OS_PATHS` in `tools/test-tier.ts`): `src/platform`, `src/runtime`,
+`src/browser`, `src/sandbox`, `src/services`, `src/workspace`, `src/verify`, `src/crew`, `src/agents`, `src/tui`,
+`src/lsp`, `src/mcp`, `src/debug`, `src/update`, `src/app/*terminal*`, `src/cli.ts`, `src/cli-main.ts`,
+`src/standalone.ts`, `tools/`, `scripts/`, `.github/`, `tests/support/`, `tests/fixtures/`, `package.json`,
+`bun.lock`, `bunfig.toml` and `tsconfig.json`. Also any changed `src` file that starts a process or checks the
+OS, and any changed heavy test. The changed paths come from `git diff --no-renames HEAD^1 HEAD` on the PR's merge commit (a moved file lists
+its old path too);
+when they cannot be listed, the whole suite runs. Each run's summary says which tier ran and why. Nearly all of the
+suite's time is in the heavy tier, so on macOS and Windows a pull request that only changes words, prompts or
+pure logic runs a much shorter suite; Linux still runs everything, and `main` and the nightly run catch the rest.
+
 ### If CI is red on your PR
 
 Most red runs mean the change broke something. Some are a flaky test: one that fails now and then on a busy
@@ -83,7 +113,7 @@ itself with any code, is never started again, and this is not a test retry. Run 
 `tests/support/run.ts`, not `spawnSync` or `execFileSync`. A Bun test worker sometimes never reaps a
 synchronous child and spins until CI's stall guard ends the job.
 
-On Linux and macOS, `tools/stall-guard.sh` watches the full suite. When the log has been silent for 180 s it
+On Linux and macOS, `tools/stall-guard.sh` watches the suite (whole or fast tier). When the log has been silent for 180 s it
 writes `stall-dump.txt` (every process and what each test worker was doing), stops the run, and runs the
 file(s) Bun was still running once more on their own. The step then passes or fails on that run, and the
 log says `stall-guard: retried <file> once after a stall`. There is one such retry per job, none after a
