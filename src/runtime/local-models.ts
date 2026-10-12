@@ -32,6 +32,10 @@ export interface LocalModel {
   /** Ollama: fields every request to this model carries: keep_alive, and the temperature and top_p its Modelfile sets
    * (Ollama's /v1 otherwise runs every model at 1.0 and unloads it after 5 minutes). */
   request?: Record<string, number | string>;
+  /** Ollama: the most the model takes, when Ollama serves it a smaller window (contextWindow). */
+  trained?: number;
+  /** Ollama: the window Ollama serves is not known until the model is loaded; Casper reads it after the first answer. */
+  servedLater?: true;
 }
 export interface LocalServer {
   /** One of the four kinds' ids for a server Casper looks for; your own name for one you added. */
@@ -204,7 +208,9 @@ export function modelfileSampling(parameters: unknown): { temperature?: number; 
 
 /** Ollama: /api/tags lists the models, /api/show tells each one's abilities and a num_ctx set in its Modelfile.
  * The window, as Ollama picks it: a loaded model's own (/api/ps), else its Modelfile num_ctx, else OLLAMA_CONTEXT_LENGTH
- * (the server's default for every model; Casper's environment may not be the server's, so it comes last). */
+ * (the server's default for every model; Casper's environment may not be the server's, so it comes last). Without the
+ * first or second, Ollama's own default depends on the server's memory (4k, 32k or 256k), so the window is read again
+ * from /api/ps once the model has answered (servedLater). Ollama's /v1 ignores a request's num_ctx: it can't be set. */
 async function ollama(fetcher: typeof fetch, root: string, signal: AbortSignal, env: DiscoverOptions["env"]): Promise<LocalModel[]> {
   const tags = await getJson(fetcher, `${root}/api/tags`, signal);
   if (!tags || !Array.isArray(tags.models)) throw new NotThisServer();
@@ -230,7 +236,10 @@ async function ollama(fetcher: typeof fetch, root: string, signal: AbortSignal, 
     const trained = positive(record(tag.details)?.context_length)
       ?? positive(Object.entries(info ?? {}).find(([key]) => key.endsWith(".context_length"))?.[1]);
     const window = loaded.get(id) ?? numCtx ?? serverWindow;
-    return { id, ...(window ? { contextWindow: trained ? Math.min(window, trained) : window } : trained ? { contextWindow: Math.min(trained, UNKNOWN_WINDOW) } : {}),
+    const served = window && trained ? Math.min(window, trained) : window;
+    return { id, ...(served ? { contextWindow: served } : trained ? { contextWindow: Math.min(trained, UNKNOWN_WINDOW) } : {}),
+      ...(trained && (!loaded.has(id) && !numCtx || trained > (served ?? trained)) ? { trained } : {}),
+      ...(loaded.has(id) || numCtx ? {} : { servedLater: true as const }),
       ...(capabilities?.includes("vision") ? { images: true } : {}), ...(capabilities?.includes("thinking") ? { thinking: true } : {}),
       request: { ...modelfileSampling(show?.parameters), keep_alive: keepAlive } };
   }));
@@ -519,9 +528,41 @@ export function forgetLocalServer(name: string): void {
 }
 
 /** Forget what was found and what the looks cover (tests). */
-export function clearLocalServers(): void { round = undefined; lastFound.clear(); listeners.clear(); settings = { auto: true, saved: [] }; }
+export function clearLocalServers(): void { round = undefined; lastFound.clear(); listeners.clear(); ollamaWindows.clear(); settings = { auto: true, saved: [] }; }
 
 type Catalog = Pick<ModelRuntime, "getProvider" | "getModels" | "getRegisteredProviderConfig" | "registerProvider">;
+/** Each Ollama model's windows in this process (by address and id): the most it takes, and what Ollama serves. */
+const ollamaWindows = new Map<string, { trained?: number; served?: number }>();
+const windowKey = (baseUrl: string, id: string) => `${baseUrl.replace(/\/+$/, "")} ${id}`;
+const outputCap = (contextWindow: number) => Math.min(16_384, Math.max(1_024, Math.floor(contextWindow / 4)));
+
+/** After an Ollama model has answered, the window it was loaded with (/api/ps), until one is read. A smaller one than
+ * Casper took replaces it on the model in use and in later lists, so compaction keeps the conversation inside what
+ * Ollama keeps (it drops the start of a longer prompt, tools and instructions first). */
+async function learnServedWindow(baseUrl: string, local: LocalModel, model: { contextWindow: number; maxTokens: number }, fetcher: typeof fetch): Promise<void> {
+  const root = baseUrl.replace(/\/v1\/?$/, "");
+  const ps = await getJson(fetcher, `${root}/api/ps`, AbortSignal.timeout(probeBudget(root)));
+  const entry = list(ps?.models).map(record).find((loaded) => loaded?.name === local.id || loaded?.model === local.id);
+  const served = positive(entry?.context_length);
+  if (!served || !local.servedLater) return;
+  delete local.servedLater;
+  const window = Math.min(served, local.trained ?? served);
+  ollamaWindows.set(windowKey(baseUrl, local.id), { trained: local.trained, served: window });
+  if (window >= model.contextWindow) return;
+  local.contextWindow = model.contextWindow = window;
+  model.maxTokens = outputCap(window);
+}
+
+/** One plain notice when Ollama serves a model less than half the window it takes, with how to raise it. */
+export function servedWindowWarning(model: { baseUrl?: string; id: string; contextWindow: number }): string | undefined {
+  const known = model.baseUrl ? ollamaWindows.get(windowKey(model.baseUrl, model.id)) : undefined;
+  if (!known?.trained || !known.served || known.served * 2 > known.trained) return undefined;
+  const words = (n: number) => n.toLocaleString("en-US");
+  return `Ollama runs ${model.id} with a ${words(known.served)}-token window, though the model takes ${words(known.trained)}; `
+    + `Casper keeps the conversation inside ${words(known.served)}. To raise it, start Ollama with OLLAMA_CONTEXT_LENGTH=32768 ollama serve, `
+    + "or set PARAMETER num_ctx 32768 in a Modelfile (see docs/CONFIGURATION.md, Local models).";
+}
+
 /** The providers Casper registered in each catalog, so the ones no longer looked for can be taken out again. */
 const ours = new WeakMap<object, Set<string>>();
 
@@ -549,13 +590,23 @@ export function registerLocalServers(catalog: Catalog, servers: readonly LocalSe
     if (!server.models.length && !registered) continue;
     try {
       catalog.registerProvider(server.provider, { name: server.name, baseUrl: server.baseUrl, api: "openai-completions", apiKey: "local",
-        streamSimple: (model, context, options) => completions.streamSimple(model, context, { ...options,
-          ...server.saved ? { apiKey: "local" } : {}, fetch: refuseRedirects(options?.fetch) }),
+        streamSimple: (model, context, options) => {
+          const stream = completions.streamSimple(model, context, { ...options,
+            ...server.saved ? { apiKey: "local" } : {}, fetch: refuseRedirects(options?.fetch) });
+          const local = server.models.find((entry) => entry.id === model.id);
+          if (local?.servedLater) void stream.result().then((reply) => reply.stopReason === "error" || reply.stopReason === "aborted" ? undefined
+            : learnServedWindow(server.baseUrl, local, model, refuseRedirects(options?.fetch))).catch(() => undefined);
+          return stream;
+        },
         models: server.models.map((model) => {
-          const contextWindow = model.contextWindow ?? UNKNOWN_WINDOW;
+          // Ollama: a window this list only guesses gives way to the one read after an answer.
+          const key = windowKey(server.baseUrl, model.id);
+          const served = model.servedLater ? ollamaWindows.get(key)?.served : model.contextWindow;
+          if (model.trained || ollamaWindows.has(key)) ollamaWindows.set(key, { trained: model.trained, served });
+          const contextWindow = Math.min(model.contextWindow ?? UNKNOWN_WINDOW, served ?? Infinity);
           return { id: model.id, name: model.id, reasoning: Boolean(model.thinking), input: model.images ? ["text", "image"] : ["text"],
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow,
-            maxTokens: Math.min(16_384, Math.max(1_024, Math.floor(contextWindow / 4))),
+            maxTokens: outputCap(contextWindow),
             // An Ollama model that thinks takes reasoning_effort (off is "none"; older servers know low, medium, high).
             ...(model.thinking ? { thinkingLevelMap: { off: "none", minimal: "low" } } : {}),
             ...(model.request ? { samplingParams: model.request } : {}),

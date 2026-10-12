@@ -658,6 +658,14 @@ on this computer:
   `num_ctx` in the model's settings, else `OLLAMA_CONTEXT_LENGTH`; a loaded LM Studio model's window;
   llama.cpp's `-c`; vLLM's `--max-model-len`. Otherwise it uses the usual 128k (never more than the
   model was trained for), so set the window yourself if you can (see the limits below).
+- **The window Ollama really serves.** Ollama often runs a model with less than it takes (its own
+  default is 4k, 32k or 256k, by the computer's memory) and silently drops the start of a longer
+  prompt, Casper's instructions and tools first. Ollama's OpenAI-style address ignores a request's
+  `num_ctx`, so Casper can't ask for more: when the window wasn't known, it reads the one Ollama
+  loaded the model with after the model's first answer, and keeps the conversation inside it. If that
+  is under half of what the model takes, Casper says so once per session, with how to raise it: start
+  Ollama with `OLLAMA_CONTEXT_LENGTH=32768 ollama serve`, or set `PARAMETER num_ctx 32768` in a
+  Modelfile (`ollama create`).
 - **Ollama's model settings.** Ollama's OpenAI-style address runs every model at temperature 1.0 and top_p
   1.0 unless a request says otherwise, so Casper sends the `temperature` and `top_p` the model's Modelfile
   sets (`ollama show <model> --parameters`), and nothing it doesn't set. It also sends `keep_alive: 30m`,

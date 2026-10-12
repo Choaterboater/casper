@@ -51,6 +51,14 @@ test("small windows get a smaller compaction reserve; large windows keep Pi's de
   expect(settings.getCompactionReserveTokens({ provider: "openrouter", id: "x" })).toBe(16384);
 });
 
+test("the reserve follows the model's window as it is now", async () => {
+  const { settings } = await build();
+  const model = { provider: "local", id: "large", contextWindow: 128000 };
+  expect(settings.getCompactionReserveTokens(model)).toBe(16384);
+  model.contextWindow = 8192;
+  expect(settings.getCompactionReserveTokens(model)).toBe(2048);
+});
+
 test("the warning comes once per session, for small windows only", async () => {
   const { models } = await build();
   const sessionWith = (contextWindow: number) => ({ model: { contextWindow } }) as unknown as AgentSession;

@@ -21,7 +21,13 @@ import {
   createAgentSessionRuntime,
   createAgentSessionServices,
   createBashToolDefinition,
+  createEditToolDefinition,
+  createFindToolDefinition,
+  createGrepToolDefinition,
   createLocalBashOperations,
+  createLsToolDefinition,
+  createReadToolDefinition,
+  createWriteToolDefinition,
   CredentialSynchronizationError,
   getAgentDir,
   ModelRuntime,
@@ -35,6 +41,7 @@ import type {
   CreateAgentSessionRuntimeFactory,
   ExtensionAPI,
   SettingsManager,
+  ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { gitGuardReason } from "./git-guard";
@@ -43,6 +50,7 @@ import { withoutProviderKeys } from "../platform/environment";
 import { cacheRetentionFor, type PromptCacheSetting } from "./cache";
 import { LoopGuard } from "./loop-guard";
 import { ELISION_NOTE, elisionTexts, newElisions } from "./elision";
+import { ToolArgumentRepair } from "./tool-repair";
 import { nativeEditPath, observationInput, editPatch, observationOutput, patchLineCounts, writeLineCounts, type ToolObservationInput } from "./observation";
 import type {
   AgentRuntime,
@@ -864,7 +872,13 @@ export class PiRuntime implements AgentRuntime {
       bounded?.signal.throwIfAborted();
       // ~ in tool paths stays the real home: Pi's own file tools expand it with os.homedir(), and the checks must agree.
       const pathContext = toolPathContext(cwd, os.homedir(), agentDir, options);
+      // Every tool's arguments get their shape repaired before Pi validates them (src/runtime/tool-repair.ts).
+      const repair = new ToolArgumentRepair();
+      const repairing = <D extends { name: string; parameters: unknown; prepareArguments?: (args: unknown) => unknown }>(definition: D): D =>
+        ({ ...definition, prepareArguments: repair.hook(definition.name, definition.parameters, definition.prepareArguments) } as D);
       const extensionFactory = (pi: ExtensionAPI) => {
+        // First, so a repair is tied to its call even when a later handler refuses the call.
+        pi.on("tool_call", (event) => { repair.claim(event.toolName, event.toolCallId); });
         // Runs after the runtime's own attribution, so Casper's identity replaces Pi's. With
         // CASPER_TELEMETRY=0 or telemetry: off there is none to add, and the runtime's is taken out too.
         pi.on("before_provider_headers", (event, ctx) => {
@@ -950,10 +964,10 @@ export class PiRuntime implements AgentRuntime {
           if (!event.isError) options.shell?.wroteOutside?.(absolute);
         });
         // The AI's bash: Casper's own operations (adapted from Pi's sandbox example), never a repo's .pi/sandbox.json.
-        if (!readOnly) pi.registerTool({ ...createBashToolDefinition(cwd, {
+        if (!readOnly) pi.registerTool(repairing(createBashToolDefinition(cwd, {
           operations: casperBashOperations(options.shell),
           spawnHook: (context) => ({ ...context, env: withoutProviderKeys(context.env, options.shell?.keepEnv ?? []) }),
-        }) });
+        })));
         if (options.scrubToolOutput) pi.on("tool_result", async (event, ctx) => {
           if (!SCRUBBED_TOOLS.has(event.toolName)) return;
           const texts = event.content.flatMap((block) => block.type === "text" ? [block.text] : []);
@@ -995,6 +1009,10 @@ export class PiRuntime implements AgentRuntime {
             event.content.flatMap((block) => block.type === "text" ? [block.text] : []));
           if (note) return { content: [...event.content, { type: "text" as const, text: note }] };
         });
+        pi.on("tool_result", (event) => {
+          const note = repair.take(event.toolCallId);
+          if (note) return { content: [...event.content, { type: "text" as const, text: note }] };
+        });
         const withFileLocks = <T>(paths: string[], work: () => Promise<T>): Promise<T> => {
           const ordered = [...new Set(paths)].sort();
           const next = (index: number): Promise<T> => index === ordered.length ? work() : withFileMutationQueue(ordered[index], () => next(index + 1));
@@ -1006,6 +1024,7 @@ export class PiRuntime implements AgentRuntime {
           label: tool.name,
           description: tool.description,
           parameters: Type.Unsafe<Record<string, unknown>>(tool.inputSchema),
+          prepareArguments: repair.hook(tool.name, tool.inputSchema, (args) => args as Record<string, unknown>),
           ...(tool.sequential ? { executionMode: "sequential" as const } : {}),
           execute: async (_id, args, signal, _update, ctx) => {
             const result = await tool.execute(args, signal, { withFileLocks });
@@ -1057,6 +1076,12 @@ export class PiRuntime implements AgentRuntime {
         bounded?.signal.throwIfAborted();
         const created = await createAgentSessionFromServices({
           services, sessionManager, sessionStartEvent, model: modelOptions.model,
+          // Pi's own file tools, made as Pi makes them, with the argument repair added.
+          customTools: [
+            createReadToolDefinition(cwd, { autoResizeImages: modelOptions.settingsManager.getImageAutoResize() }),
+            createEditToolDefinition(cwd), createWriteToolDefinition(cwd),
+            createGrepToolDefinition(cwd), createFindToolDefinition(cwd), createLsToolDefinition(cwd),
+          ].map((definition) => repairing(definition) as unknown as ToolDefinition),
           ...(readOnly ? { tools: ["read", "grep", "find", "ls"] } : {}),
         });
         if (bounded) {

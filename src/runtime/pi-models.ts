@@ -12,7 +12,7 @@ import { anyModelMatches } from "./pi-model-browser";
 import { openRouterRequestHeaders } from "./openrouter-attribution";
 import { compactionReserveFor, smallWindowWarning } from "./small-window";
 import { lockBusy } from "../platform/files";
-import { isLocalProvider, lastLocalLook, LOCAL_SERVERS, localModelDefaults, onThisComputer, SERVER_SIDE_TIP, wantsServerTip, type LocalDiscovery, type LocalProblem } from "./local-models";
+import { isLocalProvider, lastLocalLook, LOCAL_SERVERS, localModelDefaults, onThisComputer, SERVER_SIDE_TIP, servedWindowWarning, wantsServerTip, type LocalDiscovery, type LocalProblem } from "./local-models";
 import { CLAUDE_SUBSCRIPTION } from "./claude-subscription";
 
 type Selection = { reference?: ModelReference; source: "conversation" | "default" | "none"; role?: string; effort?: string; auto?: RuntimeStatus["autoEffort"] };
@@ -304,19 +304,20 @@ export class PiModels {
   }
 
   /** A model with a small window gets a compaction reserve of a quarter of it instead of Pi's fixed
-   * 16,384, which would otherwise compact on every turn. Keyed per model so /model switches follow;
-   * a reserve the person set themselves is left alone. */
+   * 16,384, which would otherwise compact on every turn. Read from the model's window at each check, so
+   * /model switches and an Ollama window learned after the first answer follow; a reserve the person
+   * set themselves is left alone. */
   private shrinkCompactionReserve(settingsManager: SettingsManager): void {
-    const settings = settingsManager.getGlobalSettings();
-    const overrides: Record<string, { reserveTokens: number }> = {};
-    if (settings.compaction?.reserveTokens === undefined) {
-      for (const model of this.catalog.getModels()) {
-        const reserve = compactionReserveFor(model.contextWindow);
-        const key = `${model.provider}/${model.id}`;
-        if (reserve !== undefined && settings.compaction?.modelOverrides?.[key]?.reserveTokens === undefined) overrides[key] = { reserveTokens: reserve };
-      }
-    }
-    if (Object.keys(overrides).length) settingsManager.applyOverrides({ compaction: { modelOverrides: overrides } });
+    const own = settingsManager.getGlobalSettings().compaction;
+    if (own?.reserveTokens !== undefined) return;
+    const base = settingsManager.getCompactionReserveTokens.bind(settingsManager);
+    settingsManager.getCompactionReserveTokens = (model) => {
+      if (!model || own?.modelOverrides?.[`${model.provider}/${model.id}`]?.reserveTokens !== undefined) return base(model);
+      const window = (model as { contextWindow?: unknown }).contextWindow;
+      const reserve = compactionReserveFor(typeof window === "number" ? window
+        : this.catalog.getModels().find((entry) => entry.provider === model.provider && entry.id === model.id)?.contextWindow);
+      return reserve ?? base(model);
+    };
   }
 
   private localRefresh?: (signal?: AbortSignal) => Promise<LocalDiscovery>;
@@ -412,10 +413,10 @@ export class PiModels {
   }
 
   private warned = new WeakSet<AgentSession>();
-  /** The plain-words warning for a small window, once per session and only for the selected main model. */
+  /** The plain-words warning for a small window, or for an Ollama window under half the model's, once per session and only for the selected main model. */
   smallWindowNotice(session: AgentSession): string | undefined {
     if (this.warned.has(session)) return undefined;
-    const message = smallWindowWarning(session.model?.contextWindow);
+    const message = session.model && servedWindowWarning(session.model) || smallWindowWarning(session.model?.contextWindow);
     if (message) this.warned.add(session);
     return message;
   }
