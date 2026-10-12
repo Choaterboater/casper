@@ -36,8 +36,8 @@
   <main id="main">
     <div class="container">
       <h1>Roadmap</h1>
-      <p class="lead">Where Casper has been, and where it is going next. Released things first. Then the
-      things still on the workbench.</p>
+      <p class="lead">Where Casper has been, and where it is going next. The things still on the workbench
+      first. Then the released things.</p>
 
       <aside class="callout note">
         <strong class="callout-title">How to read this page</strong>
@@ -52,9 +52,28 @@
         has no version and nobody is building it yet.</p>
       </aside>
 
+      <div class="contents-layout">
       <nav class="toc" aria-label="On this page">
         <strong>On this page</strong>
         <ul>
+          <li><a href="#next">Next release, built, not released</a></li>
+          <li><a href="#coming">Planned, not started</a>
+            <ul>
+              <li><a href="#v030">v0.3: crews</a></li>
+            </ul>
+          </li>
+          <li><a href="#later">Later, not scheduled</a>
+            <ul>
+              <li><a href="#packs">Vendor packs</a></li>
+              <li><a href="#ops-chat">Ask about your infrastructure</a></li>
+              <li><a href="#quarantine">Saved readers</a></li>
+              <li><a href="#schedule">Scheduled jobs with an AI on call</a></li>
+              <li><a href="#terminal-check">Terminal check</a></li>
+              <li><a href="#community">Community lessons</a></li>
+              <li><a href="#policy">Tool rules you write</a></li>
+              <li><a href="#ideas">Ideas to borrow, not started</a></li>
+            </ul>
+          </li>
           <li><a href="#released">Released</a>
             <ul>
               <li><a href="#v0232">v0.2.32: a model server added by its address, no undo in a folder too big to compare, a new-version note in the footer</a></li>
@@ -80,27 +99,257 @@
               <li><a href="#v010">v0.1.0: the first preview</a></li>
             </ul>
           </li>
-          <li><a href="#next">Next release, built, not released</a></li>
-          <li><a href="#coming">Planned, not started</a>
-            <ul>
-              <li><a href="#v030">v0.3: crews</a></li>
-            </ul>
-          </li>
-          <li><a href="#later">Later, not scheduled</a>
-            <ul>
-              <li><a href="#packs">Vendor packs</a></li>
-              <li><a href="#ops-chat">Ask about your infrastructure</a></li>
-              <li><a href="#quarantine">Saved readers</a></li>
-              <li><a href="#schedule">Scheduled jobs with an AI on call</a></li>
-              <li><a href="#terminal-check">Terminal check</a></li>
-              <li><a href="#community">Community lessons</a></li>
-              <li><a href="#policy">Tool rules you write</a></li>
-            </ul>
-          </li>
-          <li><a href="#ideas">Ideas to borrow, not started</a></li>
         </ul>
       </nav>
 
+      <div class="page-sections">
+      <section id="next" aria-labelledby="next-h">
+        <h2 id="next-h">Next release</h2>
+        <aside class="callout soon">
+          <strong class="callout-title">Built, not released</strong>
+          <p>On the main branch since v0.2.32, in the next preview.</p>
+        </aside>
+        <ul>
+          <li><strong>The browser works without asking.</strong> The AI clicks, types and serves a folder of plain files itself; with Browser clicks on it starts the project's dev script without a box.</li>
+          <li><strong>Fewer interruptions.</strong> What Claude Code runs without asking, Casper runs too; with the sandbox off, routine git and shell commands skip the "Run this command?" box.</li>
+          <li><strong>Honest endings.</strong> Browser checks are recorded on their first finished run, one dev server owns the port, and a check that never ran (sandbox, timeout) ends the task incomplete, not failed.</li>
+          <li><strong>Pages that feel right.</strong> Page checks note developer text, layout jumps, focus rings round the page, huge phone footers and covered buttons; they follow a few same-site links; check steps wait for their element.</li>
+          <li><strong>Pictures.</strong> From your ChatGPT plan or a free model, an SVG illustration kit, and a paid image model only when your request names it or your config lists it.</li>
+          <li><strong>Secrets.</strong> Values in app configs and compose labels are hidden.</li>
+          <li><strong>Local models.</strong> Ollama models run as their Modelfile says, use the context window Ollama really serves, and broken tool arguments are repaired.</li>
+          <li><strong>Home lab.</strong> A <code>compose</code> check (<code>docker compose config --quiet</code> per file) and skills for a media stack, Docker Compose, Proxmox and network troubleshooting.</li>
+          <li><strong>Everyday commands.</strong> Your own slash commands from Markdown files, <code>/rewind</code> to an earlier prompt, <code>/review</code> of your changes, and notifications in more terminals only when you're looking elsewhere.</li>
+          <li><strong>Less waiting.</strong> Slow commands move to the background instead of being stopped, stalled ones end with the reason, pictures are made in the background, and a browser check brings its own screenshot.</li>
+          <li><strong>Cheaper models finish cleanly.</strong> A wrong browser check can be replaced by a corrected one, and a check that signs up or books can use a new value each run.</li>
+        </ul>
+      </section>
+
+      <section id="coming" aria-labelledby="coming-h">
+        <h2 id="coming-h">Planned, not started</h2>
+        <aside class="callout soon">
+          <strong class="callout-title">Not in any release yet</strong>
+          <p>Nothing else in this section is in v0.2.32: the first part of Crews shipped in v0.2.23, AI-started
+          builders in v0.2.24, reviewers and a fix round in v0.2.25, and the rest has not been started. Names, commands and details may change, or move to a later version, before
+          they ship.</p>
+        </aside>
+
+        <div class="stack">
+        <article class="card" id="v030" aria-labelledby="v030-h">
+          <div class="release-heading"><h3 id="v030-h">v0.3 · Crews</h3>
+            <span class="badge soon">first parts shipped in v0.2.23, v0.2.24 and v0.2.25</span></div>
+          <p>Big jobs get a team. The AI splits a big job itself, as Claude Code and omp do; <code>/crew</code>
+          is the manual way.</p>
+          <ul>
+            <li><strong>A builder in its own copy</strong> <span class="badge">in v0.2.23</span>.
+            <code>/crew &lt;job&gt;</code>: a builder does the job in its own copy of the project, in the
+            same sandbox, and your folder stays as it is. Then 1 Keep the copy · 2 Apply to my folder ·
+            3 Throw it away. See <code>docs/CREWS.md</code>.</li>
+            <li><strong>The AI starts builders itself</strong> <span class="badge">in v0.2.24</span>.
+            For a job with separate parts the AI starts up to 3 builders at once, each in its own copy of
+            your folder as it is (unsaved files too); each
+            change lands in your folder when its builder ends, uncommitted, and one <code>/undo</code> takes
+            the task back. A change that touches a file changed after its copy started stays in its copy for
+            <code>/crew</code>. "run a crew" or "split this up" asks for them, "by yourself" keeps them out; /settings
+            turns them off. The footer shows them (<code>2 builders · $0.12</code>).</li>
+            <li><strong>Review, fix</strong> <span class="badge">in v0.2.25</span>. The AI can have a reviewer check each landed part and one
+            builder fix what it finds. The footer shows <code>1 reviewer · 2 builders · $0.19</code>, and
+            the receipt says in one line which landed parts were not reviewed. Next: the full tests.</li>
+            <li><strong>Your limits apply to the crew.</strong> A limit said in the request ("keep it
+            under $2") holds for the whole crew, and the cost is shown as it goes.</li>
+          </ul>
+        </article>
+        </div>
+
+      </section>
+
+      <section id="later" aria-labelledby="later-h">
+        <h2 id="later-h">Later, not scheduled</h2>
+        <aside class="callout">
+          <strong class="callout-title">Ideas, not promises</strong>
+          <p>These are agreed directions with no version number yet. The first part of Vendor packs (skill packs)
+          shipped in v0.2.27; nothing else here is being built right
+          now, and any of it may change shape or be dropped.</p>
+        </aside>
+
+        <div class="stack">
+        <article class="card" id="packs" aria-labelledby="packs-h">
+          <div class="release-heading"><h3 id="packs-h">Vendor packs · one step to set up a vendor</h3>
+            <span class="badge soon">first part shipped in v0.2.27</span></div>
+          <p>Since v0.2.22 Casper sets up its own server for Mist, Central and ClearPass in one step.
+          For any other vendor it still takes four separate steps: connect its MCP server, pick a
+          read-only preset, add its reference docs, maybe add a skill. A pack does all four at
+          once.</p>
+          <ul>
+            <li><strong>Skill packs</strong> <span class="badge">in v0.2.27</span>.
+            <code>/pack add</code> a folder or <code>https://github.com/&lt;owner&gt;/&lt;repo&gt;@&lt;commit&gt;</code>:
+            one box shows every file before you say yes, and a pack brings skills and one colour theme, nothing
+            that runs. Servers, references and checks in a pack are not built yet. See <code>docs/PACKS.md</code>.</li>
+            <li><strong>One command.</strong> <code>casper pack add aruba</code> connects
+            hpe-networking-mcp with its <code>safe-read-only</code> preset, adds the Aruba CX and
+            Central references, and adds a "troubleshoot a site" skill.</li>
+            <li><strong>Writes stay off.</strong> A pack never turns writes on. Only you can, by
+            answering a change box or typing <code>/mcp writes &lt;server&gt;</code>.</li>
+            <li><strong>Borrowed format.</strong> A pack is a folder in the same shape as Claude
+            Code plugins (MCP servers, skills and commands side by side), not a new plugin API. MCP
+            stays the way tools plug in.</li>
+            <li><strong>First packs:</strong> Aruba, then Juniper and Mist.</li>
+            <li><strong>Anyone can publish one.</strong> Other vendors, partners and you can make a
+            pack and share it from a git repository (<code>casper pack add &lt;url&gt;</code>).
+            Before it is added, Casper lists what it brings (servers, skills, checks) and asks.
+            Writes stay off.</li>
+            <li><strong>Lab packs.</strong> A pack can build a whole lab, not only connect a
+            vendor: for example, Proxmox VMs set up as a Mist fabric, with checks that the fabric
+            came up. Lab sites only.</li>
+            <li><strong>Contributing starts with packs.</strong> A pack template and a short guide,
+            so someone can add a skill or check for their own gear without learning Casper's
+            code.</li>
+            <li><strong>Vendor plugin formats.</strong> If HPE or another vendor publishes its own
+            plugin format, Casper reads it as a pack, with the same rules.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="ops-chat" aria-labelledby="ops-chat-h">
+          <div class="release-heading"><h3 id="ops-chat-h">Ask about your infrastructure · chat that investigates your VMs and services</h3>
+            <span class="badge">idea, not scheduled</span></div>
+          <p>Ask in plain words, on demand: "why is my VoIP server rejecting calls?" Casper looks at
+          the logs, services and settings it can reach, says what it found and what it would change,
+          and changes nothing without your yes.</p>
+          <ul>
+            <li><strong>Already there:</strong> chat in the terminal, ssh to hosts you allow (it asks
+            first), MCP servers with writes off, and the yes/no change box.</li>
+            <li><strong>To add:</strong> ready connections for VM platforms (Proxmox first, then
+            others), read-only by default; a "check this service" skill (logs, ports, certificates,
+            recent changes); and a chat you can reach away from the terminal.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="quarantine" aria-labelledby="quarantine-h">
+          <div class="release-heading"><h3 id="quarantine-h">Saved readers · the untrusted-text reader for other tools</h3>
+            <span class="badge">idea, not scheduled</span></div>
+          <p>The reader for untrusted text shipped in v0.2.23 (<code>casper_read_untrusted</code>): a
+          separate model call with no tools reads a log, an email or a web form, and the AI gets only
+          JSON that matches its schema, never the text. It lowers the risk of hidden orders; it doesn't
+          remove it.</p>
+          <ul>
+            <li><strong>To add:</strong> saved readers (a schema with a name) and the same reader as an
+            MCP server, so Claude Code and other tools can use it.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="schedule" aria-labelledby="schedule-h">
+          <div class="release-heading"><h3 id="schedule-h">Scheduled jobs with an AI on call · recurring tasks that can investigate their own failures</h3>
+            <span class="badge">idea, not scheduled</span></div>
+          <p>Run a job on a schedule, for example "sync time entries from this database to
+          QuickBooks every night". The job itself is a plain script, so it does the same thing every
+          time. When it fails, or a record is missing a code, an AI looks into it, says why, and fixes
+          what it is allowed to.</p>
+          <ul>
+            <li><strong>Already there:</strong> Casper runs scripts and checks, reads failures, and
+            repairs them in a bounded loop.</li>
+            <li><strong>To add:</strong> the scheduler; a written list of what the AI may do on its
+            own when nobody is there to press yes (everything else waits for you, with a summary); and
+            a log of every run and every change.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="terminal-check" aria-labelledby="terminal-check-h">
+          <div class="release-heading"><h3 id="terminal-check-h">Terminal check · Casper tries your command-line program like a person</h3>
+            <span class="badge">idea, not scheduled</span></div>
+          <p>The page check opens a web app and looks at it. This does the same for programs that run
+          in a terminal: CLIs, full-screen terminal apps, network scripts, and Casper itself.</p>
+          <ul>
+            <li><strong>Runs it for real.</strong> Starts the program in a pretend terminal, types keys
+            at the right moments (Enter, Shift+Tab, Ctrl+C) and waits for text on the screen.</li>
+            <li><strong>On the receipt.</strong> Each step passes or fails like any other check, with
+            the screen at the moment it failed.</li>
+            <li><strong>Catches what unit tests miss.</strong> A note drawn where nobody can see it, a
+            key that does nothing, a prompt that never comes back.</li>
+            <li><strong>Borrowed.</strong> Casper already tests its own screen this way; this hands
+            that to the AI for your projects.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="community" aria-labelledby="community-h">
+          <div class="release-heading"><h3 id="community-h">Community lessons · learn from each other's fixes</h3>
+            <span class="badge">idea, not scheduled</span></div>
+          <p>When <code>casper learn</code> turns a fixed problem into a skill or check, you can share
+          it. Other people who add the community pack get it for the areas they pick: network,
+          home lab, Windows Server, iOS, web and more. It comes after packs, and it only works once
+          people use it.</p>
+          <ul>
+            <li><strong>Proven, not posted.</strong> A lesson comes from a run whose checks passed
+            after the fix, and it carries its own small test. One with no possible check is marked
+            unverified and listed after the rest.</li>
+            <li><strong>Only the lesson leaves.</strong> Never the code or session it came from. You
+            see the exact text, secrets hidden, before it is shared.</li>
+            <li><strong>Kept clean.</strong> Reviewed by hand at first; later, a lesson's own test
+            decides. Flags and runs that failed with it take a bad one down.</li>
+            <li><strong>Someone else's lesson is not yours.</strong> Its checks always run in the
+            sandbox and its skills are guidance only, until you copy one into your own.</li>
+            <li><strong>No server.</strong> Lessons live in a GitHub repository and arrive as a pack
+            you choose to add.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="policy" aria-labelledby="policy-h">
+          <div class="release-heading"><h3 id="policy-h">Tool rules you write · where and when a tool may run</h3>
+            <span class="badge">idea, not scheduled</span></div>
+          <p>Casper already decides which tool calls run, ask or stay hidden. This lets you add your
+          own rules in a file, such as sites and a maintenance window.</p>
+          <div class="cmd"><span class="cmd-label">~/.casper/policy.yaml (idea only)</span><pre><code>- tools: [port_bounce, reboot_device]
+  allow: ask
+  sites: [lab-*]          # never on production sites
+  hours: "22:00-05:00"    # maintenance window only</code></pre></div>
+          <ul>
+            <li><strong>Stricter only.</strong> Like presets and labels today, a rule can only
+            make Casper ask more or hide more. It can never skip an approval or turn writes on.</li>
+          </ul>
+        </article>
+        </div>
+
+        <p class="muted small">Want something on this list, or think something is missing? Open an
+        <a href="https://github.com/Choaterboater/casper/issues">issue on GitHub</a>.</p>
+
+      <section id="ideas" aria-labelledby="ideas-h">
+        <h2 id="ideas-h">Ideas to borrow</h2>
+        <aside class="callout">
+          <strong class="callout-title">Not in any release</strong>
+          <p>Ideas seen in other open projects, planned, not started. Any of them may be dropped.</p>
+        </aside>
+        <ul>
+          <li>Start read-only tools before the model finishes its reply (Chord).</li>
+          <li>Hide old tool output and screenshots from history so the prompt cache stays warm (SWE-agent, Waveloom).</li>
+          <li>Browser actions return new console errors and failed requests (Cline).</li>
+          <li>A scored design critique pass on a built page (OpenDesign).</li>
+          <li>A design direction (accent, font pair, layout) picked from the brief (SkyN3t).</li>
+          <li>Web skill wording measured the way LlamaCoder measures its prompts (LlamaCoder).</li>
+          <li>One "review your diff against the request" when the model says it is done (SWE-agent).</li>
+          <li>A guard for reasoning models that loop in their thinking (omp).</li>
+          <li>OpenRouter fallback models when a free model is rate-limited.</li>
+          <li>Short notices to the model about the harness state (zaly).</li>
+          <li><code>/goal verify &lt;command&gt;</code> (OMK).</li>
+          <li>Image placeholders filled in parallel (OpenUI).</li>
+          <li>Browser steps wait until the target is visible, enabled and not covered, say when a click changed nothing, and report confirm and alert dialogs (Playwright, PostHog).</li>
+          <li>Each browser action says what changed on the page, so no screenshot is needed (Playwright MCP, browser-use).</li>
+          <li>Several browser steps in one call (browser-use).</li>
+          <li>Lean or full guidance per model: habit skills only for weaker models (Aider, Codex).</li>
+          <li>Edits that point at line anchors instead of retyping old text, for small and local models; a stale anchor is refused (omp).</li>
+          <li>Selected checks run in parallel, and a repair reruns the failing one first (lefthook).</li>
+          <li>A skill loads the first time a matching file is touched (Claude Code).</li>
+          <li><code>/goal</code> keeps working until Casper's checks pass (Codex CLI).</li>
+          <li><code>/export</code>, and <code>/share</code> a session as a secret gist (opencode).</li>
+          <li>Home lab skills for RouterOS, OPNsense and Home Assistant.</li>
+          <li>Everyday server and database reads without a box, on this computer and over ssh (kubectl-ai, DBHub).</li>
+          <li>Safe container updates with a rollback image and a config backup (dockcheck, WUD).</li>
+          <li>Read-only MCP presets for home lab servers whose code was read first.</li>
+          <li>A Proxmox snapshot undo line on the receipt.</li>
+          <li>Terraform, OpenTofu and cloud-init checks.</li>
+          <li>Postgres migrations checked in PGlite, with migration safety notes (squawk).</li>
+          <li>Containerlab labs used without being asked.</li>
+          <li>NAPALM dry-run diffs and Batfish before-and-after impact.</li>
+        </ul>
+      </section>
+      </section>
       <section id="released" aria-labelledby="released-h">
         <h2 id="released-h">Released</h2>
         <p>Newest first. The full notes for each one are in
@@ -108,8 +357,11 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
-        <article class="card" id="v0232" aria-labelledby="v0232-h">
-          <h3 id="v0232-h">v0.2.32 · A model server added by its address, no undo in a folder too big to compare, a new-version note in the footer <span class="badge ok">current preview</span></h3>
+        <details class="card release" id="v0232" aria-labelledby="v0232-h" open>
+          <summary class="release-heading">
+            <h3 id="v0232-h">v0.2.32 · A model server added by its address, no undo in a folder too big to compare, a new-version note in the footer</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
           <p>A model server on another computer is added by typing its address, a folder too big to compare offers no
           undo, and the footer says when a newer Casper is out.</p>
           <ul>
@@ -143,10 +395,13 @@
             window no longer shows a false <code>WRITES</code>, and a failed <code>casper update</code> on a checkout
             only ahead of its remote names the network.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v0231" aria-labelledby="v0231-h">
-          <h3 id="v0231-h">v0.2.31 · Steps under the AI's words, the sandbox off unless you turn it on, Pi 1.1.0 <span class="badge">released</span></h3>
+        <details class="card release" id="v0231" aria-labelledby="v0231-h" open>
+          <summary class="release-heading">
+            <h3 id="v0231-h">v0.2.31 · Steps under the AI's words, the sandbox off unless you turn it on, Pi 1.1.0</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>The AI's steps tick in under its words and fold into one row that names what was done, the shell sandbox
           is off unless you turn it on, and Casper runs on Pi 1.1.0.</p>
           <ul>
@@ -180,10 +435,13 @@
             login, words in a link don't pick a skill, the contrast note reads Tailwind v4's <code>oklch()</code>
             colours, and a test that timed out in the middle of a long run asks instead of starting a repair.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v0230" aria-labelledby="v0230-h">
-          <h3 id="v0230-h">v0.2.30 · Claude through Claude Code, pages the AI makes, fewer wasted repairs <span class="badge">released</span></h3>
+        <details class="card release" id="v0230" aria-labelledby="v0230-h" open>
+          <summary class="release-heading">
+            <h3 id="v0230-h">v0.2.30 · Claude through Claude Code, pages the AI makes, fewer wasted repairs</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>Claude models can run through the Claude Code signed in on this computer, the AI makes a page in your
           browser when seeing beats reading, and a check that failed for a reason the code can't fix asks you
           instead of starting repairs.</p>
@@ -210,10 +468,13 @@
             <li><strong>Helpers with GPT models.</strong> A tool field sent as <code>null</code> counts as not given, so
             explorers, reviewers and builders work with GPT models through GitHub Copilot.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v0229" aria-labelledby="v0229-h">
-          <h3 id="v0229-h">v0.2.29 · Commands during a task, models on this computer, sign-ins from other tools <span class="badge">released</span></h3>
+        <details class="card release" id="v0229" aria-labelledby="v0229-h">
+          <summary class="release-heading">
+            <h3 id="v0229-h">v0.2.29 · Commands during a task, models on this computer, sign-ins from other tools</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>Every command runs during a task, a model server on your own computer shows in <code>/model</code> by
           itself, and <code>/login</code> offers a sign-in another coding tool left on this computer.</p>
           <ul>
@@ -244,10 +505,13 @@
             <li><strong>Plain words.</strong> A sign-in that can't be renewed says <code>/login</code>, a refresh
             failure says why in a few words, and a helper stopped by its limit hands back what it found, marked partial.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v0228" aria-labelledby="v0228-h">
-          <h3 id="v0228-h">v0.2.28 · One table of commands, screens that say things once, git push with your login <span class="badge">released</span></h3>
+        <details class="card release" id="v0228" aria-labelledby="v0228-h">
+          <summary class="release-heading">
+            <h3 id="v0228-h">v0.2.28 · One table of commands, screens that say things once, git push with your login</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>Commands do what the help says, the names from other tools work, every box and picker says each
           thing once in one style, and a plain <code>git push</code> can use your GitHub login after a yes.</p>
           <ul>
@@ -274,10 +538,13 @@
             <li><strong>A Windows update that says what happened.</strong> <code>~/.casper/update.log</code>, and a
             failed update is said by <code>casper update</code>, <code>casper doctor</code> and the session start.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v0227" aria-labelledby="v0227-h">
-          <h3 id="v0227-h">v0.2.27 · Skill packs, colour themes, pull requests and CI, a clickable /mcp, nothing extra to install <span class="badge">released</span></h3>
+        <details class="card release" id="v0227" aria-labelledby="v0227-h">
+          <summary class="release-heading">
+            <h3 id="v0227-h">v0.2.27 · Skill packs, colour themes, pull requests and CI, a clickable /mcp, nothing extra to install</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>Packs of skills you add after seeing every file, colour themes, one line per MCP server with an
           arrow-key picker, pasted pictures and copied files, and a leaner network server.</p>
           <ul>
@@ -303,10 +570,13 @@
             <li><strong>A tighter sandbox.</strong> After <code>/branch</code> and <code>/switch</code> the AI's shell
             always uses the session's current sandbox, and a linked git worktree's pointer files stay read-only.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v0226" aria-labelledby="v0226-h">
-          <h3 id="v0226-h">v0.2.26 · Local models, updating on Windows, opening where you launched <span class="badge">released</span></h3>
+        <details class="card release" id="v0226" aria-labelledby="v0226-h">
+          <summary class="release-heading">
+            <h3 id="v0226-h">v0.2.26 · Local models, updating on Windows, opening where you launched</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>A model on your own computer works with a written recipe, <code>casper update</code> works on
           Windows, and Casper opens the folder you launched in without a question.</p>
           <ul>
@@ -318,10 +588,13 @@
             <li><strong>Opening where you launched.</strong> From your home folder or a drive root, Casper
             opens there and prints one line with the command for your last project.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v0225" aria-labelledby="v0225-h">
-          <h3 id="v0225-h">v0.2.25 · A stricter plain-read check, reviewers for builders, a calmer start <span class="badge">released</span></h3>
+        <details class="card release" id="v0225" aria-labelledby="v0225-h">
+          <summary class="release-heading">
+            <h3 id="v0225-h">v0.2.25 · A stricter plain-read check, reviewers for builders, a calmer start</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>The check that lets harmless shell reads run without a question is stricter, checks that could
           pass without earning it are closed, builders get a reviewer and a fix round, and Casper opens the
           folder you launched in.</p>
@@ -341,10 +614,13 @@
             drive root; no startup menus for kind or name, the first request can pick a template.</li>
             <li><strong><code>/allowed</code></strong> lists and forgets the commands you said yes to.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v0224" aria-labelledby="v0224-h">
-          <h3 id="v0224-h">v0.2.24 · Builders the AI starts, plain words, an off switch for every default <span class="badge">released</span></h3>
+        <details class="card release" id="v0224" aria-labelledby="v0224-h">
+          <summary class="release-heading">
+            <h3 id="v0224-h">v0.2.24 · Builders the AI starts, plain words, an off switch for every default</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>The AI splits a big job across builders itself, you steer a task with plain words, every
           default can be turned off in <code>/settings</code>, and every request carries about 790 fewer
           fixed tokens.</p>
@@ -371,10 +647,13 @@
             <li><strong>Safer.</strong> One question before the AI's browser opens a cloud metadata
             address and before Windows opens a picture on another computer's share.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v0223" aria-labelledby="v0223-h">
-          <h3 id="v0223-h">v0.2.23 · Casper doctor, a sandboxed network server, a reader for untrusted text <span class="badge">released</span></h3>
+        <details class="card release" id="v0223" aria-labelledby="v0223-h">
+          <summary class="release-heading">
+            <h3 id="v0223-h">v0.2.23 · Casper doctor, a sandboxed network server, a reader for untrusted text</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>Casper checks its own setup, its network server runs in the sandbox, the AI reads untrusted
           text at arm's length, the AI can see pictures and the pages it built, and
           <code>/mcp login</code> asks which product.</p>
@@ -423,10 +702,13 @@
             <code>bun run lint</code> runs oxlint. The full test suite passes on Windows CI and blocks a
             merge.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v0222" aria-labelledby="v0222-h">
-          <h3 id="v0222-h">v0.2.22 · One box for every yes, a network server Casper sets up <span class="badge">released</span></h3>
+        <details class="card release" id="v0222" aria-labelledby="v0222-h">
+          <summary class="release-heading">
+            <h3 id="v0222-h">v0.2.22 · One box for every yes, a network server Casper sets up</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>Every question that lets something happen is the same numbered box, Casper sets up its
           own network server, and device checks ask before they touch anything.</p>
           <ul>
@@ -471,10 +753,13 @@
             installer keeps your PATH entries as they were. The full test suite does not pass on
             Windows yet.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v0221" aria-labelledby="v0221-h">
-          <h3 id="v0221-h">v0.2.21 · A clearer screen, pages at phone width <span class="badge">released</span></h3>
+        <details class="card release" id="v0221" aria-labelledby="v0221-h">
+          <summary class="release-heading">
+            <h3 id="v0221-h">v0.2.21 · A clearer screen, pages at phone width</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>The first published build since v0.2.15. It ships everything from v0.2.16 to v0.2.20
           below, plus a screen you can turn up or down and stricter page checks.</p>
           <ul>
@@ -499,10 +784,13 @@
             <li><strong>A request at the empty-folder question runs.</strong> Type or paste a
             request there and it runs in this folder instead of counting as a wrong answer.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v0220" aria-labelledby="v0220-h">
-          <h3 id="v0220-h">v0.2.20 · Fewer layers <span class="badge">released</span></h3>
+        <details class="card release" id="v0220" aria-labelledby="v0220-h">
+          <summary class="release-heading">
+            <h3 id="v0220-h">v0.2.20 · Fewer layers</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>Less in your way. Casper and the AI do the next step themselves, and things start on,
           with an off switch.</p>
           <ul>
@@ -531,10 +819,13 @@
             <li><strong>Smaller things.</strong> Browser calls with extra blank fields run; a
             detailed request builds without "plan first"; a one-line receipt when all is well.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v0219" aria-labelledby="v0219-h">
-          <h3 id="v0219-h">v0.2.19 · Asks before reaching other machines <span class="badge">released</span></h3>
+        <details class="card release" id="v0219" aria-labelledby="v0219-h">
+          <summary class="release-heading">
+            <h3 id="v0219-h">v0.2.19 · Asks before reaching other machines</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>The AI's shell can reach a switch or a server. Now Casper asks first, hides more
           secrets, and the receipt says what happened over there.</p>
           <ul>
@@ -554,10 +845,13 @@
             <li><strong>tmux and iTerm2</strong> with nothing to set: busy steps go to a pane
             beside Casper; <code>/tasks</code> lists what runs in the background.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v0218" aria-labelledby="v0218-h">
-          <h3 id="v0218-h">v0.2.18 · Network skills <span class="badge">released</span></h3>
+        <details class="card release" id="v0218" aria-labelledby="v0218-h">
+          <summary class="release-heading">
+            <h3 id="v0218-h">v0.2.18 · Network skills</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>Short how-to files for the network products you use, built in.</p>
           <ul>
             <li><strong>Six built-in skills:</strong> Juniper Mist, HPE Aruba Networking Central
@@ -568,10 +862,13 @@
             <li><strong>More SDKs for local search:</strong> <code>/references add pyaoscx</code>,
             <code>pyclearpass</code>, <code>mistapi</code> and <code>junos-pyez</code>.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v0217" aria-labelledby="v0217-h">
-          <h3 id="v0217-h">v0.2.17 · Undo, receipts and a sandbox <span class="badge">released</span></h3>
+        <details class="card release" id="v0217" aria-labelledby="v0217-h">
+          <summary class="release-heading">
+            <h3 id="v0217-h">v0.2.17 · Undo, receipts and a sandbox</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>The "oops" release. Take changes back, keep proof of what happened, and fence in the
           shell.</p>
           <ul>
@@ -596,10 +893,13 @@
             scanners flagged are never opened for it.</li>
             <li><strong>The plan editor asks</strong> "Build this plan?" before it builds.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v0216" aria-labelledby="v0216-h">
-          <h3 id="v0216-h">v0.2.16 · Build new things <span class="badge">released</span></h3>
+        <details class="card release" id="v0216" aria-labelledby="v0216-h">
+          <summary class="release-heading">
+            <h3 id="v0216-h">v0.2.16 · Build new things</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>Start new projects, see pages load after edits, and run network and security checks.
           Most of it makes no model call, so it costs zero tokens.</p>
           <ul>
@@ -624,10 +924,13 @@
             <li><strong>Enter is the safe choice.</strong> At Casper's numbered questions, choice 1
             never builds, spends tokens, remembers or reaches a lab.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v0215" aria-labelledby="v0215-h">
-          <h3 id="v0215-h">v0.2.15 · MCP for network servers, with writes off <span class="badge">released</span></h3>
+        <details class="card release" id="v0215" aria-labelledby="v0215-h">
+          <summary class="release-heading">
+            <h3 id="v0215-h">v0.2.15 · MCP for network servers, with writes off</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>This one is for network people. MCP servers (tool servers the AI can call) such as
           hpe-networking-mcp, junos-mcp-server, Mist and NetBox now work with Casper. The AI can read.
           Changing things is up to you.</p>
@@ -650,10 +953,13 @@
             OpenAPI, Junos YANG or pycentral so you can search them with no model call.</li>
           </ul>
           <p class="small muted">See it in action on the <a href="network.html">Network page</a>.</p>
-        </article>
+        </details>
 
-        <article class="card" id="v0214" aria-labelledby="v0214-h">
-          <h3 id="v0214-h">v0.2.14 · See it build, trust the result <span class="badge">released</span></h3>
+        <details class="card release" id="v0214" aria-labelledby="v0214-h">
+          <summary class="release-heading">
+            <h3 id="v0214-h">v0.2.14 · See it build, trust the result</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>The receipt got a verdict line, and the screen got livelier.</p>
           <p class="verdict ok">✓ Verified — the checks pass, and the tests fail without the change</p>
           <ul>
@@ -671,10 +977,13 @@
             <code>git clean</code>, <code>git stash drop</code> and other commands that can throw
             away your uncommitted work.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v0213" aria-labelledby="v0213-h">
-          <h3 id="v0213-h">v0.2.13 · Casper runs the checks <span class="badge">released</span></h3>
+        <details class="card release" id="v0213" aria-labelledby="v0213-h">
+          <summary class="release-heading">
+            <h3 id="v0213-h">v0.2.13 · Casper runs the checks</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>The first published build since v0.1.0. The big idea arrived here: don't take the AI's
           word for it.</p>
           <ul>
@@ -692,10 +1001,13 @@
             <li><strong>Its own settings:</strong> Casper uses <code>CASPER_*</code> settings and no
             longer falls back to Pi's <code>PI_*</code> ones.</li>
           </ul>
-        </article>
+        </details>
 
-        <article class="card" id="v010" aria-labelledby="v010-h">
-          <h3 id="v010-h">v0.1.0 · The first preview <span class="badge">released</span></h3>
+        <details class="card release" id="v010" aria-labelledby="v010-h">
+          <summary class="release-heading">
+            <h3 id="v010-h">v0.1.0 · The first preview</h3>
+            <span class="badge">released</span>
+          </summary>
           <p>Where it all started. The first published preview of Casper.</p>
           <ul>
             <li>Tested by hand on macOS. The test run passed 543 tests with 0 failures.</li>
@@ -704,237 +1016,12 @@
             <li>Known quirk: the login menu adds a new line each time you move, instead of moving the
             highlight. Fixed in v0.2.13.</li>
           </ul>
-        </article>
+        </details>
         </div>
       </section>
 
-      <section id="next" aria-labelledby="next-h">
-        <h2 id="next-h">Next release</h2>
-        <aside class="callout soon">
-          <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.32. New work shows here before the next preview.</p>
-        </aside>
-      </section>
-
-      <section id="coming" aria-labelledby="coming-h">
-        <h2 id="coming-h">Planned, not started</h2>
-        <aside class="callout soon">
-          <strong class="callout-title">Not in any release yet</strong>
-          <p>Nothing else in this section is in v0.2.32: the first part of Crews shipped in v0.2.23, AI-started
-          builders in v0.2.24, reviewers and a fix round in v0.2.25, and the rest has not been started. Names, commands and details may change, or move to a later version, before
-          they ship.</p>
-        </aside>
-
-        <div class="stack">
-        <article class="card" id="v030" aria-labelledby="v030-h">
-          <h3 id="v030-h">v0.3 · Crews <span class="badge soon">first parts shipped in v0.2.23, v0.2.24 and v0.2.25</span></h3>
-          <p>Big jobs get a team. The AI splits a big job itself, as Claude Code and omp do; <code>/crew</code>
-          is the manual way.</p>
-          <ul>
-            <li><strong>A builder in its own copy</strong> <span class="badge">in v0.2.23</span>.
-            <code>/crew &lt;job&gt;</code>: a builder does the job in its own copy of the project, in the
-            same sandbox, and your folder stays as it is. Then 1 Keep the copy · 2 Apply to my folder ·
-            3 Throw it away. See <code>docs/CREWS.md</code>.</li>
-            <li><strong>The AI starts builders itself</strong> <span class="badge">in v0.2.24</span>.
-            For a job with separate parts the AI starts up to 3 builders at once, each in its own copy of
-            your folder as it is (unsaved files too); each
-            change lands in your folder when its builder ends, uncommitted, and one <code>/undo</code> takes
-            the task back. A change that touches a file changed after its copy started stays in its copy for
-            <code>/crew</code>. "run a crew" or "split this up" asks for them, "by yourself" keeps them out; /settings
-            turns them off. The footer shows them (<code>2 builders · $0.12</code>).</li>
-            <li><strong>Review, fix</strong> <span class="badge">in v0.2.25</span>. The AI can have a reviewer check each landed part and one
-            builder fix what it finds. The footer shows <code>1 reviewer · 2 builders · $0.19</code>, and
-            the receipt says in one line which landed parts were not reviewed. Next: the full tests.</li>
-            <li><strong>Your limits apply to the crew.</strong> A limit said in the request ("keep it
-            under $2") holds for the whole crew, and the cost is shown as it goes.</li>
-          </ul>
-        </article>
-        </div>
-
-      </section>
-
-      <section id="later" aria-labelledby="later-h">
-        <h2 id="later-h">Later, not scheduled</h2>
-        <aside class="callout">
-          <strong class="callout-title">Ideas, not promises</strong>
-          <p>These are agreed directions with no version number yet. The first part of Vendor packs (skill packs)
-          shipped in v0.2.27; nothing else here is being built right
-          now, and any of it may change shape or be dropped.</p>
-        </aside>
-
-        <div class="stack">
-        <article class="card" id="packs" aria-labelledby="packs-h">
-          <h3 id="packs-h">Vendor packs · one step to set up a vendor <span class="badge soon">first part shipped in v0.2.27</span></h3>
-          <p>Since v0.2.22 Casper sets up its own server for Mist, Central and ClearPass in one step.
-          For any other vendor it still takes four separate steps: connect its MCP server, pick a
-          read-only preset, add its reference docs, maybe add a skill. A pack does all four at
-          once.</p>
-          <ul>
-            <li><strong>Skill packs</strong> <span class="badge">in v0.2.27</span>.
-            <code>/pack add</code> a folder or <code>https://github.com/&lt;owner&gt;/&lt;repo&gt;@&lt;commit&gt;</code>:
-            one box shows every file before you say yes, and a pack brings skills and one colour theme, nothing
-            that runs. Servers, references and checks in a pack are not built yet. See <code>docs/PACKS.md</code>.</li>
-            <li><strong>One command.</strong> <code>casper pack add aruba</code> connects
-            hpe-networking-mcp with its <code>safe-read-only</code> preset, adds the Aruba CX and
-            Central references, and adds a "troubleshoot a site" skill.</li>
-            <li><strong>Writes stay off.</strong> A pack never turns writes on. Only you can, by
-            answering a change box or typing <code>/mcp writes &lt;server&gt;</code>.</li>
-            <li><strong>Borrowed format.</strong> A pack is a folder in the same shape as Claude
-            Code plugins (MCP servers, skills and commands side by side), not a new plugin API. MCP
-            stays the way tools plug in.</li>
-            <li><strong>First packs:</strong> Aruba, then Juniper and Mist.</li>
-            <li><strong>Anyone can publish one.</strong> Other vendors, partners and you can make a
-            pack and share it from a git repository (<code>casper pack add &lt;url&gt;</code>).
-            Before it is added, Casper lists what it brings (servers, skills, checks) and asks.
-            Writes stay off.</li>
-            <li><strong>Lab packs.</strong> A pack can build a whole lab, not only connect a
-            vendor: for example, Proxmox VMs set up as a Mist fabric, with checks that the fabric
-            came up. Lab sites only.</li>
-            <li><strong>Contributing starts with packs.</strong> A pack template and a short guide,
-            so someone can add a skill or check for their own gear without learning Casper's
-            code.</li>
-            <li><strong>Vendor plugin formats.</strong> If HPE or another vendor publishes its own
-            plugin format, Casper reads it as a pack, with the same rules.</li>
-          </ul>
-        </article>
-
-        <article class="card" id="ops-chat" aria-labelledby="ops-chat-h">
-          <h3 id="ops-chat-h">Ask about your infrastructure · chat that investigates your VMs and services <span class="badge">idea, not scheduled</span></h3>
-          <p>Ask in plain words, on demand: "why is my VoIP server rejecting calls?" Casper looks at
-          the logs, services and settings it can reach, says what it found and what it would change,
-          and changes nothing without your yes.</p>
-          <ul>
-            <li><strong>Already there:</strong> chat in the terminal, ssh to hosts you allow (it asks
-            first), MCP servers with writes off, and the yes/no change box.</li>
-            <li><strong>To add:</strong> ready connections for VM platforms (Proxmox first, then
-            others), read-only by default; a "check this service" skill (logs, ports, certificates,
-            recent changes); and a chat you can reach away from the terminal.</li>
-          </ul>
-        </article>
-
-        <article class="card" id="quarantine" aria-labelledby="quarantine-h">
-          <h3 id="quarantine-h">Saved readers · the untrusted-text reader for other tools <span class="badge">idea, not scheduled</span></h3>
-          <p>The reader for untrusted text shipped in v0.2.23 (<code>casper_read_untrusted</code>): a
-          separate model call with no tools reads a log, an email or a web form, and the AI gets only
-          JSON that matches its schema, never the text. It lowers the risk of hidden orders; it doesn't
-          remove it.</p>
-          <ul>
-            <li><strong>To add:</strong> saved readers (a schema with a name) and the same reader as an
-            MCP server, so Claude Code and other tools can use it.</li>
-          </ul>
-        </article>
-
-        <article class="card" id="schedule" aria-labelledby="schedule-h">
-          <h3 id="schedule-h">Scheduled jobs with an AI on call · recurring tasks that can investigate their own failures <span class="badge">idea, not scheduled</span></h3>
-          <p>Run a job on a schedule, for example "sync time entries from this database to
-          QuickBooks every night". The job itself is a plain script, so it does the same thing every
-          time. When it fails, or a record is missing a code, an AI looks into it, says why, and fixes
-          what it is allowed to.</p>
-          <ul>
-            <li><strong>Already there:</strong> Casper runs scripts and checks, reads failures, and
-            repairs them in a bounded loop.</li>
-            <li><strong>To add:</strong> the scheduler; a written list of what the AI may do on its
-            own when nobody is there to press yes (everything else waits for you, with a summary); and
-            a log of every run and every change.</li>
-          </ul>
-        </article>
-
-        <article class="card" id="terminal-check" aria-labelledby="terminal-check-h">
-          <h3 id="terminal-check-h">Terminal check · Casper tries your command-line program like a person <span class="badge">idea, not scheduled</span></h3>
-          <p>The page check opens a web app and looks at it. This does the same for programs that run
-          in a terminal: CLIs, full-screen terminal apps, network scripts, and Casper itself.</p>
-          <ul>
-            <li><strong>Runs it for real.</strong> Starts the program in a pretend terminal, types keys
-            at the right moments (Enter, Shift+Tab, Ctrl+C) and waits for text on the screen.</li>
-            <li><strong>On the receipt.</strong> Each step passes or fails like any other check, with
-            the screen at the moment it failed.</li>
-            <li><strong>Catches what unit tests miss.</strong> A note drawn where nobody can see it, a
-            key that does nothing, a prompt that never comes back.</li>
-            <li><strong>Borrowed.</strong> Casper already tests its own screen this way; this hands
-            that to the AI for your projects.</li>
-          </ul>
-        </article>
-
-        <article class="card" id="community" aria-labelledby="community-h">
-          <h3 id="community-h">Community lessons · learn from each other's fixes <span class="badge">idea, not scheduled</span></h3>
-          <p>When <code>casper learn</code> turns a fixed problem into a skill or check, you can share
-          it. Other people who add the community pack get it for the areas they pick: network,
-          home lab, Windows Server, iOS, web and more. It comes after packs, and it only works once
-          people use it.</p>
-          <ul>
-            <li><strong>Proven, not posted.</strong> A lesson comes from a run whose checks passed
-            after the fix, and it carries its own small test. One with no possible check is marked
-            unverified and listed after the rest.</li>
-            <li><strong>Only the lesson leaves.</strong> Never the code or session it came from. You
-            see the exact text, secrets hidden, before it is shared.</li>
-            <li><strong>Kept clean.</strong> Reviewed by hand at first; later, a lesson's own test
-            decides. Flags and runs that failed with it take a bad one down.</li>
-            <li><strong>Someone else's lesson is not yours.</strong> Its checks always run in the
-            sandbox and its skills are guidance only, until you copy one into your own.</li>
-            <li><strong>No server.</strong> Lessons live in a GitHub repository and arrive as a pack
-            you choose to add.</li>
-          </ul>
-        </article>
-
-        <article class="card" id="policy" aria-labelledby="policy-h">
-          <h3 id="policy-h">Tool rules you write · where and when a tool may run <span class="badge">idea, not scheduled</span></h3>
-          <p>Casper already decides which tool calls run, ask or stay hidden. This lets you add your
-          own rules in a file, such as sites and a maintenance window.</p>
-          <div class="cmd"><span class="cmd-label">~/.casper/policy.yaml (idea only)</span><pre><code>- tools: [port_bounce, reboot_device]
-  allow: ask
-  sites: [lab-*]          # never on production sites
-  hours: "22:00-05:00"    # maintenance window only</code></pre></div>
-          <ul>
-            <li><strong>Stricter only.</strong> Like presets and labels today, a rule can only
-            make Casper ask more or hide more. It can never skip an approval or turn writes on.</li>
-          </ul>
-        </article>
-        </div>
-
-        <p class="muted small">Want something on this list, or think something is missing? Open an
-        <a href="https://github.com/Choaterboater/casper/issues">issue on GitHub</a>.</p>
-      </section>
-
-      <section id="ideas" aria-labelledby="ideas-h">
-        <h2 id="ideas-h">Ideas to borrow</h2>
-        <aside class="callout">
-          <strong class="callout-title">Not in any release</strong>
-          <p>Ideas seen in other open projects, planned, not started. Any of them may be dropped.</p>
-        </aside>
-        <ul>
-          <li>Start read-only tools before the model finishes its reply (Chord).</li>
-          <li>Hide old tool output and screenshots from history so the prompt cache stays warm (SWE-agent, Waveloom).</li>
-          <li>Browser actions return new console errors and failed requests (Cline).</li>
-          <li>A scored design critique pass on a built page (OpenDesign).</li>
-          <li>A design direction (accent, font pair, layout) picked from the brief (SkyN3t).</li>
-          <li>Web skill wording measured the way LlamaCoder measures its prompts (LlamaCoder).</li>
-          <li>One "review your diff against the request" when the model says it is done (SWE-agent).</li>
-          <li>A guard for reasoning models that loop in their thinking (omp).</li>
-          <li>OpenRouter fallback models when a free model is rate-limited.</li>
-          <li>Short notices to the model about the harness state (zaly).</li>
-          <li><code>/goal verify &lt;command&gt;</code> (OMK).</li>
-          <li>Image placeholders filled in parallel (OpenUI).</li>
-          <li>Browser steps wait until the target is visible, enabled and not covered, say when a click changed nothing, and report confirm and alert dialogs (Playwright, PostHog).</li>
-          <li>Each browser action says what changed on the page, so no screenshot is needed (Playwright MCP, browser-use).</li>
-          <li>Several browser steps in one call (browser-use).</li>
-          <li>Lean or full guidance per model: habit skills only for weaker models (Aider, Codex).</li>
-          <li>Edits that point at line anchors instead of retyping old text, for small and local models; a stale anchor is refused (omp).</li>
-          <li>Selected checks run in parallel, and a repair reruns the failing one first (lefthook).</li>
-          <li>A skill loads the first time a matching file is touched (Claude Code).</li>
-
-          <li><code>/goal</code> keeps working until Casper's checks pass (Codex CLI).</li>
-          <li><code>/export</code>, and <code>/share</code> a session as a secret gist (opencode).</li>
-          <li>Home lab skills for RouterOS, OPNsense and Home Assistant.</li>
-          <li>Everyday server and database reads without a box, on this computer and over ssh (kubectl-ai, DBHub).</li>
-          <li>Safe container updates with a rollback image and a config backup (dockcheck, WUD).</li>
-          <li>Read-only MCP presets for home lab servers whose code was read first.</li>
-          <li>A Proxmox snapshot undo line on the receipt.</li>
-          <li>Terraform, OpenTofu and cloud-init checks.</li>
-          <li>Postgres migrations checked in PGlite, with migration safety notes (squawk).</li>
-          <li>Containerlab labs used without being asked.</li>
-          <li>NAPALM dry-run diffs and Batfish before-and-after impact.</li>
-        </ul>
-      </section>
+      </div>
+      </div>
     </div>
   </main>
 

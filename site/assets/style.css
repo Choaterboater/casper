@@ -217,8 +217,6 @@ body:not(.home) { --measure: none; }
 }
 .site-nav a:hover { color: var(--text); background: var(--surface-2); }
 .site-nav a[aria-current="page"] { color: var(--accent); background: var(--accent-soft); }
-.site-nav .nav-gh { color: var(--text); }
-.site-nav .nav-gh svg { width: 1.05em; height: 1.05em; vertical-align: -0.15em; margin-right: 0.3em; fill: currentColor; }
 
 /*
   Small screens. Without JS the links simply wrap under the logo.
@@ -560,6 +558,15 @@ details > :not(summary) { margin-left: 0.25rem; margin-right: 0.25rem; }
 details > p, details > ul, details > ol { color: var(--muted); }
 details > :last-child { margin-bottom: 0; }
 
+/* Released notes keep their heading and status together, outside the h3. */
+details.release { padding: 0 1.2rem; }
+details.release[open] { padding-bottom: 1.1rem; }
+.release > summary { position: relative; padding: 1rem 1.8rem 1rem 0; }
+.release > summary::after { position: absolute; top: 1rem; right: 0; }
+.release-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem 0.75rem; min-width: 0; }
+.release-heading h3 { flex: 1 1 22rem; margin: 0; }
+.release-heading .badge { white-space: normal; }
+
 /* Table of contents on long pages */
 .toc {
   background: var(--surface-2);
@@ -569,6 +576,20 @@ details > :last-child { margin-bottom: 0; }
   font-size: 0.95rem;
 }
 .toc ul { margin: 0.3rem 0 0; }
+.page-sections { min-width: 0; }
+
+@media (min-width: 1200px) {
+  .contents-layout { display: grid; grid-template-columns: 17rem minmax(0, 1fr); gap: 2rem; align-items: start; }
+  .contents-layout > .toc { position: sticky; top: 5rem; max-height: calc(100vh - 6rem); overflow-y: auto; margin-top: 0; }
+  .contents-layout > .page-sections > section:first-child > h2 { margin-top: 0; }
+}
+
+@media (max-width: 599px) {
+  button, .btn, [role="tab"] { min-height: 44px; }
+  .toc a { display: block; padding: 10px 0; }
+  code, kbd, samp, pre, :not(pre) > code,
+  pre.term, body:not(.home) pre.term { font-size: max(13px, 0.8125rem); }
+}
 
 /* 5. Utilities ---------------------------------------------------------- */
 .visually-hidden {
@@ -610,3 +631,6 @@ details > :last-child { margin-bottom: 0; }
 .not-found { text-align: center; padding-top: 1.5rem; }
 .not-found .hero-logo { width: 96px; height: 96px; display: block; margin: 0 auto 1rem; }
 .not-found .lead { margin-left: auto; margin-right: auto; }
+
+/* Wide monitors: use more of the screen; the contents sidebar takes the extra room, text stays readable. */
+@media (min-width: 1600px) { :root { --max: 92rem; } }

@@ -38,12 +38,14 @@
       <h1>Network engineer guide</h1>
       <p class="lead">An AI that can reach your switches is handy. It should also know its place. Here is how Casper keeps the AI on a short leash near network gear, and how to hook up your servers.</p>
 
+      <div class="contents-layout">
       <nav class="toc" aria-label="On this page">
         <strong>On this page</strong>
         <ul>
+          <li><a href="#setup-casper">Casper sets it up for you</a></li>
           <li><a href="#why">Why guard rails?</a></li>
           <li><a href="#rules">The house rules</a></li>
-          <li><a href="#setup">Hook up your servers</a> (<a href="#setup-casper">Casper sets it up for you</a>)</li>
+          <li><a href="#setup">Hook up your servers</a></li>
           <li><a href="#read-only">Read-only comes from the product</a></li>
           <li><a href="#asks">What asks first, and why the AI can't say yes</a></li>
           <li><a href="#writes">Writes are off until you say so</a></li>
@@ -55,6 +57,29 @@
           <li><a href="#limits">What Casper can't do</a></li>
         </ul>
       </nav>
+
+      <div class="page-sections">
+      <section id="setup-casper" aria-labelledby="setup-casper-title">
+        <h2 id="setup-casper-title">Casper sets it up for you (Mist, Central, ClearPass)</h2>
+        <div class="prose">
+          <p>Ask about ClearPass, Marvis or an SSID, or about Mist, Central, Aruba or Wi-Fi next to a network word, or type <code>/mcp setup network</code>. Casper asks once:</p>
+        </div>
+        <div class="cmd"><span class="cmd-label">casper</span><pre><code>Casper can set up its network server (casper-network-mcp 0.1.3, about 60 MB from pypi.org, installed with uv into ~/.casper/tools).
+It starts read-only. Logins are asked per product the first time you use it.
+→ 1 Not now
+  2 Set it up
+Press 1-2 or Up/Down + Enter · Esc is No</code></pre></div>
+        <ul class="prose">
+          <li><code>2</code> installs <a href="https://github.com/Choaterboater/casper-network-mcp">casper-network-mcp</a> at the version Casper pins, every package checked by hash, and connects it with writes off (<code>--read-only</code>). You edit no file and set no variable. It needs <a href="https://docs.astral.sh/uv/">uv</a>; if uv is missing, the question says so, shows uv's official installer and <code>2</code> runs it first.</li>
+          <li><code>1</code> is kept: Casper doesn't offer again. <code>/mcp</code> shows how to set it up later.</li>
+          <li>A newer casper-network-mcp release reaches you without a new Casper: once a day Casper asks GitHub for its releases, then offers <code>1 Not now · 2 Update it</code>. <code>2</code> installs from the hash lock attached to that release, checked first. Only the server Casper set up is updated; <strong>Network server updates</strong> in <code>/settings</code> turns it off.</li>
+          <li>The first time the AI uses Mist, Central or ClearPass, Casper asks you for that login: <code>1 Not now · 2 Add a login</code>. You type it hidden; the AI never sees it. Use a narrow login, not an admin one.</li>
+          <li>Casper then checks what the login can do, for example <code>Mist login: can change Branch-12 (checked)</code>. Mist and ClearPass logins are checked; a Central login shows <code>saved (not checked)</code> for now. Every change asks you in the change box, which names the product: <code>Change in Mist: …</code>.</li>
+          <li>Logins live only in Casper's own private file (<code>~/.casper/network-logins.json</code>). <code>/mcp login mist</code> replaces one; <code>/mcp login mist forget</code> removes it. <code>/mcp login</code> on its own asks which: <code>1 Not now · 2 Mist · 3 Central · 4 ClearPass</code>.</li>
+          <li>The Mist cloud and Central region lists end with <code>Other — type the address</code>, for a cluster that isn't listed. Central also lists its internal cluster.</li>
+          <li>A one-shot run never installs and never asks for a login. It says what to type in the terminal instead.</li>
+        </ul>
+      </section>
 
       <section id="why" aria-labelledby="why-title">
         <h2 id="why-title">Why guard rails?</h2>
@@ -97,26 +122,6 @@
 
       <section id="setup" aria-labelledby="setup-title">
         <h2 id="setup-title">Hook up your servers</h2>
-
-        <h3 id="setup-casper">Casper sets it up for you (Mist, Central, ClearPass)</h3>
-        <div class="prose">
-          <p>Ask about ClearPass, Marvis or an SSID, or about Mist, Central, Aruba or Wi-Fi next to a network word, or type <code>/mcp setup network</code>. Casper asks once:</p>
-        </div>
-        <div class="cmd"><span class="cmd-label">casper</span><pre><code>Casper can set up its network server (casper-network-mcp 0.1.3, about 60 MB from pypi.org, installed with uv into ~/.casper/tools).
-It starts read-only. Logins are asked per product the first time you use it.
-→ 1 Not now
-  2 Set it up
-Press 1-2 or Up/Down + Enter · Esc is No</code></pre></div>
-        <ul class="prose">
-          <li><code>2</code> installs <a href="https://github.com/Choaterboater/casper-network-mcp">casper-network-mcp</a> at the version Casper pins, every package checked by hash, and connects it with writes off (<code>--read-only</code>). You edit no file and set no variable. It needs <a href="https://docs.astral.sh/uv/">uv</a>; if uv is missing, the question says so, shows uv's official installer and <code>2</code> runs it first.</li>
-          <li><code>1</code> is kept: Casper doesn't offer again. <code>/mcp</code> shows how to set it up later.</li>
-          <li>A newer casper-network-mcp release reaches you without a new Casper: once a day Casper asks GitHub for its releases, then offers <code>1 Not now · 2 Update it</code>. <code>2</code> installs from the hash lock attached to that release, checked first. Only the server Casper set up is updated; <strong>Network server updates</strong> in <code>/settings</code> turns it off.</li>
-          <li>The first time the AI uses Mist, Central or ClearPass, Casper asks you for that login: <code>1 Not now · 2 Add a login</code>. You type it hidden; the AI never sees it. Use a narrow login, not an admin one.</li>
-          <li>Casper then checks what the login can do, for example <code>Mist login: can change Branch-12 (checked)</code>. Mist and ClearPass logins are checked; a Central login shows <code>saved (not checked)</code> for now. Every change asks you in the change box, which names the product: <code>Change in Mist: …</code>.</li>
-          <li>Logins live only in Casper's own private file (<code>~/.casper/network-logins.json</code>). <code>/mcp login mist</code> replaces one; <code>/mcp login mist forget</code> removes it. <code>/mcp login</code> on its own asks which: <code>1 Not now · 2 Mist · 3 Central · 4 ClearPass</code>.</li>
-          <li>The Mist cloud and Central region lists end with <code>Other — type the address</code>, for a cluster that isn't listed. Central also lists its internal cluster.</li>
-          <li>A one-shot run never installs and never asks for a login. It says what to type in the terminal instead.</li>
-        </ul>
 
         <h3 id="setup-own">Your own servers</h3>
         <div class="prose">
@@ -560,6 +565,8 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
         <p class="prose">So: only connect servers you trust, and give them logins with only the rights they need. Tool descriptions and results are outside content, not instructions.</p>
         <p class="prose">Want every detail? Read <a href="https://github.com/Choaterboater/casper/blob/main/docs/MCP.md">docs/MCP.md</a> and <a href="https://github.com/Choaterboater/casper/blob/main/docs/SECRETS.md">docs/SECRETS.md</a>. Curious about what's next? See the <a href="roadmap.html">roadmap</a>.</p>
       </section>
+      </div>
+      </div>
     </div>
   </main>
 

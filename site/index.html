@@ -45,6 +45,7 @@
             <p class="lead">A coding helper for your terminal. Build web apps, APIs, command-line tools and scripts in the language your project uses, and Casper checks the AI's work before it tells you "done". Network engineers get extra care built in.</p>
             <div class="actions">
               <a class="btn" href="tour.html">Take the tour</a>
+              <a class="btn secondary" href="#install">Install</a>
               <a class="btn secondary" href="network.html">For network engineers</a>
               <a class="link" href="https://github.com/Choaterboater/casper">Source on GitHub →</a>
             </div>
@@ -74,7 +75,7 @@
             <button type="button" role="tab" id="tab-unix" aria-controls="cmd-unix" aria-selected="true">macOS / Linux</button>
             <button type="button" role="tab" id="tab-windows" aria-controls="cmd-windows" aria-selected="false" tabindex="-1">Windows</button>
           </div>
-          <div class="cmd" id="cmd-unix"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.32/install.sh | sh</code></pre></div>
+          <div class="cmd" id="cmd-unix"><span class="cmd-label visually-hidden">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.32/install.sh | sh</code></pre></div>
           <div class="cmd" id="cmd-windows"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.32/install.ps1 | iex</code></pre></div>
         </div>
         <p class="small muted">No Bun or source checkout needed. The installer checks the file's SHA-256 and runs the new program's <code>--version</code> before it replaces an older install. Then run <code>casper</code> in your project folder.</p>
@@ -207,24 +208,13 @@ on in ~/.casper/config.yaml)</pre>
           <p class="small muted">A passing check shows a command passed, not that the code is fully right. Review important changes yourself. More in the tour: <a href="tour.html#receipts">receipts</a>, <a href="tour.html#proof">proof</a>.</p>
         </div>
         <figure class="capture">
-<pre class="term" data-title="casper — ~/project">▌ <span class="dim">–</span> Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or
-sandbox: on in ~/.casper/config.yaml)
-Next: 1 Show diff · 2 Undo
-
-<span class="dim"># (typed /receipt)</span>
-
-<span class="prompt">❯</span> <span class="you">/receipt</span>
-
-<span class="dim">[task]</span> Execution completed
+<pre class="term receipt-capture" data-title="casper — ~/project">▌ <span class="ok">✓ Verified · test passed · changed src/sum.js, tests/sum.test.js</span>
        changes      2 files changed: src/sum.js, tests/sum.test.js
        verification Checks pass (command execution): 1 pass, 0 fail, 0 skip; 0 repair attempt(s).
 test: scope undeclared; current files unverified; reuse disabled. Requested behavior is not
 independently certified.
-       proof        <span class="ok">✓</span> Proven: test fails without this change (exit 1) and passes with it
-       sandbox      not sandboxed (off unless you turn it on: /sandbox on, or sandbox: on in
-~/.casper/config.yaml)
-       undo         available (/undo 1)</pre>
-          <figcaption>The "Fix a bug" run, after typing <code>/receipt</code>. <code>Next: 1 Show diff · 2 Undo</code> puts the files back.</figcaption>
+       proof        <span class="ok">✓</span> Proven: test fails without this change (exit 1) and passes with it</pre>
+          <figcaption>Cropped from the "Fix a bug" run and its <code>/receipt</code> detail. <code>Next: 1 Show diff · 2 Undo</code> puts the files back.</figcaption>
         </figure>
       </section>
 
@@ -278,7 +268,7 @@ independently certified.
           <p><a href="network.html">See the network page →</a></p>
         </div>
         <figure class="capture">
-<pre class="term" data-title="~/project/lab-mcp"><span class="prompt">$</span> <span class="you">casper mcp check . --quick</span>
+<pre class="term mcp-check-capture" data-title="~/project/lab-mcp"><span class="prompt">$</span> <span class="you">casper mcp check . --quick</span>
 Checking lab-mcp (~/project/lab-mcp)
 Offline: no tool calls. Credentials removed, web proxy blocked. Use --live to allow read calls.
 Offline is best effort: a program that reads its own .env or opens SSH itself can still reach the
