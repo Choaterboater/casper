@@ -68,7 +68,13 @@ through. Check what a tool returns before you share it.
   git's `extraheader = AUTHORIZATION: basic ...`) is hidden when it looks like a real
   value, and so is the password inside an address
   (`postgres://app:<secret hidden>@db/app`). Code such as `token = getToken()` or
-  `password: str` is left alone.
+  `password: str` is left alone. The same names count in XML, as an element or an
+  attribute (an app's `config.xml`: `<ApiKey><secret hidden></ApiKey>`,
+  `<Password>...</Password>`, `apikey="..."`), and in compose `environment:` lists
+  (`- SONARR_API_KEY=...`). A name that ends in plain `key` (a compose label such as
+  `homepage.widget.key`, or `<Key>`) hides its value only when the value looks like a
+  generated key (16 or more letters and digits, at least 3 of them digits), so
+  `key: node-role.kubernetes.io/master` or `<Key>Enter</Key>` stays.
 - **Logins written as notes: always (from v0.2.19).** The way people write lab logins in a
   markdown file or a command is hidden too: `root / <secret hidden>`, `root@pam / <secret hidden>`,
   `**root** / **<secret hidden>**`, `login: admin / <secret hidden>`,
