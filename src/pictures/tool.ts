@@ -1,7 +1,7 @@
 /** make_picture: one picture for the project, from what the user already has. In order: their ChatGPT plan through
  * their own Codex CLI, then a free OpenRouter model (or the models in their own pictures.models). Nothing paid runs on
- * its own: a paid model runs only when the call names it, because the user's request did. When nothing makes a
- * picture, the result says so and the model draws SVG. */
+ * its own: a model the call names is used only when the user's own request names it or their pictures.models lists it
+ * (checked here, not left to the model). When nothing makes a picture, the result says so and the model draws SVG. */
 
 import path from "node:path";
 import { NotExecutedError } from "../capabilities/result";
@@ -72,8 +72,27 @@ async function byModel(model: string, request: { prompt: string; format: Picture
   return { bytes: made.bytes, source: openai ? `OpenAI ${id}` : `OpenRouter ${id}`, tokens: made.tokens, cost };
 }
 
+/** Words in a model id that do not tell one model from another. */
+const GENERIC = new Set(["image", "images", "preview", "pro", "dev", "fast", "max", "mini", "lite", "beta", "alpha", "edit", "design",
+  "model", "gpt", "flash", "turbo", "ultra", "plus", "latest", "openai"]);
+const words = (text: string) => ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
+
+/** Whether a model id the call names may run: it is the free model, listed in the user's own pictures.models, or the
+ * user's request names it (the id, or its distinctive name such as "flux", "gpt image" or "nano banana"). */
+export function modelAllowed(model: string, request: string, configured: readonly string[]): boolean {
+  const id = model.toLowerCase();
+  if (id === FREE_PICTURE_MODEL || configured.some((listed) => listed.toLowerCase() === id)) return true;
+  const said = words(request);
+  const bare = id.slice(id.indexOf("/") + 1);
+  const names = [id, bare, ...(/^gpt-image/.test(bare) ? ["gpt image"] : []), ...(/^gemini.*image/.test(bare) ? ["nano banana"] : []),
+    ...bare.split(/[^a-z0-9]+/).filter((word) => word.length >= 3 && /[a-z]/.test(word) && !GENERIC.has(word)).slice(0, 1)];
+  return names.some((name) => said.includes(words(name)));
+}
+
 export interface PictureToolOptions {
   root: () => string;
+  /** The user's own request for this task: a model the call names must be named there (or in pictures.models). */
+  request?: () => string;
   sources: PictureSources;
   /** Casper's own secret values: a description holding one is never sent. */
   secrets: () => readonly string[];
@@ -102,7 +121,7 @@ export function picturePath(root: string, requested: string | undefined, prompt:
 export function pictureTool(options: PictureToolOptions): RuntimeTool {
   return {
     name: "make_picture",
-    description: "Make one picture (photo, illustration, hero image) and save it in the project. Uses the user's ChatGPT plan through Codex, else a free model; never a paid one on its own. If no picture is made, draw SVG instead. Set model only when the user's request names an image model (\"with FLUX 3\" -> black-forest-labs/flux-3-image): it may cost money. Can take minutes.",
+    description: "Make one picture (photo, illustration, hero image) and save it in the project. Uses the user's ChatGPT plan through Codex, else a free model; never a paid one on its own. If no picture is made, draw SVG instead. Set model only when the user named an image model; it may cost money. Can take minutes.",
     inputSchema: { type: "object", additionalProperties: false, required: ["prompt"], properties: {
       prompt: { type: "string", maxLength: 2000, description: "What the picture shows: subject, style, light, colors." },
       path: { type: "string", maxLength: 300, description: "Project path, e.g. assets/hero.jpg (.png for transparency)." },
@@ -112,15 +131,17 @@ export function pictureTool(options: PictureToolOptions): RuntimeTool {
       try {
         const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
         if (!prompt) throw new NotExecutedError("no prompt", "Say what the picture shows.");
-        const model = typeof args.model === "string" && args.model.trim() ? args.model.trim() : undefined;
-        if (model && !/^[a-z0-9][\w.-]*(?:\/[\w.:-]+)?$/i.test(model)) throw new NotExecutedError("that is not a model id", "Use an id such as black-forest-labs/flux-3-image.");
+        const asked = typeof args.model === "string" && args.model.trim() ? args.model.trim() : undefined;
+        if (asked && !/^[a-z0-9][\w.-]*(?:\/[\w.:-]+)?$/i.test(asked)) throw new NotExecutedError("that is not a model id", "Use an id such as vendor/model-name.");
+        const model = asked && modelAllowed(asked, options.request?.() ?? "", options.sources.models) ? asked : undefined;
+        const ignored = asked && !model ? { model: `${asked} was not used: a paid model runs only when the user names it or lists it in pictures.models.` } : {};
         if (holdsSecret(prompt, { values: options.secrets() })) throw new NotExecutedError("the prompt holds a secret", "Casper never sends secrets out. Describe the picture without it.");
         const root = options.root();
         const target = picturePath(root, typeof args.path === "string" ? args.path : undefined, prompt);
         const { picture, tried } = await makePicture({ prompt, format: target.format, ...(model ? { model } : {}) }, options.sources, signal);
         if (!picture) {
           return { isError: true, text: formatTerminalJSON({ error: `No picture was made${tried.length ? ` (${tried.join("; ")})` : ""}.`,
-            next: model ? "Tell the user why; do not try another paid model unless they ask." : "Draw the art as inline SVG instead." }) };
+            next: model ? "Tell the user why; do not try another paid model unless they ask." : "Draw the art as inline SVG instead.", ...ignored }) };
         }
         options.record(picture.cost === null ? null : { tokens: picture.tokens, estimatedCost: picture.cost });
         const web = await webSize(picture.bytes, target.keepPng, options.shrink, signal);
@@ -129,7 +150,7 @@ export function pictureTool(options: PictureToolOptions): RuntimeTool {
         await writeProjectFile(root, relative, web.bytes, { mode: "replace" });
         options.saved?.(path.join(root, relative));
         return { text: formatTerminalJSON({ saved: relative.split(path.sep).join("/"), bytes: web.bytes.length, source: picture.source,
-          cost: picture.cost === null ? "not reported" : `$${picture.cost.toFixed(picture.cost && picture.cost < 0.01 ? 4 : 2)}`, ...(web.note ? { note: web.note } : {}) }) };
+          cost: picture.cost === null ? "not reported" : `$${picture.cost.toFixed(picture.cost && picture.cost < 0.01 ? 4 : 2)}`, ...(web.note ? { note: web.note } : {}), ...ignored }) };
       } catch (error) {
         const message = error instanceof NotExecutedError ? error.message : `Not saved: ${(error as Error)?.message ?? String(error)}`.slice(0, 400);
         return { isError: true, text: formatTerminalJSON({ error: message }) };

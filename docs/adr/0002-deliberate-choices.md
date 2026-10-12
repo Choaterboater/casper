@@ -161,8 +161,9 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
 
 - **What:** in order: the user's ChatGPT plan through the `codex` they installed and signed in to (only when
   `codex login status` says ChatGPT, never an API key), then a free OpenRouter model with the user's OpenRouter
-  sign-in (or the models in their own `pictures.models`). A paid model runs only when the call names it (the tool
-  tells the AI to name one only when the user's request does) or the user listed it in `pictures.models`. `src/pictures/tool.ts`, `src/pictures/codex.ts`.
+  sign-in (or the models in their own `pictures.models`). A model the call names runs only when the user's own
+  request names it (its id or distinctive name, such as "flux") or the user listed it in `pictures.models`;
+  this is checked in code, and any other named model is ignored for the free order. `src/pictures/tool.ts`, `src/pictures/codex.ts`.
 - **Why:** pictures from what the user already pays for, at no extra cost by default.
 - **Same as:** any agent running a CLI the user installed; Casper does not borrow its login.
 - **Off switch:** **Pictures the AI makes** in `/settings` (`pictures: off`).
@@ -171,7 +172,7 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
   Codex-home, proxy, certificate and Windows system variables); a description holding a secret is never sent; every picture is recorded in the task's
   spend, $0 ones too.
 - **A finding:** Codex's token is read or sent by Casper; Codex gets an API key or Casper's keys; a paid model
-  runs without being named in the call or listed in `pictures.models`.
+  runs without the user's request naming it or `pictures.models` listing it.
 
 ### 11. The loop guard skips identical repeated reads
 

@@ -6,7 +6,7 @@ import { CasperApp } from "../src/app";
 import { assembleTaskTools, picturesRequested } from "../src/app/capabilities";
 import { settingRows } from "../src/app/settings";
 import { loadConfiguration } from "../src/config/load";
-import { FREE_PICTURE_MODEL, pictureTool, type PictureSources } from "../src/pictures/tool";
+import { FREE_PICTURE_MODEL, modelAllowed, pictureTool, type PictureSources } from "../src/pictures/tool";
 import { codexEnvironment } from "../src/pictures/codex";
 import { pictureSize, webSize, type ShrinkOptions } from "../src/pictures/shrink";
 import { loadProjectContext } from "../src/project/context";
@@ -105,9 +105,9 @@ for arg in "$@"; do out="$arg"; done
   return { file: path.join(bin, name), bin, args: async () => (await readFile(path.join(base, `${name}-args.txt`), "utf8").catch(() => "")).split("\n").filter(Boolean) };
 }
 
-function tool(root: string, sources: Partial<PictureSources> & Pick<PictureSources, "urls">, record: Array<unknown> = [], shrink?: ShrinkOptions) {
+function tool(root: string, sources: Partial<PictureSources> & Pick<PictureSources, "urls">, record: Array<unknown> = [], shrink?: ShrinkOptions, request = "") {
   return pictureTool({
-    root: () => root, secrets: () => ["casper-own-secret-value-123"], record: (usage) => record.push(usage), ...(shrink ? { shrink } : {}),
+    root: () => root, request: () => request, secrets: () => ["casper-own-secret-value-123"], record: (usage) => record.push(usage), ...(shrink ? { shrink } : {}),
     sources: { codex: async () => undefined, key: async (provider) => provider === "openrouter" ? "or-key-fake" : undefined, models: [], ...sources },
   });
 }
@@ -185,7 +185,7 @@ test("a model the request names is the only one tried, its cost is recorded, and
   const record: unknown[] = [];
   let codexAsked = false;
   const sources = { urls: images.urls, codex: async () => { codexAsked = true; return undefined; }, models: ["some/paid-model"] };
-  const made = await tool(root, sources, record).execute({ prompt: "a fox", path: "fox.webp", model: "black-forest-labs/flux-3-image" });
+  const made = await tool(root, sources, record, undefined, "make the hero with FLUX 3").execute({ prompt: "a fox", path: "fox.webp", model: "black-forest-labs/flux-3-image" });
   // The service sent a PNG: the file is named for what it is.
   expect(parse(made)).toEqual({ saved: "fox.png", bytes: PNG.length, source: "OpenRouter black-forest-labs/flux-3-image", cost: "$0.04" });
   expect(record).toEqual([{ tokens: 1200, estimatedCost: 0.04 }]);
@@ -193,9 +193,41 @@ test("a model the request names is the only one tried, its cost is recorded, and
   expect(images.requests.map((request) => request.body)).toEqual([{ model: "black-forest-labs/flux-3-image", prompt: "a fox", n: 1, output_format: "webp" }]);
 
   const failing = fakeImages({ "black-forest-labs/flux-3-image": { status: 402 } });
-  const failed = await tool(root, { ...sources, urls: failing.urls }).execute({ prompt: "a fox", model: "black-forest-labs/flux-3-image" });
+  const failed = await tool(root, { ...sources, urls: failing.urls }, [], undefined, "a fox, made with black-forest-labs/flux-3-image").execute({ prompt: "a fox", model: "black-forest-labs/flux-3-image" });
   expect(parse(failed).next).toBe("Tell the user why; do not try another paid model unless they ask.");
   expect(failing.requests.map((request) => request.body.model)).toEqual(["black-forest-labs/flux-3-image"]);
+});
+
+test("a paid model the user never named is not called: the free order runs and the result says why; one in pictures.models is used", async () => {
+  const images = fakeImages({ "black-forest-labs/flux-3-image": { status: 200, cost: 0.04 } });
+  const root = await folder();
+  const record: unknown[] = [];
+  let codexAsked = false;
+  const made = await tool(root, { urls: images.urls, codex: async () => { codexAsked = true; return undefined; } }, record, undefined, "build a landing page with a hero picture")
+    .execute({ prompt: "a fox", path: "fox.png", model: "black-forest-labs/flux-3-image" });
+  expect(codexAsked).toBe(true);
+  expect(images.requests.map((request) => request.body.model)).toEqual([FREE_PICTURE_MODEL]);
+  expect(parse(made)).toMatchObject({ saved: "fox.png", source: `OpenRouter ${FREE_PICTURE_MODEL}` });
+  expect(parse(made).model).toContain("a paid model runs only when the user names it");
+  expect(record).toEqual([{ tokens: 1200, estimatedCost: 0 }]);
+  // Listed in the user's own pictures.models: the call may name it without the request doing so.
+  const listed = fakeImages();
+  const used = await tool(root, { urls: listed.urls, models: ["other/model", "black-forest-labs/flux-3-image"] }, [], undefined, "a hero picture")
+    .execute({ prompt: "a fox", model: "black-forest-labs/flux-3-image" });
+  expect(listed.requests.map((request) => request.body.model)).toEqual(["black-forest-labs/flux-3-image"]);
+  expect(parse(used).model).toBeUndefined();
+});
+
+test("a request names a model by its id or its distinctive name, never by a generic word", () => {
+  const flux = "black-forest-labs/flux-3-image";
+  expect(modelAllowed(flux, "make the hero with FLUX 3", [])).toBe(true);
+  expect(modelAllowed(flux, "use black-forest-labs/flux-3-image", [])).toBe(true);
+  expect(modelAllowed(flux, "make a hero image", [])).toBe(false);
+  expect(modelAllowed(flux, "", [flux.toUpperCase()])).toBe(true);
+  expect(modelAllowed("openai/gpt-image-1", "draw it with gpt-image", [])).toBe(true);
+  expect(modelAllowed("openai/gpt-image-1", "ask ChatGPT for an image", [])).toBe(false);
+  expect(modelAllowed(FREE_PICTURE_MODEL, "", [])).toBe(true);
+  expect(modelAllowed("google/gemini-2.5-flash-image", "make it with Nano Banana", [])).toBe(true);
 });
 
 test("your own pictures.models are tried in order after Codex, in place of the free model; a gpt-image model uses your OpenAI key", async () => {
@@ -211,7 +243,7 @@ test("your own pictures.models are tried in order after Codex, in place of the f
   expect(record).toEqual([null]);
   // Without an OpenAI key, a gpt-image model goes through OpenRouter.
   const viaOpenRouter = fakeImages();
-  await tool(root, { urls: viaOpenRouter.urls }).execute({ prompt: "a teapot", model: "gpt-image-1-mini" });
+  await tool(root, { urls: viaOpenRouter.urls }, [], undefined, "a teapot from GPT Image").execute({ prompt: "a teapot", model: "gpt-image-1-mini" });
   expect(viaOpenRouter.requests.map((request) => request.body.model)).toEqual(["openai/gpt-image-1-mini"]);
 });
 

@@ -182,7 +182,10 @@ you installed and signed in to (`codex login status` says ChatGPT; included in t
 free OpenRouter model `inclusionai/ming-image-0.1-design` with your OpenRouter sign-in. With
 neither, or when both fail or hit their limits, no picture is made and the AI draws SVG. Nothing
 paid runs on its own: a paid model runs only when your request names one ("make the images with FLUX
-3") or you list models in `pictures.models`, which are tried after Codex in place of the free one. A
+3") or you list models in `pictures.models`, which are tried after Codex in place of the free one.
+Casper checks this itself: when the AI names a model that your request does not name (its id or
+its distinctive name, such as "flux") and your list does not hold, it is ignored, the usual order
+runs, and the AI is told why. A
 `gpt-image-*` model uses your OpenAI key when you have one. The receipt counts what a picture cost.
 Codex runs read-only and only makes the picture; Casper copies the one its image tool saved under
 `$CODEX_HOME/generated_images` (default `~/.codex`) and leaves Codex's copy there. A picture wider

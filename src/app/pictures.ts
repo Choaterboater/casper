@@ -23,6 +23,7 @@ export async function pictureToolFor(app: CasperApp, wanted: boolean): Promise<R
     && !(app.projectContext?.pictureModels?.length && await signedIn(app, "openai", env))) return undefined;
   app.pictureTool = pictureTool({
     root: () => app.activeWorkspaceRoot(),
+    request: () => app.lastTaskRequest ?? "",
     sources: {
       codex,
       codexOptions: { env },
