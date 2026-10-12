@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { clearLocalServers, configureLocalServers, discoverLocalServers, dropLocalServers, forgetLocalServer, localModelDefaults, localServerFound, localServers, localServerSettled, onLocalServer, onThisComputer, probeBudget, registerLocalServers, rememberLocalServer, sameAddress, serverRoot, SERVER_SIDE_TIP, type LocalDiscovery, type LocalFound } from "../src/runtime/local-models";
+import { clearLocalServers, configureLocalServers, discoverLocalServers, dropLocalServers, forgetLocalServer, localModelDefaults, localServerFound, localServers, localServerSettled, onLocalServer, onThisComputer, probeBudget, registerLocalServers, rememberLocalServer, sameAddress, servedWindowWarning, serverRoot, SERVER_SIDE_TIP, type LocalDiscovery, type LocalFound } from "../src/runtime/local-models";
 import { PiModels } from "../src/runtime/pi-models";
 import { isolatedEnvironment } from "../src/platform/environment";
 import { removeTempDir } from "./support/temp-dir";
@@ -75,9 +75,9 @@ test("finds Ollama, LM Studio, llama.cpp and vLLM where their variables point, w
   expect(found.problems).toEqual([]);
   expect(found.servers).toEqual([
     { provider: "ollama", name: "Ollama", baseUrl: `${ollama.url}/v1`, models: [
-      { id: "qwen3:8b", contextWindow: 32768, request: { keep_alive: "30m" } },
-      { id: "gemma3:4b", contextWindow: 128000, images: true, request: { keep_alive: "30m" } },
-      { id: "custom:latest", contextWindow: 8192, request: { temperature: 0.6, keep_alive: "30m" } },
+      { id: "qwen3:8b", contextWindow: 32768, trained: 40960, request: { keep_alive: "30m" } },
+      { id: "gemma3:4b", contextWindow: 128000, trained: 131072, servedLater: true, images: true, request: { keep_alive: "30m" } },
+      { id: "custom:latest", contextWindow: 8192, trained: 131072, request: { temperature: 0.6, keep_alive: "30m" } },
     ] },
     { provider: "lm-studio", name: "LM Studio", baseUrl: `${lmStudio.url}/v1`, models: [{ id: "qwen2.5-coder-7b", contextWindow: 16384 }, { id: "llava-7b", images: true }] },
     { provider: "llama.cpp", name: "llama.cpp", baseUrl: `${llama.url}/v1`, models: [{ id: "llama-3.2-1b", contextWindow: 8192 }] },
@@ -289,6 +289,47 @@ test("a request to a found server carries only the word local, never another pro
   } finally {
     if (saved === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = saved;
   }
+});
+
+test("an Ollama window not known until the model loads is read after its first answer, and a much smaller one is told once", async () => {
+  const chunk = (body: unknown) => `data: ${JSON.stringify(body)}\n\n`;
+  let loaded = false;
+  const ollama = serve({
+    "POST /v1/chat/completions": () => { loaded = true; return new Response(
+      chunk({ id: "1", object: "chat.completion.chunk", created: 0, model: "qwen3:8b", choices: [{ index: 0, delta: { role: "assistant", content: "hi" }, finish_reason: "stop" }] })
+      + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } }); },
+    "GET /api/ps": () => Response.json({ models: loaded ? [{ name: "qwen3:8b", model: "qwen3:8b", context_length: 4096 }] : [] }),
+  });
+  const baseUrl = `${ollama.url}/v1`;
+  const guessed = () => [{ provider: "ollama", name: "Ollama", baseUrl, models: [{ id: "qwen3:8b", contextWindow: 40960, trained: 40960, servedLater: true as const }] }];
+  const runtime = await runtimeIn();
+  registerLocalServers(runtime, guessed());
+  const model = runtime.getModel("ollama", "qwen3:8b")!;
+  expect(servedWindowWarning(model)).toBeUndefined();
+  await runtime.completeSimple(model, { messages: [{ role: "user", content: "hello", timestamp: Date.now() }] });
+  for (let i = 0; i < 100 && model.contextWindow !== 4096; i++) await Bun.sleep(5);
+  expect([model.contextWindow, model.maxTokens]).toEqual([4096, 1024]);
+  expect(servedWindowWarning(model)).toBe("Ollama runs qwen3:8b with a 4,096-token window, though the model takes 40,960; Casper keeps the conversation inside 4,096. "
+    + "To raise it, start Ollama with OLLAMA_CONTEXT_LENGTH=32768 ollama serve, or set PARAMETER num_ctx 32768 in a Modelfile (see docs/CONFIGURATION.md, Local models).");
+  // Read once: a later answer doesn't ask again, and a later list that only guesses keeps what was read.
+  await runtime.completeSimple(model, { messages: [{ role: "user", content: "again", timestamp: Date.now() }] });
+  await Bun.sleep(20);
+  expect(ollama.seen.filter((request) => request.path === "/api/ps").length).toBe(1);
+  registerLocalServers(runtime, guessed());
+  expect(runtime.getModel("ollama", "qwen3:8b")!.contextWindow).toBe(4096);
+  // The notice comes once per session, in place of the small-window one.
+  const models = new PiModels(runtime, os.tmpdir(), os.tmpdir());
+  const session = { model } as unknown as Parameters<PiModels["smallWindowNotice"]>[0];
+  expect(models.smallWindowNotice(session)).toContain("OLLAMA_CONTEXT_LENGTH=32768");
+  expect(models.smallWindowNotice(session)).toBeUndefined();
+});
+
+test("no notice when Ollama serves at least half the model's window", async () => {
+  const runtime = await runtimeIn();
+  registerLocalServers(runtime, [{ provider: "ollama", name: "Ollama", baseUrl: "http://127.0.0.1:11434/v1",
+    models: [{ id: "qwen3:8b", contextWindow: 32768, trained: 40960 }, { id: "big:latest", contextWindow: 8192, trained: 131072 }] }]);
+  expect(servedWindowWarning(runtime.getModel("ollama", "qwen3:8b")!)).toBeUndefined();
+  expect(servedWindowWarning(runtime.getModel("ollama", "big:latest")!)).toContain("8,192-token window, though the model takes 131,072");
 });
 
 test("found once a day per process; /model probes again and keeps each server busy for a moment; a helper never probes", async () => {
