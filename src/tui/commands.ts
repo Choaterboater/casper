@@ -320,13 +320,18 @@ export const COMMANDS: SlashCommand[] = COMMAND_REGISTRY.filter((command) => !co
   ...(command.subcommands?.length ? { getArgumentCompletions: (typed: string) => subcommandItems(command, typed) } : {}),
 }));
 
+/** One of your own commands as the / menu shows it (src/app/user-commands.ts). */
+export interface MenuCommand { readonly name: string; readonly description: string; readonly argumentHint?: string }
+
 /** The / menu for what is typed after "/" (no space yet): each command once, found by its name or an alias, best match
- * first. A row an alias matched says so ("usage (cost)"); an alias typed whole stays as typed when the row is picked. */
-export function commandMenu(typed: string): AutocompleteItem[] {
+ * first. A row an alias matched says so ("usage (cost)"); an alias typed whole stays as typed when the row is picked.
+ * `mine`: your own commands, in the same list; a Casper command's name is never yours. */
+export function commandMenu(typed: string, mine: readonly MenuCommand[] = []): AutocompleteItem[] {
   const words = COMMAND_REGISTRY.filter((command) => !command.hidden).flatMap((command) => [
-    { command, word: command.name, alias: undefined as string | undefined },
-    ...(typed ? command.aliases ?? [] : []).map((alias) => ({ command, word: alias, alias })),
+    { command: command as MenuCommand, word: command.name, alias: undefined as string | undefined },
+    ...(typed ? command.aliases ?? [] : []).map((alias) => ({ command: command as MenuCommand, word: alias, alias })),
   ]);
+  for (const command of mine) if (!findCommand(command.name)) words.push({ command, word: command.name, alias: undefined });
   const seen = new Set<string>();
   return fuzzyFilter(words, typed, (entry) => entry.word)
     .filter(({ command }) => !seen.has(command.name) && Boolean(seen.add(command.name)))

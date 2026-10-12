@@ -5,7 +5,7 @@ import {
 import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
 import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } from "../app/images";
 import { readClipboardFiles } from "./clipboard-files";
-import { commandMenu, COMMANDS, findCommand, fitDescriptions, menuRunsDuringWork } from "./commands";
+import { commandMenu, COMMANDS, findCommand, fitDescriptions, type MenuCommand, menuRunsDuringWork } from "./commands";
 import { BUSY_GLYPH, formatElapsed, hasLineControls, hasTerminalControls, markdownTheme, NOT_RUN_GLYPH, PROMPT_GLYPH, terminalText, tint } from "./format";
 import { answerRecord, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, OTHER_CHOICE, typedChoice, type PickRecord } from "./choices";
 import { typedDuringTask } from "./give-way";
@@ -201,6 +201,7 @@ export class TerminalSurface {
   private onCycleEffort?: () => void;
   private onBusySubmit?: (line: string) => true | string;
   private onExpandLast?: () => void;
+  private userCommands: () => readonly MenuCommand[] = () => [];
   /** "ASKING OFF · /permissions ask" while the shell stops asking, and "ALLOW ALL: <servers>" or "WRITES: <servers>"
    * with "· Ctrl+O" while an MCP server has writes on; drawn first, and shortened before anything of it is cut off. */
   private badge?: string;
@@ -601,6 +602,8 @@ export class TerminalSurface {
   setBusySubmit(handler: ((line: string) => true | string) | undefined): void { this.onBusySubmit = handler; }
   /** Ctrl+T: show the last finished step in full. */
   setExpandLast(handler: (() => void) | undefined): void { this.onExpandLast = handler; }
+  /** Your own commands (Markdown files), read when the / menu opens. */
+  setUserCommands(list: () => readonly MenuCommand[]): void { this.userCommands = list; }
   setWritesRevert(handler: (() => boolean) | undefined): void { this.onWritesRevert = handler; }
   setBadge(text?: string): void {
     const next = text ? terminalText(text).replace(/\s+/g, " ").trim() || undefined : undefined;
@@ -643,7 +646,7 @@ export class TerminalSurface {
         getSuggestions: async (...args) => {
           // The command names: each command once, found by its name or an alias (Pi's own list would need an alias row).
           const before = (args[0][args[1]] ?? "").slice(0, args[2]);
-          const names = !args[3].force && /^\/\S*$/.test(before) ? commandMenu(before.slice(1)) : undefined;
+          const names = !args[3].force && /^\/\S*$/.test(before) ? commandMenu(before.slice(1), this.userCommands()) : undefined;
           const result = names ? (names.length ? { items: names, prefix: before } : null) : await provider.getSuggestions(...args);
           if (!result) return null;
           const items = result.items.filter(item =>

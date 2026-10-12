@@ -8,6 +8,7 @@ import type { ThemeRole } from "./theme";
 import { TerminalSurface, type AskOrigin, type WorkView } from "./surface";
 import { renderEditBox, renderFailureBox, stepRows, type EditedFile, type FailedStep, type StepPart } from "./step-view";
 import type { EntryKind } from "./transcript";
+import type { MenuCommand } from "./commands";
 import type { NextRow } from "./next-row";
 import { bellSequence, hostCommand, prepareTmuxPane, titleSequence, TITLE_RESTORE, TITLE_SAVE, type HostCommand, type HostTerminal } from "./host-terminal";
 import { SidePane, type ActivityPane } from "./side-pane";
@@ -216,6 +217,7 @@ export class InteractiveTerminal {
   }
   /** Rich terminal only. Ctrl+T shows the last finished step in full. */
   setExpandLast(handler: (() => void) | undefined): void { this.surface?.setExpandLast(handler); }
+  setUserCommands(list: () => readonly MenuCommand[]): void { this.surface?.setUserCommands(list); }
   flashNote(text: string): void { this.surface?.flashNote(text); }
   /** The rich footer at this width; undefined on the plain terminal. */
   footerLine(width: number): string | undefined { return this.surface?.footerLine(width); }

@@ -148,6 +148,7 @@ Local commands:
   /skills inspect <id>              Show a skill and its fingerprint (sha256)
   /skills trust <id>                Show a skill, then 1 No · 2 Trust it (exactly what was shown)
   /skills block <id>                Never use this skill
+  /<name> [words]                   Your own command: ~/.casper/commands/<name>.md sent as a request, your words put in for $1 or $ARGUMENTS; Casper's commands win a name
   /pack add <folder or link>        Add a skill pack from a folder or https://github.com/owner/repo@<commit>: shows it, then 1 No · 2 Yes, add it · 3 Show me what's inside
   /pack list                        The packs you added, and any not used because their files changed
   /pack remove <name>               Take a pack out (forget is the same)
@@ -311,10 +312,11 @@ export function unknownCommandMessage(command: string): string {
   return `Unknown command "${command}".${near ? ` Did you mean ${near}?` : topic ? ` ${topic}` : ""} Type /help for local commands.`;
 }
 
-/** Why a slash line can't run as typed (an unknown command, or words after one that takes none); undefined when it can. */
-export function commandProblem(line: string): string | undefined {
+/** Why a slash line can't run as typed (an unknown command, or words after one that takes none); undefined when it can.
+ * `mine`: whether a name is one of your own commands (src/app/user-commands.ts). */
+export function commandProblem(line: string, mine: (name: string) => boolean = () => false): string | undefined {
   const parsed = parseCommandLine(line);
-  if (!parsed) return unknownCommandMessage(line.trim().split(/\s+/)[0]!);
+  if (!parsed) return mine(line.trim().split(/\s+/)[0]!.slice(1)) ? undefined : unknownCommandMessage(line.trim().split(/\s+/)[0]!);
   // /new was the new-project command; it now starts a new conversation, like Claude Code and Pi.
   if (parsed.typed === "new" && parsed.args) return `/new now starts a new conversation, like /clear. For a new project type /project new ${parsed.args}`;
   if (parsed.args && !takesArguments(parsed.command)) return `Usage: /${parsed.typed}, with nothing after it.`;

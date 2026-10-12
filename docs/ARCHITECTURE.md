@@ -36,7 +36,7 @@ touch, what it sees, how its work is checked, and what the receipt says.
 
 From the prompt to the receipt, in `src/app/task-run.ts` (`runModelTask`) unless named:
 
-1. `command-loop.ts` reads the line. A slash command goes to `handleSlashCommand`; anything else is a request.
+1. `command-loop.ts` reads the line. A slash command goes to `handleSlashCommand`, except one of your own commands (`user-commands.ts`: a Markdown file whose text, with your words in it, becomes the request); anything else is a request.
 2. The request is classified (`src/task/classify.ts`) and `prepareCapabilities` (`task-tools.ts`) builds its tool list.
 3. Casper snapshots the folder (`snapshotWorkspace`) and starts undo's first copy (`taskUndo.begin`).
 4. No question before work: a checklist of the cases the request states is made quietly (or `/plan` runs the plan turn). Then, for

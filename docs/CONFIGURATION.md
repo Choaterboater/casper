@@ -564,7 +564,8 @@ file can't change either.
 **Repository Pi files are ignored.** A repository's own Pi project folder is never trusted:
 `<project>/.pi/` extensions (program code), `SYSTEM.md`, `APPEND_SYSTEM.md`, prompt templates,
 themes and `settings.json` are not loaded. User-level resources in the engine store (for example
-`~/.casper/agent/extensions/`) still load. Project `AGENTS.md`/`CLAUDE.md` context files are still
+`~/.casper/agent/extensions/`) still load, and so do your own slash commands in `~/.casper/commands` and
+`~/.casper/agent/prompts` ([Your own commands](TERMINAL_UX.md#your-own-commands)). Project `AGENTS.md`/`CLAUDE.md` context files are still
 sent to the model, except one that is a symlink pointing outside the project, which is skipped.
 
 **OpenRouter app attribution.** Requests Casper itself sends to OpenRouter — model traffic, the

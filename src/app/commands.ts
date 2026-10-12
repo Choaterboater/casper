@@ -11,6 +11,7 @@ import { formatReferenceResult, type ReferenceLibrary } from "../references/libr
 import { ProjectMemory } from "../memory/store";
 import { modelPreference } from "../tui/model-preference";
 import { HELP_TEXT, FULL_HELP_TEXT, HOTKEYS_TEXT, LOGIN_HELP, helpFor, unknownCommandMessage, wrapHelp } from "../tui/help";
+import { loadUserCommands, userCommandsHelp } from "./user-commands";
 import { conversationCommand, runLogout } from "./peer-commands";
 import { chooseModel, severalModelsMessage } from "./model-words";
 import { formatTerminalJSON } from "../tui/json";
@@ -212,7 +213,9 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     if (/^\/help(?:\s|$)/.test(prompt)) {
       const word = prompt.slice(5).trim();
       // Laid out for this terminal's width; piped output gets the text unchanged.
-      host.output.write(wrapHelp(!word ? HELP_TEXT : word === "all" ? FULL_HELP_TEXT : helpFor(word), host.interactive ? host.terminal.columns : undefined));
+      // Your own commands close /help and /help all, in a group of their own.
+      const mine = word && word !== "all" ? "" : userCommandsHelp(loadUserCommands(host.homeDir()));
+      host.output.write(wrapHelp(!word ? HELP_TEXT + mine : word === "all" ? FULL_HELP_TEXT + mine : helpFor(word), host.interactive ? host.terminal.columns : undefined));
       return;
     }
     if (/^\/login(?:\s|$)/.test(prompt)) {

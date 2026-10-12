@@ -85,12 +85,36 @@ over the network, and `/references add` downloads files after asking you.
 | `/delegate <explorer\|reviewer> <goal>` | A read-only helper AI on one goal (uses a model; [DELEGATION.md](DELEGATION.md)) |
 | `/crew <job>` | A builder AI does the job in its own copy of the project, then 1 Keep the copy · 2 Apply to my folder · 3 Throw it away; bare `/crew` lists copies still here ([CREWS.md](CREWS.md)) |
 | `/exit`, `/quit` | Exit; during a task it stops the task first, as Ctrl+C twice does |
+| `/<name> [words]` | Your own command: `~/.casper/commands/<name>.md` sent as a request with your words in it (see [Your own commands](#your-own-commands)) |
 
 An unknown `/` command is rejected on your machine, at once, also during work, where the error shows under your
-line. It is quoted as you typed it. It is never sent to a model. A line that starts with a picture file's path is a
+line. It is quoted as you typed it. It is never sent to a model. Only a name that is one of your own commands goes
+to the model, as that command's text. A line that starts with a picture file's path is a
 request, not a command (see Pictures below).
 
 Taking something back is `forget` everywhere (`/memory`, `/mcp`, `/sandbox`, `/allowed`, `/permissions`); `remove` is the same word, and `/pack forget` is `/pack remove`. `list` is the command alone (`/memory list` is `/memory`). A usage error reads `[error] Usage: …` for every command.
+
+### Your own commands
+
+A Markdown file in `~/.casper/commands` is a slash command named after the file: `hello.md` is `/hello`. Typing `/hello world` sends the file's text as your request, with the words
+after the name put in where the file says: `$1`, `$2` for one word each, `$ARGUMENTS` (or `$@`) for all of them,
+`${1:-default}` for a word you may leave out. Quotes keep words together (`/hello "big world"`). Optional
+frontmatter gives the menu its words:
+
+```markdown
+---
+description: Say hello to someone
+argument-hint: <name>
+---
+Say hello to $1, warmly.
+```
+
+Your commands are in the `/` menu with Casper's and in a "Your commands" group at the end of `/help`. Casper's own
+commands always win a name: a `help.md` never takes over `/help`, and `/help` lists it as hidden and says to rename
+it. Pi's prompt templates in `~/.casper/agent/prompts` work the same way (a name in `~/.casper/commands` wins). A
+repository's own folders (`.pi/prompts`, `.casper/commands`) are not read: a cloned repository is never trusted to
+put words in your mouth. During a task, a line with your command keeps its draft until the task ends. A read-only
+helper (`/delegate`) gets its goal as written, never expanded.
 
 ### Words you can use
 

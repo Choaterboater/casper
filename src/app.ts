@@ -12,6 +12,7 @@ import { ServiceManager } from "./services/manager";
 import { SmokeChecks } from "./services/smoke";
 import { pageOpener, type DevServerNotice, type PageOpener } from "./services/page-checks";
 import { InteractiveTerminal, type TerminalHost } from "./tui/terminal";
+import { loadUserCommands, usableCommands } from "./app/user-commands";
 import { glyphOutput } from "./tui/glyphs";
 import type { PaneSetting } from "./tui/pane-setting";
 import type { DisplayLevel } from "./tui/display";
@@ -487,6 +488,8 @@ export class CasperApp {
     this.terminal.setWritesRevert(() => revertWrites(this));
     // ctrl+t: the last step in full, even while work runs.
     this.terminal.setExpandLast(() => expandLastStep(this));
+    // The / menu lists your own commands (Markdown files in ~/.casper/commands) with Casper's.
+    this.terminal.setUserCommands(() => usableCommands(loadUserCommands(this.homeDir())));
     // Tool calls live in the event view's Working box on a rich surface; the transcript gets plain writes.
     this.output = { write: (text) => { this.terminal.write(text); } };
     this.events = new RuntimeEventView(this.terminal, this.output, {
