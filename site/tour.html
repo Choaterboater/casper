@@ -35,31 +35,33 @@
 
   <main id="main">
     <div class="container">
-      <h1>Feature tour</h1>
-      <p class="lead">Here are the big things Casper 0.2.32 does, one at a time, with the real text it prints. Newer parts that have no picture here are listed under <a href="#more">More in 0.2.32</a> and on the <a href="roadmap.html">roadmap</a>.</p>
-
-      <aside class="callout note">
-        <strong class="callout-title">About the terminal boxes on this page</strong>
-        <p>Each dark box is text copied from a real Casper 0.2.32 run. No screenshots, no mock-ups.
-        To keep them free and repeatable, the "AI" in most of them is a small scripted stand-in: it
-        makes one real edit on disk, then says <code>No more changes.</code> Everything after that
-        (checks, proof, repairs, receipts, MCP, approvals) is Casper's own code doing its job.
-        Times like <code>0.0s</code> will differ on your machine.</p>
-      </aside>
-
       <div class="contents-layout">
+      <header class="page-head">
+        <h1>Feature tour</h1>
+        <p class="lead">Here are the big things Casper 0.2.32 does, one at a time, with the real text it prints. Newer parts that have no picture here are listed under <a href="#more">More in 0.2.32</a> and on the <a href="roadmap.html">roadmap</a>.</p>
+
+        <aside class="callout note">
+          <strong class="callout-title">About the terminal boxes on this page</strong>
+          <p>Each dark box is text copied from a real Casper 0.2.32 run. No screenshots, no mock-ups.
+          To keep them free and repeatable, the "AI" in most of them is a small scripted stand-in: it
+          makes one real edit on disk, then says <code>No more changes.</code> Everything after that
+          (checks, proof, repairs, receipts, MCP, approvals) is Casper's own code doing its job.
+          Times like <code>0.0s</code> will differ on your machine.</p>
+        </aside>
+      </header>
+
       <nav class="toc" aria-label="On this page">
         <strong>On this page</strong>
         <ul>
           <li><a href="#receipts">Receipts and the verdict line</a></li>
-          <li><a href="#proof">Proof: tests fail without the change</a></li>
-          <li><a href="#repair">Auto checks and the repair loop</a></li>
+          <li><a href="#proof">Proof: tests fail without it</a></li>
+          <li><a href="#repair">Auto checks and repairs</a></li>
           <li><a href="#live">The live view</a></li>
           <li><a href="#zero-tokens">Commands that use no tokens</a></li>
           <li><a href="#mcp">MCP servers and asks</a></li>
           <li><a href="#secrets">Secrets hidden from the AI</a></li>
           <li><a href="#references">References search</a></li>
-          <li><a href="#scripting">Scripting: --json and exit codes</a></li>
+          <li><a href="#scripting">Scripting with --json</a></li>
           <li><a href="#sessions">Sessions</a></li>
           <li><a href="#choices">Numbered choices</a></li>
           <li><a href="#terminal">Rich or plain terminal</a></li>

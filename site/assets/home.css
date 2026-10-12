@@ -203,7 +203,12 @@ body.home .receipt-capture, body.home .mcp-check-capture, .install .cmd pre {
   overflow-x: auto;
   overflow-wrap: normal;
 }
-.install .cmd.has-copy { padding-top: 3rem; }
+/* The Copy button sits beside the command, so a long line scrolls without running under it. */
+.install .cmd.has-copy:not([hidden]) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+.install .cmd.has-copy .cmd-label { grid-column: 1 / -1; }
+.install .cmd.has-copy pre { padding-right: 1rem; }
+.install .cmd.has-copy .copy-btn { position: static; margin: 0.5rem 0.5rem 0 0; }
+.install + p { max-width: var(--measure); }
 
 @media (max-width: 599px) {
   .ghost-svg { width: 72px; }

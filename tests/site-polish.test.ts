@@ -70,6 +70,22 @@ describe("site polish content", () => {
     expect(toc.match(/href="#([^"]+)"/)![1]).toBe("setup-casper");
   });
 
+  test("every page with contents uses one layout: page head, then a short-labelled sidebar beside the sections", () => {
+    for (const file of ["tour.html", "network.html", "compare.html", "roadmap.html", "faq.html"]) {
+      const page = read(file);
+      const order = ['<div class="contents-layout">', '<header class="page-head">', "<h1>", '<nav class="toc"', '<div class="page-sections">', "<section"];
+      const positions = order.map(marker => page.indexOf(marker));
+      expect({ file, positions }).toEqual({ file, positions: [...positions].sort((a, b) => a - b) });
+      expect(positions.every(position => position >= 0)).toBe(true);
+      const toc = page.match(/<nav class="toc"[\s\S]*?<\/nav>/)![0];
+      const long = [...toc.matchAll(/<a href="#[^"]+">([^<]+)<\/a>/g)].map(match => text(match[1]!)).filter(label => label.length > 32);
+      expect({ file, long }).toEqual({ file, long: [] });
+    }
+    const css = read("assets/style.css");
+    expect(css).not.toMatch(/--measure:\s*none/);
+    expect(css).not.toMatch(/@media \(min-width: ?1600px\)/);
+  });
+
   test("tour opens with the big things, without the parenthesized list", () => {
     const lead = text(read("tour.html").match(/<p class="lead">([\s\S]*?)<\/p>/)![1]!);
     expect(lead).toStartWith("Here are the big things");
