@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { answer, cleanUpAfterEach, cli, fixture } from "./support/phase8-pi";
+import { childTestLimit } from "./support/limits";
 
 cleanUpAfterEach();
 
@@ -29,4 +30,4 @@ test("real Pi: /hello world reaches the model as your command's text; a read-onl
   expect(f.payloads).toHaveLength(3);
   expect(JSON.stringify(f.payloads[2]?.messages)).toContain("/hello world");
   expect(JSON.stringify(f.payloads[2]?.messages)).not.toContain("EXPANDED_HELLO");
-}, 90_000);
+}, childTestLimit(3));

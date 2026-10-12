@@ -3,6 +3,7 @@ import { mkdtemp, realpath, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { LSPManager } from "../src/lsp/manager";
+import { childTestLimit, finished } from "./support/limits";
 import { flakyOn } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -14,19 +15,16 @@ async function root() {
   return dir;
 }
 // The wait for each answer and for diagnostics. A real server on a busy machine (the full suite runs files in
-// parallel) took over 5 s for its first diagnostics; every wait ends as soon as the answer comes.
-function manager(dir: string, name: string, args: string[], languages: Record<string, string>, timeoutMs = 15_000) {
+// parallel) took over 5 s for its first diagnostics, and Pyright on a Windows CI runner over 15 s; every wait ends
+// as soon as the answer comes, and stays below the test's limit so a server that never answers fails on its status.
+function manager(dir: string, name: string, args: string[], languages: Record<string, string>, timeoutMs = 45_000) {
   const value = new LSPManager(dir, { servers: [{ name, source: "test", command: process.execPath, args, languages }], diagnostics: [] }, timeoutMs);
   cleanup.push(() => value.close());
   return value;
 }
 async function check(command: string[], cwd: string) {
-  const proc = Bun.spawn(command, { cwd, stdout: "pipe", stderr: "pipe" });
-  const timer = setTimeout(() => proc.kill(), 20_000);
-  try {
-    const [stdout, stderr, exit] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-    expect({ stdout: exit === 0 ? "" : stdout, stderr, exit }).toEqual({ stdout: "", stderr: "", exit: 0 });
-  } finally { clearTimeout(timer); }
+  const { stdout, stderr, exit } = await finished(() => Bun.spawn(command, { cwd, stdout: "pipe", stderr: "pipe" }));
+  expect({ stdout: exit === 0 ? "" : stdout, stderr, exit }).toEqual({ stdout: "", stderr: "", exit: 0 });
 }
 
 test("real TypeScript LSP resolves symbols/references and renames across files without compiler regressions", async () => {
@@ -57,7 +55,7 @@ test("real TypeScript LSP resolves symbols/references and renames across files w
   expect(await readFile(path.join(dir, "b.ts"), "utf8")).toContain("welcome('world')");
   expect(await readFile(path.join(dir, "unrelated.ts"), "utf8")).toBe("export const unrelated = { greet: 'unchanged' };\n");
   await check(tsc, dir);
-}, 90_000);
+}, childTestLimit(3));
 
 flakyOn("win32")("real Pyright acceptance: repository-wide rename finishes with fresh zero diagnostics", async () => {
   const dir = await root();
@@ -82,4 +80,4 @@ flakyOn("win32")("real Pyright acceptance: repository-wide rename finishes with 
   expect(await readFile(path.join(dir, "b.py"), "utf8")).toBe("from a import welcome\nresult = welcome('world')\n");
   expect(await readFile(path.join(dir, "unrelated.py"), "utf8")).toBe("unrelated = {'greet': 'unchanged'}\n");
   await check([process.execPath, path.join(import.meta.dir, "../node_modules/pyright/index.js"), "--project", dir], dir);
-}, 90_000);
+}, childTestLimit(2));

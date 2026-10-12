@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
 import { ConptySession } from "./support/conpty";
+import { CHILD_KILL_MS, childTestLimit } from "./support/limits";
 import { removeTempDir } from "./support/temp-dir";
 
 // Windows only. POSIX screens run through the Python PTY fixtures (tests/fixtures/*-pty.py), which need the pty
@@ -93,7 +94,8 @@ async function startCasper(options: { terminal?: Terminal; env?: Record<string, 
     server.stop(true);
     await removeTempDir(root);
   });
-  await idle(s);
+  // The first frame is a cold CLI start: a busy Windows runner has shown a blank screen past the usual 30 s wait.
+  await idle(s, CHILD_KILL_MS);
   return { s, home, project, release, requests, conversations };
 }
 
@@ -105,7 +107,7 @@ const quietFooter = (s: ConptySession) => !/\d+s │/.test(footer(s)) && !footer
 /** Casper waits for a line: the idle footer (no state mark, │ between parts; the first frame's "Casper · / for
  * commands" comes before Casper reads keys) and an empty editor. Wait for a command's own output first: just after
  * Enter the footer still shows the idle from before. */
-const idle = (s: ConptySession) => s.waitFor("idle footer", () => quietFooter(s) && footer(s).includes(" │ ") && /^[❯>]\s*$/m.test(s.visible()));
+const idle = (s: ConptySession, timeout?: number) => s.waitFor("idle footer", () => quietFooter(s) && footer(s).includes(" │ ") && /^[❯>]\s*$/m.test(s.visible()), timeout);
 /** A choice box ignores keys for a moment after it opens, so a key typed early can't answer it. */
 const boxReady = () => Bun.sleep(600);
 /** Separator lines drawn across the whole screen at this width. */
@@ -294,7 +296,7 @@ conpty("ConPTY: Windows Terminal gets rounded corners and color, the old console
     expect(s.raw).toContain("\x1b]0;Casper · project\x07");
     expect(await exitWith(s, () => s.send("/exit\n"))).toBe(0);
   }
-}, 180_000);
+}, childTestLimit(3) + 60_000);
 
 conpty("ConPTY: the old console draws every mark in ASCII, not only the spinner", async () => {
   const { s } = await startCasper({ terminal: "old-console", config: "routine_commands: false\n" });

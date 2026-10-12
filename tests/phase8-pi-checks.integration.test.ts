@@ -7,6 +7,7 @@ import type { TaskResult } from "../src/task/result";
 import { posixOnly } from "./support/platform";
 import { checkCommand } from "./support/check-command";
 import { cleanUpAfterEach, runsCheck, answer, calls, fixture } from "./support/phase8-pi";
+import { childTestLimit } from "./support/limits";
 
 cleanUpAfterEach();
 
@@ -62,7 +63,7 @@ try {
   if (!Array.isArray(repair) || typeof repair[0]?.text !== "string") throw new Error("Missing repair prompt");
   expect(repair[0].text).toContain("Original request:\nContinue");
   expect(repair[0].text).toContain('"exitCode": 1');
-}, 15_000);
+}, childTestLimit());
 
 for (const form of ["relative", "at-prefix", "absolute", "file-url", "double-at", "tilde", "unicode-space", "alias"]) posixOnly(`pinned Pi retains native edit invalidation after restored directory membership (${form})`, async () => {
   let step = 0;
@@ -108,4 +109,4 @@ try {
   expect(task.observedEdits).toHaveLength(1);
   expect(await readFile(path.join(f.project, "test-runs"), "utf8")).toBe("xx");
   expect(f.payloads).toHaveLength(6);
-}, 15_000);
+}, childTestLimit());

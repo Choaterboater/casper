@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { checkCommand } from "./check-command";
 import { cleanEnv } from "./env";
+import { CHILD_KILL_MS, finished } from "./limits";
 
 /**
  * The loopback provider and project helpers shared by the phase8-pi*.integration test files. They are split so a
@@ -69,13 +70,9 @@ export default function(pi) {
   const env = cleanEnv({ HOME: home, CASPER_AGENT_DIR: agent, PI_CODING_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" });
   // killAfterMs is a hang guard; a test with a longer limit can pass a longer one. A run takes 2-5 s, but a slow
   // Windows CI runner took past 10 s (killed, exit 143), so the test's own limit is the usual bound.
-  async function run(args: string[], overrides: Record<string, string | undefined> = {}, killAfterMs = 60_000) {
-    const child = Bun.spawn([process.execPath, ...args], { cwd: project, env: { ...env, ...overrides }, stdout: "pipe", stderr: "pipe" });
-    const timer = setTimeout(() => child.kill(), killAfterMs);
-    try {
-      const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-      return { stdout, stderr, exit };
-    } finally { clearTimeout(timer); }
+  async function run(args: string[], overrides: Record<string, string | undefined> = {}, killAfterMs = CHILD_KILL_MS) {
+    const { stdout, stderr, exit } = await finished(() => Bun.spawn([process.execPath, ...args], { cwd: project, env: { ...env, ...overrides }, stdout: "pipe", stderr: "pipe" }), killAfterMs);
+    return { stdout, stderr, exit };
   }
   return { project, agent, payloads, headers, run };
 }

@@ -8,6 +8,7 @@ import { resolveVerificationMode } from "../src/verify/mode";
 import { CASPER_VERSION } from "../src/version";
 import { flakyOn, needsPosixModes, posixOnly } from "./support/platform";
 import { cleanEnv } from "./support/env";
+import { childTestLimit, finished } from "./support/limits";
 import { removeTempDir } from "./support/temp-dir";
 
 const cli = path.resolve(import.meta.dir, "../src/cli.ts");
@@ -16,12 +17,9 @@ afterEach(async () => { for (const dir of tempDirs.splice(0)) await removeTempDi
 
 async function run(args: string[], cwd: string, home = cwd) {
   // Exercise default Casper state without inheriting the caller's override.
-  const child = Bun.spawn([process.execPath, ...args], {
+  const { stdout, stderr, exit: code } = await finished(() => Bun.spawn([process.execPath, ...args], {
     cwd, env: cleanEnv({ HOME: home, CASPER_PROFILE: "default" }), stdout: "pipe", stderr: "pipe",
-  });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
-  ]);
+  }));
   return { stdout, stderr, code };
 }
 
@@ -52,7 +50,7 @@ flakyOn("win32")("--verify --no-verify is rejected before any work starts", asyn
   const result = await run([cli, "--verify", "--no-verify", "Summarize"], root);
   expect({ code: result.code, stdout: result.stdout }).toEqual({ code: 64, stdout: "" });
   expect(result.stderr).toContain("--verify and --no-verify cannot be combined");
-}, 30_000);
+}, childTestLimit());
 
 test("a flag following --mcp or --lsp is not taken as a server name", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));
@@ -60,7 +58,7 @@ test("a flag following --mcp or --lsp is not taken as a server name", async () =
   const result = await run([cli, "--mcp", "--verify", "Summarize"], root);
   expect({ code: result.code, stdout: result.stdout }).toEqual({ code: 64, stdout: "" });
   expect(result.stderr).toContain("--mcp requires a configured server name");
-});
+}, childTestLimit());
 
 posixOnly("--version names the cli.ts that actually runs, through a PATH-style symlink", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));
@@ -70,7 +68,7 @@ posixOnly("--version names the cli.ts that actually runs, through a PATH-style s
   const result = await run([link, "--version"], root);
   expect({ code: result.code, stderr: result.stderr }).toEqual({ code: 0, stderr: "" });
   expect(result.stdout).toBe(`casper ${CASPER_VERSION} (${await realpath(cli)})\n`);
-});
+}, childTestLimit());
 
 /** A Pi CLI user's home: the first Casper run would import these credentials. */
 async function piUserHome(): Promise<string> {
@@ -96,7 +94,7 @@ test("--version, --help and --licenses have no side effects: one version line, n
   }
   // Bun's own caches (transpiler, install) may appear under HOME; Casper's store must not.
   expect((await readdir(home)).filter((name) => !["Library", ".cache", ".bun"].includes(name))).toEqual([".pi"]);
-});
+}, childTestLimit(2));
 
 test("a real session reports the one-time credential import on stderr, not stdout", async () => {
   const home = await piUserHome();
@@ -106,7 +104,7 @@ test("a real session reports the one-time credential import on stderr, not stdou
   expect(result.stderr).toContain("[auth] Imported existing credentials into ~/.casper/agent.");
   expect(result.stderr).toContain("run /login openai-codex to sign in Casper");
   expect(await Bun.file(path.join(home, ".casper/agent/auth.json")).json()).toEqual({ fixture: { type: "api_key", key: "synthetic-legacy" } });
-});
+}, childTestLimit());
 
 needsPosixModes("a read-only HOME still prints the version and help", async () => {
   const home = await piUserHome();
@@ -117,7 +115,7 @@ needsPosixModes("a read-only HOME still prints the version and help", async () =
       expect({ flag, code: result.code, stderr: result.stderr }).toEqual({ flag, code: 0, stderr: "" });
     }
   } finally { await chmod(home, 0o700); }
-});
+}, childTestLimit());
 
 test("hostile project.yaml text in a startup error never reaches the terminal as raw escapes", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));
@@ -138,7 +136,7 @@ test("hostile project.yaml text in a startup error never reaches the terminal as
       expect(result.stderr).not.toMatch(/[\x07\x1b]/);
     }
   }
-});
+}, childTestLimit());
 
 posixOnly("the source CLI run through its shebang ignores the opened directory's bunfig.toml and .env", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));
@@ -169,7 +167,7 @@ test("an unrecognized leading option is a usage error (exit 64), never a model p
   // Nothing started: no engine store, no transcript.
   expect(await Bun.file(path.join(root, ".casper")).exists()).toBe(false);
   expect(await readdir(root).then((names) => names.includes(".casper"))).toBe(false);
-});
+}, childTestLimit());
 
 test("informational flags are honored after the verify/integration options", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));
@@ -181,7 +179,7 @@ test("informational flags are honored after the verify/integration options", asy
   expect(help.code).toBe(0);
   expect(help.stdout).toContain("casper <prompt>");
   expect(help.stdout).toContain("--verbose");
-});
+}, childTestLimit(2));
 
 test("-- ends option parsing, so a prompt may start with a dash", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));
@@ -191,7 +189,7 @@ test("-- ends option parsing, so a prompt may start with a dash", async () => {
   const result = await run([cli, "--", "--", "--bogus", "is", "a", "prompt"], root);
   expect(result.stderr).not.toContain("Unknown option");
   expect(result.stdout).toContain("> --bogus is a prompt");
-}, 60_000);
+}, childTestLimit());
 
 test("parseCliArgs reads leading options only; the rest is the prompt", () => {
   expect(parseCliArgs(["--verify", "--verbose", "fix", "the", "-v", "flag"])).toMatchObject({
@@ -230,7 +228,7 @@ test("learn usage mistakes exit 64 before any learning starts", async () => {
     expect({ args, code: result.code, stdout: result.stdout }).toEqual({ args, code: 64, stdout: "" });
     expect(result.stderr).toMatch(/Usage: casper learn|learn cannot be combined/);
   }
-});
+}, childTestLimit());
 
 test("--require-verification turns Casper's checks on for a one-shot prompt", () => {
   const options = parseCliArgs(["--require-verification", "fix", "it"]);
@@ -318,7 +316,7 @@ test("a known option after the prompt is a usage mistake (64) found before anyth
   expect({ code: result.code, stdout: result.stdout }).toEqual({ code: 64, stdout: "" });
   expect(result.stderr).toContain('Options go before the prompt: casper --verify "fix the login bug". To send it as words, quote the whole request: casper "fix the login bug --verify".');
   expect(await readdir(root)).not.toContain(".casper");
-});
+}, childTestLimit());
 
 test("casper <folder> opens that folder; a path that is not a folder exits 64", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-folder-"));
@@ -350,7 +348,7 @@ test("casper <folder> opens that folder; a path that is not a folder exits 64", 
   const quoted = await run([cli, "fix the bug in src/app.py"], root);
   expect(quoted.code).not.toBe(64);
   expect(quoted.stderr).not.toContain("Not a folder");
-}, 60_000); // seven CLI starts in a row
+}, childTestLimit(7)); // seven CLI starts in a row
 
 test("--allow-host, --allow-write and --allow-reach allow one host, folder or machine for this run, and may repeat", () => {
   const options = parseCliArgs(["--allow-host", "api.mist.com", "--allow-host=pypi.org", "--allow-write", "../shared", "--allow-reach", "10.0.0.5", "fix it"]);

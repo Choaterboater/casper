@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -9,6 +9,10 @@ import { classifyTask } from "../src/task/classify";
 import { needsFifos, needsSymlinks, posixModes, posixOnly } from "./support/platform";
 import { cleanEnv } from "./support/env";
 import { removeTempDir } from "./support/temp-dir";
+import { childTestLimit, finished } from "./support/limits";
+
+// Nearly every test here starts a real Bun child (support/limits.ts): its limit covers the child's own guard.
+setDefaultTimeout(childTestLimit());
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -56,14 +60,10 @@ async function fixture(respond?: (payload: Payload, index: number) => Response |
     return Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), ...args], { cwd, env, stdout: "pipe", stderr: "pipe" });
   }
   async function run(args: string[]) {
-    const child = spawn(args);
-    // A hang guard only, as in support/scripting.ts: a run takes 1-2 s, but on a loaded 4-core Windows CI runner two
-    // runs passed 10 s (and were killed, exit 137) while the same window ran other CLI tests four times slower.
-    const timer = setTimeout(() => child.kill("SIGKILL"), 60_000);
-    try {
-      const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-      return { stdout, stderr, exit };
-    } finally { clearTimeout(timer); child.kill(); }
+    // A hang guard only: a run takes 1-2 s, but on a loaded 4-core Windows CI runner two runs passed 10 s (and were
+    // killed, exit 137) while the same window ran other CLI tests four times slower.
+    const { stdout, stderr, exit } = await finished(() => spawn(args));
+    return { stdout, stderr, exit };
   }
   return { root, home, project, cwd, agent, env, payloads, run, spawn };
 }
@@ -117,7 +117,7 @@ test("learn produces an unpromoted draft with host-checked provenance, inspectab
   // Mode bits are a POSIX guarantee; Windows synthesizes them (tests/support/platform.ts).
   if (posixModes) expect((await stat(path.join(f.home, ".casper", Object.keys(state)[0]!))).mode & 0o777).toBe(0o600);
   // Three CLI runs: about 4 s on Windows CI, but up to 20 s on a slow runner (it failed at 30 s), so 2x that.
-}, 60_000);
+}, childTestLimit(3));
 
 test("digest-bound human promotion makes one candidate a searchable reference without another model call", async () => {
   const f = await fixture();
@@ -135,7 +135,7 @@ test("digest-bound human promotion makes one candidate a searchable reference wi
   const inspected = JSON.parse((await f.run(["learn", "inspect", f.project, generated.id])).stdout);
   expect(inspected.decisions).toHaveLength(1);
   expect(inspected.decisions[0]).toEqual(JSON.parse(promoted.stdout).decision);
-}, 60_000);
+}, childTestLimit(4));
 
 for (const disposition of ["project-skill", "global-skill"] as const) test(`human promotion activates a trusted ${disposition} from owner-controlled state`, async () => {
   const f = await fixture();
@@ -179,7 +179,7 @@ test("ignore and promotion consent are exact, immutable, idempotent and local", 
   expect(inspected.decisions).toHaveLength(1);
   expect(await snapshot(f.project)).toEqual(before);
   expect(f.payloads).toHaveLength(2);
-}, 60_000);
+}, childTestLimit(7));
 
 test("concurrent identical promotion commits one decision and one create-only artifact", async () => {
   const f = await fixture();
@@ -194,7 +194,7 @@ test("concurrent identical promotion commits one decision and one create-only ar
   const registry = await SkillRegistry.discover({ projectRoot: f.project, homeDir: f.home });
   expect(registry.list().filter((entry) => entry.name === "atomic-concurrent")).toHaveLength(1);
   expect(f.payloads).toHaveLength(2);
-}, 30_000);
+}, childTestLimit(4));
 
 test("promotion never overwrites existing skills and corrupted decisions fail closed", async () => {
   const f = await fixture();
@@ -221,7 +221,7 @@ test("promotion never overwrites existing skills and corrupted decisions fail cl
   expect(await readFile(promotionFile, "utf8")).toBe("corrupt\n");
   expect(ignored.decision.disposition).toBe("ignore");
   expect(f.payloads).toHaveLength(2);
-}, 60_000);
+}, childTestLimit(5));
 
 test("exact replay recovers only a recorded staged artifact and never repairs changed active content", async () => {
   const f = await fixture();
@@ -240,7 +240,7 @@ test("exact replay recovers only a recorded staged artifact and never repairs ch
   expect(changed.stderr).toContain("changed; refusing recovery or replacement");
   expect(await readFile(artifact.path, "utf8")).toBe("CHANGED\n");
   expect(f.payloads).toHaveLength(2);
-}, 30_000);
+}, childTestLimit(4));
 
 for (const redirected of ["active", "staged"] as const) needsSymlinks(`promotion replay refuses a redirected ${redirected} artifact directory`, async () => {
   const f = await fixture();
@@ -274,7 +274,7 @@ needsSymlinks("promotion rejects symlinked artifact roots without writing throug
   const inspected = JSON.parse((await f.run(["learn", "inspect", f.project, draft.id])).stdout);
   expect(inspected.decisions).toEqual([]);
   expect(f.payloads).toHaveLength(2);
-}, 30_000);
+}, childTestLimit(3));
 
 test("learning rejects source overlap with Pi state before creating files or calling a provider", async () => {
   const f = await fixture(() => answer('{"candidates":[]}'));
@@ -291,7 +291,7 @@ test("learning rejects source overlap with Pi state before creating files or cal
   expect(result.stderr).toContain("overlaps writable runtime state");
   expect(f.payloads).toEqual([]);
   expect(JSON.parse((await f.run(["learn", "list", f.project])).stdout).drafts).toEqual([]);
-}, 60_000);
+}, childTestLimit(2));
 
 for (const layout of ["default-root", "state-alias", "missing-state"]) needsSymlinks(`learning state preflight handles ${layout} without modifying the source`, async () => {
   const f = await fixture(() => answer('{"candidates":[]}'));
@@ -351,7 +351,7 @@ test("learning still permits sibling Pi state without changing source or model d
   expect(f.payloads).toHaveLength(1);
   expect(await snapshot(f.project)).toEqual(before);
   expect(await readFile(path.join(state, "settings.json"), "utf8")).toBe(settings);
-}, 60_000);
+}, childTestLimit());
 
 test("learning output escapes terminal controls without altering the saved candidate", async () => {
   const unsafe = { ...candidate, name: "Pattern\u009b31m\u202e\u001b[0m" };
@@ -360,7 +360,7 @@ test("learning output escapes terminal controls without altering the saved candi
   expect(result.exit).toBe(0);
   expect(result.stdout).not.toMatch(/[\u007f-\u009f\u202a-\u202e\u2066-\u2069\u001b]/u);
   expect(JSON.parse(result.stdout).draft.candidates[0].name).toBe(unsafe.name);
-}, 90_000);
+}, childTestLimit());
 
 for (const [name, response, finish] of [
   ["malformed JSON", "not JSON", "stop"],
@@ -473,7 +473,7 @@ test("learning cannot activate ambient extensions, project commands, skills, fac
   expect(added[0]).toEndWith("/learning-candidates.jsonl");
   // Pi's model/auth bookkeeping and Bun caches are not learning drafts or session history.
   expect(Object.keys(homeAfter).filter((file) => file.startsWith(".pi/agent/sessions/") && file.endsWith(".jsonl"))).toEqual([]);
-}, 60_000);
+}, childTestLimit());
 
 test("concurrent learning processes preserve both immutable drafts and keep repositories isolated", async () => {
   const f = await fixture(() => answer(JSON.stringify({ candidates: [candidate] })));
@@ -527,7 +527,7 @@ test("inspection retains observed provenance after source edits or removal, neve
   expect(result.exit).toBe(0);
   expect(JSON.parse(result.stdout).draft).toEqual(draft);
   expect(f.payloads).toHaveLength(1);
-}, 60_000);
+}, childTestLimit(3));
 
 test("corrupted draft state fails closed before model startup and stays untouched", async () => {
   const f = await fixture(() => answer(JSON.stringify({ candidates: [candidate] })));
@@ -544,7 +544,7 @@ test("corrupted draft state fails closed before model startup and stays untouche
   }
   expect(await readFile(file, "utf8")).toBe(corrupt);
   expect(f.payloads).toHaveLength(1);
-}, 60_000);
+}, childTestLimit(2));
 
 needsSymlinks("symlinked evidence parents, binary text and oversized files cannot become draft provenance", async () => {
   let evidenceFile = "pattern.txt";
@@ -567,7 +567,7 @@ needsSymlinks("symlinked evidence parents, binary text and oversized files canno
   const result = await f.run(["learn", alias]);
   expect(result.exit).toBe(0);
   expect(JSON.parse(result.stdout).draft.sourceRoot).toBe(await realpath(f.project));
-}, 60_000);
+}, childTestLimit(5));
 
 needsSymlinks("learning refuses a state directory redirected into source files before model startup", async () => {
   const f = await fixture();
@@ -593,7 +593,7 @@ test("a read-only tool failure or attempted mutation cannot publish an apparentl
   expect(result.stderr).toContain("tool errors");
   expect(await snapshot(f.project)).toEqual(before);
   expect(JSON.parse((await f.run(["learn", "list", f.project])).stdout).drafts).toEqual([]);
-}, 180_000);
+}, childTestLimit(2));
 
 test("exhausting the existing explorer turn limit saves no truncated draft and starts no repair", async () => {
   const f = await fixture(() => readEvidence());
@@ -602,7 +602,7 @@ test("exhausting the existing explorer turn limit saves no truncated draft and s
   expect(result.stderr).toContain("incomplete (limited");
   expect(f.payloads.length).toBeLessThanOrEqual(12);
   expect(JSON.parse((await f.run(["learn", "list", f.project])).stdout).drafts).toEqual([]);
-}, 60_000);
+}, childTestLimit(2));
 
 test("provider failure does not expose raw provider text or record an outcome as a learning draft", async () => {
   const f = await fixture(() => new Response(JSON.stringify({ error: { message: "PRIVATE_PROVIDER_ERROR" } }), { status: 400 }));
@@ -612,7 +612,7 @@ test("provider failure does not expose raw provider text or record an outcome as
   expect(result.stdout + result.stderr).not.toContain("PRIVATE_PROVIDER_ERROR");
   expect(JSON.parse((await f.run(["learn", "list", f.project])).stdout).drafts).toEqual([]);
   expect(f.payloads).toHaveLength(1);
-}, 60_000);
+}, childTestLimit(2));
 
 needsFifos("FIFO evidence and stored drafts fail without waiting for a writer", async () => {
   const f = await fixture(() => answer(JSON.stringify({ candidates: [candidate] })));
@@ -628,7 +628,7 @@ needsFifos("FIFO evidence and stored drafts fail without waiting for a writer", 
   expect((await f.run(["learn", f.project])).exit).toBe(1);
   expect((await f.run(["learn", "list", f.project])).exit).toBe(1);
   expect(f.payloads).toHaveLength(2);
-}, 15_000);
+}, childTestLimit(4));
 
 posixOnly("CLI cancellation drains the read-only run without publishing late candidates", async () => {
   let enter!: () => void;
@@ -651,7 +651,7 @@ posixOnly("CLI cancellation drains the read-only run without publishing late can
     expect(JSON.parse((await f.run(["learn", "list", f.project])).stdout).drafts).toEqual([]);
     expect(f.payloads).toHaveLength(1);
   } finally { clearTimeout(timer); child.kill(); }
-}, 10_000);
+}, childTestLimit());
 
 test("Unicode and CRLF citations retain exact quoted lines and a digest of raw file bytes", async () => {
   const evidence = { file: "pattern.txt", startLine: 1, endLine: 2, quote: "α hello\n😀 world" };
@@ -682,7 +682,7 @@ needsSymlinks("invalid, duplicated and oversized draft stores are never reset or
   expect((await f.run(["learn", f.project])).exit).toBe(1);
   expect(await readFile(outside, "utf8")).toBe(JSON.stringify(draft) + "\n");
   expect(f.payloads).toHaveLength(1);
-}, 60_000);
+}, childTestLimit(3));
 
 test("a full draft store refuses further generation rather than pruning earlier drafts", async () => {
   const f = await fixture(() => answer(JSON.stringify({ candidates: [candidate] })));
@@ -702,7 +702,7 @@ test("a full draft store refuses further generation rather than pruning earlier 
   expect(result.stderr).toContain("store is full");
   expect(await readFile(file, "utf8")).toBe(full);
   expect(f.payloads).toHaveLength(1);
-}, 60_000);
+}, childTestLimit(3));
 
 test("a Windows drive path is a local folder, while URLs, remotes and options are still refused", () => {
   for (const repo of ["C:\\x\\repo", "c:/x/repo", "D:\\"]) {

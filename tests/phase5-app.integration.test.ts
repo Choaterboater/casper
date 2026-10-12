@@ -9,6 +9,7 @@ import { SkillRegistry } from "../src/skills/registry";
 import { discoverLSPConfiguration } from "../src/lsp/config";
 import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { cleanEnv } from "./support/env";
+import { CHILD_KILL_MS, childTestLimit, finished } from "./support/limits";
 import { flakyOn } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 const cleanup: (() => Promise<unknown>)[] = [];
@@ -130,12 +131,9 @@ flakyOn("win32")("real CLI/Pi tool surface appends LSP diagnostics to native wri
   await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture", retry: { enabled: false } }));
   await mkdir(path.join(home, ".casper"), { recursive: true });
   await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
-  const proc = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), "--lsp", "fixture", "Inspect and modify a.ts"], {
+  const { stdout, stderr, exit } = await finished(() => Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), "--lsp", "fixture", "Inspect and modify a.ts"], {
     cwd: project, env: cleanEnv({ HOME: home, CASPER_AGENT_DIR: agentDir, PI_CODING_AGENT_DIR: agentDir, CASPER_OFFLINE: "1", PI_TELEMETRY: "0" }), stdout: "pipe", stderr: "pipe",
-  });
-  const timer = setTimeout(() => proc.kill(), 20_000);
-  const [stdout, stderr, exit] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-  clearTimeout(timer);
+  }));
   expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
   expect(stdout).toContain("LSP_WORKFLOW_COMPLETE");
   expect(payloads[0].tools.filter((tool) => tool.function.name === "lsp")).toHaveLength(1);
@@ -150,7 +148,7 @@ flakyOn("win32")("real CLI/Pi tool surface appends LSP diagnostics to native wri
   const interactive = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), "--lsp", "fixture"], {
     cwd: project, env: cleanEnv({ HOME: home, CASPER_AGENT_DIR: agentDir, PI_CODING_AGENT_DIR: agentDir, CASPER_OFFLINE: "1", PI_TELEMETRY: "0" }), stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
-  const interactiveTimer = setTimeout(() => interactive.kill(), 20_000);
+  const interactiveTimer = setTimeout(() => interactive.kill(), CHILD_KILL_MS);
   let transcript = "";
   let prompted = false;
   let exited = false;
@@ -170,7 +168,7 @@ flakyOn("win32")("real CLI/Pi tool surface appends LSP diagnostics to native wri
   expect({ exit: interactiveExit, stderr: interactiveError }).toEqual({ exit: 0, stderr: "" });
   expect(await readFile(path.join(project, "a.ts"), "utf8")).toBe("new();");
   expect(JSON.stringify(payloads.at(-1)!.messages)).toContain('changed');
-}, 50_000);
+}, childTestLimit(2));
 
 test("non-interactive /lsp connect refuses a project definition that shadows the user's server", async () => {
   const { home, project } = await fixture();

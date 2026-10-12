@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { readOnlyCommand } from "../src/sandbox/read-only";
+import { run, type RunOptions } from "./support/run";
 import { removeTempDir } from "./support/temp-dir";
 
 /**
@@ -33,9 +33,14 @@ async function area() {
   return { base, home, project, outside, where: { root: project, home, denyRead: [] as string[] } };
 }
 
+/** A program's stdout and stderr. Async, not spawnSync: see tests/support/run.ts. */
+async function output(argv: string[], options: RunOptions) {
+  const result = await run(argv, options);
+  return `${result.stdout}${result.stderr}`;
+}
+
 function bash(line: string, cwd: string, home: string) {
-  const run = spawnSync("bash", ["-c", line], { cwd, encoding: "utf8", env: { PATH: process.env.PATH, HOME: home, ...GIT_ENV } });
-  return `${run.stdout}${run.stderr}`;
+  return output(["bash", "-c", line], { cwd, env: { PATH: process.env.PATH, HOME: home, ...GIT_ENV } });
 }
 
 test("a comment cannot hide the lines after it", async () => {
@@ -50,7 +55,7 @@ test("a comment cannot hide the lines after it", async () => {
   for (const [line, marker] of markers) {
     expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: false });
     if (posix) {
-      bash(line, project, home);
+      await bash(line, project, home);
       expect({ line, ran: existsSync(path.join(project, marker)) }).toEqual({ line, ran: true });
       await removeTempDir(path.join(project, marker));
     }
@@ -73,7 +78,7 @@ test(".. after a link is not read-only: the kernel follows the link first, the t
     "cat out/../s.txt", "cat self/../s.txt", "cat ./out/./../s.txt", "cd self/../outside && cat s.txt"];
   for (const line of lines) {
     expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: false });
-    if (posix) expect({ line, out: bash(line, project, home) }).toEqual({ line, out: expect.stringMatching(/OUTSIDE|id_rsa|notes\.txt|secret\.txt|s\.txt/) });
+    if (posix) expect({ line, out: await bash(line, project, home) }).toEqual({ line, out: expect.stringMatching(/OUTSIDE|id_rsa|notes\.txt|secret\.txt|s\.txt/) });
   }
   // Even without a link, a .. after a name asks; leading ../ steps are left to the project check; no .. at all is fine.
   expect(readOnlyCommand("cat src/../README.md", where)).toBe(false);
@@ -89,7 +94,7 @@ test("a backslash-newline joins words, so a line with a backslash or a newline i
   await writeFile(path.join(project, "x2"), "JOINED");
   for (const line of ["cat x\\\n2>&1", "cat 'x'\\\n2>&1"]) {
     expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: false });
-    if (posix) expect({ line, out: bash(line, project, home) }).toEqual({ line, out: expect.stringContaining("JOINED") });
+    if (posix) expect({ line, out: await bash(line, project, home) }).toEqual({ line, out: expect.stringContaining("JOINED") });
   }
   for (const line of ["cat a\\ b", "grep a\\.b README.md","ls\ncat README.md", "ls\n\ncat README.md", "cat README.md\r\nls", "ls\ncat README.md\n"]) {
     expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: false });
@@ -105,7 +110,7 @@ test("a carriage return, no-break space or form feed inside a word is part of th
   if (posix) for (const [name, content] of files) await writeFile(path.join(project, name), content);
   for (const [line, content] of [["cat x\r", "CR-FILE"], ["cat x y", "NBSP-FILE"], ["cat y\fz", "FF-FILE"]] as const) {
     expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: false });
-    if (posix) expect({ line, out: bash(line, project, home) }).toEqual({ line, out: expect.stringContaining(content) });
+    if (posix) expect({ line, out: await bash(line, project, home) }).toEqual({ line, out: expect.stringContaining(content) });
   }
   for (const line of ["cat x\r", "cat  README.md", "cat README.md\f", "  cat README.md", "cat 'é'", "cat 'a\u0001b'", "cat a\u0000b", "cat \u007fx"]) {
     expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: false });
@@ -140,19 +145,18 @@ test("the common multi-command look-around lines still run without asking (the c
 
 /** A repository with a nested repository registered in its index, whose own config runs a program when git looks at it. */
 async function repoWithSubmodule(project: string, marker: string, withModulesFile: boolean) {
-  const git = (cwd: string, ...args: string[]) => spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "protocol.file.allow=always", ...args],
-    { cwd, encoding: "utf8", env: { PATH: process.env.PATH, HOME: project, ...GIT_ENV } });
-  git(project, "init", "-q");
+  const git = (cwd: string, ...args: string[]) => output(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "protocol.file.allow=always", ...args], { cwd, env: { PATH: process.env.PATH, HOME: project, ...GIT_ENV } });
+  await git(project, "init", "-q");
   await mkdir(path.join(project, "sub"));
-  git(path.join(project, "sub"), "init", "-q");
+  await git(path.join(project, "sub"), "init", "-q");
   await writeFile(path.join(project, "sub", "a.txt"), "a");
-  git(path.join(project, "sub"), "add", ".");
-  git(path.join(project, "sub"), "commit", "-q", "-m", "one");
-  git(path.join(project, "sub"), "config", "core.fsmonitor", `touch ${marker}; true`);
+  await git(path.join(project, "sub"), "add", ".");
+  await git(path.join(project, "sub"), "commit", "-q", "-m", "one");
+  await git(path.join(project, "sub"), "config", "core.fsmonitor", `touch ${marker}; true`);
   if (withModulesFile) await writeFile(path.join(project, ".gitmodules"), "[submodule \"sub\"]\n\tpath = sub\n\turl = ./sub\n");
-  git(project, "add", withModulesFile ? ".gitmodules" : ".");
-  if (withModulesFile) git(project, "add", "sub");
-  git(project, "commit", "-q", "-m", "outer");
+  await git(project, "add", withModulesFile ? ".gitmodules" : ".");
+  if (withModulesFile) await git(project, "add", "sub");
+  await git(project, "commit", "-q", "-m", "outer");
 }
 
 test("git asks when the repository has a submodule or gitlink: git runs its config (core.fsmonitor)", async () => {
@@ -165,7 +169,7 @@ test("git asks when the repository has a submodule or gitlink: git runs its conf
   }
   if (posix) {
     for (const line of ["git status", "git diff", "git diff --stat", "git status -uall", "git diff sub"]) {
-      bash(line, project, home);
+      await bash(line, project, home);
       expect({ line, ran: existsSync(marker) }).toEqual({ line, ran: true });
       await removeTempDir(marker);
     }
@@ -183,8 +187,8 @@ test("git asks for a gitlink in the index even with no .gitmodules file", async 
 
 test("git asks for a .gitmodules file in a folder above the project, or a .git/modules folder", async () => {
   const { base, home, project } = await area();
-  const git = (cwd: string, ...args: string[]) => spawnSync("git", args, { cwd, encoding: "utf8", env: { PATH: process.env.PATH, HOME: home, ...GIT_ENV } });
-  git(project, "init", "-q");
+  const git = (cwd: string, ...args: string[]) => output(["git", ...args], { cwd, env: { PATH: process.env.PATH, HOME: home, ...GIT_ENV } });
+  await git(project, "init", "-q");
   const where = { root: project, home, denyRead: [] as string[] };
   expect(readOnlyCommand("git status", where)).toBe(true);
   await mkdir(path.join(project, ".git", "modules"));
@@ -198,19 +202,18 @@ test("git asks for a .gitmodules file in a folder above the project, or a .git/m
 
 /** A repository whose index holds a gitlink to a nested repository (no .gitmodules); `top` is the repo, the nested one is `top/<nested>`. */
 async function repoWithNested(top: string, nested: string, marker: string) {
-  const git = (cwd: string, ...args: string[]) => spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args],
-    { cwd, encoding: "utf8", env: { PATH: process.env.PATH, HOME: top, ...GIT_ENV } });
+  const git = (cwd: string, ...args: string[]) => output(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { cwd, env: { PATH: process.env.PATH, HOME: top, ...GIT_ENV } });
   await mkdir(top, { recursive: true });
-  git(top, "init", "-q");
+  await git(top, "init", "-q");
   const inner = path.join(top, nested);
   await mkdir(inner, { recursive: true });
-  git(inner, "init", "-q");
+  await git(inner, "init", "-q");
   await writeFile(path.join(inner, "a.txt"), "a");
-  git(inner, "add", ".");
-  git(inner, "commit", "-q", "-m", "one");
-  git(inner, "config", "core.fsmonitor", `touch ${marker}; true`);
-  git(top, "add", nested);
-  git(top, "commit", "-q", "-m", "outer");
+  await git(inner, "add", ".");
+  await git(inner, "commit", "-q", "-m", "one");
+  await git(inner, "config", "core.fsmonitor", `touch ${marker}; true`);
+  await git(top, "add", nested);
+  await git(top, "commit", "-q", "-m", "outer");
   return git;
 }
 
@@ -225,7 +228,7 @@ test("git asks when the project is a subfolder of a repository that holds a gitl
     for (const line of ["git status", "git diff", "git diff --stat", "git status -uall"]) {
       expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: false });
       if (posix) {
-        bash(line, where.root, home);
+        await bash(line, where.root, home);
         expect({ line, ran: existsSync(marker) }).toEqual({ line, ran: true });
         await removeTempDir(marker);
       }
@@ -238,12 +241,12 @@ test("git asks for a split index (the gitlink lives in sharedindex) and when .gi
   const marker = path.join(base, "M-split");
   const top = path.join(base, "split");
   const git = await repoWithNested(top, "proj/inner", marker);
-  git(top, "update-index", "--split-index");
+  await git(top, "update-index", "--split-index");
   const where = { root: top, home, denyRead: [] as string[] };
   expect(readOnlyCommand("git status", where)).toBe(false);
   expect(readOnlyCommand("git diff --stat", where)).toBe(false);
   if (posix) {
-    bash("git status", top, home);
+    await bash("git status", top, home);
     expect(existsSync(marker)).toBe(true);
   }
   // .git as a link to the real git folder.
@@ -256,7 +259,7 @@ test("git asks for a split index (the gitlink lives in sharedindex) and when .gi
   // A plain repository still reads, also from a subfolder.
   const plain = path.join(base, "plain", "sub");
   await mkdir(plain, { recursive: true });
-  git(path.join(base, "plain"), "init", "-q");
+  await git(path.join(base, "plain"), "init", "-q");
   expect(readOnlyCommand("git status", { root: plain, home, denyRead: [] })).toBe(true);
 });
 
@@ -269,9 +272,9 @@ test("printf takes no options: -v assigns a variable the next command of the lin
     const line = `printf -v ${name} bin; ls`;
     expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: false });
   }
-  if (posix) expect(bash("printf -v PATH bin; ls", project, home)).toContain("SHIPPED-LS");
+  if (posix) expect(await bash("printf -v PATH bin; ls", project, home)).toContain("SHIPPED-LS");
   // The format's %n assigns to a variable too (bash): found by probing, proven here.
-  if (posix) expect(bash("printf '%n' X; echo \"[$X]\"", project, home)).toBe("[0]\n");
+  if (posix) expect(await bash("printf '%n' X; echo \"[$X]\"", project, home)).toBe("[0]\n");
   for (const line of ["printf '%n' PATH; ls", "printf %n IFS", "printf '%5n' X", "printf '%ln' X", "printf '%-n' X", "printf '%*n' 1 X", "printf 'a%%%n' X", "printf '%hn' X"]) {
     expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: false });
   }
@@ -286,8 +289,8 @@ test("printf takes no options: -v assigns a variable the next command of the lin
   }
   // echo, true and false cannot assign anything: their options only change what is printed (or nothing).
   if (posix) {
-    expect(bash("echo -v X Y; echo \"[$X]\"", project, home)).toBe("-v X Y\n[]\n");
-    expect(bash("true -v X Y; false -v X Y; echo \"[$X]\"", project, home)).toBe("[]\n");
+    expect(await bash("echo -v X Y; echo \"[$X]\"", project, home)).toBe("-v X Y\n[]\n");
+    expect(await bash("true -v X Y; false -v X Y; echo \"[$X]\"", project, home)).toBe("[]\n");
   }
   // A line whose first word is not a known reader never passes.
   for (const line of ["PATH=bin ls", "X=1", "export PATH=bin", "read PATH", "cd bin", "set -u", "unset PATH", "alias ls=x", "declare -x A=1", "mapfile A", "ls; export X=1",
@@ -309,7 +312,7 @@ test("diff takes regular files only: a folder operand compares the files inside,
   for (const line of lines) expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: false });
   if (posix) {
     for (const line of ["diff dirA dirB", "diff -N dirA dirB", "diff -u dirA/ README.md"]) {
-      expect({ line, out: bash(line, project, home) }).toEqual({ line, out: expect.stringContaining("OUTSIDE-DIFF-SECRET") });
+      expect({ line, out: await bash(line, project, home) }).toEqual({ line, out: expect.stringContaining("OUTSIDE-DIFF-SECRET") });
     }
   }
   expect(readOnlyCommand("diff a.txt b.txt", where)).toBe(true);
@@ -331,12 +334,12 @@ test("readers that walk folders do not follow a link inside the folder to somewh
   for (const line of ["grep -r OUTSIDE-LEAK-MARKER d", "grep -rn OUTSIDE-LEAK-MARKER .", "rg OUTSIDE-LEAK-MARKER d", "rg -n OUTSIDE-LEAK-MARKER .",
     "ls -R d", "du -a d", "tree d", "find d -name 'leak*' -type f", "grep -r --include='*.txt' OUTSIDE-LEAK-MARKER d"]) {
     // Real bash first: if a walker did print the outside file's text, the line must be refused instead.
-    const out = bash(line, project, home);
+    const out = await bash(line, project, home);
     if (out.includes("OUTSIDE-LEAK-MARKER")) expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: false });
   }
   // Content readers never print a linked file's text when the walk is plain (grep -r, rg, find, ls -R, du do not follow links in folders).
-  expect(bash("grep -r OUTSIDE-LEAK-MARKER d", project, home)).not.toContain("OUTSIDE-LEAK-MARKER");
-  expect(bash("grep -rn OUTSIDE-LEAK-MARKER .", project, home)).not.toContain("OUTSIDE-LEAK-MARKER");
+  expect(await bash("grep -r OUTSIDE-LEAK-MARKER d", project, home)).not.toContain("OUTSIDE-LEAK-MARKER");
+  expect(await bash("grep -rn OUTSIDE-LEAK-MARKER .", project, home)).not.toContain("OUTSIDE-LEAK-MARKER");
   // Naming the link itself is a file operand: it is resolved and refused.
   expect(readOnlyCommand("cat d/leak.txt", where)).toBe(false);
   expect(readOnlyCommand("grep -r x d/out", where)).toBe(false);
@@ -356,13 +359,13 @@ test("a single-quoted string is literal text: backslash, $, !, glob and bracket 
     "echo '\u00a0'", "echo \"'$HOME'\"", "echo 'a'$'b'", "echo a#'b", "cat '", "cat x'", "cat ''' x"];
   for (const line of no) expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: false });
   if (posix) {
-    for (const line of ["echo '$(touch MARK)'", "echo '`touch MARK`'", "grep 'a''b' x; echo done"]) { bash(line, project, home); expect(existsSync(path.join(project, "MARK"))).toBe(false); }
-    expect(bash("echo 'a''b' '\\n$x'", project, home)).toBe("ab \\n$x\n");
+    for (const line of ["echo '$(touch MARK)'", "echo '`touch MARK`'", "grep 'a''b' x; echo done"]) { await bash(line, project, home); expect(existsSync(path.join(project, "MARK"))).toBe(false); }
+    expect(await bash("echo 'a''b' '\\n$x'", project, home)).toBe("ab \\n$x\n");
     // A quoted glob given to find or grep is matched by the program, not expanded by the shell.
     await writeFile(path.join(project, "zzz.ts"), "q"); await writeFile(path.join(project, "A.ts"), "A");
-    expect(bash("find . -maxdepth 1 -name '*.ts'", project, home).split("\n").sort().join(",")).toBe(",./A.ts,./zzz.ts");
-    expect(bash("find . -maxdepth 1 -iname 'a*' -path '*A.ts'", project, home).trim()).toBe("./A.ts");
-    expect(bash("grep -n 'foo$' src/a.ts", project, home)).toBe("1:foo\n");
+    expect((await bash("find . -maxdepth 1 -name '*.ts'", project, home)).split("\n").sort().join(",")).toBe(",./A.ts,./zzz.ts");
+    expect((await bash("find . -maxdepth 1 -iname 'a*' -path '*A.ts'", project, home)).trim()).toBe("./A.ts");
+    expect(await bash("grep -n 'foo$' src/a.ts", project, home)).toBe("1:foo\n");
   }
 });
 
@@ -387,7 +390,7 @@ test("&>/dev/null asks: dash, busybox ash and ksh read it as 'run in the backgro
     expect({ text, read: readOnlyCommand(text, where) }).toEqual({ text, read: false });
   }
   if (posix && dashPath) {
-    spawnSync(dashPath, ["-c", line], { cwd: project, env: { PATH: process.env.PATH, HOME: home } });
+    await output([dashPath, "-c", line], { cwd: project, env: { PATH: process.env.PATH, HOME: home } });
     // /bin/sh on some systems is bash: only a real dash-like shell runs touch.
     const ranUnderSh = existsSync(path.join(project, "MARK"));
     if (/dash/.test(dashPath) || ranUnderSh) expect(ranUnderSh).toBe(true);
@@ -397,17 +400,16 @@ test("&>/dev/null asks: dash, busybox ash and ksh read it as 'run in the backgro
 
 /** A repository with a tracked .env and .ssh/config, in two commits. */
 async function repoWithPrivate(dir: string) {
-  const git = (...args: string[]) => spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args],
-    { cwd: dir, encoding: "utf8", env: { PATH: process.env.PATH, HOME: dir, ...GIT_ENV } });
+  const git = (...args: string[]) => output(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { cwd: dir, env: { PATH: process.env.PATH, HOME: dir, ...GIT_ENV } });
   await mkdir(path.join(dir, "src"), { recursive: true });
-  git("init", "-q");
+  await git("init", "-q");
   await writeFile(path.join(dir, "README.md"), "readme KEYWORD");
   await writeFile(path.join(dir, "src", "a.ts"), "export const KEYWORD = 1;\n");
-  git("add", "."); git("commit", "-q", "-m", "one");
+  await git("add", "."); await git("commit", "-q", "-m", "one");
   await mkdir(path.join(dir, ".ssh"));
   await writeFile(path.join(dir, ".env"), "KEYWORD=PRIVATE-ENV-VALUE\n");
   await writeFile(path.join(dir, ".ssh", "config"), "KEYWORD PRIVATE-SSH-VALUE\n");
-  git("add", "-f", "."); git("commit", "-q", "-m", "two");
+  await git("add", "-f", "."); await git("commit", "-q", "-m", "two");
 }
 
 test("git path words with * ? [ ask: git expands the pathspec itself and prints private files the text check never sees", async () => {
@@ -421,7 +423,7 @@ test("git path words with * ? [ ask: git expands the pathspec itself and prints 
   for (const line of printing) {
     expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: false });
     if (posix && !/src\/\*/.test(line)) {
-      const out = bash(line, dir, home);
+      const out = await bash(line, dir, home);
       expect({ line, printed: /PRIVATE-(?:ENV|SSH)-VALUE/.test(out) }).toEqual({ line, printed: true });
     }
   }
@@ -429,7 +431,7 @@ test("git path words with * ? [ ask: git expands the pathspec itself and prints 
   // A pattern keeps its * ? [ : it is not a path.
   const clean = path.join(base, "cleanproj");
   await mkdir(path.join(clean, "src"), { recursive: true });
-  spawnSync("git", ["init", "-q"], { cwd: clean, env: { PATH: process.env.PATH, HOME: clean, ...GIT_ENV } });
+  output(["git", "init", "-q"], { cwd: clean, env: { PATH: process.env.PATH, HOME: clean, ...GIT_ENV } });
   await writeFile(path.join(clean, "src", "a.ts"), "x\n");
   const cleanWhere = { root: clean, home, denyRead: [] as string[] };
   for (const line of ["git grep -n 'a.*b' -- src/a.ts", "git grep -n 'a[bc]?' src", "git log --grep='fix*' --oneline", "git log -S'a*' --oneline", "git grep -n -e 'a*' -- src",
@@ -447,7 +449,7 @@ test("git grep REV with no path narrows nothing: it reads the whole tree of that
   const dir = path.join(base, "gitproj2");
   await repoWithPrivate(dir);
   const where = { root: dir, home, denyRead: [] as string[] };
-  if (posix) expect(bash("git grep KEYWORD HEAD", dir, home)).toContain("HEAD:.env:KEYWORD=PRIVATE-ENV-VALUE");
+  if (posix) expect(await bash("git grep KEYWORD HEAD", dir, home)).toContain("HEAD:.env:KEYWORD=PRIVATE-ENV-VALUE");
   for (const line of ["git grep KEYWORD HEAD", "git grep -n KEYWORD HEAD~1 HEAD", "git grep KEYWORD main", "git grep -n -e KEYWORD HEAD"]) {
     expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: false });
   }
@@ -455,7 +457,7 @@ test("git grep REV with no path narrows nothing: it reads the whole tree of that
   expect(readOnlyCommand("git grep KEYWORD src", where)).toBe(true);
   const clean = path.join(base, "cleanproj2");
   await mkdir(clean, { recursive: true });
-  spawnSync("git", ["init", "-q"], { cwd: clean, env: { PATH: process.env.PATH, HOME: clean, ...GIT_ENV } });
+  await output(["git", "init", "-q"], { cwd: clean, env: { PATH: process.env.PATH, HOME: clean, ...GIT_ENV } });
   expect(readOnlyCommand("git grep KEYWORD HEAD", { root: clean, home, denyRead: [] })).toBe(true);
 });
 
@@ -465,7 +467,7 @@ test("git grep --cached reads the index: a private file tracked there but delete
   await repoWithPrivate(dir);
   await rm(path.join(dir, ".env"), { force: true });
   const where = { root: dir, home, denyRead: [] as string[] };
-  if (posix) expect(bash("git grep --cached -n KEYWORD", dir, home)).toContain("PRIVATE-ENV-VALUE");
+  if (posix) expect(await bash("git grep --cached -n KEYWORD", dir, home)).toContain("PRIVATE-ENV-VALUE");
   for (const line of ["git grep --cached -n KEYWORD", "git grep --cached KEYWORD .", "git grep --cached --no-color KEYWORD", "git grep --recurse-submodules --cached KEYWORD"]) {
     expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: false });
   }
@@ -486,11 +488,11 @@ test("inside double quotes a backslash before an ordinary character and ! are pl
   expect(readOnlyCommand("echo \"a\\.b\" # c", where)).toBe(false);
   if (posix) {
     // Real bash: the backslash stays, ! stays, no command runs.
-    expect(bash("echo \"a\\nb\" \"done!\" \"\\.\" \"\\s\"", project, home)).toBe("a\\nb done! \\. \\s\n");
-    expect(bash("printf \"%s\\n\" hello", project, home)).toBe("hello\n");
-    expect(bash("grep -rn \"foo\\.ts\" src; echo \"x\\|y\"", project, home)).toBe("x\\|y\n");
+    expect(await bash("echo \"a\\nb\" \"done!\" \"\\.\" \"\\s\"", project, home)).toBe("a\\nb done! \\. \\s\n");
+    expect(await bash("printf \"%s\\n\" hello", project, home)).toBe("hello\n");
+    expect(await bash("grep -rn \"foo\\.ts\" src; echo \"x\\|y\"", project, home)).toBe("x\\|y\n");
     // What stays refused really does something in bash: \" does not end the string, so the next quote opens a new one.
-    bash("echo \"a\\\"\"; touch MARK; echo \"b\"", project, home);
+    await bash("echo \"a\\\"\"; touch MARK; echo \"b\"", project, home);
     expect(existsSync(path.join(project, "MARK"))).toBe(true);
   }
 });
@@ -516,17 +518,17 @@ test("any git word with a colon asks (rev:path, :path, ::path, :(magic), a colon
   const { base, home } = await area();
   const dir = path.join(base, "gitcolon");
   await mkdir(dir, { recursive: true });
-  const git = (...args: string[]) => spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args],
-    { cwd: dir, encoding: "utf8", env: { PATH: process.env.PATH, HOME: dir, ...GIT_ENV } });
-  git("init", "-q");
+  const git = (...args: string[]) => output(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", ...args],
+    { cwd: dir, env: { PATH: process.env.PATH, HOME: dir, ...GIT_ENV } });
+  await git("init", "-q");
   await writeFile(path.join(dir, "README.md"), "readme\n");
   await writeFile(path.join(dir, ".env.local"), "SECRET=PRIVATE-LOCAL-VALUE\n");
   await writeFile(path.join(dir, ".npmrc"), "token=PRIVATE-NPM-VALUE\n");
   await writeFile(path.join(dir, ".netrc"), "password PRIVATE-NETRC-VALUE\n");
-  git("add", "-f", "."); git("commit", "-q", "-m", "one: first");
-  git("rm", "-q", ".netrc"); git("commit", "-q", "-m", "two");
+  await git("add", "-f", "."); await git("commit", "-q", "-m", "one: first");
+  await git("rm", "-q", ".netrc"); await git("commit", "-q", "-m", "two");
   await writeFile(path.join(dir, "README.md"), "readme two\n");
-  git("commit", "-q", "-am", "three");
+  await git("commit", "-q", "-am", "three");
   const where = { root: dir, home, denyRead: [] as string[] };
   const exploits = [
     "git grep --untracked -n SECRET -- :.env.local", "git log -p -- :.npmrc", "git log -p -- ::.npmrc",
@@ -545,8 +547,8 @@ test("any git word with a colon asks (rev:path, :path, ::path, :(magic), a colon
       ["git cat-file -p 'HEAD~2^{/(:)}:.env.local'", /PRIVATE-LOCAL-VALUE/], ["git diff 'HEAD~2^{/(:)}:.netrc' 'HEAD~2^{/(:)}:.env.local'", /PRIVATE-NETRC-VALUE/]];
     for (const shell of shells) {
       for (const [line, pattern] of proofs) {
-        const run = spawnSync(shell, ["-c", line], { cwd: dir, encoding: "utf8", env: { PATH: process.env.PATH, HOME: dir, ...GIT_ENV } });
-        expect({ shell, line, printed: pattern.test(run.stdout) }).toEqual({ shell, line, printed: true });
+        const ran = await run([shell, "-c", line], { cwd: dir, env: { PATH: process.env.PATH, HOME: dir, ...GIT_ENV } });
+        expect({ shell, line, printed: pattern.test(ran.stdout) }).toEqual({ shell, line, printed: true });
       }
     }
   }

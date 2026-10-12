@@ -6,6 +6,7 @@ import { diffSnapshots, snapshotTree } from "../src/task/changes";
 import { ChangeBaseline, isCodePath, isTestPath, withoutEnded } from "../src/verify/proof";
 import { checkCommand } from "./support/check-command";
 import { removeTempDir } from "./support/temp-dir";
+import { childTestLimit } from "./support/limits";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -206,7 +207,7 @@ test.skipIf(!python)("a Python project installed from its own folder is tested a
   const proof = await baseline.prove({ root, changes, check: "test", command, timeoutMs: 20_000 });
   // The whole proof in the failure message: on a machine where this fails, the old-source run's output says why.
   expect({ status: proof?.status, proof }).toMatchObject({ status: "proven" });
-});
+}, childTestLimit());
 
 /** A workspace `repo` beside a shared `deps` folder, where `node_modules` is made by `link`, then proven with a change to src/value.js. */
 async function proveWithLink(link: (root: string, deps: string) => Promise<void>) {

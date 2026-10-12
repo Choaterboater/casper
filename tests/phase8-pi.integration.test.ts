@@ -5,6 +5,7 @@ import type { RuntimeEvent } from "../src/runtime/types";
 import { PI_TOOL_RULES } from "../src/runtime/pi";
 import { needsSymlinks, posixOnly } from "./support/platform";
 import { cleanUpAfterEach, answer, calls, fixture, snapshot, untrustedProjectPi, cli, adapter } from "./support/phase8-pi";
+import { childTestLimit } from "./support/limits";
 
 cleanUpAfterEach();
 
@@ -44,7 +45,7 @@ test("OpenRouter traffic carries Casper's app attribution while other providers 
   const none = f.headers[2]!;
   expect([none.get("http-referer"), none.get("x-openrouter-title"), none.get("x-openrouter-categories"), none.get("x-openrouter-app-visibility")])
     .toEqual([null, null, null, null]);
-}, 60_000);
+}, childTestLimit(3));
 
 test("real /delegate reads evidence but cannot write, shell, recurse, or load ambient extensions/settings", async () => {
   let step = 0;
@@ -75,7 +76,7 @@ test("real /delegate reads evidence but cannot write, shell, recurse, or load am
   expect(await snapshot(f.project)).toEqual(before);
   const sessions = await readdir(path.join(f.agent, "sessions"), { recursive: true }).catch(() => []);
   expect(sessions.filter((file) => file.endsWith(".jsonl"))).toHaveLength(0);
-}, 60_000);
+}, childTestLimit());
 
 
 test("a parent session never executes project .pi extensions or injects project system prompts", async () => {
@@ -97,7 +98,7 @@ test("a parent session never executes project .pi extensions or injects project 
     expect({ args, executed: await Bun.file(marker).exists() }).toEqual({ args, executed: false });
   }
   expect(f.payloads).toHaveLength(1);
-}, 60_000);
+}, childTestLimit(4));
 
 needsSymlinks("a project context file that links outside the project is never sent to the provider", async () => {
   const f = await fixture(() => answer("CONTEXT_FILE_GUARD"));
@@ -117,7 +118,7 @@ needsSymlinks("a project context file that links outside the project is never se
   expect({ exit: contained.exit, stderr: contained.stderr }).toEqual({ exit: 0, stderr: "" });
   expect(f.payloads).toHaveLength(2);
   expect(JSON.stringify(f.payloads[1])).toContain("IN_REPO_CONTEXT_LOADS");
-}, 90_000);
+}, childTestLimit(2));
 
 test("the parent system prompt states Casper's identity exactly once, first, with or without a user SYSTEM.md", async () => {
   const f = await fixture(() => answer("IDENTITY_FIXTURE"));
@@ -143,7 +144,7 @@ test("the parent system prompt states Casper's identity exactly once, first, wit
     for (const rule of PI_TOOL_RULES) expect(system(index)).toContain(`- ${rule}`);
     expect(system(index)).toContain("capped at 3600");
   }
-}, 60_000);
+}, childTestLimit(2));
 
 test("read-only Pi refuses a source containing its active state before initialization", async () => {
   const f = await fixture(() => answer("must not be requested"));
@@ -153,7 +154,7 @@ test("read-only Pi refuses a source containing its active state before initializ
   expect(result.stderr).toContain("overlaps writable runtime state");
   expect(f.payloads).toEqual([]);
   expect(await snapshot(f.agent)).toEqual(before);
-});
+}, childTestLimit());
 
 needsSymlinks("ordinary parent Pi startup remains allowed when state is inside its workspace", async () => {
   const f = await fixture(() => answer("ORDINARY_PARENT_UNCHANGED"));
@@ -169,7 +170,7 @@ needsSymlinks("ordinary parent Pi startup remains allowed when state is inside i
   expect(result.stdout).not.toContain("local-fixture-not-a-secret");
   expect(f.payloads).toHaveLength(1);
   expect(f.payloads[0]?.tools.map((tool) => tool.function.name)).toContain("bash");
-}, 60_000);
+}, childTestLimit());
 
 posixOnly("real Pi forwards correlated bounded shell diagnostics without edit bodies or fabricated exit codes", async () => {
   let step = 0;
@@ -201,7 +202,7 @@ try {
   expect(shell).not.toHaveProperty("exitCode");
   expect(JSON.stringify(events)).not.toContain("EDIT_BODY_NOT_AN_OBSERVATION");
   expect(await readFile(path.join(f.project, "changed.txt"), "utf8")).toBe("EDIT_BODY_NOT_AN_OBSERVATION");
-}, 15_000);
+}, childTestLimit());
 
 for (const mode of ["default", "explicit", "cancel", "absurd"]) posixOnly(`real Pi releases a stuck shell and remains usable (${mode})`, async () => {
   let step = 0;
@@ -249,7 +250,7 @@ try {
   }
   expect(events.some(event => event.type === "assistant_text_delta" && event.delta.includes("Recovered"))).toBe(true);
   expect(busy).toBe(false);
-}, 15_000);
+}, childTestLimit());
 
 test("real Pi refuses a model's git stash drop, and the model sees why", async () => {
   let step = 0;
@@ -272,7 +273,7 @@ try {
   expect(ends[0]!.isError).toBe(true);
   expect(ends[0]!.text).toContain("Casper does not let the model run `git stash drop`");
   expect(ends[0]!.text).not.toContain("STASHED");
-}, 30_000);
+}, childTestLimit());
 
 test("real Pi's write reports its size: a rewrite counts changed lines, a new file counts all", async () => {
   let step = 0;
@@ -297,7 +298,7 @@ try {
     { path: "fixture.txt", lines: { added: 1, removed: 0 } },
     { path: "fresh.txt", lines: { added: 3, removed: 0 } },
   ]);
-}, 30_000);
+}, childTestLimit());
 
 for (const sequential of [false, true]) test(`real Pi runs a batch ${sequential ? "one call at a time when a tool is marked sequential" : "in parallel by default"}`, async () => {
   let step = 0;
@@ -321,4 +322,4 @@ try {
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
   const log: string[] = JSON.parse(result.stdout.split("RESULT=")[1]!);
   expect(log).toEqual(sequential ? ["start a", "end a", "start b", "end b"] : ["start a", "start b", "end a", "end b"]);
-}, 30_000);
+}, childTestLimit());

@@ -9,6 +9,7 @@ import { SkillRegistry } from "../src/skills/registry";
 import { discoverMCPConfiguration } from "../src/mcp/config";
 import type { AgentRuntime, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { cleanEnv } from "./support/env";
+import { childTestLimit, finished } from "./support/limits";
 import { removeTempDir } from "./support/temp-dir";
 import { waitForFile } from "./support/wait";
 
@@ -423,12 +424,10 @@ test("--mcp refuses a project definition that shadows the user's server and neve
   const env = cleanEnv({ HOME: home, PI_OFFLINE: "1", PI_TELEMETRY: "0" });
   // Start in the folder's real spelling, the one the message names: macOS adds /private, and a Windows TEMP can be
   // an 8.3 name (RUNNER~1) that a child keeps as given.
-  const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), "--mcp", "github", "Summarize"], {
-    cwd: await realpath(project), env, stdout: "pipe", stderr: "pipe", stdin: "ignore",
-  });
-  const timer = setTimeout(() => child.kill(), 15_000);
-  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  clearTimeout(timer);
+  const cwd = await realpath(project);
+  const { stdout, stderr, exit } = await finished(() => Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), "--mcp", "github", "Summarize"], {
+    cwd, env, stdout: "pipe", stderr: "pipe", stdin: "ignore",
+  }));
   expect(exit).toBe(1);
   const text = stdout + stderr;
   expect(text).toContain(`defined by project file ${path.join(await realpath(project), ".mcp.json")}`);
@@ -436,7 +435,7 @@ test("--mcp refuses a project definition that shadows the user's server and neve
   expect(text).toContain("interactive /mcp connect github");
   expect(text).not.toContain("> Summarize");
   expect(await Bun.file(marker).exists()).toBe(false);
-});
+}, childTestLimit());
 
 test("interactive /mcp connect shows a project definition's origin before approval and honors a denial", async () => {
   for (const answer of ["no", "yes"]) {

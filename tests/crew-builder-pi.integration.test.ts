@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { RuntimeEvent } from "../src/runtime/types";
 import { answer, calls, cleanUpAfterEach, fixture } from "./support/phase8-pi";
+import { childTestLimit } from "./support/limits";
 
 cleanUpAfterEach();
 const builder = path.join(import.meta.dir, "fixtures/pi-builder.ts");
@@ -24,7 +25,7 @@ test("a real Pi builder edits and runs a command in its own folder, with only th
   // No delegate, no MCP tools, no crew, no ask: the seven built-in tools only.
   expect(f.payloads[0]!.tools.map((tool) => tool.function.name).sort()).toEqual(["bash", "edit", "find", "grep", "ls", "read", "write"]);
   expect(report.replaceBlocked).toBe(true);
-}, 60_000);
+}, childTestLimit());
 
 test("a real Pi builder's gate refuses a write and its tool-call budget holds", async () => {
   const f = await fixture(() => calls([
@@ -42,4 +43,4 @@ test("a real Pi builder's gate refuses a write and its tool-call budget holds", 
   // Budget 2: the third call is refused, and no second model turn is made.
   await expect(readFile(path.join(f.project, "b.txt"), "utf8")).rejects.toThrow();
   expect(f.payloads).toHaveLength(1);
-}, 60_000);
+}, childTestLimit());

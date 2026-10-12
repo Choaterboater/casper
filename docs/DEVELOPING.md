@@ -72,6 +72,17 @@ on, and its limit for one try), and add its file, name and OS to the list in `te
 Nothing else may retry: never a test without a child process, never a test that failed with a wrong result
 rather than a slow one (that is a bug to fix), and never the whole suite.
 
+A test that starts the CLI, a Bun child, or a language or MCP server takes its limits from
+`tests/support/limits.ts`. Start each child with `finished(() => Bun.spawn(...))`, which guards it with
+`CHILD_KILL_MS`. Its test limit is `childTestLimit(n)` for `n` children, which stays above those guards, so a
+hang fails on the guard with what the child printed. `finished` starts a child once more, with a fresh guard,
+only when the first start printed no byte at all within `SILENT_START_MS` (45 s) and had to be killed: busy
+Windows runners sometimes start a Bun child that hangs silently from the start. It prints
+`[test guard: child printed nothing for N s; started again once]`. A child that printed anything, or exited by
+itself with any code, is never started again, and this is not a test retry. Run fixture programs such as git or a shell line with `run` or `runOk` from
+`tests/support/run.ts`, not `spawnSync` or `execFileSync`. A Bun test worker sometimes never reaps a
+synchronous child and spins until CI's stall guard ends the job.
+
 Never make a test pass by weakening what it checks or adding a fixed sleep. A test that waits for something
 should wait for the real signal with a deadline (`waitUntil`, `waitForFile` and `processGone` in
 `tests/support/wait.ts`).

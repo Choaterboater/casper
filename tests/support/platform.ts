@@ -21,12 +21,23 @@ const symlinksSupported = await hostProbe("casper-symlink-probe-", async (root) 
 });
 
 /**
+ * A probe program's exit code, or null when it did not end within `ms`. Async, not Bun.spawnSync: every file that
+ * imports this module runs these probes, and a sync child is the one a test worker sometimes never reaps
+ * (tests/support/run.ts).
+ */
+async function probeExit(argv: string[], ms = 5_000): Promise<number | null> {
+  const child = Bun.spawn(argv, { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  const timer = setTimeout(() => child.kill("SIGKILL"), ms);
+  try { return await child.exited; } finally { clearTimeout(timer); }
+}
+
+/**
  * FIFO fixtures need a `mkfifo` that makes a real FIFO. Git Bash's `mkfifo` on Windows exits 0
  * but leaves a file that Bun does not see as a FIFO, so the probe checks the result too.
  */
 const fifosSupported = await hostProbe("casper-fifo-probe-", async (root) => {
   const probe = path.join(root, "probe");
-  if (Bun.spawnSync(["mkfifo", probe], { stdout: "ignore", stderr: "ignore" }).exitCode !== 0) return false;
+  if (await probeExit(["mkfifo", probe]) !== 0) return false;
   return (await stat(probe)).isFIFO();
 });
 
@@ -97,11 +108,17 @@ async function within(run: Promise<unknown>, timeout: number): Promise<void> {
 
 /** Registry entries use the POSIX shell, `/dev/null` links, or both. */
 export const posixSymlinks = test.skipIf(!POSIX || !symlinksSupported);
-/** The real shell sandbox can run here: bubblewrap and socat that start on Linux, or sandbox-exec on macOS. */
+/**
+ * The real shell sandbox can run here: bubblewrap and socat that start on Linux, or sandbox-exec on macOS. On Linux
+ * this is linuxSandboxProblem's check (tools present, then bwrap starts /bin/true), but with the bwrap child awaited
+ * instead of spawnSync, since every file importing this module runs it.
+ */
 export const sandboxAvailable = await (async () => {
   if (process.platform === "darwin") return (await stat("/usr/bin/sandbox-exec").catch(() => undefined)) !== undefined;
   if (process.platform !== "linux") return false;
-  const { linuxSandboxProblem } = await import("../../src/sandbox/linux");
-  return linuxSandboxProblem() === undefined;
+  const { ripgrepPath, which } = await import("../../src/sandbox/linux");
+  const bwrap = which("bwrap");
+  if (!bwrap || !which("socat") || !ripgrepPath()) return false;
+  return await probeExit([bwrap, "--die-with-parent", "--unshare-pid", "--unshare-net", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--", "/bin/true"]) === 0;
 })();
 export const needsSandbox = test.skipIf(!sandboxAvailable);
