@@ -157,8 +157,9 @@ stopped at 2 minutes. A project file can't set it.
 ### Stalled commands
 
 A shell command the AI runs without its own time limit that prints nothing new for 45 seconds while
-it and everything it started use no CPU (under 1%) and move no bytes (on Linux no reads or writes, on
-macOS no network traffic, so a quiet `git clone` still downloading keeps going), is waiting
+it and everything it started use no CPU (under 1%) and move no bytes (on Linux no reads, writes or TCP
+traffic, read with `ss`, and a network socket it can't count keeps it going; on macOS no network traffic;
+so a quiet `git clone` still downloading keeps going), is waiting
 on nothing: a download that hung, or a test run that printed its results but kept a server, timer or
 connection open. Casper ends it with what it started, in the foreground or after it moved to the
 background, and the AI reads why: `stalled: no output and no CPU for 45 s after: <its last line>`.

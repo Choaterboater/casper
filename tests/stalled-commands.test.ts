@@ -98,6 +98,7 @@ test("CPU times as ps prints them, and what counts as busy", () => {
   expect(busyBetween(sample([[1, 1]]), sample([[1, 1], [2, 0]]), 45)).toBe(true);
   expect(busyBetween(sample([[1, 1], [2, 0]]), sample([[1, 1]]), 45)).toBe(true);
   expect(busyBetween(sample([[1, 1]], 10), sample([[1, 1]], 900), 45)).toBe(true);
+  expect(busyBetween({ cpu: new Map([[1, 1]]), io: "unknown" }, { cpu: new Map([[1, 1]]), io: "unknown" }, 45)).toBe(true);
   expect(stalledMessage("node --test", "ℹ tests 4\nℹ pass 4\n", 45)).toContain("close it in the test teardown");
   expect(stalledMessage("npm run build", "building\n", 45)).toBe("\n[stalled: no output and no CPU for 45 s after: building. Casper ended it and what it started; to wait on purpose, give it a timeout.]\n");
 });
