@@ -119,8 +119,12 @@ edit or command after it, and its inputs are the same. Otherwise it refuses and
 says why, such as `Code/tool writes observed after this browser check: fix the
 page and replay it`, so a page fixed after a failure is replayed, never
 withdrawn. A check that still fails when replayed after a change can't be
-withdrawn either, since its failure may be real. Withdrawing a check that
-passed or did not finish is refused too, and so is replaying a withdrawn id. A
+withdrawn either, since its failure may be real. A new check that stops part
+way (a step's element is not there yet) still returns its id in the error: replay
+it once the page is ready, or withdraw it while no edit or command has run since.
+A new check whose step selector matches several elements is not kept at all: the
+error says how many it matched, and the check is recorded again with one element.
+Withdrawing a check that passed is refused, and so is replaying a withdrawn id. A
 withdrawn check stays visible: its status is `withdrawn` in the JSON report, with
 the reason under `withdrawn`, and the receipt says
 `– 1 check withdrawn by the AI: <name> (<reason>)`. It does not fail the task, it
