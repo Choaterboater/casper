@@ -1228,7 +1228,7 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
             ? { ...(options.env ?? withoutProviderKeys(process.env, shell?.keepEnv ?? [])), ...wrapped.env, ...wrapped.ssh?.env } : options.env;
           let result: { exitCode: number | null };
           try {
-            result = await local.exec(`${pid?.prefix ?? ""}${wrapped.command}`, cwd, { ...options, signal: stop.signal, timeout: background ? undefined : limit, ...(env ? { env } : {}), onData });
+            result = await local.exec(pid ? pid.run(wrapped.command) : wrapped.command, cwd, { ...options, signal: stop.signal, timeout: background ? undefined : limit, ...(env ? { env } : {}), onData });
           } catch (error) {
             if (!stalled) throw error;
             watch?.stop();

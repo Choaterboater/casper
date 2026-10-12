@@ -87,6 +87,21 @@ test.skipIf(!unix)("a stalled command in the background is ended the same way, a
   expect(await until(() => !sleeping().includes("sleep 48.1"), 3000)).toBe(true);
 }, 30_000);
 
+test.skipIf(!unix)("a wrapped command ended by a signal reads as before: the shell does not print the wrapper's line", async () => {
+  // As a sandbox wraps it: one long command line (sandbox-exec -p '<profile>' ...) that the shell should exec.
+  const wrapper = `/bin/sh -c 'printf "%s" started; kill -TERM $$' wrapper-${"x".repeat(200)}`;
+  const shell: RuntimeShell = { wrap: async () => ({ command: wrapper }), stallSeconds: () => 2 };
+  const bash = createBashToolDefinition(process.cwd(), { operations: casperBashOperations(shell, createLocalBashOperations()) });
+  let text: string;
+  try {
+    const result = await bash.execute("call", { command: "anything" }, new AbortController().signal, undefined, undefined as never);
+    text = result.content.flatMap((block) => block.type === "text" ? [block.text] : []).join("");
+  } catch (error) { text = (error as Error).message; }
+  expect(text).toContain("started");
+  expect(text).toContain("143");
+  expect(text).not.toContain("wrapper-");
+}, 20_000);
+
 test("CPU times as ps prints them, and what counts as busy", () => {
   expect(cpuSeconds("0:00.03")).toBeCloseTo(0.03);
   expect(cpuSeconds("190:56.96")).toBeCloseTo(11_456.96);
@@ -98,6 +113,7 @@ test("CPU times as ps prints them, and what counts as busy", () => {
   expect(busyBetween(sample([[1, 1]]), sample([[1, 1], [2, 0]]), 45)).toBe(true);
   expect(busyBetween(sample([[1, 1], [2, 0]]), sample([[1, 1]]), 45)).toBe(true);
   expect(busyBetween(sample([[1, 1]], 10), sample([[1, 1]], 900), 45)).toBe(true);
+  expect(busyBetween({ cpu: new Map([[1, 1]]), io: "unknown" }, { cpu: new Map([[1, 1]]), io: "unknown" }, 45)).toBe(true);
   expect(stalledMessage("node --test", "ℹ tests 4\nℹ pass 4\n", 45)).toContain("close it in the test teardown");
   expect(stalledMessage("npm run build", "building\n", 45)).toBe("\n[stalled: no output and no CPU for 45 s after: building. Casper ended it and what it started; to wait on purpose, give it a timeout.]\n");
 });

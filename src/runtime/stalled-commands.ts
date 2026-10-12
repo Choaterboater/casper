@@ -6,7 +6,7 @@
  */
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -19,8 +19,9 @@ const IDLE_SHARE = 0.01;
 export const STALLED_EXIT_CODE = 124;
 
 /** Cumulative CPU seconds of each process in a command's tree, and the bytes they moved, so a slow download counts
- * as alive: on Linux all reads and writes (sockets too), on macOS network bytes. */
-export interface TreeSample { cpu: Map<number, number>; io?: number }
+ * as alive: on Linux file and pipe reads and writes plus TCP bytes, on macOS network bytes. "unknown" when the tree
+ * holds a network socket whose bytes can't be counted: then it counts as busy. */
+export interface TreeSample { cpu: Map<number, number>; io?: number | "unknown" }
 
 /** `[[dd-]hh:]mm:ss[.cc]`, as ps prints CPU time on macOS and Linux. */
 export function cpuSeconds(text: string): number | undefined {
@@ -48,7 +49,7 @@ export function treeSample(root: number): Promise<TreeSample | undefined> {
         for (const row of rows) if (!inside.has(row.pid) && inside.has(row.ppid)) { inside.add(row.pid); grew = true; }
       }
       const cpu = new Map(rows.filter((row) => inside.has(row.pid)).map((row) => [row.pid, process.platform === "linux" ? linuxCpu(row.pid) ?? row.cpu : row.cpu]));
-      if (process.platform === "linux") { resolve({ cpu, io: treeIo([...cpu.keys()]) }); return; }
+      if (process.platform === "linux") { void linuxIo([...cpu.keys()]).then((io) => { resolve({ cpu, io }); }); return; }
       if (process.platform !== "darwin") { resolve({ cpu }); return; }
       void networkBytes([...cpu.keys()]).then((io) => { resolve({ cpu, ...(io === undefined ? {} : { io }) }); });
     });
@@ -81,20 +82,71 @@ function networkBytes(pids: number[]): Promise<number | undefined> {
   });
 }
 
-/** Bytes read and written so far by these processes (Linux: /proc/<pid>/io, sockets included). */
-function treeIo(pids: number[]): number {
+/** Bytes these processes moved so far (Linux). /proc/<pid>/io counts read() and write() but not recv() and send(),
+ * which is how curl, git and most programs use a socket, so TCP bytes come from `ss` by socket inode. A network
+ * socket `ss` can't count (no `ss`, UDP, another network namespace) makes it "unknown". */
+async function linuxIo(pids: number[]): Promise<number | "unknown"> {
   let total = 0;
+  const sockets = new Set<string>();
+  const network = new Set<string>();
   for (const pid of pids) {
     try {
       const text = readFileSync(`/proc/${pid}/io`, "utf8");
       total += Number(/^rchar:\s*(\d+)/m.exec(text)?.[1] ?? 0) + Number(/^wchar:\s*(\d+)/m.exec(text)?.[1] ?? 0);
     } catch { /* it ended, or can't be read */ }
+    const mine = socketInodes(pid);
+    if (!mine.length) continue;
+    for (const inode of mine) sockets.add(inode);
+    for (const table of ["tcp", "tcp6", "udp", "udp6", "raw", "raw6"]) {
+      try {
+        for (const line of readFileSync(`/proc/${pid}/net/${table}`, "utf8").split("\n").slice(1)) {
+          const inode = line.trim().split(/\s+/)[9];
+          if (inode && inode !== "0" && sockets.has(inode)) network.add(inode);
+        }
+      } catch { /* no such table */ }
+    }
+  }
+  if (!network.size) return total;
+  const counted = await tcpBytes();
+  if (!counted) return "unknown";
+  for (const inode of network) {
+    const bytes = counted.get(inode);
+    if (bytes === undefined) return "unknown";
+    total += bytes;
   }
   return total;
 }
 
-/** Whether the tree did anything between two samples: CPU over the idle share, reads or writes, or a process
- * started or ended. */
+/** The socket inodes a process has open. */
+function socketInodes(pid: number): string[] {
+  const inodes: string[] = [];
+  try {
+    for (const fd of readdirSync(`/proc/${pid}/fd`)) {
+      try { const match = /^socket:\[(\d+)\]$/.exec(readlinkSync(`/proc/${pid}/fd/${fd}`)); if (match) inodes.push(match[1]!); } catch { /* closed */ }
+    }
+  } catch { /* it ended, or can't be read */ }
+  return inodes;
+}
+
+/** Bytes sent and received so far by each TCP socket, by inode (`ss` from iproute2). Undefined without `ss`. */
+function tcpBytes(): Promise<Map<string, number> | undefined> {
+  return new Promise((resolve) => {
+    execFile("ss", ["-tanieH"], { timeout: 5_000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
+      if (error) { resolve(undefined); return; }
+      const bytes = new Map<string, number>();
+      // One socket is a line and the indented lines after it.
+      for (const socket of stdout.split(/\n(?=\S)/)) {
+        const inode = /\bino:(\d+)/.exec(socket)?.[1];
+        if (!inode || inode === "0") continue;
+        bytes.set(inode, Number(/\bbytes_received:(\d+)/.exec(socket)?.[1] ?? 0) + Number(/\bbytes_sent:(\d+)/.exec(socket)?.[1] ?? 0));
+      }
+      resolve(bytes);
+    });
+  });
+}
+
+/** Whether the tree did anything between two samples: CPU over the idle share, bytes moved (or bytes that can't be
+ * counted), or a process started or ended. */
 export function busyBetween(before: TreeSample, after: TreeSample, seconds: number): boolean {
   let used = 0;
   for (const [pid, cpu] of after.cpu) {
@@ -103,6 +155,7 @@ export function busyBetween(before: TreeSample, after: TreeSample, seconds: numb
     used += Math.max(0, cpu - earlier);
   }
   for (const pid of before.cpu.keys()) if (!after.cpu.has(pid)) return true;
+  if (before.io === "unknown" || after.io === "unknown") return true;
   if (before.io !== undefined && after.io !== undefined && after.io !== before.io) return true;
   return used > seconds * IDLE_SHARE;
 }
@@ -128,13 +181,17 @@ export function stalledMessage(command: string, output: string, seconds: number)
 }
 
 /** Where the command's shell writes its process id: a line run first, before any sandbox wrap, by the shell Pi
- * starts as a process group leader. Nothing on Windows, where CPU is not read and nothing is ended. */
-export function pidFile(dir: string | undefined): { prefix: string; root(): Promise<number | undefined>; remove(): void } {
-  if (process.platform === "win32") return { prefix: "", root: async () => undefined, remove: () => {} };
+ * starts as a process group leader. The shell then execs a fresh one (same process id) for the command, so a
+ * single command still replaces the shell as before: otherwise a command ended by a signal makes the shell print
+ * its whole line ("Terminated: 15 sandbox-exec -p '<the profile>' ..."), and the AI reads the sandbox profile.
+ * Nothing on Windows, where CPU is not read and nothing is ended. */
+export function pidFile(dir: string | undefined): { run(command: string): string; root(): Promise<number | undefined>; remove(): void } {
+  if (process.platform === "win32") return { run: (command) => command, root: async () => undefined, remove: () => {} };
   const file = path.join(dir ?? os.tmpdir(), `casper-pid-${randomBytes(8).toString("hex")}`);
+  const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
   let known: number | undefined;
   return {
-    prefix: `{ printf %s $$ > '${file.replaceAll("'", "'\\''")}'; } 2>/dev/null; `,
+    run: (command) => `{ printf %s $$ > ${quote(file)}; } 2>/dev/null; exec "$0" -c ${quote(command)}`,
     root: async () => {
       if (known === undefined) { const pid = Number((await readFile(file, "utf8").catch(() => "")).trim()); if (pid > 0) known = pid; }
       return known;
