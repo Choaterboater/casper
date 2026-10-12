@@ -589,7 +589,51 @@ async function settleInView(element: import("puppeteer-core").ElementHandle): Pr
   });
 }
 
-const BROKEN_CHECK_HINT = "If the check itself is wrong, record a corrected check and withdraw this one; if the page is wrong, fix it.";
+/**
+ * The element as a person would name it (button "Save"), and what covers its center if another element does (a toast,
+ * a cookie bar). Not a cover: the element itself or anything inside it, an element round it (a dialog that holds it),
+ * or a label for it.
+ */
+async function coverOf(element: import("puppeteer-core").ElementHandle): Promise<{ target: string; by?: string }> {
+  return element.evaluate(el => {
+    const words = (e: Element) => (e.getAttribute("aria-label") || (e as HTMLElement).innerText || (e as HTMLInputElement).value
+      || e.getAttribute("placeholder") || e.getAttribute("name") || "").replace(/\s+/g, " ").trim().slice(0, 60);
+    const target = `${el.tagName.toLowerCase()}${words(el) ? ` "${words(el)}"` : ""}`;
+    const r = el.getBoundingClientRect();
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    if (r.width < 1 || r.height < 1 || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return { target };
+    const hit = document.elementFromPoint(x, y);
+    if (!hit || el.contains(hit) || hit.contains(el) || (hit.closest("label") as HTMLLabelElement | null)?.control === el) return { target };
+    // Named by its layer (the fixed toast, not the span inside it).
+    let layer: Element = hit;
+    for (let up: Element | null = hit; up && up !== document.body; up = up.parentElement)
+      if (["fixed", "sticky", "absolute"].includes(getComputedStyle(up).position)) { layer = up; break; }
+    const name = `${layer.tagName.toLowerCase()}${layer.id ? `#${layer.id}` : ""}${[...layer.classList].slice(0, 2).map(c => `.${c}`).join("")}`;
+    return { target, by: `${name}${words(layer) ? ` "${words(layer)}"` : ""}` };
+  });
+}
+
+/** What the page's state looks like now, to tell whether an action changed anything; undefined on a new document. */
+function watchState(key: string): string | undefined {
+  const watch = (window as unknown as Record<string, { changes: number; el: Element; active: Element | null } | undefined>)[key];
+  if (!watch) return undefined;
+  const active = document.activeElement;
+  const control = watch.el instanceof HTMLLabelElement ? watch.el.control : watch.el;
+  const form = control instanceof HTMLInputElement ? `${control.checked}:${control.value}` : control instanceof HTMLTextAreaElement || control instanceof HTMLSelectElement ? control.value : "";
+  // Focus moving onto the clicked element itself is not a change, unless it is a field to type in: focusing it is the point.
+  const typing = active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement || (active as HTMLElement | null)?.isContentEditable
+    || (active instanceof HTMLInputElement && !["button", "submit", "reset", "checkbox", "radio", "image", "file", "range", "color"].includes(active.type));
+  const focus = active === watch.active || (active && watch.el.contains(active) && !typing) ? "same" : "moved";
+  return `${watch.changes}|${location.href}|${focus}|${scrollX},${scrollY}|${form}`;
+}
+
+/** A native dialog Casper dismissed, as the action's result names it. */
+function dialogNote(dialog: { type: string; message: string }): string {
+  const answer = dialog.type === "alert" ? "closed it" : dialog.type === "beforeunload" ? "stayed on the page" : "answered Cancel";
+  return `${dialog.type} dialog ${JSON.stringify(dialog.message)}: Casper ${answer}`;
+}
+
+const BROKEN_CHECK_HINT ="If the check itself is wrong, record a corrected check and withdraw this one; if the page is wrong, fix it.";
 
 /** One task's disposable browser. No user profiles, arbitrary evaluation or browser installation. */
 /** The scenario's inputs as they are now; a check that names none is told how to get a fresh pass when the whole project can't be watched. */
@@ -622,6 +666,11 @@ export class BrowserSession {
   private readonly logs: Array<{ type: string; text: string }> = [];
   private readonly requests: Array<{ url: string; status?: number; error?: string }> = [];
   private dropped = 0;
+  /** Native dialogs (alert, confirm, prompt, beforeunload) dismissed since the running action began, and requests started. */
+  private readonly dialogs: Array<{ type: string; message: string }> = [];
+  private requestsStarted = 0;
+  /** New tabs the page opened (a target="_blank" link, window.open). */
+  private popups = 0;
   private revision = 0;
   private operations = 0;
   /** Host page loads: serialized, and the first one gets the longer first-compile deadline. */
@@ -1083,7 +1132,7 @@ export class BrowserSession {
     const { scenario } = entry;
     // A check whose recording never finished (no server yet) is recorded by its first finished run.
     const recording = input.action === "check" || entry.check.baseline === "incomplete";
-    const check: BrowserCheck = { ...entry.check, status: "incomplete", freshness: "unavailable", assertions: [], reason: undefined };
+    const check: BrowserCheck = { ...entry.check, status: "incomplete", freshness: "unavailable", assertions: [], reason: undefined, notes: undefined };
     entry.check = check; entry.fingerprint = undefined; entry.revision = this.revision; entry.ranAt = performance.now();
     try {
       const before = await inputState(this.options.projectRoot, scenario, signal);
@@ -1094,8 +1143,13 @@ export class BrowserSession {
       await page.setViewport(scenario.viewport);
       const notOpened = await this.navigate(page, scenario.url, signal);
       if (notOpened.notOpened) throw new Error(`The page reached for a cloud metadata address (${notOpened.notOpened.join(", ")}) and the person said no`);
-      for (const step of scenario.steps) {
-        signal.throwIfAborted(); await this.interact({ ...step }, signal, true);
+      // The steps share 8 s of watching for what they changed, so 12 steps on a busy page stay inside the check's limit.
+      const watchBy = performance.now() + 8_000;
+      for (const [index, step] of scenario.steps.entries()) {
+        signal.throwIfAborted();
+        const done = await this.interact({ ...step }, signal, true, watchBy);
+        for (const line of [done.note, ...(done.dialogs as string[] | undefined ?? [])])
+          if (typeof line === "string" && (check.notes ??= []).length < 8) check.notes.push(`step ${index + 1}: ${line}`);
         const after = await this.metadataAfter(page, signal);
         if (after.notOpened) throw new Error(`The page reached for a cloud metadata address (${after.notOpened.join(", ")}) and the person said no`);
       }
@@ -1205,7 +1259,7 @@ export class BrowserSession {
       guidance: "It no longer decides the result; the receipt names it with your reason. Record a corrected check for what it meant to test." };
   }
 
-  private async interact(input: Record<string, unknown>, signal: AbortSignal, waitForTarget = false): Promise<Record<string, unknown>> {
+  private async interact(input: Record<string, unknown>, signal: AbortSignal, waitForTarget = false, watchBy = Infinity): Promise<Record<string, unknown>> {
     const selector = text(input.selector, "selector", 512);
     if (!["local-test", "consequential", "uncertain"].includes(String(input.impact))) throw new Error(`Browser ${String(input.action)} needs impact: local-test, consequential or uncertain`);
     const reason = text(input.reason, "reason", 512);
@@ -1261,8 +1315,29 @@ export class BrowserSession {
     const element = await page.$(selector);
     if (!element) throw new Error("Browser target disappeared");
     let selected: { value: string; label: string } | undefined;
+    let note: string | undefined;
+    const key = `__casper_${randomUUID().replace(/-/g, "")}`;
     try {
       await settleInView(element);
+      // A click or typing lands where a person's would: on whatever covers the element's center. A cover that is going
+      // away (a closing menu, a fading toast) gets up to a second.
+      let cover = await coverOf(element);
+      const typed = action === "fill" && !(before.tag === "INPUT" && PICKED_FIELDS.includes(type));
+      if (action === "click" || typed) {
+        for (const end = performance.now() + 1000; cover.by && performance.now() < end;) {
+          await new Promise(resolve => setTimeout(resolve, 100)); signal.throwIfAborted(); cover = await coverOf(element);
+        }
+        if (cover.by) throw new Error(`${cover.target} is covered by ${cover.by}, so a person could not ${action === "click" ? "click" : "type in"} it; close or wait out what covers it first`);
+      }
+      // Watch what the action changes: the DOM, the address, focus, scrolling, the field's state, requests, dialogs.
+      await element.evaluate((el, key) => {
+        const watch = { changes: 0, el, active: document.activeElement, observer: new MutationObserver(list => { watch.changes += list.length; }) };
+        watch.observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+        Object.defineProperty(window, key, { value: watch, configurable: true });
+      }, key);
+      const initial = await page.evaluate(watchState, key);
+      const requests = this.requestsStarted, popups = this.popups;
+      this.dialogs.length = 0;
       // No automatic retry after a potentially consequential action.
       if (action === "click") await element.click();
       else if (action === "select") {
@@ -1293,9 +1368,29 @@ export class BrowserSession {
         await element.evaluate(el => { if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) el.select(); });
         await element.press("Backspace"); await element.type(value!);
       }
-    } finally { await element.dispose(); }
+      // Up to 1.5 s, ending 300 ms after the page goes quiet; a fill or select need not change anything else.
+      const quiet = action === "fill" || action === "select";
+      // A new tab (a target="_blank" link, window.open) is a change too. Cut short by a check's shared budget: no note.
+      let last = `${initial}|${requests}|0|${popups}`, changed = false;
+      const full = performance.now() + 1_500, end = Math.min(full, watchBy), cut = watchBy < full;
+      for (let calm = performance.now(); performance.now() < end;) {
+        await new Promise(resolve => setTimeout(resolve, 100)); signal.throwIfAborted();
+        const state = await page.evaluate(watchState, key).catch(() => undefined);
+        if (state === undefined) { changed = true; break; } // a new document
+        const now = `${state}|${this.requestsStarted}|${this.dialogs.length}|${this.popups}`;
+        if (now !== last) { last = now; calm = performance.now(); changed = true; }
+        if ((changed || quiet) && performance.now() - calm >= 300) break;
+      }
+      if (!changed && !cut && (action === "click" || action === "press"))
+        note = action === "click" ? `nothing changed after clicking ${cover.target}` : `nothing changed after pressing ${value} on ${cover.target}`;
+    } finally {
+      await page.evaluate(key => { (window as unknown as Record<string, { observer?: MutationObserver }>)[key]?.observer?.disconnect(); }, key).catch(() => {});
+      await element.dispose();
+    }
     signal.throwIfAborted();
-    return { action, url: page.url(), executed: true, ...(selected ? { selected } : {}), guidance: "Action execution is not proof of the expected result. Inspect or replay assertions." };
+    const dialogs = this.dialogs.map(dialogNote);
+    return { action, url: page.url(), executed: true, ...(selected ? { selected } : {}), ...(note ? { note } : {}), ...(dialogs.length ? { dialogs } : {}),
+      guidance: "Action execution is not proof of the expected result. Inspect or replay assertions." };
   }
 
   private start(): Promise<Page> {
@@ -1323,7 +1418,12 @@ export class BrowserSession {
       this.page = await context.newPage();
       this.page.setDefaultTimeout(5000);
       await this.page.setViewport({ width: 1280, height: 800 });
-      this.page.on("dialog", dialog => { void dialog.dismiss().catch(() => {}); });
+      this.page.on("dialog", dialog => {
+        if (this.dialogs.length < 5) this.dialogs.push({ type: dialog.type(), message: dialog.message().replace(/\s+/g, " ").trim().slice(0, 200) });
+        void dialog.dismiss().catch(() => {});
+      });
+      this.page.on("request", () => { this.requestsStarted++; });
+      this.page.on("popup", () => { this.popups++; });
       this.page.on("console", message => this.log({ type: message.type(), text: message.text().slice(0, 1024) }));
       this.page.on("pageerror", error => this.log({ type: "exception", text: String(error).slice(0, 1024) }));
       this.page.on("error", () => { this.invalidate(); void this.close(); });

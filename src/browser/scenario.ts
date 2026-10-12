@@ -25,6 +25,8 @@ export interface BrowserCheck {
   freshness: "fresh" | "stale" | "unavailable"; scope?: VerificationScope; reason?: string;
   /** The AI's reason for withdrawing it, shown on the receipt. */
   withdrawn?: string;
+  /** What its steps met: a click that changed nothing, a native dialog Casper dismissed. Notes, never a failure. */
+  notes?: string[];
   assertions: Array<{ kind: string; status: "pass" | "fail"; actual: unknown
     /** On a selector that matched nothing or a wrong text: up to 3 real elements most like it, and what to do. */
     near?: string[]; hint?: string }>;

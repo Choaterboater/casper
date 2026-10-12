@@ -514,6 +514,39 @@ browserTest("a check step waits up to 5 s for its target to appear or be enabled
   expect(performance.now() - started).toBeLessThan(4_000);
 }, 40_000);
 
+browserTest("a covered button fails its click naming the cover; a click that changes nothing and a confirm dialog are reported", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, `<!doctype html><h1>Items</h1><button id="save">Save</button><button id="dead">Dead</button>
+    <button id="del" onclick="if (confirm('Clear this item?')) document.querySelector('h1').textContent = 'Cleared'">Clear</button>
+    <button id="add" onclick="document.querySelector('h1').textContent = 'Added'">Add</button>
+    <label for="agree">Agree</label><input id="agree" type="checkbox" style="position:absolute;left:0;top:300px">
+    <input id="name" aria-label="Name"><button id="pin" aria-pressed="false" onclick="this.setAttribute('aria-pressed', 'true')">Pin</button>
+    <a id="new" href="/?open" target="_blank">Help</a>
+    <div class="toast" style="position:fixed;inset:0;background:#fff">Saved <span>just now</span></div>
+    <script>document.querySelector('.toast').style.display = location.search ? 'none' : ''</script>`);
+  await f.session.run({ action: "open", url: f.url });
+  const step = (selector: string) => ({ action: "click", selector, impact: "local-test", reason: "Test" });
+  const covered = await f.session.run(step("#save")).catch((e: Error) => e.message);
+  expect(covered).toContain('button "Save" is covered by div.toast "Saved just now"');
+  await f.session.run({ action: "open", url: `${f.url}/?open` });
+  const dead = await f.session.run(step("#dead"));
+  expect(dead).toMatchObject({ executed: true, note: 'nothing changed after clicking button "Dead"' });
+  const added = await f.session.run(step("#add"));
+  expect(added.note).toBeUndefined();
+  expect(await f.session.run(step("#agree"))).not.toHaveProperty("note");
+  // Clicking into a field and a toggle that only changes aria-pressed change something.
+  for (const selector of ["#name", "#pin"]) expect(await f.session.run(step(selector))).not.toHaveProperty("note");
+  const asked = await f.session.run(step("#del"));
+  expect(asked.dialogs).toEqual(['confirm dialog "Clear this item?": Casper answered Cancel']);
+  // A check names the dialog and the dead click on its steps.
+  const check = await f.session.run({ action: "check", scenario: { name: "Clear", url: `${f.url}/?open`, scope: { inputs: ["index.html"] },
+    steps: [step("#dead"), step("#del")], assertions: [{ kind: "text", selector: "h1", expected: "Items" }] } });
+  expect(check).toMatchObject({ status: "pass", notes: ['step 1: nothing changed after clicking button "Dead"', 'step 2: confirm dialog "Clear this item?": Casper answered Cancel'] });
+  // So does a link that opens a new tab.
+  await f.session.run({ action: "open", url: `${f.url}/?open` });
+  expect(await f.session.run(step("#new"))).not.toHaveProperty("note");
+}, 40_000);
+
 browserTest("a new check that stops part way gives its id back, and can be withdrawn until anything changes", async () => {
   const f = await fixture();
   await writeFile(f.sourceFile, "<!doctype html><h1>Hi</h1>");

@@ -76,6 +76,20 @@ fires `input` and `change`; `fill` on a `<select>` says to use `select`.
 Before `click`, `fill`, `press` or `select`, Casper scrolls the element into view
 and waits up to a second for it to settle, so a button below the screen, or one
 that grows or fades in once scrolled to, can be used.
+A `click`, or a `fill` that types, lands where a person's would: when another
+element covers the target's center (a toast, a cookie bar) for more than a
+second, the step fails naming it, such as `button "Save" is covered by
+div.toast "Saved"`. A label for the field, or a dialog that holds the target,
+is not a cover. After the action Casper watches the page for up to 1.5 seconds,
+ending once it goes quiet: when a `click` or `press` changed nothing (no page
+change, attribute such as `aria-pressed`, new address, focus move, a field
+focused to type in, scroll, field state, request, dialog or new tab), the
+result has the note `nothing changed after clicking button "Save"`; it is a
+note, not a failure. A check's steps share 8 seconds of this watching; a step
+whose watch is cut short gets no note. A native `alert`, `confirm`, `prompt` or leave-page dialog
+is still dismissed (Cancel, or stay on the page), and the result lists it under
+`dialogs`, such as `confirm dialog "Clear this item?": Casper answered Cancel`;
+a check lists both under `notes`, by step.
 `press` supports `Enter`, `Tab`, `Escape`, `ArrowUp`, `ArrowDown`, `ArrowLeft`,
 `ArrowRight`, `Space` and `Backspace`.
 
