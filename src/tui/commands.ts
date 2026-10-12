@@ -76,6 +76,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     subcommands: [{ name: "list", description: "Pick a task's changes from a list", afterCleanupError: NONE }] },
   { name: "undo", description: "Put the last task's files back (no model)", argumentHint: "[n]", waits: ANY },
   { name: "redo", description: "Put an undone task's files back again", argumentHint: "[n]", waits: ANY },
+  { name: "rewind", description: "Back to just before an earlier prompt, to edit and send it again (a numbered list)", argumentHint: "[n]", waits: ANY },
   { name: "plan", description: "Plan first: the model writes a plan and cases to test, then you build", argumentHint: "<request>", waits: ANY },
   { name: "btw", description: "A side question: your fast model answers with no tools; the conversation never sees it", argumentHint: "<question>" },
   { name: "suggestions", description: "Suggested next steps: list, or turn on or off", subcommands: [

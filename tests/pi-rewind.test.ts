@@ -5,7 +5,7 @@ import path from "node:path";
 import { cleanEnv } from "./support/env";
 import { removeTempDir } from "./support/temp-dir";
 
-test("a real Pi conversation rewinds to the mark before a task at no cost, and refuses when the conversation moved on", async () => {
+test("a real Pi conversation rewinds to the mark before a task or a prompt at no cost, and refuses when the conversation moved on", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-pi-rewind-"));
   try {
     const cwd = path.join(root, "project"), agentDir = path.join(root, "agent");
@@ -15,6 +15,7 @@ test("a real Pi conversation rewinds to the mark before a task at no cost, and r
     });
     const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
     expect(exitCode, stderr).toBe(0);
-    expect(JSON.parse(stdout.trim())).toEqual({ moved: false, rewound: true, same: true, branch: ["BEFORE"], twoBack: true, backAtStart: true });
+    expect(JSON.parse(stdout.trim())).toEqual({ moved: false, rewound: true, same: true, branch: ["BEFORE"], twoBack: true, backAtStart: true,
+      prompts: ["User request:\nfix it"], toPrompt: true, atPrompt: true, sameEntries: true });
   } finally { await removeTempDir(root); }
 }, 60_000);

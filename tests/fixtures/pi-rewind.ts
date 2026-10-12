@@ -20,7 +20,19 @@ try {
   // Two turns back: from after TASK2 to the start mark, past BEFORE.
   await session.appendContext("TASK2");
   const twoBack = await session.rewindTo(empty, session.conversationMark());
-  console.log(JSON.stringify({ moved, rewound, same: afterMark === mark, branch, twoBack, backAtStart: session.conversationMark() === empty }));
+  const backAtStart = session.conversationMark() === empty;
+  // /rewind: a message sent as the user's is listed with its text, and the conversation goes back to just before it.
+  if (!session.conversationEntries) throw new Error("Pi conversation entries are unavailable");
+  await session.appendContext("CONTEXT");
+  const beforePrompt = session.conversationMark();
+  const count = session.conversationEntries().length;
+  const manager = (session as unknown as { runtime: { session: { sessionManager: { appendMessage(message: unknown): string } } } }).runtime.session.sessionManager;
+  manager.appendMessage({ role: "user", content: [{ type: "text", text: "User request:\nfix it" }], timestamp: Date.now() });
+  await session.appendContext("AFTER");
+  const prompts = session.conversationEntries().filter((entry) => entry.prompt !== undefined).map((entry) => entry.prompt);
+  const toPrompt = await session.rewindTo(beforePrompt, session.conversationMark());
+  console.log(JSON.stringify({ moved, rewound, same: afterMark === mark, branch, twoBack, backAtStart,
+    prompts, toPrompt, atPrompt: session.conversationMark() === beforePrompt, sameEntries: session.conversationEntries().length === count }));
 } finally {
   await runtime.dispose();
 }

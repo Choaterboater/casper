@@ -47,6 +47,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/resume [id]` | Pick a saved conversation from a numbered list, or go back to one (the start of its ID is enough) |
 | `/diff [n\|list]` | The last task's changes (also outside git), task n's, or a list to pick from; before any task, git's view |
 | `/undo [n]`, `/redo [n]` | Put the last task's (or task n's) files back, or back again (no model; [UNDO.md](UNDO.md)) |
+| `/rewind [n]` | Back to just before an earlier prompt (a numbered list, newest first; `/rewind 1` is your last), its words back in the prompt to edit and send; when later tasks changed files, `2 Conversation and files` puts them back too. No model; nothing is deleted ([UNDO.md](UNDO.md#rewind-to-an-earlier-prompt)) |
 | `/plan <request>` | Plan first: the model writes a plan and cases to test, you edit it, then build |
 | `/btw <question>` | A side question, idle or during a task: your fast model answers with no tools, and the conversation never sees it (like a line you start with `?`; works with side questions off) |
 | `/suggestions [on\|off]` | List the suggested next steps, or turn them on or off |
@@ -675,7 +676,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   `… — closed for the task's question; type the command again`. A private box for a key or a
   password (`/login`, `/mcp login`) is never closed under you: the task's box waits until it is done.
 - Only the commands that would change what the task works on, or start model work of their own
-  (one at a time), wait: `/clear` and `/new`, `/resume`, `/compact`, `/undo`, `/redo`,
+  (one at a time), wait: `/clear` and `/new`, `/resume`, `/compact`, `/undo`, `/redo`, `/rewind`,
   `/branch <name>`, `/switch`, `/project <name>`, `/project new`, `/plan`, `/verify`,
   `/security-review`, `/delegate` (it stops the debugger the task may use), `/crew` (its list
   applies copies to your folder; `/crew drop` runs) and a picked suggestion. They keep their draft

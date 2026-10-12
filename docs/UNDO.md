@@ -29,6 +29,7 @@ Undo: casper /undo 12 · Diff: casper /diff 12
 | `/undo` | Puts back the files of the newest task in this folder that can be undone. |
 | `/undo 12` | The same for task 12. |
 | `/redo` | Puts the files of the newest undone task back the way that task left them. |
+| `/rewind` | Goes back to just before one of your earlier prompts in this conversation; see [below](#rewind-to-an-earlier-prompt). |
 | `/diff` | The newest task's changes (a patch), also in a folder that is not a git repository. With no task yet, git's view (`git diff HEAD`). |
 | `/diff 12` | Task 12's changes. |
 | `/diff list` | Pick one of your recent tasks by number. While a task runs it prints the list instead; `/diff <n>` shows one. |
@@ -70,6 +71,28 @@ commits yet and no task, `/diff` lists the files and says there is nothing to co
   `casper /undo` changes no conversation.
 - **Your settings.** Saving a test command from the receipt row ("Remember uv run pytest as this project's test
   command") gets its own number, and `/undo` takes it back.
+
+## Rewind to an earlier prompt
+
+`/rewind` lists your prompts in this conversation, newest first, each cut to one line, and `/rewind 3` picks
+the third without the list. Casper moves the conversation back to just before that prompt and puts its words
+back in the prompt, so you can change them and press Enter to send again. A `/plan` comes back as `/plan ...`.
+Casper's own rounds inside a task (repairs, the review) are not listed: they go with the prompt that started it.
+
+When tasks after that prompt changed files, one question asks what goes back:
+
+```
+tasks 14, 13 after that prompt changed files.
+  1 Conversation only · the files stay as they are now
+  2 Conversation and files · the files go back as they were before that prompt; /redo <task> puts one back again
+```
+
+2 undoes those tasks newest first, exactly as `/undo` would. If a file changed after one of them, Casper
+changes nothing (no files, no conversation) and says which file; `1 Conversation only` still works. Esc
+changes nothing.
+
+Nothing is deleted: the later turns stay in this conversation's saved file, on the branch Casper left. No model is
+called. `/rewind` waits for a running task, like `/undo`.
 
 ## What undo can't put back
 

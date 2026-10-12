@@ -31,6 +31,7 @@ import { checkSignIn, ensureRuntime } from "./runtime-start";
 import { handledHere, modelChangeRequest, namesModel } from "./model-words";
 import { reloadProject } from "./project-file";
 import { pagesCommand } from "./pages";
+import { rewind } from "./rewind";
 
 export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promise<void> {
   // Own the terminal before the banner so startup output is transcript, not
@@ -222,6 +223,10 @@ export function handleSlashCommand(app: CasperApp, typed: string): Promise<Verif
   if (prompt.startsWith(`${SUGGESTION_COMMAND} `) || prompt === SUGGESTION_COMMAND) return runSuggestion(app, prompt.slice(SUGGESTION_COMMAND.length).trim());
   const undoCommand = /^\/(undo|redo|diff|receipt)(?:\s+(.*))?$/.exec(prompt);
   if (undoCommand) return runUndoCommand(app, undoCommand[1] as "undo" | "redo" | "diff" | "receipt", (undoCommand[2] ?? "").trim());
+  if (/^\/rewind(?:\s|$)/.test(prompt)) {
+    return rewind({ output: app.output, terminal: app.terminal, interactive: app.interactive, liveSession: app.session, taskUndo: app.taskUndo },
+      prompt.slice(7).trim(), app.commandAbort?.signal).then(() => undefined);
+  }
   if (/^\/plan(?:\s|$)/.test(prompt)) {
     const request = prompt.slice(5).trim();
     if (!request) { app.output.write("Type /plan and then what you want, for example /plan add a --verbose flag to the CLI; the model plans first and nothing is built until you choose Build.\n"); return Promise.resolve(undefined); }
