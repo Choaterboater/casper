@@ -1060,6 +1060,8 @@ export class BrowserSession {
     }
     const entry = this.scenarios.get(id)!;
     const { scenario } = entry;
+    // A check whose recording never finished (no server yet) is recorded by its first finished run.
+    const recording = input.action === "check" || entry.check.baseline === "incomplete";
     const check: BrowserCheck = { ...entry.check, status: "incomplete", freshness: "unavailable", assertions: [], reason: undefined };
     entry.check = check; entry.fingerprint = undefined; entry.revision = this.revision; entry.ranAt = performance.now();
     try {
@@ -1122,18 +1124,18 @@ export class BrowserSession {
         const deadline = performance.now() + 1000;
         while (!result.pass && performance.now() < deadline) { await new Promise(resolve => setTimeout(resolve, 50)); signal.throwIfAborted(); result = await evaluate(); }
         if (!result.pass) result = await evaluate(true);
-        // Still a failure: the hint only says which way to go, a wrong check or a wrong page. Only on a replay: a check
-        // recorded before the edit is meant to fail then, and must not be withdrawn for it.
+        // Still a failure: the hint only says which way to go, a wrong check or a wrong page. Not on the recording run: a
+        // check recorded before the edit is meant to fail then, and must not be withdrawn for it.
         check.assertions.push({ kind: assertion.kind, status: result.pass ? "pass" : "fail", actual: result.actual,
-          ...(result.near?.length ? { near: result.near } : {}), ...(result.near && input.action !== "check" ? { hint: BROKEN_CHECK_HINT } : {}) });
+          ...(result.near?.length ? { near: result.near } : {}), ...(result.near && !recording ? { hint: BROKEN_CHECK_HINT } : {}) });
       }
       check.status = check.assertions.every(a => a.status === "pass") ? "pass" : "fail";
       const after = await inputState(this.options.projectRoot, scenario, signal);
       if (before.fingerprint && after.fingerprint && before.fingerprint === after.fingerprint && entry.revision === this.revision) {
         check.freshness = "fresh"; entry.fingerprint = after.fingerprint;
-        if (input.action === "check") entry.recordedFingerprint = after.fingerprint;
+        if (recording) entry.recordedFingerprint = after.fingerprint;
       } else { check.freshness = before.fingerprint && after.fingerprint ? "stale" : "unavailable"; check.reason = before.reason ?? after.reason ?? "Declared inputs changed during browser reproduction."; }
-      if (input.action === "check") check.baseline = check.status;
+      if (recording) { check.baseline = check.status; entry.recordedRevision = entry.revision; }
       return structuredClone(check) as unknown as Record<string, unknown>;
     } catch (error) {
       check.status = "incomplete"; check.reason = "Browser reproduction did not finish; no passing evidence.";

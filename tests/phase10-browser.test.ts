@@ -478,6 +478,35 @@ browserTest("a new check that stops part way gives its id back, and can be withd
   await expect(f.session.run({ action: "withdraw", id: second, reason: "x" })).rejects.toThrow("A change was made after this check was recorded: replay it");
 }, 30_000);
 
+browserTest("a check recorded before its server ran is recorded by its first finished run: a failure there can be withdrawn, one after a later edit can't", async () => {
+  const f = await fixture();
+  const closed = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("") });
+  const port = closed.port;
+  closed.stop(true);
+  const scenario = (name: string) => ({ name, url: `http://127.0.0.1:${port}/`, scope: { inputs: ["index.html"] }, steps: [],
+    assertions: [{ kind: "text", selector: "h1", expected: "Booking" }] });
+  const record = async (name: string) => /check id ([\w-]+)/.exec(String(await f.session.run({ action: "check", scenario: scenario(name) }).catch((e: Error) => e.message)))?.[1];
+  const first = await record("Home");
+  const second = await record("Home 2");
+  expect(await f.session.report()).toMatchObject({ checks: [{ id: first, baseline: "incomplete" }, { id: second, baseline: "incomplete" }] });
+  // The app is written (an edit), but another app answers on that port.
+  f.session.invalidate();
+  const other = Bun.serve({ hostname: "127.0.0.1", port, fetch: () => new Response("<!doctype html><h1>Another app</h1>", { headers: { "content-type": "text/html" } }) });
+  try {
+    await expect(f.session.run({ action: "withdraw", id: first, reason: "wrong port" })).rejects.toThrow("A change was made after this check was recorded: replay it");
+    const replayed = await f.session.run({ action: "replay", id: first }) as { status: string; assertions: Array<Record<string, unknown>> };
+    expect(replayed).toMatchObject({ status: "fail", baseline: "fail", freshness: "fresh" });
+    expect(replayed.assertions.some(a => "hint" in a)).toBe(false);
+    expect(await f.session.run({ action: "withdraw", id: first, reason: "another app owns that port" })).toMatchObject({ status: "withdrawn" });
+    // Its first finished run is a real baseline: a failure after a later edit may be real, so it stays locked.
+    expect(await f.session.run({ action: "replay", id: second })).toMatchObject({ status: "fail", baseline: "fail" });
+    f.session.invalidate();
+    expect(await f.session.run({ action: "replay", id: second })).toMatchObject({ status: "fail", freshness: "fresh" });
+    await expect(f.session.run({ action: "withdraw", id: second, reason: "x" })).rejects.toThrow("A change was made after this check was recorded, so its failure may be real");
+    expect(await f.session.report()).toMatchObject({ status: "fail", checks: [{ id: first, status: "withdrawn" }, { id: second, status: "fail" }] });
+  } finally { other.stop(true); }
+}, 30_000);
+
 browserTest("the browser tool's screenshot comes with the picture, and its text no longer says to read the PNG", async () => {
   const f = await fixture();
   const tool = browserTool(f.session);

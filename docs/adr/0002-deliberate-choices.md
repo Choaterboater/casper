@@ -105,7 +105,8 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
 
 - **What:** `withdraw` takes a check out of the result, with a required reason. Accepted only when the check's
   last run did not pass and nothing changed since it was recorded: no edit or command after it, and its inputs
-  are the same. `withdraw` in `src/browser/session.ts`.
+  are the same. A check whose recording never finished is recorded by its first finished run. `withdraw` in
+  `src/browser/session.ts`.
 - **Why:** a typo in an expected text or a selector that was never right would otherwise hold the task at
   failed or incomplete for a page that works.
 - **Same as:** no direct Claude Code equivalent; this is Casper's own check system.
