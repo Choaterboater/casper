@@ -166,7 +166,7 @@ describe("roadmap", () => {
   const page = readFileSync(join(site, "roadmap.html"), "utf8");
   test("the On this page list links every card", () => {
     const toc = page.slice(page.indexOf('aria-label="On this page"'), page.indexOf("</nav>", page.indexOf('aria-label="On this page"')));
-    const cards = [...page.matchAll(/<article class="card" id="([^"]+)"/g)].map((match) => match[1]!);
+    const cards = [...page.matchAll(/<(?:article|details) class="card(?: release)?" id="([^"]+)"/g)].map((match) => match[1]!);
     expect(cards.filter((id) => !toc.includes(`href="#${id}"`))).toEqual([]);
   });
   test("nothing unbuilt is said to be in the works", () => {

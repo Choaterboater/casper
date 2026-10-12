@@ -63,6 +63,7 @@ body.home main > .container > section:last-child { border-bottom: 0; }
 .install .cmd + .cmd { border-top: 1px solid var(--border); }
 .install.is-tabbed .cmd + .cmd { border-top: 0; }
 .install .cmd[hidden] { display: none; }
+.install .cmd .cmd-label.visually-hidden { padding: 0; }
 
 /* Shared tab style: install tabs and demo tabs. */
 .install-tabs, .demo-tabs { display: flex; flex-wrap: wrap; position: relative; }
@@ -194,6 +195,24 @@ pre.term .verdict-line { font-weight: 700; }
   .demo-tabs::-webkit-scrollbar { display: none; }
   .demo-tabs [role="tab"] { flex: none; white-space: nowrap; padding: 0.7rem 0.6rem 0.6rem; }
   .replay-btn { padding: 0.35rem 0.55rem; }
+}
+
+/* These captures and commands keep their terminal lines intact at every width. */
+body.home .receipt-capture, body.home .mcp-check-capture, .install .cmd pre {
+  white-space: pre;
+  overflow-x: auto;
+  overflow-wrap: normal;
+}
+.install .cmd.has-copy { padding-top: 3rem; }
+
+@media (max-width: 599px) {
+  .ghost-svg { width: 72px; }
+  .demo-bar { flex-wrap: wrap; }
+  .demo-tabs { flex: 0 0 100%; flex-wrap: wrap; overflow-x: visible; }
+  .demo-tabs [role="tab"] { flex: 0 0 33.333%; white-space: normal; }
+  .replay-btn { margin: 0.35rem 0 0.6rem auto; }
+  .install-tabs [role="tab"], .demo-tabs [role="tab"], .replay-btn { min-height: 44px; }
+  body.home .split pre.term, body.home .demo-panel pre.term { font-size: max(13px, 0.8125rem); }
 }
 
 @media (prefers-reduced-motion: reduce) {

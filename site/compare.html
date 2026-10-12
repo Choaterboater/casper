@@ -48,36 +48,25 @@
 
   <main id="main">
     <div class="container">
-      <h1>Casper vs plain Pi</h1>
-      <p class="lead">Casper is built on the Pi SDK. So what does it add, and when is plain Pi the
-      better tool? Here is the honest version, with the good and the less good.</p>
+      <h1>Compare</h1>
+      <p class="lead">Casper is built on Pi, an open-source coding agent. This page shows what Casper adds on top, and how it sits next to other AI coding tools.</p>
 
       <nav class="toc" aria-label="On this page">
         <strong>On this page</strong>
         <ul>
           <li><a href="#loop">The Casper loop, in one picture</a></li>
-          <li><a href="#table">The table: plain Pi vs Casper</a></li>
-          <li><a href="#pi-wins">Where plain Pi is better</a></li>
           <li><a href="#others">Casper and other AI coding tools</a></li>
           <li><a href="#show">Two things you can see for yourself</a></li>
           <li><a href="#numbers">What about numbers?</a></li>
           <li><a href="#pick">Which one should I use?</a></li>
+          <li><a href="#start">What it's built on</a>
+            <ul>
+          <li><a href="#table">The table: plain Pi vs Casper</a></li>
+          <li><a href="#pi-wins">Where plain Pi is better</a></li>
+            </ul>
+          </li>
         </ul>
       </nav>
-
-      <section id="start" aria-labelledby="start-h">
-        <h2 id="start-h">First, what is Pi?</h2>
-        <div class="prose">
-          <p><a href="https://github.com/earendil-works/pi">Pi</a> is a small terminal coding agent.
-          Out of the box it gives the AI four tools: <code>read</code>, <code>write</code>,
-          <code>edit</code> and <code>bash</code>. Its idea is "keep the core small, add what you
-          want". It can connect MCP servers, but it has no permission pop-ups, no sub-agents and no
-          plan mode built in. You add those yourself with extensions, skills or Pi packages.</p>
-          <p>Casper uses Pi's SDK as a pinned library (currently Pi 1.1.0). It is not a fork
-          and not a Pi extension. Casper wraps the AI's work in a loop of checks, proof and a
-          receipt, and adds guard rails for network gear.</p>
-        </div>
-      </section>
 
       <section id="loop" aria-labelledby="loop-h">
         <h2 id="loop-h">The Casper loop, in one picture</h2>
@@ -140,151 +129,9 @@
         </ol>
       </section>
 
-      <section id="table" aria-labelledby="table-h">
-        <h2 id="table-h">The table: plain Pi vs Casper 0.2.32</h2>
-        <p class="prose">"Plain Pi" means Pi as it ships, with no extra packages. Many of Casper's
-        extras could be built on Pi with extensions. This table is about what you get without
-        building anything.</p>
-        <div class="table-wrap">
-          <table>
-            <caption>Checked against the Pi 1.1.0 README and docs and Casper 0.2.32 docs. "Yes" means built in
-            and on or ready to use.</caption>
-            <thead>
-              <tr><th scope="col">What</th><th scope="col">Plain Pi</th><th scope="col">Casper 0.2.32</th></tr>
-            </thead>
-            <tbody>
-              <tr>
-                <th scope="row">Runs your tests after the AI edits</th>
-                <td class="no">No. Only if the AI decides to run them with <code>bash</code>.</td>
-                <td class="yes">Yes, by default. Test, lint, type check, build. A slow suite (60&nbsp;s or more) is offered as <code>/verify</code> in a chat instead.</td>
-              </tr>
-              <tr>
-                <th scope="row">Proof that the tests test the change</th>
-                <td class="no">No</td>
-                <td class="yes">Yes. Tests must fail without the change and pass with it.</td>
-              </tr>
-              <tr>
-                <th scope="row">Receipt with a verdict</th>
-                <td class="no">No. The AI's own summary.</td>
-                <td class="yes">Yes. Every coding task ends with one. <code>/receipt</code> shows the detail.</td>
-              </tr>
-              <tr>
-                <th scope="row">Repair loop</th>
-                <td class="no">No. You paste the error back yourself.</td>
-                <td class="yes">Yes. Real failures go back to the AI, 3 tries by default. A check that timed out or could not start is never sent to a paid repair.</td>
-              </tr>
-              <tr>
-                <th scope="row">"AI ran the tests in bash" counts as checked?</th>
-                <td>Nothing is counted either way.</td>
-                <td class="yes">No, on purpose. The receipt says <code>test ran via bash only</code> and does not call it verified.</td>
-              </tr>
-              <tr>
-                <th scope="row">Finds your check commands</th>
-                <td class="no">No</td>
-                <td class="yes">Yes: Node, Python, Rust, Go, Swift. <code>/project</code> shows what it found.</td>
-              </tr>
-              <tr>
-                <th scope="row">Request checklist</th>
-                <td class="no">No</td>
-                <td class="yes">On by default for code changes in a chat. You see it and can edit or skip it.</td>
-              </tr>
-              <tr>
-                <th scope="row">MCP servers</th>
-                <td>Built in (<code>pi mcp add</code>). Its tools run without asking first.</td>
-                <td class="yes">Built in. Every network product's server starts with writes off. Each change asks in plain words: <code>1 No · 2 Yes, this once · 3 Yes, for this session</code>, and a fourth wide answer for a whole product. <code>Ctrl+O</code> turns writes off again.</td>
-              </tr>
-              <tr>
-                <th scope="row">"Read-only" label</th>
-                <td>n/a</td>
-                <td class="yes">Only when the product itself says so (its <code>access_check</code> tool). Otherwise: <code>access not checked</code>.</td>
-              </tr>
-              <tr>
-                <th scope="row">Hides device secrets from the AI</th>
-                <td class="no">No</td>
-                <td class="yes">Yes, best effort, known formats only: passwords, RADIUS/TACACS keys, Wi-Fi PSKs, SNMP communities become <code>&lt;secret hidden&gt;</code>.</td>
-              </tr>
-              <tr>
-                <th scope="row">Permission prompts</th>
-                <td class="no">None built in (Pi "does not ask for approval before every tool call"). Build your own or use a container.</td>
-                <td class="yes">Risky actions ask you, and the AI cannot approve for you. Reaching another machine over <code>ssh</code> and a write outside the project ask too. An ssh password goes into a hidden box of Casper's own, never to the AI.</td>
-              </tr>
-              <tr>
-                <th scope="row">Questions to you</th>
-                <td>Arrow-key pickers (for example <code>/model</code>)</td>
-                <td class="yes">Numbered answers: press <kbd>1</kbd>, <kbd>2</kbd> … or <kbd>Esc</kbd> to skip.</td>
-              </tr>
-              <tr>
-                <th scope="row">Scripting</th>
-                <td class="yes"><code>-p</code> print mode, <code>--mode json</code> events, RPC mode, SDK</td>
-                <td class="yes"><code>--json</code> events ending in a receipt object, plus exit codes: 1 failed, 2 incomplete, 3 not verified (with <code>--require-verification</code>).</td>
-              </tr>
-              <tr>
-                <th scope="row">Undo a task's file changes</th>
-                <td class="no">Not built in (git checkpointing is something you build with an extension).</td>
-                <td class="yes">Yes. Casper keeps a copy of the folder before each task: <code>/undo</code>, <code>/redo</code>, <code>/diff</code>, also outside git.</td>
-              </tr>
-              <tr>
-                <th scope="row">Things that cost zero tokens</th>
-                <td>Local commands</td>
-                <td class="yes">Checks, <code>/verify</code>, <code>/mcp</code>, <code>/diff</code>, <code>/receipt</code> and local reference search make no model call.</td>
-              </tr>
-              <tr>
-                <th scope="row">Sign-in choices</th>
-                <td class="yes">Many providers, by subscription or API key</td>
-                <td><code>/login</code> offers four: OpenRouter, Anthropic, OpenAI Codex, GitHub Copilot. A model on your own computer works too, or on another one you add by its address.</td>
-              </tr>
-              <tr>
-                <th scope="row">Extensions and Pi packages</th>
-                <td class="yes">Yes. A big part of Pi. <code>pi install</code> from npm or git.</td>
-                <td>Pi packages are not imported. A repo's own <code>.pi/</code> folder is ignored. User-level extensions in <code>~/.casper/agent/extensions/</code> still load.</td>
-              </tr>
-              <tr>
-                <th scope="row">Weight and speed</th>
-                <td class="yes">Small core, short prompt, nothing runs after the edit</td>
-                <td>Checks and proof add time. The proof runs the tests once or twice more.</td>
-              </tr>
-              <tr>
-                <th scope="row">Sandbox</th>
-                <td class="no">No</td>
-                <td class="yes">Yes on Linux (through bubblewrap, a small sandbox tool) and macOS: the AI's shell, checks, services and dev servers write only the project, temp and package caches and can't read <code>~/.ssh</code>; the AI's shell and checks reach only listed hosts (others ask), while services and dev servers keep the machine's network on Linux and reach only listed hosts on macOS. Windows has no sandbox yet, and neither does Linux without bubblewrap; there the AI's shell asks before each command that changes something (reads like <code>ls</code> don't).</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section id="pi-wins" aria-labelledby="pi-wins-h">
-        <h2 id="pi-wins-h">Where plain Pi is better</h2>
-        <p class="prose">Casper is not the right tool for every job. Plain Pi wins here, and that is
-        fine.</p>
-        <div class="grid">
-          <article class="card">
-            <h3>Lighter</h3>
-            <p>Four tools, a short prompt, no extra steps. Nothing runs after the edit unless you
-            ask. Less to learn, less to go wrong.</p>
-          </article>
-          <article class="card">
-            <h3>Faster for tiny edits</h3>
-            <p>Fix a typo, rename a thing, tweak a comment: Pi is done when the edit is. Casper
-            runs checks and a proof run on top. (You can start Casper with <code>--no-verify</code>,
-            but then why not use Pi?)</p>
-          </article>
-          <article class="card">
-            <h3>Its own extensions</h3>
-            <p>Pi's whole idea is "build it your way". Custom tools, commands, UI, even games while
-            you wait. Pi packages install from npm or git. Casper does not import them.</p>
-          </article>
-          <article class="card">
-            <h3>More providers and modes</h3>
-            <p>Pi lists many model providers, plus RPC mode and a session tree (<code>/tree</code>,
-            <code>/fork</code>). Casper's <code>/login</code> offers four providers.</p>
-          </article>
-        </div>
-      </section>
-
       <section id="others" aria-labelledby="others-h">
         <h2 id="others-h">Casper and other AI coding tools</h2>
-        <p class="prose">We won't name other tools or guess at their insides. Here are fair,
+        <p class="prose">The table above names other tools using public facts, without guessing at their insides. Here are fair,
         general points instead.</p>
         <ul class="prose">
           <li><strong>Many tools report "done" without running your tests.</strong> Casper runs your
@@ -439,6 +286,163 @@ Make this change? → No
         <p class="prose">Both can live on the same machine. Casper keeps its own sign-ins in
         <code>~/.casper/agent/</code>, separate from Pi's. See the <a href="tour.html">tour</a> for
         more, or the <a href="roadmap.html">roadmap</a> for what is coming next.</p>
+      </section>
+      <section id="start" aria-labelledby="start-h">
+        <h2 id="start-h">What it's built on</h2>
+        <p class="lead">Casper is built on the Pi SDK. So what does it add, and when is plain Pi the
+        better tool? Here is the honest version, with the good and the less good.</p>
+        <div class="prose">
+          <p><a href="https://github.com/earendil-works/pi">Pi</a> is a small terminal coding agent.
+          Out of the box it gives the AI four tools: <code>read</code>, <code>write</code>,
+          <code>edit</code> and <code>bash</code>. Its idea is "keep the core small, add what you
+          want". It can connect MCP servers, but it has no permission pop-ups, no sub-agents and no
+          plan mode built in. You add those yourself with extensions, skills or Pi packages.</p>
+          <p>Casper uses Pi's SDK as a pinned library (currently Pi 1.1.0). It is not a fork
+          and not a Pi extension. Casper wraps the AI's work in a loop of checks, proof and a
+          receipt, and adds guard rails for network gear.</p>
+        </div>
+      <section id="table" aria-labelledby="table-h">
+        <h2 id="table-h">The table: plain Pi vs Casper 0.2.32</h2>
+        <p class="prose">"Plain Pi" means Pi as it ships, with no extra packages. Many of Casper's
+        extras could be built on Pi with extensions. This table is about what you get without
+        building anything.</p>
+        <div class="table-wrap">
+          <table>
+            <caption>Checked against the Pi 1.1.0 README and docs and Casper 0.2.32 docs. "Yes" means built in
+            and on or ready to use.</caption>
+            <thead>
+              <tr><th scope="col">What</th><th scope="col">Plain Pi</th><th scope="col">Casper 0.2.32</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Runs your tests after the AI edits</th>
+                <td class="no">No. Only if the AI decides to run them with <code>bash</code>.</td>
+                <td class="yes">Yes, by default. Test, lint, type check, build. A slow suite (60&nbsp;s or more) is offered as <code>/verify</code> in a chat instead.</td>
+              </tr>
+              <tr>
+                <th scope="row">Proof that the tests test the change</th>
+                <td class="no">No</td>
+                <td class="yes">Yes. Tests must fail without the change and pass with it.</td>
+              </tr>
+              <tr>
+                <th scope="row">Receipt with a verdict</th>
+                <td class="no">No. The AI's own summary.</td>
+                <td class="yes">Yes. Every coding task ends with one. <code>/receipt</code> shows the detail.</td>
+              </tr>
+              <tr>
+                <th scope="row">Repair loop</th>
+                <td class="no">No. You paste the error back yourself.</td>
+                <td class="yes">Yes. Real failures go back to the AI, 3 tries by default. A check that timed out or could not start is never sent to a paid repair.</td>
+              </tr>
+              <tr>
+                <th scope="row">"AI ran the tests in bash" counts as checked?</th>
+                <td>Nothing is counted either way.</td>
+                <td class="yes">No, on purpose. The receipt says <code>test ran via bash only</code> and does not call it verified.</td>
+              </tr>
+              <tr>
+                <th scope="row">Finds your check commands</th>
+                <td class="no">No</td>
+                <td class="yes">Yes: Node, Python, Rust, Go, Swift. <code>/project</code> shows what it found.</td>
+              </tr>
+              <tr>
+                <th scope="row">Request checklist</th>
+                <td class="no">No</td>
+                <td class="yes">On by default for code changes in a chat. You see it and can edit or skip it.</td>
+              </tr>
+              <tr>
+                <th scope="row">MCP servers</th>
+                <td>Built in (<code>pi mcp add</code>). Its tools run without asking first.</td>
+                <td class="yes">Built in. Every network product's server starts with writes off. Each change asks in plain words: <code>1 No · 2 Yes, this once · 3 Yes, for this session</code>, and a fourth wide answer for a whole product. <code>Ctrl+O</code> turns writes off again.</td>
+              </tr>
+              <tr>
+                <th scope="row">"Read-only" label</th>
+                <td>n/a</td>
+                <td class="yes">Only when the product itself says so (its <code>access_check</code> tool). Otherwise: <code>access not checked</code>.</td>
+              </tr>
+              <tr>
+                <th scope="row">Hides device secrets from the AI</th>
+                <td class="no">No</td>
+                <td class="yes">Yes, best effort, known formats only: passwords, RADIUS/TACACS keys, Wi-Fi PSKs, SNMP communities become <code>&lt;secret hidden&gt;</code>.</td>
+              </tr>
+              <tr>
+                <th scope="row">Permission prompts</th>
+                <td class="no">None built in (Pi "does not ask for approval before every tool call"). Build your own or use a container.</td>
+                <td class="yes">Risky actions ask you, and the AI cannot approve for you. Reaching another machine over <code>ssh</code> and a write outside the project ask too. An ssh password goes into a hidden box of Casper's own, never to the AI.</td>
+              </tr>
+              <tr>
+                <th scope="row">Questions to you</th>
+                <td>Arrow-key pickers (for example <code>/model</code>)</td>
+                <td class="yes">Numbered answers: press <kbd>1</kbd>, <kbd>2</kbd> … or <kbd>Esc</kbd> to skip.</td>
+              </tr>
+              <tr>
+                <th scope="row">Scripting</th>
+                <td class="yes"><code>-p</code> print mode, <code>--mode json</code> events, RPC mode, SDK</td>
+                <td class="yes"><code>--json</code> events ending in a receipt object, plus exit codes: 1 failed, 2 incomplete, 3 not verified (with <code>--require-verification</code>).</td>
+              </tr>
+              <tr>
+                <th scope="row">Undo a task's file changes</th>
+                <td class="no">Not built in (git checkpointing is something you build with an extension).</td>
+                <td class="yes">Yes. Casper keeps a copy of the folder before each task: <code>/undo</code>, <code>/redo</code>, <code>/diff</code>, also outside git.</td>
+              </tr>
+              <tr>
+                <th scope="row">Things that cost zero tokens</th>
+                <td>Local commands</td>
+                <td class="yes">Checks, <code>/verify</code>, <code>/mcp</code>, <code>/diff</code>, <code>/receipt</code> and local reference search make no model call.</td>
+              </tr>
+              <tr>
+                <th scope="row">Sign-in choices</th>
+                <td class="yes">Many providers, by subscription or API key</td>
+                <td><code>/login</code> offers four: OpenRouter, Anthropic, OpenAI Codex, GitHub Copilot. A model on your own computer works too, or on another one you add by its address.</td>
+              </tr>
+              <tr>
+                <th scope="row">Extensions and Pi packages</th>
+                <td class="yes">Yes. A big part of Pi. <code>pi install</code> from npm or git.</td>
+                <td>Pi packages are not imported. A repo's own <code>.pi/</code> folder is ignored. User-level extensions in <code>~/.casper/agent/extensions/</code> still load.</td>
+              </tr>
+              <tr>
+                <th scope="row">Weight and speed</th>
+                <td class="yes">Small core, short prompt, nothing runs after the edit</td>
+                <td>Checks and proof add time. The proof runs the tests once or twice more.</td>
+              </tr>
+              <tr>
+                <th scope="row">Sandbox</th>
+                <td class="no">No</td>
+                <td class="yes">Yes on Linux (through bubblewrap, a small sandbox tool) and macOS: the AI's shell, checks, services and dev servers write only the project, temp and package caches and can't read <code>~/.ssh</code>; the AI's shell and checks reach only listed hosts (others ask), while services and dev servers keep the machine's network on Linux and reach only listed hosts on macOS. Windows has no sandbox yet, and neither does Linux without bubblewrap; there the AI's shell asks before each command that changes something (reads like <code>ls</code> don't).</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="pi-wins" aria-labelledby="pi-wins-h">
+        <h2 id="pi-wins-h">Where plain Pi is better</h2>
+        <p class="prose">Casper is not the right tool for every job. Plain Pi wins here, and that is
+        fine.</p>
+        <div class="grid">
+          <article class="card">
+            <h3>Lighter</h3>
+            <p>Four tools, a short prompt, no extra steps. Nothing runs after the edit unless you
+            ask. Less to learn, less to go wrong.</p>
+          </article>
+          <article class="card">
+            <h3>Faster for tiny edits</h3>
+            <p>Fix a typo, rename a thing, tweak a comment: Pi is done when the edit is. Casper
+            runs checks and a proof run on top. (You can start Casper with <code>--no-verify</code>,
+            but then why not use Pi?)</p>
+          </article>
+          <article class="card">
+            <h3>Its own extensions</h3>
+            <p>Pi's whole idea is "build it your way". Custom tools, commands, UI, even games while
+            you wait. Pi packages install from npm or git. Casper does not import them.</p>
+          </article>
+          <article class="card">
+            <h3>More providers and modes</h3>
+            <p>Pi lists many model providers, plus RPC mode and a session tree (<code>/tree</code>,
+            <code>/fork</code>). Casper's <code>/login</code> offers four providers.</p>
+          </article>
+        </div>
+      </section>
+
       </section>
     </div>
   </main>

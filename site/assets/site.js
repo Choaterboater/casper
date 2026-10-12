@@ -97,6 +97,21 @@
     wrap.classList.add("stacks");
   });
 
+  // Contents links reveal a folded release, including when a page opens at its hash.
+  function revealHash() {
+    var id;
+    try { id = decodeURIComponent(window.location.hash.slice(1)); } catch (_) { return; }
+    var target = document.getElementById(id);
+    if (!target) return;
+    var details = target.closest("details");
+    if (details && !details.open) {
+      details.open = true;
+      target.scrollIntoView();
+    }
+  }
+  window.addEventListener("hashchange", revealHash);
+  revealHash();
+
   // 4. Divider lines in terminal captures
   var terms = document.querySelectorAll("pre.term");
   Array.prototype.forEach.call(terms, function (term) {
