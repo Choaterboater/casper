@@ -475,6 +475,46 @@ browserTest("a check with no scope whose page saves to a file git ignores stays 
   }
 }, 60_000);
 
+browserTest("{run} in a fill value is new on each run of a check, so a sign-up passes again; a fixed email that passed before gets a hint", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, '<!doctype html><input id="email"><button id="go">Register</button><p id="out"></p><script>document.querySelector("#go").onclick = async () => { const r = await fetch("/register?email=" + encodeURIComponent(document.querySelector("#email").value)); document.querySelector("#out").textContent = await r.text(); }</script>');
+  // The app refuses an email already registered.
+  const emails: string[] = [];
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === "/register") {
+      const email = url.searchParams.get("email")!;
+      if (emails.includes(email)) return new Response("That email is already registered");
+      emails.push(email);
+      return new Response("Registered");
+    }
+    return new Response(await readFile(f.sourceFile), { headers: { "content-type": "text/html" } });
+  } });
+  cleanup.push(async () => { server.stop(true); });
+  const signUp = (name: string, email: string) => f.session.run({ action: "check", scenario: { name, url: `http://127.0.0.1:${server.port}`, scope: { inputs: ["index.html"] },
+    steps: [{ action: "fill", selector: "#email", value: email, impact: "local-test", reason: "test sign-up" }, { action: "click", selector: "#go", impact: "local-test", reason: "test sign-up" }],
+    assertions: [{ kind: "text", selector: "#out", expected: "Registered" }] } }) as Promise<{ id: string; status: string; assertions: Array<Record<string, unknown>> }>;
+  const fresh = await signUp("account-register", "user-{run}@example.com");
+  expect(fresh.status).toBe("pass");
+  expect(await f.session.run({ action: "replay", id: fresh.id })).toMatchObject({ status: "pass" });
+  expect(emails).toHaveLength(2);
+  expect(emails[0]).not.toBe(emails[1]);
+  for (const email of emails) expect(email).toMatch(/^user-[a-z0-9]+@example\.com$/);
+  // The stored check keeps {run}.
+  expect((f.session as unknown as { scenarios: Map<string, { scenario: { steps: Array<{ value?: string }> } }> }).scenarios.get(fresh.id)!.scenario.steps[0]!.value).toBe("user-{run}@example.com");
+  // A fixed email passes once, then the page refuses it: the failure says to use {run}.
+  const hint = "It passed before: a sign-up or booking may need a new value each run; use {run} in the fill value.";
+  const fixed = await signUp("account-register b", "fixed@example.com");
+  expect(fixed.status).toBe("pass");
+  expect(await f.session.run({ action: "replay", id: fixed.id })).toMatchObject({ status: "fail", assertions: [{ actual: "That email is already registered", hint }] });
+  // A check that failed when recorded gets no such hint.
+  const failing = await signUp("account-register c", "fixed@example.com");
+  expect(failing.status).toBe("fail");
+  const again = await f.session.run({ action: "replay", id: failing.id }) as { status: string; assertions: Array<Record<string, unknown>> };
+  expect(again.status).toBe("fail");
+  expect(again.assertions[0]!.hint).not.toBe(hint);
+}, 30_000);
+
 browserTest("a failed check the AI wrote wrong can be withdrawn with a reason: it stays in the report, never decides it, and is never replayed", async () => {
   const f = await fixture();
   await writeFile(f.sourceFile, "<!doctype html><h1>Hello Casper</h1>");

@@ -132,6 +132,14 @@ Each execution uses fresh browser storage. IDs last for this task/session only;
 there is no durable scenario library. A baseline that never failed is not proof of
 reproducing the user's bug.
 
+`{run}` in a `fill` or `select` value becomes a new short value (letters and
+digits) on each run, the recording and every replay, so a check that signs up
+`user-{run}@example.com` or books a slot passes again on a page that refuses a
+repeat. The stored check keeps `{run}`. A replay that fails a check which passed
+when recorded and fills a fixed email, user name or name says so: `It passed
+before: a sign-up or booking may need a new value each run; use {run} in the
+fill value.`
+
 A check the model wrote wrong (an expected text or a selector that was never
 right) can be taken out of the result with
 `{"action":"withdraw","id":"<returned-id>","reason":"expected text had a typo"}`.

@@ -4,7 +4,7 @@ import { StaticServer } from "./static-server";
 import type { ServiceManager } from "../services/manager";
 import { readReferenceFile, referenceText } from "../references/files";
 import { type InputState, workspaceState } from "../verify/workspace-state";
-import { parseScenario, scopeOf, viewport, type BrowserScenario, type BrowserCheck, type BrowserReport } from "./scenario";
+import { parseScenario, scopeOf, viewport, type BrowserScenario, type BrowserCheck, type BrowserReport, type BrowserStep } from "./scenario";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -764,6 +764,14 @@ function dialogNote(dialog: { type: string; message: string }): string {
 }
 
 const BROKEN_CHECK_HINT ="If the check itself is wrong, record a corrected check of this page and withdraw this one (replacedBy: its id once it passes); if the page is wrong, fix it.";
+/** On a replay failing a check that passed when recorded and fills a fixed email, user name or name: the page may refuse a repeat. */
+const RUN_HINT = "It passed before: a sign-up or booking may need a new value each run; use {run} in the fill value.";
+let runs = 0;
+/** A short value new on each run of a check (letters and digits, so it fits an email or a user name); {run} in a step's value becomes it. */
+const runToken = () => `${Date.now().toString(36)}${(++runs).toString(36)}`;
+/** A fill of what looks like an email, user name or name, with a fixed value (the `name` attribute key itself does not count). */
+const fixedIdentity = (steps: BrowserStep[]) => steps.some(step => step.action === "fill" && step.value !== undefined && !step.value.includes("{run}")
+  && (/e-?mail|user|login|account|name/i.test(step.selector.replace(/\[\s*name\s*[~|^$*]?=/gi, "[")) || /\S@\S/.test(step.value)));
 const INSIDE_HINT = "The expected text is inside this element with other text: point the selector at the element that holds only it (see near).";
 /** The way out of a withdraw refused after a change: a corrected check of the same page that passes takes its place. */
 const REPLACE_WAY = "or record a corrected check of the same page and, once it passes, withdraw this one with replacedBy: its id";
@@ -1290,9 +1298,11 @@ export class BrowserSession {
       if (notOpened.notOpened) throw new Error(`The page reached for a cloud metadata address (${notOpened.notOpened.join(", ")}) and the person said no`);
       // The steps share 8 s of watching for what they changed, so 12 steps on a busy page stay inside the check's limit.
       const watchBy = performance.now() + 8_000;
+      const token = runToken();
       for (const [index, step] of scenario.steps.entries()) {
         signal.throwIfAborted();
-        const done = await this.interact({ ...step }, signal, true, watchBy);
+        const value = step.value !== undefined && (step.action === "fill" || step.action === "select") ? step.value.replaceAll("{run}", token) : step.value;
+        const done = await this.interact({ ...step, ...(value !== undefined ? { value } : {}) }, signal, true, watchBy);
         for (const line of [done.note, ...(done.dialogs as string[] | undefined ?? [])])
           if (typeof line === "string" && (check.notes ??= []).length < 8) check.notes.push(`step ${index + 1}: ${line}`);
         const after = await this.metadataAfter(page, signal);
@@ -1353,6 +1363,8 @@ export class BrowserSession {
           ...(result.inside ? { hint: INSIDE_HINT } : result.near && !recording ? { hint: BROKEN_CHECK_HINT } : {}) });
       }
       check.status = check.assertions.every(a => a.status === "pass") ? "pass" : "fail";
+      if (check.status === "fail" && !recording && check.baseline === "pass" && fixedIdentity(scenario.steps))
+        for (const assertion of check.assertions) if (assertion.status === "fail") assertion.hint = RUN_HINT;
       const after = await inputState(this.options.projectRoot, scenario, signal);
       if (before.fingerprint && after.fingerprint && before.fingerprint === after.fingerprint && entry.revision === this.revision) {
         check.freshness = "fresh"; entry.fingerprint = after.fingerprint;
