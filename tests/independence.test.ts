@@ -4,6 +4,7 @@ import ts from "typescript";
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
+import { childTestLimit, finished } from "./support/limits";
 import { removeTempDir } from "./support/temp-dir";
 
 const cli = path.resolve(import.meta.dir, "../src/cli.ts");
@@ -21,14 +22,9 @@ async function fixture() {
     const child = Bun.spawn([process.execPath, entry, ...args], {
       cwd: project, env: { ...env, ...additions }, stdin: "ignore", stdout: "pipe", stderr: "pipe",
     });
-    // A hang guard: a run takes 1-7 s on a Windows CI runner, and a slow one passed 10 s.
-    const timer = setTimeout(() => child.kill(), 25_000);
-    try {
-      const [stdout, stderr, exit] = await Promise.all([
-        new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
-      ]);
-      return { stdout, stderr, exit };
-    } finally { clearTimeout(timer); }
+    // A hang guard: a run takes 1-7 s on a Windows CI runner, and a slow one passed 25 s.
+    const { stdout, stderr, exit } = await finished(child);
+    return { stdout, stderr, exit };
   }
   return { root, home, project, run };
 }
@@ -43,7 +39,7 @@ test("startup ignores an inherited engine directory with a notice and uses Caspe
   expect(result.stderr).not.toContain("Ignoring");
   expect(await readdir(f.root)).not.toContain("inherited-engine-state");
   expect(await readdir(path.join(f.home, ".casper"))).toContain("agent");
-});
+}, childTestLimit());
 
 test("CASPER_AGENT_DIR selects a separate catalog without importing legacy credentials", async () => {
   const f = await fixture();
@@ -60,7 +56,7 @@ test("CASPER_AGENT_DIR selects a separate catalog without importing legacy crede
   expect(result.stdout).toContain("fixture/custom-catalog");
   expect(await Bun.file(path.join(agent, "auth.json")).json()).toEqual({});
   expect(await readdir(path.join(f.home, ".casper"))).not.toContain("agent");
-});
+}, childTestLimit());
 
 test("CASPER_OFFLINE disables real catalog refreshes and supersedes the engine's inherited flag", async () => {
   const f = await fixture();
@@ -83,7 +79,7 @@ console.log(JSON.stringify(fetched));
   const online = await f.run([], { CASPER_OFFLINE: "", PI_OFFLINE: "1" }, probe);
   expect(online.exit).toBe(0);
   expect(JSON.parse(online.stdout).length).toBeGreaterThan(0);
-});
+}, childTestLimit(2));
 
 test("startup forwards Casper callback and terminal logging settings, never inherited engine values", async () => {
   const f = await fixture();
@@ -102,7 +98,7 @@ console.log(JSON.stringify([process.env.PI_OAUTH_CALLBACK_HOST ?? null, process.
   const defaults = await f.run([], inherited, probe);
   expect(defaults.exit).toBe(0);
   expect(JSON.parse(defaults.stdout)).toEqual([null, null]);
-});
+}, childTestLimit(2));
 
 test("source literals use Casper's identity rather than the engine's name", async () => {
   const src = path.resolve(import.meta.dir, "../src");
@@ -131,7 +127,7 @@ test("--version is one stdout line and touches neither inherited nor Casper stat
   expect(result.stdout).toMatch(/^casper \S+ \([^\n]*\)\n$/);
   expect((await readdir(f.root)).sort()).toEqual(["home", "project"]);
   expect(await readdir(f.home)).not.toContain(".casper");
-});
+}, childTestLimit());
 
 test("a real session ignores project .pi resources and names Casper once before user instructions", async () => {
   const f = await fixture();
@@ -171,4 +167,4 @@ test("a real session ignores project .pi resources and names Casper once before 
   expect(system.match(/You are Casper/g)).toHaveLength(1);
   expect(system).toContain("USER_INSTRUCTIONS_LOAD");
   expect(system).not.toMatch(/\bPi\b|operating inside pi/);
-});
+}, childTestLimit());

@@ -9,6 +9,8 @@ import { needsSymlinks } from "./support/platform";
 import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeModelSelectionOptions, RuntimeStartOptions, RuntimeUsage } from "../src/runtime/types";
 import { isolatedEnvironment } from "../src/platform/environment";
 import { removeTempDir } from "./support/temp-dir";
+import { childTestLimit, finished } from "./support/limits";
+import { run as runFixture } from "./support/run";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -135,15 +137,12 @@ test("an evaluation nested inside another Git repository refuses to start a runt
   await mkdir(temp);
   await writeFile(path.join(root, "keep.txt"), "caller-owned repository\n");
   const env = { ...isolatedEnvironment(home), TMPDIR: temp, TMP: temp, TEMP: temp };
-  const init = Bun.spawnSync(["git", "init", "--quiet", root], { env, stdout: "pipe", stderr: "pipe" });
-  expect(init.exitCode).toBe(0);
+  expect((await runFixture(["git", "init", "--quiet", root], { env })).status).toBe(0);
   const config = await readFile(path.join(root, ".git/config"), "utf8");
   const child = Bun.spawn([process.execPath, "--no-install", path.join(repoRoot, "tests/fixtures/eval-nested-workspace.ts"), home], {
     cwd: root, env, stdout: "pipe", stderr: "pipe",
   });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
-  ]);
+  const { stdout, stderr, exit: exitCode } = await finished(child);
   expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
   const observed = JSON.parse(stdout);
   expect(observed.factories).toBe(0);
@@ -153,7 +152,7 @@ test("an evaluation nested inside another Git repository refuses to start a runt
   expect(observed.result.error).toContain("outside the prepared candidate workspace");
   expect(await readFile(path.join(root, "keep.txt"), "utf8")).toBe("caller-owned repository\n");
   expect(await readFile(path.join(root, ".git/config"), "utf8")).toBe(config);
-}, 60_000);
+}, childTestLimit());
 
 test("a scripted fix is measured as success with real file, call and token numbers", async () => {
   const task = findEvalTask("fix-failing-test")!;
@@ -618,13 +617,8 @@ needsSymlinks("the grading CLI rejects candidate-owned observations reached thro
     const child = Bun.spawn([process.execPath, "--no-install", path.join(repoRoot, "tools/eval.ts"), "--grade", root, "--observation", record, "--json", path.join(host, "export.json")], {
       env: isolatedEnvironment(host), stdout: "pipe", stderr: "pipe",
     });
-    const timer = setTimeout(() => child.kill(), 15_000);
-    try {
-      const [stdout, stderr, exitCode] = await Promise.all([
-        new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
-      ]);
-      return { stdout, stderr, exitCode };
-    } finally { clearTimeout(timer); }
+    const { stdout, stderr, exit: exitCode } = await finished(child);
+    return { stdout, stderr, exitCode };
   };
   for (const [root, record] of [[alias, inside], [prepared.root, linkedObservation]]) {
     const rejected = await grade(root!, record!);
@@ -639,7 +633,7 @@ needsSymlinks("the grading CLI rejects candidate-owned observations reached thro
   expect((await readdir(path.join(prepared.root, "results"))).length).toBe(1);
   const exported = JSON.parse(await readFile(path.join(host, "export.json"), "utf8"));
   expect(exported.results[0].outputTail).toBe("<tmp>/trace");
-}, 60_000);
+}, childTestLimit(3));
 
 test.each(["repair-order-reservations", "add-order-cancellation"])("%s rejects otherwise valid repairs that edit outside production scope", async id => {
   const task = findEvalTask(id)!;

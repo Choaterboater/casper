@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -9,6 +9,10 @@ import { classifyTask } from "../src/task/classify";
 import { needsFifos, needsSymlinks, posixModes, posixOnly } from "./support/platform";
 import { cleanEnv } from "./support/env";
 import { removeTempDir } from "./support/temp-dir";
+import { CHILD_KILL_MS, childTestLimit } from "./support/limits";
+
+// Nearly every test here starts a real Bun child (support/limits.ts): its limit covers the child's own guard.
+setDefaultTimeout(childTestLimit());
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -59,7 +63,7 @@ async function fixture(respond?: (payload: Payload, index: number) => Response |
     const child = spawn(args);
     // A hang guard only, as in support/scripting.ts: a run takes 1-2 s, but on a loaded 4-core Windows CI runner two
     // runs passed 10 s (and were killed, exit 137) while the same window ran other CLI tests four times slower.
-    const timer = setTimeout(() => child.kill("SIGKILL"), 60_000);
+    const timer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_MS);
     try {
       const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       return { stdout, stderr, exit };
@@ -194,7 +198,7 @@ test("concurrent identical promotion commits one decision and one create-only ar
   const registry = await SkillRegistry.discover({ projectRoot: f.project, homeDir: f.home });
   expect(registry.list().filter((entry) => entry.name === "atomic-concurrent")).toHaveLength(1);
   expect(f.payloads).toHaveLength(2);
-}, 30_000);
+}, childTestLimit());
 
 test("promotion never overwrites existing skills and corrupted decisions fail closed", async () => {
   const f = await fixture();
@@ -240,7 +244,7 @@ test("exact replay recovers only a recorded staged artifact and never repairs ch
   expect(changed.stderr).toContain("changed; refusing recovery or replacement");
   expect(await readFile(artifact.path, "utf8")).toBe("CHANGED\n");
   expect(f.payloads).toHaveLength(2);
-}, 30_000);
+}, childTestLimit());
 
 for (const redirected of ["active", "staged"] as const) needsSymlinks(`promotion replay refuses a redirected ${redirected} artifact directory`, async () => {
   const f = await fixture();
@@ -274,7 +278,7 @@ needsSymlinks("promotion rejects symlinked artifact roots without writing throug
   const inspected = JSON.parse((await f.run(["learn", "inspect", f.project, draft.id])).stdout);
   expect(inspected.decisions).toEqual([]);
   expect(f.payloads).toHaveLength(2);
-}, 30_000);
+}, childTestLimit());
 
 test("learning rejects source overlap with Pi state before creating files or calling a provider", async () => {
   const f = await fixture(() => answer('{"candidates":[]}'));

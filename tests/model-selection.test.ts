@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { needsPosixModes, needsSymlinks, posixOnly } from "./support/platform";
 import { PTY_TEST_MS, runPtyFixture } from "./support/pty";
@@ -6,6 +6,10 @@ import { isolatedEnvironment } from "../src/platform/environment";
 import os from "node:os";
 import path from "node:path";
 import { removeTempDir } from "./support/temp-dir";
+import { CHILD_KILL_MS, childTestLimit, finished } from "./support/limits";
+
+// Nearly every test here starts a real Bun child (support/limits.ts): its limit covers the child's own guard.
+setDefaultTimeout(childTestLimit());
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -33,7 +37,7 @@ async function fixture() {
 const runtime = new PiRuntime();
 try { const session = await runtime.start({ cwd: process.cwd(), localModels: false }); ${body} } finally { await runtime.dispose(); }`],
       { cwd: project, env, stdout: "pipe", stderr: "pipe" });
-    const timer = setTimeout(() => child.kill(), 60_000); // A real Pi runtime in a fresh Bun child; a slow Windows CI runner has needed more than 25 s.
+    const timer = setTimeout(() => child.kill(), CHILD_KILL_MS); // A real Pi runtime in a fresh Bun child; a slow Windows CI runner has needed more than 25 s.
     try {
       const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
@@ -43,7 +47,7 @@ try { const session = await runtime.start({ cwd: process.cwd(), localModels: fal
   async function cli(...args: string[]) {
     const child = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts"), ...args],
       { cwd: project, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    const { stdout, stderr, exit } = await finished(child);
     return { stdout, stderr, exit };
   }
   return { home, project, agent, casper, shared, env, run, cli };
@@ -86,7 +90,7 @@ test("local diff in a repository with no commits yet says so in plain words, not
   expect(result.stdout + result.stderr).toContain("[diff] No commits yet, so there is nothing to compare with; files are listed by name only.");
   expect(result.stdout).toContain("new.txt");
   expect(result.stdout + result.stderr).not.toContain("bad revision");
-}, 30_000);
+}, childTestLimit());
 
 // A shell fsmonitor hook; Windows has no /bin/sh fixture here.
 posixOnly("local diff never runs a repository-configured fsmonitor command", async () => {
@@ -105,7 +109,7 @@ posixOnly("local diff never runs a repository-configured fsmonitor command", asy
   expect(result.exit).toBe(0);
   expect(result.stdout).toContain("+after");
   expect(await Bun.file(marker).exists()).toBe(false);
-}, 30_000);
+}, childTestLimit());
 
 test("context and usage are local; fresh conversations retain saved sessions without touching source files", async () => {
   const f = await fixture();
@@ -146,7 +150,7 @@ await session.selectModel({ query: 'fixture/first', persist: false });
 await session.selectModel({ query: 'fixture/second', persist: false });
 console.log('RESULT=' + JSON.stringify(session.getStatus()));`);
   expect(status.thinkingLevel).toBe("high");
-}, 30_000);
+}, childTestLimit());
 
 test("effort on a case-variant saved default still updates defaultThinkingLevel", async () => {
   const f = await fixture();
@@ -161,7 +165,7 @@ console.log('RESULT=' + JSON.stringify(session.getStatus()));`);
   const saved = JSON.parse(await readFile(path.join(f.casper, "settings.json"), "utf8"));
   expect(saved.modelThinkingLevels).toMatchObject({ "fixture/second": "low" });
   expect(saved.defaultThinkingLevel).toBe("low");
-}, 30_000);
+}, childTestLimit());
 
 test("effort is validated, remembered for the default, and session-only changes stay local", async () => {
   const f = await fixture();
@@ -403,7 +407,7 @@ console.log('RESULT=' + JSON.stringify({ failures, status: session.getStatus() }
   expect(result.failures[1]).toContain("No model matches");
   expect(result.failures[2]).toBe("AbortError");
   expect(result.status).toMatchObject({ model: "first", defaultModel: { provider: "fixture", id: "first" } });
-}, 30_000);
+}, childTestLimit());
 
 test("ambiguous bare model IDs require a provider instead of silently choosing one", async () => {
   const f = await fixture();
@@ -435,7 +439,7 @@ console.log('RESULT=' + JSON.stringify({ failure, status: session.getStatus() })
   expect(result.status.model).toBe("second");
   expect(result.status.defaultModel).toBeUndefined();
   expect(await readFile(path.join(f.agent, "settings.json"), "utf8")).toBe(f.shared);
-}, 30_000);
+}, childTestLimit());
 
 test("cancelling a pending Pi auth check cannot later select or persist a model", async () => {
   const f = await fixture();
@@ -455,7 +459,7 @@ console.log('RESULT=' + JSON.stringify({ failure, status: session.getStatus() })
   expect(result.failure).toBe("AbortError");
   expect(result.status.model).toBe("first");
   expect(result.status.defaultModel).toBeUndefined();
-}, 30_000);
+}, childTestLimit());
 
 test("disposing during model auth prevents a late selection or default write", async () => {
   const f = await fixture();
@@ -472,7 +476,7 @@ ModelRuntime.prototype.checkAuth = original;
 console.log('RESULT=' + JSON.stringify({ outcome }));`);
   expect(result.outcome).toBe("AbortError");
   expect(await readFile(path.join(f.casper, "settings.json"), "utf8").catch(() => "absent")).toBe("absent");
-}, 30_000);
+}, childTestLimit());
 
 test("explicit compaction uses the local provider, cancels active work, and pre-aborted compact sends nothing", async () => {
   const f = await fixture();
@@ -514,7 +518,7 @@ console.log('RESULT=' + JSON.stringify({ aborted, activeAborted, file: session.g
   const transcript = await readFile(result.file, "utf8");
   expect(transcript).toContain('"type":"compaction"');
   expect(transcript).toContain("LOCAL_COMPACTION_SUMMARY");
-}, 30_000);
+}, childTestLimit());
 
 test("selection before the first response keeps Pi persistence writable for the next prompt", async () => {
   const f = await fixture();
@@ -536,7 +540,7 @@ console.log('RESULT=' + JSON.stringify({ errors, file: session.getSessionInfo().
   expect(requests).toBe(1);
   expect(result.errors).toEqual([]);
   expect(await readFile(result.file, "utf8")).toContain("MODEL_SELECTION_REPLY");
-}, 30_000);
+}, childTestLimit());
 
 test("selecting in a persisted session preserves inactive transcript branches", async () => {
   const f = await fixture();
@@ -574,7 +578,7 @@ console.log('RESULT=' + JSON.stringify({ failures, status: session.getStatus() }
   expect(result.failures[1]).toContain("selection is in progress");
   expect(result.status).toMatchObject({ model: "second", selectionSource: "conversation" });
   expect(result.status.defaultModel).toBeUndefined();
-}, 30_000);
+}, childTestLimit());
 
 test("a prompt in auth preflight excludes model switching until cancellation settles", async () => {
   const f = await fixture();
@@ -801,7 +805,7 @@ console.log('RESULT=' + JSON.stringify({ error, events, blocked, status: session
   expect(result.events).not.toContain("assistant_response_start");
   expect(result.events).not.toContain("model_controls_changed");
   expect(result.status.thinkingLevel).toBe("high");
-}, 30_000);
+}, childTestLimit());
 
 test.each(["malformed", "length"])("classifier %s failure retains effort and observed usage while generation continues", async failure => {
   const f = await fixture();
@@ -827,7 +831,7 @@ console.log('RESULT=' + JSON.stringify({ status: session.getStatus(), usage: ses
   expect(result.status).toMatchObject({ model: "second", thinkingLevel: "high", configuredEffort: "auto", autoEffort: { state: "fallback" } });
   expect(result.usage.effortClassification).toMatchObject({ requests: 1, tokens: { input: 10, output: 4, total: 14 } });
   expect(result.usage.effortClassification.estimatedCost).toBeGreaterThan(0);
-}, 30_000);
+}, childTestLimit());
 
 test("a fresh automatic default survives forking and resuming before its first prompt", async () => {
   const f = await fixture();
@@ -843,7 +847,7 @@ await session.resumeConversation(initial.sessionId);
 console.log('RESULT=' + JSON.stringify({ fork, resumed: session.getStatus() }));`);
   expect(result.fork).toMatchObject({ model: "second", configuredEffort: "auto" });
   expect(result.resumed).toMatchObject({ model: "second", configuredEffort: "auto" });
-}, 30_000);
+}, childTestLimit());
 
 test("describeModel names the big model's price and context window without selecting it", async () => {
   const f = await fixture();
@@ -861,7 +865,7 @@ console.log('RESULT=' + JSON.stringify({ none, big, current: session.getStatus()
   expect(result.big).toEqual({ provider: "fixture", id: "second", contextWindow: 200000, inputCostPerMillion: 15 });
   expect(result.current).toBe("first");
   expect(result.unknown).toBeNull();
-}, 30_000);
+}, childTestLimit());
 
 test("a model that sees pictures says so, and visionModel finds one you set up", async () => {
   const f = await fixture();
@@ -882,5 +886,4 @@ console.log('RESULT=' + JSON.stringify({ before, after, onVision: session.getSta
   expect(result.onVision).toBe(true);
   // The model in use is never offered as the switch.
   expect(result.self).toBeNull();
-  // One Pi child: about 2 s, but a busy Windows runner held one past 30 s, so room for run()'s own 60 s stop.
-}, 90_000);
+}, childTestLimit());

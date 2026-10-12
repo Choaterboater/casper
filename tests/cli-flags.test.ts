@@ -8,6 +8,7 @@ import { resolveVerificationMode } from "../src/verify/mode";
 import { CASPER_VERSION } from "../src/version";
 import { flakyOn, needsPosixModes, posixOnly } from "./support/platform";
 import { cleanEnv } from "./support/env";
+import { childTestLimit, finished } from "./support/limits";
 import { removeTempDir } from "./support/temp-dir";
 
 const cli = path.resolve(import.meta.dir, "../src/cli.ts");
@@ -19,9 +20,7 @@ async function run(args: string[], cwd: string, home = cwd) {
   const child = Bun.spawn([process.execPath, ...args], {
     cwd, env: cleanEnv({ HOME: home, CASPER_PROFILE: "default" }), stdout: "pipe", stderr: "pipe",
   });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
-  ]);
+  const { stdout, stderr, exit: code } = await finished(child);
   return { stdout, stderr, code };
 }
 
@@ -60,7 +59,7 @@ test("a flag following --mcp or --lsp is not taken as a server name", async () =
   const result = await run([cli, "--mcp", "--verify", "Summarize"], root);
   expect({ code: result.code, stdout: result.stdout }).toEqual({ code: 64, stdout: "" });
   expect(result.stderr).toContain("--mcp requires a configured server name");
-});
+}, childTestLimit());
 
 posixOnly("--version names the cli.ts that actually runs, through a PATH-style symlink", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));

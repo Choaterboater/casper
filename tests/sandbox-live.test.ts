@@ -12,6 +12,7 @@ import { runtimeEngine } from "../src/sandbox/runtime";
 import { useSandbox } from "../src/sandbox/manager";
 import { runCommandCheck } from "../src/verify/command";
 import { needsSandbox, sandboxAvailable } from "./support/platform";
+import { run as runFixture } from "./support/run";
 import { removeTempDir } from "./support/temp-dir";
 
 /**
@@ -48,8 +49,8 @@ beforeAll(async () => {
   await writeFile(path.join(home, ".casper", "projects", "p", "security-approved.json"), "{}\n");
   await mkdir(outside, { recursive: true });
   await mkdir(root, { recursive: true });
-  const git = Bun.spawnSync(["git", "init", "-q", root]);
-  expect(git.exitCode).toBe(0);
+  // Fixture programs are awaited, not spawnSync: see tests/support/run.ts.
+  expect((await runFixture(["git", "init", "-q", root])).status).toBe(0);
   sandbox = new ShellSandbox({
     root: () => root, home, tempDirs: [], engine: runtimeEngine(), problem: () => process.platform === "linux" ? linuxSandboxProblem() : undefined,
     askHost: () => answer === undefined ? undefined : Promise.resolve(answer), note: (line) => notes.push(line),
@@ -105,8 +106,7 @@ needsSandbox("git's own files stay read-only: no hook, no core.hooksPath", async
  * run it ("log: Must be admin to run 'stream' command"), so on a standard account nothing can be named: skip there.
  */
 const sandboxLogRefused = sandboxAvailable && process.platform === "darwin"
-  && Bun.spawnSync(["/usr/bin/log", "stream", "--style", "compact"], { timeout: 1000, stdout: "ignore", stderr: "pipe" })
-    .stderr.toString().includes("Must be admin");
+  && (await runFixture(["/usr/bin/log", "stream", "--style", "compact"], { timeoutMs: 1000 })).stderr.includes("Must be admin");
 
 test.skipIf(!sandboxAvailable || sandboxLogRefused)("a refused write is named: blocked by the sandbox (wanted to write ...)", async () => {
   const result = await run(`echo x > ${outside}/named.txt`);
@@ -207,8 +207,8 @@ needsSandbox("during a plan turn the project is read-only too, so a repo's git d
   // A repository's own diff.external runs a program; while planning it can't write the project.
   const script = path.join(root, "differ.sh");
   await writeFile(script, "#!/bin/sh\necho pwned > planned.txt\n", { mode: 0o755 });
-  Bun.spawnSync(["git", "-C", root, "add", "-A"]);
-  Bun.spawnSync(["git", "-C", root, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "base"]);
+  await runFixture(["git", "-C", root, "add", "-A"]);
+  await runFixture(["git", "-C", root, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "base"]);
   await writeFile(path.join(root, "inside.txt"), "changed\n");
   await run(`git -c diff.external=${script} diff`, "ask", true);
   expect(existsSync(path.join(root, "planned.txt"))).toBe(false);
@@ -241,7 +241,7 @@ needsSandbox("no command can move the project's .git aside and put another in it
 
 needsSandbox("after a check ends, the sandbox leaves no stand-in files (.bashrc, .gitconfig, .vscode) in your project", async () => {
   const project = path.join(base, "clean-after");
-  expect(Bun.spawnSync(["git", "init", "-q", project]).exitCode).toBe(0);
+  expect((await runFixture(["git", "init", "-q", project])).status).toBe(0);
   const checkSandbox = new ShellSandbox({ root: () => project, home, tempDirs: [], engine: runtimeEngine(), problem: () => process.platform === "linux" ? linuxSandboxProblem() : undefined });
   useSandbox(checkSandbox);
   // The runtime puts its stand-ins in Casper's own folder, which is the project when you start Casper there.
@@ -257,9 +257,9 @@ needsSandbox("after a check ends, the sandbox leaves no stand-in files (.bashrc,
 needsSandbox("a submodule's git settings, hooks and .git file can't be changed, in any network mode", async () => {
   const project = path.join(base, "with-submodule");
   const modules = path.join(project, ".git", "modules", "lib");
-  expect(Bun.spawnSync(["git", "init", "-q", project]).exitCode).toBe(0);
+  expect((await runFixture(["git", "init", "-q", project])).status).toBe(0);
   await mkdir(path.dirname(modules), { recursive: true });
-  expect(Bun.spawnSync(["git", "init", "-q", "--separate-git-dir", modules, path.join(project, "lib")]).exitCode).toBe(0);
+  expect((await runFixture(["git", "init", "-q", "--separate-git-dir", modules, path.join(project, "lib")])).status).toBe(0);
   await writeFile(path.join(project, ".gitmodules"), '[submodule "lib"]\n\tpath = lib\n\turl = ./lib\n');
   const config = await readFile(path.join(modules, "config"), "utf8");
   const pointer = await readFile(path.join(project, "lib", ".git"), "utf8");
@@ -270,7 +270,7 @@ needsSandbox("a submodule's git settings, hooks and .git file can't be changed, 
         `git -C lib config core.fsmonitor 'touch ${outside}/ran'; mkdir -p .git/modules/lib/hooks; echo 'touch ${outside}/ran' > .git/modules/lib/hooks/post-checkout; echo "gitdir: ${outside}" > lib/.git`,
         { cwd: project, network },
       );
-      Bun.spawnSync(["sh", "-c", wrapped.command], { cwd: project, env: { ...process.env, HOME: home } });
+      await runFixture(["sh", "-c", wrapped.command], { cwd: project, env: { ...process.env, HOME: home } });
       subSandbox.finished(wrapped.id);
       expect({ network, config: await readFile(path.join(modules, "config"), "utf8") === config }).toEqual({ network, config: true });
       expect({ network, hook: existsSync(path.join(modules, "hooks", "post-checkout")) }).toEqual({ network, hook: false });
@@ -281,14 +281,14 @@ needsSandbox("a submodule's git settings, hooks and .git file can't be changed, 
 
 needsSandbox("a worktree's .git file can't be pointed somewhere else", async () => {
   const tree = path.join(base, "worktree");
-  Bun.spawnSync(["git", "-C", root, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "tree base"]);
-  expect(Bun.spawnSync(["git", "-C", root, "worktree", "add", "-q", tree]).exitCode).toBe(0);
+  await runFixture(["git", "-C", root, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "tree base"]);
+  expect((await runFixture(["git", "-C", root, "worktree", "add", "-q", tree])).status).toBe(0);
   const before = await readFile(path.join(tree, ".git"), "utf8");
   const treeSandbox = new ShellSandbox({ root: () => tree, home, tempDirs: [], engine: runtimeEngine(), problem: () => process.platform === "linux" ? linuxSandboxProblem() : undefined });
   try {
     for (const network of ["ask", "host", "none"] as const) {
       const wrapped = await treeSandbox.wrap(`echo "gitdir: ${outside}" > .git`, { cwd: tree, network });
-      Bun.spawnSync(["sh", "-c", wrapped.command], { cwd: tree, env: { ...process.env, HOME: home } });
+      await runFixture(["sh", "-c", wrapped.command], { cwd: tree, env: { ...process.env, HOME: home } });
       treeSandbox.finished(wrapped.id);
       expect({ network, same: await readFile(path.join(tree, ".git"), "utf8") === before }).toEqual({ network, same: true });
     }
@@ -296,9 +296,9 @@ needsSandbox("a worktree's .git file can't be pointed somewhere else", async () 
 });
 
 /** Running socat processes (not exited ones waiting to be reaped), with their parents. */
-function runningSocat(): { pid: number; parent: number }[] {
-  const listing = Bun.spawnSync(["ps", "-axo", "pid=,ppid=,stat=,comm="], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin", LC_ALL: "C" } });
-  return listing.stdout.toString().split("\n").map((line) => line.trim().split(/\s+/))
+async function runningSocat(): Promise<{ pid: number; parent: number }[]> {
+  const listing = await runFixture(["ps", "-axo", "pid=,ppid=,stat=,comm="], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin", LC_ALL: "C" } });
+  return listing.stdout.split("\n").map((line) => line.trim().split(/\s+/))
     .filter((fields) => fields[3] === "socat" && !fields[2]!.startsWith("Z"))
     .map((fields) => ({ pid: Number(fields[0]), parent: Number(fields[1]) }));
 }
@@ -306,17 +306,17 @@ function runningSocat(): { pid: number; parent: number }[] {
 // On Linux the runtime relays the network through socat processes Casper starts; none may outlive the sandbox.
 test.skipIf(!sandboxAvailable || process.platform !== "linux")("closing the sandbox, or Casper exiting, leaves no socat relay running", async () => {
   const project = path.join(base, "relays");
-  expect(Bun.spawnSync(["git", "init", "-q", project]).exitCode).toBe(0);
+  expect((await runFixture(["git", "init", "-q", project])).status).toBe(0);
   const relaySandbox = new ShellSandbox({ root: () => project, home, tempDirs: [], engine: runtimeEngine(), problem: () => linuxSandboxProblem() });
   let relays: number[] = [];
   try {
     const wrapped = await relaySandbox.wrap("true", { cwd: project, network: "ask" });
-    expect(Bun.spawnSync(["sh", "-c", wrapped.command], { cwd: project, env: { ...process.env, HOME: home } }).exitCode).toBe(0);
+    expect((await runFixture(["sh", "-c", wrapped.command], { cwd: project, env: { ...process.env, HOME: home } })).status).toBe(0);
     relaySandbox.finished(wrapped.id);
-    relays = runningSocat().filter((item) => item.parent === process.pid).map((item) => item.pid);
+    relays = (await runningSocat()).filter((item) => item.parent === process.pid).map((item) => item.pid);
     expect(relays.length).toBeGreaterThan(0);
   } finally { await relaySandbox.close(); }
-  expect(runningSocat().filter((item) => relays.includes(item.pid))).toEqual([]);
+  expect((await runningSocat()).filter((item) => relays.includes(item.pid))).toEqual([]);
 
   // A Casper process that exits without closing it (process.exit after an error) stops its relays on the way out.
   const script = path.join(base, "relay-exit.ts");
@@ -329,14 +329,14 @@ test.skipIf(!sandboxAvailable || process.platform !== "linux")("closing the sand
     console.log(Bun.spawnSync(["pgrep", "-P", String(process.pid), "-x", "socat"]).stdout.toString().trim().split("\\n").join(" "));
     process.exit(0);
   `);
-  const child = Bun.spawnSync([process.execPath, script], { cwd: project, env: { ...process.env, HOME: home } });
-  expect(child.exitCode).toBe(0);
-  const exitedRelays = child.stdout.toString().trim().split(/\s+/).filter(Boolean).map(Number);
+  const child = await runFixture([process.execPath, script], { cwd: project, env: { ...process.env, HOME: home } });
+  expect(child.status).toBe(0);
+  const exitedRelays = child.stdout.trim().split(/\s+/).filter(Boolean).map(Number);
   expect(exitedRelays.length).toBeGreaterThan(0);
   let left = exitedRelays;
   for (let attempt = 0; attempt < 50 && left.length; attempt++) {
     await Bun.sleep(20);
-    left = runningSocat().filter((item) => exitedRelays.includes(item.pid)).map((item) => item.pid);
+    left = (await runningSocat()).filter((item) => exitedRelays.includes(item.pid)).map((item) => item.pid);
   }
   expect(left).toEqual([]);
 });

