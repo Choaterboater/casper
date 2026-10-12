@@ -763,7 +763,12 @@ function dialogNote(dialog: { type: string; message: string }): string {
   return `${dialog.type} dialog ${JSON.stringify(dialog.message)}: Casper ${answer}`;
 }
 
-const BROKEN_CHECK_HINT ="If the check itself is wrong, record a corrected check and withdraw this one; if the page is wrong, fix it.";
+const BROKEN_CHECK_HINT ="If the check itself is wrong, record a corrected check of this page and withdraw this one (replacedBy: its id once it passes); if the page is wrong, fix it.";
+const INSIDE_HINT = "The expected text is inside this element with other text: point the selector at the element that holds only it (see near).";
+/** The way out of a withdraw refused after a change: a corrected check of the same page that passes takes its place. */
+const REPLACE_WAY = "or record a corrected check of the same page and, once it passes, withdraw this one with replacedBy: its id";
+/** A replay whose page's server no longer answers and no server of Casper's stands in: nothing was checked. */
+class ServerGone extends Error {}
 
 /** One task's disposable browser. No user profiles, arbitrary evaluation or browser installation. */
 /** The scenario's inputs as they are now; a check that names none is told how to get a fresh pass when the whole project can't be watched. */
@@ -774,6 +779,8 @@ async function inputState(root: string, scenario: BrowserScenario, signal?: Abor
 }
 
 interface RecordedCheck { scenario: BrowserScenario; check: BrowserCheck; fingerprint?: string; revision: number; /** performance.now() when it last ran. */ ranAt: number
+  /** Its place in recording order: a replacement must be recorded after the check it replaces. */
+  order: number
   /** The revision and input fingerprint of the run that recorded it: a withdraw needs both unchanged since then. */
   recordedRevision: number; recordedFingerprint?: string }
 
@@ -809,6 +816,7 @@ export class BrowserSession {
   /** Page loads that took pictures, for their file names. */
   private pageLoads = 0;
   private readonly scenarios = new Map<string, RecordedCheck>();
+  private recorded = 0;
   /** Casper's own end-of-task replay runs: nothing is asked, and a question is a no. */
   private unattended = false;
   /** When Casper's end replays must stop (performance.now()); set only while they run. */
@@ -1217,7 +1225,8 @@ export class BrowserSession {
    * that a later edit or command made stale, with no model turn, so its fresh result counts. Only checks of a page on
    * this computer, and only local-test steps (one labelled "send" or "buy" only with Browser clicks on);
    * nothing is asked. A step or address that would need the person, a busy or closed browser, or a replay that can't
-   * finish keeps the check as it was, and the browser stays open. All replays share one minute.
+   * finish keeps the check as it was, and the browser stays open; one whose server is gone (see `openCheck`) is
+   * incomplete instead. All replays share one minute.
    */
   async replayStale(since: number, signal?: AbortSignal, onReplay?: (name: string) => void): Promise<void> {
     this.replayUntil = performance.now() + 60_000;
@@ -1231,7 +1240,8 @@ export class BrowserSession {
         this.unattended = true;
         const work = this.dispatch({ action: "replay", id }, signal);
         this.work = work;
-        try { await work; } catch { Object.assign(entry, kept); }
+        // A server that is gone, with none of Casper's to stand in, leaves nothing checked: incomplete, not the old result.
+        try { await work; } catch (error) { if (!(error instanceof ServerGone)) Object.assign(entry, kept); }
         finally { this.unattended = false; if (this.work === work) this.work = undefined; }
       }
     } finally { this.replayUntil = undefined; }
@@ -1253,7 +1263,7 @@ export class BrowserSession {
       await this.askMetadata(scenario.url, signal);
       if (this.scenarios.size >= 24) throw new Error("Browser check limit reached (24 per session); replay the ids your checks returned instead of recording new ones");
       id = randomUUID();
-      this.scenarios.set(id, { scenario, revision: this.revision, recordedRevision: this.revision, check: { id, name: scenario.name,
+      this.scenarios.set(id, { scenario, revision: this.revision, recordedRevision: this.revision, order: ++this.recorded, check: { id, name: scenario.name,
         scenarioSha256: createHash("sha256").update(JSON.stringify(scenario)).digest("hex"), url: scenario.url, viewport: scenario.viewport,
         status: "incomplete", baseline: "incomplete", freshness: "unavailable", scope: scenario.scope, assertions: [] }, ranAt: performance.now() });
     } else {
@@ -1275,7 +1285,7 @@ export class BrowserSession {
       const page = await this.newPage();
       this.logs.length = 0; this.requests.length = 0; this.dropped = 0;
       await page.setViewport(scenario.viewport);
-      const notOpened = await this.navigate(page, scenario.url, signal);
+      const notOpened = await this.openCheck(page, scenario.url, input.action === "replay", check, signal);
       if (notOpened.notOpened) throw new Error(`The page reached for a cloud metadata address (${notOpened.notOpened.join(", ")}) and the person said no`);
       // The steps share 8 s of watching for what they changed, so 12 steps on a busy page stay inside the check's limit.
       const watchBy = performance.now() + 8_000;
@@ -1290,7 +1300,7 @@ export class BrowserSession {
       for (const assertion of scenario.assertions) {
         signal.throwIfAborted();
         // withNear: on a selector that matches nothing or a wrong text, up to 3 real elements most like what was asked for.
-        const evaluate = (withNear = false) => page.evaluate((a, withNear): { pass: boolean; actual: unknown; near?: string[] } => {
+        const evaluate = (withNear = false) => page.evaluate((a, withNear): { pass: boolean; actual: unknown; near?: string[]; inside?: boolean } => {
           const norm = (value: string | null) => (value ?? "").replace(/\s+/g, " ").trim();
           const nearest = (): string[] => {
             const words = (a.selector ?? "").toLowerCase().match(/[a-z][\w-]{2,}/g) ?? [];
@@ -1320,7 +1330,8 @@ export class BrowserSession {
           if (a.kind === "no-horizontal-overflow") return { pass: el.scrollWidth <= el.clientWidth + 1 && r.right <= innerWidth + 1,
             actual: { contentWidth: el.scrollWidth, boxWidth: el.clientWidth, right: Math.round(r.right), viewport: innerWidth } };
           // Runs of spaces and line breaks count as one space on both sides; otherwise the text must match exactly.
-          if (a.kind === "text") { const pass = norm(el.textContent) === norm(a.expected); return { pass, actual: norm(el.textContent).slice(0, 1024), ...(withNear && !pass ? { near: nearest() } : {}) }; }
+          if (a.kind === "text") { const pass = norm(el.textContent) === norm(a.expected);
+            return { pass, actual: norm(el.textContent).slice(0, 1024), ...(withNear && !pass ? { near: nearest(), inside: [...el.querySelectorAll("*")].some(child => norm(child.textContent) === norm(a.expected)) } : {}) }; }
           const visible = el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && r.width > 0 && r.height > 0;
           if (a.kind === "visible") return { pass: visible, actual: visible };
           const other = document.querySelectorAll(a.other);
@@ -1334,9 +1345,11 @@ export class BrowserSession {
         while (!result.pass && performance.now() < deadline) { await new Promise(resolve => setTimeout(resolve, 50)); signal.throwIfAborted(); result = await evaluate(); }
         if (!result.pass) result = await evaluate(true);
         // Still a failure: the hint only says which way to go, a wrong check or a wrong page. Not on the recording run: a
-        // check recorded before the edit is meant to fail then, and must not be withdrawn for it.
+        // check recorded before the edit is meant to fail then, and must not be withdrawn for it. An element inside the
+        // matched one that holds exactly the expected text means a selector written too wide, on any run.
         check.assertions.push({ kind: assertion.kind, status: result.pass ? "pass" : "fail", actual: result.actual,
-          ...(result.near?.length ? { near: result.near } : {}), ...(result.near && !recording ? { hint: BROKEN_CHECK_HINT } : {}) });
+          ...(result.near?.length ? { near: result.near } : {}),
+          ...(result.inside ? { hint: INSIDE_HINT } : result.near && !recording ? { hint: BROKEN_CHECK_HINT } : {}) });
       }
       check.status = check.assertions.every(a => a.status === "pass") ? "pass" : "fail";
       const after = await inputState(this.options.projectRoot, scenario, signal);
@@ -1347,7 +1360,7 @@ export class BrowserSession {
       if (recording) { check.baseline = check.status; entry.recordedRevision = entry.revision; }
       return structuredClone(check) as unknown as Record<string, unknown>;
     } catch (error) {
-      check.status = "incomplete"; check.reason = "Browser reproduction did not finish; no passing evidence.";
+      check.status = "incomplete"; check.reason = error instanceof ServerGone ? `Could not check. ${error.message}` : "Browser reproduction did not finish; no passing evidence.";
       // A step selector that matches several elements is a check written wrong, not a page that isn't ready: nothing is
       // kept, so it can't hold the result at incomplete. One that matches nothing may be a feature not built yet.
       if (input.action === "check" && error instanceof Error && /exactly one element; it matches ([2-9]|\d{2,})/.test(error.message)) {
@@ -1362,9 +1375,28 @@ export class BrowserSession {
   }
 
   /**
+   * Opens a check's page. On a replay whose loopback server refuses the connection (the AI's own server, stopped),
+   * the same path opens on the server Casper runs for this project (serve, or the page checks' slot), noted in the
+   * check; with none up the replay throws ServerGone. A page on another computer is never redirected.
+   */
+  private async openCheck(page: Page, url: string, replay: boolean, check: BrowserCheck, signal: AbortSignal): Promise<{ notOpened?: string[]; note?: string }> {
+    try { return await this.navigate(page, url, signal); }
+    catch (error) {
+      if (!replay || !localURL(url) || !/ERR_CONNECTION_REFUSED/.test(String(error))) throw error;
+      const gone = new URL(url), services = this.options.services?.();
+      const managed = this.server?.origin() ?? (services && !services.closed ? services.origin(DEV_SLOT) : undefined);
+      if (!managed || managed === gone.origin) throw new ServerGone(`Nothing answers at ${gone.origin} any more and Casper runs no server for this project; start it with serve and replay`);
+      (check.notes ??= []).push(`opened on Casper's server ${managed}: nothing answers at ${gone.origin} any more`);
+      return await this.navigate(page, new URL(`${gone.pathname}${gone.search}${gone.hash}`, managed).href, signal);
+    }
+  }
+
+  /**
    * Takes a check the AI wrote wrong (a wrong expected text or selector) out of what decides the result. Only a check
    * whose last run failed, with nothing changed since it was recorded (no edit or command, its inputs the same): a
-   * page fixed after the failure is replayed, never withdrawn. The check stays in the report as withdrawn, with the reason.
+   * page fixed after the failure is replayed, never withdrawn. After a change it may still be withdrawn when it names
+   * its replacement (replacedBy): a check of the same page recorded after it whose latest run passed, which then
+   * decides the result in its place. The check stays in the report as withdrawn, with the reason.
    */
   private async withdraw(input: Record<string, unknown>): Promise<Record<string, unknown>> {
     const id = text(input.id, "id", 64);
@@ -1374,23 +1406,49 @@ export class BrowserSession {
     const status = entry.check.status;
     if (status === "withdrawn") throw new Error("This check is already withdrawn");
     if (status === "pass") throw new Error("Only a failed or unfinished check can be withdrawn; this one passed");
+    const replacement = input.replacedBy === undefined ? undefined : this.replacement(id, entry, text(input.replacedBy, "replacedBy", 64));
+    const withdrawn = replacement ? `${reason} (replaced by ${JSON.stringify(replacement.check.name)}, ${replacement.check.id})` : reason;
+    const done = () => {
+      entry.check = { ...entry.check, status: "withdrawn", withdrawn };
+      return { id, name: entry.check.name, status: "withdrawn", reason: withdrawn,
+        guidance: replacement ? "It no longer decides the result; its replacement does, and the receipt names both."
+          : "It no longer decides the result; the receipt names it with your reason. Record a corrected check for what it meant to test." };
+    };
+    if (replacement) return done();
     // One that never finished has no inputs recorded: nothing run since it was recorded is enough.
     if (status === "incomplete") {
       if (entry.recordedRevision !== this.revision || entry.revision !== entry.recordedRevision)
-        throw new Error("A change was made after this check was recorded: replay it; it can't be withdrawn now");
-      entry.check = { ...entry.check, status: "withdrawn", withdrawn: reason };
-      return { id, name: entry.check.name, status: "withdrawn", reason,
-        guidance: "It no longer decides the result; the receipt names it with your reason. Record a corrected check for what it meant to test." };
+        throw new Error(`A change was made after this check was recorded: replay it, ${REPLACE_WAY}`);
+      return done();
     }
     const now = await this.current(entry);
-    if (now.freshness === "stale") throw new Error(`${(now.reason ?? "A change was made after this check failed").replace(/\.$/, "")}: fix the page and replay it; it can't be withdrawn now`);
+    if (now.freshness === "stale") throw new Error(`${(now.reason ?? "A change was made after this check failed").replace(/\.$/, "")}: fix the page and replay it, ${REPLACE_WAY}`);
     if (now.freshness !== "fresh") throw new Error(`Casper can't tell whether anything changed since this check failed (${(now.reason ?? "its inputs were not recorded").replace(/\.$/, "")}); replay it`);
     // A replay after a change resets freshness, so a check that still fails after a fix must not look withdrawable.
     if (entry.recordedRevision !== this.revision || entry.fingerprint !== entry.recordedFingerprint)
-      throw new Error("A change was made after this check was recorded, so its failure may be real: fix the page, or record a corrected check; it can't be withdrawn");
-    entry.check = { ...entry.check, status: "withdrawn", withdrawn: reason };
-    return { id, name: entry.check.name, status: "withdrawn", reason,
-      guidance: "It no longer decides the result; the receipt names it with your reason. Record a corrected check for what it meant to test." };
+      throw new Error(`A change was made after this check was recorded, so its failure may be real: fix the page, ${REPLACE_WAY}`);
+    return done();
+  }
+
+  /** The check `replacedBy` names, when it may take the place of check `id`: recorded after it, its latest run
+   * passed, and it opens the same page (the same path; the query, port and host may differ) at the same viewport,
+   * with at least as many steps and assertions of each kind, so a page-loads check can't stand in for a real one. */
+  private replacement(id: string, entry: RecordedCheck, other: string): RecordedCheck {
+    const by = this.scenarios.get(other);
+    if (!by || other === id) throw new Error("replacedBy must be the id of another check recorded in this session");
+    if (by.order < entry.order) throw new Error("replacedBy must name a check recorded after this one");
+    const page = (url: string) => { try { return new URL(url).pathname; } catch { return url; } };
+    if (page(by.scenario.url) !== page(entry.scenario.url)) throw new Error(`replacedBy must check the same page as this one (${page(entry.scenario.url)}), not ${page(by.scenario.url)}`);
+    const was = entry.scenario, is = by.scenario;
+    if (was.viewport.width !== is.viewport.width || was.viewport.height !== is.viewport.height)
+      throw new Error(`replacedBy must check the page at the same viewport as this one (${was.viewport.width}×${was.viewport.height})`);
+    const count = (kinds: string[]) => kinds.reduce((map, kind) => map.set(kind, (map.get(kind) ?? 0) + 1), new Map<string, number>());
+    const steps = count(is.steps.map(step => step.action)), assertions = count(is.assertions.map(a => a.kind));
+    const short = [...[...count(was.steps.map(step => step.action))].filter(([kind, n]) => (steps.get(kind) ?? 0) < n).map(([kind]) => `${kind} steps`),
+      ...[...count(was.assertions.map(a => a.kind))].filter(([kind, n]) => (assertions.get(kind) ?? 0) < n).map(([kind]) => `${kind} assertions`)];
+    if (short.length) throw new Error(`replacedBy must test at least what this check did; it has fewer ${short.join(", ")}`);
+    if (by.check.status !== "pass") throw new Error("replacedBy must name a check whose latest run passed; fix it and replay it first");
+    return by;
   }
 
   private async interact(input: Record<string, unknown>, signal: AbortSignal, waitForTarget = false, watchBy = Infinity): Promise<Record<string, unknown>> {

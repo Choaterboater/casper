@@ -97,7 +97,9 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
 - **Off switch:** **Browser clicks** off keeps labelled steps from replaying; the check then stays as it was.
 - **Guard rails:** any other step, a page that would need a yes, a busy browser or a replay past its shared
   minute leaves the check as it was (`ran before a later edit or command (replay to count)`); a withdrawn check
-  is never replayed; checks from earlier tasks are left alone.
+  is never replayed; checks from earlier tasks are left alone. A page on a loopback server that no longer answers
+  opens at the same path on the server Casper runs for the project, or the check is incomplete (`Could not
+  check`) when none is up; a page on another computer is never redirected.
 - **A finding:** the replay reaches a page not on this computer, runs a non-`local-test` step, presses a
   labelled button with clicks off, or asks a question.
 
@@ -115,7 +117,9 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
   page and replay it`), so a page fixed after a failure is replayed, never withdrawn; it stays in the report as
   `withdrawn` and the receipt says `– 1 check withdrawn by the AI: <name> (<reason>)`; it never counts as a pass;
   if every check was withdrawn the task is `Incomplete`; a corrected check is a new one and must pass on its own.
-- **A finding:** a check withdrawn after an edit or command; a withdrawn check counted as a pass or missing
+  After a change the only way out is `replacedBy`: a check recorded after it, whose latest run passed, of the same
+  page (path) and viewport, with at least as many steps and assertions of each kind; the reason then names it (`replaced by "<name>", <id>`) and it decides the result in its place.
+- **A finding:** a check withdrawn after an edit or command without such a replacement; a withdrawn check counted as a pass or missing
   from the receipt; a task with all checks withdrawn reported as complete.
 
 ### 7. A new check whose step selector matches several elements is not kept

@@ -414,7 +414,7 @@ browserTest("a failing check names up to 3 real elements like it, and on a repla
   // Line breaks and runs of spaces count as one space on both sides; the text must otherwise match.
   expect(await run([{ kind: "text", selector: "h1", expected: "Hello Casper" }, { kind: "text", selector: ".status", expected: " Saved    ok " }]))
     .toMatchObject({ status: "pass", assertions: [{ status: "pass", actual: "Hello Casper" }, { status: "pass", actual: "Saved ok" }] });
-  const hint = "If the check itself is wrong, record a corrected check and withdraw this one; if the page is wrong, fix it.";
+  const hint = "If the check itself is wrong, record a corrected check of this page and withdraw this one (replacedBy: its id once it passes); if the page is wrong, fix it.";
   const recorded = await run([{ kind: "visible", selector: "#title" }, { kind: "text", selector: "#save-btn", expected: "Save" },
     { kind: "text", selector: "h1", expected: "hello casper" }, { kind: "visible", selector: "button" }]) as { id: string; status: string; assertions: Array<Record<string, unknown>> };
   // Recorded before an edit a check is meant to fail: the real elements, but no hint to withdraw it.
@@ -479,6 +479,74 @@ browserTest("a failed check can't be withdrawn once anything changed after it: a
   await writeFile(f.sourceFile, "<!doctype html><h1>Hello again</h1>");
   await expect(f.session.run({ action: "withdraw", id: other.id, reason: "wrong text" })).rejects.toThrow("Declared local inputs changed after this browser check: fix the page and replay it");
   expect(await f.session.report()).toMatchObject({ status: "fail", checks: [{ status: "fail" }, { status: "fail" }] });
+}, 30_000);
+
+browserTest("after a change a wrong check can be withdrawn by naming a later passing check of the same page; an older, failing or other-page one is refused", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, '<!doctype html><section id="done"><h2>Booked</h2><p>Monday 09:00</p></section><p id="total">Total: 100</p>');
+  const scenario = (name: string, url: string, selector: string, expected: string) => ({ name, url, scope: { inputs: ["index.html"] }, steps: [],
+    assertions: [{ kind: "text", selector, expected }] });
+  const older = await f.session.run({ action: "check", scenario: scenario("Older", f.url, "h2", "Booked") });
+  const wrong = await f.session.run({ action: "check", scenario: scenario("Booking", f.url, "#done", "Booked") }) as { id: string; assertions: Array<Record<string, unknown>> };
+  // The text is there, inside a wider element: the hint says to narrow the selector, even on the recording run.
+  expect(wrong.assertions[0]).toMatchObject({ status: "fail", hint: "The expected text is inside this element with other text: point the selector at the element that holds only it (see near)." });
+  // A wrong text that merely contains the expected one is a page that may be wrong: no hint to narrow the selector.
+  const total = await f.session.run({ action: "check", scenario: scenario("Total", f.url, "#total", "Total: 10") }) as { assertions: Array<Record<string, unknown>> };
+  expect(total.assertions[0]).toMatchObject({ status: "fail", actual: "Total: 100" });
+  expect("hint" in total.assertions[0]!).toBe(false);
+  f.session.invalidate();
+  const refused = await f.session.run({ action: "withdraw", id: wrong.id, reason: "selector too wide" }).catch((e: Error) => e.message);
+  expect(refused).toContain("or record a corrected check of the same page and, once it passes, withdraw this one with replacedBy: its id");
+  const failing = await f.session.run({ action: "check", scenario: scenario("Booking 2", f.url, "h2", "Booked!") });
+  const elsewhere = await f.session.run({ action: "check", scenario: scenario("Booking 3", `${f.url}/other`, "h2", "Booked") });
+  expect(elsewhere).toMatchObject({ status: "pass" });
+  const withdraw = (replacedBy: unknown) => f.session.run({ action: "withdraw", id: wrong.id, reason: "selector too wide", replacedBy });
+  await expect(withdraw(older.id)).rejects.toThrow("replacedBy must name a check recorded after this one");
+  await expect(withdraw(failing.id)).rejects.toThrow("replacedBy must name a check whose latest run passed");
+  await expect(withdraw(elsewhere.id)).rejects.toThrow("replacedBy must check the same page as this one (/), not /other");
+  await expect(withdraw(wrong.id)).rejects.toThrow("replacedBy must be the id of another check");
+  // A check that only shows the page loads, or one at another viewport, can't stand in for it.
+  const loads = await f.session.run({ action: "check", scenario: { name: "Loads", url: f.url, scope: { inputs: ["index.html"] }, steps: [], assertions: [{ kind: "visible", selector: "h2" }] } });
+  const phone = await f.session.run({ action: "check", scenario: { ...scenario("Phone", f.url, "#done h2", "Booked"), viewport: { width: 390, height: 844 } } });
+  expect([loads, phone]).toMatchObject([{ status: "pass" }, { status: "pass" }]);
+  await expect(withdraw(loads.id)).rejects.toThrow("replacedBy must test at least what this check did; it has fewer text assertions");
+  await expect(withdraw(phone.id)).rejects.toThrow("replacedBy must check the page at the same viewport as this one (1280×800)");
+  // The same page (its query aside), recorded later, passing: it takes the old check's place.
+  const right = await f.session.run({ action: "check", scenario: scenario("Booking fixed", `${f.url}/?date=2026-10-19`, "#done h2", "Booked") });
+  expect(right).toMatchObject({ status: "pass" });
+  expect(await withdraw(right.id)).toMatchObject({ status: "withdrawn", reason: `selector too wide (replaced by "Booking fixed", ${right.id})` });
+  const report = await f.session.report();
+  expect(report.checks.find(c => c.id === wrong.id)).toMatchObject({ status: "withdrawn", withdrawn: `selector too wide (replaced by "Booking fixed", ${right.id})` });
+  // The failing replacement candidate still counts on its own.
+  expect(report.status).toBe("fail");
+}, 30_000);
+
+browserTest("a replay whose own server is gone opens the same path on Casper's server; with none up it could not check (incomplete, not failed)", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, "<!doctype html><h1>Hello Casper</h1>");
+  const own = () => Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async () => new Response(await readFile(f.sourceFile), { headers: { "content-type": "text/html" } }) });
+  const scenario = (name: string, url: string, expected: string) => ({ name, url, scope: { inputs: ["index.html"] }, steps: [], assertions: [{ kind: "text", selector: "h1", expected }] });
+  // The AI started this server itself, recorded a check on it, then stopped it.
+  const first = own(), gone = first.port;
+  const moved = await f.session.run({ action: "check", scenario: scenario("Home", `http://127.0.0.1:${gone}/index.html?x=1`, "Hello Casper") });
+  const failed = await f.session.run({ action: "check", scenario: scenario("Home wrong", `http://127.0.0.1:${gone}/index.html`, "Bye") });
+  expect(moved).toMatchObject({ status: "pass" });
+  expect(failed).toMatchObject({ status: "fail" });
+  await first.stop(true);
+  f.session.invalidate();
+  // No server answers: nothing was checked, so neither the old pass nor the old failure stands.
+  await expect(f.session.run({ action: "replay", id: moved.id })).rejects.toThrow(`Nothing answers at http://127.0.0.1:${gone} any more and Casper runs no server for this project; start it with serve and replay`);
+  await f.session.replayStale(0);
+  expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [
+    { id: moved.id, status: "incomplete", reason: expect.stringContaining("Could not check. Nothing answers") },
+    { id: failed.id, status: "incomplete", reason: expect.stringContaining("Could not check. Nothing answers") }] });
+  // Casper's own server runs the project now: the replay opens the same path there.
+  const port = await freePort();
+  await f.session.run({ action: "serve", script: "files", url: `http://127.0.0.1:${port}/`, impact: "local-test", reason: "Synthetic files" });
+  const again = await f.session.run({ action: "replay", id: moved.id });
+  expect(again).toMatchObject({ status: "pass", url: `http://127.0.0.1:${gone}/index.html?x=1`,
+    notes: [`opened on Casper's server http://127.0.0.1:${port}: nothing answers at http://127.0.0.1:${gone} any more`] });
+  expect(await f.session.run({ action: "replay", id: failed.id })).toMatchObject({ status: "fail", freshness: "fresh" });
 }, 30_000);
 
 browserTest("a new check whose step selector matches several elements is not kept, so it can't hold the result at incomplete", async () => {
