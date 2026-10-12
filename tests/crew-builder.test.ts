@@ -69,6 +69,16 @@ test("a builder is told the deadline it really has, and the default is in minute
   expect(shorter.prompts[0]).toContain("90 seconds, then one tool-free turn to report");
 });
 
+test("a builder inherits the parent's live history-hiding switch", async () => {
+  const runtime = new BuilderRuntime(); let enabled = false;
+  const subagents = new SubagentManager({ runtimeFactory: () => runtime, hideToolOutput: () => enabled });
+  cleanup.push(() => subagents.close());
+  await subagents.runBuilder(job);
+  expect(runtime.options?.hideToolOutput?.()).toBe(false);
+  enabled = true;
+  expect(runtime.options?.hideToolOutput?.()).toBe(true);
+});
+
 test("your private paths stay private in the copy too", async () => {
   const runtime = new BuilderRuntime();
   const main = path.join(os.tmpdir(), "casper-crew-main");

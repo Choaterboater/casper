@@ -300,6 +300,18 @@
         <p class="muted small">Want something on this list, or think something is missing? Open an
         <a href="https://github.com/Choaterboater/casper/issues">issue on GitHub</a>.</p>
 
+      <section id="tool-history" aria-labelledby="tool-history-h">
+        <h2 id="tool-history-h">Built · old tool output</h2>
+        <p>Old bulky reads, successful command output and screenshots now become permanent stubs
+        in the AI's history once they fill a fifth of the model's window, or the prompt passes 60%
+        of it. The latest four rounds, failures and recent references stay visible; saved output is
+        unchanged. Each time rebuilds the cache once, then earlier messages stay identical, and a
+        short task never pays for it. On by default, with
+        <strong>Hide old tool output</strong> in <code>/settings</code> to stop new hiding.</p>
+        <p class="muted small">Inspired by SWE-agent and Waveloom. Implemented after the latest
+        release; not yet published.</p>
+      </section>
+
       <section id="ideas" aria-labelledby="ideas-h">
         <h2 id="ideas-h">Ideas to borrow</h2>
         <aside class="callout">
@@ -308,7 +320,6 @@
         </aside>
         <ul>
           <li>Start read-only tools before the model finishes its reply (Chord).</li>
-          <li>Hide old tool output and screenshots from history so the prompt cache stays warm (SWE-agent, Waveloom).</li>
           <li>Browser actions return new console errors and failed requests (Cline).</li>
           <li>A scored design critique pass on a built page (OpenDesign).</li>
           <li>A design direction (accent, font pair, layout) picked from the brief (SkyN3t).</li>

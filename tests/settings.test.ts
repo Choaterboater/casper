@@ -3,6 +3,8 @@ import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
+import { reloadProject } from "../src/app/project-file";
+import type { RuntimeStartOptions } from "../src/runtime/types";
 import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
 import { editUserConfig } from "../src/config/user-write";
@@ -48,7 +50,7 @@ test("the settings list shows each switch and where it stands", async () => {
   const context = await loadProjectContext(await inspectProject(project), { homeDir: home });
   expect(settingRows(context).map((row) => `${row.label}: ${row.value}`)).toEqual([
     "Web lookups: off", "Browser tool: on", "Browser clicks: on", "Routine commands: on", "Slow commands: on", "Stalled commands: on", "Starter templates: on", "Diagram tool: on", "Pages the AI makes: on", "Pictures the AI makes: on", "Open pages in the browser: on", "New-version notice: off", "Notifications: on", "Suggestions: on", "Side questions with ?: on", "Built-in skills: on", "GitHub tool: on", "Packs: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task",
-    "Prompt cache: auto", "Local models: on", "Page checks: on", "Show the AI the pages: ask once a session",
+    "Prompt cache: auto", "Hide old tool output: on", "Local models: on", "Page checks: on", "Show the AI the pages: ask once a session",
     "Work shown: normal", "Theme: default", "Untrusted-text reader: on", "Helpers that build: on", "Playwright tests: on", "Compose files: on", "Send Casper's name to OpenRouter: on", "Sign-ins from other tools: on", "Network server updates: on", "My MCP servers: on", "My language servers: on", "Private ssh passwords: on",
   ]);
   expect(settingRows(context).find((row) => row.label === "Playwright tests")!.question).toBe("Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are on.");
@@ -125,6 +127,34 @@ test("/settings where Casper can't ask lists the settings and says how to change
     expect(output).toContain("Web lookups");
     expect(output).toContain("on (DuckDuckGo)");
     expect(output).toContain("Run /settings in a Casper session to change one by number.");
+  } finally { await app.close(); }
+});
+
+test("/settings hiding switch reaches an already-started runtime even when the project file changed in a task", async () => {
+  const { home, project } = await place();
+  let start: RuntimeStartOptions | undefined;
+  const app = new CasperApp({ output: { write() {} }, sessionHomeDir: home,
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }), runtimeFactory: () => ({
+      async start(options) {
+        start = options;
+        return { setTools() {}, async prompt() {}, async abort() {}, subscribe: () => () => {},
+          getState: () => ({ cwd: project, isStreaming: false }) };
+      }, async dispose() {},
+    }) });
+  try {
+    await app.runOnce("Explain the project without changing files.", project);
+    expect(start?.hideToolOutput?.()).toBe(true);
+    await mkdir(path.join(project, ".casper"), { recursive: true });
+    await writeFile(path.join(project, ".casper", "project.yaml"), "languages: [typescript]\n");
+    const answers = ["Hide old tool output", "Turn it off", "Done"];
+    await runSettings({ output: app.output, homeDir: () => home, canAsk: true, duringTask: true,
+      context: async () => app.projectContext, reload: async () => { await reloadProject(app, { own: true }); },
+      ask: async () => answers.shift() });
+    expect(start?.hideToolOutput?.()).toBe(false);
+    expect(app.projectContext?.hideToolOutput).toBe(false);
+    await editUserConfig(home, ["hide_tool_output"], true);
+    await reloadProject(app, { own: true });
+    expect(start?.hideToolOutput?.()).toBe(true);
   } finally { await app.close(); }
 });
 

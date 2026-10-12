@@ -196,6 +196,25 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
   are never skipped and reset the count.
 - **A finding:** a read skipped after an edit, a shell command or a new request; any non-read tool skipped.
 
+### 12. Old tool output is hidden only in provider requests
+
+- **What:** once they fill a fifth of the model's window (eight rounds after the last time) or the prompt passes
+  60% of it, and they outweigh what the rebuild re-reads, bulky successful reads and command output, and old tool
+  screenshots, become permanent stubs (`src/runtime/tool-history.ts`). The latest four rounds and observable recent references
+  stay visible. Mask decisions are saved as branch-local custom entries, never as changes to original results.
+- **Why:** smaller prompts can reduce input cost and local inference work if cache pricing and later reuse
+  outweigh checkpoint rebuild costs. A checkpoint invalidates the prefix once;
+  between checkpoints earlier messages remain byte-identical. The thresholds keep short tasks from paying a rebuild.
+- **Off switch:** **Hide old tool output** in `/settings` (`hide_tool_output: false`), effective next model step.
+  Off prevents new masks, not existing ones; restoring old output would invalidate the prefix again.
+- **Guard rails:** errors, unfinished commands, writes, MCP and verification results, and user images stay.
+  Browser check text stays even when its old pictures are hidden. References are conservative heuristics, not
+  semantic guarantees; hidden content needs a fresh read. Original saved history and exports remain complete.
+  Resume, forks and restarts restore masks; rewind before a checkpoint does not inherit later masks.
+  A project or project-selected profile cannot set this switch; compaction resets the checkpoint epoch.
+- **A finding:** recent rounds or observable references hidden; old stubs rewritten; original results overwritten;
+  mask decisions leaking across branches; a project changing the switch; new masks created while off.
+
 ## Consequences
 
 - A review that flags one of these choices without showing its guard rail broken is closed as by design.

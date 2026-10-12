@@ -84,6 +84,8 @@ export interface ProjectContext {
   browserClicks?: boolean;
   /** `routine_commands: off` in the user's config: with no sandbox, routine shell commands ask too. Unset: on. */
   routineCommands?: boolean;
+  /** `hide_tool_output: off` stops new history masks. Unset: on. */
+  hideToolOutput?: boolean;
   /** `slow_commands: off` in the user's config: a command without its own timeout is stopped at the limit. Unset: on. */
   slowCommands?: boolean;
   /** `stalled_commands: off` in the user's config: a command with no output and no CPU is left to its limit. Unset: on. */
@@ -206,6 +208,7 @@ export async function loadProjectContext(
     ...(configuration.pictureModels ? { pictureModels: configuration.pictureModels } : {}),
     ...(configuration.browserClicks !== undefined ? { browserClicks: configuration.browserClicks } : {}),
     ...(configuration.routineCommands !== undefined ? { routineCommands: configuration.routineCommands } : {}),
+    ...(configuration.hideToolOutput !== undefined ? { hideToolOutput: configuration.hideToolOutput } : {}),
     ...(configuration.slowCommands !== undefined ? { slowCommands: configuration.slowCommands } : {}),
     ...(configuration.stalledCommands !== undefined ? { stalledCommands: configuration.stalledCommands } : {}),
     ...(configuration.mcpAutoconnect !== undefined ? { mcpAutoconnect: configuration.mcpAutoconnect } : {}),

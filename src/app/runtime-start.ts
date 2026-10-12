@@ -77,6 +77,7 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         // The conversation outlives a workspace rebind, so it holds a facade that follows the current shell.
         ...(app.shell ? { shell: currentShell(app) } : {}),
         ...(context.cache ? { cache: context.cache } : {}),
+        hideToolOutput: () => app.projectContext?.hideToolOutput !== false,
         ...(context.localModels === false ? { localModels: false } : {}),
         ...(context.modelServers?.length ? { modelServers: context.modelServers } : {}),
         // The project's sandbox.denyRead (GreenCLI lists its data and log folders there): the file tools refuse them too.
