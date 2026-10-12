@@ -433,6 +433,46 @@ browserTest("a failing check names up to 3 real elements like it, and on a repla
   expect(failed.assertions[3]).toEqual({ kind: "visible", status: "pass", actual: true });
 }, 30_000);
 
+browserTest("a check with no scope whose page saves to a file git ignores stays fresh and can be withdrawn; a tracked file or no repository makes it stale", async () => {
+  const run = async (git: boolean, saved: string) => {
+    const f = await fixture();
+    await writeFile(path.join(f.project, ".gitignore"), "data/\n");
+    await writeFile(f.sourceFile, '<!doctype html><button>Book</button><p id="state">Free</p><script>document.querySelector("button").onclick = async () => { await fetch("/book", { method: "POST" }); document.querySelector("#state").textContent = "Booked"; }</script>');
+    if (git) {
+      expect(Bun.spawnSync(["git", "init", "-q"], { cwd: f.project }).exitCode).toBe(0);
+      await writeFile(path.join(f.project, "bookings.json"), "[]");
+      expect(Bun.spawnSync(["git", "add", "bookings.json"], { cwd: f.project }).exitCode).toBe(0);
+    }
+    // The app's own server, writing a booking into the project as the check's click runs.
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+      if (new URL(request.url).pathname === "/book") {
+        await mkdir(path.dirname(path.join(f.project, saved)), { recursive: true });
+        await writeFile(path.join(f.project, saved), JSON.stringify([{ at: Date.now() }]));
+        return new Response("ok");
+      }
+      return new Response(await readFile(f.sourceFile), { headers: { "content-type": "text/html" } });
+    } });
+    cleanup.push(async () => { server.stop(true); });
+    const check = await f.session.run({ action: "check", scenario: { name: "Book", url: `http://127.0.0.1:${server.port}`,
+      steps: [{ action: "click", selector: "button", impact: "local-test", reason: "books a test slot" }],
+      assertions: [{ kind: "text", selector: "#state", expected: "Booked!" }] } }) as { id: string };
+    return { f, check, withdraw: () => f.session.run({ action: "withdraw", id: check.id, reason: "expected text had a typo" }) };
+  };
+  const ignored = await run(true, "data/db.json");
+  expect(ignored.check).toMatchObject({ status: "fail", freshness: "fresh" });
+  expect(await ignored.withdraw()).toMatchObject({ status: "withdrawn" });
+  // The model's own edit of an ignored file the page may serve still counts: any edit or command makes the check stale.
+  const edited = await run(true, "data/db.json");
+  await writeFile(path.join(edited.f.project, "data", "db.json"), "[]");
+  edited.f.session.invalidate();
+  await expect(edited.withdraw()).rejects.toThrow("Code/tool writes observed after this browser check");
+  for (const [git, saved] of [[true, "bookings.json"], [false, "data/db.json"]] as const) {
+    const stale = await run(git, saved);
+    expect(stale.check).toMatchObject({ status: "fail", freshness: "stale", reason: "Declared inputs changed during browser reproduction." });
+    await expect(stale.withdraw()).rejects.toThrow("Declared inputs changed during browser reproduction");
+  }
+}, 60_000);
+
 browserTest("a failed check the AI wrote wrong can be withdrawn with a reason: it stays in the report, never decides it, and is never replayed", async () => {
   const f = await fixture();
   await writeFile(f.sourceFile, "<!doctype html><h1>Hello Casper</h1>");

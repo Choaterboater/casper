@@ -56,6 +56,40 @@ needsPosixModes("filesystem identity covers bytes, membership, permissions and i
   expect((await workspaceState(root, scope)).fingerprint).not.toBe(permission);
 });
 
+test("a project-wide observation that skips git-ignored files leaves out what an app writes to an ignored folder, not tracked or named files", async () => {
+  const root = await fixture();
+  await writeFile(path.join(root, ".gitignore"), "data/\n");
+  await writeFile(path.join(root, "index.html"), "<h1>Book</h1>");
+  const scope = { inputs: ["."] };
+  const skip = { skipGitIgnored: true };
+  // No git repository: every file counts, as before.
+  const plain = (await workspaceState(root, scope, undefined, skip)).fingerprint;
+  await mkdir(path.join(root, "data"));
+  await writeFile(path.join(root, "data", "db.json"), "[]");
+  expect((await workspaceState(root, scope, undefined, skip)).fingerprint).not.toBe(plain);
+  await rm(path.join(root, "data"), { recursive: true });
+  expect(Bun.spawnSync(["git", "init", "-q"], { cwd: root }).exitCode).toBe(0);
+  const before = (await workspaceState(root, scope, undefined, skip)).fingerprint;
+  expect(before).toBeString();
+  // The app's own data in the ignored folder, created and then changed, is not one of the page's inputs.
+  await mkdir(path.join(root, "data"));
+  expect((await workspaceState(root, scope, undefined, skip)).fingerprint).toBe(before);
+  await writeFile(path.join(root, "data", "db.json"), "[]");
+  expect((await workspaceState(root, scope, undefined, skip)).fingerprint).toBe(before);
+  await writeFile(path.join(root, "data", "db.json"), '[{"booked":true}]');
+  expect((await workspaceState(root, scope, undefined, skip)).fingerprint).toBe(before);
+  // Without the option the ignored file still counts.
+  expect((await workspaceState(root, scope)).fingerprint).not.toBe((await workspaceState(root, { inputs: ["."], exclude: ["data"] })).fingerprint);
+  // A file git does not ignore still makes it change.
+  await writeFile(path.join(root, "index.html"), "<h1>Booked</h1>");
+  expect((await workspaceState(root, scope, undefined, skip)).fingerprint).not.toBe(before);
+  // An ignored file named as an input counts.
+  const named = { inputs: ["data/db.json"] };
+  const was = (await workspaceState(root, named, undefined, skip)).fingerprint;
+  await writeFile(path.join(root, "data", "db.json"), "[]");
+  expect((await workspaceState(root, named, undefined, skip)).fingerprint).not.toBe(was);
+});
+
 posixOnly("unsupported trees, FIFOs, limits and cancellation never supply reusable identity", async () => {
   const root = await fixture();
   const file = path.join(root, "entry");

@@ -241,9 +241,14 @@ Freshness compares declared local inputs before/after replay and at task reporti
 Observed native writes/shell actions invalidate earlier evidence. A check that
 names no `scope.inputs` watches the whole project folder, leaving out dependency,
 build and cache folders at its top (`node_modules`, `.git`, `dist`, `build`,
-`.next`, `.venv` and the like). Unsupported or over-budget input scope (a project
-too big to watch whole, a file over 1 MiB) means freshness unavailable, and the
-check says to name the files the page depends on. These are
+`.next`, `.venv` and the like) and files the project's git ignores, so an app that
+saves to an ignored `data/db.json` while the check books a slot keeps the check
+fresh (with no git repository every file counts). A file named in `scope.inputs`
+counts even when git ignores it. Any edit or command of the model still makes the
+check stale, whichever file it touches, ignored or not; what a page or a server the
+model started earlier writes to an ignored file is not seen. Unsupported or
+over-budget input scope (a project too big to watch whole, a file over 1 MiB) means
+freshness unavailable, and the check says to name the files the page depends on. These are
 bounded, non-atomic filesystem observations: they do **not** prove which build the
 server is serving, that the input scope is complete, or that external state stayed
 unchanged. Screenshots and model claims never count as assertion passes.

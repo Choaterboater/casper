@@ -1,8 +1,10 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import type { BigIntStats } from "node:fs";
 import { lstat, opendir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { openNoFollow } from "../platform/files";
+import { safeGitArgs } from "../platform/git";
 import { isVerificationScope, type VerificationScope } from "./scope";
 
 function identity(stat: BigIntStats): string {
@@ -11,12 +13,34 @@ function identity(stat: BigIntStats): string {
 
 export type InputState = { fingerprint: string; reason?: never } | { fingerprint?: never; reason: string };
 
+/** The untracked paths git ignores under `cwd`, relative to it (an ignored folder as one entry), from one git call;
+ * undefined outside a git repository or when git can't answer. Tracked files are never listed. */
+async function gitIgnored(cwd: string, signal?: AbortSignal): Promise<Set<string> | undefined> {
+  return new Promise(resolve => {
+    execFile("git", safeGitArgs(["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"]),
+      { cwd, timeout: 2_000, maxBuffer: 16 * 1024 * 1024, encoding: "utf8", windowsHide: true, ...(signal ? { signal } : {}) },
+      (error, stdout) => {
+        if (error) return resolve(undefined);
+        const paths = stdout.split("\0").map(entry => entry.replace(/\/+$/, "")).filter(entry => entry && entry !== ".");
+        resolve(new Set(paths));
+      });
+  });
+}
+
 /** Bounded evidence for an explicit local scope, never a claim of complete inputs.
  * Excluded outputs do not affect identity; unsupported included inputs disable reuse.
- * Before/after observations are not an atomic snapshot or a filesystem watcher. */
-export async function workspaceState(cwd: string, scope?: VerificationScope, signal?: AbortSignal): Promise<InputState> {
+ * Before/after observations are not an atomic snapshot or a filesystem watcher.
+ * `skipGitIgnored`: files git ignores found while walking a folder are left out (one git call per observation;
+ * no repository, nothing left out). A path named in `inputs` itself always counts. */
+export async function workspaceState(cwd: string, scope?: VerificationScope, signal?: AbortSignal, options: { skipGitIgnored?: boolean } = {}): Promise<InputState> {
   if (!scope) return { reason: "No input scope declared." };
   if (!isVerificationScope(scope)) return { reason: "Invalid input scope." };
+  const ignored = options.skipGitIgnored ? await gitIgnored(cwd, signal) : undefined;
+  const isIgnored = (relative: string) => {
+    if (!ignored?.size) return false;
+    for (let at = relative.length; at > 0; at = relative.lastIndexOf("/", at - 1)) if (ignored.has(relative.slice(0, at))) return true;
+    return false;
+  };
   const deadline = performance.now() + 500;
   let workItems = 0;
   let bytes = 0;
@@ -61,7 +85,8 @@ export async function workspaceState(cwd: string, scope?: VerificationScope, sig
         const names: string[] = [];
         for await (const entry of await opendir(file)) {
           guard();
-          if (!excluded(relative === "." ? entry.name : relative + "/" + entry.name)) names.push(entry.name);
+          const child = relative === "." ? entry.name : relative + "/" + entry.name;
+          if (!excluded(child) && !isIgnored(child)) names.push(entry.name);
         }
         for (const name of names.sort()) await visit(relative === "." ? name : relative + "/" + name);
       } else if (stat.isFile()) {

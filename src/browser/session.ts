@@ -771,9 +771,10 @@ const REPLACE_WAY = "or record a corrected check of the same page and, once it p
 class ServerGone extends Error {}
 
 /** One task's disposable browser. No user profiles, arbitrary evaluation or browser installation. */
-/** The scenario's inputs as they are now; a check that names none is told how to get a fresh pass when the whole project can't be watched. */
+/** The scenario's inputs as they are now; a check that names none is told how to get a fresh pass when the whole project can't be watched.
+ * Watching the whole project leaves out what git ignores, so a page that saves to an ignored data/db.json stays fresh. */
 async function inputState(root: string, scenario: BrowserScenario, signal?: AbortSignal): Promise<InputState> {
-  const state = await workspaceState(root, scopeOf(scenario), signal);
+  const state = await workspaceState(root, scopeOf(scenario), signal, { skipGitIgnored: !scenario.scope });
   return state.fingerprint || scenario.scope ? state
     : { reason: `${state.reason} With no scope.inputs Casper watches the whole project; name the files the page depends on.` };
 }
