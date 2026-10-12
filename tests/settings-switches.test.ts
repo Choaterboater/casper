@@ -165,6 +165,18 @@ test("Sign-ins from other tools row: on by default, says nothing is taken withou
   expect(await valueOf(home, project, label)).toBe("off");
 });
 
+test("Notifications row: on by default, says it rings only when the terminal is not in front, a pick writes notifications: false", async () => {
+  const { home, project, config, projectFile } = await folders();
+  const host = fakeHost(home, project, ["Notifications", "Turn them off", "Done"]);
+  await runSettings(host);
+  expect(host.asked[1]!.split("\n").slice(1)).toEqual(["1 Keep them on", "2 Turn them off"]);
+  expect(host.asked[1]).toContain("not in front");
+  expect(await readFile(config, "utf8")).toBe("notifications: false\n");
+  expect((await host.context())!.notifications).toBe(false);
+  await writeFile(projectFile, "notifications: on\n");
+  await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("notifications is a user setting");
+});
+
 test("other_logins: off loads from your own config; a project file can't set it", async () => {
   const { home, project, config, projectFile } = await folders();
   const load = () => loadConfiguration({ projectRoot: project, homeDir: home });

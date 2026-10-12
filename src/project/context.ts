@@ -88,6 +88,8 @@ export interface ProjectContext {
   mcpAutoconnect?: boolean;
   /** `lsp_autostart: off` in the user's config: their own language servers wait for /lsp connect. Unset: on. */
   lspAutostart?: boolean;
+  /** `notifications: off` in the user's config: nothing rings when a long task ends or a question waits. Unset: on. */
+  notifications?: boolean;
   /** `telemetry: off` in the user's config: no OpenRouter app-name headers. Unset: on. */
   telemetry?: boolean;
   rules: {
@@ -202,6 +204,7 @@ export async function loadProjectContext(
     ...(configuration.routineCommands !== undefined ? { routineCommands: configuration.routineCommands } : {}),
     ...(configuration.mcpAutoconnect !== undefined ? { mcpAutoconnect: configuration.mcpAutoconnect } : {}),
     ...(configuration.lspAutostart !== undefined ? { lspAutostart: configuration.lspAutostart } : {}),
+    ...(configuration.notifications !== undefined ? { notifications: configuration.notifications } : {}),
     ...(configuration.toolDownloads !== undefined ? { toolDownloads: configuration.toolDownloads } : {}),
     rules: {
       profile: configuration.profileRules,

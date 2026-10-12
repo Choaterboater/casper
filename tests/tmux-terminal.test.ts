@@ -31,8 +31,8 @@ test("Casper knows tmux and iTerm2 from the environment alone", () => {
   // Over ssh from a tmux pane: TERM says tmux, but there is no pane here to split.
   expect(detectHostTerminal({ TERM: "tmux-256color" })).toEqual({ tmux: true, iterm: false });
   expect(detectHostTerminal({ TERM_PROGRAM: "iTerm.app", ITERM_SESSION_ID: "w0t0p0:ABCDEF12-3456" }))
-    .toEqual({ tmux: false, iterm: true, itermSession: "ABCDEF12-3456" });
-  expect(detectHostTerminal({ LC_TERMINAL: "iTerm2", TMUX: "/tmp/s,1,0", TMUX_PANE: "%0" })).toEqual({ tmux: true, tmuxPane: "%0", iterm: true });
+    .toEqual({ tmux: false, iterm: true, itermSession: "ABCDEF12-3456", notify: "osc9" });
+  expect(detectHostTerminal({ LC_TERMINAL: "iTerm2", TMUX: "/tmp/s,1,0", TMUX_PANE: "%0" })).toEqual({ tmux: true, tmuxPane: "%0", iterm: true, notify: "osc9" });
   expect(detectHostTerminal({ TERM: "xterm-256color" })).toEqual({ tmux: false, iterm: false });
 });
 
@@ -41,6 +41,23 @@ test("the done bell reaches iTerm2 through tmux; elsewhere it is a plain bell", 
   expect(bellSequence({ tmux: false, iterm: true }, "done")).toBe("\x07\x1b]9;done\x07");
   expect(bellSequence({ tmux: true, iterm: true }, "done")).toBe(`\x07${tmuxPassthrough("\x1b]9;done\x07")}`);
   expect(tmuxPassthrough("\x1b]9;x\x07")).toBe("\x1bPtmux;\x1b\x1b]9;x\x07\x1b\\");
+});
+
+test("terminals that show notifications are known from their own variables; the rest get the plain bell", () => {
+  expect(detectHostTerminal({ TERM_PROGRAM: "WezTerm", TERM: "xterm-256color" }).notify).toBe("osc9");
+  expect(detectHostTerminal({ TERM_PROGRAM: "ghostty", TERM: "xterm-ghostty" }).notify).toBe("osc9");
+  expect(detectHostTerminal({ TERM: "xterm-kitty" }).notify).toBe("osc9");
+  // Inside tmux TERM_PROGRAM says tmux; the outer terminal's own variable still says which it is.
+  expect(detectHostTerminal({ TERM_PROGRAM: "tmux", TERM: "tmux-256color", TMUX: "/tmp/s,1,0", KITTY_WINDOW_ID: "1" }).notify).toBe("osc9");
+  expect(detectHostTerminal({ TERM: "foot" }).notify).toBe("osc777");
+  expect(detectHostTerminal({ TERM: "foot-extra" }).notify).toBe("osc777");
+  // Windows Terminal reads OSC 9 as ConEmu's progress sequence; Terminal.app and Konsole show none.
+  expect(detectHostTerminal({ WT_SESSION: "00000000-0000-0000-0000-000000000000", TERM: "xterm-256color" }).notify).toBeUndefined();
+  expect(detectHostTerminal({ TERM_PROGRAM: "Apple_Terminal", TERM: "xterm-256color" }).notify).toBeUndefined();
+  expect(detectHostTerminal({ KONSOLE_VERSION: "240800", TERM: "xterm-256color" }).notify).toBeUndefined();
+  expect(bellSequence({ tmux: false, iterm: false, notify: "osc9" }, "Casper finished the task")).toBe("\x07\x1b]9;Casper finished the task\x07");
+  expect(bellSequence({ tmux: false, iterm: false, notify: "osc777" }, "done; next")).toBe("\x07\x1b]777;notify;Casper;done, next\x07");
+  expect(bellSequence({ tmux: true, iterm: false, notify: "osc777" }, "done")).toBe(`\x07${tmuxPassthrough("\x1b]777;notify;Casper;done\x07")}`);
 });
 
 test("inside tmux the busy steps go to the side pane, not the main screen's live rows, and the pane closes at exit", async () => {
@@ -111,7 +128,7 @@ test("the bell inside tmux under iTerm2 carries the notice through tmux", async 
     s.input.write("do it\r");
     await first;
     void s.terminal.readCommand();
-    expect(s.screen.output).toContain("\x1bPtmux;\x1b\x1b]9;Casper is waiting for you\x07\x1b\\");
+    expect(s.screen.output).toContain("\x1bPtmux;\x1b\x1b]9;Casper finished the task\x07\x1b\\");
   } finally { s.close(); }
 });
 

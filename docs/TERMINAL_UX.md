@@ -289,7 +289,12 @@ under a second shows no time; every time on screen reads the same way: `0.4s` an
 `14s`, `1m05s`, `10m`, `1h02m`), so a
 pass is never silent; `--verbose` prints the full evidence line instead. When a request that ran for 10 seconds or
 more finishes, or asks you something (a question, an approval, the checklist), Casper rings the
-terminal bell; your terminal decides whether that is a sound, a flash or a dock bounce. Scripts,
+terminal bell; your terminal decides whether that is a sound, a flash or a dock bounce. iTerm2, WezTerm,
+Ghostty and kitty also show a desktop notification (OSC 9), and foot too (OSC 777), saying what happened:
+`Casper finished the task` or `Casper has a question for you`; inside tmux it goes through to the outer
+terminal (foot only outside tmux). Casper asks the terminal to say when it comes to the front or goes behind (focus reports), and
+rings only while it is behind, as Codex CLI does: a terminal that never says rings as before.
+**Notifications** in `/settings` (`notifications: off`) turns the bell and the notification off. Scripts,
 one-shot runs and `--json` never ring. `—` means unavailable, `~`
 means estimated. Branch is the project inspection snapshot; `/status` refreshes
 it after external Git changes. Narrow terminals truncate the footer rather than

@@ -140,6 +140,8 @@ export interface LoadedConfiguration {
   mcpAutoconnect?: boolean;
   /** `lsp_autostart: off` in your own config: your own language servers wait for /lsp connect. Unset: on. */
   lspAutostart?: boolean;
+  /** `notifications: off` in your own config: no bell or desktop notification when a long task ends or a question waits. Unset: on. */
+  notifications?: boolean;
   /** The user's lab devices (lab.hosts), from ~/.casper/config.yaml or the profile only; never a project file. */
   lab?: LabSettings;
   /** The profile whose own lab list replaces yours (~/.casper/profiles/<name>/config.yaml), when it has one. */
@@ -296,7 +298,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "mcp_autoconnect", "lsp_autostart", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "mcp_autoconnect", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -971,6 +973,9 @@ export async function loadConfiguration(
   if (projectDocument.lsp_autostart !== undefined) throw new Error("lsp_autostart is a user setting (~/.casper/config.yaml); a project cannot start your language servers or stop them starting");
   let mcpAutoconnect: boolean | undefined;
   let lspAutostart: boolean | undefined;
+  // Whether your terminal rings or shows a notification is yours too.
+  if (projectDocument.notifications !== undefined) throw new Error("notifications is a user setting (~/.casper/config.yaml); a project cannot turn Casper's notifications on or off");
+  let notifications: boolean | undefined;
   for (const [document, label] of [[globalDocument, labels.global], [userProfileDocument, labels.userProfile]] as const) {
     toolDownloads = toolsLayer(document, label, sandboxWarnings) ?? toolDownloads;
     browser = onOffLayer(document.browser, label, "browser") ?? browser;
@@ -990,6 +995,7 @@ export async function loadConfiguration(
     routineCommands = onOffLayer(document.routine_commands, label, "routine_commands") ?? routineCommands;
     mcpAutoconnect = onOffLayer(document.mcp_autoconnect, label, "mcp_autoconnect") ?? mcpAutoconnect;
     lspAutostart = onOffLayer(document.lsp_autostart, label, "lsp_autostart") ?? lspAutostart;
+    notifications = onOffLayer(document.notifications, label, "notifications") ?? notifications;
     diagrams = diagramLayer(document, label, sandboxWarnings, false) ?? diagrams;
   }
   if (pickedByProject) diagramLayer(profileDocument, labels.profile, sandboxWarnings, true);
@@ -1041,6 +1047,7 @@ export async function loadConfiguration(
     ...(routineCommands !== undefined ? { routineCommands } : {}),
     ...(mcpAutoconnect !== undefined ? { mcpAutoconnect } : {}),
     ...(lspAutostart !== undefined ? { lspAutostart } : {}),
+    ...(notifications !== undefined ? { notifications } : {}),
     ...(pageChecks !== undefined ? { pageChecks } : {}),
     profileName: selectedProfile,
     policy: mergePolicy(

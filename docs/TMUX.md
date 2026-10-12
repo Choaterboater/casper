@@ -18,8 +18,10 @@ side pane off and `/pane on` back on; the choice is saved (in `~/.casper/pane.js
   Your other panes and windows are never changed.
 - **Title.** The pane title reads `Casper · <project>`. The title you had comes back at exit.
 - **Done bell.** When a long task ends or needs you, Casper rings the bell; tmux marks the window.
-  In iTerm2 you also get a notice. For that, Casper turns on tmux's passthrough for its own pane
-  only, and turns it back off at exit.
+  In iTerm2, WezTerm, Ghostty and kitty you also get a desktop notification (not foot: tmux hides its
+  `TERM`, so foot gets the bell). For that, Casper
+  turns on tmux's passthrough for its own pane only, and turns it back off at exit. With tmux's
+  `focus-events on`, Casper also knows when its pane is in front and then stays quiet.
 - **Colors and keys.** Casper uses the standard terminal colors and key codes that tmux passes
   through as they are. It changes no tmux setting that other panes use.
 

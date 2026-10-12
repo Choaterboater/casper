@@ -16,12 +16,13 @@ Settings (saved in ~/.casper/config.yaml for you):
   Web lookups: on (DuckDuckGo) · Browser tool: on · Browser clicks: on
   Routine commands: on · Starter templates: on · Diagram tool: on
   Pages the AI makes: on · Pictures the AI makes: on
-  Open pages in the browser: on · New-version notice: on · Suggestions: on
-  Side questions with ?: on · Built-in skills: on · GitHub tool: on · Packs: on
-  Spend notes: at $1 a task · Spend pause: off · Prompt cache: auto
-  Local models: on · Page checks: on · Show the AI the pages: ask once a session
-  Work shown: normal · Theme: default · Untrusted-text reader: on
-  Helpers that build: on · Playwright tests: on · Compose files: on
+  Open pages in the browser: on · New-version notice: on · Notifications: on
+  Suggestions: on · Side questions with ?: on · Built-in skills: on
+  GitHub tool: on · Packs: on · Spend notes: at $1 a task · Spend pause: off
+  Prompt cache: auto · Local models: on · Page checks: on
+  Show the AI the pages: ask once a session · Work shown: normal
+  Theme: default · Untrusted-text reader: on · Helpers that build: on
+  Playwright tests: on · Compose files: on
   Send Casper's name to OpenRouter: on · Sign-ins from other tools: on
   Network server updates: on · My MCP servers: on · My language servers: on
   Private ssh passwords: on
@@ -37,34 +38,35 @@ Pick one to change:
   9 Pictures the AI makes             on
  10 Open pages in the browser         on
  11 New-version notice                on
- 12 Suggestions                       on
- 13 Side questions with ?             on
- 14 Built-in skills                   on
- 15 GitHub tool                       on
- 16 Packs                             on
- 17 Spend notes                       at $1 a task
- 18 Spend pause                       off
- 19 Prompt cache                      auto
- 20 Local models                      on
- 21 Page checks                       on
- 22 Show the AI the pages             ask once a session
- 23 Work shown                        normal
- 24 Theme                             default
- 25 Untrusted-text reader             on
- 26 Helpers that build                on
- 27 Playwright tests                  on
- 28 Compose files                     on
- 29 Send Casper's name to OpenRouter  on
- 30 Sign-ins from other tools         on
- 31 Network server updates            on
- 32 My MCP servers                    on
- 33 My language servers               on
- 34 Private ssh passwords             on
+ 12 Notifications                     on
+ 13 Suggestions                       on
+ 14 Side questions with ?             on
+ 15 Built-in skills                   on
+ 16 GitHub tool                       on
+ 17 Packs                             on
+ 18 Spend notes                       at $1 a task
+ 19 Spend pause                       off
+ 20 Prompt cache                      auto
+ 21 Local models                      on
+ 22 Page checks                       on
+ 23 Show the AI the pages             ask once a session
+ 24 Work shown                        normal
+ 25 Theme                             default
+ 26 Untrusted-text reader             on
+ 27 Helpers that build                on
+ 28 Playwright tests                  on
+ 29 Compose files                     on
+ 30 Send Casper's name to OpenRouter  on
+ 31 Sign-ins from other tools         on
+ 32 Network server updates            on
+ 33 My MCP servers                    on
+ 34 My language servers               on
+ 35 Private ssh passwords             on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
-Every row has its number: past 9, type it and press Enter (`Type 1-34 + Enter or Up/Down + Enter`).
+Every row has its number: past 9, type it and press Enter (`Type 1-35 + Enter or Up/Down + Enter`).
 A plain terminal (`TERM=dumb`) asks the same list as numbered lines.
 A change applies from now on (built-in skills, packs, the prompt cache, local models, My MCP servers and My language servers from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Changed while a task runs, it also says when the
@@ -361,7 +363,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
-`showPages`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`)
+`showPages`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`, `notifications`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
@@ -935,6 +937,7 @@ network_updates: off # only a new Casper brings a new network server version (se
 ai_pages: off        # the AI is never offered casper_page: no pages, and no tokens for it
 open_pages: off      # pages the AI makes are not opened in your browser; Casper prints the link
 pictures: off        # the AI is never offered make_picture; it draws SVG
+notifications: off   # no bell and no desktop notification when a long task ends or a question waits
 ```
 
 `network_updates: off` (or **Network server updates** in `/settings`) stops Casper looking for

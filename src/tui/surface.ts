@@ -777,14 +777,19 @@ export class TerminalSurface {
     this.message = undefined; this.source = "";
     this.render();
   }
-  /** The bell (BEL) a terminal turns into a sound, a flash or a dock bounce; rich surface only. */
-  private attention(): void {
+  /** The bell (BEL) a terminal turns into a sound, a flash or a dock bounce, with a desktop notification where the
+   * terminal shows one; rich surface only. Not while the terminal says it is in front (focus reports): you are
+   * looking already. A terminal that never says rings as before. */
+  private attention(what: "done" | "question"): void {
     if (this.busySince === undefined || this.closed || Date.now() - this.busySince < this.attentionAfterMs) return;
-    this.terminal.write(this.bell);
+    if (!this.notificationsOn() || this.terminal.focused === true) return;
+    this.terminal.write(this.bell(what === "done" ? "Casper finished the task" : "Casper has a question for you"));
   }
-  private bell = "\x07";
-  /** What rings: BEL, plus iTerm2's notification (through tmux when inside it); see host-terminal.ts. */
-  setBell(sequence: string): void { this.bell = sequence; }
+  private bell: (message: string) => string = () => "\x07";
+  private notificationsOn: () => boolean = () => true;
+  /** What rings: BEL, plus the terminal's notification (through tmux when inside it); see host-terminal.ts. */
+  setBell(sequence: (message: string) => string): void { this.bell = sequence; }
+  setNotifications(on: () => boolean): void { this.notificationsOn = on; }
   setAttentionAfter(ms: number): void { this.attentionAfterMs = ms; }
 
   /** Put text back in the prompt (queued lines of a stopped task), ahead of anything typed since. `pasted` is what
@@ -801,7 +806,7 @@ export class TerminalSurface {
   offerNext(keys: ReadonlyMap<string, string> | undefined): void { this.nextKeys = keys?.size ? new Map(keys) : undefined; }
 
   readCommand(): Promise<string | undefined> {
-    if (this.busy) { this.attention(); this.busySince = undefined; }
+    if (this.busy) { this.attention("done"); this.busySince = undefined; }
     // The prompt is back: whatever work was shown in the Working box is over.
     this.endAssistant(); this.busy = false; this.note = ""; this.work = undefined; this.configureAutocomplete();
     this.updateSpinner();
@@ -887,7 +892,7 @@ export class TerminalSurface {
       this.restoreSetAside(setAside.draft, setAside.pasted); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(answer);
     };
     const cancel = () => finish(undefined);
-    this.attention();
+    this.attention("question");
     this.pendingAsk = finish; this.askQuestion = safeQuestion; this.askOptions = shown; this.askFrom = from;
     // The task's approvals and questions are never closed for another box; a box a command typed during it opened is.
     this.askGivesWay = typedDuringTask();
@@ -925,7 +930,7 @@ export class TerminalSurface {
       this.restoreSetAside(draft, draftPastes); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(edited);
     };
     const cancel = () => finish(undefined);
-    this.attention();
+    this.attention("question");
     this.pendingEdit = finish; this.editGivesWay = typedDuringTask();
     this.editHeading = [this.accent(terminalText(heading)), this.muted(terminalText(hint))];
     this.editor.setText(lines.map(line => terminalText(line).replace(/\s+/g, " ")).join("\n"));
