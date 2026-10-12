@@ -712,8 +712,18 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.32. New work shows here before the next preview.</p>
+          <p>On the main branch since v0.2.32, in the next preview.</p>
         </aside>
+        <ul>
+          <li><strong>The browser works without asking.</strong> The AI clicks, types and serves a folder of plain files itself; with Browser clicks on it starts the project's dev script without a box.</li>
+          <li><strong>Fewer interruptions.</strong> What Claude Code runs without asking, Casper runs too; with the sandbox off, routine git and shell commands skip the "Run this command?" box.</li>
+          <li><strong>Honest endings.</strong> Browser checks are recorded on their first finished run, one dev server owns the port, and a check that never ran (sandbox, timeout) ends the task incomplete, not failed.</li>
+          <li><strong>Pages that feel right.</strong> Page checks note developer text, layout jumps, focus rings round the page, huge phone footers and covered buttons; they follow a few same-site links; check steps wait for their element.</li>
+          <li><strong>Pictures.</strong> From your ChatGPT plan or a free model, an SVG illustration kit, and a paid image model only when your request names it or your config lists it.</li>
+          <li><strong>Secrets.</strong> Values in app configs and compose labels are hidden.</li>
+          <li><strong>Local models.</strong> Ollama models run as their Modelfile says, use the context window Ollama really serves, and broken tool arguments are repaired.</li>
+          <li><strong>Home lab.</strong> A <code>compose</code> check (<code>docker compose config --quiet</code> per file) and skills for a media stack, Docker Compose, Proxmox and network troubleshooting.</li>
+        </ul>
       </section>
 
       <section id="coming" aria-labelledby="coming-h">
