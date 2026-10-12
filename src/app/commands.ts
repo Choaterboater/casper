@@ -6,7 +6,7 @@ import type { BrowserSession } from "../browser/session";
 import type { ServiceManager, ServiceStatus } from "../services/manager";
 import { runTasksCommand, type BackgroundTask } from "./background";
 import type { DebugRequest, DebugSession } from "../debug/session";
-import { formatSubagentReport, SubagentManager, type SubagentRole } from "../agents/manager";
+import { formatSubagentReport, SUBAGENT_LIMITS, SubagentManager, type SubagentRole } from "../agents/manager";
 import { formatReferenceResult, type ReferenceLibrary } from "../references/library";
 import { ProjectMemory } from "../memory/store";
 import { modelPreference } from "../tui/model-preference";
@@ -65,6 +65,7 @@ import type { SessionWorkspaceManager } from "../sessions/manager";
 import { typedDuringTask } from "../tui/give-way";
 import { formatProjectContext } from "../project/context";
 import { runSecurityReview, type SecurityAIReview, type SecurityReviewHost } from "./security-review";
+import { runReview } from "./review-command";
 import { runCrewCommand } from "../crew/command";
 import { crewShell } from "../crew/shell";
 import { allowedCommand } from "./allowed";
@@ -606,6 +607,10 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       await runCrew(host, prompt.slice(5).trim());
       return;
     }
+    if (/^\/review(?:\s|$)/.test(prompt)) {
+      await handleReviewCommand(host, prompt);
+      return;
+    }
     if (/^\/security-review(?:\s|$)/.test(prompt)) {
       // The security tools first, with no model call. Every question is numbered; a run that cannot ask downloads,
       // approves and spends nothing. The AI review after them runs only after its own ask (or /security-review ai).
@@ -871,6 +876,28 @@ async function handleVisualizeCommand(host: CommandHost, prompt: string): Promis
       for (const note of [...(description.notes as string[]), ...rendered.primary.lossiness]) host.output.write(`[visualize] ${note}\n`);
       for (const artifact of rendered.artifacts) host.output.write(`[visualize] wrote ${artifact.path} (${artifact.bytes} bytes)\n`);
     } finally { host.visualizationAbort = undefined; }
+  }
+
+/** `/review [branch|commit]`: the /delegate reviewer on one change's diff (src/app/review-command.ts). */
+async function handleReviewCommand(host: CommandHost, prompt: string): Promise<void> {
+    const scrub = host.securityAI()?.scrub;
+    const signal = host.commandAbort?.signal;
+    await runReview({
+      root: host.activeWorkspaceRoot(),
+      write: (text) => { if (!host.closing) host.output.write(text); },
+      run: ({ goal, context, signal: stop }) => host.subagents.run({
+        role: "reviewer", goal, context, contextBytes: SUBAGENT_LIMITS.partContextBytes, cwd: host.activeWorkspaceRoot(),
+        projectContext: host.projectContext ? formatProjectContext(host.projectContext) : "Casper project context: none detected.",
+        ...(stop ? { signal: stop } : {}),
+      }),
+      // The diff is text from project files: secrets in it are hidden before the reviewer sees it.
+      ...(scrub ? { scrub: async (text: string) => (await scrub("bash", {}, [text], signal))?.texts[0] ?? text } : {}),
+      tell: async (note) => {
+        const session = host.session ?? await host.ensureRuntime();
+        await session.appendContext?.(note);
+      },
+      ...(signal ? { signal } : {}),
+    }, prompt.trim().split(/\s+/).slice(1));
   }
 
 async function handleDelegateCommand(host: CommandHost, prompt: string): Promise<void> {

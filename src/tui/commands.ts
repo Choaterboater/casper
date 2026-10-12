@@ -105,6 +105,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     { name: "repair", args: "[checks ...]", description: "Run checks and authorize bounded repair", waits: true },
     { name: "add", args: "<name>", description: "Save a ready-made check Casper found" },
   ] },
+  { name: "review", description: "A read-only reviewer AI looks at your uncommitted changes, a branch or a commit", argumentHint: "[branch|commit]", waits: ANY },
   { name: "security-review", description: "Run the pinned security tools here, then offer an AI review (asks first)", waits: ANY, subcommands: [
     { name: "ai", description: "The same, and runs the AI review with no box", waits: true },
     { name: "update", description: "Download osv-scanner's advisory data (asks first)" },

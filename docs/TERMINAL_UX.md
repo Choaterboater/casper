@@ -29,7 +29,7 @@ takes nothing after its name says so (`Usage: /settings, with nothing after it.`
 
 ### Commands
 
-These commands run on your machine. Only `/compact`, `/delegate`, `/crew <job>`,
+These commands run on your machine. Only `/compact`, `/delegate`, `/review`, `/crew <job>`,
 `/verify repair` and `/btw` send a model request. `/model` may fetch provider model lists
 over the network, and `/references add` downloads files after asking you.
 
@@ -61,6 +61,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/output [n\|all]` | Full command and output of a recent tool call from the last task |
 | `/receipt [n\|list]` | The last task's receipt in detail, a saved one, or the last 10 |
 | `/verify [checks]`, `/verify repair`, `/verify add <name>` | Run the project's checks; repair failures; save a check Casper found ([VERIFICATION.md](VERIFICATION.md)) |
+| `/review`, `/review <branch\|commit>` | A read-only reviewer AI (your review model) reads your uncommitted changes (staged, unstaged and new text files), the changes since a branch's merge-base, or one commit, and lists real bugs, security issues and missing tests by file:line, most serious first; a finding that names no real line of a changed file is dropped. Key and `.env` files stay out, a big diff is cut and the list says which files were left out, and an empty change asks no model. The numbered list goes to the conversation too, so `fix 1 and 3` works next. It reads the repo's `AGENTS.md`, `CLAUDE.md` and an ADR of deliberate choices when there is one |
 | `/security-review` | Run the pinned security tools here, then offer an AI review (asks first; [SECURITY_CHECKS.md](SECURITY_CHECKS.md)) |
 | `/project <name>`, `/project new [name]` | Open a project folder inside this one; start a new project in ~/Projects (no model; [NEW.md](NEW.md)); `/project` alone is `/status` |
 | `/permissions` | A short screen: whether Casper is asking, one line per kind (state · how to change it) and what stays protected, then the box `Stop asking until you quit?` (`1 Keep asking · 2 Stop asking until I quit`; Enter keeps asking; no box during a task). `details` is the full screen. `all` (or `allowall`, `allow-all`) is the same box on its own, `ask` turns the questions back on, `write <folder>` allows a folder outside the project, `forget <folder>` takes it back. A mistyped word gets `Did you mean /permissions all (it asks first)?` and runs nothing |
@@ -678,7 +679,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - Only the commands that would change what the task works on, or start model work of their own
   (one at a time), wait: `/clear` and `/new`, `/resume`, `/compact`, `/undo`, `/redo`, `/rewind`,
   `/branch <name>`, `/switch`, `/project <name>`, `/project new`, `/plan`, `/verify`,
-  `/security-review`, `/delegate` (it stops the debugger the task may use), `/crew` (its list
+  `/review`, `/security-review`, `/delegate` (it stops the debugger the task may use), `/crew` (its list
   applies copies to your folder; `/crew drop` runs) and a picked suggestion. They keep their draft
   and say why for a moment (`/undo waits until this task ends · draft kept · Esc stops the task`).
   Typing `/` keeps the command menu; the commands and subcommands that wait are dimmed and say

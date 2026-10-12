@@ -12,6 +12,11 @@ letting anything change your files.
 /delegate reviewer Inspect src/sessions/manager.ts for approval-race risks
 ```
 
+`/review` runs the same reviewer on one change for you: your uncommitted changes, the
+changes since a branch (`/review main`) or one commit (`/review abc123`). Casper gives it the
+diff, keeps only findings that name a real line of a changed file, and tells the conversation the
+numbered list, so `fix 1 and 3` works next.
+
 The main model can also start a helper itself, with the `delegate` tool. It
 passes a `role` (`explorer` or `reviewer`), a `goal`, and optional `context`.
 Both ways make a model request, so they use your provider account.

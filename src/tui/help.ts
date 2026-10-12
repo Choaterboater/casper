@@ -200,6 +200,8 @@ Local commands:
   /verify repair [checks ...]       Run checks and authorize bounded repair
   /verify add <name>                Save a ready-made check Casper found (Ansible) in .casper/project.yaml
   /verify <lab check>               Run a lab check on your own lab (lab.hosts); asks first, never auto
+  /review                           A read-only reviewer AI reads your uncommitted changes (staged, unstaged, new files) for bugs, security issues and missing tests, by file:line; then say "fix 1 and 3"
+  /review <branch|commit>           The same for the changes since a branch (its merge-base), or for one commit; a big diff is cut and says what was left out
   /security-review                  Run the pinned security tools here (no model), then offer an AI review: 1 Stop here · 2 Run the AI review, with its cost; Enter spends nothing
   /security-review ai               The same, and runs the AI review with no box (the cost is printed first)
   /security-review update           Download osv-scanner's advisory data (asks first)
@@ -209,7 +211,7 @@ Local commands:
 Unknown slash commands are rejected locally, never sent to a model.
 /model opens on the providers (Up/Down picks whose models show; Enter, Tab or Right goes to the list). Enter selects and saves ~/.casper/settings.json; Ctrl+S selects for this session only. Exact IDs are remembered too; /model --session <id> opts out.
 During a task, /model and /effort apply from the model's next step; the step already running and helpers already working keep their model and effort.
-During a task every command runs at once, with whatever follows it (/permissions all, /settings, /login, /memory remember ...); a picker or question it opens closes when the task asks you something. Only the ones that would change the task's conversation, workspace or files, or start model work of their own, wait for it: /clear, /new, /resume, /compact, /undo, /redo, /rewind, /branch <name>, /switch, /project <name>, /project new, /plan, /verify, /security-review, /delegate, /crew. Esc stops the task.
+During a task every command runs at once, with whatever follows it (/permissions all, /settings, /login, /memory remember ...); a picker or question it opens closes when the task asks you something. Only the ones that would change the task's conversation, workspace or files, or start model work of their own, wait for it: /clear, /new, /resume, /compact, /undo, /redo, /rewind, /branch <name>, /switch, /project <name>, /project new, /plan, /verify, /review, /security-review, /delegate, /crew. Esc stops the task.
 Words you type at the start of a request, then : , or a new line, set that task only and are not sent to the model: think hard (top effort), quick (low effort), big model or use the big model (your big model, the reason role), fast model or use the fast model (your fast role), plan first (like /plan). ultrathink anywhere in your line is top effort too. Casper says what each word did in one line, and again when it goes back. Pasted text never counts, and words never grant permission.
 Side questions: a line you start with ? (? what does ECONNRESET mean) goes to your fast model on the side with no tools, idle or during a task. The answer shows as a side answer; it is not added to the conversation and the AI never sees it. /usage counts its cost; /settings turns side questions off. /btw <question> asks the same way and still works with them off, since it is typed on purpose.
 /effort remembers supported levels per model; /effort <level> --session opts out.
