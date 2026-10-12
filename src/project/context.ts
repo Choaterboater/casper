@@ -86,6 +86,8 @@ export interface ProjectContext {
   routineCommands?: boolean;
   /** `slow_commands: off` in the user's config: a command without its own timeout is stopped at the limit. Unset: on. */
   slowCommands?: boolean;
+  /** `stalled_commands: off` in the user's config: a command with no output and no CPU is left to its limit. Unset: on. */
+  stalledCommands?: boolean;
   /** `mcp_autoconnect: off` in the user's config: their own MCP servers wait for /mcp connect. Unset: on. */
   mcpAutoconnect?: boolean;
   /** `lsp_autostart: off` in the user's config: their own language servers wait for /lsp connect. Unset: on. */
@@ -205,6 +207,7 @@ export async function loadProjectContext(
     ...(configuration.browserClicks !== undefined ? { browserClicks: configuration.browserClicks } : {}),
     ...(configuration.routineCommands !== undefined ? { routineCommands: configuration.routineCommands } : {}),
     ...(configuration.slowCommands !== undefined ? { slowCommands: configuration.slowCommands } : {}),
+    ...(configuration.stalledCommands !== undefined ? { stalledCommands: configuration.stalledCommands } : {}),
     ...(configuration.mcpAutoconnect !== undefined ? { mcpAutoconnect: configuration.mcpAutoconnect } : {}),
     ...(configuration.lspAutostart !== undefined ? { lspAutostart: configuration.lspAutostart } : {}),
     ...(configuration.notifications !== undefined ? { notifications: configuration.notifications } : {}),

@@ -26,6 +26,7 @@ import { ensureSessionWorkspace } from "./session-branches";
 import { projectPrivatePaths } from "./wiring";
 import { severalModelsMessage } from "./model-words";
 import { BackgroundCommands } from "../runtime/background-commands";
+import { STALL_SECONDS } from "../runtime/stalled-commands";
 
 /** One adapter-construction owner, shared by auth and session startup. */
 export function acquireRuntime(app: CasperApp): Promise<AgentRuntime> {
@@ -235,6 +236,8 @@ export function currentShell(app: CasperApp): RuntimeShell {
     wroteOutside: (absolute) => app.shell?.wroteOutside?.(absolute),
     logDir: async () => app.shell?.logDir?.(),
     background: () => app.projectContext?.slowCommands === false ? undefined : backgroundCommands(app),
+    // Not on Windows: CPU is not read there, and silence alone would end a quiet build.
+    stallSeconds: () => app.projectContext?.stalledCommands === false || process.platform === "win32" ? undefined : STALL_SECONDS,
   };
 }
 

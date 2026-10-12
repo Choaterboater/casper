@@ -95,6 +95,9 @@ export interface RuntimeShell {
   /** Slow commands (on unless turned off): a command run without its own timeout that is still running at the default
    * limit moves here instead of being stopped. Undefined: it is stopped at the limit. */
   background?(): BackgroundCommands | undefined;
+  /** Stalled commands (on unless turned off): seconds of no output and no CPU that end a command run without its own
+   * timeout. Undefined: such a command is left to its limit. */
+  stallSeconds?(): number | undefined;
 }
 
 /** Safe preflight diagnostic; callers may surface this exact message without forwarding provider errors. */

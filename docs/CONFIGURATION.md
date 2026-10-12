@@ -14,15 +14,15 @@ writes your answer into `~/.casper/config.yaml` for you, keeping your comments a
 ```text
 Settings (saved in ~/.casper/config.yaml for you):
   Web lookups: on (DuckDuckGo) · Browser tool: on · Browser clicks: on
-  Routine commands: on · Slow commands: on · Starter templates: on
-  Diagram tool: on · Pages the AI makes: on · Pictures the AI makes: on
-  Open pages in the browser: on · New-version notice: on · Notifications: on
-  Suggestions: on · Side questions with ?: on · Built-in skills: on
-  GitHub tool: on · Packs: on · Spend notes: at $1 a task · Spend pause: off
-  Prompt cache: auto · Local models: on · Page checks: on
-  Show the AI the pages: ask once a session · Work shown: normal
-  Theme: default · Untrusted-text reader: on · Helpers that build: on
-  Playwright tests: on · Compose files: on
+  Routine commands: on · Slow commands: on · Stalled commands: on
+  Starter templates: on · Diagram tool: on · Pages the AI makes: on
+  Pictures the AI makes: on · Open pages in the browser: on
+  New-version notice: on · Notifications: on · Suggestions: on
+  Side questions with ?: on · Built-in skills: on · GitHub tool: on · Packs: on
+  Spend notes: at $1 a task · Spend pause: off · Prompt cache: auto
+  Local models: on · Page checks: on · Show the AI the pages: ask once a session
+  Work shown: normal · Theme: default · Untrusted-text reader: on
+  Helpers that build: on · Playwright tests: on · Compose files: on
   Send Casper's name to OpenRouter: on · Sign-ins from other tools: on
   Network server updates: on · My MCP servers: on · My language servers: on
   Private ssh passwords: on
@@ -33,41 +33,42 @@ Pick one to change:
   4 Browser clicks                    on
   5 Routine commands                  on
   6 Slow commands                     on
-  7 Starter templates                 on
-  8 Diagram tool                      on
-  9 Pages the AI makes                on
- 10 Pictures the AI makes             on
- 11 Open pages in the browser         on
- 12 New-version notice                on
- 13 Notifications                     on
- 14 Suggestions                       on
- 15 Side questions with ?             on
- 16 Built-in skills                   on
- 17 GitHub tool                       on
- 18 Packs                             on
- 19 Spend notes                       at $1 a task
- 20 Spend pause                       off
- 21 Prompt cache                      auto
- 22 Local models                      on
- 23 Page checks                       on
- 24 Show the AI the pages             ask once a session
- 25 Work shown                        normal
- 26 Theme                             default
- 27 Untrusted-text reader             on
- 28 Helpers that build                on
- 29 Playwright tests                  on
- 30 Compose files                     on
- 31 Send Casper's name to OpenRouter  on
- 32 Sign-ins from other tools         on
- 33 Network server updates            on
- 34 My MCP servers                    on
- 35 My language servers               on
- 36 Private ssh passwords             on
+  7 Stalled commands                  on
+  8 Starter templates                 on
+  9 Diagram tool                      on
+ 10 Pages the AI makes                on
+ 11 Pictures the AI makes             on
+ 12 Open pages in the browser         on
+ 13 New-version notice                on
+ 14 Notifications                     on
+ 15 Suggestions                       on
+ 16 Side questions with ?             on
+ 17 Built-in skills                   on
+ 18 GitHub tool                       on
+ 19 Packs                             on
+ 20 Spend notes                       at $1 a task
+ 21 Spend pause                       off
+ 22 Prompt cache                      auto
+ 23 Local models                      on
+ 24 Page checks                       on
+ 25 Show the AI the pages             ask once a session
+ 26 Work shown                        normal
+ 27 Theme                             default
+ 28 Untrusted-text reader             on
+ 29 Helpers that build                on
+ 30 Playwright tests                  on
+ 31 Compose files                     on
+ 32 Send Casper's name to OpenRouter  on
+ 33 Sign-ins from other tools         on
+ 34 Network server updates            on
+ 35 My MCP servers                    on
+ 36 My language servers               on
+ 37 Private ssh passwords             on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
-Every row has its number: past 9, type it and press Enter (`Type 1-36 + Enter or Up/Down + Enter`).
+Every row has its number: past 9, type it and press Enter (`Type 1-37 + Enter or Up/Down + Enter`).
 A plain terminal (`TERM=dumb`) asks the same list as numbered lines.
 A change applies from now on (built-in skills, packs, the prompt cache, local models, My MCP servers and My language servers from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Changed while a task runs, it also says when the
@@ -152,6 +153,22 @@ is stopped at 2 minutes as before. A command the AI gave its own time limit is s
 still go through the service tool. Every one is stopped, with whatever it started, when Casper exits.
 It is on. Turn it off with `/settings` (it writes `slow_commands: false`) and a slow command is
 stopped at 2 minutes. A project file can't set it.
+
+### Stalled commands
+
+A shell command the AI runs without its own time limit that prints nothing new for 45 seconds while
+it and everything it started use no CPU (under 1%) and move no bytes (on Linux no reads or writes, on
+macOS no network traffic, so a quiet `git clone` still downloading keeps going), is waiting
+on nothing: a download that hung, or a test run that printed its results but kept a server, timer or
+connection open. Casper ends it with what it started, in the foreground or after it moved to the
+background, and the AI reads why: `stalled: no output and no CPU for 45 s after: <its last line>`.
+When that last output looks like a finished test summary it adds that the tests finished but something
+is still open, to close in the test teardown; for `playwright install` it adds that Casper already has
+a browser, so the AI uses the browser tool instead. On Windows, where Casper does not read the CPU,
+nothing is ended this way, since silence alone would end a quiet build. A command the AI gave its own time limit, a command on Casper's ssh
+login, and servers started with the service tool are never ended this way; a command that waits on
+another machine on purpose gets a time limit to keep running. It is on. Turn it off with `/settings`
+(it writes `stalled_commands: false`) and such a command runs to its limit. A project file can't set it.
 
 ### Starter templates
 
