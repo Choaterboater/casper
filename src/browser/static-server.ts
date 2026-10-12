@@ -18,6 +18,8 @@ export class StaticServer {
   private server?: ReturnType<typeof Bun.serve>;
   private served = 0;
   private missing: string[] = [];
+  private url?: URL;
+  origin(): string | undefined { return this.server ? this.url?.origin : undefined; }
 
   diagnostics() {
     return { output: `Static files: ${this.served} served${this.missing.length ? `; not found: ${this.missing.slice(-5).join(", ")}` : ""}`, truncated: false, running: Boolean(this.server) };
@@ -31,6 +33,7 @@ export class StaticServer {
     if (held) throw new Error("Browser server port is already in use; existing processes are never replaced");
     signal.throwIfAborted();
     const root = await realpath(projectRoot);
+    this.url = url;
     this.server = Bun.serve({ hostname: url.hostname.replace(/^\[|\]$/g, ""), port: Number(url.port), fetch: (request) => this.answer(root, request) });
     return { ready: true, url: url.href, guidance: "Static files from the project folder, served by Casper and stopped with the browser session. HTTP readiness only, not verification." };
   }

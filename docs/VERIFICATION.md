@@ -727,7 +727,8 @@ same one repair turn as the accessibility notes:
 At desktop width: developer or broken text a person can see (`[object Object]`, `Invalid Date`, `NaN`,
 `{{…}}` or `${…}`, raw JSON, ISO timestamps, HTML entities shown as text, lorem ipsum, UUIDs and long hex
 ids, `undefined` or `null` alone or after `:` or a currency sign, a time zone such as `Europe/London`
-outside a picker, and "1 bags"), quoted and cut to 30 characters, never inside `code`, `pre` or a field;
+outside a picker, and "1 bags"), quoted and cut to 30 characters, in a field's label or a form's legend too
+(`Date & time (Europe/London)`), never inside `code`, `pre`, a field's value or placeholder, or a time-zone option;
 the layout jumping while it loads (a shift score of 0.1 or more, with what moved and the images that
 have no `width` and `height` or `aspect-ratio`); and a focus ring drawn round `main`, the heading or a
 big box as the page opens (a field or button focused on load is fine). At phone width: a page footer
@@ -749,12 +750,22 @@ reset, unsubscribe, cancel, clear or admin in it, or one with an action word suc
 or `toggle` as a part (`/cart/add/3`), and it never sends a form. What is wrong is a look note on the
 page that links there (`link /about returns 404`, `link /help is blank`; a page that asks to sign in
 first, 401 or 403, is not); those pages were not changed in the task, so this never fails a page.
+Then it opens links whose query makes a choice (`/book?staff=ana-sousa`): at least 3, and up to 8 light
+loads in all when fewer plain links were opened, taking turns by key (staff, service, staff), with the same light load
+and the same path rules, never one whose query has an action word or a key such as `action`, `redirect`,
+`next` or `token`; keys that page, sort or track (`page`, `sort`, `utm_…`) are not choices. Each value
+must show as chosen: a selected option, a checked box or its label, a field's value, or words in the first
+screen and a half (a date also as `12 October` or `12/10/2026`). A value under 3 characters, one with a digit
+(an id such as `a1b2c3`, not a date) or one under an id key (`id`, `user_id`) counts only where a field is named
+after its key. If not, the note is `link /book?staff=ana-sousa: the page
+does not show ana-sousa as chosen`.
 
 **When pages are not checked.** A project Casper can't start is a note, never a failure:
 `– Pages not checked: node_modules is missing. Run bun install first (Casper doesn't install packages)`.
 A dev server that stops before it is ready, or doesn't answer on its port in time (45 s for one Casper found), makes the check
 incomplete, with the server's last lines. When the command checks still fail after the last repair, the
-pages never opened: `– Pages not checked: command checks failed`.
+pages never opened: `– Pages not checked: command checks failed`. A check the sandbox blocked doesn't count
+here: smoke checks and pages still run, and their notes still reach the model, while the task ends incomplete.
 
 **Turning them off for every project.** Pick **Page checks** in `/settings` (it writes `pages: off`
 in `~/.casper/config.yaml`). In your own config `pages:` is only on or off. A project file can still

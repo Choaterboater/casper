@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, realpath, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { actionHold, BrowserSession, serveHolds } from "../src/browser/session";
+import { actionHold, BrowserSession, choiceLinks, serveHolds } from "../src/browser/session";
 import { browserTool } from "../src/browser/tools";
 import { needsSymlinks, posixModes } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
@@ -414,7 +414,7 @@ browserTest("a failing check names up to 3 real elements like it, and on a repla
   // Line breaks and runs of spaces count as one space on both sides; the text must otherwise match.
   expect(await run([{ kind: "text", selector: "h1", expected: "Hello Casper" }, { kind: "text", selector: ".status", expected: " Saved    ok " }]))
     .toMatchObject({ status: "pass", assertions: [{ status: "pass", actual: "Hello Casper" }, { status: "pass", actual: "Saved ok" }] });
-  const hint = "If the check itself is wrong, record a corrected check and withdraw this one; if the page is wrong, fix it.";
+  const hint = "If the check itself is wrong, record a corrected check of this page and withdraw this one (replacedBy: its id once it passes); if the page is wrong, fix it.";
   const recorded = await run([{ kind: "visible", selector: "#title" }, { kind: "text", selector: "#save-btn", expected: "Save" },
     { kind: "text", selector: "h1", expected: "hello casper" }, { kind: "visible", selector: "button" }]) as { id: string; status: string; assertions: Array<Record<string, unknown>> };
   // Recorded before an edit a check is meant to fail: the real elements, but no hint to withdraw it.
@@ -431,6 +431,88 @@ browserTest("a failing check names up to 3 real elements like it, and on a repla
   expect(failed.assertions[2]).toMatchObject({ status: "fail", actual: "Hello Casper", hint });
   expect((failed.assertions[2]!.near as string[]).length).toBeLessThanOrEqual(3);
   expect(failed.assertions[3]).toEqual({ kind: "visible", status: "pass", actual: true });
+}, 30_000);
+
+browserTest("a check with no scope whose page saves to a file git ignores stays fresh and can be withdrawn; a tracked file, or no .gitignore, makes it stale", async () => {
+  const run = async (git: boolean, saved: string, ignore = true) => {
+    const f = await fixture();
+    if (ignore) await writeFile(path.join(f.project, ".gitignore"), "data/\n");
+    await writeFile(f.sourceFile, '<!doctype html><button>Book</button><p id="state">Free</p><script>document.querySelector("button").onclick = async () => { await fetch("/book", { method: "POST" }); document.querySelector("#state").textContent = "Booked"; }</script>');
+    if (git) {
+      expect(Bun.spawnSync(["git", "init", "-q"], { cwd: f.project }).exitCode).toBe(0);
+      await writeFile(path.join(f.project, "bookings.json"), "[]");
+      expect(Bun.spawnSync(["git", "add", "bookings.json"], { cwd: f.project }).exitCode).toBe(0);
+    }
+    // The app's own server, writing a booking into the project as the check's click runs.
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+      if (new URL(request.url).pathname === "/book") {
+        await mkdir(path.dirname(path.join(f.project, saved)), { recursive: true });
+        await writeFile(path.join(f.project, saved), JSON.stringify([{ at: Date.now() }]));
+        return new Response("ok");
+      }
+      return new Response(await readFile(f.sourceFile), { headers: { "content-type": "text/html" } });
+    } });
+    cleanup.push(async () => { server.stop(true); });
+    const check = await f.session.run({ action: "check", scenario: { name: "Book", url: `http://127.0.0.1:${server.port}`,
+      steps: [{ action: "click", selector: "button", impact: "local-test", reason: "books a test slot" }],
+      assertions: [{ kind: "text", selector: "#state", expected: "Booked!" }] } }) as { id: string };
+    return { f, check, withdraw: () => f.session.run({ action: "withdraw", id: check.id, reason: "expected text had a typo" }) };
+  };
+  const ignored = await run(true, "data/db.json");
+  expect(ignored.check).toMatchObject({ status: "fail", freshness: "fresh" });
+  expect(await ignored.withdraw()).toMatchObject({ status: "withdrawn" });
+  // A .gitignore counts with no git repository too.
+  expect((await run(false, "data/db.json")).check).toMatchObject({ status: "fail", freshness: "fresh" });
+  // The model's own edit of an ignored file the page may serve still counts: any edit or command makes the check stale.
+  const edited = await run(true, "data/db.json");
+  await writeFile(path.join(edited.f.project, "data", "db.json"), "[]");
+  edited.f.session.invalidate();
+  await expect(edited.withdraw()).rejects.toThrow("Code/tool writes observed after this browser check");
+  for (const [git, saved, ignore] of [[true, "bookings.json", true], [false, "data/db.json", false]] as const) {
+    const stale = await run(git, saved, ignore);
+    expect(stale.check).toMatchObject({ status: "fail", freshness: "stale", reason: "Declared inputs changed during browser reproduction." });
+    await expect(stale.withdraw()).rejects.toThrow("Declared inputs changed during browser reproduction");
+  }
+}, 60_000);
+
+browserTest("{run} in a fill value is new on each run of a check, so a sign-up passes again; a fixed email that passed before gets a hint", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, '<!doctype html><input id="email"><button id="go">Register</button><p id="out"></p><script>document.querySelector("#go").onclick = async () => { const r = await fetch("/register?email=" + encodeURIComponent(document.querySelector("#email").value)); document.querySelector("#out").textContent = await r.text(); }</script>');
+  // The app refuses an email already registered.
+  const emails: string[] = [];
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === "/register") {
+      const email = url.searchParams.get("email")!;
+      if (emails.includes(email)) return new Response("That email is already registered");
+      emails.push(email);
+      return new Response("Registered");
+    }
+    return new Response(await readFile(f.sourceFile), { headers: { "content-type": "text/html" } });
+  } });
+  cleanup.push(async () => { server.stop(true); });
+  const signUp = (name: string, email: string) => f.session.run({ action: "check", scenario: { name, url: `http://127.0.0.1:${server.port}`, scope: { inputs: ["index.html"] },
+    steps: [{ action: "fill", selector: "#email", value: email, impact: "local-test", reason: "test sign-up" }, { action: "click", selector: "#go", impact: "local-test", reason: "test sign-up" }],
+    assertions: [{ kind: "text", selector: "#out", expected: "Registered" }] } }) as Promise<{ id: string; status: string; assertions: Array<Record<string, unknown>> }>;
+  const fresh = await signUp("account-register", "user-{run}@example.com");
+  expect(fresh.status).toBe("pass");
+  expect(await f.session.run({ action: "replay", id: fresh.id })).toMatchObject({ status: "pass" });
+  expect(emails).toHaveLength(2);
+  expect(emails[0]).not.toBe(emails[1]);
+  for (const email of emails) expect(email).toMatch(/^user-[a-z0-9]+@example\.com$/);
+  // The stored check keeps {run}.
+  expect((f.session as unknown as { scenarios: Map<string, { scenario: { steps: Array<{ value?: string }> } }> }).scenarios.get(fresh.id)!.scenario.steps[0]!.value).toBe("user-{run}@example.com");
+  // A fixed email passes once, then the page refuses it: the failure says to use {run}.
+  const hint = "It passed before: a sign-up or booking may need a new value each run; use {run} in the fill value.";
+  const fixed = await signUp("account-register b", "fixed@example.com");
+  expect(fixed.status).toBe("pass");
+  expect(await f.session.run({ action: "replay", id: fixed.id })).toMatchObject({ status: "fail", assertions: [{ actual: "That email is already registered", hint }] });
+  // A check that failed when recorded gets no such hint.
+  const failing = await signUp("account-register c", "fixed@example.com");
+  expect(failing.status).toBe("fail");
+  const again = await f.session.run({ action: "replay", id: failing.id }) as { status: string; assertions: Array<Record<string, unknown>> };
+  expect(again.status).toBe("fail");
+  expect(again.assertions[0]!.hint).not.toBe(hint);
 }, 30_000);
 
 browserTest("a failed check the AI wrote wrong can be withdrawn with a reason: it stays in the report, never decides it, and is never replayed", async () => {
@@ -481,6 +563,74 @@ browserTest("a failed check can't be withdrawn once anything changed after it: a
   expect(await f.session.report()).toMatchObject({ status: "fail", checks: [{ status: "fail" }, { status: "fail" }] });
 }, 30_000);
 
+browserTest("after a change a wrong check can be withdrawn by naming a later passing check of the same page; an older, failing or other-page one is refused", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, '<!doctype html><section id="done"><h2>Booked</h2><p>Monday 09:00</p></section><p id="total">Total: 100</p>');
+  const scenario = (name: string, url: string, selector: string, expected: string) => ({ name, url, scope: { inputs: ["index.html"] }, steps: [],
+    assertions: [{ kind: "text", selector, expected }] });
+  const older = await f.session.run({ action: "check", scenario: scenario("Older", f.url, "h2", "Booked") });
+  const wrong = await f.session.run({ action: "check", scenario: scenario("Booking", f.url, "#done", "Booked") }) as { id: string; assertions: Array<Record<string, unknown>> };
+  // The text is there, inside a wider element: the hint says to narrow the selector, even on the recording run.
+  expect(wrong.assertions[0]).toMatchObject({ status: "fail", hint: "The expected text is inside this element with other text: point the selector at the element that holds only it (see near)." });
+  // A wrong text that merely contains the expected one is a page that may be wrong: no hint to narrow the selector.
+  const total = await f.session.run({ action: "check", scenario: scenario("Total", f.url, "#total", "Total: 10") }) as { assertions: Array<Record<string, unknown>> };
+  expect(total.assertions[0]).toMatchObject({ status: "fail", actual: "Total: 100" });
+  expect("hint" in total.assertions[0]!).toBe(false);
+  f.session.invalidate();
+  const refused = await f.session.run({ action: "withdraw", id: wrong.id, reason: "selector too wide" }).catch((e: Error) => e.message);
+  expect(refused).toContain("or record a corrected check of the same page and, once it passes, withdraw this one with replacedBy: its id");
+  const failing = await f.session.run({ action: "check", scenario: scenario("Booking 2", f.url, "h2", "Booked!") });
+  const elsewhere = await f.session.run({ action: "check", scenario: scenario("Booking 3", `${f.url}/other`, "h2", "Booked") });
+  expect(elsewhere).toMatchObject({ status: "pass" });
+  const withdraw = (replacedBy: unknown) => f.session.run({ action: "withdraw", id: wrong.id, reason: "selector too wide", replacedBy });
+  await expect(withdraw(older.id)).rejects.toThrow("replacedBy must name a check recorded after this one");
+  await expect(withdraw(failing.id)).rejects.toThrow("replacedBy must name a check whose latest run passed");
+  await expect(withdraw(elsewhere.id)).rejects.toThrow("replacedBy must check the same page as this one (/), not /other");
+  await expect(withdraw(wrong.id)).rejects.toThrow("replacedBy must be the id of another check");
+  // A check that only shows the page loads, or one at another viewport, can't stand in for it.
+  const loads = await f.session.run({ action: "check", scenario: { name: "Loads", url: f.url, scope: { inputs: ["index.html"] }, steps: [], assertions: [{ kind: "visible", selector: "h2" }] } });
+  const phone = await f.session.run({ action: "check", scenario: { ...scenario("Phone", f.url, "#done h2", "Booked"), viewport: { width: 390, height: 844 } } });
+  expect([loads, phone]).toMatchObject([{ status: "pass" }, { status: "pass" }]);
+  await expect(withdraw(loads.id)).rejects.toThrow("replacedBy must test at least what this check did; it has fewer text assertions");
+  await expect(withdraw(phone.id)).rejects.toThrow("replacedBy must check the page at the same viewport as this one (1280×800)");
+  // The same page (its query aside), recorded later, passing: it takes the old check's place.
+  const right = await f.session.run({ action: "check", scenario: scenario("Booking fixed", `${f.url}/?date=2026-10-19`, "#done h2", "Booked") });
+  expect(right).toMatchObject({ status: "pass" });
+  expect(await withdraw(right.id)).toMatchObject({ status: "withdrawn", reason: `selector too wide (replaced by "Booking fixed", ${right.id})` });
+  const report = await f.session.report();
+  expect(report.checks.find(c => c.id === wrong.id)).toMatchObject({ status: "withdrawn", withdrawn: `selector too wide (replaced by "Booking fixed", ${right.id})` });
+  // The failing replacement candidate still counts on its own.
+  expect(report.status).toBe("fail");
+}, 30_000);
+
+browserTest("a replay whose own server is gone opens the same path on Casper's server; with none up it could not check (incomplete, not failed)", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, "<!doctype html><h1>Hello Casper</h1>");
+  const own = () => Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async () => new Response(await readFile(f.sourceFile), { headers: { "content-type": "text/html" } }) });
+  const scenario = (name: string, url: string, expected: string) => ({ name, url, scope: { inputs: ["index.html"] }, steps: [], assertions: [{ kind: "text", selector: "h1", expected }] });
+  // The AI started this server itself, recorded a check on it, then stopped it.
+  const first = own(), gone = first.port;
+  const moved = await f.session.run({ action: "check", scenario: scenario("Home", `http://127.0.0.1:${gone}/index.html?x=1`, "Hello Casper") });
+  const failed = await f.session.run({ action: "check", scenario: scenario("Home wrong", `http://127.0.0.1:${gone}/index.html`, "Bye") });
+  expect(moved).toMatchObject({ status: "pass" });
+  expect(failed).toMatchObject({ status: "fail" });
+  await first.stop(true);
+  f.session.invalidate();
+  // No server answers: nothing was checked, so neither the old pass nor the old failure stands.
+  await expect(f.session.run({ action: "replay", id: moved.id })).rejects.toThrow(`Nothing answers at http://127.0.0.1:${gone} any more and Casper runs no server for this project; start it with serve and replay`);
+  await f.session.replayStale(0);
+  expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [
+    { id: moved.id, status: "incomplete", reason: expect.stringContaining("Could not check. Nothing answers") },
+    { id: failed.id, status: "incomplete", reason: expect.stringContaining("Could not check. Nothing answers") }] });
+  // Casper's own server runs the project now: the replay opens the same path there.
+  const port = await freePort();
+  await f.session.run({ action: "serve", script: "files", url: `http://127.0.0.1:${port}/`, impact: "local-test", reason: "Synthetic files" });
+  const again = await f.session.run({ action: "replay", id: moved.id });
+  expect(again).toMatchObject({ status: "pass", url: `http://127.0.0.1:${gone}/index.html?x=1`,
+    notes: [`opened on Casper's server http://127.0.0.1:${port}: nothing answers at http://127.0.0.1:${gone} any more`] });
+  expect(await f.session.run({ action: "replay", id: failed.id })).toMatchObject({ status: "fail", freshness: "fresh" });
+}, 30_000);
+
 browserTest("a new check whose step selector matches several elements is not kept, so it can't hold the result at incomplete", async () => {
   const f = await fixture();
   await writeFile(f.sourceFile, "<!doctype html><button>A</button><button>B</button><h1>Hi</h1>");
@@ -512,6 +662,66 @@ browserTest("a check step waits up to 5 s for its target to appear or be enabled
     steps: [{ action: "click", selector: "button", impact: "local-test", reason: "Test" }], assertions: [{ kind: "visible", selector: "h1" }] } }).catch((e: Error) => e.message);
   expect(two).toContain("it matches 2");
   expect(performance.now() - started).toBeLessThan(4_000);
+}, 40_000);
+
+browserTest("a covered button fails its click naming the cover; a click that changes nothing and a confirm dialog are reported", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, `<!doctype html><h1>Items</h1><button id="save">Save</button><button id="dead">Dead</button>
+    <button id="del" onclick="if (confirm('Clear this item?')) document.querySelector('h1').textContent = 'Cleared'">Clear</button>
+    <button id="add" onclick="document.querySelector('h1').textContent = 'Added'">Add</button>
+    <label for="agree">Agree</label><input id="agree" type="checkbox" style="position:absolute;left:0;top:300px">
+    <input id="name" aria-label="Name"><button id="pin" aria-pressed="false" onclick="this.setAttribute('aria-pressed', 'true')">Pin</button>
+    <a id="new" href="/?open" target="_blank">Help</a>
+    <div class="toast" style="position:fixed;inset:0;background:#fff">Saved <span>just now</span></div>
+    <script>document.querySelector('.toast').style.display = location.search ? 'none' : ''</script>`);
+  await f.session.run({ action: "open", url: f.url });
+  const step = (selector: string) => ({ action: "click", selector, impact: "local-test", reason: "Test" });
+  const covered = await f.session.run(step("#save")).catch((e: Error) => e.message);
+  expect(covered).toContain('button "Save" is covered by div.toast "Saved just now"');
+  await f.session.run({ action: "open", url: `${f.url}/?open` });
+  const dead = await f.session.run(step("#dead"));
+  expect(dead).toMatchObject({ executed: true, note: 'nothing changed after clicking button "Dead"' });
+  const added = await f.session.run(step("#add"));
+  expect(added.note).toBeUndefined();
+  expect(await f.session.run(step("#agree"))).not.toHaveProperty("note");
+  // Clicking into a field and a toggle that only changes aria-pressed change something.
+  for (const selector of ["#name", "#pin"]) expect(await f.session.run(step(selector))).not.toHaveProperty("note");
+  const asked = await f.session.run(step("#del"));
+  expect(asked.dialogs).toEqual(['confirm dialog "Clear this item?": Casper answered Cancel']);
+  // A check names the dialog and the dead click on its steps.
+  const check = await f.session.run({ action: "check", scenario: { name: "Clear", url: `${f.url}/?open`, scope: { inputs: ["index.html"] },
+    steps: [step("#dead"), step("#del")], assertions: [{ kind: "text", selector: "h1", expected: "Items" }] } });
+  expect(check).toMatchObject({ status: "pass", notes: ['step 1: nothing changed after clicking button "Dead"', 'step 2: confirm dialog "Clear this item?": Casper answered Cancel'] });
+  // So does a link that opens a new tab.
+  await f.session.run({ action: "open", url: `${f.url}/?open` });
+  expect(await f.session.run(step("#new"))).not.toHaveProperty("note");
+}, 40_000);
+
+browserTest("an action's result says what changed on the page: text that appeared, controls added or removed, focus, title and address", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, `<!doctype html><title>Form</title><h1>Sign up</h1><input id="email" aria-label="Email"><button id="send">Join</button>
+    <button id="next" onclick="location.hash = 'two'">Next</button><button id="plain" onclick="this.after('Done')">Plain</button><div id="box"><button id="redraw">Redraw</button></div><script>
+    document.getElementById("box").onclick = () => { const b = document.createElement("button"); b.textContent = "Redraw"; b.id = "redraw";
+      document.getElementById("box").replaceChildren(b, "Again"); b.focus(); };</script><p class="toast" hidden>Check your email address</p><script>
+    document.getElementById("send").onclick = () => { document.querySelector(".toast").hidden = false; document.title = "Form (1 error)";
+      document.getElementById("send").remove(); const retry = document.createElement("button"); retry.textContent = "Try again"; document.body.append(retry);
+      document.getElementById("email").focus(); };</script>`);
+  await f.session.run({ action: "open", url: f.url });
+  const step = (selector: string) => ({ action: "click", selector, impact: "local-test", reason: "Test" });
+  const sent = await f.session.run(step("#send"));
+  expect(sent.changes).toEqual({ title: "Form (1 error)", appeared: "Check your email address", controlsAdded: ['button "Try again"'],
+    controlsRemoved: ['button "Join"'], focus: 'textbox "Email"' });
+  // Focus landing on the clicked button is not named.
+  const plain = await f.session.run(step("#plain"));
+  expect(plain.changes).toEqual({ appeared: "Done" });
+  // Nor on the same button drawn again.
+  const redrawn = await f.session.run(step("#redraw"));
+  expect(redrawn.changes).toEqual({ appeared: "Again" });
+  const typed = await f.session.run({ action: "fill", selector: "#email", value: "a@example.com", impact: "local-test", reason: "Test" });
+  expect(typed).not.toHaveProperty("changes");
+  const moved = await f.session.run(step("#next"));
+  expect(moved.changes).toMatchObject({ previousUrl: `${f.url}/` });
+  expect(moved.url).toBe(`${f.url}/#two`);
 }, 40_000);
 
 browserTest("a new check that stops part way gives its id back, and can be withdrawn until anything changes", async () => {
@@ -724,6 +934,39 @@ browserTest("the page load notes what feels wrong to use: developer text, a focu
     <input autofocus aria-label="Search"><article class="card"><p>Bean</p><footer>Card footer</footer></article>
     <p><button>Open</button></p><dialog open>Saved</dialog></html>`);
   expect((await f.session.load(`${f.url}/`, new AbortController().signal)).feel).toEqual({ devText: [], shift: { score: 0, moved: [], unsized: [] }, covered: [] });
+}, 30_000);
+
+browserTest("developer text in a field's label or a fieldset's legend is noted; the same words as a field's value, placeholder or option are not", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><form><label for="when">Date &amp; time (Europe/London)</label><input id="when">
+    <fieldset><legend>Size: {{size}}</legend><label><input type="radio" name="size"> Small</label></fieldset><label>Pick [object Object] <select><option>One</option></select></label></form></html>`);
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).feel!.devText).toEqual(["Date & time (Europe/London)", "Size: {{size}}", "Pick [object Object]"]);
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><form><label for="when">Date and time</label><input id="when" value="2026-10-11T09:30">
+    <label for="zone">Time zone</label><input id="zone" placeholder="Europe/Paris"><fieldset><legend>Size</legend><label><input type="radio" name="size" value="{{size}}"> Small</label></fieldset>
+    <label>Zone <select><option>Europe/London</option></select></label><textarea aria-label="Notes">undefined</textarea></form></html>`);
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).feel!.devText).toEqual([]);
+}, 30_000);
+
+browserTest("the page load lists links whose query makes a choice; a light load with those choices names the ones the page does not show as chosen", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><a href="/book?staff=ana-sousa">Ana</a><a href="/book?service=cut&amp;utm_source=mail">Cut</a>
+    <a href="/shop?page=2">Next</a><a href="/cart?action=add&amp;id=3">Add</a><a href="/list?status=delete">Bin</a><a href="/go?next=/home">Go</a>
+    <a href="/menu.pdf?v=1">Menu</a><a href="/book?staff=ana-sousa#top">Top</a><a href="https://example.com/?staff=ana">Elsewhere</a></html>`);
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).choiceLinks).toEqual(["/book?staff=ana-sousa", "/book?service=cut&utm_source=mail"]);
+  // They take turns by the keys they set, so the first few cover every kind of choice.
+  expect(choiceLinks(["/book?service=a", "/book?service=b", "/book?service=c", "/book?staff=x", "/book?staff=y", "/book?staff=y"], `${f.url}/`))
+    .toEqual(["/book?service=a", "/book?staff=x", "/book?service=b", "/book?staff=y", "/book?service=c"]);
+  const light = (choices: Array<[string, string]>) => f.session.load(`${f.url}/book`, new AbortController().signal, { light: true, choices });
+  // The page ignores the choice: nothing shows ana-sousa, and the staff field keeps its first option.
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><h1>Book</h1><select name="staff"><option value="any">Anyone</option><option value="ana-sousa">Ana Sousa</option></select>
+    <select name="size"><option value="1">Small</option><option value="2">Large</option></select><input type="hidden" name="date" value="2026-10-12"></html>`);
+  expect((await light([["staff", "ana-sousa"], ["size", "2"], ["date", "2026-10-12"], ["id", "7"]])).unchosen).toEqual(["ana-sousa", "2", "2026-10-12"]);
+  // Clean twin: a selected option, a checked radio's label, a field's value or the words near the top show each choice.
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><h1>Book with Ana Sousa</h1><p>Monday 12 October</p>
+    <select name="size"><option value="1">Small</option><option value="2" selected>Large</option></select>
+    <label><input type="radio" name="service" value="c1" checked> Cut and finish</label><input name="ref" value="Spring offer"></html>`);
+  expect((await light([["staff", "ana-sousa"], ["size", "2"], ["date", "2026-10-12"], ["service", "cut-and-finish"], ["ref", "spring-offer"], ["id", "7"],
+    ["order", "a1b2c3d4"], ["user_id", "ana-sousa-x"]])).unchosen).toBeUndefined();
 }, 30_000);
 
 browserTest("a picture that arrives late with no size makes the layout jump and is named; the same picture with width and height does not", async () => {

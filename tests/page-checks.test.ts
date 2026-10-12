@@ -206,6 +206,35 @@ test("pages the changed ones link to are opened lightly, at most 5 and never twi
   expect(formatPageReport(report)[0]).toBe("✓ /book loads · 0 console errors");
 }, 30_000);
 
+test("links whose query makes a choice are opened lightly with those choices, sharing 8 light loads with plain links; a choice the page does not show is a note, and a page that shows it has none", async () => {
+  const f = await fixture();
+  const asked: Array<{ link: string; choices?: Array<[string, string]> }> = [];
+  const base = fakeOpener(url => url.pathname === "/" ? { choiceLinks: ["/book?staff=ana-sousa", "/book?staff=ben&utm_source=mail", "/cart?action=add&id=3",
+    "/book?service=cut", "/book?size=large", "/book?date=2026-10-12"] }
+    : url.search === "?staff=ana-sousa" ? { unchosen: ["ana-sousa"] } : {});
+  const opener: PageOpener = { ...base, load: (url, signal, options) => {
+    if (options?.light) asked.push({ link: `${new URL(url).pathname}${new URL(url).search}`, ...options.choices ? { choices: options.choices } : {} });
+    return base.load(url, signal, options);
+  } };
+  const report = await new PageChecks(() => f.manager, f.service, opener, { open: ["/"], skipped: [] }).run(signal());
+  expect(report.status).toBe("pass");
+  // An action link is never opened; tracking keys are not choices; with no plain links all 5 fit in the 8 light loads, taking turns by key.
+  expect(asked).toEqual([{ link: "/book?staff=ana-sousa", choices: [["staff", "ana-sousa"]] }, { link: "/book?service=cut", choices: [["service", "cut"]] },
+    { link: "/book?size=large", choices: [["size", "large"]] }, { link: "/book?date=2026-10-12", choices: [["date", "2026-10-12"]] },
+    { link: "/book?staff=ben&utm_source=mail", choices: [["staff", "ben"]] }]);
+  expect(report.pages[0]!.look).toEqual(["link /book?staff=ana-sousa: the page does not show ana-sousa as chosen"]);
+  // Clean twin: every choice shown, no note.
+  const clean = await new PageChecks(() => f.manager, f.service, fakeOpener(url => url.pathname === "/" ? { choiceLinks: ["/book?staff=ana-sousa"] } : {}),
+    { open: ["/"], skipped: [] }).run(signal());
+  expect(clean.pages[0]!.look).toBeUndefined();
+  // 5 plain links leave 3 light loads for choices.
+  const lights: string[] = [];
+  const busy = fakeOpener(url => url.pathname === "/" ? { links: ["/a", "/b", "/c", "/d", "/e", "/f"], choiceLinks: ["/book?staff=a", "/book?staff=b", "/book?staff=c", "/book?staff=d"] } : {});
+  await new PageChecks(() => f.manager, f.service, { ...busy, load: (url, s, options) => { if (options?.light) lights.push(new URL(url).pathname + new URL(url).search); return busy.load(url, s, options); } },
+    { open: ["/"], skipped: [] }).run(signal());
+  expect(lights).toEqual(["/a", "/b", "/c", "/d", "/e", "/book?staff=a", "/book?staff=b", "/book?staff=c"]);
+}, 30_000);
+
 test("secrets in console text never reach the report", async () => {
   const f = await fixture();
   const opener = fakeOpener(() => ({ consoleErrors: ["auth failed for token ghp_abcdefghijklmnopqrstuvwxyz0123456789"] }));

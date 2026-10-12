@@ -1,5 +1,5 @@
 import { discoverBrowser } from "../browser/discovery";
-import { BrowserSession, followableLinks, type PageLoad } from "../browser/session";
+import { BrowserSession, choiceLinks, followableLinks, linkChoices, type PageLoad, type PageLoadOptions } from "../browser/session";
 import { ManagedProcessError } from "../platform/managed-process";
 import { scrubText } from "../secrets/scrub";
 import { terminalText } from "../tui/format";
@@ -17,8 +17,7 @@ export type { PageLoad } from "../browser/session";
 export interface PageOpener {
   /** False for the HTTP-only fallback: it sees the status, never the console. */
   readonly consoleChecked: boolean;
-  /** `light`: a page the changed one links to, only checked to answer without errors and show something. */
-  load(url: string, signal: AbortSignal, options?: { settle?: "streamlit"; screenshots?: boolean; light?: boolean }): Promise<PageLoad>;
+  load(url: string, signal: AbortSignal, options?: PageLoadOptions): Promise<PageLoad>;
   close(): Promise<void>;
 }
 
@@ -30,6 +29,9 @@ const TAIL_CHARS = 2048;
 const ERROR_TEXT = 300;
 /** At most this many pages the changed pages link to are opened, after them, in a light load. */
 const LINKED_PAGES = 5;
+/** And at least this many links whose query makes a choice (`/book?staff=ana-sousa`), more when fewer plain links
+ * were opened: the two share 8 light loads. */
+const CHOICE_LINKS = 3;
 
 /** Page and log text may echo tokens or device secrets: they are hidden before the text is kept anywhere.
  * Like redactPreview, but a secret word needs `=` or `:` after it, because "Unexpected token (3:4)" is an
@@ -108,7 +110,7 @@ export class PageChecks {
 
     const streamlit = this.service.frameworks.includes("streamlit");
     const pages: PageResult[] = [];
-    const linked: Array<{ result: PageResult; links: string[] }> = [];
+    const linked: Array<{ result: PageResult; links: string[]; choices: string[] }> = [];
     for (const page of plan.open) {
       signal.throwIfAborted();
       const logBefore = manager.logs(name).text;
@@ -123,8 +125,8 @@ export class PageChecks {
       const logged = streamlit ? serverTraceback(appended(logBefore, manager.logs(name).text)) : undefined;
       const result = judge(page, origin, load, logged);
       pages.push(result);
-      const links = followableLinks(load.links ?? [], new URL(page, origin).href);
-      if (links.length) linked.push({ result, links });
+      const links = followableLinks(load.links ?? [], new URL(page, origin).href), choices = choiceLinks(load.choiceLinks ?? [], new URL(page, origin).href);
+      if (links.length || choices.length) linked.push({ result, links, choices });
     }
     await this.sweep(origin, plan.open, linked, signal, streamlit);
     const report: PageReport = { status: pageStatus(pages), ...base, pages };
@@ -134,28 +136,36 @@ export class PageChecks {
     return report;
   }
 
-  /** Opens up to 5 same-origin pages the changed pages link to (a GET each, never a form), each once. What is wrong
-   * with one ("link /about returns 404") is a note on the page that links to it: those pages were not changed in
-   * this task, so nothing here fails or changes a page's status. */
-  private async sweep(origin: string, planned: readonly string[], linked: ReadonlyArray<{ result: PageResult; links: string[] }>, signal: AbortSignal, streamlit: boolean): Promise<void> {
+  /** Opens up to 5 same-origin pages the changed pages link to (a GET each, never a form), each once, then links whose
+   * query makes a choice: at least 3, and up to 8 light loads in all when fewer plain links were opened. What is wrong
+   * with one ("link /about returns 404", "link /book?staff=ana-sousa: the page does not show ana-sousa as chosen") is a
+   * note on the page that links to it: those pages were not changed in this task, so nothing here fails or changes a
+   * page's status. */
+  private async sweep(origin: string, planned: readonly string[], linked: ReadonlyArray<{ result: PageResult; links: string[]; choices: string[] }>,
+    signal: AbortSignal, streamlit: boolean): Promise<void> {
     const seen = new Set(planned.map(page => new URL(page, origin).pathname));
-    let opened = 0;
-    for (const { result, links } of linked) {
-      for (const link of links) {
-        if (opened >= LINKED_PAGES) return;
-        if (seen.has(link)) continue;
-        seen.add(link);
-        opened++;
-        signal.throwIfAborted();
-        const note = await this.linkNote(link, new URL(link, origin).href, signal, streamlit);
-        if (note) result.look = [...result.look ?? [], hide(note)];
+    let plain = 0;
+    for (const kind of ["links", "choices"] as const) {
+      const limit = kind === "links" ? LINKED_PAGES : LINKED_PAGES + CHOICE_LINKS - plain;
+      let opened = 0;
+      for (const { result, links, choices } of linked) {
+        for (const link of kind === "links" ? links : choices) {
+          if (opened >= limit) break;
+          if (seen.has(link)) continue;
+          seen.add(link);
+          opened++;
+          signal.throwIfAborted();
+          const note = await this.linkNote(link, new URL(link, origin).href, signal, streamlit, kind === "choices" ? linkChoices(link, origin)?.choices : undefined);
+          if (note) result.look = [...result.look ?? [], hide(note)];
+        }
       }
+      if (kind === "links") plain = opened;
     }
   }
 
-  private async linkNote(link: string, url: string, signal: AbortSignal, streamlit: boolean): Promise<string | undefined> {
+  private async linkNote(link: string, url: string, signal: AbortSignal, streamlit: boolean, choices?: Array<[string, string]>): Promise<string | undefined> {
     let load: PageLoad;
-    try { load = await this.opener.load(url, signal, { ...(streamlit ? { settle: "streamlit" as const } : {}), screenshots: false, light: true }); }
+    try { load = await this.opener.load(url, signal, { ...(streamlit ? { settle: "streamlit" as const } : {}), screenshots: false, light: true, ...choices?.length ? { choices } : {} }); }
     catch (error) {
       signal.throwIfAborted();
       return `link ${link} did not finish loading: ${message(error).slice(0, ERROR_TEXT)}`;
@@ -167,6 +177,7 @@ export class PageChecks {
     const errors = [...load.pageErrors, ...load.consoleErrors];
     if (errors.length) return `link ${link} has ${errors.length === 1 ? "1 console error" : `${errors.length} console errors`}: ${errors[0]!.slice(0, ERROR_TEXT)}`;
     if (load.blank) return `link ${link} is blank`;
+    if (load.unchosen?.length) return `link ${link.slice(0, 80)}: the page does not show ${load.unchosen.join(", ")} as chosen`;
     return undefined;
   }
 }
@@ -213,7 +224,7 @@ function judge(path: string, origin: string, load: PageLoad, serverError: string
 export class BrowserPageOpener implements PageOpener {
   readonly consoleChecked = true;
   constructor(private readonly session: BrowserSession) {}
-  load(url: string, signal: AbortSignal, options?: { settle?: "streamlit"; screenshots?: boolean; light?: boolean }): Promise<PageLoad> { return this.session.load(url, signal, options); }
+  load(url: string, signal: AbortSignal, options?: PageLoadOptions): Promise<PageLoad> { return this.session.load(url, signal, options); }
   close(): Promise<void> { return this.session.close(); }
 }
 

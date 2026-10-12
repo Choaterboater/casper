@@ -32,6 +32,9 @@ function startError(error: unknown, signal: AbortSignal): unknown {
 export class BrowserServer {
   private process?: ManagedProcess;
   private stopped = false;
+  private url?: URL;
+  /** Where it answers while it runs. */
+  origin(): string | undefined { return this.process?.state() === "ready" ? this.url?.origin : undefined; }
   diagnostics() {
     const { text, truncated } = this.process?.logs() ?? { text: "", truncated: false };
     const state = this.process?.state();
@@ -40,7 +43,7 @@ export class BrowserServer {
 
   async start(command: string, projectRoot: string, source: string, signal: AbortSignal): Promise<Record<string, unknown>> {
     if (this.process || this.stopped) throw new Error("A browser server starts once; serve again makes a new one");
-    const url = loopback(source);
+    const url = this.url = loopback(source);
     signal.throwIfAborted();
     await assertFree(url);
     signal.throwIfAborted();
@@ -69,6 +72,7 @@ export class BrowserServer {
  */
 export class SlotServer {
   constructor(private readonly manager: ServiceManager, private readonly name: string) {}
+  origin(): string | undefined { return this.manager.closed ? undefined : this.manager.origin(this.name); }
 
   diagnostics() {
     let text = "", truncated = false;

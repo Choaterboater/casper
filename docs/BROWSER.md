@@ -76,6 +76,28 @@ fires `input` and `change`; `fill` on a `<select>` says to use `select`.
 Before `click`, `fill`, `press` or `select`, Casper scrolls the element into view
 and waits up to a second for it to settle, so a button below the screen, or one
 that grows or fades in once scrolled to, can be used.
+A `click`, or a `fill` that types, lands where a person's would: when another
+element covers the target's center (a toast, a cookie bar) for more than a
+second, the step fails naming it, such as `button "Save" is covered by
+div.toast "Saved"`. A label for the field, or a dialog that holds the target,
+is not a cover. After the action Casper watches the page for up to 1.5 seconds,
+ending once it goes quiet: when a `click` or `press` changed nothing (no page
+change, attribute such as `aria-pressed`, new address, focus move, a field
+focused to type in, scroll, field state, request, dialog or new tab), the
+result has the note `nothing changed after clicking button "Save"`; it is a
+note, not a failure. A check's steps share 8 seconds of this watching; a step
+whose watch is cut short gets no note. A native `alert`, `confirm`, `prompt` or leave-page dialog
+is still dismissed (Cancel, or stay on the page), and the result lists it under
+`dialogs`, such as `confirm dialog "Clear this item?": Casper answered Cancel`;
+a check lists both under `notes`, by step.
+The result also says what the action changed, as a person would see it, under
+`changes`: the address it left (`previousUrl`), a new `title`, text that
+appeared (`appeared`, such as a toast, an error or a status, up to 400
+characters), up to 5 controls added or removed (`controlsAdded`,
+`controlsRemoved`, such as `button "Try again"`) and where `focus` moved (not
+onto the element the action used, nor the same control drawn again). Casper
+compares a short outline of the page's visible text and controls (at most 400
+entries) taken before and after; when none of these changed, `changes` is left out.
 `press` supports `Enter`, `Tab`, `Escape`, `ArrowUp`, `ArrowDown`, `ArrowLeft`,
 `ArrowRight`, `Space` and `Backspace`.
 
@@ -110,6 +132,14 @@ Each execution uses fresh browser storage. IDs last for this task/session only;
 there is no durable scenario library. A baseline that never failed is not proof of
 reproducing the user's bug.
 
+`{run}` in a `fill` or `select` value becomes a new short value (letters and
+digits) on each run, the recording and every replay, so a check that signs up
+`user-{run}@example.com` or books a slot passes again on a page that refuses a
+repeat. The stored check keeps `{run}`. A replay that fails a check which passed
+when recorded and fills a fixed email, user name or name says so: `It passed
+before: a sign-up or booking may need a new value each run; use {run} in the
+fill value.`
+
 A check the model wrote wrong (an expected text or a selector that was never
 right) can be taken out of the result with
 `{"action":"withdraw","id":"<returned-id>","reason":"expected text had a typo"}`.
@@ -119,7 +149,17 @@ edit or command after it, and its inputs are the same. Otherwise it refuses and
 says why, such as `Code/tool writes observed after this browser check: fix the
 page and replay it`, so a page fixed after a failure is replayed, never
 withdrawn. A check that still fails when replayed after a change can't be
-withdrawn either, since its failure may be real. A new check that stops part
+withdrawn either, since its failure may be real. The way out for a check written
+wrong after a change is a replacement: record a corrected check of the same page,
+and once it passes, withdraw the old one naming it,
+`{"action":"withdraw","id":"<old-id>","reason":"selector too wide","replacedBy":"<new-id>"}`.
+Casper accepts that only when the replacement was recorded after the old check,
+its latest run passed, and it opens the same page (the same path; the query and
+port may differ) at the same viewport, with at least as many steps and assertions
+of each kind as the old one, so a check that the page merely loads can't stand in
+for one that caught a real bug. The old check's reason then reads
+`selector too wide (replaced by "<new name>", <new-id>)`, and the replacement
+decides the result in its place. A new check that stops part
 way (a step's element is not there yet) still returns its id in the error: replay
 it once the page is ready, or withdraw it while no edit or command has run since.
 A check whose recording never finished (no server answered yet) is recorded by
@@ -156,10 +196,14 @@ wait. Assertions poll for up to one second each. When a selector matches no elem
 or a text does not match, the failed assertion also lists under `near` up to 3
 real elements on the page most like the one asked for (by id, class, tag or
 text), such as `h1#page-title "Hello Casper"`. On a replay it also has a
-`hint`: `If the check itself is wrong, record a corrected check and withdraw
-this one; if the page is wrong, fix it.` (not on the run that records it, or the
-first finished run of one that never finished: a check recorded before the edit
-is meant to fail then). It still fails. Complex navigation, shadow DOM,
+`hint`: `If the check itself is wrong, record a corrected check of this page and
+withdraw this one (replacedBy: its id once it passes); if the page is wrong, fix
+it.` (not on the run that records it, or the first finished run of one that never
+finished: a check recorded before the edit is meant to fail then). When the
+expected text is exactly the text of an element inside the matched one (a whole
+confirmation box compared with its heading), the hint on any run is instead `The expected text is
+inside this element with other text: point the selector at the element that holds
+only it (see near).` It still fails. Complex navigation, shadow DOM,
 iframes, uploads, authenticated workflows and slow asynchronous readiness are not
 comprehensive browser-test-framework replacements.
 
@@ -178,7 +222,16 @@ one whose label has a word such as "send", "buy" or "delete" (a contact form's
 Send) only with Browser clicks on, as it ran for the model. Nothing is asked: any
 other step, an address that would need a yes, a busy or closed browser, or a replay that can't finish keeps the
 check as it was, and the receipt still says `ran before a later edit or command
-(replay to count)`. A withdrawn check is never replayed. A line names each check
+(replay to count)`. A withdrawn check is never replayed.
+A replay (Casper's or the model's) whose page is on a loopback server that no
+longer answers (the model started it in a command and stopped it) opens the same
+path on the server Casper runs for the project, from `serve` or the page checks,
+and the check's `notes` say so: `opened on Casper's server <origin>: nothing
+answers at <old origin> any more`. With no server of Casper's up, nothing was
+checked: the check becomes incomplete with the reason `Could not check. Nothing
+answers at <origin> any more and Casper runs no server for this project; start it
+with serve and replay`, neither its old pass nor its old failure. A page on
+another computer is never redirected. A line names each check
 as it is replayed. All of these replays share one minute; one that runs out of time is given up and the browser
 stays open.
 
@@ -196,9 +249,15 @@ Freshness compares declared local inputs before/after replay and at task reporti
 Observed native writes/shell actions invalidate earlier evidence. A check that
 names no `scope.inputs` watches the whole project folder, leaving out dependency,
 build and cache folders at its top (`node_modules`, `.git`, `dist`, `build`,
-`.next`, `.venv` and the like). Unsupported or over-budget input scope (a project
-too big to watch whole, a file over 1 MiB) means freshness unavailable, and the
-check says to name the files the page depends on. These are
+`.next`, `.venv` and the like) and files the project's git ignores, so an app that
+saves to an ignored `data/db.json` while the check books a slot keeps the check
+fresh (with no git repository a `.gitignore` in the project folder is still read;
+with neither, or no git installed, every file counts). A file named in `scope.inputs`
+counts even when git ignores it. Any edit or command of the model still makes the
+check stale, whichever file it touches, ignored or not; what a page or a server the
+model started earlier writes to an ignored file is not seen. Unsupported or
+over-budget input scope (a project too big to watch whole, a file over 1 MiB) means
+freshness unavailable, and the check says to name the files the page depends on. These are
 bounded, non-atomic filesystem observations: they do **not** prove which build the
 server is serving, that the input scope is complete, or that external state stayed
 unchanged. Screenshots and model claims never count as assertion passes.

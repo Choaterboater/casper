@@ -178,6 +178,21 @@ test("a task hears its page notes once, however many times its checks run again,
   await task.close();
 });
 
+test("a check the sandbox blocked doesn't hold the pages or their notes back, and the task still ends incomplete", async () => {
+  const { registry } = scripted({ test: [{}], e2e: [{ status: "fail", exitCode: 1, ended: "blocked" }] });
+  const noted = (): PageReport => { const report = pageReport("pass"); report.pages[0]!.look = ["the layout jumps while loading (shift 0.24)"]; return report; };
+  let opened = 0;
+  const prompts: string[] = [];
+  const report = await verifyAndRepair({ registry, checks: ["test", "e2e"], cwd, request: "build the page", pages: async () => { opened++; return noted(); },
+    repair: async (text) => { prompts.push(text); } });
+  expect(prompts).toHaveLength(1);
+  expect(prompts[0]).toContain("the layout jumps while loading");
+  expect(prompts[0]).toContain("could not run here, which is not yours to fix");
+  expect(prompts[0]).not.toContain("Failure evidence");
+  expect(opened).toBe(2);
+  expect(report).toMatchObject({ status: "incomplete", repairAttempts: 1 });
+});
+
 test("pages never open while the commands fail, and the report says they were skipped", async () => {
   const { registry } = scripted({ test: [failing] });
   let opened = 0;

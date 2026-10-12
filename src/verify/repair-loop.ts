@@ -229,14 +229,16 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
     if (signal.aborted) return report("blocked", "Verification cancelled.");
     // A report (a diff) is never a failure.
     const failures = results.filter((result) => result.status === "fail" && result.kind !== "report");
-    // Smoke and pages run only on passing commands, so a report never carries them from before a repair.
+    // Smoke and pages run only on passing commands, so a report never carries them from before a repair. A check that is
+    // not the code's to fix (the sandbox blocked it) doesn't hold them back: the pages are still worth checking.
+    const codeFailed = failures.some((result) => repairClass(result) !== "never");
     smoke = undefined;
     pages = undefined;
-    if (!failures.length && options.smoke) {
+    if (!codeFailed && options.smoke) {
       smoke = await options.smoke(signal);
       if (signal.aborted) return report("blocked", "Verification cancelled.");
     }
-    if (!failures.length && options.pages) {
+    if (!codeFailed && options.pages) {
       pages = await options.pages(signal);
       if (signal.aborted) return report("blocked", "Verification cancelled.");
     }
@@ -287,7 +289,8 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
     }
     // Page notes (a picture used on several items, no label, low contrast) never fail a page, so the model would end
     // without hearing them: one repair turn with only the notes, from the same budget and once per task, then the pages run once more.
-    const notes: Array<{ path: string; notes?: string[] }> = !failures.length && !hostFailures && !task.pageNotesSent && options.repair && repairAttempts < budget
+    // A failure that is not the model's to fix (the sandbox blocked it, it never finished) doesn't hold the notes back.
+    const notes: Array<{ path: string; notes?: string[] }> = !repairable.length && !hostFailures && !task.pageNotesSent && options.repair && repairAttempts < budget
       ? pages?.pages.map((page) => ({ path: page.path, notes: [...page.look ?? [], ...page.a11y ?? []] })).filter((page) => page.notes.length) ?? [] : [];
     if (!notes.length && !failures.length && !hostFailures) {
       const status = withHostChecks(verificationStatus(results), results, smoke, pages);
@@ -346,7 +349,7 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
     const prompt = [
       ...(sameFailure ? ["Same failure as the last round: your change did not affect it; try a different approach."] : []),
       `Casper verification repair ${repairAttempts}/${budget}.`,
-      notes.length ? "Fix only the page notes below with the smallest change; the checks pass. Do not weaken checks or hide content to silence a note. Preserve the original request and project rules."
+      notes.length ? `Fix only the page notes below with the smallest change; ${failures.length ? "the other checks could not run here, which is not yours to fix" : "the checks pass"}. Do not weaken checks or hide content to silence a note. Preserve the original request and project rules.`
         : "Repair the failures below with the smallest change. Preserve the original request, project rules, and constraints. Do not weaken checks, remove tests, or change verification commands merely to obtain a pass. Casper will rerun selected checks without a valid scoped pass; use casper_check when available for managed check evidence.",
       "Original request:", options.request,
       "Constraints:", options.constraints || "Preserve project architecture and existing behavior outside the requested change.",
