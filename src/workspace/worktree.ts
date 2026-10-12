@@ -132,6 +132,28 @@ async function gitWithInput(cwd: string, args: string[], input: string | Buffer)
   });
 }
 
+/**
+ * Builder copies share one object store. On Windows, two `git add` runs that write the same object at once (the
+ * empty blob every `--intent-to-add` file gets, say) can collide: one renames its temporary file over the object
+ * while the other still has it open, and Git stops with "unable to write file .../objects/..: Permission denied".
+ * The object is there a moment later, so the same call is tried again a few times.
+ */
+const OBJECT_WRITE_RACE = /unable to write file .*[\\/]objects[\\/][0-9a-f]{2}[\\/][0-9a-f]+: Permission denied/i;
+export async function retryObjectWrite<T>(
+  work: () => Promise<T>,
+  platform: NodeJS.Platform = process.platform,
+  waits: readonly number[] = [50, 150, 400],
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await work();
+    } catch (error) {
+      if (platform !== "win32" || attempt >= waits.length || !OBJECT_WRITE_RACE.test(errorText(error))) throw error;
+      await new Promise((resolve) => setTimeout(resolve, waits[attempt]));
+    }
+  }
+}
+
 /** A copy of Git's index with the index's own times (milliseconds, never later than the real ones). */
 async function copyIndex(index: string, target: string): Promise<void> {
   const { atime, mtime } = await stat(index);
@@ -274,7 +296,7 @@ export class GitWorktreeManager {
     try {
       const index = path.resolve(workspace, (await git(workspace, ["rev-parse", "--git-path", "index"])).trim());
       await copyIndex(index, env.GIT_INDEX_FILE).catch(() => git(workspace, ["read-tree", "HEAD"], { env }));
-      await git(workspace, ["add", "--all", "--", "."], { env });
+      await retryObjectWrite(() => git(workspace, ["add", "--all", "--", "."], { env }));
       return (await git(workspace, ["write-tree"], { env })).trim();
     } finally {
       await rm(temp, { recursive: true, force: true });
@@ -433,7 +455,7 @@ export class GitWorktreeManager {
     const env = { ...process.env, GIT_INDEX_FILE: path.join(temp, "index") };
     try {
       await git(relation.path, ["read-tree", relation.baseCommit], { env });
-      await git(relation.path, ["add", "--intent-to-add", "--all", "--", "."], { env });
+      await retryObjectWrite(() => git(relation.path, ["add", "--intent-to-add", "--all", "--", "."], { env }));
       const patchWork = gitBytes(relation.path, ["diff", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "--no-color", relation.baseCommit, "--"], {
         env,
         maxBuffer: MAX_EXPERIMENT_PATCH_BYTES + 1,
