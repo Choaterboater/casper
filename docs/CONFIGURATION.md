@@ -21,7 +21,7 @@ Settings (saved in ~/.casper/config.yaml for you):
   Spend notes: at $1 a task · Spend pause: off · Prompt cache: auto
   Local models: on · Page checks: on · Show the AI the pages: ask once a session
   Work shown: normal · Theme: default · Untrusted-text reader: on
-  Helpers that build: on · Playwright tests: on
+  Helpers that build: on · Playwright tests: on · Compose files: on
   Send Casper's name to OpenRouter: on · Sign-ins from other tools: on
   Network server updates: on · My MCP servers: on · My language servers: on
   Private ssh passwords: on
@@ -53,24 +53,25 @@ Pick one to change:
  25 Untrusted-text reader             on
  26 Helpers that build                on
  27 Playwright tests                  on
- 28 Send Casper's name to OpenRouter  on
- 29 Sign-ins from other tools         on
- 30 Network server updates            on
- 31 My MCP servers                    on
- 32 My language servers               on
- 33 Private ssh passwords             on
+ 28 Compose files                     on
+ 29 Send Casper's name to OpenRouter  on
+ 30 Sign-ins from other tools         on
+ 31 Network server updates            on
+ 32 My MCP servers                    on
+ 33 My language servers               on
+ 34 Private ssh passwords             on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
-Every row has its number: past 9, type it and press Enter (`Type 1-33 + Enter or Up/Down + Enter`).
+Every row has its number: past 9, type it and press Enter (`Type 1-34 + Enter or Up/Down + Enter`).
 A plain terminal (`TERM=dumb`) asks the same list as numbered lines.
 A change applies from now on (built-in skills, packs, the prompt cache, local models, My MCP servers and My language servers from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Changed while a task runs, it also says when the
 task gets it: from its next step, or, for a tool the task already has (web lookups, the reader, the browser,
 builders, the spend limits), `The running task keeps what it had; your next request uses it.` A switch turned off is written as
 `false` (`packs: false`). In a config you write yourself, `off` works the same for every switch
-except `suggestions`, `skills.bundled` and `verification.e2e`, which take only `true` or `false`,
+except `suggestions`, `skills.bundled`, `verification.e2e` and `verification.compose`, which take only `true` or `false`,
 and `spend.noteAt`, which takes a dollar amount or `false`. Where Casper can't ask (a one-shot
 run), `/settings` lists them. `/details <level>` saves the work shown the same way, like `/effort`.
 

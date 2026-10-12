@@ -117,7 +117,7 @@ export function formatTaskPrompt(
   // Named checks the model may run through casper_check; lab checks are left out (only the user starts them).
   ...Object.entries(model.namedChecks ?? {}).filter(([, spec]) => spec.kind !== "lab")
     .map(([name, spec]) => `${name}=${spec.run ?? `${spec.preset} (Casper runs it)`}${spec.kind === "report" ? " (a report, not a pass/fail check)" : ""}`),
-  // Checks Casper found in the project (SQL migrations, Playwright tests).
+  // Checks Casper found in the project (SQL migrations, Playwright tests, Compose files).
   ...autoDetectedChecks(model).map(({ name, command }) => `${name}=${command}`)];
 
   return [

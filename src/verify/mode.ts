@@ -28,6 +28,8 @@ export interface VerificationSettings {
   acceptance?: boolean | "warn";
   /** `false` turns off the e2e check Casper finds for a project's own Playwright tests. Unset means on. */
   e2e?: boolean;
+  /** `false` turns off the compose check Casper finds for a project's Docker Compose files. Unset means on. */
+  compose?: boolean;
   /** Before the model's turn, one separate low-effort model call lists the concrete cases the request
    * states; Casper shows them (editable in an interactive session) and asks for one test per case.
    * Unset: on for interactive implement/fix/test requests, off otherwise. `true` also covers one-shot
