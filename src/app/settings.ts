@@ -102,7 +102,7 @@ const SHOW_PAGES_WORDS: Record<ShowPagesSetting, { value: string; choice: string
 /** After a UI change Casper saves page screenshots (no tokens); this says whether a model that sees pictures gets them. */
 function showPagesRow(now: ShowPagesSetting): Setting {
   return { label: "Show the AI the pages", value: SHOW_PAGES_WORDS[now].value, applies: "step",
-    question: `Showing the AI the page screenshots after a UI change: ${SHOW_PAGES_WORDS[now].value}. Only a model that sees pictures gets them, and each look uses tokens.`,
+    question: `Showing the AI the page screenshots after a UI change: ${SHOW_PAGES_WORDS[now].value}. Only a model that sees pictures gets them, and each look uses tokens. Never also keeps the picture out of the AI's own browser checks.`,
     keep: `Keep ${SHOW_PAGES_WORDS[now].value}`,
     choices: SHOW_PAGES_SETTINGS.filter((setting) => setting !== now)
       .map((setting) => ({ label: SHOW_PAGES_WORDS[setting].choice, keys: ["showPages"], value: setting, shown: SHOW_PAGES_WORDS[setting].value })) };

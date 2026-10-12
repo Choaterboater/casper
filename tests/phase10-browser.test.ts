@@ -12,7 +12,7 @@ const executable = process.env.CASPER_BROWSER_EXECUTABLE ?? "/Applications/Googl
 const browserTest = existsSync(executable) ? test : test.skip;
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-async function fixture(options: { executablePath?: string; confirm?: (request: unknown, signal: AbortSignal) => Promise<boolean>; navigationTimeoutMs?: number; allowActions?: () => boolean } = {}) {
+async function fixture(options: { executablePath?: string; confirm?: (request: unknown, signal: AbortSignal) => Promise<boolean>; navigationTimeoutMs?: number; allowActions?: () => boolean; checkPictures?: () => boolean } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-browser-test-")));
   cleanup.push(() => removeTempDir(root));
   const project = path.join(root, "project"), state = path.join(root, "state");
@@ -785,6 +785,60 @@ browserTest("the browser tool's screenshot comes with the picture, and its text 
   expect(JSON.parse(shot.text).data.path).toEqual(expect.stringContaining(f.state));
   expect(tool.description).not.toContain("read the PNG");
   expect(tool.description).toContain("Casper replays stale checks at the end");
+}, 20_000);
+
+browserTest("a check and a replay bring the final page's picture and short text, so the model needs no open, inspect or screenshot after", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, `<!doctype html><title>Booking</title><h1>Hello Casper</h1><p>${"slot ".repeat(2000)}</p>${Array.from({ length: 30 }, (_, i) => `<button id="b${i}">Book ${i}</button>`).join("")}`);
+  const tool = browserTool(f.session);
+  const scenario = { name: "Heading", url: f.url, steps: [], assertions: [{ kind: "text", selector: "h1", expected: "Hello Casper" }] };
+  const checked = await tool.execute({ action: "check", scenario });
+  expect(checked.isError).toBeUndefined();
+  expect(checked.images).toHaveLength(1);
+  expect(Buffer.from(checked.images![0]!.data, "base64").subarray(1, 4).toString()).toBe("PNG");
+  expect(Buffer.byteLength(checked.text)).toBeLessThanOrEqual(16_384);
+  const data = JSON.parse(checked.text).data;
+  expect(data).toMatchObject({ status: "pass", finalPage: { title: "Booking", url: expect.stringContaining(f.url) } });
+  expect(data.finalPage.text.length).toBeLessThanOrEqual(1500);
+  expect(data.finalPage.elements).toHaveLength(20);
+  expect(data.finalPage.elements[0]).toMatchObject({ selector: "#b0" });
+  expect(data.finalPage.screenshot).toEqual(expect.stringContaining(f.state));
+  const replayed = await tool.execute({ action: "replay", id: data.id });
+  expect(replayed.images).toHaveLength(1);
+  expect(JSON.parse(replayed.text).data.finalPage.title).toBe("Booking");
+  // Never kept: the report and its checks carry no page text or picture.
+  expect(JSON.stringify(await f.session.report())).not.toContain("finalPage");
+}, 30_000);
+
+browserTest("with showPages off a check's final page comes as text only", async () => {
+  const f = await fixture({ checkPictures: () => false });
+  const tool = browserTool(f.session);
+  const checked = await tool.execute({ action: "check", scenario: { name: "Heading", url: f.url, steps: [], assertions: [{ kind: "text", selector: "h1", expected: "Hello Casper" }] } });
+  expect(checked.images).toBeUndefined();
+  expect(JSON.parse(checked.text).data.finalPage).toMatchObject({ title: "Browser fixture" });
+  expect(JSON.parse(checked.text).data.finalPage.screenshot).toBeUndefined();
+}, 20_000);
+
+browserTest("a failing check on a crowded page keeps a whole result: its final page gets fewer controls and shorter text", async () => {
+  const f = await fixture();
+  const long = (i: number) => `item-${i}-${"x".repeat(120)}`;
+  await writeFile(f.sourceFile, `<!doctype html><title>Shop</title><h1>Shop</h1><p>${"Unicode text 文字 ".repeat(200)}</p>${Array.from({ length: 30 }, (_, i) =>
+    `<a href="#" id="${long(i)}" name="${long(i)}">\n  <div>${"Product name that is quite long ".repeat(5)}</div>\n</a>`).join("")}${Array.from({ length: 4 }, (_, i) =>
+    `<div class="price-${i}">${"Long price text ".repeat(80)}</div>`).join("")}`);
+  const checked = await browserTool(f.session).execute({ action: "check", scenario: { name: "Prices", url: f.url, steps: [],
+    assertions: Array.from({ length: 4 }, (_, i) => ({ kind: "text", selector: `.price-${i}`, expected: "Cheap" })) } });
+  const result = JSON.parse(checked.text);
+  expect(result).toMatchObject({ summary: "Complete result.", truncated: false, data: { status: "fail", finalPage: { title: "Shop" } } });
+  expect(result.data.assertions).toHaveLength(4);
+  expect(result.data.finalPage.elements.length).toBeLessThan(20);
+}, 30_000);
+
+browserTest("stopping while the final page is read leaves the decided check as it was", async () => {
+  const stop = new AbortController();
+  const f = await fixture({ checkPictures: () => { stop.abort(); return true; } });
+  const checked = await browserTool(f.session).execute({ action: "check", scenario: { name: "Heading", url: f.url, steps: [], assertions: [{ kind: "text", selector: "h1", expected: "Hello Casper" }] } }, stop.signal);
+  expect(checked.images).toBeUndefined();
+  expect((await f.session.report()).checks[0]).toMatchObject({ status: "pass" });
 }, 20_000);
 
 browserTest("fill types into number, email and date fields; password stays out; a scoped overflow check looks at one element", async () => {

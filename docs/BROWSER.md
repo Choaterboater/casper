@@ -132,6 +132,19 @@ Each execution uses fresh browser storage. IDs last for this task/session only;
 there is no durable scenario library. A baseline that never failed is not proof of
 reproducing the user's bug.
 
+A check or replay the model runs also brings the page as the steps left it, under
+`finalPage`: its title, address, size, the first 1,500 characters of its text and
+its first 20 controls (with a selector where they have an id), and a picture of the
+visible screen. A model that can see images gets the picture with the result;
+another model gets the text only. So the model has no `open`, `inspect` or
+`screenshot` to do after its own check. On a crowded page it keeps fewer controls
+and less text so the result is never cut, and reading the page never changes the
+check's result. These pictures have their own limit (30 a session, apart from the
+model's 16 screenshots), are saved with the other browser pictures, and are never
+part of the report. `showPages: off` (`/settings`, Show the AI the pages: never)
+leaves the picture out; the text still comes. Casper's own end-of-task replays
+bring neither.
+
 `{run}` in a `fill` or `select` value becomes a new short value (letters and
 digits) on each run, the recording and every replay, so a check that signs up
 `user-{run}@example.com` or books a slot passes again on a page that refuses a
