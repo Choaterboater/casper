@@ -226,7 +226,7 @@ and an incomplete or stale browser check makes it 2, unless a failed or cancelle
 task already set a stronger result. Inspecting a page alone is not a check.
 
 When a task finishes (not when it fails or is cancelled), Casper replays once,
-before the receipt and with no model turn, each check this task recorded or
+before the receipt and without asking the model to replay, each check this task recorded or
 replayed that ran before a later edit or command, so the model need not replay a
 check just to count it. Checks from earlier tasks in the session are left alone.
 The fresh result counts: a pass is a pass, a failure is a failure with its
@@ -248,12 +248,24 @@ another computer is never redirected. A line names each check
 as it is replayed. All of these replays share one minute; one that runs out of time is given up and the browser
 stays open.
 
+If this replay produces a fresh failure and a try remains in `repair.maxAttempts`,
+Casper gives the model **one repair turn**, using the same budget as command,
+page-note and proof repairs. Incomplete or stale results, and failures from checks
+not replayed by this task, do not start that turn. After it, Casper replans and
+reruns relevant project checks (fresh scoped passes can still be reused), refreshes
+proof/acceptance when applicable, then replays the recorded checks again. A failed
+id is retried even if the repair edited nothing, under the same unattended replay
+restrictions. There is no second browser repair turn; remaining failures stay failed.
+A repair that fails or stops launches no further checks or replay. Final receipt
+snapshots include the repair edits.
+
 A screenshot larger than 2000 px or 4.5 MB of base64 is shrunk before it is sent,
 as Pi's `read` shrinks pictures, so it stays under the provider's per-image limit.
 
 Casper still runs the project's own checks after edits, as usual (see
-[VERIFICATION.md](VERIFICATION.md)). A failed browser check does not start
-Casper's repair loop; ask the model to fix it and replay the check. A passing
+[VERIFICATION.md](VERIFICATION.md)). Outside the end-of-task replay described
+above, a failed browser check does not start Casper's repair loop; the model fixes
+it and replays the check in its turn. A passing
 browser check proves only its listed assertions. It does not prove the whole
 page is right, that every requirement is met, or that the model's summary is
 correct.
