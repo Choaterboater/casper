@@ -243,7 +243,8 @@ names no `scope.inputs` watches the whole project folder, leaving out dependency
 build and cache folders at its top (`node_modules`, `.git`, `dist`, `build`,
 `.next`, `.venv` and the like) and files the project's git ignores, so an app that
 saves to an ignored `data/db.json` while the check books a slot keeps the check
-fresh (with no git repository every file counts). A file named in `scope.inputs`
+fresh (with no git repository a `.gitignore` in the project folder is still read;
+with neither, or no git installed, every file counts). A file named in `scope.inputs`
 counts even when git ignores it. Any edit or command of the model still makes the
 check stale, whichever file it touches, ignored or not; what a page or a server the
 model started earlier writes to an ignored file is not seen. Unsupported or

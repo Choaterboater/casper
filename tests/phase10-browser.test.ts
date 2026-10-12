@@ -433,10 +433,10 @@ browserTest("a failing check names up to 3 real elements like it, and on a repla
   expect(failed.assertions[3]).toEqual({ kind: "visible", status: "pass", actual: true });
 }, 30_000);
 
-browserTest("a check with no scope whose page saves to a file git ignores stays fresh and can be withdrawn; a tracked file or no repository makes it stale", async () => {
-  const run = async (git: boolean, saved: string) => {
+browserTest("a check with no scope whose page saves to a file git ignores stays fresh and can be withdrawn; a tracked file, or no .gitignore, makes it stale", async () => {
+  const run = async (git: boolean, saved: string, ignore = true) => {
     const f = await fixture();
-    await writeFile(path.join(f.project, ".gitignore"), "data/\n");
+    if (ignore) await writeFile(path.join(f.project, ".gitignore"), "data/\n");
     await writeFile(f.sourceFile, '<!doctype html><button>Book</button><p id="state">Free</p><script>document.querySelector("button").onclick = async () => { await fetch("/book", { method: "POST" }); document.querySelector("#state").textContent = "Booked"; }</script>');
     if (git) {
       expect(Bun.spawnSync(["git", "init", "-q"], { cwd: f.project }).exitCode).toBe(0);
@@ -461,13 +461,15 @@ browserTest("a check with no scope whose page saves to a file git ignores stays 
   const ignored = await run(true, "data/db.json");
   expect(ignored.check).toMatchObject({ status: "fail", freshness: "fresh" });
   expect(await ignored.withdraw()).toMatchObject({ status: "withdrawn" });
+  // A .gitignore counts with no git repository too.
+  expect((await run(false, "data/db.json")).check).toMatchObject({ status: "fail", freshness: "fresh" });
   // The model's own edit of an ignored file the page may serve still counts: any edit or command makes the check stale.
   const edited = await run(true, "data/db.json");
   await writeFile(path.join(edited.f.project, "data", "db.json"), "[]");
   edited.f.session.invalidate();
   await expect(edited.withdraw()).rejects.toThrow("Code/tool writes observed after this browser check");
-  for (const [git, saved] of [[true, "bookings.json"], [false, "data/db.json"]] as const) {
-    const stale = await run(git, saved);
+  for (const [git, saved, ignore] of [[true, "bookings.json", true], [false, "data/db.json", false]] as const) {
+    const stale = await run(git, saved, ignore);
     expect(stale.check).toMatchObject({ status: "fail", freshness: "stale", reason: "Declared inputs changed during browser reproduction." });
     await expect(stale.withdraw()).rejects.toThrow("Declared inputs changed during browser reproduction");
   }

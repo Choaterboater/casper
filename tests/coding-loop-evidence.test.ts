@@ -62,12 +62,6 @@ test("a project-wide observation that skips git-ignored files leaves out what an
   await writeFile(path.join(root, "index.html"), "<h1>Book</h1>");
   const scope = { inputs: ["."] };
   const skip = { skipGitIgnored: true };
-  // No git repository: every file counts, as before.
-  const plain = (await workspaceState(root, scope, undefined, skip)).fingerprint;
-  await mkdir(path.join(root, "data"));
-  await writeFile(path.join(root, "data", "db.json"), "[]");
-  expect((await workspaceState(root, scope, undefined, skip)).fingerprint).not.toBe(plain);
-  await rm(path.join(root, "data"), { recursive: true });
   expect(Bun.spawnSync(["git", "init", "-q"], { cwd: root }).exitCode).toBe(0);
   const before = (await workspaceState(root, scope, undefined, skip)).fingerprint;
   expect(before).toBeString();
@@ -88,6 +82,28 @@ test("a project-wide observation that skips git-ignored files leaves out what an
   const was = (await workspaceState(root, named, undefined, skip)).fingerprint;
   await writeFile(path.join(root, "data", "db.json"), "[]");
   expect((await workspaceState(root, named, undefined, skip)).fingerprint).not.toBe(was);
+});
+
+test("with no git repository a .gitignore still leaves out what an app writes to an ignored folder; with none, every file counts", async () => {
+  const scope = { inputs: ["."] };
+  const skip = { skipGitIgnored: true };
+  const root = await fixture();
+  await writeFile(path.join(root, ".gitignore"), "data/\n");
+  await writeFile(path.join(root, "index.html"), "<h1>Book</h1>");
+  const before = (await workspaceState(root, scope, undefined, skip)).fingerprint;
+  expect(before).toBeString();
+  await mkdir(path.join(root, "data"));
+  await writeFile(path.join(root, "data", "db.json"), '[{"booked":true}]');
+  expect((await workspaceState(root, scope, undefined, skip)).fingerprint).toBe(before);
+  await writeFile(path.join(root, "index.html"), "<h1>Booked</h1>");
+  expect((await workspaceState(root, scope, undefined, skip)).fingerprint).not.toBe(before);
+  // No .gitignore: data the app writes counts, as before.
+  const bare = await fixture();
+  await writeFile(path.join(bare, "index.html"), "<h1>Book</h1>");
+  const plain = (await workspaceState(bare, scope, undefined, skip)).fingerprint;
+  await mkdir(path.join(bare, "data"));
+  await writeFile(path.join(bare, "data", "db.json"), "[]");
+  expect((await workspaceState(bare, scope, undefined, skip)).fingerprint).not.toBe(plain);
 });
 
 posixOnly("unsupported trees, FIFOs, limits and cancellation never supply reusable identity", async () => {
