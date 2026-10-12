@@ -87,6 +87,10 @@ export interface PageLoad {
   /** Pictures of the page at desktop (the whole page, up to 4000 px) and phone width (the visible screen) (PNG paths outside the project), when asked for and
    * they could be saved (not on Windows yet). */
   screenshots?: { desktop?: string; phone?: string };
+  /** Same-origin paths the page links to that are safe to open with a GET (see `followableLinks`), up to 20. Absent in a light load. */
+  links?: string[];
+  /** A light load only: the page shows nothing (no text, picture or control). */
+  blank?: boolean;
 }
 /** Counts of common accessibility misses on a loaded page. They are notes for the person, never a failure. */
 export interface A11yFindings {
@@ -509,6 +513,49 @@ const ANIMATIONS_DONE = async () => {
   const ending = document.getAnimations().filter(animation => animation.effect?.getComputedTiming().endTime !== Infinity);
   await Promise.race([Promise.all(ending.map(animation => animation.finished.catch(() => {}))), new Promise(resolve => setTimeout(resolve, 1000))]);
 };
+/** Runs in the page: the links a person can follow, resolved, leaving out downloads and `rel="nofollow"`. */
+const PAGE_LINKS = () => [...document.querySelectorAll("a[href]")]
+  .filter(link => !link.hasAttribute("download") && !/\bnofollow\b/i.test(link.getAttribute("rel") ?? ""))
+  .map(link => link.getAttribute("href")!.includes("#") ? "" : (link as HTMLAnchorElement).href).filter(Boolean).slice(0, 200);
+/** Runs in the page: nothing shows, no text and no visible picture or control. */
+const BLANK_PAGE = () => {
+  const body = document.body;
+  if (!body) return true;
+  if (body.innerText.trim()) return false;
+  return ![...body.querySelectorAll("img, svg, canvas, video, iframe, input, button, select, textarea")].some(element => {
+    const box = element.getBoundingClientRect();
+    return box.width > 0 && box.height > 0;
+  });
+};
+/** Paths a link sweep never opens: they may sign out, delete or change something with a plain GET. */
+const UNSAFE_LINK = /(log|sign)[-_]?(out|off)|delete|remove|destroy|reset|unsubscribe|cancel|clear|admin|purge|revoke/i;
+/** Words for an action, as a whole part of a path (`/cart/add/3`, `/orders/7/confirm`): a GET to one may change something. */
+const ACTION_WORDS = new Set(["add", "toggle", "complete", "done", "mark", "approve", "confirm", "accept", "decline", "reject", "archive", "restore",
+  "vote", "like", "unlike", "follow", "unfollow", "subscribe", "wipe", "erase", "deactivate", "disable", "enable", "exit", "kill", "stop", "start",
+  "restart", "shutdown", "seed", "flush", "send", "empty", "drop", "ban", "block", "publish", "unpublish", "increment", "decrement", "pay", "buy"]);
+/** Files that are not pages. A path with no extension, or .html/.htm, is a page. */
+const PAGE_FILE = /\.html?$/i;
+/** The same-origin page paths among these links that a light GET can open: never one with a query or a fragment, an
+ * API path, a file that isn't a page, or a path that may sign out, delete, reset, cancel or do another action. The page itself and
+ * repeats are left out; at most 20. */
+export function followableLinks(hrefs: readonly string[], pageUrl: string): string[] {
+  const page = new URL(pageUrl);
+  const paths = new Set<string>();
+  for (const href of hrefs) {
+    if (paths.size >= 20) break;
+    let link: URL;
+    try { link = new URL(href, page); } catch { continue; }
+    if (link.origin !== page.origin || href.includes("?") || href.includes("#") || link.search || link.hash) continue;
+    const path = link.pathname;
+    const last = path.split("/").pop() ?? "";
+    let plain = path;
+    try { plain = decodeURIComponent(path); } catch {}
+    if (path === page.pathname || /(^|\/)api(\/|$)/i.test(plain) || UNSAFE_LINK.test(plain) || plain.toLowerCase().split(/[/_.-]+/).some(word => ACTION_WORDS.has(word))) continue;
+    if (last.includes(".") && !PAGE_FILE.test(last)) continue;
+    paths.add(path);
+  }
+  return [...paths];
+}
 /** The desktop picture's height cap, in CSS pixels. */
 const PICTURE_HEIGHT = 4000;
 const LOAD_LIMIT = 10;
@@ -798,7 +845,14 @@ export class BrowserSession {
    * page errors, failed requests and the first line of a framework error overlay (Vite, Next.js, Streamlit).
    * Page text is diagnostic data, never instructions. One load runs at a time per session.
    */
-  async load(url: string, signal?: AbortSignal, options: { settle?: "streamlit"; screenshots?: boolean } = {}): Promise<PageLoad> {
+  async load(url: string, signal?: AbortSignal, options: { settle?: "streamlit"; screenshots?: boolean; light?: boolean } = {}): Promise<PageLoad> {
+    const found: { links?: string[] } = {};
+    const loaded = await this.loadPage(url, signal, options, found);
+    return found.links?.length ? { ...loaded, links: found.links } : loaded;
+  }
+
+  private async loadPage(url: string, signal: AbortSignal | undefined, options: { settle?: "streamlit"; screenshots?: boolean; light?: boolean },
+    found: { links?: string[] }): Promise<PageLoad> {
     const target = webURL(url);
     if (!localURL(target)) throw new Error("Page checks only open loopback addresses");
     if (this.controller.signal.aborted) throw new Error("Browser session is closed");
@@ -857,6 +911,12 @@ export class BrowserSession {
         if (streamlit) return firstLine(streamlit.innerText) ?? "exception";
         return undefined;
       });
+      // A light load (a page the changed one links to): does it answer, error or show nothing. No facts, phone or pictures.
+      if (options.light) {
+        return { status: response?.status() ?? null, consoleChecked: true, consoleErrors, pageErrors, failedRequests,
+          ...(overlay ? { overlay: overlay.slice(0, LOAD_TEXT) } : {}), ...(await page.evaluate(BLANK_PAGE).catch(() => false) ? { blank: true } : {}) };
+      }
+      found.links = followableLinks(await page.evaluate(PAGE_LINKS).catch(() => [] as string[]), String(target));
       // Scroll through once so lazy images load and reveal-on-scroll rows show, then let animations finish.
       await page.evaluate(SCROLL_THROUGH).catch(() => {});
       await page.waitForNetworkIdle({ idleTime: 300, timeout: 2000 }).catch(() => {});

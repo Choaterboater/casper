@@ -688,6 +688,22 @@ browserTest("the page load checks drawn pictures: no viewBox, no name, and icons
   expect((await f.session.load(`${f.url}/`, new AbortController().signal)).look!.art).toMatchObject({ fixedColors: [], fixedFiles: [] });
 }, 30_000);
 
+browserTest("the page load lists the same-origin pages it links to that a GET can safely open; a light load only says whether a page shows anything", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><a href="/about">About</a><a href="/logout">Log out</a><a href="/account/sign-out">Sign out</a>
+    <a href="/search?x=1">Search</a><a href="/faq#top">FAQ</a><a href="#menu">Menu</a><a href="/api/x">API</a><a href="/menu.pdf">Menu PDF</a>
+    <a href="/price-list" download>Prices</a><a href="/partners" rel="nofollow">Partners</a><a href="https://example.com/">Elsewhere</a>
+    <a href="/">Home</a><a href="/about">About again</a><a href="/cart/remove/3">Remove</a><a href="/menu.html">Menu page</a>
+    <a href="/cart/add/3">Add</a><a href="/orders/7/confirm">Confirm</a><a href="/log-off">Log off</a><a href="/address-book">Addresses</a></html>`);
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).links).toEqual(["/about", "/menu.html", "/address-book"]);
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><body><div id="root"></div></body></html>`);
+  const blank = await f.session.load(`${f.url}/about`, new AbortController().signal, { light: true });
+  expect(blank).toMatchObject({ status: 200, blank: true });
+  expect(blank.links ?? blank.look ?? blank.phone ?? blank.screenshots).toBeUndefined();
+  await writeFile(f.sourceFile, `<!doctype html><html lang="en"><img src="/logo.svg" alt="Logo" width="40" height="40"></html>`);
+  expect((await f.session.load(`${f.url}/about`, new AbortController().signal, { light: true })).blank).toBeUndefined();
+}, 30_000);
+
 browserTest("a picture file with no length stops being read after 256 KB, and a cancel stops the drawn-picture step", async () => {
   const f = await fixture();
   await writeFile(f.sourceFile, `<!doctype html><html lang="en"><img src="/stream-endless.svg" alt="Big" width="120" height="120"></html>`);

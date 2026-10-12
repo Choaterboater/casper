@@ -738,6 +738,16 @@ Chrome or Chromium; Casper never downloads one). Without Chrome, Casper only fet
 `✓ /dashboard answers (HTTP 200) · console not checked: no Chrome found (install Chrome or set
 CASPER_BROWSER_EXECUTABLE)`. That is never a failure.
 
+**Links.** After the changed pages, Casper opens up to 5 pages they link to on the same site, each once
+and never one it already opened: a plain GET that waits for the page to settle and looks for an error
+overlay, console errors and a page that shows nothing (no phone size, notes or pictures, so a second or
+two each). It never follows a link with a query or a `#`, a `download` or `rel="nofollow"` link, an
+`/api/` path, a file that isn't a page, a path with log out, sign out, delete, remove, destroy,
+reset, unsubscribe, cancel, clear or admin in it, or one with an action word such as `add`, `confirm`
+or `toggle` as a part (`/cart/add/3`), and it never sends a form. What is wrong is a look note on the
+page that links there (`link /about returns 404`, `link /help is blank`; a page that asks to sign in
+first, 401 or 403, is not); those pages were not changed in the task, so this never fails a page.
+
 **When pages are not checked.** A project Casper can't start is a note, never a failure:
 `– Pages not checked: node_modules is missing. Run bun install first (Casper doesn't install packages)`.
 A dev server that stops before it is ready, or doesn't answer on its port in time (45 s for one Casper found), makes the check

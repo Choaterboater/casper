@@ -1,5 +1,5 @@
 import { discoverBrowser } from "../browser/discovery";
-import { BrowserSession, type PageLoad } from "../browser/session";
+import { BrowserSession, followableLinks, type PageLoad } from "../browser/session";
 import { ManagedProcessError } from "../platform/managed-process";
 import { scrubText } from "../secrets/scrub";
 import { terminalText } from "../tui/format";
@@ -17,7 +17,8 @@ export type { PageLoad } from "../browser/session";
 export interface PageOpener {
   /** False for the HTTP-only fallback: it sees the status, never the console. */
   readonly consoleChecked: boolean;
-  load(url: string, signal: AbortSignal, options?: { settle?: "streamlit"; screenshots?: boolean }): Promise<PageLoad>;
+  /** `light`: a page the changed one links to, only checked to answer without errors and show something. */
+  load(url: string, signal: AbortSignal, options?: { settle?: "streamlit"; screenshots?: boolean; light?: boolean }): Promise<PageLoad>;
   close(): Promise<void>;
 }
 
@@ -27,6 +28,8 @@ export interface DevServerNotice { shown: boolean }
 const TAIL_LINES = 12;
 const TAIL_CHARS = 2048;
 const ERROR_TEXT = 300;
+/** At most this many pages the changed pages link to are opened, after them, in a light load. */
+const LINKED_PAGES = 5;
 
 /** Page and log text may echo tokens or device secrets: they are hidden before the text is kept anywhere.
  * Like redactPreview, but a secret word needs `=` or `:` after it, because "Unexpected token (3:4)" is an
@@ -105,6 +108,7 @@ export class PageChecks {
 
     const streamlit = this.service.frameworks.includes("streamlit");
     const pages: PageResult[] = [];
+    const linked: Array<{ result: PageResult; links: string[] }> = [];
     for (const page of plan.open) {
       signal.throwIfAborted();
       const logBefore = manager.logs(name).text;
@@ -117,13 +121,53 @@ export class PageChecks {
         continue;
       }
       const logged = streamlit ? serverTraceback(appended(logBefore, manager.logs(name).text)) : undefined;
-      pages.push(judge(page, origin, load, logged));
+      const result = judge(page, origin, load, logged);
+      pages.push(result);
+      const links = followableLinks(load.links ?? [], new URL(page, origin).href);
+      if (links.length) linked.push({ result, links });
     }
+    await this.sweep(origin, plan.open, linked, signal, streamlit);
     const report: PageReport = { status: pageStatus(pages), ...base, pages };
     // A dev server tree Casper could not confirm stopped may still answer beside the new one.
     try { manager.assertCleanup(); }
     catch { return { ...report, status: report.status === "fail" ? "fail" : "incomplete", reason: "Casper could not confirm the old dev server's processes were stopped" }; }
     return report;
+  }
+
+  /** Opens up to 5 same-origin pages the changed pages link to (a GET each, never a form), each once. What is wrong
+   * with one ("link /about returns 404") is a note on the page that links to it: those pages were not changed in
+   * this task, so nothing here fails or changes a page's status. */
+  private async sweep(origin: string, planned: readonly string[], linked: ReadonlyArray<{ result: PageResult; links: string[] }>, signal: AbortSignal, streamlit: boolean): Promise<void> {
+    const seen = new Set(planned.map(page => new URL(page, origin).pathname));
+    let opened = 0;
+    for (const { result, links } of linked) {
+      for (const link of links) {
+        if (opened >= LINKED_PAGES) return;
+        if (seen.has(link)) continue;
+        seen.add(link);
+        opened++;
+        signal.throwIfAborted();
+        const note = await this.linkNote(link, new URL(link, origin).href, signal, streamlit);
+        if (note) result.look = [...result.look ?? [], hide(note)];
+      }
+    }
+  }
+
+  private async linkNote(link: string, url: string, signal: AbortSignal, streamlit: boolean): Promise<string | undefined> {
+    let load: PageLoad;
+    try { load = await this.opener.load(url, signal, { ...(streamlit ? { settle: "streamlit" as const } : {}), screenshots: false, light: true }); }
+    catch (error) {
+      signal.throwIfAborted();
+      return `link ${link} did not finish loading: ${message(error).slice(0, ERROR_TEXT)}`;
+    }
+    if (load.status === null) return `link ${link} did not answer`;
+    // A page that asks to sign in first (401, 403) is working as built.
+    if (load.status >= 400 && load.status !== 401 && load.status !== 403) return `link ${link} returns ${load.status}`;
+    if (load.overlay) return `link ${link} shows an error: ${load.overlay.slice(0, ERROR_TEXT)}`;
+    const errors = [...load.pageErrors, ...load.consoleErrors];
+    if (errors.length) return `link ${link} has ${errors.length === 1 ? "1 console error" : `${errors.length} console errors`}: ${errors[0]!.slice(0, ERROR_TEXT)}`;
+    if (load.blank) return `link ${link} is blank`;
+    return undefined;
   }
 }
 
@@ -169,7 +213,7 @@ function judge(path: string, origin: string, load: PageLoad, serverError: string
 export class BrowserPageOpener implements PageOpener {
   readonly consoleChecked = true;
   constructor(private readonly session: BrowserSession) {}
-  load(url: string, signal: AbortSignal, options?: { settle?: "streamlit"; screenshots?: boolean }): Promise<PageLoad> { return this.session.load(url, signal, options); }
+  load(url: string, signal: AbortSignal, options?: { settle?: "streamlit"; screenshots?: boolean; light?: boolean }): Promise<PageLoad> { return this.session.load(url, signal, options); }
   close(): Promise<void> { return this.session.close(); }
 }
 
