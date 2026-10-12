@@ -196,6 +196,14 @@ class PiRuntimeSession implements RuntimeSession {
     return this.runtime.session.sessionManager.getLeafId();
   }
 
+  conversationEntries(from?: string): Array<{ id: string; prompt?: string }> {
+    return this.runtime.session.sessionManager.getBranch(from).map((entry) => {
+      if (entry.type !== "message" || entry.message.role !== "user") return { id: entry.id };
+      const content = entry.message.content;
+      return { id: entry.id, prompt: typeof content === "string" ? content : content.map((part) => part.type === "text" ? part.text : "").filter(Boolean).join("\n") };
+    });
+  }
+
   async rewindTo(mark: string | null, expected: string | null): Promise<boolean> {
     if (this.readOnly || this.busy || this.models.busy) return false;
     const session = this.runtime.session;

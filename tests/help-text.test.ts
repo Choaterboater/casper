@@ -60,7 +60,7 @@ test("help lists casper <folder>, /undo, /redo, /diff n and /receipt n", () => {
   expect(HELP_TEXT).toContain("  /diff, /undo, /redo    See the last task's changes, or put its files back");
   expect(CLI_HELP_TEXT).toContain("  casper <folder>      Open that folder");
   expect(FULL_HELP_TEXT).toContain("options go before the prompt (quote the whole request to send them as words)");
-  for (const entry of ["/undo [n]", "/redo [n]", "/diff [n|list]", "/receipt <n>, /receipt list"]) expect(FULL_HELP_TEXT).toContain(entry);
+  for (const entry of ["/undo [n]", "/redo [n]", "/rewind [n]", "/diff [n|list]", "/receipt <n>, /receipt list"]) expect(FULL_HELP_TEXT).toContain(entry);
 });
 
 test("/help lists setting up Casper's network server and its logins", () => {

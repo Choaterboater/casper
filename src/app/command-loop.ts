@@ -15,6 +15,7 @@ import { runSettings } from "./settings";
 import { runPreview } from "../services/preview";
 import { detectWebService, isDetectedWebService } from "../services/detect";
 import { redactPreview, terminalText } from "../tui/format";
+import { commandFileShown, loadUserCommands, userCommandRequest } from "./user-commands";
 import { leadingImagePath, startsWithImageFile } from "./images";
 import { serviceManager } from "./task-tools";
 import { updateFooter, loadPaneSetting, askPaneOnce, paneCommand, detailsCommand } from "./footer";
@@ -30,6 +31,7 @@ import { checkSignIn, ensureRuntime } from "./runtime-start";
 import { handledHere, modelChangeRequest, namesModel } from "./model-words";
 import { reloadProject } from "./project-file";
 import { pagesCommand } from "./pages";
+import { rewind } from "./rewind";
 
 export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promise<void> {
   // Own the terminal before the banner so startup output is transcript, not
@@ -152,6 +154,15 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
     // A picture file dropped into an empty prompt starts the line with "/": that is a request, not a command.
     // Commands go straight on (no wait, so a close that arrives with the line still finds the command running).
     if (command && leadingImagePath(prompt) !== undefined) command = !await startsWithImageFile(prompt, { cwd: app.activeWorkspaceRoot() });
+    // One of your own commands (a Markdown file in ~/.casper/commands): its text, with your words in it, is the request.
+    const mine = command ? userCommandRequest(prompt, loadUserCommands(app.homeDir())) : undefined;
+    if (mine) {
+      // A file with nothing after its frontmatter would start a task with no request.
+      if (!mine.text.trim()) throw new Error(`/${mine.command.name} has no text to send: ${commandFileShown(mine.command.file, app.homeDir())} is empty after its frontmatter.`);
+      command = false;
+      app.output.write(`[command] /${terminalText(mine.command.name)} sends ${terminalText(commandFileShown(mine.command.file, app.homeDir()))}.\n`);
+      return await runModelTask(app, mine.text);
+    }
     if (command) return await handleSlashCommand(app, prompt);
     // "change model to opus 5.5": Casper changes it as /model would, with no model call (src/app/model-words.ts).
     const target = typed && !app.pastedImages?.size ? modelChangeRequest(prompt, typed.pasted) : undefined;
@@ -212,6 +223,10 @@ export function handleSlashCommand(app: CasperApp, typed: string): Promise<Verif
   if (prompt.startsWith(`${SUGGESTION_COMMAND} `) || prompt === SUGGESTION_COMMAND) return runSuggestion(app, prompt.slice(SUGGESTION_COMMAND.length).trim());
   const undoCommand = /^\/(undo|redo|diff|receipt)(?:\s+(.*))?$/.exec(prompt);
   if (undoCommand) return runUndoCommand(app, undoCommand[1] as "undo" | "redo" | "diff" | "receipt", (undoCommand[2] ?? "").trim());
+  if (/^\/rewind(?:\s|$)/.test(prompt)) {
+    return rewind({ output: app.output, terminal: app.terminal, interactive: app.interactive, liveSession: app.session, taskUndo: app.taskUndo },
+      prompt.slice(7).trim(), app.commandAbort?.signal).then(() => undefined);
+  }
   if (/^\/plan(?:\s|$)/.test(prompt)) {
     const request = prompt.slice(5).trim();
     if (!request) { app.output.write("Type /plan and then what you want, for example /plan add a --verbose flag to the CLI; the model plans first and nothing is built until you choose Build.\n"); return Promise.resolve(undefined); }

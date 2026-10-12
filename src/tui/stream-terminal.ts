@@ -1,6 +1,13 @@
 import { StdinBuffer, type Terminal } from "@earendil-works/pi-tui";
 import type { RuntimePickerIO } from "../runtime/types";
 
+/** Focus reporting (xterm mode 1004): the terminal sends FOCUS_IN when it comes to the front and FOCUS_OUT when
+ * it goes behind another window or tab, so the bell rings only when you are not looking. */
+export const FOCUS_ON = "\x1b[?1004h";
+export const FOCUS_OFF = "\x1b[?1004l";
+const FOCUS_IN = "\x1b[I";
+const FOCUS_OUT = "\x1b[O";
+
 /** The single raw-input lease shared by Casper's editor and exclusive raw flows such as login. */
 export class StreamTerminal implements Terminal {
   private buffer?: StdinBuffer;
@@ -10,6 +17,9 @@ export class StreamTerminal implements Terminal {
   private wasRaw = false;
   private stopped = true;
   readonly kittyProtocolActive = false;
+  /** The terminal is in front (true) or not (false), from its focus reports (mode 1004); undefined until it sends
+   * one, and again after input was lent out (a report may have gone to the other reader). */
+  focused?: boolean;
   constructor(private readonly io: RuntimePickerIO, private readonly eof: () => void) {}
   get columns(): number { return this.io.output.columns ?? 80; }
   get rows(): number { return this.io.output.rows ?? 24; }
@@ -29,19 +39,28 @@ export class StreamTerminal implements Terminal {
     this.io.input.off("data", this.inputHandler);
     this.io.input.off("end", this.eof);
     this.buffer?.destroy(); this.buffer = undefined;
+    // The reader input is lent to gets no focus reports.
+    this.write(FOCUS_OFF);
   }
   /** Reclaim raw input. A fresh buffer forgets partial escape/paste state left by the other reader. */
   resumeInput(): void {
     if (this.stopped) return;
     this.buffer?.destroy();
     const buffer = this.buffer = new StdinBuffer();
-    buffer.on("data", data => { if (!this.stopped && this.buffer === buffer) this.onInput?.(data); });
+    buffer.on("data", data => {
+      if (this.stopped || this.buffer !== buffer) return;
+      // Focus reports (ESC [ I in front, ESC [ O behind) are the terminal's, never a key: they never reach the editor.
+      if (data === FOCUS_IN || data === FOCUS_OUT) { this.focused = data === FOCUS_IN; return; }
+      this.onInput?.(data);
+    });
     buffer.on("paste", text => { if (!this.stopped && this.buffer === buffer) this.onInput?.(`\x1b[200~${text}\x1b[201~`); });
     this.io.input.setRawMode?.(true);
     this.io.input.on("data", this.inputHandler);
     this.io.input.once("end", this.eof);
     this.io.input.resume();
+    this.focused = undefined;
     this.write("\x1b[?2004h");
+    this.write(FOCUS_ON);
   }
   stop(): void {
     if (this.stopped) return;
@@ -51,6 +70,7 @@ export class StreamTerminal implements Terminal {
     this.io.input.setRawMode?.(this.wasRaw);
     this.io.input.pause();
     this.write("\x1b[?2004l");
+    this.write(FOCUS_OFF);
   }
   async drainInput(): Promise<void> {}
   write(data: string): void { this.io.output.write(this.io.color ? data : withoutColour(data)); }

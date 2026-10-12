@@ -103,7 +103,7 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
   4 Yes, always for this project`, and network boxes add `Yes to everything on <product> this session`;
   each box shows only the answers that fit. Nothing asks you to type `yes`. [Terminal guide](docs/TERMINAL_UX.md)
 - **Undo.** `Next: 1 Show diff · 2 Undo` after each task; `/undo`, `/redo` and `/diff` work on any
-  saved task, also outside git. [Undo](docs/UNDO.md)
+  saved task, also outside git; `/rewind` goes back to just before an earlier prompt to edit it. [Undo](docs/UNDO.md)
 - **Sessions.** Pick up a past chat (`--continue`, `/resume`), or try an idea in a named branch with
   its own folder. [Sessions](docs/SESSIONS.md)
 - **Pages in your browser.** When seeing beats reading (options side by side, a mock-up, a

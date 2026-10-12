@@ -76,6 +76,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     subcommands: [{ name: "list", description: "Pick a task's changes from a list", afterCleanupError: NONE }] },
   { name: "undo", description: "Put the last task's files back (no model)", argumentHint: "[n]", waits: ANY },
   { name: "redo", description: "Put an undone task's files back again", argumentHint: "[n]", waits: ANY },
+  { name: "rewind", description: "Back to just before an earlier prompt, to edit and send it again (a numbered list)", argumentHint: "[n]", waits: ANY },
   { name: "plan", description: "Plan first: the model writes a plan and cases to test, then you build", argumentHint: "<request>", waits: ANY },
   { name: "btw", description: "A side question: your fast model answers with no tools; the conversation never sees it", argumentHint: "<question>" },
   { name: "suggestions", description: "Suggested next steps: list, or turn on or off", subcommands: [
@@ -104,6 +105,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     { name: "repair", args: "[checks ...]", description: "Run checks and authorize bounded repair", waits: true },
     { name: "add", args: "<name>", description: "Save a ready-made check Casper found" },
   ] },
+  { name: "review", description: "A read-only reviewer AI looks at your uncommitted changes, a branch or a commit", argumentHint: "[branch|commit]", waits: ANY },
   { name: "security-review", description: "Run the pinned security tools here, then offer an AI review (asks first)", waits: ANY, subcommands: [
     { name: "ai", description: "The same, and runs the AI review with no box", waits: true },
     { name: "update", description: "Download osv-scanner's advisory data (asks first)" },
@@ -320,13 +322,18 @@ export const COMMANDS: SlashCommand[] = COMMAND_REGISTRY.filter((command) => !co
   ...(command.subcommands?.length ? { getArgumentCompletions: (typed: string) => subcommandItems(command, typed) } : {}),
 }));
 
+/** One of your own commands as the / menu shows it (src/app/user-commands.ts). */
+export interface MenuCommand { readonly name: string; readonly description: string; readonly argumentHint?: string }
+
 /** The / menu for what is typed after "/" (no space yet): each command once, found by its name or an alias, best match
- * first. A row an alias matched says so ("usage (cost)"); an alias typed whole stays as typed when the row is picked. */
-export function commandMenu(typed: string): AutocompleteItem[] {
+ * first. A row an alias matched says so ("usage (cost)"); an alias typed whole stays as typed when the row is picked.
+ * `mine`: your own commands, in the same list; a Casper command's name is never yours. */
+export function commandMenu(typed: string, mine: readonly MenuCommand[] = []): AutocompleteItem[] {
   const words = COMMAND_REGISTRY.filter((command) => !command.hidden).flatMap((command) => [
-    { command, word: command.name, alias: undefined as string | undefined },
-    ...(typed ? command.aliases ?? [] : []).map((alias) => ({ command, word: alias, alias })),
+    { command: command as MenuCommand, word: command.name, alias: undefined as string | undefined },
+    ...(typed ? command.aliases ?? [] : []).map((alias) => ({ command: command as MenuCommand, word: alias, alias })),
   ]);
+  for (const command of mine) if (!findCommand(command.name)) words.push({ command, word: command.name, alias: undefined });
   const seen = new Set<string>();
   return fuzzyFilter(words, typed, (entry) => entry.word)
     .filter(({ command }) => !seen.has(command.name) && Boolean(seen.add(command.name)))

@@ -12,6 +12,7 @@ import { ServiceManager } from "./services/manager";
 import { SmokeChecks } from "./services/smoke";
 import { pageOpener, type DevServerNotice, type PageOpener } from "./services/page-checks";
 import { InteractiveTerminal, type TerminalHost } from "./tui/terminal";
+import { loadUserCommands, usableCommands } from "./app/user-commands";
 import { glyphOutput } from "./tui/glyphs";
 import type { PaneSetting } from "./tui/pane-setting";
 import type { DisplayLevel } from "./tui/display";
@@ -475,18 +476,22 @@ export class CasperApp {
       profileName: context.profileName, ...(options.sessionHomeDir ? { homeDir: options.sessionHomeDir } : {}),
     }));
     this.input = options.input ?? process.stdin;
-    // A real terminal (not an embedder's or a test's output) that is tmux or iTerm2: Casper fits itself to it.
+    // A real terminal (not an embedder's or a test's output) that is tmux, iTerm2 or shows notifications: Casper fits itself to it.
     const detected = options.output === undefined ? detectHostTerminal() : undefined;
-    const host = options.terminalHost ?? (detected && (detected.tmux || detected.iterm) ? { host: detected } : undefined);
+    const host = options.terminalHost ?? (detected && (detected.tmux || detected.iterm || detected.notify) ? { host: detected } : undefined);
     // The old Windows console draws every mark in ASCII (src/tui/glyphs.ts).
     this.terminal = new InteractiveTerminal(this.input, options.output ?? glyphOutput(process.stdout),
       () => cancelCurrent(this), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); }, host);
     this.terminal.setEffortCycle(() => cycleEffort(this));
+    // notifications: off (/settings) quiets the bell and the desktop notification, read each time it would ring.
+    this.terminal.setNotifications(() => this.projectContext?.notifications !== false);
     this.terminal.setBusySubmit((line, plain) => submitDuringWork(this, line, plain));
     // ctrl+o: MCP writes off everywhere, at once, even while work runs.
     this.terminal.setWritesRevert(() => revertWrites(this));
     // ctrl+t: the last step in full, even while work runs.
     this.terminal.setExpandLast(() => expandLastStep(this));
+    // The / menu lists your own commands (Markdown files in ~/.casper/commands) with Casper's.
+    this.terminal.setUserCommands(() => usableCommands(loadUserCommands(this.homeDir())));
     // Tool calls live in the event view's Working box on a rich surface; the transcript gets plain writes.
     this.output = { write: (text) => { this.terminal.write(text); } };
     this.events = new RuntimeEventView(this.terminal, this.output, {

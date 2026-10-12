@@ -97,10 +97,11 @@ Local commands:
   /diff [n|list]                    Task n's changes (default: the last task in this folder), also outside git; list picks one. Before any task in this folder: git status plus tracked diff against HEAD
   /undo [n]                         Put back the files of the last task (or task n); files changed since are left alone
   /redo [n]                         Put an undone task's files back as the task left them
+  /rewind [n]                       Back to just before an earlier prompt (a numbered list; 1 is your last), its words back in the prompt to edit and send; when later tasks changed files, 2 Conversation and files puts them back too. Nothing is deleted
   /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
   /output all                       Every tool call of the last task on its own line (the screen folds them into a summary)
   /details [quiet|normal|detailed] [--session]  Alone: the level now. Failures only, steps folded (default), or every step with small diffs; remembered like /effort, --session (before or after) for this session only. Ctrl+T shows the last step in full
-  /settings, /config                Every switch at a glance, then one by number, written to ~/.casper/config.yaml for you: web lookups, browser tool, browser clicks, routine commands, starter templates, diagram tool, pages the AI makes, pictures the AI makes, open pages in the browser, new-version notice, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, local models, page checks, show the AI the pages, work shown, theme, untrusted-text reader, helpers that build, Playwright tests, Compose files, send Casper's name to OpenRouter, sign-ins from other tools, network server updates, my MCP servers, my language servers, private ssh passwords
+  /settings, /config                Every switch at a glance, then one by number, written to ~/.casper/config.yaml for you: web lookups, browser tool, browser clicks, routine commands, starter templates, diagram tool, pages the AI makes, pictures the AI makes, open pages in the browser, new-version notice, notifications, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, local models, page checks, show the AI the pages, work shown, theme, untrusted-text reader, helpers that build, Playwright tests, Compose files, send Casper's name to OpenRouter, sign-ins from other tools, network server updates, my MCP servers, my language servers, private ssh passwords
   /theme                            Pick the screen's colours (the Theme row of /settings), saved for you
   /hotkeys                          The keys Casper uses
   /copy [n]                         Copy the last answer, or its code block n, to the clipboard
@@ -148,6 +149,7 @@ Local commands:
   /skills inspect <id>              Show a skill and its fingerprint (sha256)
   /skills trust <id>                Show a skill, then 1 No · 2 Trust it (exactly what was shown)
   /skills block <id>                Never use this skill
+  /<name> [words]                   Your own command: ~/.casper/commands/<name>.md sent as a request, your words put in for $1 or $ARGUMENTS; Casper's commands win a name
   /pack add <folder or link>        Add a skill pack from a folder or https://github.com/owner/repo@<commit>: shows it, then 1 No · 2 Yes, add it · 3 Show me what's inside
   /pack list                        The packs you added, and any not used because their files changed
   /pack remove <name>               Take a pack out (forget is the same)
@@ -198,6 +200,8 @@ Local commands:
   /verify repair [checks ...]       Run checks and authorize bounded repair
   /verify add <name>                Save a ready-made check Casper found (Ansible) in .casper/project.yaml
   /verify <lab check>               Run a lab check on your own lab (lab.hosts); asks first, never auto
+  /review                           A read-only reviewer AI reads your uncommitted changes (staged, unstaged, new files) for bugs, security issues and missing tests, by file:line; then say "fix 1 and 3"
+  /review <branch|commit>           The same for the changes since a branch (its merge-base), or for one commit; a big diff is cut and says what was left out
   /security-review                  Run the pinned security tools here (no model), then offer an AI review: 1 Stop here · 2 Run the AI review, with its cost; Enter spends nothing
   /security-review ai               The same, and runs the AI review with no box (the cost is printed first)
   /security-review update           Download osv-scanner's advisory data (asks first)
@@ -207,7 +211,7 @@ Local commands:
 Unknown slash commands are rejected locally, never sent to a model.
 /model opens on the providers (Up/Down picks whose models show; Enter, Tab or Right goes to the list). Enter selects and saves ~/.casper/settings.json; Ctrl+S selects for this session only. Exact IDs are remembered too; /model --session <id> opts out.
 During a task, /model and /effort apply from the model's next step; the step already running and helpers already working keep their model and effort.
-During a task every command runs at once, with whatever follows it (/permissions all, /settings, /login, /memory remember ...); a picker or question it opens closes when the task asks you something. Only the ones that would change the task's conversation, workspace or files, or start model work of their own, wait for it: /clear, /new, /resume, /compact, /undo, /redo, /branch <name>, /switch, /project <name>, /project new, /plan, /verify, /security-review, /delegate, /crew. Esc stops the task.
+During a task every command runs at once, with whatever follows it (/permissions all, /settings, /login, /memory remember ...); a picker or question it opens closes when the task asks you something. Only the ones that would change the task's conversation, workspace or files, or start model work of their own, wait for it: /clear, /new, /resume, /compact, /undo, /redo, /rewind, /branch <name>, /switch, /project <name>, /project new, /plan, /verify, /review, /security-review, /delegate, /crew. Esc stops the task.
 Words you type at the start of a request, then : , or a new line, set that task only and are not sent to the model: think hard (top effort), quick (low effort), big model or use the big model (your big model, the reason role), fast model or use the fast model (your fast role), plan first (like /plan). ultrathink anywhere in your line is top effort too. Casper says what each word did in one line, and again when it goes back. Pasted text never counts, and words never grant permission.
 Side questions: a line you start with ? (? what does ECONNRESET mean) goes to your fast model on the side with no tools, idle or during a task. The answer shows as a side answer; it is not added to the conversation and the AI never sees it. /usage counts its cost; /settings turns side questions off. /btw <question> asks the same way and still works with them off, since it is typed on purpose.
 /effort remembers supported levels per model; /effort <level> --session opts out.
@@ -311,10 +315,11 @@ export function unknownCommandMessage(command: string): string {
   return `Unknown command "${command}".${near ? ` Did you mean ${near}?` : topic ? ` ${topic}` : ""} Type /help for local commands.`;
 }
 
-/** Why a slash line can't run as typed (an unknown command, or words after one that takes none); undefined when it can. */
-export function commandProblem(line: string): string | undefined {
+/** Why a slash line can't run as typed (an unknown command, or words after one that takes none); undefined when it can.
+ * `mine`: whether a name is one of your own commands (src/app/user-commands.ts). */
+export function commandProblem(line: string, mine: (name: string) => boolean = () => false): string | undefined {
   const parsed = parseCommandLine(line);
-  if (!parsed) return unknownCommandMessage(line.trim().split(/\s+/)[0]!);
+  if (!parsed) return mine(line.trim().split(/\s+/)[0]!.slice(1)) ? undefined : unknownCommandMessage(line.trim().split(/\s+/)[0]!);
   // /new was the new-project command; it now starts a new conversation, like Claude Code and Pi.
   if (parsed.typed === "new" && parsed.args) return `/new now starts a new conversation, like /clear. For a new project type /project new ${parsed.args}`;
   if (parsed.args && !takesArguments(parsed.command)) return `Usage: /${parsed.typed}, with nothing after it.`;

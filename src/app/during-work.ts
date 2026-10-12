@@ -7,6 +7,7 @@ import { formatEffort, terminalText } from "../tui/format";
 import { runTasksCommand } from "./background";
 import { canonicalLine, runsDuringWork, sessionFlag } from "../tui/commands";
 import { commandProblem } from "../tui/help";
+import { loadUserCommands, usableCommands } from "./user-commands";
 import { leadingImagePath } from "./images";
 import { opened } from "./new-project";
 import { updateFooter } from "./footer";
@@ -54,7 +55,9 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
   // What a command says comes one microtask later, under the screen's echo of the line, not above it.
   if (line.startsWith("/") && !picture) {
     // A command Casper doesn't know, or words one doesn't take: said now, as when idle, not after the task.
-    const problem = commandProblem(line);
+    // One of your own commands is a request: it waits for the task, as the other lines that start with / do.
+    const mine = new Set(usableCommands(loadUserCommands(app.homeDir())).map((command) => command.name));
+    const problem = commandProblem(line, (name) => mine.has(name));
     if (problem) { queueMicrotask(() => app.output.write(`[error] ${terminalText(problem)}\n`)); return true; }
   }
   if (runsDuringWork(line)) { queueMicrotask(() => duringTask(() => runCommandDuringWork(app, canonicalLine(line)))); return true; }

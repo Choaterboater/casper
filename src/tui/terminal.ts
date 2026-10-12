@@ -8,6 +8,7 @@ import type { ThemeRole } from "./theme";
 import { TerminalSurface, type AskOrigin, type WorkView } from "./surface";
 import { renderEditBox, renderFailureBox, stepRows, type EditedFile, type FailedStep, type StepPart } from "./step-view";
 import type { EntryKind } from "./transcript";
+import type { MenuCommand } from "./commands";
 import type { NextRow } from "./next-row";
 import { bellSequence, hostCommand, prepareTmuxPane, titleSequence, TITLE_RESTORE, TITLE_SAVE, type HostCommand, type HostTerminal } from "./host-terminal";
 import { SidePane, type ActivityPane } from "./side-pane";
@@ -104,7 +105,7 @@ export class InteractiveTerminal {
     const tty = Boolean((input as NodeJS.ReadStream).isTTY && output.isTTY && process.env.TERM !== "dumb");
     this.color = Boolean(output.isTTY && process.env.TERM !== "dumb" && process.env.NO_COLOR === undefined);
     if (tty) this.surface = new TerminalSurface({ input, output, color: this.color, onEOF }, onInterrupt, onEOF);
-    if (this.surface && host) this.surface.setBell(bellSequence(host.host, "Casper is waiting for you"));
+    if (this.surface && host) this.surface.setBell(message => bellSequence(host.host, message));
   }
 
   start(): void {
@@ -206,6 +207,8 @@ export class InteractiveTerminal {
   setSteps(steps?: string): void { this.surface?.setSteps(steps); }
   /** How long a request must run before its end or a question rings the terminal bell (default 10 s). */
   setAttentionAfter(ms: number): void { this.surface?.setAttentionAfter(ms); }
+  /** Whether the bell and notification ring at all (notifications: in /settings); asked each time. */
+  setNotifications(on: () => boolean): void { this.surface?.setNotifications(on); }
   /** Rich terminal only. Shift+Tab cycles effort; plain line input has no equivalent key. */
   setEffortCycle(handler: (() => void) | undefined): void { this.surface?.setEffortCycle(handler); }
   /** Enter while Casper works: true took it (ran it, sent it to the AI or queued it); text is why it waits. `plain`:
@@ -216,6 +219,7 @@ export class InteractiveTerminal {
   }
   /** Rich terminal only. Ctrl+T shows the last finished step in full. */
   setExpandLast(handler: (() => void) | undefined): void { this.surface?.setExpandLast(handler); }
+  setUserCommands(list: () => readonly MenuCommand[]): void { this.surface?.setUserCommands(list); }
   flashNote(text: string): void { this.surface?.flashNote(text); }
   /** The rich footer at this width; undefined on the plain terminal. */
   footerLine(width: number): string | undefined { return this.surface?.footerLine(width); }

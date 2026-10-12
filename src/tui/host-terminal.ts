@@ -13,6 +13,24 @@ export interface HostTerminal {
   iterm: boolean;
   /** iTerm2's id for Casper's session ($ITERM_SESSION_ID "w0t0p0:<uuid>"), used to split next to it. */
   itermSession?: string;
+  /** How the terminal shows a desktop notification: OSC 9 (iTerm2, WezTerm, Ghostty, kitty) or OSC 777 (foot).
+   * Unset: BEL only (Terminal.app, Windows Terminal, Konsole, GNOME Terminal and the rest). */
+  notify?: NotifyStyle;
+}
+
+export type NotifyStyle = "osc9" | "osc777";
+
+/** The terminal's own notification sequence, from what it sets in the environment. Each one is in that terminal's
+ * docs: iTerm2, WezTerm, Ghostty and kitty show OSC 9; foot shows OSC 777 (rxvt's notify). Windows Terminal reads
+ * OSC 9 as ConEmu's progress and directory sequences, not a notification, so it gets BEL. Inside tmux TERM_PROGRAM
+ * says tmux; the terminal's own variables (KITTY_WINDOW_ID, WEZTERM_PANE, GHOSTTY_RESOURCES_DIR) still say which. */
+function notifyStyle(env: Record<string, string | undefined>, iterm: boolean): NotifyStyle | undefined {
+  const term = env.TERM ?? "";
+  const program = env.TERM_PROGRAM ?? "";
+  if (iterm || program === "WezTerm" || program === "ghostty" || term === "xterm-ghostty" || term === "xterm-kitty"
+    || env.KITTY_WINDOW_ID || env.WEZTERM_PANE || env.GHOSTTY_RESOURCES_DIR) return "osc9";
+  if (term === "foot" || term.startsWith("foot-")) return "osc777";
+  return undefined;
 }
 
 export function detectHostTerminal(env: Record<string, string | undefined> = process.env): HostTerminal {
@@ -20,11 +38,13 @@ export function detectHostTerminal(env: Record<string, string | undefined> = pro
   const tmux = Boolean(env.TMUX) || term.startsWith("tmux");
   const iterm = env.TERM_PROGRAM === "iTerm.app" || env.LC_TERMINAL === "iTerm2";
   const itermSession = env.ITERM_SESSION_ID?.split(":").at(-1);
+  const notify = notifyStyle(env, iterm);
   return {
     tmux,
     ...(env.TMUX && env.TMUX_PANE && /^%\d+$/.test(env.TMUX_PANE) ? { tmuxPane: env.TMUX_PANE } : {}),
     iterm,
     ...(iterm && itermSession && /^[0-9A-Fa-f-]{8,64}$/.test(itermSession) ? { itermSession } : {}),
+    ...(notify ? { notify } : {}),
   };
 }
 
@@ -39,12 +59,16 @@ export function tmuxPassthrough(sequence: string): string {
 }
 
 /**
- * The bell for "done" or "waiting for you". BEL alone everywhere: tmux marks the window and rings the outer
- * terminal itself. In iTerm2 a notification goes with it (OSC 9), through tmux's passthrough when inside tmux.
+ * The bell for "done" or "waiting for you". BEL everywhere: tmux marks the window and rings the outer terminal
+ * itself. A terminal that shows desktop notifications gets one with it (OSC 9, or OSC 777 in foot), through tmux's
+ * passthrough when inside tmux.
  */
 export function bellSequence(host: HostTerminal, message: string): string {
-  if (!host.iterm) return "\x07";
-  const note = `\x1b]9;${oneLine(message)}\x07`;
+  const style = host.notify ?? (host.iterm ? "osc9" : undefined);
+  if (!style) return "\x07";
+  const text = oneLine(message);
+  // OSC 777's fields are split on ";", so the message has none.
+  const note = style === "osc9" ? `\x1b]9;${text}\x07` : `\x1b]777;notify;Casper;${text.replaceAll(";", ",")}\x07`;
   return `\x07${host.tmux ? tmuxPassthrough(note) : note}`;
 }
 
@@ -72,12 +96,12 @@ export function hostCommand(env: Record<string, string | undefined> = process.en
 }
 
 /**
- * What Casper sets inside tmux, on its own pane only, and undoes at exit. iTerm2's notification needs
+ * What Casper sets inside tmux, on its own pane only, and undoes at exit. The outer terminal's notification needs
  * tmux's passthrough (off by default since tmux 3.3), so Casper turns it on for its pane when the pane
  * has no setting of its own. Nothing global, nothing on the user's other panes.
  */
 export function prepareTmuxPane(host: HostTerminal, run: HostCommand): () => void {
-  if (!host.tmuxPane || !host.iterm) return () => {};
+  if (!host.tmuxPane || !(host.notify ?? host.iterm)) return () => {};
   const pane = host.tmuxPane;
   const own = run(["tmux", "show-options", "-p", "-q", "-v", "-t", pane, "allow-passthrough"]);
   if (own.status !== 0 || own.stdout.trim()) return () => {};

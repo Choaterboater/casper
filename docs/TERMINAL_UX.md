@@ -29,7 +29,7 @@ takes nothing after its name says so (`Usage: /settings, with nothing after it.`
 
 ### Commands
 
-These commands run on your machine. Only `/compact`, `/delegate`, `/crew <job>`,
+These commands run on your machine. Only `/compact`, `/delegate`, `/review`, `/crew <job>`,
 `/verify repair` and `/btw` send a model request. `/model` may fetch provider model lists
 over the network, and `/references add` downloads files after asking you.
 
@@ -47,6 +47,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/resume [id]` | Pick a saved conversation from a numbered list, or go back to one (the start of its ID is enough) |
 | `/diff [n\|list]` | The last task's changes (also outside git), task n's, or a list to pick from; before any task, git's view |
 | `/undo [n]`, `/redo [n]` | Put the last task's (or task n's) files back, or back again (no model; [UNDO.md](UNDO.md)) |
+| `/rewind [n]` | Back to just before an earlier prompt (a numbered list, newest first; `/rewind 1` is your last), its words back in the prompt to edit and send; when later tasks changed files, `2 Conversation and files` puts them back too. No model; nothing is deleted ([UNDO.md](UNDO.md#rewind-to-an-earlier-prompt)) |
 | `/plan <request>` | Plan first: the model writes a plan and cases to test, you edit it, then build |
 | `/btw <question>` | A side question, idle or during a task: your fast model answers with no tools, and the conversation never sees it (like a line you start with `?`; works with side questions off) |
 | `/suggestions [on\|off]` | List the suggested next steps, or turn them on or off |
@@ -60,6 +61,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/output [n\|all]` | Full command and output of a recent tool call from the last task |
 | `/receipt [n\|list]` | The last task's receipt in detail, a saved one, or the last 10 |
 | `/verify [checks]`, `/verify repair`, `/verify add <name>` | Run the project's checks; repair failures; save a check Casper found ([VERIFICATION.md](VERIFICATION.md)) |
+| `/review`, `/review <branch\|commit>` | A read-only reviewer AI (your review model) reads your uncommitted changes (staged, unstaged and new text files), the changes since a branch's merge-base, or one commit, and lists real bugs, security issues and missing tests by file:line, most serious first; a finding that names no real line of a changed file is dropped. Key and `.env` files stay out, a big diff is cut and the list says which files were left out, and an empty change asks no model. The numbered list goes to the conversation too, so `fix 1 and 3` works next. It reads the repo's `AGENTS.md`, `CLAUDE.md` and an ADR of deliberate choices when there is one |
 | `/security-review` | Run the pinned security tools here, then offer an AI review (asks first; [SECURITY_CHECKS.md](SECURITY_CHECKS.md)) |
 | `/project <name>`, `/project new [name]` | Open a project folder inside this one; start a new project in ~/Projects (no model; [NEW.md](NEW.md)); `/project` alone is `/status` |
 | `/permissions` | A short screen: whether Casper is asking, one line per kind (state · how to change it) and what stays protected, then the box `Stop asking until you quit?` (`1 Keep asking · 2 Stop asking until I quit`; Enter keeps asking; no box during a task). `details` is the full screen. `all` (or `allowall`, `allow-all`) is the same box on its own, `ask` turns the questions back on, `write <folder>` allows a folder outside the project, `forget <folder>` takes it back. A mistyped word gets `Did you mean /permissions all (it asks first)?` and runs nothing |
@@ -85,12 +87,36 @@ over the network, and `/references add` downloads files after asking you.
 | `/delegate <explorer\|reviewer> <goal>` | A read-only helper AI on one goal (uses a model; [DELEGATION.md](DELEGATION.md)) |
 | `/crew <job>` | A builder AI does the job in its own copy of the project, then 1 Keep the copy · 2 Apply to my folder · 3 Throw it away; bare `/crew` lists copies still here ([CREWS.md](CREWS.md)) |
 | `/exit`, `/quit` | Exit; during a task it stops the task first, as Ctrl+C twice does |
+| `/<name> [words]` | Your own command: `~/.casper/commands/<name>.md` sent as a request with your words in it (see [Your own commands](#your-own-commands)) |
 
 An unknown `/` command is rejected on your machine, at once, also during work, where the error shows under your
-line. It is quoted as you typed it. It is never sent to a model. A line that starts with a picture file's path is a
+line. It is quoted as you typed it. It is never sent to a model. Only a name that is one of your own commands goes
+to the model, as that command's text. A line that starts with a picture file's path is a
 request, not a command (see Pictures below).
 
 Taking something back is `forget` everywhere (`/memory`, `/mcp`, `/sandbox`, `/allowed`, `/permissions`); `remove` is the same word, and `/pack forget` is `/pack remove`. `list` is the command alone (`/memory list` is `/memory`). A usage error reads `[error] Usage: …` for every command.
+
+### Your own commands
+
+A Markdown file in `~/.casper/commands` is a slash command named after the file: `hello.md` is `/hello`. Typing `/hello world` sends the file's text as your request, with the words
+after the name put in where the file says: `$1`, `$2` for one word each, `$ARGUMENTS` (or `$@`) for all of them,
+`${1:-default}` for a word you may leave out. Quotes keep words together (`/hello "big world"`). Optional
+frontmatter gives the menu its words:
+
+```markdown
+---
+description: Say hello to someone
+argument-hint: <name>
+---
+Say hello to $1, warmly.
+```
+
+Your commands are in the `/` menu with Casper's and in a "Your commands" group at the end of `/help`. Casper's own
+commands always win a name: a `help.md` never takes over `/help`, and `/help` lists it as hidden and says to rename
+it. Pi's prompt templates in `~/.casper/agent/prompts` work the same way (a name in `~/.casper/commands` wins). A
+repository's own folders (`.pi/prompts`, `.casper/commands`) are not read: a cloned repository is never trusted to
+put words in your mouth. During a task, a line with your command keeps its draft until the task ends. A read-only
+helper (`/delegate`) gets its goal as written, never expanded.
 
 ### Words you can use
 
@@ -265,7 +291,12 @@ under a second shows no time; every time on screen reads the same way: `0.4s` an
 `14s`, `1m05s`, `10m`, `1h02m`), so a
 pass is never silent; `--verbose` prints the full evidence line instead. When a request that ran for 10 seconds or
 more finishes, or asks you something (a question, an approval, the checklist), Casper rings the
-terminal bell; your terminal decides whether that is a sound, a flash or a dock bounce. Scripts,
+terminal bell; your terminal decides whether that is a sound, a flash or a dock bounce. iTerm2, WezTerm,
+Ghostty and kitty also show a desktop notification (OSC 9), and foot too (OSC 777), saying what happened:
+`Casper finished the task` or `Casper has a question for you`; inside tmux it goes through to the outer
+terminal (foot only outside tmux). Casper asks the terminal to say when it comes to the front or goes behind (focus reports), and
+rings only while it is behind, as Codex CLI does: a terminal that never says rings as before.
+**Notifications** in `/settings` (`notifications: off`) turns the bell and the notification off. Scripts,
 one-shot runs and `--json` never ring. `—` means unavailable, `~`
 means estimated. Branch is the project inspection snapshot; `/status` refreshes
 it after external Git changes. Narrow terminals truncate the footer rather than
@@ -646,9 +677,9 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   `… — closed for the task's question; type the command again`. A private box for a key or a
   password (`/login`, `/mcp login`) is never closed under you: the task's box waits until it is done.
 - Only the commands that would change what the task works on, or start model work of their own
-  (one at a time), wait: `/clear` and `/new`, `/resume`, `/compact`, `/undo`, `/redo`,
+  (one at a time), wait: `/clear` and `/new`, `/resume`, `/compact`, `/undo`, `/redo`, `/rewind`,
   `/branch <name>`, `/switch`, `/project <name>`, `/project new`, `/plan`, `/verify`,
-  `/security-review`, `/delegate` (it stops the debugger the task may use), `/crew` (its list
+  `/review`, `/security-review`, `/delegate` (it stops the debugger the task may use), `/crew` (its list
   applies copies to your folder; `/crew drop` runs) and a picked suggestion. They keep their draft
   and say why for a moment (`/undo waits until this task ends · draft kept · Esc stops the task`).
   Typing `/` keeps the command menu; the commands and subcommands that wait are dimmed and say

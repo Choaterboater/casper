@@ -9,10 +9,10 @@ import type { OutputWriter } from "./commands";
 import { tildePath } from "../new/scaffold";
 import { readProjectText, removeProjectFile, writeProjectFile } from "../platform/files";
 import type { RuntimeSession } from "../runtime/types";
-import { ReceiptStore, type ReceiptUndo, type StoredReceipt } from "../task/receipts";
+import { RECEIPTS_KEPT, ReceiptStore, type ReceiptUndo, type StoredReceipt } from "../task/receipts";
 import { formatTaskResult, receiptVerdict, UNDO_NOTHING_CHANGED, type TaskResult } from "../task/result";
 import path from "node:path";
-import { coveredBy, leftOutWhy, UndoStore, type LeftOut, type UndoSnapshot } from "../task/undo";
+import { coveredBy, leftOutWhy, UndoStore, type LeftOut, type UndoApplied, type UndoPlan, type UndoSnapshot } from "../task/undo";
 import { isSecretFile } from "../secrets/files";
 import { redactPreview, terminalText } from "../tui/format";
 import { buildNextRow, type NextRow } from "../tui/next-row";
@@ -66,7 +66,10 @@ function markOf(session: RuntimeSession | undefined): string | null | undefined 
   try { return session?.conversationMark?.(); } catch { return undefined; }
 }
 
-function hasCopies(receipt: StoredReceipt): receipt is StoredReceipt & { undo: ReceiptUndo } {
+/** A task whose files Casper has copies of. */
+export type UndoableTask = StoredReceipt & { undo: ReceiptUndo };
+
+function hasCopies(receipt: StoredReceipt): receipt is UndoableTask {
   return Boolean(receipt.undo && "before" in receipt.undo && receipt.undo.paths.length);
 }
 
@@ -264,17 +267,9 @@ export class TaskUndo {
     const store = this.store(receipt.root)!;
     const plan = await store.plan(undo.after, undo.before, undo.paths);
     if (!(await this.confirmPartial("Undo", n, plan.changedSince, plan.ready.length, signal))) return;
-    const redo = await store.snapshot(signal);
-    if (!("tree" in redo)) { this.refuse(`Nothing was undone: Casper could not save a copy of the files first (${terminalText(redo.unavailable)}).`); return; }
-    await store.keep(n, "redo", redo.tree);
-    const applied = await store.apply(plan.ready, undo.before, signal);
+    const applied = await this.putBack(n, store, plan, undo.before, signal);
+    if (typeof applied === "string") { this.refuse(`Nothing was undone: ${applied}.`); return; }
     this.lastRestored = applied.restored;
-    // Marked undone only when something was put back: an undo that changed nothing can be tried again, and a second
-    // Casper's empty undo never replaces the files a first one put back (which /redo needs).
-    if (applied.restored.length) {
-      await this.receipts()!.update(n, (saved) => (saved.undo as ReceiptUndo).undone ? saved
-        : { ...saved, undo: { ...(saved.undo as ReceiptUndo), undone: { at: new Date().toISOString(), restored: applied.restored, redo: redo.tree } } });
-    }
     const lines = [applied.restored.length
       ? `✓ Undone — ${files(applied.restored.length)} ${applied.restored.length === 1 ? "is" : "are"} back as ${applied.restored.length === 1 ? "it was" : "they were"} before task ${n}: ${names(applied.restored)}`
       : `– Nothing was put back for task ${n}.`];
@@ -284,6 +279,76 @@ export class TaskUndo {
     if (applied.restored.length) lines.push(await this.tellConversation(receipt, applied.restored, "undo"));
     this.write(`${lines.join("\n")}\n`);
     if (applied.restored.length) this.offer(buildNextRow({ undo: { label: "Redo", command: `/redo ${n}` } }));
+  }
+
+  /** Saves the files as they are now (for /redo), puts back `plan`'s files as task `n` found them and marks the task
+   * undone. A string says why nothing was put back. */
+  private async putBack(n: number, store: UndoStore, plan: UndoPlan, before: string, signal?: AbortSignal): Promise<UndoApplied | string> {
+    const redo = await store.snapshot(signal);
+    if (!("tree" in redo)) return `Casper could not save a copy of the files first (${terminalText(redo.unavailable)})`;
+    await store.keep(n, "redo", redo.tree);
+    const applied = await store.apply(plan.ready, before, signal);
+    // Marked undone only when something was put back: an undo that changed nothing can be tried again, and a second
+    // Casper's empty undo never replaces the files a first one put back (which /redo needs).
+    if (applied.restored.length) {
+      await this.receipts()!.update(n, (saved) => (saved.undo as ReceiptUndo).undone ? saved
+        : { ...saved, undo: { ...(saved.undo as ReceiptUndo), undone: { at: new Date().toISOString(), restored: applied.restored, redo: redo.tree } } });
+    }
+    return applied;
+  }
+
+  // ---- /rewind -----------------------------------------------------------------------------------------------
+
+  /** The tasks of conversation `sessionId` in this folder that `accepts` takes (by the conversation's position before
+   * and after each) and whose files can still be undone, newest first. */
+  async tasksAfter(sessionId: string | null, accepts: (conversation: { before: string | null; after: string | null }) => boolean): Promise<UndoableTask[]> {
+    const receipts = this.receipts();
+    if (!receipts || sessionId === null) return [];
+    const root = this.host.activeRoot();
+    const found: UndoableTask[] = [];
+    for (const { receipt } of await receipts.list(RECEIPTS_KEPT)) {
+      if (typeof receipt === "string" || receipt.kind !== "task" || receipt.root !== root || receipt.sessionId !== sessionId) continue;
+      if (receipt.conversation && accepts(receipt.conversation) && hasCopies(receipt) && !receipt.undo.undone) found.push(receipt);
+    }
+    return found;
+  }
+
+  /** /rewind's "Conversation and files": puts back the files of `tasks` (newest first), as /undo of each would. When a
+   * file changed since, it changes nothing and says so (no question). True when every task's files are back. */
+  async undoTasks(tasks: readonly UndoableTask[], signal?: AbortSignal): Promise<boolean> {
+    this.lastRestored = [];
+    const store = this.store(this.host.activeRoot());
+    if (!store || !tasks.length) return Boolean(store);
+    const list = tasks.map((task) => task.n).join(", ");
+    // First, every file must still be as the newest of these tasks that changed it left it.
+    const seen = new Set<string>();
+    const changed: string[] = [];
+    for (const task of tasks) {
+      const fresh = task.undo.paths.filter((file) => !seen.has(file) && Boolean(seen.add(file)));
+      if (fresh.length) changed.push(...(await store.plan(task.undo.after, task.undo.before, fresh)).changedSince);
+    }
+    const stop = (files: readonly string[], n: number) =>
+      `${names(files)} changed after task ${n}, so Casper left the files and the conversation as they are. /rewind with 1 Conversation only keeps the files.`;
+    if (changed.length) { this.refuse(stop(changed, tasks[0]!.n)); return false; }
+    const restored: string[] = [];
+    const lines: string[] = [];
+    for (const task of tasks) {
+      const plan = await store.plan(task.undo.after, task.undo.before, task.undo.paths);
+      // Only when a task in between changed a file back by hand: nothing more is put back from here on.
+      if (plan.changedSince.length) { lines.push(`– Stopped: ${stop(plan.changedSince, task.n)}`); break; }
+      const applied = await this.putBack(task.n, store, plan, task.undo.before, signal);
+      if (typeof applied === "string") { lines.push(`– Stopped: nothing more was undone (${applied}).`); break; }
+      restored.push(...applied.restored.filter((file) => !restored.includes(file)));
+      for (const skipped of applied.skipped) lines.push(`– Not put back: ${terminalText(skipped.path)} (${terminalText(skipped.why)})`);
+      lines.push(...this.limits(task.undo, plan.blocked));
+    }
+    this.lastRestored = restored;
+    const stopped = lines.some((line) => line.startsWith("– Stopped"));
+    const head = restored.length
+      ? `✓ Undone task${tasks.length === 1 ? "" : "s"} ${list} — ${files(restored.length)} ${restored.length === 1 ? "is" : "are"} back as before: ${names(restored)}`
+      : `– No files were put back for task${tasks.length === 1 ? "" : "s"} ${list}.`;
+    this.write(`${[head, ...lines].join("\n")}\n`);
+    return !stopped;
   }
 
   async redo(argument: string, signal?: AbortSignal): Promise<void> {

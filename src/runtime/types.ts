@@ -342,6 +342,9 @@ export interface RuntimeSession {
   /** Rewinds the conversation to `mark` at no token cost, only when it still ends at `expected` (nothing was said
    * since). False, with nothing changed, when it can't. */
   rewindTo?(mark: string | null, expected: string | null): Promise<boolean>;
+  /** Every entry on the conversation's current branch (or the one ending at `from`; none for an unknown id), oldest
+   * first; a message the model was sent as the user's carries its text. /rewind lists the prompts from it. No call. */
+  conversationEntries?(from?: string): Array<{ id: string; prompt?: string }>;
   getStatus?(): RuntimeStatus;
   selectModel?(options: RuntimeModelSelectionOptions): Promise<RuntimeModelSelection>;
   /** Pick a default model for a signed-in provider only when no model is selected; never overrides a choice. */

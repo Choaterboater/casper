@@ -5,7 +5,7 @@ import {
 import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
 import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } from "../app/images";
 import { readClipboardFiles } from "./clipboard-files";
-import { commandMenu, COMMANDS, findCommand, fitDescriptions, menuRunsDuringWork } from "./commands";
+import { commandMenu, COMMANDS, findCommand, fitDescriptions, type MenuCommand, menuRunsDuringWork } from "./commands";
 import { BUSY_GLYPH, formatElapsed, hasLineControls, hasTerminalControls, markdownTheme, NOT_RUN_GLYPH, PROMPT_GLYPH, terminalText, tint } from "./format";
 import { answerRecord, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, OTHER_CHOICE, typedChoice, type PickRecord } from "./choices";
 import { typedDuringTask } from "./give-way";
@@ -201,6 +201,7 @@ export class TerminalSurface {
   private onCycleEffort?: () => void;
   private onBusySubmit?: (line: string) => true | string;
   private onExpandLast?: () => void;
+  private userCommands: () => readonly MenuCommand[] = () => [];
   /** "ASKING OFF · /permissions ask" while the shell stops asking, and "ALLOW ALL: <servers>" or "WRITES: <servers>"
    * with "· Ctrl+O" while an MCP server has writes on; drawn first, and shortened before anything of it is cut off. */
   private badge?: string;
@@ -601,6 +602,8 @@ export class TerminalSurface {
   setBusySubmit(handler: ((line: string) => true | string) | undefined): void { this.onBusySubmit = handler; }
   /** Ctrl+T: show the last finished step in full. */
   setExpandLast(handler: (() => void) | undefined): void { this.onExpandLast = handler; }
+  /** Your own commands (Markdown files), read when the / menu opens. */
+  setUserCommands(list: () => readonly MenuCommand[]): void { this.userCommands = list; }
   setWritesRevert(handler: (() => boolean) | undefined): void { this.onWritesRevert = handler; }
   setBadge(text?: string): void {
     const next = text ? terminalText(text).replace(/\s+/g, " ").trim() || undefined : undefined;
@@ -643,7 +646,7 @@ export class TerminalSurface {
         getSuggestions: async (...args) => {
           // The command names: each command once, found by its name or an alias (Pi's own list would need an alias row).
           const before = (args[0][args[1]] ?? "").slice(0, args[2]);
-          const names = !args[3].force && /^\/\S*$/.test(before) ? commandMenu(before.slice(1)) : undefined;
+          const names = !args[3].force && /^\/\S*$/.test(before) ? commandMenu(before.slice(1), this.userCommands()) : undefined;
           const result = names ? (names.length ? { items: names, prefix: before } : null) : await provider.getSuggestions(...args);
           if (!result) return null;
           const items = result.items.filter(item =>
@@ -774,14 +777,19 @@ export class TerminalSurface {
     this.message = undefined; this.source = "";
     this.render();
   }
-  /** The bell (BEL) a terminal turns into a sound, a flash or a dock bounce; rich surface only. */
-  private attention(): void {
+  /** The bell (BEL) a terminal turns into a sound, a flash or a dock bounce, with a desktop notification where the
+   * terminal shows one; rich surface only. Not while the terminal says it is in front (focus reports): you are
+   * looking already. A terminal that never says rings as before. */
+  private attention(what: "done" | "question"): void {
     if (this.busySince === undefined || this.closed || Date.now() - this.busySince < this.attentionAfterMs) return;
-    this.terminal.write(this.bell);
+    if (!this.notificationsOn() || this.terminal.focused === true) return;
+    this.terminal.write(this.bell(what === "done" ? "Casper finished the task" : "Casper has a question for you"));
   }
-  private bell = "\x07";
-  /** What rings: BEL, plus iTerm2's notification (through tmux when inside it); see host-terminal.ts. */
-  setBell(sequence: string): void { this.bell = sequence; }
+  private bell: (message: string) => string = () => "\x07";
+  private notificationsOn: () => boolean = () => true;
+  /** What rings: BEL, plus the terminal's notification (through tmux when inside it); see host-terminal.ts. */
+  setBell(sequence: (message: string) => string): void { this.bell = sequence; }
+  setNotifications(on: () => boolean): void { this.notificationsOn = on; }
   setAttentionAfter(ms: number): void { this.attentionAfterMs = ms; }
 
   /** Put text back in the prompt (queued lines of a stopped task), ahead of anything typed since. `pasted` is what
@@ -798,7 +806,7 @@ export class TerminalSurface {
   offerNext(keys: ReadonlyMap<string, string> | undefined): void { this.nextKeys = keys?.size ? new Map(keys) : undefined; }
 
   readCommand(): Promise<string | undefined> {
-    if (this.busy) { this.attention(); this.busySince = undefined; }
+    if (this.busy) { this.attention("done"); this.busySince = undefined; }
     // The prompt is back: whatever work was shown in the Working box is over.
     this.endAssistant(); this.busy = false; this.note = ""; this.work = undefined; this.configureAutocomplete();
     this.updateSpinner();
@@ -884,7 +892,7 @@ export class TerminalSurface {
       this.restoreSetAside(setAside.draft, setAside.pasted); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(answer);
     };
     const cancel = () => finish(undefined);
-    this.attention();
+    this.attention("question");
     this.pendingAsk = finish; this.askQuestion = safeQuestion; this.askOptions = shown; this.askFrom = from;
     // The task's approvals and questions are never closed for another box; a box a command typed during it opened is.
     this.askGivesWay = typedDuringTask();
@@ -922,7 +930,7 @@ export class TerminalSurface {
       this.restoreSetAside(draft, draftPastes); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(edited);
     };
     const cancel = () => finish(undefined);
-    this.attention();
+    this.attention("question");
     this.pendingEdit = finish; this.editGivesWay = typedDuringTask();
     this.editHeading = [this.accent(terminalText(heading)), this.muted(terminalText(hint))];
     this.editor.setText(lines.map(line => terminalText(line).replace(/\s+/g, " ")).join("\n"));
