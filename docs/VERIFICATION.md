@@ -33,10 +33,12 @@ A flag wins over every configuration file.
 
 **When the sandbox, not your code, fails a check.** Real test suites sometimes need what the sandbox
 refuses: unix sockets, a loopback address like `127.0.0.2`, `/dev/fd`, or a browser or terminal
-multiplexer started by a test. Such a check prints `EPERM` or `Operation not permitted`. Casper reads that as
-"could not check", not a bug: the receipt says `✗ test — blocked by the sandbox (...)`, it says plainly
+multiplexer started by a test. Such a check prints `EPERM`, `Operation not permitted`, or (Chromium on macOS)
+`bootstrap_check_in ... Permission denied (1100)`. Casper reads that as "could not check", not a bug: the receipt says `✗ test — blocked by the sandbox (...)`, it says plainly
 `This check failed because Casper's sandbox blocked something, not because of a bug in your code. Run it
 yourself with !<command> or allow checks outside the sandbox`, and it starts no repair and edits no test.
+When the only checks that did not pass never ran (blocked like this, timed out, or could not start), the
+task ends incomplete (exit 2), not failed (exit 1): exit 1 means a check ran against your code and failed.
 In a session Casper then asks `Run this project's checks outside the sandbox?` with `1 No · 2 Yes, this once ·
 3 Yes, for this session · 4 Yes, always for this project`; Enter is No. "This once" runs only the blocked
 checks again outside the sandbox. "Always" is kept privately in `~/.casper` (never in the repo), is listed
@@ -121,8 +123,8 @@ A one-shot run exits:
 | Code | Meaning |
 |---|---|
 | 0 | Done. A pass that later went stale, checks that passed without proving the change, or changes nobody verified, still exit 0 and the receipt says why. |
-| 1 | A check failed, checks were blocked, or the model run failed. |
-| 2 | Incomplete: a selected check was skipped (it has no command), a smoke check could not run, `--max-turns` stopped the run, Casper stopped commands to another machine, or checking was asked for and no check exists. |
+| 1 | A check failed, checking was stopped, or the model run failed. |
+| 2 | Incomplete: a check never ran to the end (the sandbox blocked it, it timed out or could not start), a selected check was skipped (it has no command), a smoke check could not run, `--max-turns` stopped the run, Casper stopped commands to another machine, or checking was asked for and no check exists. |
 | 3 | Only with `--require-verification` (which implies `--verify`): the change was not verified. From v0.2.17 that includes checks that passed without a proof (`– Checks passed — not proven`). |
 | 130 / 143 | Cancelled (Ctrl-C) / terminated (SIGTERM). |
 

@@ -621,8 +621,8 @@ receipt
             <thead><tr><th scope="col">Code</th><th scope="col">Meaning</th></tr></thead>
             <tbody>
               <tr><td>0</td><td>Done. Changes were verified or, without <code>--require-verification</code>, not disproven.</td></tr>
-              <tr><td>1</td><td>Failed: a check failed, checks were blocked, or the model run failed.</td></tr>
-              <tr><td>2</td><td>Incomplete: a check could not finish, <code>--max-turns</code> stopped it, Casper stopped commands to another machine, or checking was asked for and no check exists.</td></tr>
+              <tr><td>1</td><td>Failed: a check failed, checking was stopped, or the model run failed.</td></tr>
+              <tr><td>2</td><td>Incomplete: a check could not finish (the sandbox blocked it, it timed out or could not start), <code>--max-turns</code> stopped it, Casper stopped commands to another machine, or checking was asked for and no check exists.</td></tr>
               <tr><td>3</td><td>Not verified. Only with <code>--require-verification</code>.</td></tr>
               <tr><td>64</td><td>Usage mistake, such as a typo in a flag. Nothing ran, and no paid prompt was sent.</td></tr>
               <tr><td>130 / 143</td><td>Cancelled (Ctrl-C) / terminated.</td></tr>

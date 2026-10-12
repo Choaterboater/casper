@@ -105,7 +105,8 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
 
 - **What:** `withdraw` takes a check out of the result, with a required reason. Accepted only when the check's
   last run did not pass and nothing changed since it was recorded: no edit or command after it, and its inputs
-  are the same. `withdraw` in `src/browser/session.ts`.
+  are the same. A check whose recording never finished is recorded by its first finished run. `withdraw` in
+  `src/browser/session.ts`.
 - **Why:** a typo in an expected text or a selector that was never right would otherwise hold the task at
   failed or incomplete for a page that works.
 - **Same as:** no direct Claude Code equivalent; this is Casper's own check system.
@@ -152,7 +153,7 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
 - **Off switch:** **Browser clicks** off: any effect other than `local-test` and any obvious risky command asks.
 - **Guard rails:** a script that runs a download through a shell (`curl … | sh`) or uses `sudo` asks even with
   clicks on; no lifecycle hooks and no dependency installer; existing listeners are never killed; one server
-  a session. `serve` is not a sandbox, and BROWSER.md says so.
+  a session, which a repeated `serve` stops and starts again (only Casper's own). `serve` is not a sandbox, and BROWSER.md says so.
 - **A finding:** `curl … | sh` or `sudo` in the script starts unasked; the server gets the user's credential
   variables or HOME; a server Casper didn't start is killed.
 

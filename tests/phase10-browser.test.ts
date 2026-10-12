@@ -256,6 +256,60 @@ test("a task-owned development script is stopped without touching an existing lo
   expect((await fetch(f.url)).status).toBe(200);
 }, 15_000);
 
+const freePort = async () => { const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("") }); const port = probe.port; await probe.stop(true); return port; };
+// A server that, like a single-instance app, refuses to start while another copy holds its lock file.
+const LOCKED_SERVER = 'import { existsSync, writeFileSync, rmSync, readFileSync } from "node:fs"; if (existsSync("server.lock")) { try { process.kill(Number(readFileSync("server.lock", "utf8")), 0); console.error("another copy is running"); process.exit(1); } catch {} } writeFileSync("server.lock", String(process.pid)); const stop = () => { rmSync("server.lock", { force: true }); process.exit(0); }; process.on("SIGTERM", stop); process.on("SIGINT", stop); Bun.serve({hostname:"127.0.0.1",port:Number(process.env.PORT),fetch:()=>new Response(readFileSync("version.txt","utf8"))});';
+
+test("serve again stops Casper's own earlier server and starts the new code, still refusing a port something else holds", async () => {
+  const f = await fixture();
+  const port = await freePort(), url = `http://127.0.0.1:${port}`;
+  await writeFile(path.join(f.project, "version.txt"), "old");
+  await writeFile(path.join(f.project, "dev.ts"), LOCKED_SERVER);
+  await writeFile(path.join(f.project, "package.json"), JSON.stringify({ scripts: { dev: `${process.execPath} dev.ts` } }));
+  await f.session.run({ action: "serve", script: "dev", url, impact: "local-test", reason: "Synthetic project" });
+  expect(await (await fetch(url)).text()).toBe("old");
+  await writeFile(path.join(f.project, "version.txt"), "new");
+  await f.session.run({ action: "serve", script: "dev", url, impact: "local-test", reason: "Server code changed" });
+  expect(await (await fetch(url)).text()).toBe("new");
+  // Another process's port is still never taken over.
+  await expect(f.session.run({ action: "serve", script: "dev", url: f.url, impact: "local-test", reason: "Synthetic project" })).rejects.toThrow("already in use");
+  await f.session.close();
+  await expect(fetch(url)).rejects.toThrow();
+  expect((await fetch(f.url)).status).toBe(200);
+}, 20_000);
+
+test("with the session's services, serve runs in the page checks' slot: a page check reuses it and no second copy starts", async () => {
+  const { ServiceManager } = await import("../src/services/manager");
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-browser-slot-")));
+  cleanup.push(() => removeTempDir(root));
+  const project = path.join(root, "project"), state = path.join(root, "state");
+  await mkdir(project); await mkdir(state);
+  await writeFile(path.join(project, "version.txt"), "old");
+  await writeFile(path.join(project, "dev.ts"), LOCKED_SERVER);
+  await writeFile(path.join(project, "package.json"), JSON.stringify({ scripts: { dev: `${process.execPath} dev.ts`, start: `${process.execPath} dev.ts` } }));
+  const services = new ServiceManager({ projectRoot: project, services: {} });
+  cleanup.push(() => services.close());
+  const session = new BrowserSession({ projectRoot: project, stateDirectory: state, services: () => services });
+  cleanup.push(() => session.close());
+  const port = await freePort(), url = `http://127.0.0.1:${port}/`;
+  expect(await session.run({ action: "serve", script: "start", url, impact: "local-test", reason: "Synthetic project" })).toMatchObject({ ready: true, url });
+  expect(services.status()).toMatchObject([{ name: "web", state: "ready", origin: `http://127.0.0.1:${port}` }]);
+  const first = services.status()[0]!.pid;
+  // Code changed: serve again restarts the same slot (the lock is released first, so the new copy starts).
+  await writeFile(path.join(project, "version.txt"), "new");
+  await session.run({ action: "serve", script: "start", url, impact: "local-test", reason: "Server code changed" });
+  expect(services.status()[0]!.pid).not.toBe(first);
+  expect(await (await fetch(url)).text()).toBe("new");
+  // The page check's own spec for the slot: it restarts this server in place, on the same port, never beside it.
+  services.ensureSlot("web", { command: `${process.execPath} dev.ts`, port: "auto", ready: { http: "/" }, timeoutMs: 10_000 });
+  await services.ensureFresh("web", new AbortController().signal);
+  expect(services.status()).toMatchObject([{ name: "web", state: "ready", origin: `http://127.0.0.1:${port}` }]);
+  expect(await (await fetch(url)).text()).toBe("new");
+  // The browser session ends with the task: its server stops.
+  await session.close();
+  await expect(fetch(url)).rejects.toThrow();
+}, 30_000);
+
 browserTest("an immutable reproduction detects behavior and layout failures, replays after a fix and goes stale after later edits", async () => {
   const f = await fixture();
   const html = (fixed: boolean) => `<!doctype html><meta name="viewport" content="width=device-width"><style>main{width:${fixed ? "100%" : "900px"}}</style><main><input id="name"><button id="save">Save</button><p id="status">Not saved</p></main><script>document.querySelector('#save').onclick=()=>document.querySelector('#status').textContent=${fixed ? "'Saved '+document.querySelector('#name').value" : "'Broken'"}</script>`;
@@ -476,6 +530,35 @@ browserTest("a new check that stops part way gives its id back, and can be withd
   const second = /check id ([\w-]+)/.exec(String(again))?.[1];
   f.session.invalidate();
   await expect(f.session.run({ action: "withdraw", id: second, reason: "x" })).rejects.toThrow("A change was made after this check was recorded: replay it");
+}, 30_000);
+
+browserTest("a check recorded before its server ran is recorded by its first finished run: a failure there can be withdrawn, one after a later edit can't", async () => {
+  const f = await fixture();
+  const closed = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("") });
+  const port = closed.port;
+  closed.stop(true);
+  const scenario = (name: string) => ({ name, url: `http://127.0.0.1:${port}/`, scope: { inputs: ["index.html"] }, steps: [],
+    assertions: [{ kind: "text", selector: "h1", expected: "Booking" }] });
+  const record = async (name: string) => /check id ([\w-]+)/.exec(String(await f.session.run({ action: "check", scenario: scenario(name) }).catch((e: Error) => e.message)))?.[1];
+  const first = await record("Home");
+  const second = await record("Home 2");
+  expect(await f.session.report()).toMatchObject({ checks: [{ id: first, baseline: "incomplete" }, { id: second, baseline: "incomplete" }] });
+  // The app is written (an edit), but another app answers on that port.
+  f.session.invalidate();
+  const other = Bun.serve({ hostname: "127.0.0.1", port, fetch: () => new Response("<!doctype html><h1>Another app</h1>", { headers: { "content-type": "text/html" } }) });
+  try {
+    await expect(f.session.run({ action: "withdraw", id: first, reason: "wrong port" })).rejects.toThrow("A change was made after this check was recorded: replay it");
+    const replayed = await f.session.run({ action: "replay", id: first }) as { status: string; assertions: Array<Record<string, unknown>> };
+    expect(replayed).toMatchObject({ status: "fail", baseline: "fail", freshness: "fresh" });
+    expect(replayed.assertions.some(a => "hint" in a)).toBe(false);
+    expect(await f.session.run({ action: "withdraw", id: first, reason: "another app owns that port" })).toMatchObject({ status: "withdrawn" });
+    // Its first finished run is a real baseline: a failure after a later edit may be real, so it stays locked.
+    expect(await f.session.run({ action: "replay", id: second })).toMatchObject({ status: "fail", baseline: "fail" });
+    f.session.invalidate();
+    expect(await f.session.run({ action: "replay", id: second })).toMatchObject({ status: "fail", freshness: "fresh" });
+    await expect(f.session.run({ action: "withdraw", id: second, reason: "x" })).rejects.toThrow("A change was made after this check was recorded, so its failure may be real");
+    expect(await f.session.report()).toMatchObject({ status: "fail", checks: [{ id: first, status: "withdrawn" }, { id: second, status: "fail" }] });
+  } finally { other.stop(true); }
 }, 30_000);
 
 browserTest("the browser tool's screenshot comes with the picture, and its text no longer says to read the PNG", async () => {

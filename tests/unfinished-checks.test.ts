@@ -47,8 +47,18 @@ test("a check that timed out is never handed to a paid repair; without a way to 
   const repairs: string[] = [];
   const report = await verifyAndRepair({ registry, checks: ["test"], cwd, request: "fix", repair: async (prompt) => { repairs.push(prompt); } });
   expect(repairs).toEqual([]);
-  expect(report).toMatchObject({ status: "fail", repairAttempts: 0 });
+  // It never ran to the end: incomplete (exit 2), not a failure of the code (exit 1).
+  expect(report).toMatchObject({ status: "incomplete", repairAttempts: 0 });
   expect(report.reason).toContain("did not finish");
+});
+
+test("an unfinished check beside a failure the model may not fix still ends failed", async () => {
+  const cwd = await dir();
+  const { registry } = scripted(cwd, { test: ["fail"], lint: ["timeout"] });
+  const repairs: string[] = [];
+  const report = await verifyAndRepair({ registry, checks: ["test", "lint"], cwd, request: "fix", repair: async (prompt) => { repairs.push(prompt); }, maxAttempts: 0 });
+  expect(repairs).toEqual([]);
+  expect(report.status).toBe("fail");
 });
 
 test("real failures are still repaired, without the unfinished check in the repair prompt", async () => {
@@ -60,7 +70,8 @@ test("real failures are still repaired, without the unfinished check in the repa
   expect(repairs[0]).toContain('"name": "test"');
   expect(repairs[0]).not.toContain('"name": "lint"');
   expect(report.results.find((entry) => entry.name === "test")?.status).toBe("pass");
-  expect(report.status).toBe("fail");
+  // test passes now and lint never ran: nothing failed, but not everything was checked.
+  expect(report.status).toBe("incomplete");
 });
 
 test("the user's choice decides: retry runs it again, more time gives it a much longer limit, fix it anyway repairs it", async () => {
@@ -94,7 +105,7 @@ test("the user's choice decides: retry runs it again, more time gives it a much 
   const skipped = scripted(cwd, { test: ["timeout"] });
   const none: string[] = [];
   expect((await verifyAndRepair({ registry: skipped.registry, checks: ["test"], cwd, request: "fix",
-    repair: async (prompt) => { none.push(prompt); }, onUnfinished: async () => undefined })).status).toBe("fail");
+    repair: async (prompt) => { none.push(prompt); }, onUnfinished: async () => undefined })).status).toBe("incomplete");
   expect(none).toEqual([]);
 });
 
@@ -105,7 +116,7 @@ test("asking stops after eight rounds, so a check that always times out cannot l
   const report = await verifyAndRepair({ registry, checks: ["test"], cwd, request: "fix", repair: async () => {},
     onUnfinished: async () => { asks++; return "retry"; } });
   expect(asks).toBe(8);
-  expect(report.status).toBe("fail");
+  expect(report.status).toBe("incomplete");
 });
 
 test("a check that could not start is not recorded as a timing", async () => {

@@ -619,6 +619,20 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
   const changed = Boolean(task.changedPaths?.length || task.changedDuringChecks?.length || (!task.changedPaths && task.possibleMutations));
   const failedChecks = (report?.results ?? []).filter((result) => result.status === "fail" && result.kind !== "report")
     .map((result) => `${result.name} ${result.ended === "timeout" ? "timed out" : result.ended === "no_start" ? "could not start" : result.ended === "blocked" ? "was blocked by the sandbox" : "failed"}`);
+  // Only unfinished checks: the change was not tested, which is not the same as the code being wrong.
+  const onlyUnfinished = failedChecks.length > 0 && report!.results.every((result) => result.status !== "fail" || result.kind === "report" || result.ended);
+  const notChecked = (): string[] => {
+    // A timeout is said once here, with its limit and how to run it again; its own check line is left out.
+    const failing = report!.results.filter((result) => result.status === "fail" && result.kind !== "report");
+    const timedOut = failing.filter((result) => result.ended === "timeout");
+    const what = failing.map((result, index) => {
+      const limit = result.ended === "timeout" ? /^Timed out after (\d+)ms$/.exec(result.reason ?? "") : null;
+      return limit ? `${result.name} timed out after ${duration(Number(limit[1]))}` : failedChecks[index]!;
+    });
+    const again = timedOut.length ? `; ${timedOut.map((result) => options.surface === "one-shot" ? `casper "/verify ${result.name}"` : `/verify ${result.name}`).join(", ")} runs it again` : "";
+    return [`✗ Not checked — ${what.join(", ")}, so the change was not tested${again}`,
+      ...body.filter((line) => !timedOut.some((result) => line.startsWith(`✗ ${result.name} timed out`)))];
+  };
   let lines: string[];
   let short: string | undefined;
   switch (outcome) {
@@ -634,24 +648,15 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
           ? "✗ Failed — the model run failed before changing any files" : `✗ Failed — the model run failed; changes already made are kept${checked}`;
         lines = [verdict, ...body, next];
       }
-      // Only unfinished checks: the change was not tested, which is not the same as the code being wrong.
-      else if (failedChecks.length && report!.results.every((result) => result.status !== "fail" || result.kind === "report" || result.ended)) {
-        // A timeout is said once here, with its limit and how to run it again; its own check line is left out.
-        const failing = report!.results.filter((result) => result.status === "fail" && result.kind !== "report");
-        const timedOut = failing.filter((result) => result.ended === "timeout");
-        const what = failing.map((result, index) => {
-          const limit = result.ended === "timeout" ? /^Timed out after (\d+)ms$/.exec(result.reason ?? "") : null;
-          return limit ? `${result.name} timed out after ${duration(Number(limit[1]))}` : failedChecks[index]!;
-        });
-        const again = timedOut.length ? `; ${timedOut.map((result) => options.surface === "one-shot" ? `casper "/verify ${result.name}"` : `/verify ${result.name}`).join(", ")} runs it again` : "";
-        lines = [`✗ Not checked — ${what.join(", ")}, so the change was not tested${again}`,
-          ...body.filter((line) => !timedOut.some((result) => line.startsWith(`✗ ${result.name} timed out`)))];
-      } else if (failedChecks.length) lines = [`✗ Failed — ${failedChecks.join(", ")}`, ...body];
+      else if (onlyUnfinished) lines = notChecked();
+      else if (failedChecks.length) lines = [`✗ Failed — ${failedChecks.join(", ")}`, ...body];
       else if (report?.pages?.status === "fail") lines = [`✗ Failed — ${safe(pageFailureSummary(report.pages) ?? "a page failed")}`, ...body];
       else if (report?.status === "blocked") lines = [`✗ Failed — checks stopped${report.reason ? `: ${safe(report.reason).replace(/\.$/, "").toLowerCase()}` : ""}`, ...body];
       else lines = ["✗ Failed — browser checks failed", ...body];
       break;
     case "incomplete":
+      // The checks never ran to the end (timed out, could not start, blocked by the sandbox): name them, as when failed.
+      if (onlyUnfinished && report?.status === "incomplete" && task.spendLimit === undefined && task.turnLimit === undefined) { lines = notChecked(); break; }
       lines = [task.spendLimit !== undefined
         ? `– Incomplete — stopped at ${formatCost(task.spendLimit.spent)}, the ${formatLimit(task.spendLimit.limit)} limit for one task (spend.pauseAt); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
         : task.turnLimit !== undefined

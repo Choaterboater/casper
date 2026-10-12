@@ -24,7 +24,7 @@ export class StaticServer {
   }
 
   async start(projectRoot: string, source: string, signal: AbortSignal): Promise<Record<string, unknown>> {
-    if (this.server) throw new Error("Only one development server is allowed per browser session");
+    if (this.server) throw new Error("A static server starts once; serve again makes a new one");
     const url = new URL(source);
     if (url.protocol !== "http:" || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || Number(url.port) < 1024) throw new Error("Static files need a loopback HTTP URL with an explicit unprivileged port");
     const held = await portInUse(url.hostname, Number(url.port)).catch(() => { throw new Error("Cannot establish that browser server port is unused"); });
