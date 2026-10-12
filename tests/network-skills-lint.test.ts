@@ -80,7 +80,8 @@ describe("bundled network skills: format", () => {
     expect(metadata.description.length).toBeLessThanOrEqual(MAX_BUNDLED_DESCRIPTION);
     expect(metadata.description).not.toContain("\n");
     const skill = parseBundledSkill(source, `skills/network/${folder}/SKILL.md`);
-    expect(NETWORK_PLATFORMS).toContain(skill.rule.platform);
+    expect(NETWORK_PLATFORMS as readonly string[]).toContain(skill.rule.platform);
+    expect(skill.rule.family).toBe("network");
     expect(skill.rule.strong.length).toBeGreaterThan(0);
     expect(Buffer.byteLength(body)).toBeLessThanOrEqual(MAX_BUNDLED_BODY_BYTES);
     expect(body.split("\n").filter((line) => line.startsWith("## "))).toEqual([...REQUIRED_SECTIONS]);
