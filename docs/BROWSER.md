@@ -238,7 +238,17 @@ and never a form or a link that could sign out, delete or reset something
 
 `serve` is the browser tool's own small way to start a dev server. For a server
 that should stay up between requests, declare a [managed service](SERVICES.md)
-instead.
+instead. It runs in the same `web` slot as the dev server Casper starts for its
+[page checks](SERVICES.md#dev-servers-for-page-checks), so there is one owner: the
+page check after the task restarts or reuses that server on the same port rather
+than starting a second copy beside it (an app that allows one running copy would
+refuse it), and Casper's end-of-task replays then reach the current code. It shows
+in `/services` while it runs. A declared `services.web` is left as you wrote it, and
+`serve` then runs its own server as before.
+
+`serve` again stops Casper's own earlier server and starts the new one, so after a
+change to server code the AI restarts it there instead of starting one in the shell
+that Casper can't see or stop. A port something else holds is still refused.
 
 `serve` runs the exact trusted project's `package.json` `dev` or `start` command
 through a shell, with project `node_modules/.bin` on PATH, isolated temporary HOME,
@@ -259,7 +269,7 @@ leads out of the project is not found.
 
 Existing listeners are never replaced or killed. Readiness means an HTTP response,
 not application correctness or an atomic proof of port ownership. Only Casper-owned processes are targeted: POSIX uses best-effort group signalling,
-Windows uses verified descendants. Unconfirmed cleanup blocks replacement. One server is allowed per session. Model-task end,
+Windows uses verified descendants. Unconfirmed cleanup blocks replacement. One server runs per session; a repeated `serve` replaces it. Model-task end,
 cancellation, workspace revocation and shutdown close owned resources; manually
 opened browsers remain until closed, adopted by a model task or application exit.
 After a forced SIGKILL of Casper or a power loss, cleanup may not happen.
