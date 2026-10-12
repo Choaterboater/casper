@@ -136,3 +136,44 @@ test("only the marker itself counts as already hidden, not any value that starts
   expect(keepLiterally("<secret-token-0123456789>")).toBe(false);
   expect(scrubPlainSecrets("TOKEN=<secretive-but-real-token-0123456789>", { secretFile: true, env: {} }).hidden).toBe(1);
 });
+
+test("an app's config.xml and compose labels hide secret values: <ApiKey>, apikey=\"...\", homepage.widget.key, env lists", async () => {
+  const key = "0123456789abcdef0123456789abcdef";
+  const read = async (file: string, text: string) => (await scrubToolOutput(scrubber, "read", { path: file }, [text], undefined, options))?.texts[0] ?? text;
+  const xml = [
+    "<Config>",
+    `  <ApiKey>${key}</ApiKey>`,
+    "  <Password>Hunter2pass</Password>",
+    "  <Token>tok-abc123xyz</Token>",
+    "  <AuthenticationMethod>Forms</AuthenticationMethod>",
+    "  <Port>8989</Port>",
+    "  <UrlBase></UrlBase>",
+    "</Config>",
+  ].join("\n");
+  const config = await read("config.xml", xml);
+  for (const secret of [key, "Hunter2pass", "tok-abc123xyz"]) expect(config).not.toContain(secret);
+  expect(config).toContain("<ApiKey><secret hidden></ApiKey>");
+  expect(config).toContain("<Port>8989</Port>");
+  expect(config).toContain("<AuthenticationMethod>Forms</AuthenticationMethod>");
+  // Attributes, and an element in command output (cat, docker exec).
+  expect(await read("config.xml", `<server apikey="${key}" password="s3cretpass" port="80"/>`)).toBe('<server apikey="<secret hidden>" password="<secret hidden>" port="80"/>');
+  const cat = await scrubToolOutput(scrubber, "bash", { command: "cat config.xml" }, [xml], undefined, options);
+  expect(cat!.texts[0]).not.toContain(key);
+  // Compose labels and environment lists: a name ending in "key" hides a value that looks like a generated key.
+  const compose = [
+    "    labels:",
+    `      homepage.widget.key: ${key}`,
+    `      - homepage.widget.key=${key}`,
+    "      - homepage.widget.type=sonarr",
+    "    environment:",
+    `      - RADARR__AUTH__APIKEY=${key}`,
+    `      - SONARR_API_KEY=${key}`,
+  ].join("\n");
+  const scrubbed = await read("docker-compose.yml", compose);
+  expect(scrubbed).not.toContain(key);
+  expect(scrubbed).toContain("homepage.widget.type=sonarr");
+  // A <Key> or key: that holds a word or a path is not a secret.
+  for (const plain of ["<Key>Enter</Key>", "  key: node-role.kubernetes.io/master", "      key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}", "sort.key: name", "      key: v1-deps-12345678901234", "<Key>logs-20241011-node1</Key>"]) {
+    expect(scrubPlainSecrets(plain).hidden).toBe(0);
+  }
+});

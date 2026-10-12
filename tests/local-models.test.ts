@@ -75,9 +75,9 @@ test("finds Ollama, LM Studio, llama.cpp and vLLM where their variables point, w
   expect(found.problems).toEqual([]);
   expect(found.servers).toEqual([
     { provider: "ollama", name: "Ollama", baseUrl: `${ollama.url}/v1`, models: [
-      { id: "qwen3:8b", contextWindow: 32768 },
-      { id: "gemma3:4b", contextWindow: 128000, images: true },
-      { id: "custom:latest", contextWindow: 8192 },
+      { id: "qwen3:8b", contextWindow: 32768, request: { keep_alive: "30m" } },
+      { id: "gemma3:4b", contextWindow: 128000, images: true, request: { keep_alive: "30m" } },
+      { id: "custom:latest", contextWindow: 8192, request: { temperature: 0.6, keep_alive: "30m" } },
     ] },
     { provider: "lm-studio", name: "LM Studio", baseUrl: `${lmStudio.url}/v1`, models: [{ id: "qwen2.5-coder-7b", contextWindow: 16384 }, { id: "llava-7b", images: true }] },
     { provider: "llama.cpp", name: "llama.cpp", baseUrl: `${llama.url}/v1`, models: [{ id: "llama-3.2-1b", contextWindow: 8192 }] },
@@ -340,6 +340,53 @@ test("a request to a found server that answers with a redirect is not followed: 
   expect(reply.stopReason).toBe("error");
   expect(bouncer.seen.some((entry) => entry.path === "/v1/chat/completions")).toBe(true);
   expect(elsewhere.seen).toEqual([]);
+});
+
+test("an Ollama model gets its Modelfile's temperature and top_p, stays loaded 30 minutes, and one that thinks gets the effort", async () => {
+  const chunk = (body: unknown) => `data: ${JSON.stringify(body)}\n\n`;
+  const reply = () => new Response(
+    chunk({ id: "1", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: { role: "assistant", content: "hi" }, finish_reason: null }] })
+    + chunk({ id: "1", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })
+    + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+  const ollama = serve({
+    "GET /api/tags": { models: [{ name: "qwen3:8b" }, { name: "llama3.2:3b" }] },
+    "POST /api/show": async (request: Request) => {
+      const { model } = await request.json() as { model: string };
+      return Response.json(model === "qwen3:8b"
+        ? { capabilities: ["completion", "tools", "thinking"], parameters: "stop                           \"<|im_end|>\"\ntemperature                    0.6\ntop_k                          20\ntop_p                          0.95" }
+        : { capabilities: ["completion", "tools"] });
+    },
+    "POST /v1/chat/completions": reply,
+  });
+  const look = (env: Record<string, string>) => discoverLocalServers({ env: { OLLAMA_HOST: ollama.url, ...env },
+    fetch: ((url: string, init?: RequestInit) => url.startsWith(ollama.url) ? fetch(url, init) : Promise.reject(new Error("refused"))) as typeof fetch });
+  const runtime = await runtimeIn();
+  registerLocalServers(runtime, (await look({})).servers);
+  const thinker = runtime.getModel("ollama", "qwen3:8b")!;
+  const plain = runtime.getModel("ollama", "llama3.2:3b")!;
+  expect([thinker.reasoning, plain.reasoning]).toEqual([true, false]);
+  const bodies = () => ollama.seen.filter((entry) => entry.path === "/v1/chat/completions").map((entry) => JSON.parse(entry.body!) as Record<string, unknown>);
+  const ask = (model: typeof thinker, reasoning?: "high" | "minimal") =>
+    runtime.completeSimple(model, { messages: [{ role: "user", content: "hello", timestamp: Date.now() }] }, reasoning ? { reasoning } : {});
+  await ask(thinker, "high");
+  await ask(thinker, "minimal");
+  await ask(thinker);
+  await ask(plain, "high");
+  const [high, minimal, off, other] = bodies();
+  expect(high).toMatchObject({ temperature: 0.6, top_p: 0.95, keep_alive: "30m", reasoning_effort: "high" });
+  // The output cap goes as max_tokens, the field Ollama's /v1 reads.
+  expect(typeof high.max_tokens).toBe("number");
+  expect(high.max_completion_tokens).toBeUndefined();
+  // Only what the Modelfile states: top_k isn't an OpenAI field, and Ollama's /v1 drops it.
+  expect(high!.top_k).toBeUndefined();
+  expect(minimal!.reasoning_effort).toBe("low");
+  expect(off!.reasoning_effort).toBe("none");
+  // No Modelfile values, no thinking: only keep_alive is added.
+  expect(other).toMatchObject({ keep_alive: "30m" });
+  expect([other!.temperature, other!.top_p, other!.reasoning_effort]).toEqual([undefined, undefined, undefined]);
+  // OLLAMA_KEEP_ALIVE where Casper runs changes how long: a duration as written, seconds (or -1, for ever) as a number.
+  expect((await look({ OLLAMA_KEEP_ALIVE: "2h" })).servers[0]!.models[0]!.request).toMatchObject({ keep_alive: "2h" });
+  expect((await look({ OLLAMA_KEEP_ALIVE: "-1" })).servers[0]!.models[0]!.request).toMatchObject({ keep_alive: -1 });
 });
 
 /** A real PiRuntime in a fresh Bun child whose probe answers after `delayMs` with one Ollama model; nothing signed in. */

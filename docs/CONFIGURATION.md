@@ -658,6 +658,14 @@ on this computer:
   `num_ctx` in the model's settings, else `OLLAMA_CONTEXT_LENGTH`; a loaded LM Studio model's window;
   llama.cpp's `-c`; vLLM's `--max-model-len`. Otherwise it uses the usual 128k (never more than the
   model was trained for), so set the window yourself if you can (see the limits below).
+- **Ollama's model settings.** Ollama's OpenAI-style address runs every model at temperature 1.0 and top_p
+  1.0 unless a request says otherwise, so Casper sends the `temperature` and `top_p` the model's Modelfile
+  sets (`ollama show <model> --parameters`), and nothing it doesn't set. It also sends `keep_alive: 30m`,
+  so the model stays loaded through a pause instead of Ollama's 5 minutes; `OLLAMA_KEEP_ALIVE` in the shell
+  that starts Casper changes it (`2h`, seconds, or `-1` for ever). A model Ollama lists as thinking takes
+  your effort (`/effort`): off sends `reasoning_effort: none`, minimal is sent as low.
+- **Reply length.** A found server is sent its output limit as `max_tokens`, the field Ollama's
+  OpenAI-style address reads (it ignores `max_completion_tokens`), so a reply can't run past it.
 - **Embedding models** (`nomic-embed-text` and the like) are left out: they can't chat.
 - **No key leaves for it.** A found server is sent the word `local` as its key, and nothing else: keys
   are kept per provider, so no other provider's key is ever sent to it. The look itself sends no key.

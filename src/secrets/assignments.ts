@@ -59,6 +59,8 @@ function literalValue(value: string, name: string, separator: string): boolean {
 }
 
 const ASSIGNMENT = /(^[-+]|^|[^\w.-])(["']?)([A-Za-z_][\w.-]*)\2(\s*)([=:])(\s*)("(?:[^"\\\n]|\\.)*"|'[^'\n]*'|[^\s"'][^\n]*)?/dg;
+/** An XML element on one line: <ApiKey>value</ApiKey>, <ns:Password>value</ns:Password>. */
+const XML_ELEMENT = /<((?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*))(?:\s[^<>]*)?>([^<>\n]+)<\/\1>/dg;
 const AUTH_HEADER = /\b(?:Bearer|Basic|Token)\s+([A-Za-z0-9._~+/-]{8,}=*)/dg;
 /** The same header named in any case: `authorization: bearer ...` (curl -v over HTTP/2), git's `extraheader = AUTHORIZATION: basic ...`. */
 const AUTH_HEADER_NAMED = /\b(?:proxy[-_]?)?authorization["']?\s*[:=]\s*["']?(?:bearer|basic|token)\s+([A-Za-z0-9._~+/-]{8,}=*)/dgi;
@@ -66,6 +68,18 @@ const AUTH_HEADER_NAMED = /\b(?:proxy[-_]?)?authorization["']?\s*[:=]\s*["']?(?:
 /** A secret-named key, in any output: the names text uses (isSecretName) and the ones device JSON uses (isSecretKey). */
 export function isSecretKeyName(name: string): boolean {
   return isSecretName(name) || isSecretKey(name);
+}
+
+/** A name whose last part is plain "key" (homepage.widget.key, <Key>): a secret only when its value looks like a generated key. */
+function plainKeyName(name: string): boolean {
+  const parts = snakeKey(name).split("_").filter(Boolean);
+  return parts.at(-1) === "key" && !parts.includes("public");
+}
+
+/** 16 or more letters and digits (base64 or hex, or a UUID) with at least 3 digits: not a word, a path, a date or a cache key such as v1-deps-1234. */
+function generatedKey(value: string): boolean {
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  return (uuid || /^[A-Za-z0-9+/=]{16,}$/.test(value)) && /[A-Za-z]/.test(value) && (value.match(/\d/g)?.length ?? 0) >= 3;
 }
 
 /** Docker's "auth": base64 of user:password. */
@@ -90,7 +104,8 @@ function assignmentSpans(line: string, strict: boolean): Span[] {
     const named = isSecretKeyName(name);
     // Docker's "auth" (config.json, .dockercfg): a login only when it reads as one, or in a secret file.
     const auth = !named && snakeKey(name) === "auth";
-    if (!raw || !indices || !(named || auth)) continue;
+    const keyed = !named && !auth && plainKeyName(name);
+    if (!raw || !indices || !(named || auth || keyed)) continue;
     // `grep password= src/`: a path or option after "name= " (no space before =, one after) is an argument, not the value.
     // A quoted word or any other word there is still a value: `connect(password= 'x')`, `DB_PASSWORD= x`.
     if (!strict && match[5] === "=" && !match[4] && match[6] && /^(?:[-.]|[^\s"']*\/)/.test(raw)) continue;
@@ -117,11 +132,24 @@ function assignmentSpans(line: string, strict: boolean): Span[] {
     }
     if (!value || keepLiterally(value) || value.includes(SECRET_MARKER)) continue;
     if (auth && !(strict || basicLogin(value))) continue;
-    if (!strict && (quoted ? /\$\{|\{\{|^\s*$/.test(value) || value.length < 4 || CODE_WORDS.has(value.toLowerCase()) : !literalValue(value, name, match[5]!))) continue;
+    if (keyed && !generatedKey(value)) continue;
+    if (!strict && !keyed && (quoted ? /\$\{|\{\{|^\s*$/.test(value) || value.length < 4 || CODE_WORDS.has(value.toLowerCase()) : !literalValue(value, name, match[5]!))) continue;
     // In a secret file, a ${VAR} reference is not a value.
     if (strict && /^\$\{?[A-Za-z_]\w*\}?$/.test(value)) continue;
     spans.push({ start, end, kind: kindFor(name) });
     ASSIGNMENT.lastIndex = Math.max(ASSIGNMENT.lastIndex, end);
+  }
+  // XML (an app's config.xml): the text of an element whose tag is a secret name, or "key" holding a generated key.
+  XML_ELEMENT.lastIndex = 0;
+  for (let match = XML_ELEMENT.exec(line); match; match = XML_ELEMENT.exec(line)) {
+    const tag = match[2]!;
+    const named = isSecretKeyName(tag);
+    const value = match[3]!.trim();
+    if (!value || keepLiterally(value) || value.includes(SECRET_MARKER) || /^\$\{?[A-Za-z_]\w*\}?$/.test(value)) continue;
+    if (named ? !strict && (/\$\{|\{\{/.test(value) || value.length < 4 || CODE_WORDS.has(value.toLowerCase())) : !(plainKeyName(tag) && generatedKey(value))) continue;
+    const start = match.indices![3]![0];
+    const lead = match[3]!.length - match[3]!.trimStart().length;
+    spans.push({ start: start + lead, end: start + lead + value.length, kind: named ? kindFor(tag) : "key" });
   }
   for (const header of [AUTH_HEADER, AUTH_HEADER_NAMED]) {
     header.lastIndex = 0;
