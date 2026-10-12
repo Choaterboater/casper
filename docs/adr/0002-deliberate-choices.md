@@ -92,7 +92,12 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
   ran before a later edit or command. Only pages on this computer and only `local-test` steps; a step whose
   label has a known word (a contact form's Send) runs only with **Browser clicks** on, as it ran for the model.
   `src/browser/session.ts` (`this.unattended`).
-- **Why:** a page that still works after the last edit should count as checked without a model turn spent on it.
+  If that replay finishes with a fresh failure, the host gives it one model repair turn from the remaining
+  `repair.maxAttempts` budget, refreshes relevant project checks and proof/acceptance, then replays again.
+  Failed ids are retried even if the repair made no edit, with these same unattended restrictions; no second
+  browser repair turn. Incomplete/stale results and stopped tasks do not start repairs.
+- **Why:** a page that still works after the last edit should count as checked without a model turn spent on it;
+  one that broke on the last edit should get the same bounded chance to be fixed as a command failure.
 - **Same as:** CI re-running the project's own end-to-end tests after every change.
 - **Off switch:** **Browser clicks** off keeps labelled steps from replaying; the check then stays as it was.
 - **Guard rails:** any other step, a page that would need a yes, a busy browser or a replay past its shared

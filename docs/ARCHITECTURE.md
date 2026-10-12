@@ -61,7 +61,11 @@ From the prompt to the receipt, in `src/app/task-run.ts` (`runModelTask`) unless
    (or goes straight to the big model's last try, or the offer at the limit).
 8. When the checks pass on a code change, `finishChange` and `proveChange` run the tests on the copy without the
    change: they must fail there and pass with it. The optional acceptance test runs after that.
-9. The receipt: `app.lastTaskResult` is built, `taskUndo.finish` saves the second copy and the receipt
+9. Before the receipt, stale browser checks from this task replay. A fresh replay failure gets one repair
+   turn from the remaining `repair.maxAttempts` budget, then relevant project checks and proof/acceptance
+   are refreshed and browser checks replay again. No extra browser repair loop; failed or stopped tasks
+   launch no further work. Receipt snapshots are taken after this repair.
+   The receipt: `app.lastTaskResult` is built, `taskUndo.finish` saves the second copy and the receipt
    (`src/task/receipts.ts`), and `formatShortReceipt` (`src/task/result.ts`) prints it.
 10. `offerNextSteps` shows the numbered row under the receipt: 1 Show diff, 2 Undo, then suggestions.
 

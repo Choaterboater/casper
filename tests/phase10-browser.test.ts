@@ -352,6 +352,30 @@ browserTest("at the end Casper replays checks that ran before a later edit: a pa
   expect(await f.session.report()).toMatchObject({ status: "fail", checks: [{ status: "fail", assertions: [{ status: "fail", actual: "Broken" }] }] });
 }, 30_000);
 
+browserTest("the host's one repair retry reruns a fresh failed id without edits, but never retries an uncertain step", async () => {
+  const f = await fixture({ allowActions: () => true });
+  await writeFile(f.sourceFile, '<!doctype html><button id="save">Save</button><p id="status">Broken</p>');
+  const scenario = { name: "Save", url: f.url, scope: { inputs: ["index.html"] }, steps: [],
+    assertions: [{ kind: "text", selector: "#status", expected: "Saved" }] };
+  const failed = await f.session.run({ action: "check", scenario });
+  const uncertain = await f.session.run({ action: "check", scenario: { ...scenario, name: "uncertain",
+    steps: [{ action: "click", selector: "#save", impact: "uncertain", reason: "Unsure" }] } });
+  expect(failed).toMatchObject({ status: "fail", freshness: "fresh" });
+  const replayed: string[] = [];
+  await f.session.replayStale(0, undefined, (_name, id) => replayed.push(id));
+  expect(replayed).toEqual([]);
+  const retry = new Set([String(failed.id), String(uncertain.id)]);
+  await f.session.replayStale(0, undefined, (_name, id) => replayed.push(id), retry);
+  expect(replayed).toEqual([String(failed.id), String(uncertain.id)]);
+  // Unattended actionHold refuses the uncertain step, leaving its original failed evidence unchanged.
+  expect((await f.session.report()).checks).toMatchObject([{ id: failed.id, status: "fail", freshness: "fresh" },
+    { id: uncertain.id, status: "fail", freshness: "fresh" }]);
+  // The time filter still applies to forced retries from an earlier task.
+  replayed.length = 0;
+  await f.session.replayStale(performance.now(), undefined, (_name, id) => replayed.push(id), retry);
+  expect(replayed).toEqual([]);
+}, 30_000);
+
 browserTest("the end replay never asks: a step that needs the person, or a closed browser, keeps the check as it was", async () => {
   const approvals: unknown[] = [];
   const f = await fixture({ allowActions: () => false, confirm: async request => { approvals.push(request); return true; } });

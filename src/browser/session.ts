@@ -1252,17 +1252,18 @@ export class BrowserSession {
    * this computer, and only local-test steps (one labelled "send" or "buy" only with Browser clicks on);
    * nothing is asked. A step or address that would need the person, a busy or closed browser, or a replay that can't
    * finish keeps the check as it was, and the browser stays open; one whose server is gone (see `openCheck`) is
-   * incomplete instead. All replays share one minute.
+   * incomplete instead. All replays share one minute. After the host's one repair turn, `retryFailures` also
+   * reruns its fresh failures even if that turn made no edit; the same unattended restrictions still apply.
    */
-  async replayStale(since: number, signal?: AbortSignal, onReplay?: (name: string) => void): Promise<void> {
+  async replayStale(since: number, signal?: AbortSignal, onReplay?: (name: string, id: string) => void, retryFailures?: ReadonlySet<string>): Promise<void> {
     this.replayUntil = performance.now() + 60_000;
     try {
       for (const [id, entry] of this.scenarios) {
         if (this.controller.signal.aborted || signal?.aborted || this.work || !this.page || performance.now() > this.replayUntil - 1_000) return;
         if (entry.ranAt < since || !localURL(entry.scenario.url) || entry.check.status === "incomplete" || entry.check.status === "withdrawn"
-          || (await this.current(entry)).freshness !== "stale") continue;
+          || ((await this.current(entry)).freshness !== "stale" && !(entry.check.status === "fail" && retryFailures?.has(id)))) continue;
         const kept = { check: entry.check, fingerprint: entry.fingerprint, revision: entry.revision, ranAt: entry.ranAt };
-        onReplay?.(entry.check.name);
+        onReplay?.(entry.check.name, id);
         this.unattended = true;
         const work = this.dispatch({ action: "replay", id }, signal);
         this.work = work;
