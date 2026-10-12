@@ -30,6 +30,7 @@ import { prepareCapabilities, pageRun, smokeRun } from "./task-tools";
 import { bigModelReceipt, switchToBigModel, restoreModel, askBigModelRetry, bigModelOf } from "./big-model";
 import { receiptSurface } from "./task-run";
 import { ensureRuntime } from "./runtime-start";
+import { settlePictures } from "./pictures";
 import { followTheme, reloadProject, writeProjectFile } from "./project-file";
 
 export async function runVerification(app: CasperApp, checks: readonly CheckName[],
@@ -82,6 +83,8 @@ export async function runVerification(app: CasperApp, checks: readonly CheckName
         phase(app, "repair", "start");
         try { await session.prompt(prompt, controller.signal, { request, maxTurns: app.maxTurns }); }
         finally {
+          // A picture the repair made is there before the checks run again.
+          await settlePictures(app, controller.signal);
           phase(app, "repair", "end");
           if (back) await restoreModel(app, session, back);
         }

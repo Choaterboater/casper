@@ -882,4 +882,5 @@ console.log('RESULT=' + JSON.stringify({ before, after, onVision: session.getSta
   expect(result.onVision).toBe(true);
   // The model in use is never offered as the switch.
   expect(result.self).toBeNull();
-}, 30_000);
+  // One Pi child: about 2 s, but a busy Windows runner held one past 30 s, so room for run()'s own 60 s stop.
+}, 90_000);

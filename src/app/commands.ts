@@ -100,6 +100,8 @@ export interface CommandHost {
   stopAsking: boolean;
   readonly closing: boolean;
   readonly subagents: SubagentManager;
+  /** Pictures make_picture is still making (src/pictures/pending.ts). */
+  readonly pendingPictures?: { forget(): void };
   /** The parts builders landed in the last task (src/crew/parts.ts), for /crew. */
   readonly crewParts?: { notReviewed(): PartNotReviewed[] };
   readonly lifecycle: LifecycleRegistry;
@@ -418,6 +420,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       host.resetToolPicks();
       // A password typed for ssh belongs to the conversation it was typed in.
       forgetSshSecrets();
+      // A picture that failed in the old conversation is not told to the new one.
+      host.pendingPictures?.forget();
       if (prompt === "/clear") {
         if (!session.clearConversation) throw new Error("This runtime does not support fresh conversations.");
         await session.clearConversation();

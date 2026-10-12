@@ -207,6 +207,12 @@ Codex runs read-only and only makes the picture; Casper copies the one its image
 `$CODEX_HOME/generated_images` (default `~/.codex`) and leaves Codex's copy there. A picture wider
 or taller than 1600 px or over 400 KB is shrunk for the web with macOS's `sips` or ImageMagick, as
 a `.jpg` unless you ask for `.png` or transparency; with neither it is kept and the AI is told.
+The tool returns the path at once and makes the picture in the background, up to 3 at once, so
+the AI keeps working on other files. A read, edit or write of that file and every other tool but
+grep, LSP and web search (a shell command or build, a listing, the browser, `casper_check`, a
+helper) wait for it first, and so do the checks after the task and after each repair round. When a
+picture fails, the call that waited is told why (`picture assets/hero.jpg failed: ...`); when
+nothing waited, the AI is told once with its next tool result, and you see a `[picture]` line.
 The tool is offered only when Codex is signed in with ChatGPT (checked once a session) or you are
 signed in to OpenRouter. Turn it off with `/settings` (it writes `pictures: false`). A project file
 can't turn it on or off or list models.

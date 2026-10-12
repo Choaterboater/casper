@@ -788,6 +788,8 @@ Plain answers stay in the terminal, and so does a Mermaid diagram from the diagr
 For a page that needs photos or illustrations, the AI makes them with its `make_picture` tool and
 saves them in the project. It uses your ChatGPT plan through your own Codex CLI first, then a free
 OpenRouter model; a paid model only when you name one ("with FLUX 3"). With neither it draws SVG.
+The picture is made in the background while the AI works on; anything that would use the file
+waits for it, and a failure shows as `[picture] ... failed: ...`.
 No question is asked. See [CONFIGURATION.md](CONFIGURATION.md#pictures-the-ai-makes) for the order,
 `pictures.models` and the off switch (`pictures: off`).
 

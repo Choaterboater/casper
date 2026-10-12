@@ -94,6 +94,7 @@ import type { PageSession } from "./pages/session";
 import { runVerification, checksPlan, saveFoundCheck } from "./app/verification";
 import { runInteractive, handlePrompt, handleSlashCommand, cancelCurrent, writePrompt } from "./app/command-loop";
 import { loadWorkspace, reloadReferences, reloadSkills, projectPrivatePaths, reportSkillWarnings, bannerChecks, reportNewerCasper } from "./app/wiring";
+import { PendingPictures } from "./pictures/pending";
 import { acquireRuntime, ensureRuntime, checkSignIn, observeEdit } from "./app/runtime-start";
 
 export type { OutputWriter } from "./app/commands";
@@ -312,6 +313,8 @@ export class CasperApp {
   /** make_picture (src/app/pictures.ts), and the codex program signed in with a ChatGPT plan, looked up once. */
   pictureTool?: RuntimeTool;
   codexForPictures?: Promise<string | undefined>;
+  /** Pictures make_picture is still making (src/pictures/pending.ts); Esc stops the ones its request started. */
+  readonly pendingPictures = new PendingPictures(() => this.commandAbort?.signal);
   readonly pictureSeams?: CasperAppOptions["pictureSeams"];
   readonly modelRetryWait?: CasperAppOptions["modelRetryWait"];
   /** The dev-server lines are printed once per session. */
