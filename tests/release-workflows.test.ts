@@ -104,18 +104,32 @@ test("Linux and macOS CI run the live sandbox tests", () => {
 
 test("the full suite runs files in parallel, slowest first, with the eval tests in their own script; CI uses it", () => {
   const scripts = (JSON.parse(readFileSync(path.resolve(import.meta.dir, "../package.json"), "utf8")) as { scripts: Record<string, string> }).scripts;
-  expect(scripts.test).toContain("bun test --parallel --timings=tests/timings.json");
-  expect(scripts.test).toContain("--path-ignore-patterns='tests/eval-*'");
+  expect(scripts["test:suite"]).toContain("bun test --parallel --timings=tests/timings.json");
+  expect(scripts["test:suite"]).toContain("--path-ignore-patterns='tests/eval-*'");
   // The real debugger shares the machine's debugger and Python; it runs alone after the rest.
-  expect(scripts.test).toContain("bun test tests/phase10-debugger-real.test.ts");
+  expect(scripts.test).toBe("bun run test:suite && bun test tests/phase10-debugger-real.test.ts");
   expect(scripts["test:evals"]).toContain("tests/eval-");
   expect(scripts["test:fast"]).toBeUndefined();
   for (const name of ["linux-preview.yml", "macos-preview.yml"]) {
     const runs = Object.values(load(name).jobs).flatMap((job) => (job.steps ?? []).map((step) => step.run ?? ""));
-    // Run straight, or through tools/stall-guard.sh (which stops a run that goes silent and dumps what it was doing).
-    expect(runs.some((run) => run.startsWith("bun run test 2>&1") || /^bash tools\/stall-guard\.sh .* -- bun run test\s*$/.test(run))).toBe(true);
+    // Through tools/stall-guard.sh (which stops a run that goes silent, dumps what it was doing and retries
+    // the stuck file once). The suite and the real debugger test are separate steps, so a retried stall still
+    // runs the debugger test; a file a workflow leaves out of the suite runs in a step of its own.
+    const guarded = (command: string) => runs.map((run) => new RegExp(`^bash tools/stall-guard\\.sh .* -- ${command}\\s*$`).exec(run)).find(Boolean);
+    const suite = runs.map((run) => /^bash tools\/stall-guard\.sh .* -- bun run test:suite((?: --path-ignore-patterns='[^']+')*)\s*$/.exec(run)).find(Boolean);
+    expect(suite, name).toBeDefined();
+    expect(guarded("bun test tests/phase10-debugger-real\\.test\\.ts"), name).toBeDefined();
+    for (const [, left] of suite![1]!.matchAll(/--path-ignore-patterns='([^']+)'/g)) {
+      expect(guarded(`bun test ${left!.replaceAll(".", "\\.")}`), `${name}: ${left}`).toBeDefined();
+    }
     expect(runs.some((run) => /^bun test 2>&1/.test(run))).toBe(false);
   }
+  // macOS runs the browser test on its own after the suite: under load there it grew to 300 s and ran last.
+  const mac = Object.values(load("macos-preview.yml").jobs).flatMap((job) => job.steps.map((step) => step.run ?? "")).join("\n");
+  expect(mac).toContain("-- bun run test:suite --path-ignore-patterns='tests/phase10-browser.test.ts'");
+  // Windows runs each part on 3 workers, not one per core: the tests' own child processes need the room.
+  const windows = load("windows-preview.yml").jobs.suite!.steps.map((step) => step.run ?? "").join("\n");
+  expect(windows).toMatch(/bun test --parallel=3 --timings=tests\/timings\.json @files/);
 });
 
 test("the build lists both installers in SHA256SUMS, and only the publish job's signing step sees the release key", () => {
@@ -179,13 +193,14 @@ test.skipIf(process.platform === "win32" || !sshKeygenVerifies())("the signing s
 test("a stuck preview run is cut off in minutes, not at the old 30 to 45 minute job limit, and the evidence is still kept", () => {
   for (const name of ["linux-preview.yml", "macos-preview.yml", "windows-preview.yml", "windows-arm64.yml"]) {
     for (const [jobName, job] of Object.entries(load(name).jobs)) {
-      expect(job["timeout-minutes"], `${name} ${jobName}`).toBeLessThanOrEqual(20);
+      // macOS has room for its 18-minute suite step and the browser test's own step after it.
+      expect(job["timeout-minutes"], `${name} ${jobName}`).toBeLessThanOrEqual(name === "macos-preview.yml" ? 25 : 20);
     }
   }
   for (const name of ["linux-preview.yml", "macos-preview.yml"]) {
     const steps = Object.values(load(name).jobs).flatMap((job) => job.steps);
     const suite = steps.find((step) => step.name?.startsWith("Full regression suite"));
-    expect(suite?.["timeout-minutes"], name).toBeLessThanOrEqual(15);
+    expect(suite?.["timeout-minutes"], name).toBeLessThanOrEqual(18);
     expect(suite?.run).toContain("tools/stall-guard.sh");
     // The dump sits next to the log, in the folder the always-run upload keeps.
     expect(steps.some((step) => step.uses?.startsWith("actions/upload-artifact@") && (step as { if?: string }).if === "always()")).toBe(true);

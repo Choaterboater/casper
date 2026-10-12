@@ -83,6 +83,13 @@ itself with any code, is never started again, and this is not a test retry. Run 
 `tests/support/run.ts`, not `spawnSync` or `execFileSync`. A Bun test worker sometimes never reaps a
 synchronous child and spins until CI's stall guard ends the job.
 
+On Linux and macOS, `tools/stall-guard.sh` watches the full suite. When the log has been silent for 180 s it
+writes `stall-dump.txt` (every process and what each test worker was doing), stops the run, and runs the
+file(s) Bun was still running once more on their own. The step then passes or fails on that run, and the
+log says `stall-guard: retried <file> once after a stall`. There is one such retry per job, none after a
+failed test, and none when the log names no file. A file that stalls again is a bug to look at, starting from
+the dump.
+
 Never make a test pass by weakening what it checks or adding a fixed sleep. A test that waits for something
 should wait for the real signal with a deadline (`waitUntil`, `waitForFile` and `processGone` in
 `tests/support/wait.ts`).

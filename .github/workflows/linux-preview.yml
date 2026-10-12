@@ -88,9 +88,15 @@ jobs:
         # Normal step: 4.8 min p90 (max 5.0). tools/stall-guard.sh stops a run whose log has been silent for
         # 180 s, after writing stall-dump.txt (every process, each test worker's children and kernel stack, a
         # native stack for a worker on the CPU when the host has gdb or eu-stack, the test files that printed
-        # and those that did not) next to the log, which the evidence upload below keeps.
+        # and those that did not) next to the log, which the evidence upload below keeps. It then runs the
+        # file(s) Bun was still running once more on their own (once per job) and the step gets that result.
+        # This is `bun run test` in two steps, so a retried stall still runs the real debugger test.
         timeout-minutes: 12
-        run: bash tools/stall-guard.sh "$RUNNER_TEMP/linux-preview/full-suite.log" 180 "$RUNNER_TEMP/linux-preview/stall-dump.txt" -- bun run test
+        run: bash tools/stall-guard.sh "$RUNNER_TEMP/linux-preview/full-suite.log" 180 "$RUNNER_TEMP/linux-preview/stall-dump.txt" -- bun run test:suite
+      - name: Real debugger test (runs alone, as in bun run test)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        timeout-minutes: 5
+        run: bash tools/stall-guard.sh "$RUNNER_TEMP/linux-preview/debugger-real.log" 180 "$RUNNER_TEMP/linux-preview/stall-dump-debugger.txt" -- bun test tests/phase10-debugger-real.test.ts
       - name: Eval bench tests
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test:evals 2>&1 | tee "$RUNNER_TEMP/linux-preview/evals.log"

@@ -102,3 +102,79 @@ test.skipIf(!posix)("a worker stuck on the CPU is shown with its children and wh
   // "Call graph:" is only in the report file, so this also checks that the file is read back into the dump.
   if (/^native stack \(sample,/m.test(section)) expect(section).toMatch(/^\s*Call graph:/m);
 }, 60_000);
+
+// A stand-in for Bun's parallel run that goes silent: on the stop signal it prints what Bun prints, the
+// files it was still running (and, when asked, one that had not started). It sleeps in short steps, so the
+// trap runs whichever of it and its sleep the stop reaches first.
+const STALLS = `trap 'echo "Interrupted while still running:"; echo "  tests/a.test.ts (3s)"; if [ -n "\${NOT_STARTED:-}" ]; then echo "1 file(s) had not started:"; echo "  tests/b.test.ts"; fi; exit 143' TERM; echo "tests/c.test.ts:"; echo "\${FIRST_LINE:-(pass) one}"; while :; do sleep 1; done`;
+
+async function retryScript(root: string, body: string): Promise<string> {
+  const file = path.join(root, "retry.sh");
+  await writeFile(file, body);
+  return `bash ${file}`;
+}
+
+test.skipIf(!posix)("after a stall, the files Bun was still running run once more, and that run's exit code is the step's", async () => {
+  const root = await workdir();
+  const retry = await retryScript(root, 'echo "retry got: $*"; echo "(pass) again"; exit 0\n');
+  const result = await guard(root, 2, ["bash", "-c", STALLS], { STALL_RETRY_CMD: retry, NOT_STARTED: "1" });
+  expect(result.code).toBe(0);
+  // The file that was running and the one that had not started, nothing else.
+  expect(result.stdout).toContain("retry got: tests/a.test.ts tests/b.test.ts\n");
+  expect(result.stderr).toContain("stall-guard: retried tests/a.test.ts tests/b.test.ts once after a stall: passed");
+  // The first run's dump is kept, and the retry has its own log next to the first one.
+  expect(await readFile(result.dump, "utf8")).toContain("Stall dump: no output for 2s");
+  expect(await readFile(path.join(root, "out", "run-retry.log"), "utf8")).toContain("(pass) again");
+}, 60_000);
+
+test.skipIf(!posix)("a retry that stalls again fails the step, and there is no second retry", async () => {
+  const root = await workdir();
+  const retry = await retryScript(root, `echo "retry got: $*"; ${STALLS}\n`);
+  const result = await guard(root, 2, ["bash", "-c", STALLS], { STALL_RETRY_CMD: retry });
+  expect(result.code).toBe(124);
+  expect(result.stdout.match(/retry got: /g)).toHaveLength(1);
+  expect(result.stderr).toContain("stall-guard: retried tests/a.test.ts once after a stall: failed (exit 124)");
+  expect(await readFile(path.join(root, "out", "dump-retry.txt"), "utf8")).toContain("Stall dump");
+  // The job's one retry is used: a later stall in the same job is not retried.
+  const again = await guard(root, 2, ["bash", "-c", STALLS], { STALL_RETRY_CMD: retry });
+  expect(again.code).toBe(124);
+  expect(again.stderr).toContain("this job already used its one retry");
+  expect(again.stdout).not.toContain("retry got: ");
+}, 90_000);
+
+test.skipIf(!posix)("a stall that names no file, or follows a failed test, is not retried", async () => {
+  const root = await workdir();
+  const retry = await retryScript(root, 'echo "retry got: $*"; exit 0\n');
+  const unnamed = await guard(root, 2, ["bash", "-c", "echo tests/a.test.ts:; sleep 300"], { STALL_RETRY_CMD: retry });
+  expect(unnamed.code).toBe(124);
+  expect(unnamed.stderr).toContain("cut off");
+  expect(unnamed.stderr).not.toContain("retr");
+  expect(unnamed.stdout).not.toContain("retry got: ");
+  const failed = await guard(await workdir(), 2, ["bash", "-c", STALLS], { STALL_RETRY_CMD: retry, FIRST_LINE: "(fail) one [1ms]" });
+  expect(failed.code).toBe(124);
+  expect(failed.stderr).toContain("a test had already failed");
+  expect(failed.stdout).not.toContain("retry got: ");
+}, 60_000);
+
+test.skipIf(!posix)("an error outside a test, or a worker that crashed before the stop, is a failure and is not retried", async () => {
+  const retry = await retryScript(await workdir(), 'echo "retry got: $*"; exit 0\n');
+  // Bun prints this for a file that would not load or threw at its top level; it has no "(fail)" line.
+  const unloaded = await guard(await workdir(), 2, ["bash", "-c", STALLS], { STALL_RETRY_CMD: retry, FIRST_LINE: "# Unhandled error between tests" });
+  expect(unloaded.code).toBe(124);
+  expect(unloaded.stderr).toContain("a test had already failed");
+  expect(unloaded.stdout).not.toContain("retry got: ");
+  // Killed (say, out of memory) long before the run went silent: not something the stop did.
+  const killed = await guard(await workdir(), 2, ["bash", "-c", STALLS], { STALL_RETRY_CMD: retry, FIRST_LINE: "✗ tests/b.test.ts (worker crashed: SIGKILL)" });
+  expect(killed.code).toBe(124);
+  expect(killed.stderr).toContain("a test had already failed");
+  expect(killed.stdout).not.toContain("retry got: ");
+}, 60_000);
+
+test.skipIf(!posix)("a file whose worker the stop itself ended is retried too (the workers got the signal before Bun)", async () => {
+  const root = await workdir();
+  const retry = await retryScript(root, 'echo "retry got: $*"; exit 0\n');
+  const crashed = `trap 'echo "✗ tests/a.test.ts (worker crashed: SIGTERM)"; exit 143' TERM; echo "tests/c.test.ts:"; while :; do sleep 1; done`;
+  const result = await guard(root, 2, ["bash", "-c", crashed], { STALL_RETRY_CMD: retry });
+  expect(result.code).toBe(0);
+  expect(result.stdout).toContain("retry got: tests/a.test.ts\n");
+}, 60_000);

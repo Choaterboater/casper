@@ -119,9 +119,10 @@ These use fake providers, temporary folders and local-only services. They need n
 real credentials and make no paid model calls. The platform probe must exit 0; any
 failed step fails the job.
 
-CI runs the full suite in three parts on three runners at once (split by
-`tests/timings.json` into parts of about equal time; `bun tools/test-shard.ts 3 1` prints
-part 1), beside a fourth runner that builds, checks the screen and tests the installers.
+CI runs the full suite in four parts on four runners at once (split by
+`tests/timings.json` into parts of about equal time; `bun tools/test-shard.ts 4 1` prints
+part 1), each running 3 files at a time so the tests' own child processes have a core to start on,
+beside a fifth runner that builds, checks the screen and tests the installers.
 Each uploads a `windows-verification-*` artifact, even after a failure. They hold
 the Windows build and CPU type, Bun and PowerShell versions, the commit, each step's
 output, and the installer logs for the steps that ran. The `windows-preview` artifact
