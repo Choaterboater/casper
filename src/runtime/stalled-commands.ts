@@ -181,13 +181,17 @@ export function stalledMessage(command: string, output: string, seconds: number)
 }
 
 /** Where the command's shell writes its process id: a line run first, before any sandbox wrap, by the shell Pi
- * starts as a process group leader. Nothing on Windows, where CPU is not read and nothing is ended. */
-export function pidFile(dir: string | undefined): { prefix: string; root(): Promise<number | undefined>; remove(): void } {
-  if (process.platform === "win32") return { prefix: "", root: async () => undefined, remove: () => {} };
+ * starts as a process group leader. The shell then execs a fresh one (same process id) for the command, so a
+ * single command still replaces the shell as before: otherwise a command ended by a signal makes the shell print
+ * its whole line ("Terminated: 15 sandbox-exec -p '<the profile>' ..."), and the AI reads the sandbox profile.
+ * Nothing on Windows, where CPU is not read and nothing is ended. */
+export function pidFile(dir: string | undefined): { run(command: string): string; root(): Promise<number | undefined>; remove(): void } {
+  if (process.platform === "win32") return { run: (command) => command, root: async () => undefined, remove: () => {} };
   const file = path.join(dir ?? os.tmpdir(), `casper-pid-${randomBytes(8).toString("hex")}`);
+  const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
   let known: number | undefined;
   return {
-    prefix: `{ printf %s $$ > '${file.replaceAll("'", "'\\''")}'; } 2>/dev/null; `,
+    run: (command) => `{ printf %s $$ > ${quote(file)}; } 2>/dev/null; exec "$0" -c ${quote(command)}`,
     root: async () => {
       if (known === undefined) { const pid = Number((await readFile(file, "utf8").catch(() => "")).trim()); if (pid > 0) known = pid; }
       return known;
