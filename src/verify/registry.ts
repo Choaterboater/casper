@@ -9,6 +9,8 @@ import { migrationsScope } from "./migrations";
 import { detectedE2e, E2E_CHECK, e2eNotInstalled, e2eResult } from "./e2e";
 import { COMPOSE_CHECK, COMPOSE_COMMAND, composeScope, detectedCompose, DOCKER_MISSING, runComposeCheck } from "./compose";
 import type { VerificationScope } from "./scope";
+import { terminalCommand } from "./terminal-spec";
+import { runTerminalCheck } from "./terminal";
 
 export interface Verifier {
   name: CheckName;
@@ -59,6 +61,7 @@ export function fromNetworkResult(result: NetworkCheckResult): VerificationResul
 }
 
 const presetRunner = (network: NetworkToolContext = {}): NamedCheckRunner => async (name, spec, context) => {
+  if (spec.preset === "terminal") return runTerminalCheck({ name, spec, ...context });
   const { runNetworkCheck } = await import("../network/checks");
   return fromNetworkResult(await runNetworkCheck(name, { ...spec, timeout: spec.timeout ?? Math.ceil(context.timeoutMs / 1000) },
     { ...network, root: context.cwd, ...(context.signal ? { signal: context.signal } : {}) }));
@@ -147,7 +150,7 @@ export class VerifierRegistry {
       registry.register({
         name,
         ...(kind ? { kind } : {}),
-        ...(frozen.run ? { command: frozen.run } : {}),
+        ...(frozen.preset === "terminal" ? { command: terminalCommand(frozen), scope: frozen.scope } : frozen.run ? { command: frozen.run } : {}),
         run: async (signal, runOptions) => {
           if (cleanupFailed) return blocked(name);
           if (frozen.kind === "lab") {
@@ -156,6 +159,7 @@ export class VerifierRegistry {
             return options.runLab(name, frozen, { cwd, timeoutMs: frozen.timeout ? frozen.timeout * 1000 : 600_000, ...(signal ? { signal } : {}) });
           }
           const checkTimeout = runOptions?.timeoutMs ? limit(runOptions.timeoutMs) : frozen.timeout ? frozen.timeout * 1000 : timeoutMs;
+          if (frozen.preset === "terminal") return runTerminalCheck({ name, spec: frozen, cwd, timeoutMs: checkTimeout, signal, onCleanupFailure: onCleanup, ...wrap });
           if (frozen.run) return runCommandCheck({ name, command: frozen.run, cwd, timeoutMs: checkTimeout, signal, onCleanupFailure: onCleanup, ...wrap });
           return runPreset(name, frozen, { cwd, timeoutMs: checkTimeout, ...(signal ? { signal } : {}) });
         },

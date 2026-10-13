@@ -1,0 +1,282 @@
+# Casper terminal check: a bounded VT screen and a real POSIX pseudoterminal.
+# No shell, third-party Python packages, persistent sessions or scrollback assertions.
+import codecs
+import errno
+import fcntl
+import json
+import os
+import re
+import select
+import signal
+import struct
+import subprocess
+import sys
+import termios
+import time
+import unicodedata
+
+
+class Screen:
+    def __init__(self, width, height):
+        self.width, self.height = width, height
+        self.cells = [[" "] * width for _ in range(height)]
+        self.x = self.y = 0
+        self.saved = (0, 0)
+        self.top, self.bottom = 0, height - 1
+        self.pending = ""
+        self.alternate = None
+        self.wrap = True
+
+    def scroll(self, count=1):
+        for _ in range(min(count, self.bottom - self.top + 1)):
+            self.cells.pop(self.top)
+            self.cells.insert(self.bottom, [" "] * self.width)
+
+    def newline(self):
+        self.x = min(self.width - 1, self.x)  # A line feed cancels delayed right-margin wrap.
+        if self.y == self.bottom:
+            self.scroll()
+        else:
+            self.y = min(self.height - 1, self.y + 1)
+
+    def clear_cell(self, row, column):
+        # Erasing/overwriting either half of a wide glyph clears the whole glyph.
+        cells = self.cells[row]
+        if cells[column] == "" and column: cells[column - 1] = " "
+        if column + 1 < self.width and cells[column + 1] == "": cells[column + 1] = " "
+        cells[column] = " "
+
+    def erase(self, row, start, end):
+        for column in range(start, end): self.clear_cell(row, column)
+
+    def csi(self, args, cmd):
+        private = args.startswith("?")
+        values = [int(v or "0") for v in args.lstrip("?").split(";")]
+        n = values[0] or 1
+        if private:
+            if cmd not in ("h", "l") or any(v not in (7, 12, 25, 1004, 2004, 1049) for v in values):
+                raise ValueError("unsupported VT mode")
+            for v in values:
+                if v == 7:
+                    self.wrap = cmd == "h"
+                elif v == 1049:
+                    if cmd == "h" and self.alternate is None:
+                        self.alternate = (self.cells, self.x, self.y, self.top, self.bottom, self.saved, self.wrap)
+                        self.cells = [[" "] * self.width for _ in range(self.height)]
+                        self.x = self.y = self.top = 0
+                        self.bottom = self.height - 1
+                    elif cmd == "l" and self.alternate is not None:
+                        self.cells, self.x, self.y, self.top, self.bottom, self.saved, self.wrap = self.alternate
+                        self.alternate = None
+            return
+        if cmd == "m":
+            return  # Style only; checks assert text, not colour.
+        self.x = min(self.width - 1, self.x)  # Cursor/erase commands cancel pending wrap.
+        if cmd in ("A", "B", "C", "D"):
+            if cmd == "A": self.y = max(0, self.y - n)
+            if cmd == "B": self.y = min(self.height - 1, self.y + n)
+            if cmd == "C": self.x = min(self.width - 1, self.x + n)
+            if cmd == "D": self.x = max(0, self.x - n)
+        elif cmd in ("H", "f"):
+            self.y = min(self.height - 1, max(0, (values[0] or 1) - 1))
+            self.x = min(self.width - 1, max(0, (values[1] or 1) - 1)) if len(values) > 1 else 0
+        elif cmd == "G": self.x = min(self.width - 1, n - 1)
+        elif cmd == "d": self.y = min(self.height - 1, n - 1)
+        elif cmd == "J":
+            mode = values[0]
+            if mode in (2, 3): self.cells = [[" "] * self.width for _ in range(self.height)]
+            elif mode == 0:
+                for row in range(self.y, self.height): self.erase(row, self.x if row == self.y else 0, self.width)
+            elif mode == 1:
+                for row in range(self.y + 1): self.erase(row, 0, self.x + 1 if row == self.y else self.width)
+            else: raise ValueError("unsupported erase mode")
+        elif cmd == "K":
+            mode = values[0]
+            if mode == 2: self.erase(self.y, 0, self.width)
+            elif mode == 0: self.erase(self.y, self.x, self.width)
+            elif mode == 1: self.erase(self.y, 0, self.x + 1)
+            else: raise ValueError("unsupported erase mode")
+        elif cmd == "s": self.saved = (self.x, self.y)
+        elif cmd == "u": self.x, self.y = self.saved
+        elif cmd == "S": self.scroll(n)
+        elif cmd == "r":
+            top = (values[0] or 1) - 1
+            bottom = (values[1] or self.height) - 1 if len(values) > 1 else self.height - 1
+            if not 0 <= top < bottom < self.height: raise ValueError("unsupported scroll region")
+            self.top, self.bottom = top, bottom
+            self.x = self.y = 0
+        else:
+            raise ValueError("unsupported VT screen operation: " + cmd)
+
+    def feed(self, text):
+        self.pending += text
+        while self.pending:
+            if self.pending.startswith("\x1b]"):
+                match = re.match(r"\x1b\].*?(?:\x07|\x1b\\)", self.pending, re.S)
+                if not match:
+                    if len(self.pending) > 8192: raise ValueError("unterminated VT title")
+                    return
+                payload = match.group()[2:]
+                if payload.split(";", 1)[0] not in ("0", "1", "2", "4", "7", "8", "10", "11", "12", "52", "133"):
+                    raise ValueError("unsupported VT operating-system command")
+                self.pending = self.pending[match.end():]
+                continue
+            if self.pending.startswith("\x1b["):
+                match = re.match(r"\x1b\[([0-9;?]*)([A-Za-z~])", self.pending)
+                if not match:
+                    if len(self.pending) > 128: raise ValueError("unsupported VT escape")
+                    return
+                self.pending = self.pending[match.end():]
+                self.csi(*match.groups())
+                continue
+            if self.pending.startswith("\x1b"):
+                if len(self.pending) < 2: return
+                cmd = self.pending[1]
+                self.pending = self.pending[2:]
+                if cmd == "7": self.saved = (self.x, self.y)
+                elif cmd == "8": self.x, self.y = self.saved
+                elif cmd == "D": self.newline()
+                elif cmd == "E": self.x = 0; self.newline()
+                else: raise ValueError("unsupported VT escape")
+                continue
+            char, self.pending = self.pending[0], self.pending[1:]
+            if char == "\r": self.x = 0
+            elif char == "\n": self.newline()
+            elif char == "\b": self.x = max(0, min(self.width - 1, self.x) - 1)
+            elif char == "\t": self.x = min(self.width - 1, (self.x // 8 + 1) * 8)
+            elif char == "\x07": pass
+            elif ord(char) < 32 or 127 <= ord(char) < 160: raise ValueError("unsupported terminal control")
+            elif unicodedata.category(char) == "Cf" or 0xFE00 <= ord(char) <= 0xFE0F or 0x1F3FB <= ord(char) <= 0x1F3FF or 0x1F1E6 <= ord(char) <= 0x1F1FF:
+                raise ValueError("unsupported Unicode grapheme sequence")
+            elif unicodedata.combining(char):
+                if self.x:
+                    column = min(self.x, self.width) - 1
+                    if self.cells[self.y][column] == "" and column: column -= 1
+                    self.cells[self.y][column] += char
+                else: raise ValueError("unsupported isolated combining mark")
+            else:
+                width = 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+                if self.x + width > self.width:
+                    if self.wrap: self.x = 0; self.newline()
+                    else: self.x = self.width - width
+                self.clear_cell(self.y, self.x)
+                if width == 2: self.clear_cell(self.y, self.x + 1)
+                self.cells[self.y][self.x] = char
+                if width == 2: self.cells[self.y][self.x + 1] = ""
+                self.x += width
+
+    def text(self):
+        return "\n".join("".join(row).rstrip() for row in self.cells).rstrip()
+
+
+def run(spec):
+    screen = Screen(spec.get("columns", 80), spec.get("rows", 24))
+    master, slave = os.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", screen.height, screen.width, 0, 0))
+    process = None
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+    deadline = time.monotonic() + spec["deadlineSeconds"]
+    step = 0
+    captured = 0
+    group_stopped = False
+
+    def stop_group():
+        nonlocal group_stopped
+        if process is None or group_stopped: return
+        # Darwin may return EPERM briefly for an already-dead orphaned group.
+        # Retry that transition, but never ignore a persistent cleanup refusal.
+        for attempt in range(20):
+            try: os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError: pass
+            except PermissionError:
+                if process.poll() is None or attempt == 19: raise
+                time.sleep(0.01)
+                continue
+            group_stopped = True
+            return
+
+    try:
+        def stopped(_signal, _frame):
+            raise SystemExit(143)
+        signal.signal(signal.SIGTERM, stopped)
+        old_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+        def setup():
+            os.setsid()
+            fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+            signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+        env = dict(os.environ, TERM="xterm-256color", COLUMNS=str(screen.width), LINES=str(screen.height))
+        try:
+            # A cancellation during Popen must not leave an unowned child between
+            # fork and assignment. Unblock only after finally can see its PID.
+            process = subprocess.Popen(spec["argv"], stdin=slave, stdout=slave, stderr=slave, env=env, preexec_fn=setup)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+        os.close(slave)
+        slave = None
+
+        def pump():
+            nonlocal captured
+            remaining = deadline - time.monotonic()
+            if remaining <= 0: raise TimeoutError("terminal scenario timed out")
+            if select.select([master], [], [], min(0.03, remaining))[0]:
+                try: data = os.read(master, 65536)
+                except OSError as error:
+                    if error.errno == errno.EIO: return False
+                    raise
+                if not data: return False
+                captured += len(data)
+                if captured > 8 * 1024 * 1024: raise ValueError("terminal output exceeded 8 MiB")
+                screen.feed(decoder.decode(data))
+            return True
+
+        for step, action in enumerate(spec["steps"], 1):
+            if "expect" in action:
+                while True:
+                    live = pump()
+                    if action["expect"] in screen.text(): break
+                    if not live: raise AssertionError("missing screen text: " + repr(action["expect"]))
+            else:
+                data = action["send"].encode("utf-8")
+                while data:
+                    pump()
+                    data = data[os.write(master, data):]
+        while process.poll() is None:
+            pump()
+        # Descendants must not keep the PTY open after the program's expected exit.
+        stop_group()
+        # Read the final frame after exit, until EOF or the deadline.
+        while pump(): pass
+        screen.feed(decoder.decode(b"", final=True))
+        if screen.pending: raise ValueError("incomplete VT escape at program exit")
+        code = process.returncode if process.returncode >= 0 else 128 - process.returncode
+        if code != spec.get("exitCode", 0):
+            raise AssertionError("expected exit " + str(spec.get("exitCode", 0)) + ", got " + str(code))
+        print("Terminal check passed: " + str(len(spec["steps"])) + " steps; exit " + str(code))
+        print("SCREEN:\n" + screen.text()[-6000:])
+        return 0
+    except (FileNotFoundError, PermissionError) as error:
+        if process is None:
+            print("Terminal program could not start: " + str(error), file=sys.stderr)
+            return 127
+        print("Terminal process cleanup failed: " + str(error), file=sys.stderr)
+        return 1
+    except (AssertionError, TimeoutError) as error:
+        print("Terminal step " + str(step) + "/" + str(len(spec["steps"])) + " failed: " + str(error))
+        print("SCREEN:\n" + screen.text()[-6000:])
+        return 1
+    except ValueError as error:
+        print("Terminal check could not read the screen: " + str(error))
+        print("SCREEN:\n" + screen.text()[-6000:])
+        return 2
+    finally:
+        if process is not None:
+            # Always stop the whole process group, including descendants after the leader exited.
+            stop_group()
+            process.wait()
+        if slave is not None: os.close(slave)
+        os.close(master)
+
+
+if __name__ == "__main__":
+    with open(sys.argv[1], encoding="utf-8") as source:
+        sys.exit(run(json.load(source)))

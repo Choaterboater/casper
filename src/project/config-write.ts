@@ -5,7 +5,8 @@ import { isMap, isNode, parseDocument, stringify } from "yaml";
 import { openNoFollow } from "../platform/files";
 import { CHECK_NAMES } from "../verify/evidence";
 import type { ProjectCommand } from "./model";
-import { namedCheckNameError, parseNetworkChecks } from "../network/spec";
+import { namedCheckNameError } from "../network/spec";
+import { parseNamedChecks } from "../verify/named";
 import type { NamedCheckSpec } from "../verify/named";
 import { hasLineControls } from "../tui/format";
 
@@ -93,6 +94,12 @@ export function savedNamedCheck(spec: NamedCheckSpec): Record<string, unknown> {
   for (const key of ["run", "preset", "playbooks", "files", "inventory", "platform", "running", "intended", "models", "modules", "timeout"] as const) {
     if (spec[key] !== undefined) saved[key] = structuredClone(spec[key]);
   }
+  if (spec.preset === "terminal") {
+    saved.argv = [...spec.argv];
+    saved.steps = structuredClone(spec.steps);
+    if (spec.scope) saved.scope = structuredClone(spec.scope);
+    for (const key of ["columns", "rows", "exitCode"] as const) if (spec[key] !== undefined) saved[key] = spec[key];
+  }
   if (spec.after === "ask") saved.after = "ask";
   return saved;
 }
@@ -112,7 +119,7 @@ export async function saveNamedCheck(root: string, name: string, spec: NamedChec
   const line = namedCheckLine(name, spec);
   const value = savedNamedCheck(spec);
   // What is saved must read back as the same check.
-  parseNetworkChecks({ [name]: value });
+  parseNamedChecks({ [name]: value });
   return setProjectSetting(root, ["verify", "checks", name], value, line,
     (current) => JSON.stringify(current) === JSON.stringify(value), `verify.checks.${name} is already set in ${PROJECT_YAML}; change it there yourself`);
 }
