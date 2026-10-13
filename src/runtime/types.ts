@@ -194,7 +194,7 @@ export interface RuntimeModelPickerHost {
   mount<T>(operation: (view: RuntimePickerView) => Promise<T>): Promise<T>;
 }
 
-export type RuntimeAuthProvider = "openai-codex" | "github-copilot" | "anthropic" | "openrouter";
+export type RuntimeAuthProvider = "openai-codex" | "github-copilot" | "anthropic" | "openrouter" | "claude-subscription";
 
 export interface RuntimeAuthenticationOptions {
   /** Omit to show the local provider chooser. Secrets are never command arguments. */
@@ -209,11 +209,11 @@ export interface RuntimeAuthenticationOptions {
 }
 
 /** No credentials or provider diagnostics may cross this boundary. */
-export type RuntimeAuthenticationResult =
+export type RuntimeAuthenticationResult = { /** Login remains owned by Claude Code, not Casper's credential file. */ claudeCode?: true } & (
   | { status: "saved"; /** Model servers added from the /login list (no sign-in made). */ servers?: string[]; /** Plain lines about them. */ lines?: string[] }
   | { status: "saved-needs-refresh" }
   | { status: "cancelled"; effect: "none" | "unknown"; lines?: string[] }
-  | { status: "failed"; effect: "none" | "unknown"; reason: "unavailable" | "destination" | "provider"; detail?: string };
+  | { status: "failed"; effect: "none" | "unknown"; reason: "unavailable" | "destination" | "provider"; detail?: string });
 
 export interface RuntimeModelSelectionOptions {
   query?: string;

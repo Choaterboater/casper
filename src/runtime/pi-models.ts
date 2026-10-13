@@ -135,7 +135,7 @@ export class PiModels {
   async refreshAuth(provider: string, signal: AbortSignal): Promise<boolean> {
     try {
       const result = await this.catalog.refresh({ providers: [provider], allowNetwork: false, signal });
-      if (signal.aborted || result.aborted || result.errors.size) return false;
+      if (signal.aborted || result.aborted || result.errors.size || !this.catalog.hasConfiguredAuth(provider)) return false;
       this.staleAuth.delete(provider);
       return true;
     } catch { return false; }

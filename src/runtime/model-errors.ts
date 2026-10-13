@@ -8,9 +8,9 @@ export type ModelErrorCause = "key" | "refused" | "credits" | "rate" | "offline"
 const RULES: ReadonlyArray<{ cause: ModelErrorCause; test: RegExp; line: string }> = [
   // A model that can't take tools (small local models often can't). The line is built in explainModelError, which has the name.
   { cause: "tools", test: /does not support tools|do(?:es)? not support tool (?:use|calling)|tools? (?:are|is|use is|calling is) not supported|tool use is not supported/i, line: "" },
-  // A Claude plan sign-in is billed as extra usage (see pi-auth); Anthropic sends a plain 400 when that runs out.
+  // Report this request's failure; the separate Claude Code provider can use included plan usage.
   { cause: "credits", test: /out of extra usage/i,
-    line: "Your Claude sign-in is out of extra usage (Casper's Claude use is billed as extra usage, not your plan's included use). Next: add more at claude.ai/settings/usage, or /model to pick another model." },
+    line: "Your Claude sign-in is out of extra usage. Next: add more at claude.ai/settings/usage, or /model to pick another model." },
   // Credits before rate: OpenAI says "exceeded your current quota" with a 429.
   { cause: "credits", test: /\b402\b|payment required|insufficient[_ ](?:credits|funds|quota|balance)|credit balance|requires more credits|exceeded your current quota|billing/i,
     line: "The provider says the account is out of credits. Next: add credits on the provider's site, or /model to pick another model." },

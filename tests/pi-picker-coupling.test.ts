@@ -45,6 +45,62 @@ function pendingRefresh() {
   return { promise, settle: resolve };
 }
 
+test("the Claude picker labels the API and Claude Code plan routes separately", () => {
+  const models = [fakeModel("anthropic", "claude-sonnet-5-5"), fakeModel("claude-subscription", "claude-sonnet-5-5")];
+  const picker = new ModelBrowser({ tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false,
+    onSelect() {}, onCancel() {} });
+  try {
+    const text = rendered(picker, 240);
+    expect(text).toContain("Anthropic API");
+    expect(text).toContain("Claude Code plan");
+    expect(text).toContain("anthropic/claude-sonnet-5-5");
+    expect(text).toContain("claude-subscription/claude-sonnet-5-5");
+  } finally { picker.dispose(); }
+});
+
+test("Claude Code rows show plan rather than free or an API token price", () => {
+  const models = [fakeModel("claude-subscription", "claude-sonnet-5-5", { cost: { input: 3, output: 15, cacheRead: 0, cacheWrite: 0 } })];
+  const picker = new ModelBrowser({ tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false,
+    onSelect() {}, onCancel() {} });
+  try {
+    const text = rendered(picker, 240);
+    expect(text).toContain("Claude Code plan · claude-sonnet-5-5 · claude-subscription/claude-sonnet-5-5");
+    expect(text.split("\n").find(line => line.includes("claude-subscription/") && line.includes("ctx"))).toContain("plan");
+    expect(text).not.toContain("free");
+    expect(text).not.toContain("per M");
+    expect(text).not.toContain("$3/15");
+    for (const line of picker.render(80)) expect(visibleWidth(line)).toBeLessThanOrEqual(80);
+    expect(rendered(picker, 80)).toContain("Claude Code plan ·");
+  } finally { picker.dispose(); }
+});
+
+test("the Anthropic API route keeps its price and an explicit current selection", () => {
+  const models = [fakeModel("anthropic", "claude-sonnet-5-5", { cost: { input: 3, output: 15, cacheRead: 0, cacheWrite: 0 } }),
+    fakeModel("claude-subscription", "claude-sonnet-5-5")];
+  let selected: string | undefined;
+  const picker = new ModelBrowser({ tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false,
+    current: models[0], defaultModel: models[1], onSelect: model => { selected = `${model.provider}/${model.id}`; }, onCancel() {} });
+  try {
+    const text = rendered(picker, 240);
+    expect(text).toContain("Anthropic API · claude-sonnet-5-5 · anthropic/claude-sonnet-5-5");
+    expect(text).toContain("$3/15 per M");
+    picker.handleInput("\t");
+    picker.handleInput("\r");
+    expect(selected).toBe("anthropic/claude-sonnet-5-5");
+  } finally { picker.dispose(); }
+});
+
+test("searching the Claude Code plan label selects the subscription provider", () => {
+  const models = [fakeModel("anthropic", "claude-sonnet-5-5"), fakeModel("claude-subscription", "claude-sonnet-5-5")];
+  let selected: string | undefined;
+  const picker = new ModelBrowser({ tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false,
+    initialQuery: "Claude Code plan", onSelect: model => { selected = `${model.provider}/${model.id}`; }, onCancel() {} });
+  try {
+    picker.handleInput("\r");
+    expect(selected).toBe("claude-subscription/claude-sonnet-5-5");
+  } finally { picker.dispose(); }
+});
+
 test("the browser lists provider-prefixed rows with metadata and Casper's footer hint", () => {
   const models = [
     fakeModel("fixture", "first", { reasoning: true, input: ["text", "image"], cost: { input: 3, output: 15, cacheRead: 0, cacheWrite: 0 }, contextWindow: 131_072 }),

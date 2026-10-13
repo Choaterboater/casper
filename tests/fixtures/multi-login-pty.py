@@ -21,7 +21,7 @@ def run_case(bun, repo, root, provider, browser=False, action="save", no_color=F
         # Navigate the chooser rather than only testing direct commands.
         s.send("/login\n")
         s.until("Up/Down + Enter · Esc cancels")
-        row = {"openrouter": 1, "anthropic": 3, "github-copilot": 6}[provider] + (1 if browser else 0)
+        row = {"openrouter": 1, "anthropic": 3, "github-copilot": 7}[provider] + (1 if browser else 0)
         if row == 1: s.send("\n")
         else:
             # Arrow to the row, then Enter: the list is numbered, but arrows still work.

@@ -81,7 +81,7 @@ test("each cause has one plain next step", () => {
 test("a Claude sign-in out of extra usage says where to add more, or to pick another model", () => {
   const message = `400 {"type":"error","error":{"type":"invalid_request_error","message":"You're out of extra usage. Add more at claude.ai/settings/usage and keep going."},"request_id":"req_0"}`;
   expect(explainModelError(message)).toEqual({ cause: "credits",
-    line: "Your Claude sign-in is out of extra usage (Casper's Claude use is billed as extra usage, not your plan's included use). Next: add more at claude.ai/settings/usage, or /model to pick another model." });
+    line: "Your Claude sign-in is out of extra usage. Next: add more at claude.ai/settings/usage, or /model to pick another model." });
 });
 
 function view(rich: boolean) {

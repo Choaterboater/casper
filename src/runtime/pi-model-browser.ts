@@ -58,9 +58,14 @@ function sameRef(a: ModelRef | undefined, b: ModelRef): boolean {
   return a !== undefined && a.provider === b.provider && a.id === b.id;
 }
 
+/** Keep the two Claude routes distinct without changing their actual provider ids. */
+function providerLabel(provider: string): string {
+  return provider === "claude-subscription" ? "Claude Code plan" : provider === "anthropic" ? "Anthropic API" : provider;
+}
+
 /** The words the picker's search matches a model by. */
 function searchText(model: { provider: string; id: string; name?: string }, defaultModel: ModelRef | undefined): string {
-  return `${model.provider} ${model.provider}/${model.id} ${model.provider} ${model.id} ${model.name ?? ""}` + (sameRef(defaultModel, model) ? " default" : "");
+  return `${model.provider} ${model.provider}/${model.id} ${providerLabel(model.provider)} ${model.id} ${model.name ?? ""}` + (sameRef(defaultModel, model) ? " default" : "");
 }
 
 /** Whether the picker's search for `query` would show any of these models: /model <id> that matches none is an
@@ -277,7 +282,7 @@ export class ModelBrowser {
     return [{ label: "All models", provider: undefined, count: this.allModels.length, kind: "all" },
       ...providers.map((provider): SidebarEntry => {
         const saved = servers.get(provider);
-        return { label: provider, provider, count: counts.get(provider)!, kind: "provider", ...saved ? { saved: { address: saved.address, ...saved.problem ? { problem: saved.problem } : {} } } : {} };
+        return { label: providerLabel(provider), provider, count: counts.get(provider)!, kind: "provider", ...saved ? { saved: { address: saved.address, ...saved.problem ? { problem: saved.problem } : {} } } : {} };
       }),
       ...this.options.onAddServer ? [{ label: ADD_ROW, count: -1, kind: "add" as const }] : []];
   }
@@ -424,6 +429,7 @@ export class ModelBrowser {
   }
 
   private priceText(model: Model<Api>): string {
+    if (model.provider === "claude-subscription") return "plan";
     const cost = model.cost;
     if (!cost) return "";
     if (!cost.input && !cost.output) return "free";
@@ -452,13 +458,15 @@ export class ModelBrowser {
       return this.muted(this.options.onAddServer ? "  No models yet. Use /login to sign in, or add a model server." : "  No models available. Use /login to add providers.");
     }
     const model = item.model;
-    const parts: string[] = [terminalText(model.name || item.id), this.muted(`${item.provider}/${item.id}`)];
+    const parts: string[] = [];
+    if (item.provider === "claude-subscription" || item.provider === "anthropic") parts.push(providerLabel(item.provider));
+    parts.push(terminalText(model.name || item.id), this.muted(`${item.provider}/${item.id}`));
     const ctx = fmtTokens(model.contextWindow);
     const out = fmtTokens(model.maxTokens);
     const sizes = [ctx && `${ctx} ctx`, out && `${out} out`].filter(part => part !== "");
     if (sizes.length) parts.push(this.muted(sizes.join(" · ")));
     const price = this.priceText(model);
-    if (price) parts.push(this.muted(price === "free" ? "free" : `${price} per M`));
+    if (price && price !== "plan") parts.push(this.muted(price === "free" ? "free" : `${price} per M`));
     const tags = [model.reasoning ? "reasoning" : "", model.input?.includes("image") ? "vision" : ""].filter(Boolean).join(" · ");
     if (tags) parts.push(this.muted(tags));
     if (sameRef(this.current, item)) parts.push(this.accent("current"));

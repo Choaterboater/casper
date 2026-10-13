@@ -18,7 +18,7 @@ export interface LoginDisplay {
   /** A panel with no input while something runs (Esc still cancels). */
   wait(title: string, text: string): void;
   device(url: string, code: string): void;
-  browser(url: string): void;
+  browser(url: string, options?: { openedByProvider?: boolean }): void;
 }
 
 /** A hidden box that is not a provider login: its own title and words, and (a password) any printable text, spaces and
@@ -269,13 +269,15 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
         if (note) panel.addChild(new Text(muted(terminalText(note)), 0, 1));
         mount(panel);
       },
-      browser: (url) => {
+      browser: (url, options) => {
         if (signal.aborted) return;
         clearPanel();
         write(`${accent("1. Open this URL in your browser:")}\n${terminalText(url)}\n`);
-        const launched = launchBrowser(url);
+        const launched = !options?.openedByProvider && launchBrowser(url);
         const panel = new Panel("Complete browser sign-in", io.color);
-        panel.addChild(new Text(launched
+        panel.addChild(new Text(options?.openedByProvider
+          ? "2. Claude Code opens the sign-in page. If it does not, open the URL above in your browser.\nWaiting for browser authorization."
+          : launched
           ? "2. Your browser is opening the sign-in page. Complete the provider's authorization steps.\nWaiting for browser authorization."
           : "2. Automatic launch is unavailable; open the URL above in your browser.\nWaiting for browser authorization.", 0, 1));
         panel.addChild(new Text("If the browser is on another machine, paste the final redirect URL in the private prompt.\nCodes and redirect URLs belong only in the private login prompt.\nEsc cancels", 0, 0));

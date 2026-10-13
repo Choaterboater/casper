@@ -419,7 +419,7 @@ flakyOn("win32")("provider refusal and occupied browser port expose no diagnosti
     expect(result.result.status).toBe("failed");
     expect(result.calls).toBe(occupied ? 0 : 1);
     // The reason Casper has, in plain words, with no provider text.
-    if (!occupied) expect(result.result.detail).toBe("Anthropic (Claude) refused the sign-in");
+    if (!occupied) expect(result.result.detail).toBe("Anthropic API refused the sign-in");
     expect(result.safe).toBe(true);
     expect(await readFile(path.join(agent, "auth.json"), "utf8")).toBe(original);
   }
@@ -698,14 +698,33 @@ posixOnly("login saves through a symlinked HOME ancestor", async () => {
   expect(JSON.parse(await readFile(path.join(f.root, "real", "home", ".pi", "agent", "auth.json"), "utf8"))).toEqual({ anthropic: { type: "api_key", key: "synthetic-private-key" } });
 });
 
-// The credential directory Casper controls stays strict, and the refusal names it before any picker or consent.
-posixOnly("an unsafe credential directory is refused before provider choice with the offending path", async () => {
+posixOnly("plain login permits Claude Code selection with an unsafe Casper destination but still refuses API credential writes", async () => {
+  const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
+  await mkdir(path.join(f.root, "elsewhere")); await mkdir(path.dirname(agent), { recursive: true }); await symlink(path.join(f.root, "elsewhere"), agent);
+  for (const [down, reason] of [[4, "unavailable"], [2, "destination"]] as const) {
+    const output = await f.run(`
+      import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))}; import { PassThrough } from 'node:stream';
+      process.env.CASPER_CLAUDE_PATH = ${JSON.stringify(path.join(f.root, "missing-native-claude"))};
+      const runtime = new PiRuntime(); const input = new PassThrough(); let picked = false;
+      try {
+        const result = await runtime.authenticate({ others: false, terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
+          if (!picked && text.includes('Up/Down + Enter · Esc cancels')) { picked = true; setImmediate(() => { for (let i = 0; i < ${down}; i++) setTimeout(() => input.write('\\x1b[B'), i * 30); setTimeout(() => input.write('\\r'), ${down} * 30); }); }
+        } } }, operation) } });
+        console.log(JSON.stringify({ result, picked }));
+      } finally { await runtime.dispose(); input.destroy(); }
+    `);
+    expect(JSON.parse(output)).toMatchObject({ picked: true, result: { status: "failed", effect: "none", reason } });
+  }
+});
+
+// Named credential-writing providers still refuse before the picker or consent.
+posixOnly("a named credential-writing provider refuses an unsafe directory before provider choice with the offending path", async () => {
   const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
   await mkdir(path.join(f.root, "elsewhere")); await mkdir(path.dirname(agent), { recursive: true }); await symlink(path.join(f.root, "elsewhere"), agent);
   const output = await f.run(`
     import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
     let runs = 0; const runtime = new PiRuntime();
-    try { const result = await runtime.authenticate({ terminalHost: { async run() { runs++; throw new Error('MUST_NOT_RUN'); } } }); console.log(JSON.stringify({ result, runs })); } finally { await runtime.dispose(); }
+    try { const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { async run() { runs++; throw new Error('MUST_NOT_RUN'); } } }); console.log(JSON.stringify({ result, runs })); } finally { await runtime.dispose(); }
   `);
   const parsed = JSON.parse(output);
   expect(parsed).toMatchObject({ result: { status: "failed", effect: "none", reason: "destination" }, runs: 0 });
@@ -775,8 +794,8 @@ test("plain login arguments stay local and never reflect supplied credential-lik
   expect(output).toContain("Run casper and type /login");
   // The short names /help uses sign in like the long ids; anything else is a usage error, its words never repeated.
   expect(output.match(/Run casper and type \/login/g)).toHaveLength(7);
-  expect(output).toContain("ERROR 2 Usage: /login [codex|copilot|anthropic|openrouter]");
-  expect(output).toContain("ERROR 3 Usage: /login [codex|copilot|anthropic|openrouter]");
+  expect(output).toContain("ERROR 2 Usage: /login [codex|copilot|anthropic|openrouter|claude-subscription]");
+  expect(output).toContain("ERROR 3 Usage: /login [codex|copilot|anthropic|openrouter|claude-subscription]");
   expect(output).not.toContain("SECRET_ARGUMENT");
   expect(output).not.toContain("secret-provider");
   expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).exists()).toBe(false);

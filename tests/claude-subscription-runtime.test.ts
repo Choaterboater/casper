@@ -6,6 +6,59 @@ import { isolatedEnvironment } from "../src/platform/environment";
 import { removeTempDir } from "./support/temp-dir";
 import { compileExecutable } from "../scripts/compile";
 
+test("a signed-out user logs in through native Claude Code and sends a subscription request without restarting", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-claude-login-"));
+  try {
+    const home = path.join(root, "home"), cwd = path.join(root, "project");
+    await mkdir(home); await mkdir(cwd);
+    const cli = path.join(root, process.platform === "win32" ? "synthetic claude.exe" : "synthetic claude");
+    await compileExecutable(path.join(import.meta.dir, "fixtures/claude-subscription-cli.ts"), cli);
+    const source = path.resolve(import.meta.dir, "../src/runtime/pi.ts");
+    const child = Bun.spawn([process.execPath, "-e", `
+      import { PiRuntime } from ${JSON.stringify(source)};
+      import { PassThrough } from "node:stream";
+      import { readFile } from "node:fs/promises";
+      const runtime = new PiRuntime();
+      const input = Object.assign(new PassThrough(), { setRawMode() {} });
+      let posted = false;
+      let screen = "";
+      const terminalHost = { run: operation => operation({ input, color: false, onEOF() {},
+        output: { write: text => { screen += text; } }, requestRender() {},
+        show: component => {
+          const text = component?.render(140).join("\\n") ?? "";
+          if (!posted && text.includes("Claude Code authorization code")) {
+            posted = true; queueMicrotask(() => { input.write("fixture-code"); setTimeout(() => input.write("\\r"), 50); });
+          }
+        } }) };
+      try {
+        const session = await runtime.start({ cwd: process.cwd(), localModels: false });
+        const before = session.getStatus();
+        const login = await runtime.authenticate({ provider: "claude-subscription", others: false, terminalHost });
+        const afterLogin = session.getStatus();
+        const picked = await session.selectModel({ query: "claude-subscription/claude-sonnet-5-5", persist: false });
+        const events = []; session.subscribe(event => events.push(event));
+        await session.prompt("Reply briefly.");
+        console.log(JSON.stringify({ before, afterLogin, login, picked, posted, screen, events,
+          transcript: await readFile(session.getSessionInfo().sessionFile, "utf8") }));
+      } finally { input.destroy(); await runtime.dispose(); }
+    `], { cwd, env: { ...isolatedEnvironment(home), PI_CODING_AGENT_DIR: path.join(home, ".casper/agent"),
+      CASPER_TEST_CLAUDE_LOGIN_STATE: path.join(home, "synthetic-login-state"), CASPER_CLAUDE_PATH: cli, PI_OFFLINE: "1", CASPER_OFFLINE: "1" },
+      stdout: "pipe", stderr: "pipe", timeout: 60_000 });
+    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+    const result = JSON.parse(stdout);
+    expect(result.login).toEqual({ status: "saved", claudeCode: true });
+    expect(result.afterLogin).toEqual(result.before);
+    expect(result.picked.status).toMatchObject({ provider: "claude-subscription", model: "claude-sonnet-5-5" });
+    expect(result.posted).toBe(true);
+    expect(result.screen).not.toContain("fixture-code");
+    expect(result.transcript).toContain("synthetic SDK transport works");
+    expect(result.events.some((event: { type: string }) => event.type === "error")).toBe(false);
+    expect(JSON.parse(await readFile(path.join(home, ".casper/agent/auth.json"), "utf8"))).toEqual({});
+    expect(await Bun.file(path.join(home, ".casper/settings.json")).exists()).toBe(false);
+  } finally { await removeTempDir(root); }
+}, 120_000);
+
 test("fresh Casper sessions and isolated readers can select the subscription provider without a Pi install", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-claude-runtime-"));
   try {

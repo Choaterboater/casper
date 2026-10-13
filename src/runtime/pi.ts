@@ -714,7 +714,7 @@ export class PiRuntime implements AgentRuntime {
         if (result.status === "saved" || result.status === "saved-needs-refresh") {
           const signal = AbortSignal.any([this.lifetime.signal, ...(options.signal ? [options.signal] : []), AbortSignal.timeout(15_000)]);
           const refreshed = this.models ? await this.models.refreshAuth(provider, signal) : result.status === "saved";
-          return { status: refreshed ? "saved" : "saved-needs-refresh" };
+          return { status: refreshed ? "saved" : "saved-needs-refresh", ...result.claudeCode ? { claudeCode: true as const } : {} };
         }
       }
       return result;
