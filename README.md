@@ -36,20 +36,20 @@ Casper itself is free and open source. A task spends money only with your own mo
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.33/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.34/install.sh | sh
 ```
 
 Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.33/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.34/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
 [release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.2.33**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.33`,
+if anything is wrong. These commands pin **v0.2.34**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.34`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 Use the one-line command above rather than downloading a program in your browser: the installer
@@ -83,7 +83,7 @@ From the shell:
 ```sh
 casper "Explain this project"
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.2.33 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.2.34 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
@@ -174,6 +174,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 | Contributing | [How Casper is built](docs/ARCHITECTURE.md) · [Working on Casper](docs/DEVELOPING.md) |
 
 ## What's new
+
+v0.2.34: `/login claude-subscription` reuses Claude Code's verified plan login or starts its browser sign-in; the model picker separates Claude Code plan from Anthropic API; login refreshes models without changing your current model or default, and an unavailable provider cannot report refresh success. Bulky old tool output becomes a history stub, and a failed final browser replay gets one bounded repair turn. See [release notes](docs/RELEASE.md).
 
 v0.2.33: Casper asks less, as Claude Code does: with the sandbox off, routine shell commands such as `git commit`, `npm test` and `bun install` run without a box, and the AI's browser clicks, types, starts the project's dev script and serves a folder of plain files itself (each with a switch in `/settings`); a slow command moves to the background instead of being stopped, and a stalled one ends with the reason; browser checks end honestly on apps that work and page checks note what feels wrong to use; pictures come from your ChatGPT plan or a free model; Ollama models run as their Modelfile says; and your own slash commands, `/rewind` and `/review` are new.
 [Release notes](docs/RELEASE.md#v0233-fewer-interruptions-a-browser-the-ai-drives-itself-and-slow-commands-that-keep-running) ·
