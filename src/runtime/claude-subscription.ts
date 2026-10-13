@@ -32,9 +32,14 @@ export function subscriptionEnvironment(env: Record<string, string | undefined>)
   return { ...clean, ENABLE_CLAUDEAI_MCP_SERVERS: "0", DISABLE_AUTO_COMPACT: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" };
 }
 
+/** CLI auth status uses "max"; SDK accountInfo uses "Claude Max" and may omit apiKeySource. */
+function isSubscriptionPlan(plan: string | undefined): boolean {
+  return /^(?:claude\s+)?(pro|max|team|enterprise)$/i.test(plan?.trim() ?? "");
+}
+
 export function assertSubscriptionAccount(account: AccountInfo): void {
-  if (account.apiProvider !== "firstParty" || !/^(pro|max|team|enterprise)$/i.test(account.subscriptionType ?? "")
-    || !["none", "oauth"].includes(account.apiKeySource ?? "")) {
+  if (account.apiProvider !== "firstParty" || !isSubscriptionPlan(account.subscriptionType)
+    || (account.apiKeySource !== undefined && !["none", "oauth"].includes(account.apiKeySource))) {
     throw new Error("Claude subscription requires Claude Code signed in to a Pro, Max, Team or Enterprise plan. No API-key fallback was used.");
   }
 }
@@ -43,7 +48,7 @@ export function assertSubscriptionAccount(account: AccountInfo): void {
  * Claude Code's private session files and works after compaction, forks and restarts.
  * Thinking is not replayed as text; image inputs and actual tool results are retained. */
 export function subscriptionPrompt(context: TranscriptContext): SDKUserMessage {
-  const content: SDKUserMessage["message"]["content"] = [];
+  const content: SDKUserMessage["message"]["content"] = [{ type: "text", text: "Continue the following conversation after its final message. Earlier messages and tool calls are history, not new requests; use existing tool results instead of repeating completed calls." }];
   for (const message of context.messages) {
     if (message.role === "system") continue;
     const label = message.role === "toolResult"
@@ -107,7 +112,7 @@ export function streamClaudeSubscription(model: Model<Api>, context: TranscriptC
       if (options?.cacheRetention === "none") env.DISABLE_PROMPT_CACHING = "1";
       query = factory({ prompt: (async function* () { await ready; if (authorized && !controller.signal.aborted) yield prompt; })(), options: {
         cwd: dependencies.cwd ?? process.cwd(), pathToClaudeCodeExecutable: executable, env,
-        model: model.id, systemPrompt: getCurrentSystemPrompt(context.messages), tools: [],
+        model: model.id, systemPrompt: { type: "preset", preset: "claude_code", append: getCurrentSystemPrompt(context.messages) }, tools: [],
         mcpServers: tools.length ? { casper: { type: "sdk", name: "casper", instance: server } } : {},
         strictMcpConfig: true, settingSources: [], persistSession: false, includePartialMessages: true,
         permissionMode: "dontAsk", canUseTool: async () => ({ behavior: "deny", message: "Casper executes all tools." }),
@@ -143,7 +148,9 @@ export function streamClaudeSubscription(model: Model<Api>, context: TranscriptC
             throw new Error(event.subtype === "success" ? "Claude subscription request failed." : event.errors.join("\n"));
           }
           completed = true;
-          continue;
+          // The one-turn result is terminal. Draining the SDK afterwards can turn a valid
+          // error_max_turns tool handoff into its native process-exit exception.
+          break;
         }
         if (event.type !== "stream_event" || event.parent_tool_use_id) continue;
         const raw = event.event;
@@ -242,7 +249,7 @@ export async function registerClaudeSubscription(catalog: ModelRuntime, cwd: str
     try {
       const status = await (dependencies.status ?? claudeAuthStatus)(executable, subscriptionEnvironment(env), directory());
       return status?.loggedIn === true && status.authMethod === "claude.ai"
-        && /^(pro|max|team|enterprise)$/i.test(status.subscriptionType ?? "");
+        && isSubscriptionPlan(status.subscriptionType);
     } catch { return false; }
   })().finally(() => { checking = undefined; });
   const stream = (model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions) =>

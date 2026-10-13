@@ -38,14 +38,14 @@ function events(toolCall = false): SDKMessage[] {
     raw({ type: "message_stop" }), result(toolCall ? "error_max_turns" : "success"),
   ];
 }
-function fakeQuery(messages = events(), info: AccountInfo = account) {
+function fakeQuery(messages = events(), info: AccountInfo = account, exitError?: Error) {
   let calls = 0;
   let captured: { options: Options; prompt: AsyncIterable<SDKUserMessage> } | undefined;
   let closed = false; const prompts: SDKUserMessage[] = [];
   const query = (input: { options: Options; prompt: AsyncIterable<SDKUserMessage> }) => {
     calls++; captured = input;
     return { accountInfo: async () => info, close: () => { closed = true; },
-      async *[Symbol.asyncIterator]() { for await (const prompt of input.prompt) prompts.push(prompt); yield* messages; } };
+      async *[Symbol.asyncIterator]() { for await (const prompt of input.prompt) prompts.push(prompt); yield* messages; if (exitError) throw exitError; } };
   };
   return { query, options: () => captured!.options, prompts, closed: () => closed, calls: () => calls };
 }
@@ -121,6 +121,11 @@ test("subscription availability trusts only native Claude Code's signed-in plan 
   await isolated.getAvailable();
   expect(isolated.hasConfiguredAuth(CLAUDE_SUBSCRIPTION)).toBe(true);
   expect((await isolated.getAuth(CLAUDE_SUBSCRIPTION))?.auth).toEqual({});
+  for (const subscriptionType of ["Claude Max", "pro", "Claude Team", "enterprise"]) {
+    status = { ...status, subscriptionType };
+    await isolated.getAvailable();
+    expect(isolated.hasConfiguredAuth(CLAUDE_SUBSCRIPTION)).toBe(true);
+  }
   for (const invalid of [{ ...status, loggedIn: false }, { ...status, authMethod: "api_key" }, { ...status, subscriptionType: "unknown" }]) {
     status = invalid;
     await isolated.getAvailable();
@@ -146,6 +151,29 @@ test("account check rejects API keys, gateways and unknown plans", () => {
   }
 });
 
+test("subscription account accepts the SDK's plan labels and omitted API-key source", () => {
+  for (const plan of ["pro", "max", "team", "enterprise"]) {
+    for (const subscriptionType of [plan, `Claude ${plan}`, ` CLAUDE ${plan.toUpperCase()} `]) {
+      expect(() => assertSubscriptionAccount({ apiProvider: "firstParty", subscriptionType })).not.toThrow();
+      expect(() => assertSubscriptionAccount({ apiProvider: "firstParty", subscriptionType, apiKeySource: "oauth" })).not.toThrow();
+    }
+  }
+  for (const info of [
+    { apiProvider: "firstParty", subscriptionType: "Claude Free" },
+    { apiProvider: "firstParty", subscriptionType: "Claude Max", apiKeySource: "user" },
+    { apiProvider: "firstParty", subscriptionType: "Claude Max", apiKeySource: "" },
+    { apiProvider: "gateway", subscriptionType: "Claude Max" },
+  ] as AccountInfo[]) expect(() => assertSubscriptionAccount(info)).toThrow("No API-key fallback");
+});
+
+test("a real-shaped Max account releases the prompt without copying credentials", async () => {
+  const fake = fakeQuery(events(), { apiProvider: "firstParty", subscriptionType: "Claude Max" });
+  const response = await streamClaudeSubscription(model, context, undefined, { ...fake, executable: "fixture", env: {} }).result();
+  expect(response.stopReason).toBe("stop");
+  expect(fake.prompts).toHaveLength(1);
+  expect(fake.closed()).toBe(true);
+});
+
 test("MCP declarations preserve JSON schemas and cannot execute tools", async () => {
   const server = proposalServer([tool]); const client = new Client({ name: "fixture", version: "1" });
   const [a, b] = InMemoryTransport.createLinkedPair();
@@ -164,7 +192,8 @@ test("text streams and usage translate, with prompt fidelity and no SDK-side exe
   expect(response.stopReason).toBe("stop"); expect(response.content).toEqual([{ type: "text", text: "Hello" }]);
   expect(response.usage).toMatchObject({ input: 20, output: 3, cacheRead: 10, cacheWrite: 5, totalTokens: 38 });
   expect(observed).toEqual(["start", "text_start", "text_delta", "text_end", "done"]);
-  expect(fake.options()).toMatchObject({ systemPrompt: "Casper policy: ask before consequential actions.", cwd: "fixture-project", tools: [], maxTurns: 1,
+  expect(fake.options().systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "Casper policy: ask before consequential actions." });
+  expect(fake.options()).toMatchObject({ cwd: "fixture-project", tools: [], maxTurns: 1,
     strictMcpConfig: true, settingSources: [], persistSession: false, effort: "high", permissionMode: "dontAsk" });
   expect(fake.options().env!.ANTHROPIC_API_KEY).toBeUndefined();
   expect(fake.options().env!.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe("100");
@@ -183,7 +212,8 @@ test("each completion creates one SDK query and replays visible history as label
     expect(fake.options().persistSession).toBe(false);
     expect(fake.options().resume).toBeUndefined(); expect(fake.options().continue).toBeUndefined();
   }
-  expect(second.prompts[0]!.message.content).toEqual([
+  expect(second.prompts[0]!.message.content[0]).toEqual({ type: "text", text: "Continue the following conversation after its final message. Earlier messages and tool calls are history, not new requests; use existing tool results instead of repeating completed calls." });
+  expect(second.prompts[0]!.message.content.slice(1)).toEqual([
     { type: "text", text: "USER:" }, { type: "text", text: "Read the fixture." },
     { type: "text", text: "ASSISTANT:" }, { type: "text", text: "Hello" },
     { type: "text", text: "USER:" }, { type: "text", text: "Next request" },
@@ -199,11 +229,40 @@ test("Claude Code receives no Casper-managed credentials, refresh, identity or b
   expect(fake.options().settingSources).toEqual([]);
 });
 
+test("SDK initialization accepts subscription sources and stops API-key switches", async () => {
+  for (const apiKeySource of ["none", "oauth", "user", "env", "", undefined]) {
+    const init = { type: "system", subtype: "init", apiKeySource } as SDKMessage;
+    const fake = fakeQuery([init, ...events()], { apiProvider: "firstParty", subscriptionType: "Claude Max" });
+    const response = await streamClaudeSubscription(model, context, undefined, { ...fake, executable: "fixture" }).result();
+    const allowed = apiKeySource === "none" || apiKeySource === "oauth";
+    expect(response.stopReason).toBe(allowed ? "stop" : "error");
+    if (!allowed) {
+      expect(response.errorMessage).toContain("switched to API-key authentication");
+      expect(response.content).toEqual([]);
+    }
+    expect(fake.closed()).toBe(true);
+  }
+});
+
 test("tool proposals are returned to Casper, not run by the SDK", async () => {
   const fake = fakeQuery(events(true));
   const response = await streamClaudeSubscription(model, context, undefined, { ...fake, executable: "fixture" }).result();
   expect(response.stopReason).toBe("toolUse");
   expect(response.content).toEqual([{ type: "toolCall", name: "read", id: "call_fixture", arguments: { path: "fixture.txt" } }]);
+});
+
+test("SDK process exit after a terminal result does not discard a completed response or tool proposal", async () => {
+  for (const toolCall of [false, true]) {
+    const fake = fakeQuery(events(toolCall), account, new Error("Claude Code returned an error result: Reached maximum number of turns (1)"));
+    const response = await streamClaudeSubscription(model, context, undefined, { ...fake, executable: "fixture" }).result();
+    expect(response.stopReason).toBe(toolCall ? "toolUse" : "stop");
+    expect(response.errorMessage).toBeUndefined();
+    expect(fake.closed()).toBe(true);
+  }
+  const fake = fakeQuery(events(true).slice(0, -1), account, new Error("Claude Code returned an error result: Reached maximum number of turns (1)"));
+  const incomplete = await streamClaudeSubscription(model, context, undefined, { ...fake, executable: "fixture" }).result();
+  expect(incomplete.stopReason).toBe("error");
+  expect(fake.closed()).toBe(true);
 });
 
 test("failed subscription auth never releases a user prompt", async () => {

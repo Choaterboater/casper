@@ -471,8 +471,9 @@
           <ul>
             <li><strong>Claude through Claude Code.</strong> <code>/model claude-subscription/claude-opus-4-8</code>
             sends requests through the official Claude Agent SDK and the <code>claude</code> program (<code>claude.exe</code>
-            on Windows) signed in on this computer. Claude Code keeps its sign-in; Casper never reads it, and still runs
-            every tool with its approvals and sandbox. How a plan counts these requests is Anthropic's decision.</li>
+            on Windows) signed in on this computer. Claude Code keeps its sign-in and default prompt, with Casper's
+            instructions appended; Casper never copies credentials and still runs every tool with its approvals and sandbox.
+            How a plan counts these requests is Anthropic's decision.</li>
             <li><strong>Pages the AI makes.</strong> Options side by side, a mock-up, a dashboard or a report opens in
             your browser from a local server on <code>127.0.0.1</code>; <code>/pages</code> lists, opens and removes
             them. <strong>Pages the AI makes</strong> and <strong>Open pages in the browser</strong> in

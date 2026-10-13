@@ -676,11 +676,16 @@ npm `.cmd` shim is not supported: use the native Claude Code installation. `CASP
 can name the installed executable explicitly, including a path with spaces. Compiled Casper uses
 this external executable too; it does not rely on finding an SDK binary inside Bun's embedded files.
 
-Casper keeps its exact system instructions, tools, permissions, sandbox, compaction and saved
-conversations. The SDK receives tool declarations through an in-process MCP server, but cannot
-execute them; proposals return to Casper's normal approval/execution path. Each completion starts
-one SDK query with one model turn and replays the visible conversation as labelled text, retaining
-images and actual tool results but not historical thinking. This avoids manipulating Claude Code's
+Casper appends its exact system instructions to Claude Code's default `claude_code` prompt preset,
+rather than replacing that preset with a custom prompt. It keeps its tools, permissions, sandbox,
+compaction and saved conversations. The SDK receives tool declarations through an in-process MCP
+server, but cannot execute them; proposals return to Casper's normal approval/execution path. Each
+completion starts one SDK query with one model turn and replays the visible conversation as labelled
+text, retaining images and actual tool results but not historical thinking. Replay instructions tell
+Claude to continue after the final message rather than repeat a call whose result is already present.
+A completed tool proposal
+hands control back to Casper at the SDK's terminal result, including the expected one-turn limit;
+later CLI shutdown errors do not discard it. This avoids manipulating Claude Code's
 private session files; it is not native alternating-turn replay and long conversations can increase
 input usage. New instructions and tool lists take effect on the next completion. Steering applies
 at Casper's next tool boundary, not inside an already-running completion.
@@ -688,7 +693,9 @@ at Casper's next tool boundary, not inside an already-running completion.
 API keys, endpoint overrides and cloud-provider switches are cleared from the Claude Code child's
 environment; user/project Claude settings and inherited MCP servers are not loaded. The provider
 checks the SDK-reported account before releasing the user prompt and rejects API-key or gateway
-accounts instead of falling back. Claude Code itself owns request identity and billing headers.
+accounts instead of falling back. Both short plan names (`max`) and SDK display names (`Claude Max`)
+are accepted; the SDK's optional `apiKeySource` may be absent, but an explicit API-key source is
+rejected. Claude Code itself owns request identity and billing headers.
 The footer's token cost is an API-equivalent estimate, not a charge. Subscription limits, model
 entitlements and any server-side extra-usage routing remain Anthropic's decisions; this adapter
 cannot guarantee billing or override plan limits. Anthropic's SDK documentation also requires
