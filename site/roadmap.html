@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0234">v0.2.34: Claude Code plan login</a></li>
               <li><a href="#v0233">v0.2.33: fewer interruptions</a></li>
               <li><a href="#v0232">v0.2.32: remote model servers</a></li>
               <li><a href="#v0231">v0.2.31: steps and sandbox off</a></li>
@@ -110,7 +111,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.33. New work shows here before the next preview.</p>
+          <p>The v0.2.34 preview contains the Claude Code plan login and model refresh fixes, leaner tool-output history, and one bounded repair for a failed final browser replay. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -118,7 +119,7 @@
         <h2 id="coming-h">Planned, not started</h2>
         <aside class="callout soon">
           <strong class="callout-title">Not in any release yet</strong>
-          <p>Nothing else in this section is in v0.2.33: the first part of Crews shipped in v0.2.23, AI-started
+          <p>Nothing else in this section is in v0.2.34: the first part of Crews shipped in v0.2.23, AI-started
           builders in v0.2.24, reviewers and a fix round in v0.2.25, and the rest has not been started. Names, commands and details may change, or move to a later version, before
           they ship.</p>
         </aside>
@@ -358,10 +359,23 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0234" aria-labelledby="v0234-h" open>
+          <summary class="release-heading">
+            <h3 id="v0234-h">v0.2.34 · Claude Code plan login and leaner conversation history</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><code>/login claude-subscription</code> reuses Claude Code's verified plan login or starts its own browser sign-in; no plan tokens are copied into Casper.</li>
+            <li>The picker separates Claude Code plan from Anthropic API. Login refreshes models without changing your current model or saved default, and unavailable authentication cannot report refresh success.</li>
+            <li>Bulky old tool output becomes a stub while recent rounds, failures and referenced output stay visible. A failed final browser replay gets one bounded repair turn.</li>
+          </ul>
+          <p>Terminal checks, the remaining Crews work and expanded vendor packs are still planned, not shipped here.</p>
+        </details>
+
         <details class="card release" id="v0233" aria-labelledby="v0233-h" open>
           <summary class="release-heading">
             <h3 id="v0233-h">v0.2.33 · Fewer interruptions, a browser the AI drives itself, slow commands that keep running</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <p>Casper asks less, as Claude Code does, a slow command keeps running in the background, and browser checks
           end honestly on apps that work. Each new thing that runs without asking has a switch in <code>/settings</code>.</p>
@@ -420,7 +434,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0231" aria-labelledby="v0231-h" open>
+        <details class="card release" id="v0231" aria-labelledby="v0231-h">
           <summary class="release-heading">
             <h3 id="v0231-h">v0.2.31 · Steps under the AI's words, the sandbox off unless you turn it on, Pi 1.1.0</h3>
             <span class="badge">released</span>
@@ -1055,7 +1069,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.33</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.34</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

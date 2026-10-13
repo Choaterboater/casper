@@ -4,11 +4,23 @@
 published, and what the installers promise. **When you'd use it:** to see what is new
 before you upgrade, or when you build or publish a release yourself.
 
-Casper distributes an unsigned **v0.2.33 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.33`,
+Casper distributes an unsigned **v0.2.34 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.34`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.34: Claude Code plan login and leaner conversation history
+
+- `/login claude-subscription` uses Claude Code's existing verified plan login or starts its own browser sign-in. Claude Code owns credentials and refresh; Casper copies no plan tokens.
+- The model picker labels **Claude Code plan** separately from **Anthropic API**. Plan models do not claim to be free; usage accounting remains Anthropic's decision.
+- A successful login refreshes available plan models without changing the current model or saved default. An unavailable provider no longer reports a successful authentication refresh.
+- Plain `/login` can choose Claude Code even when Casper's own credential destination is unusable. Providers that write credentials still check that destination before saving.
+- The Claude bridge verifies the subscription account and preserves Casper's own tool execution, approvals and sandbox.
+- Old bulky tool output becomes a stub when it fills a fifth of the model window or the prompt passes 60%, while recent rounds, failures and referenced output stay visible. Saved output is unchanged.
+- A failed end-of-task browser replay gets one bounded repair turn.
+
+Terminal checks, the remaining Crews work and expanded vendor packs are still roadmap items, not features of this release.
 
 ## v0.2.33: fewer interruptions, a browser the AI drives itself, and slow commands that keep running
 
