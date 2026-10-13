@@ -168,7 +168,7 @@ conpty("ConPTY: numbered sign-in with hidden key entry, /settings, /resume picke
   await boxReady();
   s.press("down");
   s.press("down");
-  await s.waitFor("row 3 highlighted", () => /→ 3 Anthropic \(Claude\) · paste an API key/.test(s.visible()));
+  await s.waitFor("row 3 highlighted", () => /→ 3 Anthropic API · paste an API key/.test(s.visible()));
   s.press("enter");
   await s.until("Private input: [empty]");
   s.write(`\x1b[200~${secret}\x1b[201~`);
