@@ -18,9 +18,9 @@ import { remoteTargets, runsAlone, segmentTargets, splitShell, targetLabel, trus
 import { startAskpass } from "../ssh/askpass";
 import { forgetSshSecrets, sshLoginHandler, sshSessionMemory, type SshLoginHost } from "../ssh/login";
 import { forgetOnceSecrets } from "../secrets/typed";
-import { githubLoginChoices, HOST_CHOICES, NO, REACH_CHOICES, shellCommandChoices, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
+import { githubLoginChoices, HOST_CHOICES, NO, REACH_CHOICES, SHELL_COMMAND_CHOICES, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
 import { githubLoginCommand, githubRunEnv, LOGIN_FAILED, startsGitOrGh, type GithubLoginCommand } from "../sandbox/github-login";
-import { commandCore, commandPrefix, matchesPrefix, readOnlyCommand } from "../sandbox/read-only";
+import { answerKey, commandCore, readOnlyCommand } from "../sandbox/read-only";
 import { routineCommand } from "../sandbox/routine";
 
 /**
@@ -152,9 +152,9 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
   const show = (entry: string) => displayPath(entry, sandbox.root, sandbox.home);
   /** Hosts you said "Yes, for this session" to. */
   const sessionReach = new Set<string>();
-  /** With no sandbox: commands (or command prefixes) you said "Yes, for this session" to. */
+  /** With no sandbox: the exact commands you said "Yes, for this session" to. */
   // Kept on the store, so /allowed lists and forgets them.
-  const { sessionCommands, sessionPrefixes } = store;
+  const { sessionCommands } = store;
   /** Commands you said yes to just now, with the hosts they reach (wrap lets them through). */
   const cleared = new Map<string, RemoteTarget[]>();
   /** git and gh commands you said yes to just now: wrap runs them outside the sandbox with your GitHub login. */
@@ -347,21 +347,22 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       if (readOnlyCommand(command, where)) return undefined;
       // So does routine work (git commit, npm test, bun install, rm -rf dist), as in Claude Code's auto mode, unless you turned it off.
       if (host.routineCommands?.() && routineCommand(command, where)) return undefined;
-      // `cd app && npm test 2>&1 | tail -25`: the one command that is not a read is what a remembered answer covers.
-      const core = commandCore(command, where);
-      if (sessionCommands.has(command) || [...sessionPrefixes].some((prefix) => matchesPrefix(command, prefix) || (core !== undefined && matchesPrefix(core, prefix)))) return undefined;
-      if (await store.allowsCommand(command, core)) return undefined;
+      // A remembered answer covers this exact command only: a yes to `rm -rf build` never covers `rm -rf ~`. In
+      // `cd app && npm test 2>&1 | tail -25` that is `cd app && npm test` (answerKey), so a later line of that kind
+      // matches it too, and the same words in another folder, or fed another script (`cat a.sh | sh`), ask again.
+      const exact = answerKey(command, where);
+      if (sessionCommands.has(command) || sessionCommands.has(exact)) return undefined;
+      if (await store.allowsCommand(command, commandCore(command, where), exact)) return undefined;
       if (!host.canAsk()) return SHELL_CANT_ASK;
-      const prefix = commandPrefix(core ?? command);
-      const kept = prefix ?? shortCommand(command);
+      const kept = shortCommand(exact);
       // A yes leaves no line of its own (the command's own line shows it ran); a remembered one leaves one short line.
       const record = (answer: string) => answer === YES_ONCE ? "" : answer === YES_SESSION ? `✓ allowed until you quit: ${kept}`
         : answer === YES_ALWAYS ? `✓ allowed always in this project: ${kept}` : undefined;
-      const answer = await sessionYesOr(host, shellQuestion(command), shellCommandChoices(prefix), signal, { record });
+      const answer = await sessionYesOr(host, shellQuestion(command), [...SHELL_COMMAND_CHOICES], signal, { record });
       if (answer !== undefined && answer !== NO && !host.stopAsking?.() && ++shellYeses === 3) sayOnce(STOP_ASKING_HINT);
       if (answer === YES_ONCE) return undefined;
-      if (answer === YES_SESSION) { if (prefix) sessionPrefixes.add(prefix); else sessionCommands.add(command); return undefined; }
-      if (answer === YES_ALWAYS) { await (prefix ? store.addPrefix(prefix) : store.addCommand(command)); return undefined; }
+      if (answer === YES_SESSION) { sessionCommands.add(exact); return undefined; }
+      if (answer === YES_ALWAYS) { await store.addCommand(exact); return undefined; }
       return SHELL_DECLINED;
     },
     logDir() {

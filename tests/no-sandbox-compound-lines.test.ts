@@ -6,7 +6,7 @@ import { createSessionSandbox, runtimeShell, SHELL_DECLINED, STOP_ASKING_HINT, t
 import { YES_ALWAYS, YES_ONCE, YES_SESSION } from "../src/app/safe-choices";
 import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
-import { commandCore, commandPrefix, readOnlyCommand } from "../src/sandbox/read-only";
+import { commandCore, readOnlyCommand } from "../src/sandbox/read-only";
 import { SandboxStore } from "../src/sandbox/store";
 import { fakeEngine } from "./support/sandbox-fakes";
 import { removeTempDir } from "./support/temp-dir";
@@ -60,7 +60,6 @@ test("look-around lines from a cloned project are plain reads: a cd into the pro
   expect(readOnlyCommand(TEST_RUN(project), where)).toBe(false);
   // Its program is named from the folder Casper was opened in, so it never matches a .venv of another folder.
   expect(commandCore(TEST_RUN(project), where)).toBe("./webapp/.venv/Scripts/python.exe -m pytest -q");
-  expect(commandPrefix("./webapp/.venv/Scripts/python.exe -m pytest -q")).toBe("./webapp/.venv/Scripts/python.exe -m pytest");
 });
 
 test("a cd counts only into a folder in the project, reached without a link, and not inside a pipe", async () => {
@@ -198,15 +197,6 @@ test("a program named by a relative path after a cd is named from the project fo
   expect(commandCore("cd webapp; ./build.sh", where)).toBeUndefined();
 });
 
-test("python -m pytest is a prefix of its own; python with anything else is still the exact command only", () => {
-  expect(commandPrefix("python -m pytest -q tests")).toBe("python -m pytest");
-  expect(commandPrefix("py -m unittest discover")).toBe("py -m unittest");
-  expect(commandPrefix("python3.12 -m pytest")).toBe("python3.12 -m pytest");
-  for (const line of ["python -m pip install x", "python x.py", "python -c 'import os'", "python -m", "python -X dev -m pytest", "python -m pytest-evil"]) {
-    expect({ line, prefix: commandPrefix(line) }).toEqual({ line, prefix: undefined });
-  }
-});
-
 /** A terminal that answers in turn and keeps each box's question, choices and record function. */
 function host(answers: Array<string | undefined>) {
   const asked: Array<{ question: string; options: string[]; settings?: PickSettings }> = [];
@@ -231,24 +221,28 @@ async function shellFor(answers: Array<string | undefined>) {
   return { project, home, context, terminal, shell: runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory)) };
 }
 
-test("with no sandbox: those reads never ask, and 'always' for the test run covers the next test run line", async () => {
-  const { project, context, terminal, shell } = await shellFor([YES_ALWAYS, undefined, undefined]);
+test("with no sandbox: those reads never ask, and 'always' for the test run covers that command again, also inside the same kind of line", async () => {
+  const { project, context, terminal, shell } = await shellFor([YES_ALWAYS, undefined, undefined, undefined]);
   for (const line of lookAroundLines(project)) expect(await shell.approve!(line)).toBeUndefined();
   expect(terminal.asked).toEqual([]);
   expect(await shell.approve!(TEST_RUN(project))).toBeUndefined();
   expect(terminal.asked).toHaveLength(1);
   expect(terminal.asked[0]!.options).toEqual(["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"]);
-  expect(JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8")).prefixes).toEqual(["./webapp/.venv/Scripts/python.exe -m pytest"]);
-  // The same kind of line, other options: no box.
-  expect(await shell.approve!(`cd ${sh(project)} && ./.venv/Scripts/python.exe -m pytest -x tests/test_pages.py 2>&1 | tail -5`)).toBeUndefined();
-  expect(await shell.approve!("./webapp/.venv/Scripts/python.exe -m pytest")).toBeUndefined();
+  const saved = JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8"));
+  expect(saved.commands).toEqual(["cd webapp && ./.venv/Scripts/python.exe -m pytest -q"]);
+  expect(saved.prefixes).toBeUndefined();
+  // The same command from the same folder, in the same kind of line: no box.
+  expect(await shell.approve!(TEST_RUN(project))).toBeUndefined();
+  expect(await shell.approve!(`cd ${sh(project)} && ./.venv/Scripts/python.exe -m pytest -q 2>&1 | tail -5`)).toBeUndefined();
+  expect(await shell.approve!("cd webapp && ./.venv/Scripts/python.exe -m pytest -q")).toBeUndefined();
   expect(terminal.asked).toHaveLength(1);
-  // Anything else that python runs still asks.
+  // Other options make another command, and anything else that python runs still asks.
+  expect(await shell.approve!(`cd ${sh(project)} && ./.venv/Scripts/python.exe -m pytest -x tests/test_pages.py 2>&1 | tail -5`)).toBe(SHELL_DECLINED);
   expect(await shell.approve!(`cd ${sh(project)} && ./.venv/Scripts/python.exe -c 'import os' | tail -5`)).toBe(SHELL_DECLINED);
-  expect(terminal.asked).toHaveLength(2);
-  // Another folder's .venv is another program.
-  expect(await shell.approve!("./.venv/Scripts/python.exe -m pytest")).toBe(SHELL_DECLINED);
   expect(terminal.asked).toHaveLength(3);
+  // Another folder's .venv is another program.
+  expect(await shell.approve!("./.venv/Scripts/python.exe -m pytest -q")).toBe(SHELL_DECLINED);
+  expect(terminal.asked).toHaveLength(4);
 });
 
 test("a remembered command covers no file read after it on the line (it may have made that file a link)", async () => {
@@ -264,10 +258,49 @@ test("a remembered command covers no file read after it on the line (it may have
 test("a program remembered by a relative path is not another folder's program of the same name", async () => {
   const { terminal, shell } = await shellFor([YES_ALWAYS, undefined]);
   expect(await shell.approve!("./build.sh --release")).toBeUndefined();
-  expect(await shell.approve!("./build.sh")).toBeUndefined();
+  expect(await shell.approve!("./build.sh --release")).toBeUndefined();
   expect(terminal.asked).toHaveLength(1);
-  expect(await shell.approve!("cd webapp && ./build.sh")).toBe(SHELL_DECLINED);
+  expect(await shell.approve!("cd webapp && ./build.sh --release")).toBe(SHELL_DECLINED);
   expect(terminal.asked).toHaveLength(2);
+});
+
+test("a remembered command keeps its folder: the same words after another cd, or with no cd, ask again", async () => {
+  const { project, context, terminal, shell } = await shellFor([YES_ALWAYS, YES_SESSION, undefined, undefined, undefined, undefined]);
+  await mkdir(path.join(project, "other"));
+  expect(await shell.approve!("cd webapp/app && python3 gen.py")).toBeUndefined();
+  expect(await shell.approve!("cd webapp && make")).toBeUndefined();
+  expect(JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8")).commands).toEqual(["cd webapp/app && python3 gen.py"]);
+  // The same command from the same folder, its output read: no box.
+  expect(await shell.approve!("cd webapp/app && python3 gen.py 2>&1 | tail -5")).toBeUndefined();
+  expect(await shell.approve!("cd webapp && make")).toBeUndefined();
+  expect(terminal.asked).toHaveLength(2);
+  for (const line of ["python3 gen.py", "cd webapp/other && python3 gen.py", "make", "cd webapp/app && make"]) {
+    expect({ line, answer: await shell.approve!(line) }).toEqual({ line, answer: SHELL_DECLINED });
+  }
+  expect(terminal.asked).toHaveLength(6);
+});
+
+test("a yes to a command fed by a pipe covers that line only: what is piped in is what runs", async () => {
+  const { terminal, shell } = await shellFor([YES_SESSION, YES_ALWAYS, undefined, undefined, undefined, undefined]);
+  expect(await shell.approve!("cat webapp/pytest.ini | sh")).toBeUndefined();
+  expect(await shell.approve!("find webapp/tests -name '*.pyc' | xargs rm -f")).toBeUndefined();
+  expect(await shell.approve!("cat webapp/pytest.ini | sh")).toBeUndefined();
+  expect(await shell.approve!("find webapp/tests -name '*.pyc' | xargs rm -f")).toBeUndefined();
+  expect(terminal.asked).toHaveLength(2);
+  for (const line of ["echo 'rm -rf ~' | sh", "sh", "cat webapp/app/main.py | sh", "find webapp -type f | xargs rm -f"]) {
+    expect({ line, answer: await shell.approve!(line) }).toEqual({ line, answer: SHELL_DECLINED });
+  }
+  expect(terminal.asked).toHaveLength(6);
+});
+
+test("an exact command an older Casper saved covers the same words in the project folder only", async () => {
+  const { context, terminal, shell } = await shellFor([undefined]);
+  await mkdir(context.stateDirectory, { recursive: true });
+  await writeFile(path.join(context.stateDirectory, "sandbox.json"), JSON.stringify({ version: 1, hosts: [], commands: ["python3 gen.py"] }));
+  expect(await shell.approve!("python3 gen.py 2>&1 | tail -5")).toBeUndefined();
+  expect(terminal.asked).toHaveLength(0);
+  expect(await shell.approve!("cd webapp && python3 gen.py")).toBe(SHELL_DECLINED);
+  expect(terminal.asked).toHaveLength(1);
 });
 
 test("a yes leaves no line of its own; a remembered one leaves one short line; a No keeps the usual record", async () => {

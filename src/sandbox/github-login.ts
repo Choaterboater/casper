@@ -276,16 +276,26 @@ const GH_API: GitRules = {
   valued: ["-X", "--method", "-H", "--header", "-q", "--jq", "-t", "--template", "--hostname", "--cache", "-p", "--preview"],
 };
 
+/** True when the words after `gh api` only read: one endpoint, GET, and only the options on the list, each written the plain
+ * way. A field, a body or graphql never passes, nor does any other way of writing an option (`-Fbody=@.env`, `-iXDELETE`,
+ * `-X=POST`), because gh reads those differently from how they look. */
+export function ghApiReads(args: readonly string[]): boolean {
+  const split = splitOptions([...args], GH_API);
+  if (!split || split.rest.length !== 1) return false;
+  const endpoint = split.rest[0]!;
+  // A full address (gh takes any endpoint with :// as one) goes to that host, over http too, with a token gh holds for it.
+  if (endpoint.includes("://")) return false;
+  // graphql is a POST that can change things; a method other than GET changes things too.
+  return !/^\/?graphql\b/i.test(endpoint) && !split.options.some(([name, value]) => (name === "-X" || name === "--method") && value?.toUpperCase() !== "GET");
+}
+
+/** gh api --hostname: a read from a host the command names itself. */
+export const ghApiNamesHost = (args: readonly string[]) => args.some((word) => word === "--hostname" || word.startsWith("--hostname="));
+
 function ghCommand(words: string[], places: GithubLoginPlaces): GithubLoginCommand | undefined {
   const group = words[1]!;
-  if (group === "api") {
-    const split = splitOptions(words.slice(2), GH_API);
-    if (!split || split.rest.length !== 1) return undefined;
-    const endpoint = split.rest[0]!;
-    // graphql is a POST that can change things; a method other than GET changes things too.
-    if (/^\/?graphql\b/i.test(endpoint) || split.options.some(([name, value]) => (name === "-X" || name === "--method") && value?.toUpperCase() !== "GET")) return undefined;
-    return { tool: "gh", action: "gh api", once: false };
-  }
+  // One that names its own host asks every time, like a git command that types its own address.
+  if (group === "api") return ghApiReads(words.slice(2)) ? { tool: "gh", action: "gh api", once: ghApiNamesHost(words.slice(2)) } : undefined;
   const sub = words[2];
   if (!sub || !GH_SUBCOMMANDS[group]?.includes(sub)) return undefined;
   const args = words.slice(3);

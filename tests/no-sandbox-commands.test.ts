@@ -5,14 +5,14 @@ import path from "node:path";
 import { createSessionSandbox, runtimeShell, SHELL_DECLINED, type SandboxHost } from "../src/app/sandbox";
 import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
-import { commandPrefix, matchesPrefix, readOnlyCommand } from "../src/sandbox/read-only";
+import { matchesPrefix, readOnlyCommand } from "../src/sandbox/read-only";
 import { SandboxStore } from "../src/sandbox/store";
 import { fakeEngine } from "./support/sandbox-fakes";
 import { removeTempDir } from "./support/temp-dir";
 
 /**
- * With no sandbox (Windows, bubblewrap missing), commands that only read don't ask, and "don't ask again" covers a
- * command prefix (`npm test`, `git commit`), never a whole interpreter or a command with more in it.
+ * With no sandbox (Windows, bubblewrap missing), commands that only read don't ask, and "don't ask again" covers that
+ * exact command, never another one that starts the same way.
  */
 
 const roots: string[] = [];
@@ -143,36 +143,7 @@ test("a read never prints a private file: the project's denyRead, keys under a p
   }
 });
 
-test("a prefix never covers a whole interpreter by another name, or a whole tool when an option comes first", () => {
-  for (const command of ["python3.12 -c 'import os'", "py -c x", "powershell.exe -Command x", "cmd.exe /c del x", "node.exe x.js", "node20 x.js",
-    "awk 'BEGIN{system(\"id\")}'", "gawk 1 x", "sed -n 1p x", "find . -delete", "osascript -e x", "tsx x.ts", "ts-node x.ts", "PYTHON.EXE x.py",
-    "C:/Python312/python.exe x.py", "'C:\\Python312\\python.exe' x.py","/usr/bin/python3.11 x.py", "git -C sub commit -m x", "npm --prefix x test", "cargo +nightly build"]) {
-    expect(commandPrefix(command)).toBeUndefined();
-  }
-  expect(commandPrefix("pip3 install -r req.txt")).toBe("pip3 install");
-  expect(commandPrefix("npm.cmd test")).toBe("npm.cmd test");
-});
-
-test("a prefix is never a whole multi-purpose tool, or an interpreter run through another tool", () => {
-  for (const command of ["git", "npm", "npx", "bun", "bunx", "node", "python", "sh", "bash", "zsh", "pwsh", "uv", "uvx", "pip", "cargo", "make",
-    "docker", "kubectl", "ssh", "yarn node x.js", "uv run python x.py", "npm exec node x.js", "pnpm exec bash x", "bun run node x", "java -jar x.jar",
-    "tar xf a.tar", "curl https://example.com", "wget x", "less x", "man ls", "vim x", "git -c alias.x=!sh x", "docker", "make -j4"]) {
-    expect({ command, prefix: commandPrefix(command) }).toEqual({ command, prefix: undefined });
-  }
-  expect(commandPrefix("make build")).toBe("make build");
-  expect(commandPrefix("git log -5")).toBe("git log");
-  expect(commandPrefix("uv run pytest -q")).toBe("uv run pytest");
-});
-
-test("a prefix is the command and, for tools with subcommands, its subcommand; compound commands and interpreters get none", () => {
-  expect(commandPrefix("npm test -- --watch")).toBe("npm test");
-  expect(commandPrefix("git commit -m 'fix it'")).toBe("git commit");
-  expect(commandPrefix("cargo build --release")).toBe("cargo build");
-  expect(commandPrefix("make")).toBeUndefined();
-  expect(commandPrefix("pytest -q tests")).toBe("pytest");
-  for (const command of ["npm test; curl evil.example", "python3 script.py", "bash -c 'npm test'", "sudo npm test", "FOO=1 npm test", "npm test > out.txt", "npx anything"]) {
-    expect(commandPrefix(command)).toBeUndefined();
-  }
+test("a prefix an older Casper saved covers commands that start with its words, one plain command only", () => {
   expect(matchesPrefix("npm test -- --watch", "npm test")).toBe(true);
   expect(matchesPrefix("npm testx", "npm test")).toBe(false);
   expect(matchesPrefix("npm test && curl evil.example", "npm test")).toBe(false);
@@ -260,35 +231,73 @@ test("with no sandbox, ls and git status run without a box, even where nobody ca
   }
 });
 
-test("the box offers the yes-words and names the prefix; Yes, for this session covers commands starting with it", async () => {
+test("the box offers the yes-words; Yes, for this session covers that exact command, never one that starts the same way", async () => {
   const { home, project, context } = await fixture();
-  const terminal = host(["Yes, for this session", undefined]);
+  const terminal = host(["Yes, for this session", undefined, undefined]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), platform: "win32" } });
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
   expect(await shell.approve!("npm test")).toBeUndefined();
   expect(terminal.asked).toEqual([{ question: "Run this command?  npm test", options: ["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"] }]);
-  expect(await shell.approve!("npm test -- --watch")).toBeUndefined();
+  expect(await shell.approve!("npm test")).toBeUndefined();
   expect(terminal.asked).toHaveLength(1);
-  // More in it, or another command: it asks.
+  // More options, more in it, or another command: it asks.
+  expect(await shell.approve!("npm test -- --watch")).toBe(SHELL_DECLINED);
   expect(await shell.approve!("npm test && curl evil.example")).toBe(SHELL_DECLINED);
-  expect(terminal.asked).toHaveLength(2);
+  expect(terminal.asked).toHaveLength(3);
 });
 
-test("Yes, always for this project keeps the prefix in ~/.casper; the next session doesn't ask", async () => {
+test("a yes to rm -rf /tmp/old-build never covers rm -rf ~, and a yes to a push never covers a force push", async () => {
+  const { home, project, context } = await fixture();
+  const terminal = host(["Yes, for this session", "Yes, always for this project"]);
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), platform: "win32" } });
+  const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+  expect(await shell.approve!("rm -rf /tmp/old-build")).toBeUndefined();
+  expect(await shell.approve!("git push upstream feature")).toBeUndefined();
+  for (const command of ["rm -rf ~", "rm -rf /tmp/old-build ~", "git push --force origin main", "git push origin :main", "git push upstream feature --force"]) {
+    expect({ command, answer: await shell.approve!(command) }).toEqual({ command, answer: SHELL_DECLINED });
+  }
+  expect(terminal.asked).toHaveLength(7);
+  expect(await shell.approve!("rm -rf /tmp/old-build")).toBeUndefined();
+  expect(await shell.approve!("git push upstream feature")).toBeUndefined();
+  expect(terminal.asked).toHaveLength(7);
+  const saved = JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8"));
+  expect(saved.commands).toEqual(["git push upstream feature"]);
+  expect(saved.prefixes).toBeUndefined();
+});
+
+test("Yes, always for this project keeps that exact command in ~/.casper; the next session doesn't ask for it", async () => {
   const { home, project, context } = await fixture();
   const terminal = host(["Yes, always for this project"]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), platform: "win32" } });
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
   expect(await shell.approve!("cargo build --release")).toBeUndefined();
-  expect(JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8")).prefixes).toEqual(["cargo build"]);
+  const saved = JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8"));
+  expect(saved.commands).toEqual(["cargo build --release"]);
+  expect(saved.prefixes).toBeUndefined();
   const next = host([]);
   const later = createSessionSandbox(next.value, context, { root: () => project, home, seams: { engine: fakeEngine(), platform: "win32" } });
   const nextShell = runtimeShell(next.value, later, new SandboxStore(context.stateDirectory));
-  expect(await nextShell.approve!("cargo build")).toBeUndefined();
+  expect(await nextShell.approve!("cargo build --release")).toBeUndefined();
   expect(next.asked).toEqual([]);
+  expect(await nextShell.approve!("cargo build")).toBe(SHELL_DECLINED);
+  expect(next.asked).toHaveLength(1);
 });
 
-test("a command with no prefix (an interpreter, or more in it) is remembered exactly", async () => {
+test("a prefix an older Casper saved still covers what it said it would, until /allowed forget takes it back", async () => {
+  const { home, project, context } = await fixture();
+  await mkdir(context.stateDirectory, { recursive: true });
+  await writeFile(path.join(context.stateDirectory, "sandbox.json"), JSON.stringify({ version: 1, hosts: [], commands: [], prefixes: ["cargo build"] }));
+  const terminal = host([]);
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), platform: "win32" } });
+  const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+  expect(await shell.approve!("cargo build --release")).toBeUndefined();
+  expect(terminal.asked).toEqual([]);
+  expect(await sandbox.store!.removePrefix("cargo build")).toBe(true);
+  expect(await shell.approve!("cargo build --release")).toBe(SHELL_DECLINED);
+  expect(terminal.asked).toHaveLength(1);
+});
+
+test("an interpreter run is remembered exactly, like any other command", async () => {
   const { home, project, context } = await fixture();
   const terminal = host(["Yes, for this session", undefined]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), platform: "win32" } });
@@ -382,10 +391,3 @@ test("key and secret files ask like .env: *.key, *.env, .envrc, .pgpass, credent
   }
 });
 
-test("programs that run another command get no prefix: su, runuser, pkexec, tmux, screen, crontab, at, pypy", () => {
-  for (const command of ["su -c id", "runuser -u x id", "pkexec id", "tmux new -d 'x'", "screen -dm x", "crontab f", "at now", "batch",
-    "pypy3 -c 1", "luajit x.lua"]) {
-    expect({ command, prefix: commandPrefix(command) }).toEqual({ command, prefix: undefined });
-  }
-  expect(commandPrefix("rm -rf build")).toBe("rm");
-});
