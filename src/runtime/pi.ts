@@ -8,6 +8,8 @@ import { DEFAULT_COMMAND_LIMIT_SECONDS } from "./background-commands";
 import { pidFile, STALLED_EXIT_CODE, stalledMessage, watchStall } from "./stalled-commands";
 import { matchConversation } from "../sessions/resume";
 import { PiModels } from "./pi-models";
+import { BASH_TIMEOUT_CAP_SECONDS, COMMAND_GUIDANCE, SEARCH_GUIDANCE, LEAN_COMMAND_GUIDANCE, LEAN_SEARCH_GUIDANCE, projectGuidance } from "./guidance";
+export { BASH_TIMEOUT_CAP_SECONDS } from "./guidance";
 import { configureLocalServers, dropLocalServers, forgetLocalServer, localServers, localServerSettled, localServersHereSettled, onLocalServer, registerLocalServers, rememberLocalServer, savedLocalServers } from "./local-models";
 import { addModelServers, forgetModelServer } from "./add-model-server";
 import { serverLabel } from "./model-servers";
@@ -646,9 +648,6 @@ export const PI_TOOL_RULES: readonly string[] = [
   "Use write only for new files or complete rewrites.",
 ];
 
-/** A bash timeout above this is capped: one hour, the longest a Casper check may run, so the cap never
- * cuts short a command a check itself would allow, while a day-long timeout cannot hang a session. */
-export const BASH_TIMEOUT_CAP_SECONDS = 3600;
 /** What the model gets from one of Casper's tools: the text, then its pictures when the model can see images. A model
  * that can't is told the picture was left out, so it does not ask for one again. */
 export function toolContent(result: RuntimeToolResult, seesImages: boolean): Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> {
@@ -894,7 +893,13 @@ export class PiRuntime implements AgentRuntime {
       const repair = new ToolArgumentRepair();
       const repairing = <D extends { name: string; parameters: unknown; prepareArguments?: (args: unknown) => unknown }>(definition: D): D =>
         ({ ...definition, prepareArguments: repair.hook(definition.name, definition.parameters, definition.prepareArguments) } as D);
+      const toolRules = `Tool rules:\n${PI_TOOL_RULES.map((rule) => `- ${rule}`).join("\n")}`;
+      const addendum = { full: [COMMAND_GUIDANCE, toolRules, SEARCH_GUIDANCE].join("\n\n"),
+        lean: [LEAN_COMMAND_GUIDANCE, toolRules, LEAN_SEARCH_GUIDANCE].join("\n\n") };
       const extensionFactory = (pi: ExtensionAPI) => {
+        // Project only Casper's wording, after Pi restores the prompt/tool state, for every model step.
+        pi.on("context_with_system", (event, ctx) => ({ messages: projectGuidance(event.messages, ctx.model,
+          (bounded?.guidance ?? options.guidance)?.(), tools.current(), { ...options, addendum }) }));
         // First, so a repair is tied to its call even when a later handler refuses the call.
         pi.on("tool_call", (event) => { repair.claim(event.toolName, event.toolCallId); });
         // Runs after the runtime's own attribution, so Casper's identity replaces Pi's. With
@@ -1098,9 +1103,9 @@ export class PiRuntime implements AgentRuntime {
               : basePrompt,
             appendSystemPromptOverride: (base) => readOnly ? base : [
               ...base,
-              `A bash command without a timeout gets ${DEFAULT_COMMAND_LIMIT_SECONDS} seconds; a slow one may then move to the background (its result says so). Give an explicit timeout in seconds, capped at ${BASH_TIMEOUT_CAP_SECONDS}, to wait longer; it is stopped there. After a search times out, narrow its scope rather than retrying the same broad search.`,
-              `Tool rules:\n${PI_TOOL_RULES.map((rule) => `- ${rule}`).join("\n")}`,
-              "Keep repository searches rooted in the current workspace. Prefer the find, grep, and ls tools with explicit paths. Do not scan the filesystem root or unrelated directories to locate a missing project file; treat stale documentation as possible and inspect the current tree. Search outside the workspace only when the user's task requires it.",
+              COMMAND_GUIDANCE,
+              toolRules,
+              SEARCH_GUIDANCE,
             ],
           },
         });

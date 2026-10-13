@@ -4,6 +4,7 @@ import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ToolObservationInput, ToolObservationOutput } from "./observation";
 import type { PromptCacheSetting } from "./cache";
 import type { BackgroundCommands } from "./background-commands";
+import type { GuidanceSetting } from "./guidance";
 
 export interface RuntimeToolContext {
   /** Serialize multi-file mutations with the runtime's native file writers. */
@@ -26,6 +27,8 @@ export interface RuntimeToolResult { text: string; isError?: boolean; images?: R
 export interface RuntimeStartOptions {
   cwd: string;
   systemPromptAppend?: string;
+  /** Lean rendering of Casper's own text only; user/project instructions remain intact. */
+  leanSystemPromptAppend?: string;
   tools?: RuntimeTool[];
   /** Append diagnostics to successful native edit/write results before the next model turn.
    * Path is literal (native input syntax expanded once), absolute or relative to cwd. */
@@ -52,6 +55,8 @@ export interface RuntimeStartOptions {
   currentPrivatePaths?: () => readonly string[];
   /** How long the provider keeps the prompt cache (`cache:` in ~/.casper/config.yaml). Unset: auto. */
   cache?: PromptCacheSetting;
+  /** Shorter guidance for model servers/small windows. Read fresh for /settings; unset: auto. */
+  guidance?: () => GuidanceSetting;
   /** Hide old bulky tool results at cache checkpoints. Read fresh for /settings; unset: on. */
   hideToolOutput?: () => boolean;
   /** Find model servers on this computer (Ollama, LM Studio, llama.cpp, vLLM) and list their models in /model
@@ -123,6 +128,8 @@ export interface RuntimeReadOnlyStartOptions {
   scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
   /** A reason refuses the call before it runs (the security review keeps key and .env files from its child). */
   beforeToolGate?: RuntimeStartOptions["beforeToolGate"];
+  /** The parent's live guidance switch; unset: auto. Child prompts are already role-specific. */
+  guidance?: RuntimeStartOptions["guidance"];
   /** The parent's live history-hiding switch; unset: on. */
   hideToolOutput?: () => boolean;
   /** The parent session's cache setting. A child lives for minutes, so only off changes it: it keeps the short cache. */

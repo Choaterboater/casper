@@ -454,6 +454,7 @@ export class CasperApp {
     // configs only; .env, credential files and secret env values are always hidden).
     scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles, networkLoginFile: networkLoginFile(this) }),
     cache: () => this.projectContext?.cache,
+    guidance: () => this.projectContext?.leanGuidance ?? "auto",
     hideToolOutput: () => this.projectContext?.hideToolOutput !== false,
     privatePaths: () => projectPrivatePaths(this),
     // Inside tmux or iTerm2 each helper's steps show in the view-only steps pane; nowhere else.

@@ -20,10 +20,10 @@ Settings (saved in ~/.casper/config.yaml for you):
   New-version notice: on · Notifications: on · Suggestions: on
   Side questions with ?: on · Built-in skills: on · GitHub tool: on · Packs: on
   Spend notes: at $1 a task · Spend pause: off · Prompt cache: auto
-  Hide old tool output: on · Local models: on · Page checks: on
-  Show the AI the pages: ask once a session · Work shown: normal
-  Theme: default · Untrusted-text reader: on · Helpers that build: on
-  Playwright tests: on · Compose files: on
+  Lean guidance: auto · Hide old tool output: on · Local models: on
+  Page checks: on · Show the AI the pages: ask once a session
+  Work shown: normal · Theme: default · Untrusted-text reader: on
+  Helpers that build: on · Playwright tests: on · Compose files: on
   Send Casper's name to OpenRouter: on · Sign-ins from other tools: on
   Network server updates: on · My MCP servers: on · My language servers: on
   Private ssh passwords: on
@@ -50,27 +50,28 @@ Pick one to change:
  20 Spend notes                       at $1 a task
  21 Spend pause                       off
  22 Prompt cache                      auto
- 23 Hide old tool output              on
- 24 Local models                      on
- 25 Page checks                       on
- 26 Show the AI the pages             ask once a session
- 27 Work shown                        normal
- 28 Theme                             default
- 29 Untrusted-text reader             on
- 30 Helpers that build                on
- 31 Playwright tests                  on
- 32 Compose files                     on
- 33 Send Casper's name to OpenRouter  on
- 34 Sign-ins from other tools         on
- 35 Network server updates            on
- 36 My MCP servers                    on
- 37 My language servers               on
- 38 Private ssh passwords             on
+ 23 Lean guidance                     auto
+ 24 Hide old tool output              on
+ 25 Local models                      on
+ 26 Page checks                       on
+ 27 Show the AI the pages             ask once a session
+ 28 Work shown                        normal
+ 29 Theme                             default
+ 30 Untrusted-text reader             on
+ 31 Helpers that build                on
+ 32 Playwright tests                  on
+ 33 Compose files                     on
+ 34 Send Casper's name to OpenRouter  on
+ 35 Sign-ins from other tools         on
+ 36 Network server updates            on
+ 37 My MCP servers                    on
+ 38 My language servers               on
+ 39 Private ssh passwords             on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
-Every row has its number: past 9, type it and press Enter (`Type 1-38 + Enter or Up/Down + Enter`).
+Every row has its number: past 9, type it and press Enter (`Type 1-39 + Enter or Up/Down + Enter`).
 A plain terminal (`TERM=dumb`) asks the same list as numbered lines.
 A change applies from now on (built-in skills, packs, the prompt cache, local models, My MCP servers and My language servers from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Changed while a task runs, it also says when the
@@ -257,6 +258,19 @@ where it costs no more, the short one elsewhere), `long` (about an hour, or a da
 writing it can cost more), `short` (a few minutes) and `off` (no cache, so every request costs
 more). It applies from the next start. See [Prompt cache](#prompt-cache-1).
 
+### Lean guidance
+
+Automatic by default (`lean_guidance: auto`). Model servers Casper finds or you add, loopback model
+addresses, and any model with a known context window of **32,768 tokens or less** get shorter system
+text and tool descriptions. Big hosted models keep the full text unchanged. The same essential rules,
+all tools and abilities stay; Pi's own tools and edit rules, your instructions and project rules are
+not shortened. It costs fewer prompt tokens, with no extra model turn or question.
+
+`/settings` **Lean guidance** chooses `auto` or `off` (saved as `lean_guidance: off`). Off gives every
+model the full wording. A change applies from the next model step, as does switching models; saved
+history is unchanged. Only your own config or a profile you chose can set it, never a project file
+or a project-selected profile. See [Local models](#local-models).
+
 ### Hide old tool output
 
 On by default. Old reads and successful command output of at least 8,000 characters, and old tool
@@ -429,7 +443,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
-`showPages`, `hide_tool_output`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`, `notifications`)
+`showPages`, `hide_tool_output`, `lean_guidance`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`, `notifications`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
@@ -754,6 +768,11 @@ on this computer:
   `num_ctx` in the model's settings, else `OLLAMA_CONTEXT_LENGTH`; a loaded LM Studio model's window;
   llama.cpp's `-c`; vLLM's `--max-model-len`. Otherwise it uses the usual 128k (never more than the
   model was trained for), so set the window yourself if you can (see the limits below).
+- **Lean guidance.** These model servers get shorter system text and tool descriptions automatically,
+  even when their window is large or unknown. Any model with a known window of 32,768 tokens or less
+  gets it too. No extra call, question or missing tool; big hosted models keep full text.
+  `/settings` **Lean guidance: off** restores full wording (`lean_guidance: off` in your own config).
+  See [Lean guidance](#lean-guidance).
 - **The window Ollama really serves.** Ollama often runs a model with less than it takes (its own
   default is 4k, 32k or 256k, by the computer's memory) and silently drops the start of a longer
   prompt, Casper's instructions and tools first. Ollama's OpenAI-style address ignores a request's

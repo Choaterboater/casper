@@ -124,6 +124,8 @@ export interface SubagentManagerOptions {
   builderTimeoutMs?: number;
   /** The user's cache setting (`cache: off` turns a child's cache off too). */
   cache?: () => PromptCacheSetting | undefined;
+  /** The parent's live guidance switch, shared by readers and crew builders. */
+  guidance?: RuntimeStartOptions["guidance"];
   /** The parent's live history-hiding switch, shared by readers and crew builders. */
   hideToolOutput?: () => boolean;
   /** The project's sandbox.denyRead (absolute): a helper's file tools refuse them like the main session's. */
@@ -714,6 +716,7 @@ export class SubagentManager {
           ...(options.beforeToolGate ? { beforeToolGate: options.beforeToolGate } : {}),
           ...(this.options.cache?.() ? { cache: this.options.cache() } : {}),
           ...(this.options.hideToolOutput ? { hideToolOutput: this.options.hideToolOutput } : {}),
+          ...(this.options.guidance ? { guidance: this.options.guidance } : {}),
           ...(privatePaths.length ? { privatePaths: [...privatePaths, ...inCopy] } : {}),
           systemPromptAppend: options.systemPromptAppend,
         };
