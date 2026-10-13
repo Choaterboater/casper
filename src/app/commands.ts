@@ -202,9 +202,9 @@ export const VERIFY_USAGE = "Usage: /verify [repair] [typecheck|lint|test|build|
 /** The names /help uses for the sign-in providers (`codex`, `copilot`), and the providers' own ids. */
 const LOGIN_PROVIDERS: Readonly<Record<string, RuntimeAuthProvider>> = {
   codex: "openai-codex", copilot: "github-copilot", anthropic: "anthropic", openrouter: "openrouter",
-  "openai-codex": "openai-codex", "github-copilot": "github-copilot",
+  "openai-codex": "openai-codex", "github-copilot": "github-copilot", "claude-subscription": "claude-subscription", claude: "claude-subscription",
 };
-export const LOGIN_USAGE = "Usage: /login [codex|copilot|anthropic|openrouter]";
+export const LOGIN_USAGE = "Usage: /login [codex|copilot|anthropic|openrouter|claude-subscription]";
 
 /** The provider a typed /login or /logout word names, short or long; undefined for anything else. */
 export function loginProvider(word: string): RuntimeAuthProvider | undefined {
@@ -278,6 +278,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         ? "[model] Selected and saved as the Casper default for new conversations.\n"
         : "[model] Selected for this conversation only; startup default unchanged.\n");
       if (result.selected) host.output.write(`[model] The next request sends this conversation's context to ${result.status.provider}.\n`);
+      if (result.selected && result.status.provider === "anthropic") host.output.write(`[model] anthropic is the direct API route; for your Claude Code plan login use /model claude-subscription/${terminalText(result.status.model ?? "<model-id>")}.\n`);
       if (result.selected && helpers) host.output.write("[model] Helpers already working keep their model; your next message uses this one.\n");
       if (result.models) {
         host.output.write(result.models.length ? result.models.map((model) => `  ${model.provider}/${model.id}`).join("\n") + "\n" : "No models with configured credentials. Use /login to configure a supported provider.\n");
@@ -1546,6 +1547,21 @@ export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider
     if (!runtime.authenticate) { host.output.write("[login] This runtime does not support login.\n"); return false; }
     const result = await runtime.authenticate({ provider, ...(list ? { list } : {}), ...(host.projectContext?.otherLogins === false ? { others: false } : {}),
       terminalHost: picker, signal: host.commandAbort?.signal });
+    if (result.claudeCode) {
+      if (result.status === "saved") {
+        host.loginProvider = "claude-subscription";
+        host.signedIn = true;
+        host.output.write("[login] Claude Code plan sign-in verified; subscription models are available now. No credentials were copied to Casper and no model call was made. Model and defaults unchanged; /model claude-subscription chooses a model.\n");
+        host.updateFooter();
+        return true;
+      }
+      host.output.write(result.status === "saved-needs-refresh"
+        ? "[login] Claude Code sign-in verified, but Casper's local catalog needs refresh. Retry /login claude-subscription; do not repeat browser sign-in blindly. Model and defaults unchanged.\n"
+        : result.status === "cancelled"
+          ? `[login] Claude Code sign-in cancelled.${result.effect === "unknown" ? " Claude Code may have updated its own login; /login claude-subscription checks it." : ""} Model and defaults unchanged.\n`
+          : `[login] ${terminalText(result.detail ?? "Claude Code sign-in did not finish.")} Model and defaults unchanged.\n`);
+      return false;
+    }
     if (result.status === "saved" && result.servers?.length) return await serversAdded(host, result.servers, result.lines ?? []);
     if (result.status === "cancelled") for (const line of result.lines ?? []) host.output.write(`[login] ${terminalText(line)}\n`);
     if (result.status === "saved") {

@@ -658,12 +658,28 @@ Team or Enterprise login. A separate Pi installation is not needed, and no Claud
 are copied into Casper. Claude Code must already be installed and signed in on the same OS:
 a Windows installation and a WSL installation have separate executables and login state.
 
+Starting signed out: choose **Claude Code plan** in `/login`, or type `/login claude-subscription`
+(`/login claude` is an alias). Casper runs native `claude auth login --claudeai`, lets you finish in
+your browser or forward a code through the private login prompt, then verifies the subscription
+and refreshes its models without a restart. An existing valid login is checked without starting
+browser sign-in again. If Claude Code is missing, the screen links to native installation instructions.
+Claude Code keeps its credentials; Casper never saves them in its own auth file. Login does not
+change your conversation model or saved default. Cancellation stops the login process, but Claude Code
+may already have updated its own login; retrying `/login claude-subscription` checks that state first.
+
 Select `/model claude-subscription/claude-opus-4-8` to remember this route, or add `--session`
 to try it without changing the default. Other Claude models appear under `claude-subscription`
 in `/model` once Claude Code's `auth status` reports a signed-in subscription on this OS.
 Without that login, the provider remains registered but is not offered as authenticated.
 The existing `anthropic` provider, `/login anthropic`, and saved defaults are
 unchanged. `/logout` in Casper does not sign out Claude Code.
+
+The model picker labels the routes **Claude Code plan** (`claude-subscription`) and
+**Anthropic API** (`anthropic`). Claude Code rows say **plan**, not **free** or an API token price.
+For Sonnet through the existing Claude Code login, select
+`/model claude-subscription/claude-sonnet-5-5`. Selecting an `anthropic` model keeps the direct API
+route and shows the equivalent subscription command; it never silently changes the provider.
+An “out of extra usage” error describes that failed request, not all Claude use in Casper.
 
 With a Claude plan sign-in through the `anthropic` provider, requests name a Claude Code version, and
 Anthropic refuses newer models to an old one (`Claude Code 2.1.251 does not support this model`). When

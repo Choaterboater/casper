@@ -121,7 +121,7 @@ Local commands:
   /lab                              Your lab devices: lab checks and the lab list use them
   /lab import <file>                Add devices to your lab list from a file (GreenCLI's lab export, or one host per line); asks first
   /lab ssh on|off                   Whether ssh and scp to your lab devices ask first (kept for this project)
-  /login [codex|copilot|anthropic|openrouter]  Sign in to Codex, Copilot, Anthropic or OpenRouter (Casper's credential store); openai-codex and github-copilot work too
+  /login [codex|copilot|anthropic|openrouter|claude-subscription]  Sign in; Claude Code plan keeps its own login, anthropic is the direct API route
   /logout [provider]                Remove a sign-in Casper saved; /logout alone lists them. Environment variables are unchanged
   /project <name>                   Open a project folder inside this one, or offer to make it (before the model starts); /project alone is /status
   /project new [name]               Start a new project in ~/Projects (no model); before the model starts, Casper opens it
@@ -225,7 +225,7 @@ Without a restored selection or Casper default, choose with /model; there is no 
 Switching provider sends the rest of the conversation to that provider.
 The picker refreshes provider catalogs over the network when CASPER_OFFLINE=1 is not set; selection does not generate a model response.
 Model servers on this computer (Ollama, LM Studio, llama.cpp, vLLM), or where OLLAMA_HOST and the like point, show in /model with no sign-in; the picker looks for them again each time it opens and says why one it was told about didn't answer. /settings turns that off. One on another computer: /model, the left list's last row (+ Add server), or /login's last row; Ctrl+X on its row forgets it.
-Claude subscription: /model claude-subscription/claude-opus-4-8 uses an installed native Claude Code and its own plan login (claude.exe on Windows); /login anthropic remains the direct route.
+Claude subscription: /login claude-subscription signs in through native Claude Code (claude.exe on Windows), without copying credentials. Models refresh without restarting; /model claude-subscription chooses one. /login anthropic remains the direct API route.
 Provider-defined credential checks may run configured key-resolution commands.
 Keys: ${KEYS_HELP}
 Checks: typecheck lint test build (all configured by default; verification.checks selects).

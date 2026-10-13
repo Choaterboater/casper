@@ -54,7 +54,7 @@ async function typed(app: Awaited<ReturnType<typeof richApp>>, line: string, exp
 test("/login takes the short names /help uses; another word is an [error] Usage line", () => {
   expect(canonicalLine("/login openai-codex")).toBe("/login codex");
   expect(canonicalLine("/login github-copilot")).toBe("/login copilot");
-  expect(FULL_HELP_TEXT).toContain("/login [codex|copilot|anthropic|openrouter]");
+  expect(FULL_HELP_TEXT).toContain("/login [codex|copilot|anthropic|openrouter|claude-subscription]");
 });
 
 test("one verb takes things back: forget, with remove as the same word; list is the command alone", () => {
@@ -155,7 +155,7 @@ test("idle: usage errors say [error] Usage: …, the same way for every command"
   const app = await richApp(() => fixtureRuntime(gate.promise, seen()));
   try {
     await app.until(text => text.includes("idle"));
-    for (const [line, usage] of [["/login bogus", "Usage: /login [codex|copilot|anthropic|openrouter]"], ["/suggestions bogus", "Usage: /suggestions [on|off]"],
+    for (const [line, usage] of [["/login bogus", "Usage: /login [codex|copilot|anthropic|openrouter|claude-subscription]"], ["/suggestions bogus", "Usage: /suggestions [on|off]"],
       ["/skills bogus", "Usage: /skills | /skills diagnostics"], ["/pack bogus", "Usage: /pack add"], ["/diff bogus", "Usage: /diff [task number | list]"],
       ["/undo bogus", "Usage: /undo [task number]"], ["/receipt bogus", "Usage: /receipt [task number | list]"], ["/tasks bogus", "Usage: /tasks | /tasks stop <n>"],
       ["/lab bogus", "Usage: /lab | /lab import <file>"], ["/allowed bogus", "Usage: /allowed | /allowed forget"],

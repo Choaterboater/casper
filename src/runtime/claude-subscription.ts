@@ -248,8 +248,7 @@ export async function registerClaudeSubscription(catalog: ModelRuntime, cwd: str
     if (!executable) return false;
     try {
       const status = await (dependencies.status ?? claudeAuthStatus)(executable, subscriptionEnvironment(env), directory());
-      return status?.loggedIn === true && status.authMethod === "claude.ai"
-        && isSubscriptionPlan(status.subscriptionType);
+      return isSubscriptionStatus(status);
     } catch { return false; }
   })().finally(() => { checking = undefined; });
   const stream = (model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions) =>
@@ -270,7 +269,10 @@ export async function registerClaudeSubscription(catalog: ModelRuntime, cwd: str
 
 const exec = promisify(execFile);
 type ClaudeAuthStatus = { loggedIn?: boolean; authMethod?: string; subscriptionType?: string };
-async function claudeAuthStatus(executable: string, env: Record<string, string | undefined>, cwd: string): Promise<ClaudeAuthStatus | undefined> {
+export function isSubscriptionStatus(status: ClaudeAuthStatus | undefined): boolean {
+  return status?.loggedIn === true && status.authMethod === "claude.ai" && isSubscriptionPlan(status.subscriptionType);
+}
+export async function claudeAuthStatus(executable: string, env: Record<string, string | undefined>, cwd: string): Promise<ClaudeAuthStatus | undefined> {
   const { stdout } = await exec(executable, ["auth", "status"], { cwd, env, encoding: "utf8", timeout: 5_000, maxBuffer: 64 * 1024, windowsHide: true });
   const status: unknown = JSON.parse(stdout);
   return status && typeof status === "object" && !Array.isArray(status) ? status as ClaudeAuthStatus : undefined;

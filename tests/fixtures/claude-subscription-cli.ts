@@ -1,9 +1,23 @@
 // Synthetic native Claude executable for the real SDK transport. No network or credentials.
 import { createInterface } from "node:readline";
+import { existsSync, writeFileSync } from "node:fs";
+const loginState = process.env.CASPER_TEST_CLAUDE_LOGIN_STATE;
 const send = (message: unknown) => process.stdout.write(JSON.stringify(message) + "\n");
 if (process.argv[2] === "auth" && process.argv[3] === "status") {
-  send({ loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" });
-  process.exit(0);
+  const loggedIn = !loginState || existsSync(loginState);
+  send({ loggedIn, authMethod: loggedIn ? "claude.ai" : "none", subscriptionType: loggedIn ? "max" : undefined });
+  process.exit(loggedIn ? 0 : 1);
+}
+if (process.argv[2] === "auth" && process.argv[3] === "login") {
+  if (!loginState || process.argv[4] !== "--claudeai") process.exit(1);
+  console.log("https://claude.ai/oauth/authorize?fixture=1");
+  const input = createInterface({ input: process.stdin });
+  for await (const code of input) {
+    if (code !== "fixture-code") process.exit(1);
+    writeFileSync(loginState, "synthetic signed-in state");
+    process.exit(0);
+  }
+  process.exit(1);
 }
 // Match native SDK accountInfo, which differs from the public auth-status response above.
 const account = { apiProvider: "firstParty", subscriptionType: "Claude Max" };

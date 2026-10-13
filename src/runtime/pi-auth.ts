@@ -5,6 +5,7 @@ import { tildePath } from "../new/scaffold";
 import { privateFileProblem } from "../platform/private-file";
 import { withLoginDisplay, type LoginDisplay } from "../tui/login";
 import { openRouterAttribution } from "./openrouter-attribution";
+import { loginClaudeCode } from "./claude-login";
 import { COPILOT_POLICIES, NOT_SHARED, copilotFromGithub, copilotTokenKind, findOtherLogins, ghToken, readOtherKey, saveCredential, type OtherLogin } from "./other-logins";
 import type { RuntimeAuthenticationOptions, RuntimeAuthenticationResult, RuntimeAuthProvider } from "./types";
 
@@ -12,7 +13,7 @@ import type { RuntimeAuthenticationOptions, RuntimeAuthenticationResult, Runtime
 const home = () => process.env.HOME ?? process.env.USERPROFILE ?? os.homedir();
 
 const providerNames: Record<RuntimeAuthProvider, string> = {
-  openrouter: "OpenRouter", anthropic: "Anthropic (Claude)", "openai-codex": "OpenAI Codex (ChatGPT plan)", "github-copilot": "GitHub Copilot",
+  "claude-subscription": "Claude Code plan", openrouter: "OpenRouter", anthropic: "Anthropic API", "openai-codex": "OpenAI Codex (ChatGPT plan)", "github-copilot": "GitHub Copilot",
 };
 
 /** Over SSH, or on Linux with no display, a browser on this machine can't finish a sign-in: Codex uses a
@@ -24,7 +25,7 @@ function noBrowserHere(): boolean {
 }
 
 /** One way to sign in: a provider and its method, one numbered row. */
-export interface SignInWay { id: string; provider: RuntimeAuthProvider; method: "api_key" | "oauth"; label: string }
+export interface SignInWay { id: string; provider: RuntimeAuthProvider; method: "api_key" | "oauth" | "claude_code"; label: string }
 
 /** Every way to sign in, provider and method together in one list, OpenRouter first (Enter picks it).
  * With a provider, only that provider's ways. */
@@ -32,8 +33,9 @@ export function signInWays(provider?: RuntimeAuthProvider): SignInWay[] {
   const ways: SignInWay[] = [
     { id: "openrouter:api_key", provider: "openrouter", method: "api_key", label: "OpenRouter · paste an API key" },
     { id: "openrouter:oauth", provider: "openrouter", method: "oauth", label: "OpenRouter · sign in with your browser" },
-    { id: "anthropic:api_key", provider: "anthropic", method: "api_key", label: "Anthropic (Claude) · paste an API key" },
-    { id: "anthropic:oauth", provider: "anthropic", method: "oauth", label: "Anthropic (Claude) · sign in with your browser" },
+    { id: "anthropic:api_key", provider: "anthropic", method: "api_key", label: "Anthropic API · paste an API key" },
+    { id: "anthropic:oauth", provider: "anthropic", method: "oauth", label: "Anthropic API · browser sign-in (extra usage, not Claude Code plan)" },
+    { id: "claude-subscription:claude_code", provider: "claude-subscription", method: "claude_code", label: "Claude Code plan · sign in with your browser" },
     { id: "openai-codex:oauth", provider: "openai-codex", method: "oauth",
       label: `OpenAI Codex (ChatGPT plan) · ${noBrowserHere() ? "enter a code at openai.com" : "sign in with your browser"}` },
     { id: "github-copilot:oauth", provider: "github-copilot", method: "oauth", label: "GitHub Copilot · enter a code at github.com" },
@@ -164,24 +166,28 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
   /** The provider a found sign-in was saved for (it may be one /login has no row for, such as openai). */
   let imported: string | undefined;
   try {
-    // Refuse an unusable destination before the picker, naming the component to fix.
-    const early = await privateFileProblem(destination, signal);
+    // Named credential-writing providers fail before the picker. With no provider,
+    // defer the check until selection: Claude Code keeps its own credential store.
+    const early = !options.provider || options.provider === "claude-subscription" ? undefined : await privateFileProblem(destination, signal);
     if (early) return { status: "failed", effect: "none", reason: "destination", detail: early };
     return await options.terminalHost.run((io) => withLoginDisplay(io, signal, async (display): Promise<RuntimeAuthenticationResult> => {
-      const saved = `Saved in ${tildePath(destination, home())}, only on this computer.`;
+      const saved = `Saved in ${tildePath(destination, home())}, only on this computer. Claude Code keeps its own plan login.`;
       display.setNote(saved);
       // Sign-ins other tools left here come first: 1 use one, then Sign in separately, then Not now.
-      const found = options.others === false ? []
+      const found = provider === "claude-subscription" || options.others === false ? []
         : findOtherLogins(signedInHere(destination)).filter((login) => !provider || login.provider === provider);
       let pickedId: string | undefined;
       if (found.length) {
-        const notes = [...found.some((login) => login.use === "own") ? [NOT_SHARED] : [], ...found.some((login) => login.use === "github") ? [COPILOT_POLICIES] : []];
+        const notes = [...found.some((login) => login.use === "own" && (provider || login.tool !== "Claude Code")) ? [NOT_SHARED] : [], ...found.some((login) => login.use === "github") ? [COPILOT_POLICIES] : []];
         if (notes.length) display.setNote([saved, ...notes].join("\n"));
         const answer = await display.choose(found.length === 1 ? `Found a ${found[0]!.tool} sign-in on this computer` : "Found sign-ins on this computer",
-          [...found.map(({ id, label }) => ({ id, label })), { id: "separately", label: "Sign in separately" }, { id: "later", label: "Not now" }]);
+          [...found.map(({ id, label, tool, use }) => ({ id, label: !provider && tool === "Claude Code" && use === "own" ? "Claude Code plan · use or finish its existing login" : label })), { id: "separately", label: "Sign in separately" }, { id: "later", label: "Not now" }]);
         const login = found.find((item) => item.id === answer);
         if (!answer || answer === "later" || display.signal.aborted) return { status: "cancelled", effect: "none" };
-        if (login?.use === "own") pickedId = `${login.provider}:oauth`;
+        if (login?.use === "own") {
+          if (!provider && login.tool === "Claude Code") { provider = "claude-subscription"; pickedId = "claude-subscription:claude_code"; }
+          else pickedId = `${login.provider}:oauth`;
+        }
         else if (login) {
           imported = login.provider;
           return useOtherLogin(login, destination, display.signal);
@@ -202,11 +208,12 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
       provider = way.provider;
       const selected = way.provider;
       const method = way.method;
+      if (method === "claude_code") return loginClaudeCode(display);
       // Browser sign-in (loopback listener + authorization page) vs device-code oauth.
       const browser = method === "oauth" && (selected === "anthropic" || selected === "openrouter" || (selected === "openai-codex" && !noBrowserHere()));
       // Picking the way is the consent (as in Claude Code and Codex); the next screen still says what it costs.
       const disclosure = selected === "github-copilot" ? "Signing in may turn on model policies on your GitHub account."
-        : selected === "anthropic" ? "API use is billed per token; a Claude plan sign-in is billed per token as extra usage."
+        : selected === "anthropic" ? "API use is billed per token on this direct route; a browser sign-in uses extra usage. Claude Code plan is a separate /login option."
         : selected === "openrouter" ? "Usage is billed from your OpenRouter credits."
         : "";
       display.setNote([saved, disclosure].filter(Boolean).join("\n"));

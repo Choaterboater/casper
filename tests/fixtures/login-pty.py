@@ -39,7 +39,7 @@ def success(bun, repo, root, no_color):
         auth = s.root / "home/.casper/agent/auth.json"
         assert not auth.exists(), "the sign-in list created auth storage"
         # Picking the row is the consent: no confirm screen follows.
-        s.send("5")
+        s.send("6")
         s.until("https://auth.openai.com/codex/device")
         assert "Up/Down + Enter · Esc cancels" not in s.screen.text(), s.screen.text()
         # Bracketed paste on the waiting screen is ignored, not echoed.

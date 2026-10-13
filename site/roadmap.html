@@ -473,7 +473,10 @@
             sends requests through the official Claude Agent SDK and the <code>claude</code> program (<code>claude.exe</code>
             on Windows) signed in on this computer. Claude Code keeps its sign-in and default prompt, with Casper's
             instructions appended; Casper never copies credentials and still runs every tool with its approvals and sandbox.
-            How a plan counts these requests is Anthropic's decision.</li>
+            <code>/login claude-subscription</code> starts Claude Code's own browser sign-in if needed and refreshes
+            subscription models without restarting, without changing your current model or saved default.
+            The picker labels this route <strong>Claude Code plan</strong>, separately from <strong>Anthropic API</strong>;
+            plan rows do not claim the requests are free. How a plan counts these requests is Anthropic's decision.</li>
             <li><strong>Pages the AI makes.</strong> Options side by side, a mock-up, a dashboard or a report opens in
             your browser from a local server on <code>127.0.0.1</code>; <code>/pages</code> lists, opens and removes
             them. <strong>Pages the AI makes</strong> and <strong>Open pages in the browser</strong> in
