@@ -810,6 +810,14 @@ the AI as a failure to fix.
 Turn it off with `/settings` → Playwright tests (it writes `verification.e2e: false`; a project
 file can set it too). A project that names its own `verify.checks.e2e` keeps that one instead.
 
+## Terminal checks
+
+A named `preset: terminal` check runs a CLI in a real PTY, waits for screen text, sends sample input
+and presses keys. It appears on the normal receipt and is available through `/verify <name>` and
+`casper_check`. Screen assertions and the expected exit must all pass; a changed scenario invalidates
+an old pass. The first version supports macOS/Linux with Python's standard library; Windows reports
+not run. See [TERMINAL_CHECKS.md](TERMINAL_CHECKS.md) for the project YAML, bounds and limitations.
+
 ## Docker Compose files
 
 When a project has Docker Compose files, Casper finds a `compose` check and runs Compose's own

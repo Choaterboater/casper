@@ -35,6 +35,7 @@ export interface LabCheckHost {
  */
 export function labCheckRunner(host: LabCheckHost, origin: "user" | "ai" = "user"): NamedCheckRunner {
   return async (name, spec, context) => {
+    if (spec.preset === "terminal") throw new Error("Terminal checks do not run as device lab checks");
     const networkContext: NetworkCheckContext = { ...host.network, root: context.cwd, ...(host.lab ? { lab: host.lab } : {}),
       ...(context.signal ? { signal: context.signal } : {}) };
     const plan = await prepareLabCheck(name, spec, networkContext);

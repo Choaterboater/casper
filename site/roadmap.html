@@ -58,7 +58,9 @@
       <nav class="toc" aria-label="On this page">
         <strong>On this page</strong>
         <ul>
-          <li><a href="#next">Next release</a></li>
+          <li><a href="#next">Next release</a>
+            <ul><li><a href="#terminal-check">Terminal check</a></li></ul>
+          </li>
           <li><a href="#coming">Planned, not started</a>
             <ul>
               <li><a href="#v030">v0.3: crews</a></li>
@@ -70,7 +72,6 @@
               <li><a href="#ops-chat">Ask about your setup</a></li>
               <li><a href="#quarantine">Saved readers</a></li>
               <li><a href="#schedule">Scheduled jobs</a></li>
-              <li><a href="#terminal-check">Terminal check</a></li>
               <li><a href="#community">Community lessons</a></li>
               <li><a href="#policy">Tool rules you write</a></li>
               <li><a href="#ideas">Ideas to borrow</a></li>
@@ -111,8 +112,22 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>The v0.2.34 preview contains the Claude Code plan login and model refresh fixes, leaner tool-output history, and one bounded repair for a failed final browser replay. New work shows here before the next preview.</p>
+          <p>The first terminal-check slice is built on the workbench, not in v0.2.34. The remaining Crews work and expanded vendor packs are still planned.</p>
         </aside>
+        <article class="card" id="terminal-check" aria-labelledby="terminal-check-h">
+          <div class="release-heading"><h3 id="terminal-check-h">Terminal check · repeatable CLI scenarios</h3>
+            <span class="badge soon">built, not released</span></div>
+          <p>A named <code>preset: terminal</code> check starts your CLI in a real pseudoterminal, waits for
+          current screen text, types sample input and presses keys. Every assertion and the expected exit
+          must pass; failures show the step and screen on the normal check output and receipt.</p>
+          <ul>
+            <li><strong>First slice:</strong> macOS/Linux with Python's standard library, declared scenarios,
+            the existing sandbox and managed-check freshness. Changing the scenario invalidates an old pass.</li>
+            <li><strong>Not built:</strong> Windows ConPTY, interactive terminal inspection, resize steps,
+            and visual/layout assertions. Unsupported screens or missing Python are not guessed as passes.</li>
+          </ul>
+          <p>See <a href="https://github.com/Choaterboater/casper/blob/main/docs/TERMINAL_CHECKS.md">TERMINAL_CHECKS.md</a>.</p>
+        </article>
       </section>
 
       <section id="coming" aria-labelledby="coming-h">
@@ -240,23 +255,6 @@
             <li><strong>To add:</strong> the scheduler; a written list of what the AI may do on its
             own when nobody is there to press yes (everything else waits for you, with a summary); and
             a log of every run and every change.</li>
-          </ul>
-        </article>
-
-        <article class="card" id="terminal-check" aria-labelledby="terminal-check-h">
-          <div class="release-heading"><h3 id="terminal-check-h">Terminal check · Casper tries your command-line program like a person</h3>
-            <span class="badge">idea, not scheduled</span></div>
-          <p>The page check opens a web app and looks at it. This does the same for programs that run
-          in a terminal: CLIs, full-screen terminal apps, network scripts, and Casper itself.</p>
-          <ul>
-            <li><strong>Runs it for real.</strong> Starts the program in a pretend terminal, types keys
-            at the right moments (Enter, Shift+Tab, Ctrl+C) and waits for text on the screen.</li>
-            <li><strong>On the receipt.</strong> Each step passes or fails like any other check, with
-            the screen at the moment it failed.</li>
-            <li><strong>Catches what unit tests miss.</strong> A note drawn where nobody can see it, a
-            key that does nothing, a prompt that never comes back.</li>
-            <li><strong>Borrowed.</strong> Casper already tests its own screen this way; this hands
-            that to the AI for your projects.</li>
           </ul>
         </article>
 

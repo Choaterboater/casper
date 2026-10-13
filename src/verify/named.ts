@@ -1,7 +1,8 @@
 import type { ProjectCommand } from "../project/model";
 import {
-  autoNetworkCheckNames, modelNetworkCheckNames, parseNetworkChecks, RESERVED_CHECK_NAMES, type NetworkCheckSpec,
+  parseNetworkChecks, RESERVED_CHECK_NAMES, type NetworkCheckSpec,
 } from "../network/spec";
+import { parseTerminalCheck, terminalCommand, type TerminalCheckSpec } from "./terminal-spec";
 
 /**
  * Named checks: `verify.checks.<name>` in .casper/project.yaml, next to the four built-in checks
@@ -18,10 +19,21 @@ import {
 /** A check's name: a built-in check, or a name the project gave under verify.checks. */
 export type CheckName = ProjectCommand | (string & {});
 
-export type NamedCheckSpec = NetworkCheckSpec;
+export type NamedCheckSpec = NetworkCheckSpec | TerminalCheckSpec;
 
-/** Parse `verify.checks` (project layer only). */
-export const parseNamedChecks = parseNetworkChecks;
+/** Parse ordinary/preset checks in the existing project-only named-check surface. */
+export function parseNamedChecks(value: unknown, label = "verify.checks"): Record<string, NamedCheckSpec> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return parseNetworkChecks(value, label);
+  const entries = Object.entries(value);
+  // Reuse the network parser's name/count checks on the complete mapping before splitting presets.
+  parseNetworkChecks(Object.fromEntries(entries.map(([name]) => [name, "validate-name"])), label);
+  const result: Record<string, NamedCheckSpec> = {};
+  for (const [name, spec] of entries) {
+    result[name] = spec && typeof spec === "object" && !Array.isArray(spec) && (spec as Record<string, unknown>).preset === "terminal"
+      ? parseTerminalCheck(spec, `${label}.${name}`) : parseNetworkChecks({ [name]: spec }, label)[name]!;
+  }
+  return result;
+}
 
 export function isBuiltinCheck(name: string): name is ProjectCommand {
   return (RESERVED_CHECK_NAMES as readonly string[]).includes(name);
@@ -29,12 +41,12 @@ export function isBuiltinCheck(name: string): name is ProjectCommand {
 
 /** Named checks that run after each change with the built-in ones: ordinary checks not set to "ask". */
 export function autoNamedChecks(named: Record<string, NamedCheckSpec> | undefined): string[] {
-  return named ? autoNetworkCheckNames(named) : [];
+  return Object.entries(named ?? {}).filter(([, spec]) => spec.kind === "offline" && spec.after !== "ask").map(([name]) => name);
 }
 
 /** Named checks /verify runs with no names, and offered to the AI by default: never device (lab) checks, which need a box. */
 export function modelNamedChecks(named: Record<string, NamedCheckSpec> | undefined): string[] {
-  return named ? modelNetworkCheckNames(named) : [];
+  return Object.entries(named ?? {}).filter(([, spec]) => spec.kind !== "lab").map(([name]) => name);
 }
 
 export function labNamedChecks(named: Record<string, NamedCheckSpec> | undefined): string[] {
@@ -47,6 +59,9 @@ export const labOnlyByYou = (name: string): string => `Lab checks run only when 
 /** Each check's command line by name, for timing: built-in commands and named `run` commands. */
 export function checkCommands(model: { commands: Partial<Record<ProjectCommand, string>>; namedChecks?: Record<string, NamedCheckSpec> }): Record<string, string> {
   const commands: Record<string, string> = { ...model.commands } as Record<string, string>;
-  for (const [name, spec] of Object.entries(model.namedChecks ?? {})) if (spec.run) commands[name] = spec.run;
+  for (const [name, spec] of Object.entries(model.namedChecks ?? {})) {
+    if (spec.preset === "terminal") commands[name] = terminalCommand(spec);
+    else if (spec.run) commands[name] = spec.run;
+  }
   return commands;
 }
