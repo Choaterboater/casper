@@ -89,6 +89,34 @@ test("Prompt cache row: 1 keeps the value, then the other values with a few word
   expect((await again.context())!.cache).toBe("long");
 });
 
+test("Hide old tool output: on by default, off persists, on resumes, and applies at the next step", async () => {
+  const { home, project, config, projectFile } = await folders();
+  const host = { ...fakeHost(home, project, ["Hide old tool output", "Keep it on", "Hide old tool output", "Turn it off", "Done"]), duringTask: true };
+  await runSettings(host);
+  expect(host.asked[1]!.split("\n").slice(1)).toEqual(["1 Keep it on", "2 Turn it off"]);
+  expect(host.asked[1]).toContain("Off stops new hiding, not existing stubs");
+  expect(await readFile(config, "utf8")).toBe("hide_tool_output: false\n");
+  expect((await host.context())!.hideToolOutput).toBe(false);
+  expect(host.text()).toContain("The running task uses it from its next step.");
+  await runSettings(fakeHost(home, project, ["Hide old tool output", "Turn it on", "Done"]));
+  expect(await valueOf(home, project, "Hide old tool output")).toBe("on");
+  await writeFile(config, "hide_tool_output: maybe\n");
+  await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("hide_tool_output must be on or off");
+  await writeFile(config, "hide_tool_output: off\n");
+  await writeFile(projectFile, "hide_tool_output: on\n");
+  await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("hide_tool_output is a user setting");
+});
+
+test("history hiding follows only a profile the person chose, not one selected by the project", async () => {
+  const { home, project, projectFile } = await folders();
+  const profile = path.join(home, ".casper", "profiles", "fixture");
+  await mkdir(profile, { recursive: true });
+  await writeFile(path.join(profile, "config.yaml"), "hide_tool_output: off\n");
+  await writeFile(projectFile, "profile: fixture\n");
+  expect((await loadConfiguration({ projectRoot: project, homeDir: home })).hideToolOutput).toBeUndefined();
+  expect((await loadConfiguration({ projectRoot: project, homeDir: home, profileName: "fixture" })).hideToolOutput).toBe(false);
+});
+
 test("Page checks row: 1 keeps them on, a pick writes pages: off in your own config", async () => {
   const { home, project, config } = await folders();
   const host = fakeHost(home, project, ["Page checks", "Keep them on", "Page checks", "Turn them off", "Done"]);

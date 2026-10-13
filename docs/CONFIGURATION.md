@@ -20,9 +20,10 @@ Settings (saved in ~/.casper/config.yaml for you):
   New-version notice: on · Notifications: on · Suggestions: on
   Side questions with ?: on · Built-in skills: on · GitHub tool: on · Packs: on
   Spend notes: at $1 a task · Spend pause: off · Prompt cache: auto
-  Local models: on · Page checks: on · Show the AI the pages: ask once a session
-  Work shown: normal · Theme: default · Untrusted-text reader: on
-  Helpers that build: on · Playwright tests: on · Compose files: on
+  Hide old tool output: on · Local models: on · Page checks: on
+  Show the AI the pages: ask once a session · Work shown: normal
+  Theme: default · Untrusted-text reader: on · Helpers that build: on
+  Playwright tests: on · Compose files: on
   Send Casper's name to OpenRouter: on · Sign-ins from other tools: on
   Network server updates: on · My MCP servers: on · My language servers: on
   Private ssh passwords: on
@@ -49,26 +50,27 @@ Pick one to change:
  20 Spend notes                       at $1 a task
  21 Spend pause                       off
  22 Prompt cache                      auto
- 23 Local models                      on
- 24 Page checks                       on
- 25 Show the AI the pages             ask once a session
- 26 Work shown                        normal
- 27 Theme                             default
- 28 Untrusted-text reader             on
- 29 Helpers that build                on
- 30 Playwright tests                  on
- 31 Compose files                     on
- 32 Send Casper's name to OpenRouter  on
- 33 Sign-ins from other tools         on
- 34 Network server updates            on
- 35 My MCP servers                    on
- 36 My language servers               on
- 37 Private ssh passwords             on
+ 23 Hide old tool output              on
+ 24 Local models                      on
+ 25 Page checks                       on
+ 26 Show the AI the pages             ask once a session
+ 27 Work shown                        normal
+ 28 Theme                             default
+ 29 Untrusted-text reader             on
+ 30 Helpers that build                on
+ 31 Playwright tests                  on
+ 32 Compose files                     on
+ 33 Send Casper's name to OpenRouter  on
+ 34 Sign-ins from other tools         on
+ 35 Network server updates            on
+ 36 My MCP servers                    on
+ 37 My language servers               on
+ 38 Private ssh passwords             on
 ```
 
 The first lines show every setting and where it stands at a glance; the numbered list follows.
 1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
-Every row has its number: past 9, type it and press Enter (`Type 1-37 + Enter or Up/Down + Enter`).
+Every row has its number: past 9, type it and press Enter (`Type 1-38 + Enter or Up/Down + Enter`).
 A plain terminal (`TERM=dumb`) asks the same list as numbered lines.
 A change applies from now on (built-in skills, packs, the prompt cache, local models, My MCP servers and My language servers from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Changed while a task runs, it also says when the
@@ -255,6 +257,33 @@ where it costs no more, the short one elsewhere), `long` (about an hour, or a da
 writing it can cost more), `short` (a few minutes) and `off` (no cache, so every request costs
 more). It applies from the next start. See [Prompt cache](#prompt-cache-1).
 
+### Hide old tool output
+
+On by default. Old reads and successful command output of at least 8,000 characters, and old tool
+screenshots, become short permanent stubs **only in requests to the AI**. This waits until hiding pays:
+the hideable output fills a fifth of the model's context window (and eight rounds have passed since the
+last time), or the prompt passes 60% of the window, and it is more than the cache has to re-read after the
+first stub. So a short task never pays a cache rebuild, and one rebuild takes several old reads at once.
+The last four rounds, errors, unfinished or stopped commands and recently referenced output stay visible.
+Browser check text stays; only its old pictures can be hidden. User pictures, writes, MCP responses
+and verification results are not hidden. References are conservatively detected from the latest
+user request and recent model text, thinking and tool arguments (paths, call IDs, quoted lines,
+source symbols and vague mentions of earlier output); semantic references can still be missed.
+
+Each time changes the cached prefix once from its first replaced result. In between, every request
+repeats the earlier messages, the system prompt and the tools byte for byte; existing stubs are never
+rewritten or restored. If the model needs hidden content later, it reads it again (commands should only
+be re-run if safe). The full original output stays in saved history, exports, `/output` and receipts.
+Mask decisions are branch-local and survive resume, forks and restarts; rewind before a checkpoint leaves
+the original visible. Compaction starts a new checkpoint epoch.
+
+Turn it off with `/settings` **Hide old tool output** (it writes `hide_tool_output: false`).
+The next model step stops creating new stubs, but keeps existing ones so turning it off does not
+invalidate the prefix again. A project file cannot set it, including through a project-picked profile.
+This is separate from `cache: off`, which controls provider cache retention, not history hiding.
+`bun run scripts/measure-tool-history.ts` replays a synthetic session against a local Ollama model, with
+hiding off and on, and prints each request's prompt size and time.
+
 ### Page checks
 
 After a UI change Casper opens the changed pages in its own headless browser and checks they load
@@ -400,7 +429,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
-`showPages`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`, `notifications`)
+`showPages`, `hide_tool_output`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`, `notifications`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in

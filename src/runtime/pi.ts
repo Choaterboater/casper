@@ -51,6 +51,7 @@ import { classifyPath, fileToolGate, gitInternalsCommand, privatePathCommand, re
 import { withoutProviderKeys } from "../platform/environment";
 import { cacheRetentionFor, type PromptCacheSetting } from "./cache";
 import { LoopGuard } from "./loop-guard";
+import { ToolHistory, TOOL_HISTORY_ENTRY } from "./tool-history";
 import { ELISION_NOTE, elisionTexts, newElisions } from "./elision";
 import { ToolArgumentRepair } from "./tool-repair";
 import { nativeEditPath, observationInput, editPatch, observationOutput, patchLineCounts, writeLineCounts, type ToolObservationInput } from "./observation";
@@ -127,6 +128,7 @@ class PiRuntimeSession implements RuntimeSession {
     private readonly models: PiModels,
     private readonly readOnly?: { options: RuntimeReadOnlyStartOptions | RuntimeBuilderStartOptions; limitReason: () => string | undefined; wrapUp: (reason: string) => void },
     private readonly cache?: PromptCacheSetting,
+    private readonly hideToolOutput?: () => boolean,
   ) {
     this.bind(runtime.session);
     runtime.setRebindSession(async (session) => { this.bind(session); });
@@ -389,7 +391,13 @@ class PiRuntimeSession implements RuntimeSession {
     // preparation signal linked at the last seam before provider execution.
     agent.streamFunction = (model, context, streamOptions) => {
       promptSignal.throwIfAborted();
-      return stream(model, context, {
+      const history = new ToolHistory();
+      // Only custom records on this branch count: rewind, resume and forks cannot share mutable masks.
+      for (const entry of session.sessionManager.getBranch())
+        if (entry.type === "custom" && entry.customType === TOOL_HISTORY_ENTRY) history.restore(entry.data);
+      const projected = history.project(context.messages, this.hideToolOutput?.() !== false, { contextWindow: model.contextWindow });
+      if (projected.checkpoint) session.sessionManager.appendCustomEntry(TOOL_HISTORY_ENTRY, projected.checkpoint);
+      return stream(model, { ...context, messages: projected.messages }, {
         ...streamOptions,
         // Conversation requests follow cache: (auto by default); a request that already chose (none) keeps its choice.
         cacheRetention: streamOptions?.cacheRetention ?? cacheRetentionFor(this.cache, model),
@@ -1149,7 +1157,7 @@ export class PiRuntime implements AgentRuntime {
       sessionManager: bounded ? SessionManager.inMemory(options.cwd) : SessionManager.create(options.cwd),
     });
     this.wrapper = new PiRuntimeSession(this.runtime, tools, models, bounded ? { options: bounded, limitReason: () => limitReason, wrapUp: (reason) => { deadline ??= reason; } } : undefined,
-      bounded ? (bounded.cache === "off" ? "off" : "short") : options.cache);
+      bounded ? (bounded.cache === "off" ? "off" : "short") : options.cache, bounded?.hideToolOutput ?? options.hideToolOutput);
     return this.wrapper;
   }
 

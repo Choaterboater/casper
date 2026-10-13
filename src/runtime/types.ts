@@ -52,6 +52,8 @@ export interface RuntimeStartOptions {
   currentPrivatePaths?: () => readonly string[];
   /** How long the provider keeps the prompt cache (`cache:` in ~/.casper/config.yaml). Unset: auto. */
   cache?: PromptCacheSetting;
+  /** Hide old bulky tool results at cache checkpoints. Read fresh for /settings; unset: on. */
+  hideToolOutput?: () => boolean;
   /** Find model servers on this computer (Ollama, LM Studio, llama.cpp, vLLM) and list their models in /model
    * (`localModels:` in ~/.casper/config.yaml). Unset: on. */
   localModels?: boolean;
@@ -121,6 +123,8 @@ export interface RuntimeReadOnlyStartOptions {
   scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
   /** A reason refuses the call before it runs (the security review keeps key and .env files from its child). */
   beforeToolGate?: RuntimeStartOptions["beforeToolGate"];
+  /** The parent's live history-hiding switch; unset: on. */
+  hideToolOutput?: () => boolean;
   /** The parent session's cache setting. A child lives for minutes, so only off changes it: it keeps the short cache. */
   cache?: PromptCacheSetting;
   /** The project's sandbox.denyRead (absolute), as for the main session. */
