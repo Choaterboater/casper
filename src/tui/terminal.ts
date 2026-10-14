@@ -437,9 +437,32 @@ export class InteractiveTerminal {
     });
   }
 
-  /** Lines edited in place on the rich surface; undefined when skipped or unavailable. */
-  editLines(heading: string, hint: string, lines: readonly string[], signal?: AbortSignal): Promise<string[] | undefined> {
-    return this.surface ? this.surface.editLines(heading, hint, lines, signal) : Promise.resolve(undefined);
+  /** An empty, one-line text input on either terminal. Empty Enter returns to the caller without spending tokens. */
+  askLine(question: string, hint: string, signal?: AbortSignal): Promise<string | undefined> {
+    if (this.surface) return this.surface.askLine(question, hint, signal);
+    if (this.earlyLines.length) {
+      this.write(`[input] Discarded ${this.earlyLines.length} line(s) entered before this question appeared.\n`);
+      this.earlyLines.length = 0;
+    }
+    if (!this.rl || this.closed || this.confirmation || signal?.aborted) return Promise.resolve(undefined);
+    this.endAssistant(); this.discardPartialLine(); this.plainQuestions++;
+    this.write(`${terminalText(question)}\n${terminalText(hint)}\n`);
+    return new Promise(resolve => {
+      let settled = false;
+      const finish = (value: string | undefined) => {
+        if (settled) return; settled = true;
+        signal?.removeEventListener("abort", cancel);
+        this.confirmation = undefined; this.discardPartialLine();
+        const text = value === "\x1b" ? undefined : value?.replace(/\s+/g, " ").trim();
+        if (!this.closed) { this.write(`${terminalText(answerRecordText(question, text ? [text] : undefined))}\n`); this.plainRecords++; }
+        resolve(text);
+      };
+      const cancel = () => finish(undefined);
+      this.confirmation = finish;
+      signal?.addEventListener("abort", cancel, { once: true });
+      if (signal?.aborted) { cancel(); return; }
+      this.rl!.setPrompt("> "); this.rl!.prompt();
+    });
   }
 
   interrupt(): void {

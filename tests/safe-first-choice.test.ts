@@ -6,7 +6,8 @@ import {
   ADD_LOGIN_CHOICES, DOCS_COPY_CHOICES, SKILL_TRUST_CHOICES, REPLACE_LOGIN_CHOICES, ALREADY_FAILING_CHOICES, forgetLoginChoices, forgetServerChoices, NOTHING_ANSWERED_CHOICES, APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, allowKindsChoices, kindAllowChoices, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, NETWORK_SETUP_CHOICES, NETWORK_SETUP_UV_CHOICES, NETWORK_UPDATE_CHOICES, REFERENCE_ADD_CHOICES, sshHostChoices, sshNameChoices, DOCTOR_INSTALL_CHOICES, DOCTOR_UPDATE_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
   REPAIR_LIMIT_STOP, pictureChoices, spendChoices, undoChangedChoices, missingFolderChoices, workFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES, writeChoices, githubLoginChoices,
 } from "../src/app/safe-choices";
-import { planEditorHeading } from "../src/flows/plan";
+import { planScreenRows } from "../src/flows/plan";
+import { interactiveTerminal } from "./support/tty";
 import { askBuildRequest, offerMissingFolder, type NewProjectFlow } from "../src/app/new-project";
 import { labAskFor, labFailureAsk } from "../src/network/checks";
 import { newProjectQuestion } from "../src/new/pick";
@@ -30,7 +31,7 @@ const firsts: Array<[string, string, string]> = [
   ["Build this plan?", PLAN_CHOICES[0].label, "Stop"],
   ["What should happen to the crew's work?", crewChoices("/copy")[0]!.label, "Keep the copy"],
   ["/crew: apply or throw one away?", copiesChoices(2)[0]!.label, "Leave them"],
-  ["Build this plan? (rich terminal, after the plan editor)", PLAN_CHOICES[0].label, "Stop"],
+  ["Build this plan? (after a rewrite)", PLAN_CHOICES[0].label, "Stop"],
   ["Fix it anyway?", ALREADY_FAILING_CHOICES[0].label, "Leave it"],
   ["The model failed again", modelFailedChoices()[0]!.label, "Stop"],
   ["The model failed again (big model set)", modelFailedChoices("fixture/big")[0]!.label, "Stop"],
@@ -95,7 +96,7 @@ test.each(firsts)("choice 1 at %s is the safe one", (_question, first, expected)
 });
 
 test("the risky choices still exist, as a deliberate 2 or later", () => {
-  expect(PLAN_CHOICES.map((choice) => choice.label)).toEqual(["Stop", "Build"]);
+  expect(PLAN_CHOICES.map((choice) => choice.label)).toEqual(["Stop", "Build", "Change the plan"]);
   expect(ALREADY_FAILING_CHOICES.map((choice) => choice.label)).toEqual(["Leave it", "Fix it anyway"]);
   expect(spendChoices("$10").map((choice) => choice.label)).toEqual(["Stop here", "Keep going"]);
   expect(modelFailedChoices("fixture/big").map((choice) => choice.label)).toEqual(["Stop", "Retry", "Retry with your big model"]);
@@ -124,12 +125,33 @@ test("the risky choices still exist, as a deliberate 2 or later", () => {
   expect(tasksChoices([running("api"), running("web")]).map((choice) => choice.label)).toEqual(["Keep them", "Stop 1", "Stop 2", "Stop all"]);
 });
 
-test("Enter in the rich terminal's plan editor goes on to Build this plan?, never straight to a build", () => {
-  const { hint } = planEditorHeading({ steps: ["Add a Limiter class"], tests: ["limit(0) throws"] });
-  expect(hint).toStartWith("Enter goes on to 1 Stop · 2 Build");
-  expect(hint).not.toMatch(/Enter builds/i);
-  expect(PLAN_QUESTION).toBe("Build this plan?");
-  // tests/plan-first.test.ts drives the rich terminal: Enter in the editor, then Enter again, builds nothing.
+test("plan choice 1 stays Stop", () => {
+  expect(PLAN_CHOICES[0].label).toBe("Stop");
+});
+
+test("plan choice 2 stays Build", () => {
+  expect(PLAN_CHOICES[1].label).toBe("Build");
+});
+
+test("plan choice 3 is Change the plan", () => {
+  expect(PLAN_CHOICES[2].label).toBe("Change the plan");
+});
+
+test.each(["xterm-256color", "dumb"])("Enter on the plan screen never chooses Build (%s)", async (term) => {
+  const previous = process.env.TERM;
+  process.env.TERM = term;
+  const session = interactiveTerminal();
+  try {
+    session.terminal.start();
+    session.terminal.writeRows(width => planScreenRows({ steps: ["Add a Limiter class"], tests: ["limit(0) throws"] }, width));
+    const answer = session.terminal.pick(PLAN_QUESTION, PLAN_CHOICES.map(choice => ({ ...choice })));
+    await session.screen.until(output => output.includes("3 Change the plan"));
+    session.input.write(term === "dumb" ? "\n" : "\r");
+    expect(await answer).toBe("Stop");
+  } finally {
+    session.close();
+    if (previous === undefined) delete process.env.TERM; else process.env.TERM = previous;
+  }
 });
 
 /** A flow whose person presses Enter at every question (Enter picks choice 1), and a create that must not run. */

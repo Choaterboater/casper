@@ -5,7 +5,7 @@ import { settleQueuedLines, steerOrQueue } from "../src/app/during-work";
 import { queueTypedRequest } from "../src/app/workspace";
 import { TerminalSurface } from "../src/tui/surface";
 
-/** What was pasted into a draft stays with it: through a question, an edit box, and lines put back in the prompt. */
+/** What was pasted into a draft stays with it: through a question, a change input, and lines put back in the prompt. */
 function makeSurface() {
   const input = new PassThrough();
   const surface = new TerminalSurface({
@@ -32,15 +32,15 @@ test("a pasted draft sitting in the prompt when an approval opens is still paste
   } finally { surface.close(); }
 });
 
-test("a pasted draft set aside for an edit box comes back still pasted", async () => {
+test("a pasted draft set aside for a change input comes back still pasted", async () => {
   const { surface, input } = makeSurface();
   try {
     const line = surface.readCommand();
     input.write(`\x1b[200~${block}\x1b[201~`);
     await tick();
-    const edited = surface.editLines("Edit the plan", "Enter keeps it", ["step one"]);
-    input.write("\r");
-    expect(await edited).toEqual(["step one"]);
+    const answer = surface.askLine("What should change?", "Enter sends");
+    input.write("also test X\r");
+    expect(await answer).toBe("also test X");
     input.write("\r");
     expect(await line).toBe(block);
     expect(surface.takeSubmittedPastes()).toEqual([block]);

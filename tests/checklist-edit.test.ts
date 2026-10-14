@@ -15,64 +15,77 @@ const ambientTerm = process.env.TERM;
 process.env.TERM = "xterm-256color";
 afterAll(() => { if (ambientTerm === undefined) delete process.env.TERM; else process.env.TERM = ambientTerm; });
 
-const HEADING = "Casper checklist: 2 cases from your request.";
-const HINT = "Enter starts with these · Esc starts without";
+const HEADING = "What should change?";
+const HINT = 'Type a change, e.g. "drop steps 1 and 4" or "also test X" · Enter sends · Esc stops without building';
 const CASES = ["limit(0) throws", "the 6th call is rejected"];
 
-test("editLines fills the editor with the lines under a heading and hint; Enter returns them", async () => {
+test.each(["drop steps 1 and 4", "also test X"])("the change input is an empty line that accepts plain words: %s", async (change) => {
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
-    const edited = session.terminal.editLines(HEADING, HINT, CASES);
-    await session.screen.until(output => output.includes(HEADING) && output.includes(HINT) && output.includes("the 6th call is rejected"));
+    const answer = session.terminal.askLine(HEADING, HINT);
+    await session.screen.until(output => output.includes(HEADING) && output.includes(HINT));
+    expect(Bun.stripANSI(session.screen.output)).not.toContain("limit(0) throws");
+    session.input.write(`${change}\r`);
+    expect(await answer).toBe(change);
+  } finally { session.close(); }
+});
+
+test("the raw multi-line editor is removed", () => {
+  const session = interactiveTerminal();
+  try { expect("editLines" in session.terminal).toBe(false); }
+  finally { session.close(); }
+});
+
+test("a multiline paste stays one line in the change input", async () => {
+  const session = interactiveTerminal();
+  try {
+    session.terminal.start();
+    const answer = session.terminal.askLine(HEADING, HINT);
+    session.input.write("\x1b[200~drop step 1\nalso test X\x1b[201~");
+    await session.screen.until(output => output.includes("drop step 1 also test X"));
     session.input.write("\r");
-    expect(await edited).toEqual(CASES);
+    expect(await answer).toBe("drop step 1 also test X");
   } finally { session.close(); }
 });
 
-test("editLines returns the lines as edited", async () => {
+test("empty Enter returns an empty change, not plan text", async () => {
   const session = interactiveTerminal();
   try {
-    session.terminal.setStatus("fixture"); session.terminal.start();
-    const edited = session.terminal.editLines(HEADING, HINT, CASES);
-    await session.screen.until(output => output.includes("the 6th call is rejected"));
-    session.input.write("\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7fallowed\n");
-    session.input.write("limit(-1) throws\r");
-    expect(await edited).toEqual(["limit(0) throws", "the 6th call is allowed", "limit(-1) throws"]);
+    session.terminal.start();
+    const answer = session.terminal.askLine(HEADING, HINT);
+    session.input.write("\r");
+    expect(await answer).toBe("");
   } finally { session.close(); }
 });
 
-test("Escape returns undefined and a pretyped draft survives the edit", async () => {
+test("Escape returns undefined and a pretyped draft survives the change input", async () => {
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const command = session.terminal.readCommand();
     session.input.write("partial");
     await session.screen.until(output => output.includes("partial"));
-    const edited = session.terminal.editLines(HEADING, HINT, CASES);
+    const answer = session.terminal.askLine(HEADING, HINT);
     await session.screen.until(output => output.includes(HINT));
     session.input.write("\x1b");
-    expect(await edited).toBeUndefined();
+    expect(await answer).toBeUndefined();
     session.input.write("\r");
     expect(await command).toBe("partial");
   } finally { session.close(); }
 });
 
-test("abort, Ctrl-C and closing the terminal each return undefined", async () => {
+test.each(["abort", "Ctrl-C", "close"])("%s returns undefined from the change input", async (action) => {
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const controller = new AbortController();
-    const aborted = session.terminal.editLines(HEADING, HINT, CASES, controller.signal);
+    const answer = session.terminal.askLine(HEADING, HINT, controller.signal);
     await session.screen.until(output => output.includes(HINT));
-    controller.abort();
-    expect(await aborted).toBeUndefined();
-    const interrupted = session.terminal.editLines(HEADING, HINT, CASES);
-    session.input.write("\x03");
-    expect(await interrupted).toBeUndefined();
-    const closed = session.terminal.editLines(HEADING, HINT, CASES);
-    session.terminal.close();
-    expect(await closed).toBeUndefined();
+    if (action === "abort") controller.abort();
+    else if (action === "Ctrl-C") session.input.write("\x03");
+    else session.terminal.close();
+    expect(await answer).toBeUndefined();
   } finally { session.close(); }
 });
 

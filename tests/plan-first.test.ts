@@ -25,7 +25,7 @@ function plainScreen() {
   let output = "";
   const waiters: Array<{ test: (output: string) => boolean; resolve: () => void }> = [];
   const writer = Object.assign(new EventEmitter(), { isTTY: true, columns: 120, rows: 40, write(text: string) {
-    output += Bun.stripANSI(text);
+    output += Bun.stripANSI(text).replaceAll("\r\n", "\n");
     for (const waiter of [...waiters]) if (waiter.test(output)) { waiters.splice(waiters.indexOf(waiter), 1); waiter.resolve(); }
   } });
   return { writer, get output() { return output; }, until(test: (output: string) => boolean): Promise<void> {
@@ -39,7 +39,7 @@ function plainScreen() {
 
 /** The fake model: on a plan turn it tries an edit and two shell commands through Casper's gate, then answers
  * with PLAN; otherwise it writes a file. */
-async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boolean; answer?: string; planFails?: boolean; homeConfig?: string } = {}) {
+async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boolean; answer?: string; rewrites?: string[]; rewriteFails?: boolean; rewriteWrites?: boolean; planFails?: boolean; homeConfig?: string } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-plan-first-"));
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(home, { recursive: true }); await mkdir(path.join(project, ".casper"), { recursive: true });
@@ -52,6 +52,7 @@ async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boo
   const prompts: string[] = [];
   const gate: Array<{ tool: string; reason: string | undefined }> = [];
   let checklistCalls = 0;
+  let planCalls = 0;
   let options: RuntimeStartOptions | undefined;
   const runtime: AgentRuntime = {
     start: async (started) => {
@@ -70,11 +71,13 @@ async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boo
             gate.push({ tool: `${tool} ${JSON.stringify(input)}`, reason: options?.beforeToolGate?.(tool, input as Record<string, unknown>) });
           }
           if (text.includes('Casper flow "plan-first"')) {
+            planCalls++;
             // A change Casper's gate cannot see (a tool that says nothing about writing, say).
             if (setup.planWrites) await writeFile(path.join(project, "notes.txt"), "written while planning\n");
             if (setup.planCode) await writeFile(path.join(project, "app.py"), "print('broken while planning')\n");
-            emit({ type: "assistant_text_delta", delta: setup.answer ?? PLAN });
-            if (setup.planFails) { emit({ type: "assistant_response_end", stopReason: "error", errorMessage: "provider went away" }); return; }
+            if (setup.rewriteWrites && planCalls > 1) await writeFile(path.join(project, "notes.txt"), "written during a rewrite\n");
+            emit({ type: "assistant_text_delta", delta: (planCalls > 1 ? setup.rewrites?.[planCalls - 2] : undefined) ?? setup.answer ?? PLAN });
+            if (setup.planFails || (setup.rewriteFails && planCalls > 1)) { emit({ type: "assistant_response_end", stopReason: "error", errorMessage: "provider went away" }); return; }
           }
           else { await writeFile(path.join(project, "limiter.py"), `# ${prompts.length}\n`); emit({ type: "assistant_text_delta", delta: "Built.\n" }); }
           emit({ type: "assistant_response_end", stopReason: "stop" });
@@ -94,12 +97,12 @@ async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boo
     loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
     loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
   });
-  const plainTerminal = process.env.TERM === "dumb";
   const interactive = tty ? app.runInteractive(project) : undefined;
   if (tty) await screen.until((output) => output.includes(process.env.TERM === "dumb" ? "> " : "idle"));
   return { app, input, screen, prompts, gate, project, plain: () => plain, checklistCalls: () => checklistCalls, close: async () => {
-    if (interactive) { if (plainTerminal) input.end(); else input.write("/exit\r"); await interactive; }
-    await app.close(); input.destroy(); await removeTempDir(root);
+    await app.close(); input.destroy();
+    if (interactive) await interactive;
+    await removeTempDir(root);
   } };
 }
 
@@ -124,17 +127,16 @@ test("a big vague request builds straight away, with a one-line hint to /plan fi
   } finally { await f.close(); }
 }, 60_000);
 
-test("/plan: the plan turn refuses changes; after the editor, 2 builds the plan", async () => {
+test("/plan: the plan turn refuses changes; 2 builds the plan", async () => {
   const f = await fixture();
   try {
     f.input.write(`/plan ${REQUEST}\r`);
     await f.screen.until(waiting("Build this plan?"));
     expect(f.screen.output).not.toContain("Big job");
-    // Casper's plan screen, once: the steps, the tests as one line, and the choice; not the model's raw answer too.
+    // Casper's plan screen, once: numbered steps and cases, not the raw answer too.
     expect(f.screen.output).toContain("Casper plan");
     expect(f.screen.output).toContain("  1. Add a Limiter class in limiter.py");
-    expect(f.screen.output).toContain("Tests: 2 cases · Ctrl+T shows them");
-    expect(f.screen.output).not.toContain("- a /health request answers 200");
+    expect(f.screen.output).toContain("Tests: 2 cases\n  1. limit(0) throws\n  2. a /health request answers 200");
     expect(f.screen.output).not.toContain("Esc stops without building");
     expect(f.screen.output.split("Add a Limiter class in limiter.py").length - 1).toBe(1);
     expect(f.prompts).toHaveLength(1);
@@ -147,7 +149,7 @@ test("/plan: the plan turn refuses changes; after the editor, 2 builds the plan"
     expect(reasons.read).toBeUndefined();
     expect(f.screen.output).toContain("1 Stop");
     expect(f.screen.output).toContain("2 Build");
-    expect(f.screen.output).toContain("3 Edit the plan");
+    expect(f.screen.output).toContain("3 Change the plan");
     // A call blocked while planning reads "not run", never "failed".
     expect(f.screen.output).not.toMatch(/✗ (?:bash|edit|write)[^\n]*failed/);
     expect(f.prompts).toHaveLength(1);
@@ -164,7 +166,7 @@ test("/plan: the plan turn refuses changes; after the editor, 2 builds the plan"
   } finally { await f.close(); }
 }, 60_000);
 
-test("Esc in the plan editor stops without building", async () => {
+test("Esc in the change input stops without building", async () => {
   const f = await fixture();
   try {
     f.input.write(`/plan ${REQUEST}\r`);
@@ -279,8 +281,7 @@ test("/plan in a run that cannot ask shows the plan and builds nothing", async (
     await f.app.runOnce(`/plan ${REQUEST}`, f.project);
     expect(f.plain()).toContain("Casper plan\n");
     expect(f.plain()).toContain("  1. Add a Limiter class in limiter.py");
-    // Nothing can open the details later here, so the cases are listed.
-    expect(f.plain()).toContain("Tests: 2 cases\n  - limit(0) throws\n  - a /health request answers 200");
+    expect(f.plain()).toContain("Tests: 2 cases\n  1. limit(0) throws\n  2. a /health request answers 200");
     // The answer is shown once, as Casper's plan, not also as the model streamed it.
     expect(f.plain().split("Add a Limiter class in limiter.py").length - 1).toBe(1);
     expect(f.plain()).toContain("[plan] This run can't ask you to build, so Casper stopped after the plan. Nothing was built.");
@@ -325,10 +326,10 @@ test("the plain terminal asks Build this plan? with numbers: Enter stops and bui
         f.input.write(`/plan ${REQUEST}\n`);
         await f.screen.until((output) => output.includes("Build this plan?") && /Type [\d, ]*\d or \d:$/.test(output.trimEnd()));
         expect(f.screen.output).toContain("  1. Add a Limiter class in limiter.py");
-        expect(f.screen.output).toContain("Tests: 2 cases · choose 3 to see them");
+        expect(f.screen.output).toContain("Tests: 2 cases\n  1. limit(0) throws\n  2. a /health request answers 200");
         expect(f.screen.output).toContain("  1 Stop · nothing is built");
         expect(f.screen.output).toContain("  2 Build · the model builds these steps and tests these cases\n");
-        expect(f.screen.output).toContain("  3 Show the details · list the cases to test and the details, then choose again\n");
+        expect(f.screen.output).toContain("  3 Change the plan · tell the model what to change, then choose again\n");
         f.input.write(`${answer}\n`);
         if (builds) await f.screen.until((output) => output.includes("Built."));
         else await f.screen.until((output) => output.includes("[plan] Stopped without building."));
@@ -338,23 +339,151 @@ test("the plain terminal asks Build this plan? with numbers: Enter stops and bui
   } finally { process.env.TERM = term; }
 }, 90_000);
 
-test("Edit the plan opens the plan's lines, Enter asks again, and a plan you changed is listed before it builds", async () => {
+test("empty Enter in Change the plan asks again without calling the model or building", async () => {
   const f = await fixture();
   try {
     f.input.write(`/plan ${REQUEST}\r`);
     await f.screen.until(waiting("Build this plan?"));
     f.input.write("3");
-    await f.screen.until((output) => output.includes("Enter goes on to 1 Stop · 2 Build · edit lines · Esc stops without building"));
+    await f.screen.until(waiting("What should change?"));
+    const from = f.screen.output.length;
     f.input.write("\r");
-    await f.screen.until((output) => output.split("Build this plan?").length > 2 && waiting("Build this plan?")(output));
+    await f.screen.until(output => waiting("Build this plan?")(output.slice(from)));
     expect(f.prompts).toHaveLength(1);
+    expect(f.screen.output.slice(from)).toContain("  1. Add a Limiter class in limiter.py");
+    f.input.write("\r");
+    await f.screen.until(idleAfter("[plan] Stopped without building."));
+    expect(f.prompts).toHaveLength(1);
+  } finally { await f.close(); }
+}, 60_000);
+
+test("the confusing editor hint is no longer shown", async () => {
+  const f = await fixture();
+  try {
+    f.input.write(`/plan ${REQUEST}\r`);
+    await f.screen.until(waiting("Build this plan?"));
+    f.input.write("3");
+    await f.screen.until(waiting("What should change?"));
+    expect(f.screen.output).not.toContain("Enter goes on to 1 Stop · 2 Build · edit lines");
+    expect(f.screen.output).not.toContain("Edit the plan");
+    f.input.write("\x1b");
+    await f.screen.until(idleAfter("[plan] Stopped without building."));
+  } finally { await f.close(); }
+}, 60_000);
+
+test.each(["xterm-256color", "dumb"])("after a change request the model rewrites the plan and shows it with the same choices (%s)", async term => {
+  const previous = process.env.TERM;
+  process.env.TERM = term;
+  const rewritten = "Steps:\n1. Call the limiter from the API\n\nTests:\n- X passes\n\nDetails:\nUse the existing API handler.";
+  const f = await fixture(true, { rewrites: [rewritten] });
+  const enter = term === "dumb" ? "\n" : "\r";
+  const ready = (question: string) => term === "dumb" ? (output: string) => output.includes(question) && /(?:Type [\d, ]*\d or \d:|>)$/.test(output.trimEnd()) : waiting(question);
+  try {
+    f.input.write(`/plan ${REQUEST}${enter}`);
+    await f.screen.until(ready("Build this plan?"));
+    f.input.write(`3${term === "dumb" ? "\n" : ""}`);
+    await f.screen.until(ready("What should change?"));
+    const from = f.screen.output.length;
+    f.input.write(`also test X${enter}`);
+    await f.screen.until(output => ready("Build this plan?")(output.slice(from)));
+    expect(f.prompts).toHaveLength(2);
+    expect(f.prompts[1]).toContain(`Request: ${REQUEST}`);
+    expect(f.prompts[1]).toContain("User's change: also test X");
+    expect(f.prompts[1]).toContain("Steps:\n1. Add a Limiter class in limiter.py\n2. Call it from app.py");
+    const shown = f.screen.output.slice(from);
+    expect(shown).toContain("  1. Call the limiter from the API");
+    expect(shown).toContain("  1. X passes");
+    expect(shown).toContain("1 Stop");
+    expect(shown).toContain("2 Build");
+    expect(shown).toContain("3 Change the plan");
+    // No build occurred, and the rewrite still refuses edits and MCP writes.
+    expect(shown).not.toContain("Built.");
+    expect(f.gate.slice(5, 10).filter(({ reason }) => reason !== undefined)).toHaveLength(3);
+    f.input.write(`2${term === "dumb" ? "\n" : ""}`);
+    await f.screen.until(term === "dumb" ? output => output.includes("Built.") && />$/.test(output.trimEnd()) : idleAfter("Built."));
+    expect(f.prompts).toHaveLength(3);
+    expect(f.prompts[2]).toContain("Follow these steps in order:\n1. Call the limiter from the API");
+    expect(f.prompts[2]).not.toContain("Follow these steps in order:\n1. Add a Limiter class");
+    expect(f.app.getLastTaskResult()?.checklist).toEqual(["X passes"]);
+  } finally {
+    await f.close();
+    if (previous === undefined) delete process.env.TERM; else process.env.TERM = previous;
+  }
+}, 60_000);
+
+test("drop steps 1 and 4 rewrites the plan, and another change uses the latest numbering", async () => {
+  const original = "Steps:\n1. Add exports\n2. Keep API logging\n3. Keep the config\n4. Add a dashboard\n\nTests:\n- the API logs\n- the config loads";
+  const revised = "Steps:\n1. Keep API logging\n2. Keep the config\n\nTests:\n- the API logs\n- the config loads";
+  const final = "Steps:\n1. Keep API logging\n\nTests:\n- the API logs";
+  const f = await fixture(true, { answer: original, rewrites: [revised, final] });
+  try {
+    f.input.write(`/plan ${REQUEST}\r`);
+    await f.screen.until(waiting("Build this plan?"));
+    for (const change of ["drop steps 1 and 4", "drop step 2"]) {
+      f.input.write("3");
+      await f.screen.until(output => waiting("What should change?")(output.slice(output.lastIndexOf("Build this plan?"))));
+      const from = f.screen.output.length;
+      f.input.write(`${change}\r`);
+      await f.screen.until(output => waiting("Build this plan?")(output.slice(from)));
+      expect(f.screen.output.slice(from)).toContain("  1. Keep API logging");
+    }
+    expect(f.prompts).toHaveLength(3);
+    expect(f.prompts[1]).toContain("User's change: drop steps 1 and 4");
+    expect(f.prompts[2]).toContain("Current plan:\n\nSteps:\n1. Keep API logging\n2. Keep the config");
+    expect(f.prompts[2]).not.toContain("4. Add a dashboard");
+    f.input.write("\r");
+    await f.screen.until(idleAfter("[plan] Stopped without building."));
+    expect(f.prompts).toHaveLength(3);
+    expect(f.screen.output).not.toContain("Built.");
+  } finally { await f.close(); }
+}, 60_000);
+
+test("a failed rewrite prints the failure and never offers the old plan for building", async () => {
+  const f = await fixture(true, { rewriteFails: true });
+  try {
+    f.input.write(`/plan ${REQUEST}\r`);
+    await f.screen.until(waiting("Build this plan?"));
+    f.input.write("3");
+    await f.screen.until(waiting("What should change?"));
+    const from = f.screen.output.length;
+    f.input.write("also test X\r");
+    await f.screen.until(idleAfter("[plan] The model failed while planning; nothing was built."));
+    expect(f.prompts).toHaveLength(2);
+    expect(f.screen.output.slice(from)).not.toContain("Build this plan?");
+    expect(f.screen.output).not.toContain("Built.");
+  } finally { await f.close(); }
+}, 60_000);
+
+test("a rewrite without numbered steps stops rather than building the old plan", async () => {
+  const f = await fixture(true, { rewrites: ["No steps remain."] });
+  try {
+    f.input.write(`/plan ${REQUEST}\r`);
+    await f.screen.until(waiting("Build this plan?"));
+    f.input.write("3");
+    await f.screen.until(waiting("What should change?"));
+    const from = f.screen.output.length;
+    f.input.write("drop all steps\r");
+    await f.screen.until(idleAfter("nothing was built. Ask again, or send the request without /plan."));
+    expect(f.screen.output.slice(from)).toContain("No steps remain.");
+    expect(f.screen.output.slice(from)).not.toContain("Build this plan?");
+    expect(f.prompts).toHaveLength(2);
+  } finally { await f.close(); }
+}, 60_000);
+
+test("a change made during a rewrite is reported and kept in the build receipt", async () => {
+  const f = await fixture(true, { rewriteWrites: true });
+  try {
+    f.input.write(`/plan ${REQUEST}\r`);
+    await f.screen.until(waiting("Build this plan?"));
+    f.input.write("3");
+    await f.screen.until(waiting("What should change?"));
+    const from = f.screen.output.length;
+    f.input.write("also test X\r");
+    await f.screen.until(output => waiting("Build this plan?")(output.slice(from)));
+    expect(f.screen.output.slice(from)).toContain("– Changed while planning: notes.txt");
     f.input.write("2");
     await f.screen.until(idleAfter("Built."));
-    expect(f.prompts).toHaveLength(2);
-    // Not edited here: one line says so, and the plan is not listed again.
-    expect(f.screen.output).toContain("No changes to the plan.");
-    expect(f.screen.output).toContain("Building the plan (2 steps, 2 cases).");
-    expect(f.screen.output.slice(f.screen.output.indexOf("No changes to the plan."))).not.toContain("Add a Limiter class in limiter.py");
+    expect(f.app.getLastTaskResult()?.changedWhilePlanning).toEqual(["notes.txt"]);
   } finally { await f.close(); }
 }, 60_000);
 
@@ -381,8 +510,9 @@ const NEW_PLAN = [
   "- src/tui/banner.ts: wordmarkHeader() takes a frame number",
 ].join("\n");
 
-test("the plan screen hides the details until Ctrl+T, the banner is not printed again, an edit shows only your note, and Build gets everything", async () => {
-  const f = await fixture(true, { answer: NEW_PLAN });
+test("the plan screen hides only details until Ctrl+T and Build gets the rewritten whole plan", async () => {
+  const rewrite = NEW_PLAN.replace("Draw the header in the accent colour.", "Draw a clearer header in the accent colour.");
+  const f = await fixture(true, { answer: NEW_PLAN, rewrites: [rewrite] });
   try {
     const art = " ██████  █████  ███████ ██████  ███████ ██████ ";
     expect(f.screen.output.split(art).length - 1).toBe(1);
@@ -393,31 +523,25 @@ test("the plan screen hides the details until Ctrl+T, the banner is not printed 
     expect(screen).toContain("What you'll see");
     expect(screen).toContain("  The ghost and the name in one colour, with a short fade-in.");
     expect(screen).toContain("  2. Draw the header in the accent colour.");
-    expect(screen).toContain("Tests: 1 case · Ctrl+T shows them and the details");
+    expect(screen).toContain("Tests: 1 case\n  1. the header is drawn once");
+    expect(screen).toContain("Ctrl+T shows the details");
     expect(screen).not.toContain("wordmarkHeader");
     expect(screen.split(art).length - 1).toBe(1);
     f.input.write("\x14");
     await f.screen.until((output) => output.includes("wordmarkHeader() takes a frame number"));
-    expect(f.screen.output).toContain("Plan: cases to test and details");
+    expect(f.screen.output).toContain("Plan: details");
     f.input.write("3");
     await f.screen.until((output) => output.includes("Esc stops without building"));
-    // Typed at the end of the last line, as the owner did.
-    f.input.write(" - this looks confusing to me\r");
-    // The box asks again after the note (the same box also redraws lower when the Ctrl+T panel lands above it).
-    const note = "Your note: this looks confusing to me";
-    await f.screen.until((output) => output.includes(note) && waiting("Build this plan?")(output.slice(output.lastIndexOf(note))));
-    expect(f.screen.output).toContain("Your note: this looks confusing to me");
-    // Only the note follows the editor: not the plan again.
-    const after = f.screen.output.slice(f.screen.output.lastIndexOf("Your note: this looks confusing to me"));
-    expect(after).not.toContain("Draw the header in the accent colour");
-    expect(after).not.toContain("edited by you");
+    const from = f.screen.output.length;
+    f.input.write("make the header clearer\r");
+    await f.screen.until(output => waiting("Build this plan?")(output.slice(from)));
+    expect(f.screen.output.slice(from)).toContain("  2. Draw a clearer header in the accent colour.");
     f.input.write("2");
     await f.screen.until(idleAfter("Built."));
-    expect(f.screen.output).toContain("Building the plan (2 steps, 1 case, with your note).");
-    expect(f.prompts[1]).toContain("1. Write the tests first, then the change.\n2. Draw the header in the accent colour.");
-    expect(f.prompts[1]).toContain("- this looks confusing to me");
-    expect(f.prompts[1]).toContain("wordmarkHeader() takes a frame number");
-    expect(f.prompts[1]).toContain("- the header is drawn once");
+    expect(f.screen.output).toContain("Building the plan (2 steps, 1 case).");
+    expect(f.prompts[2]).toContain("1. Write the tests first, then the change.\n2. Draw a clearer header in the accent colour.");
+    expect(f.prompts[2]).toContain("wordmarkHeader() takes a frame number");
+    expect(f.prompts[2]).toContain("- the header is drawn once");
     expect(f.app.getLastTaskResult()?.checklist).toEqual(["the header is drawn once"]);
   } finally { await f.close(); }
 }, 60_000);
