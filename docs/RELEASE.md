@@ -20,6 +20,13 @@ sets them and removes this line.
 - **Ctrl+O now shows the raw steps** (every tool call on its own row), as in Claude Code, Pi and omp; Ctrl+O again goes back to plain words. Ctrl+T still shows the last step in full.
 - **MCP writes off moved from Ctrl+O to Ctrl+X.** It still works mid-task, while a box is open, and in a picker; it still refuses an open change box. The footer reads `WRITES: <servers> · Ctrl+X`. `/mcp writes off` is unchanged. In `/model`, Ctrl+X still forgets a model server when no writes are on.
 
+### Task-only receipts after branch movement
+
+A rebase, pull, merge, checkout, reset, fast-forward or branch switch during a task no longer adds git's
+incoming files to its change count or `/diff`. One plain receipt line explains the branch movement.
+Undo leaves incoming committed changes alone, skips files changed by both sides with a reason, and
+refuses when the baseline cannot be read. Normal tasks and non-git folders are unchanged.
+
 ### Change a plan in plain words
 
 `/plan` numbers its steps and test cases. Both terminals offer `1 Stop · 2 Build · 3 Change the plan`.

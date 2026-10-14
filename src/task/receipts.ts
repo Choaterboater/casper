@@ -20,6 +20,8 @@ export interface ReceiptUndo {
   after: string;
   /** The files that differ between the two copies. */
   paths: string[];
+  /** Git and the task both changed these files: shown in /diff, never put back by Undo or /rewind. */
+  blocked?: Array<{ path: string; why: string }>;
   /** Changed files Casper keeps no copy of (secret files, big files, nested repos). */
   left: LeftOut[];
   /** MCP servers the task changed things through (approved calls that were not read-only): undo can't reach them. */
@@ -51,6 +53,8 @@ export interface StoredReceipt {
   sessionId: string | null;
   conversation: { before: string | null; after: string | null } | null;
   undo: ReceiptUndo | { unavailable: string } | null;
+  /** Incoming paths are protected independently of whether Undo could save copies. */
+  git?: { incoming: string[] } | { unavailable: string };
   setting?: ReceiptSetting;
   task?: TaskResult;
 }
@@ -66,8 +70,11 @@ export class ReceiptStore {
 
   private file(n: number): string { return path.join(this.directory, `${n}.json`); }
 
-  private async numbers(): Promise<number[]> {
-    const names = await readdir(this.directory).catch(() => [] as string[]);
+  private async numbers(strict = false): Promise<number[]> {
+    const names = await readdir(this.directory).catch((error) => {
+      if (strict) throw error;
+      return [] as string[];
+    });
     return names.map((name) => /^([1-9]\d{0,8})\.json$/.exec(name)?.[1]).filter((n): n is string => Boolean(n)).map(Number).sort((a, b) => a - b);
   }
 
@@ -114,8 +121,8 @@ export class ReceiptStore {
   }
 
   /** The newest receipts first, at most `limit`, each read or marked unreadable. */
-  async list(limit = 10): Promise<Array<{ n: number; receipt: ReceiptRead }>> {
-    const numbers = (await this.numbers()).reverse().slice(0, limit);
+  async list(limit = 10, strict = false): Promise<Array<{ n: number; receipt: ReceiptRead }>> {
+    const numbers = (await this.numbers(strict)).reverse().slice(0, limit);
     return Promise.all(numbers.map(async (n) => ({ n, receipt: await this.get(n) })));
   }
 

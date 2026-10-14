@@ -59,6 +59,20 @@ From v0.2.16, checks run without AI provider keys (`OPENROUTER_API_KEY`, `ANTHRO
 everything else in your environment, network product tokens such as `MIST_API_TOKEN` included, is
 still there.
 
+## Branch movement in the change list
+
+A task that moves HEAD or switches branches gets one receipt line:
+
+```
+– The branch moved during this task: changes git brought in are not counted, and undo leaves them alone
+```
+
+The change list and `/diff` exclude files changed between the old and new HEAD whose final bytes match the
+new committed version (including incoming additions and deletions). Files the task also edited remain;
+for paths git touched, the diff starts at the new HEAD, not the old folder copy. Undo leaves overlapping
+files with a plain reason. If Casper cannot read the branch baseline, it reports changes as unknown and
+refuses Undo rather than guessing. Normal tasks and non-git folders are unchanged. See [Undo](UNDO.md).
+
 ## Verification modes
 
 | Mode | After a model turn that changed files |

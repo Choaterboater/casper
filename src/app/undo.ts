@@ -3,6 +3,7 @@
  * /receipt commands. Nothing here calls a model. Undo puts back files in this folder only; it says so each time it
  * can't reach something (secret files, big files, nested repositories, MCP servers, devices).
  */
+import { crlfCheckout, gitMovement, taskHead, projectBlob, GIT_MOVEMENT_UNKNOWN, GIT_OVERLAP, type TaskHead } from "../task/git-movement";
 import { storedTaskResult } from "./json-events";
 import { undoChangedChoices } from "./safe-choices";
 import type { OutputWriter } from "./commands";
@@ -12,6 +13,7 @@ import type { RuntimeSession } from "../runtime/types";
 import { RECEIPTS_KEPT, ReceiptStore, type ReceiptUndo, type StoredReceipt } from "../task/receipts";
 import { formatTaskResult, receiptVerdict, UNDO_NOTHING_CHANGED, type TaskResult } from "../task/result";
 import path from "node:path";
+import { HASH_LIMIT } from "../task/changes";
 import { coveredBy, leftOutWhy, UndoStore, type LeftOut, type UndoApplied, type UndoPlan, type UndoSnapshot } from "../task/undo";
 import { isSecretFile } from "../secrets/files";
 import { redactPreview, terminalText } from "../tui/format";
@@ -38,6 +40,7 @@ export interface UndoHost {
 /** What a task keeps from its start: the copy, the conversation position, and the conversation. */
 export interface TaskUndoStart {
   root: string;
+  head: TaskHead;
   snapshot: UndoSnapshot;
   mark: string | null | undefined;
   sessionId: string | null;
@@ -104,24 +107,72 @@ export class TaskUndo {
   /** Before the task: a copy of the folder and where the conversation is. Never throws. */
   async begin(root: string, session: RuntimeSession | undefined, signal?: AbortSignal): Promise<TaskUndoStart> {
     const store = this.store(root);
+    const head = await taskHead(root);
     const snapshot: UndoSnapshot = store ? await store.snapshot(signal) : { unavailable: "Casper has no state folder for this project" };
-    return { root, snapshot, mark: markOf(session), sessionId: sessionIdOf(session) };
+    return { root, head, snapshot, mark: markOf(session), sessionId: sessionIdOf(session) };
   }
 
   /** After the receipt's checks: the second copy, the saved receipt, and what the receipt says about undo. Never
    * throws: a failure makes undo unavailable, with the reason. Returns the change summary (--stat) to print. */
   async finish(start: TaskUndoStart, input: { request: string; task: TaskResult; session: RuntimeSession | undefined; servers: readonly string[] }): Promise<{ stat: string }> {
     const { task } = input;
-    const changed = [...new Set([...(task.changedPaths ?? []), ...(task.changedDuringChecks ?? [])])];
     let undo: StoredReceipt["undo"] = null;
     let stat = "";
     const store = this.store(start.root);
+    const endHead = await taskHead(start.root);
+    const movement = await gitMovement(start.root, start.head, endHead);
+    const blocked: Array<{ path: string; why: string }> = [];
+    const gitOnly = new Set<string>();
+    let afterSnapshot: UndoSnapshot | undefined;
+    if (movement.moved) task.branchMoved = true;
+    let protectionUnknown = "unavailable" in movement;
+    let uncertain = "unavailable" in movement ? movement.unavailable : undefined;
+    if (!uncertain && movement.moved && "incoming" in movement && store && "tree" in start.snapshot) {
+      try {
+        afterSnapshot = await store.snapshot();
+        if (!("tree" in afterSnapshot)) throw new Error("no ending copy");
+        const copied = new Set([...await store.files(start.snapshot.tree), ...await store.files(afterSnapshot.tree)]);
+        const replacements = new Map<string, { mode: string; data: Buffer } | undefined>();
+        for (const [file, entry] of movement.incoming) {
+          // On Windows git writes text with CR LF (core.autocrlf): those exact bytes are still git's own copy.
+          const checkout = await crlfCheckout(start.root, file, entry);
+          if (checkout || await store.matchesHead(file, entry)) gitOnly.add(file);
+          else blocked.push({ path: file, why: GIT_OVERLAP });
+          // Never import a secret, oversized or otherwise excluded file into the private undo store.
+          const excluded = [...start.snapshot.left, ...afterSnapshot.left].some((left) => coveredBy([left.path], file));
+          if (!copied.has(file) || excluded || isSecretFile(file)) continue;
+          if (entry?.mode === "160000") throw new Error("incoming nested repository");
+          const data = entry ? checkout ?? await projectBlob(start.root, entry) : undefined;
+          if (data && data.length > HASH_LIMIT) throw new Error("incoming file is too big to copy");
+          replacements.set(file, entry && data ? { mode: entry.mode, data } : undefined);
+        }
+        start.snapshot = { ...start.snapshot, tree: await store.overlay(start.snapshot.tree, replacements) };
+        task.changedPaths = task.changedPaths?.filter((file) => !gitOnly.has(file));
+        task.changedDuringChecks = task.changedDuringChecks?.filter((file) => !gitOnly.has(file));
+        // Restoring the starting bytes after git changed them is still an edit against the new HEAD.
+        if (task.changedPaths) task.changedPaths = [...new Set([...task.changedPaths,
+          ...blocked.filter((entry) => copied.has(entry.path) && !task.changedDuringChecks?.includes(entry.path)).map((entry) => entry.path)])].sort();
+        task.changedWhilePlanning = task.changedWhilePlanning?.filter((file) => !gitOnly.has(file));
+      } catch { uncertain = GIT_MOVEMENT_UNKNOWN; }
+    }
+    if (movement.moved && "incoming" in movement) {
+      const stable = await gitMovement(start.root, endHead, await taskHead(start.root));
+      if ("unavailable" in stable || stable.moved) { protectionUnknown = true; uncertain = GIT_MOVEMENT_UNKNOWN; }
+    }
+    if (uncertain && ("tree" in start.snapshot || movement.moved)) {
+      start.snapshot = { unavailable: uncertain };
+      task.branchChangesUnknown = true;
+      task.changedPaths = undefined;
+      task.changedDuringChecks = undefined;
+      task.snapshotFailure = { reason: uncertain, edited: [] };
+    }
+    const changed = [...new Set([...(task.changedPaths ?? []), ...(task.changedDuringChecks ?? [])])];
     if (!("tree" in start.snapshot) || !store) {
       const reason = "unavailable" in start.snapshot ? start.snapshot.unavailable : "Casper has no state folder for this project";
-      task.undo = changed.length || task.possibleMutations ? { available: false, reason } : { available: false, reason: UNDO_NOTHING_CHANGED };
+      task.undo = task.branchChangesUnknown || changed.length || task.possibleMutations ? { available: false, reason } : { available: false, reason: UNDO_NOTHING_CHANGED };
       undo = { unavailable: reason };
     } else {
-      const after = await store.snapshot();
+      const after = afterSnapshot ?? await store.snapshot();
       if (!("tree" in after)) {
         task.undo = { available: false, reason: after.unavailable };
         undo = { unavailable: after.unavailable };
@@ -144,6 +195,7 @@ export class TaskUndo {
         };
         const kept: LeftOut[] = [];
         const paths = (await store.changes(before.tree, after.tree).catch(() => [])).flatMap((change) => {
+          if (gitOnly.has(change.path)) return [];
           const already = !change.from && change.to ? notCopiedBefore(change.path) : change.from && !change.to ? notCopiedAfter(change.path) : undefined;
           if (already) { kept.push(already); return []; }
           return [change.path];
@@ -178,10 +230,16 @@ export class TaskUndo {
         const left = unique.map((entry) => ({ path: entry.path, why: leftOutWhy(entry) }));
         if (paths.length) {
           task.undo = { available: true, ...(left.length ? { left } : {}) };
-          stat = await store.diff(before.tree, after.tree, { stat: true, ...(kept.length ? { paths } : {}) }).catch(() => "");
+          stat = await store.diff(before.tree, after.tree, { stat: true, ...(movement.moved || kept.length ? { paths } : {}) }).catch(() => "");
         } else task.undo = { available: false, reason: left.length
           ? `Casper keeps no copy of ${names(unique.map((entry) => entry.why === "nested repo" ? `${entry.path} (${leftOutWhy(entry)})` : entry.path))}` : UNDO_NOTHING_CHANGED };
-        undo = { before: before.tree, after: after.tree, paths, left: unique,
+        const overlap = blocked.filter((entry) => paths.includes(entry.path));
+        if (overlap.length) {
+          const left = [...(task.undo?.available ? task.undo.left ?? [] : []), ...overlap];
+          task.undo = paths.some((file) => !overlap.some((entry) => entry.path === file))
+            ? { available: true, left } : { available: false, reason: `${names(overlap.map((entry) => entry.path))}: ${GIT_OVERLAP}` };
+        }
+        undo = { before: before.tree, after: after.tree, paths, left: unique, ...(overlap.length ? { blocked: overlap } : {}),
           ...(input.servers.length ? { servers: [...input.servers] } : {}) };
       }
     }
@@ -191,7 +249,9 @@ export class TaskUndo {
       const n = await receipts.add({ createdAt: new Date().toISOString(), kind: "task", request: redactPreview(input.request).slice(0, 200), root: start.root,
         sessionId: start.sessionId ?? sessionIdOf(input.session),
         conversation: start.mark === undefined ? null : { before: start.mark, after: markOf(input.session) ?? null },
-        undo, task: storedTaskResult({ ...task, receipt: undefined }) });
+        undo, ...(protectionUnknown ? { git: { unavailable: GIT_MOVEMENT_UNKNOWN } }
+          : movement.moved && "incoming" in movement ? { git: { incoming: [...movement.incoming.keys()] } } : {}),
+        task: storedTaskResult({ ...task, receipt: undefined }) });
       task.receipt = n;
       if (undo && "before" in undo && store) {
         await store.record(n, undo.before, undo.after);
@@ -265,7 +325,9 @@ export class TaskUndo {
       return;
     }
     const store = this.store(receipt.root)!;
-    const plan = await store.plan(undo.after, undo.before, undo.paths);
+    const incoming = await this.incomingSince(receipt);
+    if (!incoming) return;
+    const plan = await this.undoPlan(store, undo, undo.paths, incoming);
     if (!(await this.confirmPartial("Undo", n, plan.changedSince, plan.ready.length, signal))) return;
     const applied = await this.putBack(n, store, plan, undo.before, signal);
     if (typeof applied === "string") { this.refuse(`Nothing was undone: ${applied}.`); return; }
@@ -279,6 +341,34 @@ export class TaskUndo {
     if (applied.restored.length) lines.push(await this.tellConversation(receipt, applied.restored, "undo"));
     this.write(`${lines.join("\n")}\n`);
     if (applied.restored.length) this.offer(buildNextRow({ undo: { label: "Redo", command: `/redo ${n}` } }));
+  }
+
+  /** A newer receipt can make an older task's exact ending bytes committed incoming work. */
+  private async incomingSince(receipt: StoredReceipt): Promise<string[] | undefined> {
+    const paths = new Set<string>();
+    const recent = await this.receipts()?.list(RECEIPTS_KEPT, true).catch(() => undefined);
+    if (!recent) {
+      this.refuse(`Task ${receipt.n} can't be put back: saved branch changes cannot be read; Casper left everything as it is.`);
+      return undefined;
+    }
+    for (const { n, receipt: later } of recent) {
+      if (n <= receipt.n) continue;
+      if (typeof later !== "string" && later.root !== receipt.root) continue;
+      if (typeof later === "string" || (later.git && "unavailable" in later.git)) {
+        this.refuse(`Task ${receipt.n} can't be put back: a later task's branch changes cannot be read; Casper left everything as it is.`);
+        return undefined;
+      }
+      if (later.git && "incoming" in later.git) for (const file of later.git.incoming) paths.add(file);
+    }
+    return [...paths];
+  }
+
+  private async undoPlan(store: UndoStore, undo: ReceiptUndo, paths = undo.paths, incoming: readonly string[] = []): Promise<UndoPlan> {
+    const blocked = [...undo.blocked ?? [], ...incoming.filter((file) => paths.includes(file))
+      .map((file) => ({ path: file, why: "git brought it in during a later task; Casper left it alone" }))];
+    const plan = await store.plan(undo.after, undo.before, paths.filter((file) => !blocked.some((entry) => entry.path === file)));
+    plan.blocked.push(...blocked.filter((entry) => paths.includes(entry.path)));
+    return plan;
   }
 
   /** Saves the files as they are now (for /redo), puts back `plan`'s files as task `n` found them and marks the task
@@ -320,12 +410,20 @@ export class TaskUndo {
     const store = this.store(this.host.activeRoot());
     if (!store || !tasks.length) return Boolean(store);
     const list = tasks.map((task) => task.n).join(", ");
+    const incoming = new Set<string>();
+    const protectedByTask = new Map<number, string[]>();
+    for (const task of tasks) {
+      const later = await this.incomingSince(task);
+      if (!later) return false;
+      protectedByTask.set(task.n, [...new Set([...incoming, ...later])]);
+      if (task.git && "incoming" in task.git) for (const file of task.git.incoming) incoming.add(file);
+    }
     // First, every file must still be as the newest of these tasks that changed it left it.
     const seen = new Set<string>();
     const changed: string[] = [];
     for (const task of tasks) {
       const fresh = task.undo.paths.filter((file) => !seen.has(file) && Boolean(seen.add(file)));
-      if (fresh.length) changed.push(...(await store.plan(task.undo.after, task.undo.before, fresh)).changedSince);
+      if (fresh.length) changed.push(...(await this.undoPlan(store, task.undo, fresh, protectedByTask.get(task.n))).changedSince);
     }
     const stop = (files: readonly string[], n: number) =>
       `${names(files)} changed after task ${n}, so Casper left the files and the conversation as they are. /rewind with 1 Conversation only keeps the files.`;
@@ -333,7 +431,7 @@ export class TaskUndo {
     const restored: string[] = [];
     const lines: string[] = [];
     for (const task of tasks) {
-      const plan = await store.plan(task.undo.after, task.undo.before, task.undo.paths);
+      const plan = await this.undoPlan(store, task.undo, task.undo.paths, protectedByTask.get(task.n));
       // Only when a task in between changed a file back by hand: nothing more is put back from here on.
       if (plan.changedSince.length) { lines.push(`– Stopped: ${stop(plan.changedSince, task.n)}`); break; }
       const applied = await this.putBack(task.n, store, plan, task.undo.before, signal);
@@ -360,7 +458,11 @@ export class TaskUndo {
     const undo = receipt.undo && "before" in receipt.undo ? receipt.undo : undefined;
     if (!undo?.undone) { this.refuse(`Task ${n} is not undone, so there is nothing to redo.`); return; }
     const store = this.store(receipt.root)!;
-    const plan = await store.plan(undo.before, undo.undone.redo, undo.undone.restored);
+    const incoming = await this.incomingSince(receipt);
+    if (!incoming) return;
+    const plan = await store.plan(undo.before, undo.undone.redo, undo.undone.restored.filter((file) => !incoming.includes(file)));
+    plan.blocked.push(...undo.undone.restored.filter((file) => incoming.includes(file))
+      .map((file) => ({ path: file, why: "git brought it in during a later task; Casper left it alone" })));
     if (!(await this.confirmPartial("Redo", n, plan.changedSince, plan.ready.length, signal))) return;
     const applied = await store.apply(plan.ready, undo.undone.redo, signal);
     this.lastRestored = applied.restored;
@@ -376,6 +478,7 @@ export class TaskUndo {
       : `– Nothing was put back for task ${n}.`];
     for (const skipped of applied.skipped) lines.push(`– Not put back: ${terminalText(skipped.path)} (${terminalText(skipped.why)})`);
     if (plan.changedSince.length) lines.push(`– Left as you changed them: ${names(plan.changedSince)}`);
+    if (plan.blocked.length) lines.push(...this.limits({ ...undo, left: [], servers: [] }, plan.blocked));
     if (applied.restored.length) lines.push(await this.tellConversation(receipt, applied.restored, "redo"));
     this.write(`${lines.join("\n")}\n`);
     if (applied.restored.length) this.offer(buildNextRow({ undo: { label: "Undo", command: `/undo ${n}` } }));
@@ -431,6 +534,12 @@ export class TaskUndo {
       return;
     }
     if (kind === "redo" && !setting.undone) { this.refuse(`Task ${n} is not undone, so there is nothing to redo.`); return; }
+    const incoming = await this.incomingSince(receipt);
+    if (!incoming) return;
+    if (incoming.includes(setting.file)) {
+      this.refuse(`Task ${n} can't be put back: git brought ${terminalText(setting.file)} in during a later task, so Casper left it alone.`);
+      return;
+    }
     const store = this.store(receipt.root)!;
     const text = async (id: string | null) => id === null ? undefined : (await store.readBlob(id)).toString("utf8");
     const [before, after] = [await text(setting.before), await text(setting.after)];
@@ -491,7 +600,7 @@ export class TaskUndo {
       this.write(`Casper kept no copy of task ${receipt.n}${receipt.undo ? ` (${terminalText(receipt.undo.unavailable)})` : ""}, so it can't show its changes.\n`);
       return;
     }
-    const patch = await this.store(receipt.root)!.diff(receipt.undo.before, receipt.undo.after);
+    const patch = await this.store(receipt.root)!.diff(receipt.undo.before, receipt.undo.after, receipt.git ? { paths: receipt.undo.paths } : {});
     if (!patch.trim()) { this.write(`No changes in task ${receipt.n}.\n`); return; }
     this.host.terminal.writePanel(`Changes in task ${receipt.n}`, patch, { diff: true });
     const notes = [receipt.undo.undone ? `– Task ${receipt.n} is undone; this is what it changed.` : "", ...this.limits(receipt.undo, [])].filter(Boolean);

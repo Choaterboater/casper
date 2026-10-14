@@ -2,7 +2,8 @@
  * Undo for a task's file changes, at no token cost.
  *
  * Casper keeps its own copies in a separate git folder, ~/.casper/projects/<project>/undo.git, with one index per
- * work tree. It never reads or writes the project's own .git (its objects, index, hooks or config), and it works in
+ * work tree. Its copies never write the project's own .git; branch tracking reads HEAD and committed objects
+ * through read-only git calls, without running hooks or filters. It also works in
  * folders that are not git repositories. The design and git recipe are adapted from OpenCode's snapshots
  * (packages/opencode/src/snapshot/index.ts at 7945de2, MIT, Copyright (c) 2025 opencode): a separate --git-dir and
  * --work-tree, `add --all` then `write-tree`, a diff between two trees, and a per-file revert. The undo rules follow
@@ -91,8 +92,8 @@ class GitError extends Error {
 }
 
 /** The git blob id of these bytes (SHA-1 object format, which the undo folder always uses). */
-export function blobId(data: Buffer): string {
-  return createHash("sha1").update(`blob ${data.length}\0`).update(data).digest("hex");
+export function blobId(data: Buffer, algorithm = "sha1"): string {
+  return createHash(algorithm).update(`blob ${data.length}\0`).update(data).digest("hex");
 }
 
 export class UndoStore {
@@ -313,10 +314,38 @@ export class UndoStore {
     return changes;
   }
 
+  /** Files a copy actually holds, including ones unchanged between the task's two copies. */
+  async files(tree: string): Promise<string[]> {
+    return (await this.text(["ls-tree", "-r", "-z", "--name-only", tree])).split("\0").filter(Boolean);
+  }
+
+  /** Replace git's incoming paths in the baseline with their new committed bytes. Only private git is written.
+   * The index is a cache: snapshot() refreshes it from the work tree on its next use. */
+  async overlay(tree: string, entries: ReadonlyMap<string, { mode: string; data: Buffer } | undefined>): Promise<string> {
+    return this.locked(async () => {
+      await this.git(["read-tree", tree]);
+      const lines: string[] = [];
+      for (const [file, entry] of entries) {
+        if (!entry) { lines.push(`0 ${"0".repeat(40)}\t${file}\0`); continue; }
+        const sha = (await this.text(["hash-object", "-w", "--stdin", "--no-filters"], { input: entry.data })).trim();
+        lines.push(`${entry.mode} ${sha}\t${file}\0`);
+      }
+      if (lines.length) await this.git(["update-index", "-z", "--index-info"], { input: lines.join("") });
+      return (await this.text(["write-tree"])).trim();
+    });
+  }
+
+  /** Whether the work tree has these exact committed bytes and kind (without running project filters). */
+  async matchesHead(relative: string, entry: TreeEntry | undefined): Promise<boolean> {
+    const now = await this.current(relative, entry?.sha.length === 64 ? "sha256" : "sha1");
+    return sameEntry(now, entry) && (process.platform === "win32" || now?.mode === entry?.mode);
+  }
+
   /** The patch (or `--stat`) between two copies, at most DIFF_LIMIT bytes. External diff and textconv programs of
    * the project never run. */
   async diff(from: string, to: string, options: { stat?: boolean; paths?: readonly string[] } = {}): Promise<string> {
-    const paths = options.paths?.length ? ["--", ...options.paths.map((file) => `:(literal)${file}`)] : [];
+    if (options.paths && !options.paths.length) return "";
+    const paths = options.paths ? ["--", ...options.paths.map((file) => `:(literal)${file}`)] : [];
     const { stdout, truncated } = await this.git(["diff-tree", "-r", "--no-renames", "--no-color", "--no-ext-diff", "--no-textconv",
       ...(options.stat ? ["--stat=100"] : ["-p"]), from, to, ...paths], { limit: DIFF_LIMIT });
     return `${stdout.toString("utf8")}${truncated ? "\n[diff cut at 64 KiB]\n" : ""}`;
@@ -338,17 +367,17 @@ export class UndoStore {
 
   /** The file at `relative` now, as a copy entry; undefined when there is none inside the folder (a path under a
    * linked folder is somewhere else, so it is not here). */
-  private async current(relative: string): Promise<TreeEntry | undefined> {
+  private async current(relative: string, algorithm = "sha1"): Promise<TreeEntry | undefined> {
     if (!(await parentsStayInside(this.root, relative).catch(() => false))) return undefined;
     const file = path.join(this.root, relative);
     const info = await lstat(file).catch(() => undefined);
     if (!info) return undefined;
-    if (info.isSymbolicLink()) return { mode: MODE_LINK, sha: blobId(Buffer.from(await readlink(file, { encoding: "buffer" }))) };
+    if (info.isSymbolicLink()) return { mode: MODE_LINK, sha: blobId(Buffer.from(await readlink(file, { encoding: "buffer" })), algorithm) };
     if (info.isDirectory()) return { mode: "040000", sha: "folder" };
     if (!info.isFile() || info.size > COMPARE_LIMIT) return { mode: "100644", sha: "unreadable" };
     const handle = await openNoFollow(file).catch(() => undefined);
     if (!handle) return { mode: "100644", sha: "unreadable" };
-    try { return { mode: info.mode & 0o111 ? "100755" : "100644", sha: blobId(await handle.readFile()) }; }
+    try { return { mode: info.mode & 0o111 ? "100755" : "100644", sha: blobId(await handle.readFile(), algorithm) }; }
     finally { await handle.close(); }
   }
 

@@ -21,6 +21,7 @@ import { answerClaimsBrowserPass, formatShortReceipt, rememberSessionNotes, undo
 import { OBSERVED_EDITS_LIMIT, TaskObservations } from "../task/observations";
 import { isToolCallAsText, TOOL_CALL_AS_TEXT_LINE } from "../task/text-tool-call";
 import { diffSnapshots, tooManyFiles, type TreeChanges } from "../task/changes";
+import { headMoved, taskHead } from "../task/git-movement";
 import type { CheckName, VerificationReport } from "../verify/evidence";
 import { VerifierRegistry } from "../verify/registry";
 import { PLAN_CHANGE_HINT, PLAN_CHANGE_QUESTION, PLAN_CHOICES, PLAN_CHOICES_DETAILS, PLAN_QUESTION } from "./safe-choices";
@@ -490,6 +491,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     // scripts and repair edits are never attributed to the request itself.
     afterModel ??= before && !app.closing ? await app.snapshotWorkspace(workspaceRoot) : undefined;
     const afterChecks = verification && afterModel && !app.closing ? await app.snapshotWorkspace(workspaceRoot) : afterModel;
+    const branchMoved = headMoved(undoStart.head, await taskHead(workspaceRoot));
     const changedPaths = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
     const changedDuringChecks = afterModel && afterChecks && afterChecks !== afterModel ? flatten(diffSnapshots(afterModel, afterChecks)) : [];
     const classifiedAfter = classifications();
@@ -508,7 +510,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     const modelError = execution === "failed" ? explainModelError(app.events.lastError ?? thrownError ?? "")?.cause : undefined;
     // The whole answer is a tool call written as text and no tool ran: shown, never run, never retried.
     const wroteToolCall = execution === "completed" && !app.observations.madeToolCalls && isToolCallAsText(app.lastAnswer);
-    app.lastTaskResult = { execution, ...(modelError ? { modelError } : {}), ...(wroteToolCall ? { wroteToolCallAsText: true as const } : {}), verification, ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && answerClaimsBrowserPass(app.lastAnswer) ? { browserClaimed: true } : {}) } : {}),
+    app.lastTaskResult = { execution, ...(branchMoved ? { branchMoved: true as const } : {}), ...(modelError ? { modelError } : {}), ...(wroteToolCall ? { wroteToolCallAsText: true as const } : {}), verification, ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && answerClaimsBrowserPass(app.lastAnswer) ? { browserClaimed: true } : {}) } : {}),
       ...(services.length ? { services } : {}), ...(riskyLines.length ? { riskyLines: [...riskyLines], ...(riskyLines.more ? { riskyMore: riskyLines.more } : {}) } : {}),
       // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
       verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
@@ -532,7 +534,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         && !app.lastTaskResult.testRunner;
       // A stop at --max-turns or at the spend limit is always said on a receipt.
       if ((classification.intent !== "general" && !answeredOnly) || execution !== "completed" || wroteToolCall || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
-        || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand) {
+        || branchMoved || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand) {
         // A folder the task made too big to compare is not a project folder either: no undo, for the same reason.
         if (!changedPaths && app.snapshotFailure && tooManyFiles(app.snapshotFailure)) undoStart.snapshot = { unavailable: UNDO_NOT_PROJECT };
         // The second copy and the saved receipt; the change summary lists only this task's files.

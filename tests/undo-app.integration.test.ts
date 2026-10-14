@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -10,6 +10,7 @@ import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEventListener } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { taskExitCode } from "../src/task/result";
+import { UndoStore } from "../src/task/undo";
 import { posixOnly } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -118,6 +119,7 @@ test("one-shot: the receipt says how to undo; casper /undo in a later run puts t
     process.chdir(path.join(place.project, "sub"));
     await first.app.runOnce("fix the greeting in notes.py", place.project);
     expect(first.output()).toContain("Undo: casper /undo 1 · Diff: casper /diff 1\n");
+    expect(first.output()).not.toContain("branch moved");
     const task = first.app.getLastTaskResult()!;
     expect(receiptEvent(undefined, task, taskExitCode(undefined, task))).toMatchObject({ task: 1, undo: { available: true, reason: null } });
   } finally { process.chdir(started); await first.app.close(); }
@@ -169,6 +171,362 @@ test("the receipt names only this task's files, not your own earlier edits; the 
     await made.app.runOnce("/diff 1", place.project);
     expect(made.output()).toContain("+print('two')");
     expect(made.output()).not.toContain("my own edit");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+const branchMoveLine = "– The branch moved during this task: changes git brought in are not counted, and undo leaves them alone";
+
+async function movingTask(kind: "fast-forward" | "rebase", options: { count?: number; overlap?: boolean; missingHead?: boolean; restoreStart?: boolean; move?: "merge" | "pull" | "checkout" | "reset" | "switch"; crlf?: boolean } = {}) {
+  const place = await folder({ git: true });
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: place.project, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } }).toString().trim();
+  const count = options.count ?? 1;
+  for (let i = 0; i < count; i++) await writeFile(path.join(place.project, `a${i}.ts`), "before\n");
+  await writeFile(path.join(place.project, "removed.ts"), "old committed file\n");
+  await writeFile(path.join(place.project, "b0.ts"), "old committed file\n");
+  git("add", "."); git("commit", "-qm", "base");
+  // As on a Windows machine: git writes text it checks out with CR LF.
+  git("config", "core.autocrlf", options.crlf ? "true" : "false");
+  const base = git("rev-parse", "HEAD");
+  git("switch", "-qc", "incoming");
+  for (let i = 0; i < (count === 17 ? 40 : 2); i++) await writeFile(path.join(place.project, `b${i}.ts`), "incoming\n");
+  if (options.overlap) await writeFile(path.join(place.project, "a0.ts"), "incoming\n");
+  git("rm", "-q", "removed.ts");
+  git("add", "."); git("commit", "-qm", "incoming");
+  git("switch", "-qc", "task", base);
+  if (kind === "rebase") {
+    await writeFile(path.join(place.project, "local.ts"), "earlier commit\n");
+    git("add", "."); git("commit", "-qm", "earlier task");
+  }
+  const made = makeApp(place, [async (project) => {
+    for (let i = 0; i < count; i++) await writeFile(path.join(project, `a${i}.ts`), "task edit\n");
+    // An overlapping edit is reapplied after git, as a conflict resolution or a later edit would be.
+    if (options.overlap) git("stash", "push", "-qm", "pending edit");
+    if (options.move === "reset") {
+      git("reset", "--hard", "incoming");
+      for (let i = 0; i < count; i++) await writeFile(path.join(project, `a${i}.ts`), "task edit\n");
+    } else if (options.move === "checkout" || options.move === "switch") git(options.move, "incoming");
+    else if (options.move === "merge") git("merge", "--no-ff", "--no-edit", "incoming");
+    else if (options.move === "pull") git("pull", "--ff-only", ".", "incoming");
+    else if (kind === "rebase") git("rebase", "--autostash", "incoming");
+    else git("merge", "--ff-only", "incoming");
+    if (options.overlap) {
+      for (let i = 0; i < count; i++) await writeFile(path.join(project, `a${i}.ts`), i === 0 ? "incoming\ntask edit\n" : "task edit\n");
+    }
+    if (options.restoreStart) await writeFile(path.join(project, "a0.ts"), "before\n");
+    if (options.missingHead) git("update-ref", "-d", "refs/heads/task");
+  }]);
+  try { await made.app.runOnce("fix the task files", place.project); }
+  catch (error) { await made.app.close(); throw error; }
+  return { ...made, place, git };
+}
+
+test("mid-task rebase counts 17 task files, not the 58-file folder delta", async () => {
+  const made = await movingTask("rebase", { count: 17 });
+  try {
+    expect(made.app.getLastTaskResult()!.changedPaths).toEqual(Array.from({ length: 17 }, (_, i) => `a${i}.ts`).sort());
+    expect(made.output()).toContain("17 files changed");
+    expect(made.output()).not.toContain("58 files changed");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+test("/diff after rebase shows the task patch, not another PR's incoming files", async () => {
+  const made = await movingTask("rebase");
+  try {
+    await made.app.runOnce("/diff 1", made.place.project);
+    expect(made.output()).toContain("+task edit");
+    expect(made.output()).not.toContain("diff --git a/b0.ts");
+    expect(made.output()).not.toContain("+incoming");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+for (const kind of ["fast-forward", "rebase"] as const) test(`Undo after ${kind} restores only the task file and preserves incoming committed files`, async () => {
+  const made = await movingTask(kind);
+  try {
+    expect(made.app.getLastTaskResult()!.changedPaths).toEqual(["a0.ts"]);
+    expect(made.output()).toContain("✓ changed a0.ts\n");
+    await made.app.runOnce("/diff 1", made.place.project);
+    expect(made.output()).toContain("+task edit");
+    expect(made.output()).not.toContain("+incoming");
+    await made.app.runOnce("/undo 1", made.place.project);
+    expect(await readFile(path.join(made.place.project, "a0.ts"), "utf8")).toBe("before\n");
+    for (let i = 0; i < 2; i++) expect(await readFile(path.join(made.place.project, `b${i}.ts`), "utf8")).toBe("incoming\n");
+    expect(await readdir(made.place.project)).not.toContain("removed.ts");
+    await made.app.runOnce("/redo 1", made.place.project);
+    expect(await readFile(path.join(made.place.project, "a0.ts"), "utf8")).toBe("task edit\n");
+    expect(await readFile(path.join(made.place.project, "b0.ts"), "utf8")).toBe("incoming\n");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+test("a file changed by both git and the task counts, diffs against new HEAD, and Undo leaves it with a reason", async () => {
+  const made = await movingTask("fast-forward", { overlap: true, count: 2 });
+  try {
+    expect(made.app.getLastTaskResult()!.changedPaths).toEqual(["a0.ts", "a1.ts"]);
+    await made.app.runOnce("/diff 1", made.place.project);
+    const patch = made.output().slice(made.output().indexOf("Changes in task 1"));
+    expect(patch).toContain("+task edit");
+    expect(patch).not.toContain("+incoming");
+    await made.app.runOnce("/undo 1", made.place.project);
+    expect(await readFile(path.join(made.place.project, "a0.ts"), "utf8")).toBe("incoming\ntask edit\n");
+    expect(await readFile(path.join(made.place.project, "a1.ts"), "utf8")).toBe("before\n");
+    expect(made.output()).toContain("a0.ts (git and the task both changed it; Casper cannot safely separate them)");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+test("Undo refuses rather than guessing when the ending HEAD cannot be compared", async () => {
+  const made = await movingTask("fast-forward", { missingHead: true });
+  try {
+    expect(made.output().split("The branch moved during this task")).toHaveLength(2);
+    const undo = made.app.getLastTaskResult()!.undo!;
+    expect(undo.available).toBe(false);
+    if (!undo.available) expect(undo.reason).toContain("cannot separate the task's edits from git's changes");
+    await expect(made.app.runOnce("/undo 1", made.place.project)).rejects.toThrow("cannot separate the task's edits from git's changes");
+    expect(await readFile(path.join(made.place.project, "a0.ts"), "utf8")).toBe("task edit\n");
+    expect(await readFile(path.join(made.place.project, "b0.ts"), "utf8")).toBe("incoming\n");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+test("a moved branch adds one plain receipt line, including the saved receipt", async () => {
+  const made = await movingTask("fast-forward");
+  try {
+    expect(made.output().split(branchMoveLine)).toHaveLength(2);
+    const start = made.output().length;
+    await made.app.runOnce("/receipt 1", made.place.project);
+    expect(made.output().slice(start).split(branchMoveLine)).toHaveLength(2);
+  } finally { await made.app.close(); }
+}, 30_000);
+
+for (const move of ["merge", "pull", "checkout", "reset", "switch"] as const) test(`${move} during a task excludes incoming changes from receipt, diff, and Undo`, async () => {
+  const made = await movingTask("fast-forward", { move });
+  try {
+    expect(made.app.getLastTaskResult()!.changedPaths).toEqual(["a0.ts"]);
+    expect(made.output()).toContain(branchMoveLine);
+    await made.app.runOnce("/diff 1", made.place.project);
+    expect(made.output()).toContain("+task edit");
+    expect(made.output()).not.toContain("diff --git a/b0.ts");
+    await made.app.runOnce("/undo 1", made.place.project);
+    expect(await readFile(path.join(made.place.project, "b0.ts"), "utf8")).toBe("incoming\n");
+    expect(await readFile(path.join(made.place.project, "a0.ts"), "utf8")).toBe("before\n");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+test("with Windows line endings (core.autocrlf), files git brought in are still git's: not counted, and Undo leaves them", async () => {
+  const made = await movingTask("fast-forward", { crlf: true });
+  try {
+    expect(await readFile(path.join(made.place.project, "b0.ts"), "utf8")).toBe("incoming\r\n");
+    expect(made.app.getLastTaskResult()!.changedPaths).toEqual(["a0.ts"]);
+    expect(made.output()).not.toContain("git and the task both changed it");
+    await made.app.runOnce("/undo 1", made.place.project);
+    expect(made.output()).not.toContain("git and the task both changed it");
+    expect(await readFile(path.join(made.place.project, "b0.ts"), "utf8")).toBe("incoming\r\n");
+    expect(await readFile(path.join(made.place.project, "a0.ts"), "utf8")).toBe("before\n");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+test("an overlap restored to its starting bytes still counts and diffs against new HEAD", async () => {
+  const made = await movingTask("fast-forward", { overlap: true, restoreStart: true });
+  try {
+    expect(made.app.getLastTaskResult()!.changedPaths).toEqual(["a0.ts"]);
+    await made.app.runOnce("/diff 1", made.place.project);
+    expect(made.output()).toContain("-incoming\n+before");
+    await made.app.runOnce("/undo 1", made.place.project);
+    expect(made.output()).toContain("git and the task both changed it; Casper cannot safely separate them");
+    expect(await readFile(path.join(made.place.project, "a0.ts"), "utf8")).toBe("before\n");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+/** Text as git stores it: a Windows checkout writes CR LF (core.autocrlf), which is still the same file. */
+const lf = (text: string) => text.replace(/\r\n/g, "\n");
+
+async function olderTaskIncoming(redo = false, failCopy = false, moveAgain = false) {
+  const place = await folder({ git: true });
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: place.project }).toString().trim();
+  if (redo) {
+    await writeFile(path.join(place.project, "notes.py"), "print('zero')\n");
+    git("add", "."); git("commit", "-qm", "earlier committed greeting");
+  }
+  const base = git("rev-parse", "HEAD");
+  git("switch", "-qc", "incoming");
+  if (moveAgain) await writeFile(path.join(place.project, "other.py"), "incoming\n");
+  else await writeFile(path.join(place.project, "notes.py"), redo ? "print('one')\n" : "print('two')\n");
+  git("add", "."); git("commit", "-qm", "incoming greeting");
+  git("switch", "-qc", "task", base);
+  if (redo) await writeFile(path.join(place.project, "notes.py"), "print('one')\n");
+  const snapshot = UndoStore.prototype.snapshot;
+  const made = makeApp(place, [edit("notes.py", "print('two')\n"), async (project) => {
+    // Git now brings in exactly the bytes the earlier task wrote.
+    git("stash", "push", "-qm", "earlier task edit");
+    git("merge", "--ff-only", "incoming");
+    await writeFile(path.join(project, "a.ts"), "task\n");
+    if (failCopy) UndoStore.prototype.snapshot = async () => ({ unavailable: "the ending copy could not be saved" });
+    if (moveAgain) UndoStore.prototype.snapshot = async function (signal) {
+      await writeFile(path.join(project, "notes.py"), "print('two')\n");
+      git("add", "notes.py"); git("commit", "-qm", "second incoming change");
+      return snapshot.call(this, signal);
+    };
+  }]);
+  try {
+    await made.app.runOnce("fix notes.py", place.project);
+    if (redo) await made.app.runOnce("/undo 1", place.project);
+    await made.app.runOnce("add a.ts", place.project);
+  } catch (error) { await made.app.close(); throw error; }
+  finally { UndoStore.prototype.snapshot = snapshot; }
+  return { ...made, place };
+}
+
+test("explicit Undo of an older task leaves bytes a later task brought in from git", async () => {
+  const made = await olderTaskIncoming();
+  try {
+    await made.app.runOnce("/undo 1", made.place.project);
+    expect(lf(await readFile(path.join(made.place.project, "notes.py"), "utf8"))).toBe("print('two')\n");
+    expect(made.output()).toContain("git brought it in during a later task; Casper left it alone");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+test("incoming protection survives a later task's failed ending snapshot", async () => {
+  const made = await olderTaskIncoming(false, true);
+  try {
+    expect(made.app.getLastTaskResult()!.undo?.available).toBe(false);
+    await made.app.runOnce("/undo 1", made.place.project);
+    expect(lf(await readFile(path.join(made.place.project, "notes.py"), "utf8"))).toBe("print('two')\n");
+    expect(made.output()).toContain("git brought it in during a later task; Casper left it alone");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+test("a second branch movement during the ending snapshot makes older Undo refuse", async () => {
+  const made = await olderTaskIncoming(false, false, true);
+  try {
+    expect(made.app.getLastTaskResult()!.undo?.available).toBe(false);
+    await expect(made.app.runOnce("/undo 1", made.place.project)).rejects.toThrow("a later task's branch changes cannot be read");
+    expect(lf(await readFile(path.join(made.place.project, "notes.py"), "utf8"))).toBe("print('two')\n");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("receipt enumeration failure makes older Undo refuse rather than guess", async () => {
+  const made = await olderTaskIncoming();
+  const stateRoot = path.join(made.place.home, ".casper", "projects");
+  const [state] = await readdir(stateRoot);
+  const receipts = path.join(stateRoot, state!, "receipts");
+  try {
+    await chmod(receipts, 0o300); // Files are still searchable by name, but the directory cannot be listed.
+    await expect(made.app.runOnce("/undo 1", made.place.project)).rejects.toThrow("saved branch changes cannot be read");
+    expect(lf(await readFile(path.join(made.place.project, "notes.py"), "utf8"))).toBe("print('two')\n");
+  } finally { await chmod(receipts, 0o700); await made.app.close(); }
+}, 30_000);
+
+test("an unreadable later receipt makes older Undo refuse rather than guess", async () => {
+  const made = await olderTaskIncoming();
+  try {
+    const stateRoot = path.join(made.place.home, ".casper", "projects");
+    const [state] = await readdir(stateRoot);
+    await writeFile(path.join(stateRoot, state!, "receipts", "2.json"), "unreadable");
+    await expect(made.app.runOnce("/undo 1", made.place.project)).rejects.toThrow("a later task's branch changes cannot be read");
+    expect(lf(await readFile(path.join(made.place.project, "notes.py"), "utf8"))).toBe("print('two')\n");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+test("Redo of an older task leaves bytes a later task brought in from git", async () => {
+  const made = await olderTaskIncoming(true);
+  try {
+    await made.app.runOnce("/redo 1", made.place.project);
+    expect(lf(await readFile(path.join(made.place.project, "notes.py"), "utf8"))).toBe("print('one')\n");
+    expect(made.output()).toContain("git brought it in during a later task; Casper left it alone");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+test("rewinding older tasks cannot undo bytes that a later task brought in from git", async () => {
+  const made = await olderTaskIncoming();
+  const { place } = made;
+  try {
+    const tasks = await made.app.taskUndo.tasksAfter("conversation-1", () => true);
+    await made.app.taskUndo.undoTasks(tasks.sort((a, b) => b.n - a.n));
+    expect(lf(await readFile(path.join(place.project, "notes.py"), "utf8"))).toBe("print('two')\n");
+    expect(await readdir(place.project)).not.toContain("a.ts");
+    expect(made.output()).toContain("git brought it in during a later task; Casper left it alone");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+for (const kind of ["undo", "redo"] as const) test(`setting ${kind} leaves a settings file that a later task brought in from git`, async () => {
+  const place = await folder({ git: true });
+  place.project = await realpath(place.project); // The fake session and pre-session setting receipt use the same root.
+  const file = ".casper/project.yaml";
+  await mkdir(path.join(place.project, ".casper"));
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: place.project }).toString().trim();
+  await writeFile(path.join(place.project, file), kind === "redo" ? "# zero\n" : "# one\n");
+  git("add", "."); git("commit", "-qm", "base setting");
+  const base = git("rev-parse", "HEAD");
+  git("switch", "-qc", "incoming");
+  const incoming = kind === "redo" ? "# one\n" : "# two\n";
+  await writeFile(path.join(place.project, file), incoming);
+  git("add", "."); git("commit", "-qm", "incoming setting");
+  git("switch", "-qc", "task", base);
+  await writeFile(path.join(place.project, file), "# one\n");
+  const made = makeApp(place, [async (project) => {
+    git("stash", "push", "-qm", "earlier setting");
+    git("merge", "--ff-only", "incoming");
+    await writeFile(path.join(project, "a.ts"), "task\n");
+  }]);
+  try {
+    await made.app.start(place.project);
+    const n = await made.app.taskUndo.recordSetting(made.app.activeWorkspaceRoot(), "remember a setting", { file, line: "setting", before: "# one\n", after: "# two\n" });
+    expect(n).toBe(1);
+    await writeFile(path.join(place.project, file), "# two\n");
+    if (kind === "redo") await made.app.runOnce("/undo 1", place.project);
+    await made.app.runOnce("add a.ts", place.project);
+    await expect(made.app.runOnce(`/${kind} 1`, place.project)).rejects.toThrow("git brought .casper/project.yaml in during a later task");
+    expect(lf(await readFile(path.join(place.project, file), "utf8"))).toBe(incoming);
+  } finally { await made.app.close(); }
+}, 30_000);
+
+test("branch-movement rules are documented for Undo, receipts, and the unreleased roadmap", async () => {
+  const undo = await readFile(new URL("../docs/UNDO.md", import.meta.url), "utf8");
+  const verification = await readFile(new URL("../docs/VERIFICATION.md", import.meta.url), "utf8");
+  const release = await readFile(new URL("../docs/RELEASE.md", import.meta.url), "utf8");
+  const site = await readFile(new URL("../site/roadmap.html", import.meta.url), "utf8");
+  expect(undo).toContain("**Leave git's incoming changes alone.**");
+  expect(undo).toContain("Undo refuses rather than guessing");
+  expect(verification).toContain(branchMoveLine);
+  expect(release).toContain("### Task-only receipts after branch movement");
+  expect(release.indexOf("### Task-only receipts after branch movement")).toBeLessThan(release.indexOf("## v0.2.34:"));
+  expect(site.slice(site.indexOf("Built, not released"), site.indexOf("</aside>", site.indexOf("Built, not released")))).toContain("Undo leaves git's incoming changes alone");
+});
+
+test("switching branches at the same HEAD still adds the receipt line without claiming files", async () => {
+  const place = await folder({ git: true });
+  const made = makeApp(place, [async (project) => { execFileSync("git", ["switch", "-qc", "another-branch"], { cwd: project }); }]);
+  try {
+    await made.app.runOnce("switch to another branch", place.project);
+    expect(made.app.getLastTaskResult()!.changedPaths).toEqual([]);
+    expect(made.output().split(branchMoveLine)).toHaveLength(2);
+    await made.app.runOnce("/diff 1", place.project);
+    expect(made.output()).toContain("No changes in task 1.");
+    await expect(made.app.runOnce("/undo 1", place.project)).rejects.toThrow("nothing to undo");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+test("a normal task with no edits and no HEAD movement still has no receipt", async () => {
+  const place = await folder({ git: true });
+  const made = makeApp(place, [async () => {}]);
+  try {
+    await made.app.runOnce("explain notes.py", place.project);
+    expect(made.app.getLastTaskResult()!.changedPaths).toEqual([]);
+    expect(made.app.getLastTaskResult()!.receipt).toBeUndefined();
+    expect(made.output()).not.toContain("branch moved");
+    expect(made.output()).not.toContain("Undo:");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+test("a normal git task keeps its receipt, diff, and Undo without a branch-moved line", async () => {
+  const place = await folder({ git: true });
+  const made = makeApp(place, [edit("notes.py", "print('two')\n")]);
+  try {
+    await made.app.runOnce("fix notes.py", place.project);
+    expect(made.app.getLastTaskResult()!.changedPaths).toEqual(["notes.py"]);
+    expect(made.output()).toContain("✓ changed notes.py\n");
+    expect(made.output()).not.toContain("branch moved");
+    await made.app.runOnce("/diff 1", place.project);
+    expect(made.output()).toContain("-print('one')\n+print('two')");
+    await made.app.runOnce("/undo 1", place.project);
+    expect(await readFile(path.join(place.project, "notes.py"), "utf8")).toBe("print('one')\n");
   } finally { await made.app.close(); }
 }, 30_000);
 
