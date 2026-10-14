@@ -5,7 +5,7 @@ import path from "node:path";
 import { createSessionSandbox, runtimeShell, SHELL_DECLINED, type SandboxHost } from "../src/app/sandbox";
 import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
-import { matchesPrefix, readOnlyCommand } from "../src/sandbox/read-only";
+import { matchesPrefix, readOnlyCommand, ENTRY_BUDGET } from "../src/sandbox/read-only";
 import { SandboxStore } from "../src/sandbox/store";
 import { fakeEngine } from "./support/sandbox-fakes";
 import { removeTempDir } from "./support/temp-dir";
@@ -53,12 +53,19 @@ test("omitting the project inspects cwd rather than an unrelated clean fixture",
 test("whole-folder content inspection asks beyond its entry budget even with no private filename", async () => {
   const { project } = await fixture();
   const folder = path.join(project, "entries"); await mkdir(folder);
-  // Empty directories are entries too: one mkdir per entry, no large file contents.
-  for (let start = 0; start < 20_001; start += 100) {
-    await Promise.all(Array.from({ length: Math.min(100, 20_001 - start) }, (_, index) => mkdir(path.join(folder, `entry-${start + index}`))));
-  }
-  for (const command of ["rg -n foo", "git grep -nw todo"]) expect(readOnlyCommand(command, project)).toBe(false);
-  expect(readOnlyCommand("ls entries", project)).toBe(true);
+  // The same rule with a budget of 200 (Casper's is ENTRY_BUDGET.max, 20,000): 20,001 real folders take minutes to
+  // make and walk on a Windows runner. Empty directories are entries too: one mkdir per entry.
+  const budget = ENTRY_BUDGET.max;
+  ENTRY_BUDGET.max = 200;
+  try {
+    await Promise.all(Array.from({ length: 201 }, (_, index) => mkdir(path.join(folder, `entry-${index}`))));
+    for (const command of ["rg -n foo", "git grep -nw todo"]) expect(readOnlyCommand(command, project)).toBe(false);
+    // The budget alone decides it: with room for every entry the same search is a plain read.
+    ENTRY_BUDGET.max = 10_000;
+    for (const command of ["rg -n foo", "git grep -nw todo"]) expect(readOnlyCommand(command, project)).toBe(true);
+    expect(readOnlyCommand("ls entries", project)).toBe(true);
+  } finally { ENTRY_BUDGET.max = budget; }
+  expect(ENTRY_BUDGET.max).toBe(20_000);
 });
 
 test("options that run a program are not reads: git grep -O, sort --compress-program, rg --hostname-bin", () => {
