@@ -8,7 +8,7 @@ import { isOutside } from "../platform/inside";
 /**
  * With no sandbox (Windows, bubblewrap missing), the AI's shell asks before each command. Two things keep that from
  * becoming dozens of boxes a task: commands that only read (ls, git status, grep) run without asking, and a "don't ask
- * again" answer covers a command prefix (npm test, git commit), never a whole interpreter or a whole multi-purpose tool.
+ * again" answer covers that exact command, also inside a line of reads around it (answerKey).
  * A text check, not a shell parser, and an allow-list: each program and git subcommand names the options it may have,
  * and anything else (an unknown option, a VAR=value start, $ or ~) asks as before. Every file it names must
  * really be in the project (links resolved) and not private; a search of a folder that holds a private place asks.
@@ -708,31 +708,62 @@ const SHELL_STATE = new Set(["cd", "pushd", "popd", "export", "set", "unset", "a
   "shopt", "source", ".", "eval", "exec", "trap", "umask", "ulimit", "hash", "enable", "builtin", "command", "let", "read", "mapfile",
   "readarray", "shift", "getopts", "function", "exit", "return", "history", "fc", "bind", "complete", "compgen"]);
 
-/** The one command on a line that is not a plain read, when everything else on the line is (a cd in the project and readers
- * before it, and after it only a pipe into readers of what it prints, like `| tail -25`): `cd app && npm test 2>&1 | tail -25`
- * is `npm test`. Its text, or undefined. A "don't ask again" answer for the line covers this command's prefix, and a later
- * line of the same kind matches it. Nothing that reads a file may come after it: the files were checked before the line ran,
- * and the command may change them (`git pull && cat x`, where x became a link). A program named by a relative path after a
- * cd is given from the project folder (`cd sub && ./build.sh` is `./sub/build.sh`), so it never matches another folder's. */
+/** Where the line's one command that is not a plain read sits, when everything else on the line is (a cd in the project and
+ * readers before it, and after it only a pipe into readers of what it prints, like `| tail -25`). Nothing that reads a file
+ * may come after it: the files were checked before the line ran, and the command may change them (`git pull && cat x`,
+ * where x became a link). */
+function coreAt(parts: readonly Part[], reads: readonly boolean[], place: Place): number | undefined {
+  const at = reads.indexOf(false);
+  if (at < 0 || reads.indexOf(false, at + 1) >= 0) return undefined;
+  const name = parts[at]!.words[0];
+  if (!name || name.includes("=") || SHELL_STATE.has(name)) return undefined;
+  for (let next = at + 1; next < parts.length; next++) {
+    if (parts[next - 1]!.after !== "|" || !parts[next]!.globs || !readerSegment(parts[next]!.words, place, parts[next]!.globs, true)) return undefined;
+  }
+  return at;
+}
+
+/** The line's one command that is not a plain read (see coreAt): `cd app && npm test 2>&1 | tail -25` is `npm test`. Its
+ * text, or undefined. A prefix an older Casper saved for "Yes, always for this project" covers a line whose command starts
+ * with it. A program named by a relative path after a cd is given from the project folder (`cd sub && ./build.sh` is
+ * `./sub/build.sh`), so it never matches another folder's. */
 export function commandCore(command: string, where?: ReadPlace | string): string | undefined {
   const parts = lineParts(command);
   if (!parts) return undefined;
   const place = placeOf(where);
   const { reads, folders } = partReads(parts, place);
-  const at = reads.indexOf(false);
-  if (at < 0 || reads.indexOf(false, at + 1) >= 0) return undefined;
+  const at = coreAt(parts, reads, place);
+  if (at === undefined) return undefined;
   const core = parts[at]!;
-  const name = core.words[0];
-  if (!name || name.includes("=") || SHELL_STATE.has(name)) return undefined;
-  for (let next = at + 1; next < parts.length; next++) {
-    if (parts[next - 1]!.after !== "|" || !parts[next]!.globs || !readerSegment(parts[next]!.words, place, parts[next]!.globs, true)) return undefined;
-  }
+  const name = core.words[0]!;
   const cwds = folders[at]!;
   if (!name.includes("/") || name.startsWith("/") || (cwds.length === 1 && cwds[0] === place.cwd)) return core.text;
   if (cwds.length !== 1 || !core.text.startsWith(name)) return undefined;
   const fromRoot = path.relative(place.root, path.resolve(cwds[0]!, name));
   if (isOutside(fromRoot)) return undefined;
   return `./${fromRoot.split(path.sep).join("/")}${core.text.slice(name.length)}`;
+}
+
+/** What a "Yes, for this session" or "Yes, always for this project" answer remembers, and what a later line must equal to be
+ * covered: the line's one command that is not a plain read (see coreAt), with the folder it runs in when that is not the
+ * project folder (`cd app && npm test 2>&1 | tail -25` is `cd app && npm test`), so the same words in another folder ask
+ * again. The whole line when there is no such command, or when anything is piped into it (`cat a.sh | sh` runs its input,
+ * so `echo x | sh` is another command). */
+export function answerKey(command: string, where?: ReadPlace | string): string {
+  const parts = lineParts(command);
+  if (!parts) return command;
+  const place = placeOf(where);
+  const { reads, folders } = partReads(parts, place);
+  const at = coreAt(parts, reads, place);
+  if (at === undefined || parts[at - 1]?.after === "|") return command;
+  const cwds = folders[at]!;
+  if (cwds.length !== 1) return command;
+  const text = parts[at]!.text;
+  if (cwds[0] === place.cwd) return text;
+  const from = path.relative(place.root, cwds[0]!);
+  if (!from || isOutside(from)) return command;
+  const folder = from.split(path.sep).join("/");
+  return `cd ${/^[\w./-]+$/.test(folder) ? folder : `'${folder}'`} && ${text}`;
 }
 
 /** The git folder a project belongs to, found the way git does: the nearest .git going up from the project (a folder,
@@ -798,62 +829,11 @@ function hasSubmodules(root: string): boolean {
   return indexHasGitlink(path.join(gitDir, "index"));
 }
 
-/** Programs that run whatever follows them, or can (an editor, a pager, curl, tar): never a prefix of their own, and
- * never part of one (yarn node, uv run python). Matched on the plain name, so python3.12, node.exe and PowerShell.exe
- * count too. */
-const NO_PREFIX = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "python", "py", "pythonw", "ipython", "jupyter", "node", "deno", "ruby",
-  "irb", "pry", "perl", "php", "lua", "java", "jshell", "julia", "rscript", "r", "swift", "kotlin", "scala", "groovy", "elixir", "iex", "erl",
-  "ghci", "runghc", "tclsh", "wish", "expect", "pwsh", "powershell", "cmd", "sudo", "doas", "env", "xargs", "eval", "exec", "nohup", "time",
-  "timeout", "watch", "nice", "npx", "bunx", "pnpx", "uvx", "source", ".", "ssh", "scp", "sftp", "rsync", "nc", "telnet", "socat", "curl", "wget",
-  "awk", "gawk", "mawk", "nawk", "sed", "find", "tar", "zip", "less", "more", "man", "vi", "vim", "nvim", "emacs", "nano", "ed", "ex", "gdb",
-  "lldb", "strace", "ltrace", "chroot", "unshare", "nsenter", "open", "xdg-open", "parallel", "flock", "unbuffer", "entr", "watchexec",
-  "nodemon", "concurrently", "cross-env", "dotenv", "direnv", "nix", "nix-shell", "osascript", "tsx", "ts-node", "cscript", "wscript", "mshta",
-  "rundll32", "start", "command", "busybox", "stdbuf", "setsid", "caffeinate", "ionice", "script", "su", "runuser", "pkexec", "pypy", "luajit",
-  "tmux", "screen", "crontab", "at", "batch"]);
-/** Python, and the modules whose `python -m <module>` runs the project's tests: a prefix of their own (see commandPrefix). */
-const PYTHONS = new Set(["python", "py", "pythonw"]);
-const TEST_MODULES = new Set(["pytest", "unittest"]);
-/** Tools whose second word is a subcommand: the prefix keeps it (git commit, npm test, cargo build), and the tool
- * alone gets none. */
-const SUBCOMMANDS = new Set(["git", "npm", "pnpm", "yarn", "bun", "cargo", "go", "docker", "podman", "kubectl", "pip", "pip3", "uv", "poetry",
-  "pdm", "hatch", "rye", "pipx", "conda", "mise", "asdf", "dotnet", "mvn", "gradle", "brew", "apt", "apt-get", "systemctl", "gh", "terraform",
-  "helm", "make", "deno"]);
-/** Subcommands that run any script or program: the prefix keeps the next word too (npm run build, uv run pytest). */
-const RUNNERS = new Set(["run", "exec", "x", "dlx", "tool"]);
-
-/** The prefix a "don't ask again" answer covers: `npm test`, `git commit`, `npm run build`, `pytest`. Undefined for
- * a line with more than one command, a redirect or a substitution, a VAR=value start, an interpreter or a tool
- * with no subcommand: those are remembered as the exact command only. */
-export function commandPrefix(command: string): string | undefined {
-  const line = splitShell(command.trim());
-  if (!line.simple) return undefined;
-  const words = line.segments[0]?.words ?? [];
-  const name = words[0];
-  if (!name || name.includes("=")) return undefined;
-  const plain = plainName(name);
-  // `python -m pytest`, `.venv/Scripts/python.exe -m unittest`: a test run, like `pytest` (whose prefix is fine). The
-  // prefix keeps the -m and the module, so `python x.py` or `python -c` never match it.
-  if (PYTHONS.has(plain) && words[1] === "-m" && TEST_MODULES.has(words[2] ?? "")) return words.slice(0, 3).join(" ");
-  if (NO_PREFIX.has(plain)) return undefined;
-  if (!SUBCOMMANDS.has(plain)) return name;
-  // `git` alone, or `git -C sub commit`, `npm --prefix x test`, `cargo +nightly build`: the exact command only.
-  if (!words[1] || !/^[A-Za-z]/.test(words[1])) return undefined;
-  const prefix = RUNNERS.has(words[1]) ? (words[2] && !words[2].startsWith("-") ? words.slice(0, 3) : undefined) : words.slice(0, 2);
-  // yarn node x.js, uv run python x.py: an interpreter inside is the exact command only.
-  if (!prefix || prefix.slice(1).some((word) => NO_PREFIX.has(plainName(word)))) return undefined;
-  return prefix.join(" ");
-}
-
-/** A program's plain name: no folder, no .exe/.cmd/.bat/.ps1, no version (python3.12, node20), lower case. */
-function plainName(name: string): string {
-  const base = (name.split(/[\\/]/).pop() ?? name).toLowerCase().replace(/\.(?:exe|cmd|bat|com|ps1)$/, "");
-  return base.replace(/[\d.-]+$/, "") || base;
-}
-
-/** True when `command` is one plain command starting with the prefix's words, each the same word. Only the program
- * name is relaxed, and only on Windows: npm.cmd and NPM.EXE are npm (a name with a folder never is). A line with any
- * space other than a plain space or tab (a no-break space, a form feed) never matches: the shell reads those as part of
- * a word, so they are a different command from the one that was approved. */
+/** True when `command` is one plain command starting with the prefix's words, each the same word: a prefix an older
+ * Casper kept for "Yes, always for this project" (it keeps exact commands now). Only the program name is relaxed, and
+ * only on Windows: npm.cmd and NPM.EXE are npm (a name with a folder never is). A line with any space other than a plain
+ * space or tab (a no-break space, a form feed) never matches: the shell reads those as part of a word, so they are a
+ * different command from the one that was approved. */
 export function matchesPrefix(command: string, prefix: string, windows = process.platform === "win32"): boolean {
   // The line as typed: trim() would strip a leading or trailing no-break space and hide the very thing this looks for.
   if (/[^\S \t]/.test(command)) return false;

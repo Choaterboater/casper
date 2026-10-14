@@ -2,6 +2,7 @@ import { existsSync, lstatSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { isOutside } from "../platform/inside";
 import { realpathLongest } from "../platform/project-paths";
+import { ghApiNamesHost, ghApiReads } from "./github-login";
 import { lineCommands, readOnlyCommand, type ReadPlace } from "./read-only";
 
 /**
@@ -230,22 +231,13 @@ export function remotes(root: string): string[] {
 const GH_ROUTINE = new Set(["pr create", "pr view", "pr list", "pr checks", "pr diff", "pr checkout", "pr status", "issue create", "issue view",
   "issue list", "issue comment", "run view", "run list", "run watch", "repo view"]);
 const GH_FILES = ["--body-file", "--template", "--input"];
-const GH_FIELDS = ["-f", "-F", "--field", "--raw-field", "--input"];
 
 function ghWork(args: readonly string[], here: Here): boolean {
+  // gh api: a plain GET only, read the same strict way as before it may use your GitHub login, from GitHub's own host.
+  if (args[0] === "api") return ghApiReads(args.slice(1)) && !ghApiNamesHost(args.slice(1));
   // A file it sends (a PR body, a template) is one a plain read could print: in the project and not private.
-  if (args[0] !== "api" && !filesReadable(fileValues(args, "FT", GH_FILES, false), here)) return false;
-  if (args[0] !== "api") return GH_ROUTINE.has(`${args[0]} ${args[1]}`);
-  // gh api: GET only. It sends a POST when given fields, unless told GET.
-  let method: string | undefined;
-  for (const [at, word] of args.entries()) {
-    if (word === "-X" || word === "--method") method = args[at + 1];
-    else if (word.startsWith("--method=")) method = word.slice("--method=".length);
-    else if (/^-X./.test(word)) method = word.slice(2);
-  }
-  if (args.includes("graphql")) return false;
-  const fields = args.some((word) => GH_FIELDS.some((entry) => word === entry || word.startsWith(`${entry}=`)));
-  return method === undefined ? !fields : method.toUpperCase() === "GET" && !args.includes("--input");
+  if (!filesReadable(fileValues(args, "FT", GH_FILES, false), here)) return false;
+  return GH_ROUTINE.has(`${args[0]} ${args[1]}`);
 }
 
 /** Options that send an install somewhere else (global, another folder or registry): those ask. */

@@ -54,14 +54,14 @@ export class SandboxStore {
 
   async hosts(): Promise<string[]> { return [...(await this.load()).hosts]; }
   async hasCommand(command: string): Promise<boolean> { return (await this.load()).commands.includes(command); }
-  /** A command you said "Yes, always for this project" to: the exact command, or one starting with a kept prefix. `core`: the
-   * line's one command that is not a plain read (commandCore), which a kept prefix covers too. */
-  async allowsCommand(command: string, core?: string): Promise<boolean> {
+  /** A command you said "Yes, always for this project" to: that exact command, or one starting with a prefix an older Casper
+   * kept (it no longer keeps new ones; /allowed lists and forgets them). `core`: the line's one command that is not a plain
+   * read (commandCore), which such a prefix covers too. `key`: what an answer to the line remembers (answerKey), which
+   * counts as the command. */
+  async allowsCommand(command: string, core?: string, key?: string): Promise<boolean> {
     const data = await this.load();
-    return data.commands.includes(command) || (data.prefixes ?? []).some((prefix) => matchesPrefix(command, prefix) || (core !== undefined && matchesPrefix(core, prefix)));
-  }
-  addPrefix(prefix: string): Promise<void> {
-    return this.update((data) => { data.prefixes = [...new Set([...data.prefixes ?? [], prefix])]; });
+    if (data.commands.includes(command) || (key !== undefined && data.commands.includes(key))) return true;
+    return (data.prefixes ?? []).some((prefix) => matchesPrefix(command, prefix) || (core !== undefined && matchesPrefix(core, prefix)));
   }
   /** Machines the AI's ssh, scp and the like may reach without asking (lower case, as Casper resolved them). */
   async reachHosts(): Promise<string[]> { return [...(await this.load()).reach ?? []]; }
@@ -119,9 +119,8 @@ export class SandboxStore {
     }).then(() => found);
   }
   addCommand(command: string): Promise<void> { return this.update((data) => { if (!data.commands.includes(command)) data.commands.push(command); }); }
-  /** What you said "Yes, for this session" to: kept only in memory, gone when Casper exits. */
+  /** The exact commands you said "Yes, for this session" to: kept only in memory, gone when Casper exits. */
   readonly sessionCommands = new Set<string>();
-  readonly sessionPrefixes = new Set<string>();
   /** The same for git and gh commands with your GitHub login (`git push`). */
   readonly sessionGithub = new Set<string>();
   /** Everything allowed for this project, in the order /allowed numbers it: saved prefixes, saved commands, then the
@@ -135,13 +134,12 @@ export class SandboxStore {
     if (data.checksOutside) entries.push({ kind: "checks", value: CHECKS_OUTSIDE_ENTRY, session: false });
     for (const value of data.github ?? []) entries.push({ kind: "github", value, session: false });
     for (const value of this.sessionGithub) if (!data.github?.includes(value)) entries.push({ kind: "github", value, session: true });
-    for (const value of this.sessionPrefixes) if (!data.prefixes?.includes(value)) entries.push({ kind: "prefix", value, session: true });
     for (const value of this.sessionCommands) if (!data.commands.includes(value)) entries.push({ kind: "command", value, session: true });
     return entries;
   }
-  /** Take back a command prefix, saved or for this session. False when it was not there. */
+  /** Take back a saved command prefix. False when it was not there. */
   async removePrefix(prefix: string): Promise<boolean> {
-    let found = this.sessionPrefixes.delete(prefix);
+    let found = false;
     await this.update((data) => {
       if (data.prefixes?.includes(prefix)) { found = true; data.prefixes = data.prefixes.filter((entry) => entry !== prefix); if (!data.prefixes.length) delete data.prefixes; }
     });
@@ -162,10 +160,10 @@ export class SandboxStore {
       if (data.checksOutside) { delete data.checksOutside; count++; }
       count += new Set([...data.github ?? [], ...this.sessionGithub]).size;
       delete data.github;
-      count += new Set([...data.commands, ...this.sessionCommands].map((v) => `c:${v}`).concat([...data.prefixes ?? [], ...this.sessionPrefixes].map((v) => `p:${v}`))).size;
+      count += new Set([...data.commands, ...this.sessionCommands].map((v) => `c:${v}`).concat((data.prefixes ?? []).map((v) => `p:${v}`))).size;
       data.commands = []; delete data.prefixes;
     });
-    this.sessionCommands.clear(); this.sessionPrefixes.clear(); this.sessionGithub.clear();
+    this.sessionCommands.clear(); this.sessionGithub.clear();
     return count;
   }
 

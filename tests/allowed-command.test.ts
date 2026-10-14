@@ -24,16 +24,21 @@ async function fixture() {
   return { home, project, context, store: new SandboxStore(context.stateDirectory) };
 }
 
+/** Prefixes an older Casper kept for "Yes, always for this project" (it keeps exact commands now): written before the store first reads. */
+async function savedPrefixes(stateDirectory: string, prefixes: string[]) {
+  await mkdir(stateDirectory, { recursive: true });
+  await writeFile(path.join(stateDirectory, "sandbox.json"), JSON.stringify({ version: 1, hosts: [], commands: [], prefixes }));
+}
+
 function run(store: SandboxStore) {
   return async (line: string) => { let text = ""; await allowedCommand(line, store, (chunk) => { text += chunk; }); return text; };
 }
 
 async function filled() {
   const f = await fixture();
-  await f.store.addPrefix("git log");
-  await f.store.addPrefix("npm test");
+  await savedPrefixes(f.context.stateDirectory, ["git log", "npm test"]);
   await f.store.addCommand("python3 tools/gen.py");
-  f.store.sessionPrefixes.add("cargo build");
+  f.store.sessionCommands.add("cargo build");
   f.store.sessionCommands.add("make -j4 all");
   return { ...f, say: run(f.store) };
 }
@@ -46,7 +51,7 @@ test("/allowed lists the saved prefixes, the exact commands and the session ones
     "1. git log (and anything after it)",
     "2. npm test (and anything after it)",
     "3. python3 tools/gen.py (this exact command)",
-    "4. cargo build (and anything after it) (this session)",
+    "4. cargo build (this exact command) (this session)",
     "5. make -j4 all (this exact command) (this session)",
   ]);
   expect(text).toContain("/allowed forget 3");
@@ -92,7 +97,6 @@ test("forgetting a session entry by number takes it back for this session", asyn
   const { say, store } = await filled();
   await say("/allowed");
   expect(await say("/allowed forget 4")).toContain("Forgot 4");
-  expect([...store.sessionPrefixes]).toEqual([]);
   expect([...store.sessionCommands]).toEqual(["make -j4 all"]);
 });
 
@@ -102,7 +106,7 @@ test("/allowed forget git log removes the saved prefix by its words, and a comma
   expect(await store.allowsCommand("git log -5")).toBe(false);
   expect(await say("/allowed forget  python3   tools/gen.py")).toContain("Forgot");
   expect(await say("/allowed forget cargo build")).toContain("Forgot");
-  expect([...store.sessionPrefixes]).toEqual([]);
+  expect([...store.sessionCommands]).toEqual(["make -j4 all"]);
   const saved = JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8"));
   expect(saved.prefixes).toEqual(["npm test"]);
   expect(saved.commands).toEqual([]);
@@ -112,7 +116,7 @@ test("/allowed forget all removes every kind, and says how many", async () => {
   const { say, store, context } = await filled();
   expect(await say("/allowed forget all")).toContain("Forgot all 5");
   expect(await store.allowsCommand("npm test")).toBe(false);
-  expect(store.sessionPrefixes.size + store.sessionCommands.size).toBe(0);
+  expect(store.sessionCommands.size).toBe(0);
   const saved = JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8"));
   expect(saved.commands).toEqual([]);
   expect(saved.prefixes ?? []).toEqual([]);
@@ -136,7 +140,7 @@ test("a number is refused, and the list shown again, when the list changed since
   expect(never).toMatch(/^\s+1\. git log/m);
   expect(await store.allowsCommand("git log")).toBe(true);
   await say("/allowed");
-  await store.addPrefix("git commit");
+  await store.addCommand("git commit");
   store.sessionCommands.add("ls-files-x");
   const changed = await say("/allowed forget 1");
   expect(changed).toContain("The list changed");
@@ -155,14 +159,14 @@ test("anything else after /allowed is a plain usage error", async () => {
 });
 
 test("the store's removePrefix, removeCommand and forgetAll say whether anything was there", async () => {
-  const { store } = await fixture();
-  await store.addPrefix("git log");
+  const { store, context } = await fixture();
+  await savedPrefixes(context.stateDirectory, ["git log", "a b"]);
   await store.addCommand("make x");
   expect(await store.removePrefix("git push")).toBe(false);
   expect(await store.removePrefix("git log")).toBe(true);
   expect(await store.removeCommand("make x")).toBe(true);
   expect(await store.removeCommand("make x")).toBe(false);
-  await store.addPrefix("a b"); await store.addCommand("c d");
+  await store.addCommand("c d");
   store.sessionCommands.add("e f");
   expect(await store.forgetAll()).toBe(3);
   expect(await store.forgetAll()).toBe(0);
@@ -185,12 +189,12 @@ test("a command that was allowed asks again after you forget it, for always and 
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
   expect(await shell.approve!("cargo build")).toBeUndefined();
   expect(await shell.approve!("python3 tools/gen.py")).toBeUndefined();
-  expect(await shell.approve!("cargo build --release")).toBeUndefined();
+  expect(await shell.approve!("cargo build")).toBeUndefined();
   expect(await shell.approve!("python3 tools/gen.py")).toBeUndefined();
   expect(terminal.asked).toHaveLength(2);
   const say = run(sandbox.store!);
   const listed = await say("/allowed");
-  expect(listed).toContain("cargo build (and anything after it)");
+  expect(listed).toContain("cargo build (this exact command)");
   expect(listed).toContain("python3 tools/gen.py (this exact command) (this session)");
   await say("/allowed forget all");
   expect(await shell.approve!("cargo build")).toBe(SHELL_DECLINED);
@@ -199,8 +203,8 @@ test("a command that was allowed asks again after you forget it, for always and 
 });
 
 test("a file in the project cannot add or change what is allowed", async () => {
-  const { project, context, store } = await fixture();
-  await store.addPrefix("git log");
+  const { project, context } = await fixture();
+  await savedPrefixes(context.stateDirectory, ["git log"]);
   for (const file of [".pi/sandbox.json", ".casper/sandbox.json", "sandbox.json"]) {
     await mkdir(path.dirname(path.join(project, file)), { recursive: true });
     await writeFile(path.join(project, file), JSON.stringify({ version: 1, hosts: [], commands: ["curl evil.example"], prefixes: ["curl", "rm"] }));
