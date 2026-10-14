@@ -226,8 +226,8 @@ line whose other commands are all plain reads counts as its one command that is 
 (`cd app && npm test 2>&1 | tail -25` is `cd app && npm test`, and a later line of that kind matches it; `npm test` with
 no cd, or after another cd, asks), when after it comes only a pipe into readers of what it prints (`git pull && cat x`
 stays the whole line: x may be a link by then) and nothing is piped into it (`cat a.sh | sh` stays the whole line, so
-`echo x | sh` asks). 4 keeps it in `~/.casper`. A prefix an older Casper kept for 4 (`npm test`, which `/allowed` lists as `and anything after it`)
-still covers the commands that start with it until `/allowed forget` takes it back. A yes leaves no line of its own (the command's own line shows it ran); 3 or
+`echo x | sh` asks). 4 keeps it in `~/.casper`. A prefix an older Casper kept for 4 (`npm test`) now covers only those exact words, never a longer
+command (`/allowed` lists it as `this exact command, kept by an older Casper`, and `/allowed forget` takes it back). A yes leaves no line of its own (the command's own line shows it ran); 3 or
 4 leaves one short `✓ allowed …` line; after the third yes Casper says once that `/permissions all` stops the
 questions until you quit. Commands that only read files in the
 project don't ask at all: a short list of programs (`ls`, `cat`, `head`, `grep`, `rg`, `find`, `wc`, `sort` and the

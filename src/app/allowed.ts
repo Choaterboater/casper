@@ -13,7 +13,7 @@ const shown = new WeakMap<SandboxStore, string[]>();
 function describe(entry: AllowedEntry): string {
   if (entry.kind === "checks") return entry.value;
   if (entry.kind === "github") return `${entry.value} commands, outside the sandbox with your GitHub login${entry.session ? " (this session)" : ""}`;
-  return `${shownCommand(entry.value)} (${entry.kind === "prefix" ? "and anything after it" : "this exact command"})${entry.session ? " (this session)" : ""}`;
+  return `${shownCommand(entry.value)} (${entry.kind === "prefix" ? "this exact command, kept by an older Casper" : "this exact command"})${entry.session ? " (this session)" : ""}`;
 }
 
 function listText(entries: readonly AllowedEntry[]): string {

@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { hostName } from "./policy";
-import { matchesPrefix } from "./read-only";
 
 /**
  * What you told the sandbox to remember for one project, kept in Casper's own folder
@@ -14,7 +13,7 @@ import { matchesPrefix } from "./read-only";
  */
 interface StoreFile { version: 1; hosts: string[]; commands: string[]; prefixes?: string[]; reach?: string[]; labReach?: false; writes?: string[]; checksOutside?: true; github?: string[] }
 
-/** One thing you said yes to: a command and anything after it (prefix) or exactly that command. */
+/** One thing you said yes to: exactly that command (`prefix`: one an older Casper kept as a prefix, now exact too). */
 export interface AllowedEntry { kind: "prefix" | "command" | "checks" | "github"; value: string; session: boolean }
 
 /** The /allowed line for "Yes, always for this project" to running its checks outside the sandbox. */
@@ -54,14 +53,13 @@ export class SandboxStore {
 
   async hosts(): Promise<string[]> { return [...(await this.load()).hosts]; }
   async hasCommand(command: string): Promise<boolean> { return (await this.load()).commands.includes(command); }
-  /** A command you said "Yes, always for this project" to: that exact command, or one starting with a prefix an older Casper
-   * kept (it no longer keeps new ones; /allowed lists and forgets them). `core`: the line's one command that is not a plain
-   * read (commandCore), which such a prefix covers too. `key`: what an answer to the line remembers (answerKey), which
-   * counts as the command. */
-  async allowsCommand(command: string, core?: string, key?: string): Promise<boolean> {
+  /** A command you said "Yes, always for this project" to: that exact command. `key`: what an answer to the line remembers
+   * (answerKey), which counts as the command. A prefix an older Casper kept covers only those exact words too: as a
+   * prefix, a yes to `rm -rf /tmp/x` let `rm -rf ~` run, and a yes to `sh` let `echo x | sh` run. /allowed lists and
+   * forgets them. */
+  async allowsCommand(command: string, key?: string): Promise<boolean> {
     const data = await this.load();
-    if (data.commands.includes(command) || (key !== undefined && data.commands.includes(key))) return true;
-    return (data.prefixes ?? []).some((prefix) => matchesPrefix(command, prefix) || (core !== undefined && matchesPrefix(core, prefix)));
+    return [...data.commands, ...data.prefixes ?? []].some((saved) => saved === command || saved === key);
   }
   /** Machines the AI's ssh, scp and the like may reach without asking (lower case, as Casper resolved them). */
   async reachHosts(): Promise<string[]> { return [...(await this.load()).reach ?? []]; }
