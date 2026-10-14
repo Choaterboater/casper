@@ -242,6 +242,11 @@ test.skipIf(process.platform === "win32" || !sshKeygenVerifies())("the signing s
   expect((await runSigningStep("", key.privateKey)).exitCode).not.toBe(0);
 });
 
+test("Linux runs the suite when only docs, the site or the README change, since tests read them", () => {
+  const on = load("linux-preview.yml").on as { push: { paths: string[] }; pull_request: { paths: string[] } };
+  for (const trigger of [on.push, on.pull_request]) for (const path of ["docs/**", "site/**", "README.md"]) expect(trigger.paths).toContain(path);
+});
+
 test("a stuck preview run is cut off in minutes, not at the old 30 to 45 minute job limit, and the evidence is still kept", () => {
   for (const name of ["linux-preview.yml", "macos-preview.yml", "windows-preview.yml", "windows-arm64.yml"]) {
     for (const [jobName, job] of Object.entries(load(name).jobs)) {
