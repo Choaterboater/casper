@@ -51,7 +51,7 @@ export interface UpdateOptions {
   env?: NodeJS.ProcessEnv;
   fetch?: Fetcher;
   run?: ProcessRunner;
-  /** Windows only: starts a program fully detached (own process, no window, not tied to this console) and says whether it started. */
+  /** Windows only: starts the update helper so it outlives this Casper (through WMI by default, see windowsStarter) and says whether it started. */
   startDetached?: DetachedStarter;
   /** The id of this process, which the Windows handoff waits on; tests pass one. */
   pid?: number;
@@ -101,6 +101,46 @@ export const defaultDetachedStarter: DetachedStarter = (argv, options) => new Pr
   } catch { resolve(false); }
 });
 
+/** One argument as Windows programs read their command line (CommandLineToArgvW): quoted when it has a space, tab
+ * or quote, with backslashes doubled only before a quote. No cmd.exe is involved, so & and % stay literal. A line
+ * break or NUL can't be passed safely, so it is refused. */
+export function windowsArgument(argument: string): string {
+  if (/[\0\r\n]/.test(argument)) throw new Error("an argument has a line break or NUL");
+  if (argument && !/[\s"]/.test(argument)) return argument;
+  let quoted = '"', slashes = 0;
+  for (const char of argument) {
+    if (char === "\\") { slashes++; continue; }
+    quoted += char === '"' ? "\\".repeat(slashes * 2 + 1) + '"' : "\\".repeat(slashes) + char;
+    slashes = 0;
+  }
+  return `${quoted}${"\\".repeat(slashes * 2)}"`;
+}
+
+/** The PowerShell that asks Windows (WMI, Win32_Process.Create) to start `argv`. The new process belongs to Windows'
+ * WMI service, not to this Casper, so Casper exiting can't end it, which a detached child of casper.exe could not
+ * survive on a real PC. It prints `started <pid>` or `refused <code>`. */
+export function wmiCreateScript(argv: readonly string[], systemRoot: string): string {
+  const program = argv[0] === "powershell" ? path.win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe") : argv[0]!;
+  const line = [program, ...argv.slice(1)].map(windowsArgument).join(" ");
+  const literal = (text: string) => `'${text.replaceAll("'", "''")}'`;
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = ${literal(line)} }`,
+    "if ($r.ReturnValue -eq 0 -and $r.ProcessId) { Write-Output ('started ' + $r.ProcessId); exit 0 }",
+    "Write-Output ('refused ' + $r.ReturnValue); exit 1",
+  ].join("\n");
+}
+
+/** Windows: starts the program through WMI and waits only for WMI's answer (a few seconds), so it outlives Casper. */
+export const windowsStarter: DetachedStarter = async (argv, options) => {
+  let script: string;
+  try { script = wmiCreateScript(argv, options.env.SystemRoot ?? options.env.SYSTEMROOT ?? "C:\\Windows"); } catch { return false; }
+  const encoded = Buffer.from(script, "utf16le").toString("base64");
+  const result = await defaultRunner(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
+    { env: options.env, timeoutMs: 60_000 });
+  return result.code === 0 && /^started \d+\s*$/m.test(result.stdout);
+};
+
 /** How long the handoff waits for Casper to exit before giving up without installing. */
 export const HANDOFF_WAIT_SECONDS = 300;
 
@@ -114,6 +154,9 @@ export const HANDOFF_SCRIPT = `param(
   [Parameter(Mandatory = $true)][ValidatePattern('^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?$')][string]$Version,
   [Parameter(Mandatory = $true)][string]$Cleanup,
   [string]$LogFile = '',
+  [ValidatePattern('^(https://github\\.com/Choaterboater/casper/releases/download/v[0-9A-Za-z.-]+)?$')][string]$BaseUrl = '',
+  [ValidatePattern('^([0-9a-fA-F]{64})?$')][string]$BinarySha256 = '',
+  [ValidatePattern('^(x64|arm64)?$')][string]$Arch = '',
   [int]$WaitSeconds = ${HANDOFF_WAIT_SECONDS}
 )
 $ErrorActionPreference = 'Stop'
@@ -146,6 +189,11 @@ try {
     Write-Step 'result: failed: the installer file is not the one Casper checked, so it was not run'
     exit 1
   }
+  # Started by Windows (WMI), this process has none of Casper's settings: they come in as checked parameters.
+  foreach ($Name in @('CASPER_BASE_URL', 'CASPER_SHA256', 'CASPER_ARCH', 'CASPER_OS')) { Remove-Item -LiteralPath "env:$Name" -ErrorAction SilentlyContinue }
+  if ($BaseUrl) { $env:CASPER_BASE_URL = $BaseUrl }
+  if ($BinarySha256) { $env:CASPER_SHA256 = $BinarySha256 }
+  if ($Arch) { $env:CASPER_ARCH = $Arch }
   $env:CASPER_INSTALL_DIR = $InstallDir
   $env:CASPER_VERSION = $Version
   Remove-Item -LiteralPath (Join-Path $InstallDir 'casper.old.exe') -Force -ErrorAction SilentlyContinue
@@ -325,10 +373,11 @@ async function updateBinary(options: UpdateOptions, executable: string): Promise
     await writeFile(handoff, HANDOFF_SCRIPT, { mode: 0o600 });
     // The log is started here, before the helper, so a helper that never runs leaves a `pending` log to find.
     const log = options.stateDir ? await startUpdateLog(options.stateDir, currentVersion, version) : undefined;
-    const started = await (options.startDetached ?? defaultDetachedStarter)([
+    const started = await (options.startDetached ?? windowsStarter)([
       "powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", handoff,
       "-WaitPid", String(options.pid ?? process.pid), "-Installer", file, "-InstallerSha256", createHash("sha256").update(installer).digest("hex"),
       "-InstallDir", folder, "-Version", version, "-Cleanup", temp, ...(log ? ["-LogFile", log] : []),
+      "-BaseUrl", base, ...(binaryDigest ? ["-BinarySha256", binaryDigest] : []), ...(/^(x64|arm64)$/.test(arch) ? ["-Arch", arch] : []),
     ], { env }).catch(() => false);
     if (!started) {
       if (options.stateDir) await removeUpdateLog(options.stateDir);
