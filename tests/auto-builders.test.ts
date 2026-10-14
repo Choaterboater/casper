@@ -130,6 +130,26 @@ flakyOn("win32")("the AI starts two builders at once; both changes land, count a
   expect(await readFile(path.join(repo, "c.txt"), "utf8")).toBe("c.txt\n");
 }, 30_000);
 
+test("delegate's builder from a linked worktree lands there, counts as its edit, and leaves main untouched", async () => {
+  const { home, repo } = await repository();
+  const source = path.join(path.dirname(repo), "topic");
+  await git(repo, "worktree", "add", "-b", "topic", source);
+  const mainStatus = await git(repo, "status", "--porcelain=v1");
+  let result: { text: string; isError?: boolean } | undefined;
+  const main = new Main(async (delegate) => { result = await build(delegate, "write b.txt"); });
+  const { casper } = await app(source, home, main);
+  await casper.runOnce("Change b.txt", source);
+  expect(result!.isError).toBeUndefined();
+  expect(data(result!.text).applied).toEqual(["b.txt"]);
+  expect(await readFile(path.join(source, "b.txt"), "utf8")).toBe("from the builder\n");
+  expect(casper.getLastTaskResult()!.observedEdits).toContain(path.join(source, "b.txt"));
+  expect(await readFile(path.join(repo, "b.txt"), "utf8")).toBe("b.txt\n");
+  expect(await git(repo, "status", "--porcelain=v1")).toBe(mainStatus);
+  await casper.runOnce("/undo");
+  expect(await readFile(path.join(source, "b.txt"), "utf8")).toBe("b.txt\n");
+  expect(await git(repo, "status", "--porcelain=v1")).toBe(mainStatus);
+}, 30_000);
+
 test("a builder whose file was changed in your folder meanwhile is not applied; its copy is kept for /crew", async () => {
   const { home, repo } = await repository();
   let result: { text: string; isError?: boolean } | undefined;

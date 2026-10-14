@@ -61,9 +61,9 @@ export async function builderAvailability(input: { root: string; homeDir: string
   if (input.sandbox === "none") return "the shell is not ready";
   const manager = await GitWorktreeManager.open(input.root, input.homeDir);
   if (!manager) return "not a Git repository";
-  if (!(await manager.hasCommits())) return "the repository has no commits yet";
+  if (!(await manager.hasCommits(input.root))) return "the repository has no commits yet";
   const root = await realpath(input.root).catch(() => path.resolve(input.root));
-  return root === manager.primaryWorkspace ? undefined : "not the project's main folder";
+  return manager.assertCrewSource(root).then(() => undefined, (error: unknown) => message(error));
 }
 
 /** Applies, copy-making and copy-removing take turns per repository: one builder's change lands before the next copy is made, and Git never unregisters two copies at once. */
@@ -105,11 +105,11 @@ export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; c
     await inTurn(manager.commonDir, () => manager.remove(copy)).catch(() => {});
     throw new Error("No builders here: this session's shell is not ready for them");
   }
-  await linkDependencies(manager.primaryWorkspace, copy.path);
+  await linkDependencies(copy.mainWorkspace, copy.path);
   host.say(`${label} is working in its own copy (${copy.branch}): ${shown(job.goal).slice(0, 80)}`);
   let result: SubagentResult;
   try {
-    result = await host.runBuilder({ cwd: copy.path, goal: job.goal, projectContext: host.projectContext, shell, main: manager.primaryWorkspace,
+    result = await host.runBuilder({ cwd: copy.path, goal: job.goal, projectContext: host.projectContext, shell, main: copy.mainWorkspace,
       ...(job.context ? { context: job.context } : {}), ...(job.signal ? { signal: job.signal } : {}) });
   } catch (error) {
     result = { role: "builder", cwd: copy.path, goal: job.goal, status: "failed", reason: message(error),
@@ -142,7 +142,7 @@ export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; c
   if (writesMarker(work.patch)) return keep(`its change has ${SECRET_MARKER} in it, which would replace a real secret`, work);
   const applied = await inTurn(manager.commonDir, () => apply(manager, copy, work));
   if (typeof applied === "string") return keep(applied, work);
-  for (const file of work.files) host.observeEdit(path.join(manager.primaryWorkspace, file));
+  for (const file of work.files) host.observeEdit(path.join(copy.mainWorkspace, file));
   await inTurn(manager.commonDir, () => manager.remove(copy, work)).catch(() => {});
   host.say(`A builder's change was applied to your folder, uncommitted: ${work.files.slice(0, 6).join(", ")}${work.files.length > 6 ? ` and ${work.files.length - 6} more` : ""}.`);
   // A fix refreshes the part it fixed (the next review sees the fix's diff); anything else is a new part.

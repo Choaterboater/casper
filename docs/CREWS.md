@@ -13,6 +13,21 @@ shipped in v0.2.23. One fix round per part follows a review, and reviewers
 show while they work; the receipt names parts nobody reviewed. Full checks on the
 combined result are built for the next release.
 
+## Where crews start and land
+
+Both `/crew` and the AI's builders work from any Git worktree of the project,
+not just the main checkout. A `/branch` experiment copy can start one too.
+They cannot start inside another crew's copy, so crews cannot nest. Each copy remembers its originating folder in local Git
+config, outside tracked files. Its work lands only in that folder, never in
+another checkout; this survives a restart. Apply checks and whole-file conflict
+checks use that same folder. Dependencies and private-path rules come from it too.
+
+`/crew` lists kept copies across the repository and shows the source when it is
+not your current folder. If the source folder has gone or is no longer a worktree
+of this repository, the copy stays listed with a plain reason. It cannot be
+applied anywhere else; keep it to look at or throw it away. The main checkout's
+apply messages and receipts are unchanged.
+
 ## The AI splits big jobs itself
 
 This works the way Claude Code's agent tool and omp's task tool do: the main AI
@@ -104,8 +119,8 @@ crews themselves ("the crew list", "run the crew tests") don't count.
 turn builders off for itself, never back on for you. Read-only helpers
 ([DELEGATION.md](DELEGATION.md)) still work.
 
-**When builders are not offered.** Outside a Git repository, in a `/branch`
-copy instead of the project's main folder, the AI is not offered builders; its
+**When builders are not offered.** Outside a Git repository, without a first
+commit, or inside another crew's copy, the AI is not offered builders; its
 tool says why in a few words, and it does the job itself. Builders run with the
 sandbox off too (the default): their commands ask in your box, as below.
 

@@ -116,6 +116,9 @@
             <li><code>/plan</code> numbers steps and test cases. <strong>1 Stop · 2 Build · 3 Change the plan</strong>
             takes a one-line change in plain words, then the model rewrites the plan and shows it again. No raw editor;
             Enter stops, never builds. Planning skips steps that only re-confirm a known fact or cause.</li>
+            <li><code>/crew</code> and the AI's builders start from any worktree of the same repository, never inside another crew copy.
+            Work lands only in the originating folder, remembered across restarts. If it is gone or no longer a worktree of this repository,
+            the copy stays listed with a reason; keep or throw it away, never apply elsewhere.</li>
             <li>Local models, local addresses and models with a small window get shorter guidance automatically (<strong>Lean guidance</strong> in <code>/settings</code> turns it off).</li>
             <li>A yes in the <em>Run this command?</em> box covers that exact command, including a command an older Casper kept as a prefix, and <code>gh api</code> runs without asking only as a plain read from GitHub (a search with <code>-X GET</code> included).</li>
             <li>A task started in your home folder or at a drive's top no longer lists the whole folder first, and the AI is told to put a new project in <code>~/Projects/&lt;name&gt;</code> instead of searching it.</li>

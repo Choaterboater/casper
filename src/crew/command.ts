@@ -17,7 +17,7 @@ import { GitWorktreeManager, type WorktreePatch, type WorktreeRelation } from ".
 import { linkDependencies, unlinkDependencies } from "./copies";
 
 export interface CrewHost {
-  /** The project folder (the main one; a crew does not start from an experiment's copy). */
+  /** The originating project worktree; never another crew's copy. */
   root: string;
   homeDir: string;
   write(text: string): void;
@@ -100,12 +100,14 @@ export async function runCrewCommand(host: CrewHost, argument: string): Promise<
     say(host, "A crew needs a Git repository: each builder works in its own copy. Ask for the job as usual and Casper does it as one task.");
     return;
   }
-  if (!(await manager.hasCommits())) {
+  const typed = /^(apply|drop)\s+(\d+)$/i.exec(argument.trim());
+  const selection = typed ? { action: typed[1]!.toLowerCase() as "apply" | "drop", number: Number(typed[2]) } : undefined;
+  if (!(await manager.hasCommits(host.root))) {
+    if ((!argument.trim() || typed) && (await manager.crewCopies()).length) return copies(host, manager, selection);
     say(host, "A crew needs a commit to start from, and this repository has no commits yet: each builder works in a copy of one. Make a first commit, or ask for the job as usual and Casper does it as one task.");
     return;
   }
-  const typed = /^(apply|drop)\s+(\d+)$/i.exec(argument.trim());
-  if (!argument.trim() || typed) return copies(host, manager, typed ? { action: typed[1]!.toLowerCase() as "apply" | "drop", number: Number(typed[2]) } : undefined);
+  if (!argument.trim() || typed) return copies(host, manager, selection);
   await startCrew(host, manager, argument.trim());
 }
 
@@ -127,7 +129,9 @@ async function copies(host: CrewHost, manager: GitWorktreeManager, typed?: { act
     host.write(`[crew] Crew copies still here:\n${found.map((copy, index) => {
       const entry = work[index]!;
       const what = typeof entry === "string" ? `changes can't be read: ${entry}` : `${entry.files.length} file${entry.files.length === 1 ? "" : "s"} changed`;
-      return `  ${index + 1} ${copy.branch} · ${what} · ${terminalText(copy.path)}`;
+      const source = copy.mainWorkspace === host.root ? "" : ` · source: ${terminalText(copy.mainWorkspace)}`;
+      const unavailable = copy.sourceUnavailable ? ` · can't apply: ${shown(copy.sourceUnavailable)}` : "";
+      return `  ${index + 1} ${copy.branch} · ${what} · ${terminalText(copy.path)}${source}${unavailable}`;
     }).join("\n")}\n`);
   }
   let picked: string | undefined;
@@ -169,12 +173,12 @@ async function startCrew(host: CrewHost, manager: GitWorktreeManager, job: strin
     say(host, "Not started: this session's shell is not ready for a builder.");
     return;
   }
-  const linked = await linkDependencies(manager.primaryWorkspace, copy.path);
+  const linked = await linkDependencies(copy.mainWorkspace, copy.path);
   say(host, `Builder 1 is working in its own copy (${copy.branch}); your folder is not touched.${dirty ? " Your uncommitted changes are not in the copy." : ""}${linked.length ? ` Linked: ${linked.join(", ")}.` : ""}`);
   let result: SubagentResult;
   try {
     result = await host.runBuilder({ cwd: copy.path, goal: job, projectContext: host.projectContext,
-      shell, main: manager.primaryWorkspace, ...(host.signal ? { signal: host.signal } : {}) });
+      shell, main: copy.mainWorkspace, ...(host.signal ? { signal: host.signal } : {}) });
   } catch (error) {
     result = { role: "builder", cwd: copy.path, goal: job, status: "failed", reason: error instanceof Error ? error.message : String(error),
       response: "", toolsUsed: [], toolErrors: [], truncated: false, usage: { tokens: 0, estimatedCost: 0 } };
