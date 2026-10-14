@@ -7,7 +7,7 @@ import path from "node:path";
 import { stat } from "node:fs/promises";
 import { terminalText } from "../tui/format";
 import type { ProjectContext } from "../project/context";
-import { findProjectCandidates, hasProjectSignals, inspectProject } from "../project/inspect";
+import { broadFolder, findProjectCandidates, hasProjectSignals, inspectProject } from "../project/inspect";
 import { childProjectOf, type ChildProject } from "../project/child";
 import { orderProjectChoices, recentlyUsedProjects } from "../project/recent";
 import { appAgentDir } from "./runtime-start";
@@ -55,11 +55,7 @@ export async function newProjectFlowWithAbort<T>(app: CasperApp, work: (flow: Ne
   finally { app.commandActive = outer.active; app.commandAbort = outer.abort; }
 }
 
-/** A drive or filesystem root (C:\\, D:\\, /): as broad a workspace as the home folder. */
-export function isDriveRoot(dir: string): boolean {
-  const resolved = path.resolve(dir);
-  return resolved === path.parse(resolved).root;
-}
+export { isDriveRoot } from "../project/inspect";
 
 /** The one plain line for a folder that holds projects: the count, up to four names, and the command to open the
  * most recent. Nothing for fewer than two. */
@@ -81,9 +77,9 @@ export async function openProjectFolder(app: CasperApp, cwd: string, env: { plat
   const noise: NoiseOptions = { platform, homeDir: home, ...env.noise };
   // Windows shows real paths (C:\Users\alex\Projects); macOS and Linux keep ~/Projects.
   const projectsDisplay = platform === "win32" ? path.win32.join(home, "Projects") : "~/Projects";
-  const fromHome = path.resolve(cwd) === path.resolve(home);
-  const atRoot = !fromHome && isDriveRoot(cwd);
-  const broad = fromHome || atRoot;
+  const kind = broadFolder(cwd, home);
+  const fromHome = kind === "home";
+  const broad = kind !== undefined;
   let candidates: string[] | undefined;
   if (!broad) {
     if (await hasProjectSignals(cwd) || (await inspectProject(cwd)).isGit) return cwd;

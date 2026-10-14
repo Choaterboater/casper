@@ -51,6 +51,19 @@ export function folderName(root: string, home = os.homedir()): string {
   return path.basename(resolved) || resolved;
 }
 
+/** A drive or filesystem root (C:\\, D:\\, /): as broad a workspace as the home folder. */
+export function isDriveRoot(dir: string): boolean {
+  const resolved = path.resolve(dir);
+  return resolved === path.parse(resolved).root;
+}
+
+/** The home folder or a drive root: not a project. Casper opens there but doesn't list it each task, and the model
+ * is told not to search it and where a new project goes. */
+export function broadFolder(dir: string, home = os.homedir()): "home" | "drive" | undefined {
+  if (home && path.resolve(dir) === path.resolve(home)) return "home";
+  return isDriveRoot(dir) ? "drive" : undefined;
+}
+
 /** True when the directory carries a project marker (git or any recognized project file). */
 export async function hasProjectSignals(dir: string): Promise<boolean> {
   let entries: string[];

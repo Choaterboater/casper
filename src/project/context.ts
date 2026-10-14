@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadConfiguration, type AskQuestions, type Autonomy, type CasperPolicy, type GitActionPolicy, type LoadedConfiguration } from "../config/load";
 import type { VisualizationSettings } from "../visualize/router";
-import type { ProjectInfo } from "./inspect";
+import { broadFolder, type ProjectInfo } from "./inspect";
 import { loadProjectModel, projectStateDirectory, type ProjectModel } from "./model";
 import { detectMigrations } from "../verify/migrations";
 import { detectCompose } from "../verify/compose";
@@ -16,6 +16,8 @@ import type { NamedCheckSpec } from "../verify/named";
 
 export interface ProjectContext {
   info: ProjectInfo;
+  /** Opened in the home folder or at a drive's top: not a project. `projects` is where a new one goes, as shown. */
+  broad?: { where: "home" | "drive"; projects: string };
   stateDirectory: string;
   model: ProjectModel;
   profileName: string;
@@ -170,8 +172,12 @@ export async function loadProjectContext(
     };
   }
 
+  const where = broadFolder(info.root, homeDir);
+  // Windows shows real paths (C:\Users\alex\Projects); macOS and Linux keep ~/Projects.
+  const projects = process.platform === "win32" ? path.win32.join(homeDir, "Projects") : "~/Projects";
   return {
     info,
+    ...(where ? { broad: { where, projects } } : {}),
     stateDirectory: projectStateDirectory(info.root, homeDir),
     model,
     profileName: configuration.profileName,
@@ -271,6 +277,8 @@ export function formatProjectContext(context: ProjectContext, lean = false): str
     "Casper project context (deterministically detected and cached):",
     `- project: ${model.project.name}`,
     `- root: ${model.project.root}`,
+    // The home folder or a drive's top: one line, there only, so the model doesn't search it all or build at its top.
+    ...context.broad ? [`- This is the user's ${context.broad.where === "home" ? "home folder" : "drive top"}, not a project: don't search it broadly or add files at its top. A new project goes in ${context.broad.projects}/<name>; for an existing one, ask its path.`] : [],
     `- languages: ${list(model.languages)}`,
     `- frameworks: ${list(model.frameworks)}`,
     `- package manager: ${model.packageManager ?? "not detected"}`,
