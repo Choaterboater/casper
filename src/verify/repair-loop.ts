@@ -340,7 +340,8 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
     if (notes.length) task.pageNotesSent = true;
     if (!repairAttempts && repairable.length && options.beforeRepair && !await options.beforeRepair(repairable, signal)) {
       if (signal.aborted) return report("blocked", "Verification cancelled.");
-      return report("fail", `${repairable.map((result) => result.name).join(", ")} was already failing before this change; Casper left it as it is.`);
+      const names = repairable.map((result) => result.name);
+      return { ...report("fail", `${names.join(", ")} was already failing before this change; Casper left it as it is.`), failingBefore: names };
     }
     if (signal.aborted) return report("blocked", "Verification cancelled.");
     repairAttempts++;

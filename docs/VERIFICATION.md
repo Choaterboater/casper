@@ -239,7 +239,9 @@ freshness, reuse, and the "not independently certified" note described in
 the files from before the change (the copy it keeps for the proof). If the check failed there
 too as a test failure (not a crash, a signal or a timeout there, which can't tell), it was already broken: Casper says so, and an interactive terminal asks
 `1 Leave it · 2 Fix it anyway` before paying for a repair (Enter leaves it; before v0.2.16 the
-two were the other way round). Scripts repair.
+two were the other way round). Scripts repair. Left as it is, the receipt says so first instead of `✗ Failed`:
+`– Not caused by this change — test already failed before it; left as it is`
+(the `--json` outcome stays `failed`, since a check still fails). A check that fails only now still reads `✗ Failed`.
 
 **A repair that changes nothing.** Casper compares each failure with the last round's, leaving out
 what changes from run to run (durations, ports, temp paths, hex ids, times). When a repair

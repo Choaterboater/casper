@@ -252,6 +252,20 @@ test("short receipt: a failed check keeps its own line under the verdict", () =>
   ].join("\n"));
 });
 
+test("short receipt: a check that failed before the change too, and was left, is not called the change's failure", () => {
+  const cases = ["reads ~/ paths", "waits for the picture"];
+  const task = done({ changedPaths: ["sum.js"], verificationMode: "auto", checklist: cases,
+    verification: { ...report([check({ name: "lint", command: "npm run lint" }), check({ status: "fail", exitCode: 1 })]), failingBefore: ["test"] } });
+  const text = formatShortReceipt(task);
+  expect(text.split("\n")[0]).toBe("– Not caused by this change — test already failed before it; left as it is");
+  expect(text).toContain("– 2 cases from your request not confirmed: a check fails with and without this change (/receipt lists them)");
+  expect(text).not.toContain("✗ Failed");
+  // A check that fails only now is still the change's failure, even next to one that failed before.
+  const mixed = done({ changedPaths: ["sum.js"], verificationMode: "auto",
+    verification: { ...report([check({ name: "lint", command: "npm run lint", status: "fail", exitCode: 1 }), check({ status: "fail", exitCode: 1 })]), failingBefore: ["test"] } });
+  expect(formatShortReceipt(mixed).split("\n")[0]).toBe("✗ Failed — lint failed, test failed");
+});
+
 test("short receipt: not verified says why on its own line, and never claims Verified", () => {
   const unproven = formatShortReceipt(done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([check()]), proofSkipped: "only docs changed" }));
   expect(unproven).toBe("– Checks passed — not proven: only docs changed\n✓ test passed · changed sum.js");

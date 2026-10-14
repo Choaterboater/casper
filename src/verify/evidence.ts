@@ -84,6 +84,8 @@ export interface VerificationReport {
   pagesSkipped?: "command checks failed";
   /** The model each repair used, in order, when the host said (for example the big model on the last try). */
   repairModels?: string[];
+  /** Checks that failed on the files from before the change too, left as they are at the user's word: not the change's doing. */
+  failingBefore?: string[];
 }
 
 export function verificationStatus(all: VerificationResult[]): VerificationReport["status"] {

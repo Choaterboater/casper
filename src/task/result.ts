@@ -427,6 +427,14 @@ export function formatShortReceipt(task: TaskResult, options: ReceiptOptions = {
   return [...head, ...rest.filter(urgent), ...rest.filter((line) => !urgent(line)), ...same, ...checklistLines(task, safe), ...undo].join("\n");
 }
 
+/** True when every failing check also failed on the files from before the change and was left as it is. */
+function failingBeforeOnly(report: VerificationReport | undefined): boolean {
+  const before = report?.failingBefore;
+  if (!before?.length) return false;
+  const failing = report!.results.filter((result) => result.status === "fail" && result.kind !== "report");
+  return failing.length > 0 && failing.every((result) => before.includes(result.name));
+}
+
 /** The request's checklist on the short receipt: said only when the model's own review lists something not done
  * or the checks did not pass, so the cases are not confirmed. /receipt lists every case. The model's open items
  * come from its answer (the request and project docs), not the checklist, so they are not counted against it. */
@@ -441,7 +449,8 @@ function checklistLines(task: TaskResult, safe: (text: string) => string): strin
   const changed = Boolean(task.changedPaths?.length || task.changedDuringChecks?.length || (!task.changedPaths && task.possibleMutations));
   if (!changed || checksPassed(task.verification, task)) return [];
   const why = task.execution !== "completed" || task.turnLimit !== undefined || task.spendLimit !== undefined ? "the task did not finish" : !task.verification ? "no checks ran"
-    : task.verification.status === "pass" ? "the checks do not prove the change" : "the checks did not pass";
+    : task.verification.status === "pass" ? "the checks do not prove the change"
+    : failingBeforeOnly(task.verification) ? "a check fails with and without this change" : "the checks did not pass";
   return [`– ${cases} ${cases === 1 ? "case" : "cases"} from your request not confirmed: ${why} (/receipt lists them)`];
 }
 
@@ -649,6 +658,10 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
         lines = [verdict, ...body, next];
       }
       else if (onlyUnfinished) lines = notChecked();
+      // Every failing check failed on the files from before too, and the user left it: the change did not cause it.
+      else if (failedChecks.length && failingBeforeOnly(report)) {
+        lines = [`– Not caused by this change — ${report!.failingBefore!.join(", ")} already failed before it; left as it is`, ...body];
+      }
       else if (failedChecks.length) lines = [`✗ Failed — ${failedChecks.join(", ")}`, ...body];
       else if (report?.pages?.status === "fail") lines = [`✗ Failed — ${safe(pageFailureSummary(report.pages) ?? "a page failed")}`, ...body];
       else if (report?.status === "blocked") lines = [`✗ Failed — checks stopped${report.reason ? `: ${safe(report.reason).replace(/\.$/, "").toLowerCase()}` : ""}`, ...body];
