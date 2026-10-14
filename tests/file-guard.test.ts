@@ -1,10 +1,11 @@
+import { createReadTool } from "@earendil-works/pi-coding-agent";
 import { toolPathContext } from "../src/runtime/pi";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { classifyPath, fileToolGate, gitInternalsCommand, hooksPathTargets, otherLoginFiles, PRIVATE_PATHS, privatePathCommand, windowsShellPath } from "../src/platform/project-paths";
+import { classifyPath, fileToolGate, gitInternalsCommand, hooksPathTargets, otherLoginFiles, PRIVATE_PATHS, privatePathCommand, resolveToolPath, windowsShellPath } from "../src/platform/project-paths";
 import { POSIX } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -31,6 +32,17 @@ beforeAll(async () => {
   context = { root: project, home, agentDir: path.join(home, "agent") };
 });
 afterAll(() => removeTempDir(root));
+
+test("a ~/ path is the home folder: Pi's read opens the file there, and Casper's checks resolve it to the same file", async () => {
+  // Bun's os.homedir() does not follow a changed HOME, so the temp file is named from the real home folder (with ../
+  // when the temp folder is outside it), as the AI would type it.
+  const file = path.join(root, "outside", "RELEASE.md");
+  await writeFile(file, "release notes\n");
+  const typed = `~/${path.relative(os.homedir(), file)}`;
+  const result = await createReadTool(project).execute("tilde", { path: typed });
+  expect(result.content.flatMap((block) => block.type === "text" ? [block.text] : []).join("\n")).toContain("release notes");
+  expect(resolveToolPath(typed, project)).toBe(file);
+});
 
 test("private places are refused by name for every file tool, reads and writes", () => {
   expect(PRIVATE_PATHS).toEqual(expect.arrayContaining([".ssh", ".aws", ".casper/agent/auth.json", ".casper/mcp-consent.key", ".pi/agent/auth.json", ".config/gcloud"]));
