@@ -1,4 +1,4 @@
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, renameSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 
 const mode = process.argv[2] ?? "normal";
@@ -22,7 +22,8 @@ function response(request: { seq: number; command: string }, body = {}, success 
 }
 function stopped() { event("stopped", { reason: "breakpoint", threadId: 1, allThreadsStopped: true }); }
 function receive(request: { type: string; seq: number; command: string; arguments?: Record<string, unknown>; success?: boolean }) {
-  if (request.type === "response") { writeFileSync("reverse-response", JSON.stringify(request)); return; }
+  // Written whole, then renamed: the test polls for the file, and on Windows it can open one still being written.
+  if (request.type === "response") { writeFileSync("reverse-response.tmp", JSON.stringify(request)); renameSync("reverse-response.tmp", "reverse-response"); return; }
   appendFileSync("requests.jsonl", JSON.stringify({ command: request.command, arguments: request.arguments }) + "\n");
   if (mode === "hang" && request.command === "initialize") return;
   if (mode === "malformed") { process.stdout.write("Content-Length: 999999999\r\n\r\n"); return; }
