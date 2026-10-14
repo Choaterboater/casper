@@ -2,12 +2,20 @@
 //   bun scripts/sync-risky-lines.ts            (GreenCLI next to Casper, or GREENCLI_DIR=…)
 // tests/risky-lines-sync.test.ts fails when the copy and GreenCLI's origin/main differ.
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 export const GREENCLI = process.env.GREENCLI_DIR ?? path.resolve(import.meta.dir, "../../GreenCli");
 export const COPY = path.resolve(import.meta.dir, "../src/network/risky-lines.ts");
 export const MARKER = "// ---- greencli source below ----\n";
+
+/** Whether GREENCLI really is GreenCLI: a git folder whose origin/main has its risky-lines checker. On macOS a Casper
+ * copy named greencli next to this one matches ../../GreenCli too (case-insensitive), and must not be compared. */
+export function isGreenCli(dir = GREENCLI): boolean {
+  if (!existsSync(path.join(dir, ".git"))) return false;
+  try { execFileSync("git", ["-C", dir, "cat-file", "-e", "origin/main:src/utils/riskyLines.ts"], { stdio: "ignore" }); return true; }
+  catch { return false; }
+}
 
 export function greencliFile(file: string): string {
   return execFileSync("git", ["-C", GREENCLI, "show", `origin/main:${file}`], { encoding: "utf8" });
