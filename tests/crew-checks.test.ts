@@ -182,14 +182,14 @@ test("checks that change the final combined files leave the crew incomplete, eve
   expect(final.verification!.status).toBe("incomplete");
 });
 
-test("the roadmap marks combined full checks built while crew-wide request limits remain planned", async () => {
+test("the roadmap marks combined full checks built and the crew's limit shipped in v0.2.24", async () => {
   const html = await readFile(new URL("../site/roadmap.html", import.meta.url), "utf8");
   const crew = html.slice(html.indexOf('<article class="card" id="v030"'), html.indexOf('<section id="later"'));
   expect(crew).toContain("Full checks on the combined result");
   expect(crew).toContain("built, next release");
   expect(crew).toContain("receipt shows the run and its status");
-  expect(crew).toContain("Your limits apply to the crew.");
-  expect(html).toContain("crew-wide request limits have not been started");
+  expect(crew).toContain("Your limits apply to the crew</strong> <span class=\"badge\">in v0.2.24</span>");
+  expect(html).not.toContain("crew-wide request limits have not been started");
 });
 
 test("crew and verification docs describe the final batch and its receipt without claiming a release", async () => {
