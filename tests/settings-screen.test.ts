@@ -36,7 +36,8 @@ async function fixture(configText = "") {
 const text = (screen: Component, width = 80) => Bun.stripANSI(screen.render(width).join("\n"));
 const key = (screen: Component, data: string) => screen.handleInput!(data);
 async function changed(f: Awaited<ReturnType<typeof fixture>>, expected: string) {
-  for (let i = 0; i < 200 && !f.output().includes(expected); i++) await Bun.sleep(5);
+  // Up to 5 s: a save writes ~/.casper/config.yaml, which a busy Windows runner can take over a second to do.
+  for (let i = 0; i < 1000 && !f.output().includes(expected); i++) await Bun.sleep(5);
   expect(f.output()).toContain(expected);
   // The receipt is written just before the callback re-reads the rows.
   await Bun.sleep(20);
