@@ -172,7 +172,9 @@ export function streamClaudeSubscription(model: Model<Api>, context: TranscriptC
             blocks.set(raw.index, index);
             stream.push({ type: "thinking_start", contentIndex: index, partial: message });
           } else if (block.type === "tool_use") {
-            const name = block.name.startsWith(PREFIX) ? block.name.slice(PREFIX.length) : "";
+            // Claude sometimes drops the MCP prefix and calls one of Casper's tools by its own name (`bash`); Claude Code's
+            // built-in tools (`Bash`, `Read`) are never Casper's, so they still stop the turn.
+            const name = block.name.startsWith(PREFIX) ? block.name.slice(PREFIX.length) : block.name;
             if (!names.has(name)) throw new Error(`Claude proposed an undeclared tool: ${block.name}`);
             message.content.push({ type: "toolCall", id: block.id, name, arguments: {} }); blocks.set(raw.index, index);
             json.set(raw.index, Object.keys(block.input as object).length ? JSON.stringify(block.input) : "");
