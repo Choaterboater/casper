@@ -281,6 +281,14 @@ test("undeclared tools, invalid arguments, server errors and truncated streams f
   }
 });
 
+test("a Casper tool called without its MCP prefix is still that tool call", async () => {
+  const plain = events(true); plain[1] = raw({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "call_fixture", name: "read", input: {} } });
+  const fake = fakeQuery(plain);
+  const response = await streamClaudeSubscription(model, context, undefined, { ...fake, executable: "fixture" }).result();
+  expect(response.stopReason).toBe("toolUse");
+  expect(response.content).toEqual([{ type: "toolCall", id: "call_fixture", name: "read", arguments: { path: "fixture.txt" } }]);
+});
+
 test("an already aborted call does not launch a subprocess", async () => {
   const fake = fakeQuery(); const controller = new AbortController(); controller.abort();
   const response = await streamClaudeSubscription(model, context, { signal: controller.signal }, { ...fake, executable: "fixture" }).result();
