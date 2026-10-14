@@ -39,7 +39,10 @@ const CASPER_IDENTITY = { GIT_AUTHOR_NAME: "Casper", GIT_AUTHOR_EMAIL: "casper@l
 
 export interface WorktreeRelation {
   kind: "git-worktree";
+  /** Where work lands: the originating folder for crews, the primary checkout for experiments. */
   mainWorkspace: string;
+  /** A listed crew whose source cannot receive work (its copy can still be read or removed). */
+  sourceUnavailable?: string;
   path: string;
   branch: string;
   baseCommit: string;
@@ -225,8 +228,8 @@ export class GitWorktreeManager {
   }
 
   /** False in a repository with no commits yet: a copy has nothing to start from. */
-  hasCommits(): Promise<boolean> {
-    return git(this.primaryWorkspace, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]).then(() => true, () => false);
+  hasCommits(workspace = this.primaryWorkspace): Promise<boolean> {
+    return git(workspace, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]).then(() => true, () => false);
   }
 
   async plan(sessionBranch: string, sourceWorkspace: string): Promise<WorktreePlan> {
@@ -267,8 +270,7 @@ export class GitWorktreeManager {
    */
   async planCrew(crewId: string, part: number, sourceWorkspace: string, options: { fromFolder?: boolean } = {}): Promise<WorktreePlan> {
     const source = await realpath(sourceWorkspace).catch(() => path.resolve(sourceWorkspace));
-    await this.assertSameRepository(source);
-    if (source !== this.primaryWorkspace) throw new Error("A crew starts from the main folder of the project");
+    await this.assertCrewSource(source);
     const name = `crew-${crewId}-${part}`;
     if (!isCrewBranch(`casper/${name}`)) throw new Error("Invalid crew name");
     const branch = `casper/${name}`;
@@ -280,7 +282,7 @@ export class GitWorktreeManager {
     ]);
     const start = options.fromFolder && status ? await this.folderCommit(source, head.trim()) : undefined;
     return {
-      kind: "git-worktree", sourceWorkspace: source, mainWorkspace: this.primaryWorkspace,
+      kind: "git-worktree", sourceWorkspace: source, mainWorkspace: source,
       path: path.join(this.managedRoot, slug(name)), branch, sourceStatus: status,
       ...(start && start !== head.trim() ? { baseCommit: start, startHead: head.trim() } : { baseCommit: head.trim() }),
     };
@@ -312,21 +314,28 @@ export class GitWorktreeManager {
 
   /** The crew copies of this project that are still here (kept to look at, or left by a crash), oldest name first. */
   async crewCopies(): Promise<WorktreeRelation[]> {
-    const entries = parseWorktrees(await git(this.primaryWorkspace, ["worktree", "list", "--porcelain"]));
+    const entries = parseWorktrees(await git(this.commonDir, ["worktree", "list", "--porcelain"]));
     const copies: WorktreeRelation[] = [];
     for (const entry of entries) {
       if (!entry.branch || !isCrewBranch(`${entry.branch}`)) continue;
       if (entry.path !== path.join(this.managedRoot, slug(entry.branch.slice("casper/".length)))) continue;
-      // Where the copy started: where its branch meets your HEAD. A builder can't commit in the sandbox, but with
-      // it off one could, and its commits must stay in the patch.
-      const base = (await git(this.primaryWorkspace, ["merge-base", "HEAD", `refs/heads/${entry.branch}`]).catch(() => "")).trim();
+      const saved = await this.crewMetadata(entry.branch);
+      const source = saved?.mainWorkspace ?? this.primaryWorkspace;
+      const sourceUnavailable = await this.assertCrewSource(source).then(() => undefined, (error: unknown) => errorText(error));
+      if (saved) {
+        copies.push({ kind: "git-worktree", ...saved, path: entry.path, branch: entry.branch,
+          ...(sourceUnavailable ? { sourceUnavailable } : {}) });
+        continue;
+      }
+      // Older copies could only start in the main checkout. Keep their old base discovery, using the source
+      // HEAD, never the primary HEAD for a copy with a saved source.
+      const base = (await git(source, ["merge-base", "HEAD", `refs/heads/${entry.branch}`]).catch(() => "")).trim();
       if (!/^[0-9a-f]{40,64}$/i.test(base)) continue;
-      // A copy that started from your folder as it was starts at Casper's commit of it, right after your HEAD.
-      const first = (await git(this.primaryWorkspace, ["log", "--reverse", "--format=%H%x00%P%x00%s", `${base}..refs/heads/${entry.branch}`]).catch(() => ""))
+      const first = (await git(source, ["log", "--reverse", "--format=%H%x00%P%x00%s", `${base}..refs/heads/${entry.branch}`]).catch(() => ""))
         .split("\n", 1)[0]!.split("\0");
       const start = first[2] === FOLDER_START && first[1] === base && /^[0-9a-f]{40,64}$/i.test(first[0] ?? "") ? first[0]! : undefined;
-      copies.push({ kind: "git-worktree", mainWorkspace: this.primaryWorkspace, path: entry.path, branch: entry.branch,
-        ...(start ? { baseCommit: start, startHead: base } : { baseCommit: base }) });
+      copies.push({ kind: "git-worktree", mainWorkspace: source, path: entry.path, branch: entry.branch,
+        ...(start ? { baseCommit: start, startHead: base } : { baseCommit: base }), ...(sourceUnavailable ? { sourceUnavailable } : {}) });
     }
     return copies.sort((a, b) => a.branch.localeCompare(b.branch));
   }
@@ -339,6 +348,12 @@ export class GitWorktreeManager {
   async applyCrew(relation: WorktreeRelation, candidate: WorktreePatch, options: { wholeFiles?: boolean } = {}): Promise<void> {
     this.assertManagedRelation(relation);
     if (!isCrewBranch(relation.branch)) throw new Error("Not a crew copy");
+    await this.assertCrewSource(relation.mainWorkspace);
+    const saved = await this.crewMetadata(relation.branch);
+    if (relation.mainWorkspace !== (saved?.mainWorkspace ?? this.primaryWorkspace)
+      || (saved && (relation.baseCommit !== saved.baseCommit || relation.startHead !== saved.startHead))) {
+      throw new Error("Crew source folder or base does not match its saved source; nothing was applied");
+    }
     await this.assertRegistered(relation);
     const head = (await git(relation.mainWorkspace, ["rev-parse", "HEAD"])).trim();
     if (head !== (relation.startHead ?? relation.baseCommit)) throw new Error("Your folder has a new commit since the crew started; nothing was applied");
@@ -362,6 +377,8 @@ export class GitWorktreeManager {
    * builder since): new and deleted files too. */
   async changedInFolder(relation: WorktreeRelation, files: readonly string[]): Promise<string[]> {
     if (!files.length) return [];
+    this.assertManagedRelation(relation);
+    await this.assertCrewSource(relation.mainWorkspace);
     const now = await this.folderTree(relation.mainWorkspace);
     const output = await git(relation.mainWorkspace, ["diff-tree", "-r", "--name-only", "-z", "--no-renames", relation.baseCommit, now, "--",
       ...files.map((file) => `:(literal)${file}`)]);
@@ -388,7 +405,8 @@ export class GitWorktreeManager {
 
   private async createOwned(plan: WorktreePlan): Promise<WorktreeRelation> {
     this.assertManagedPlan(plan);
-    await this.assertSameRepository(plan.sourceWorkspace);
+    if (isCrewBranch(plan.branch)) await this.assertCrewSource(plan.sourceWorkspace);
+    else await this.assertSameRepository(plan.sourceWorkspace);
     const [currentHead, status] = await allDone([
       git(plan.sourceWorkspace, ["rev-parse", "HEAD"]),
       git(plan.sourceWorkspace, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
@@ -403,6 +421,13 @@ export class GitWorktreeManager {
     if (canonicalParent !== this.managedRoot) throw new Error("Managed worktree root resolves outside Casper state");
     let created = false;
     try {
+      if (isCrewBranch(plan.branch)) {
+        // One atomic repository-local config value, outside tracked files, BEFORE the copy is registered.
+        // A crash must never leave a linked-origin copy looking like a legacy main-origin copy.
+        await git(plan.sourceWorkspace, ["config", "--local", `branch.${plan.branch}.casperCrew`, JSON.stringify({
+          mainWorkspace: plan.mainWorkspace, baseCommit: plan.baseCommit, ...(plan.startHead ? { startHead: plan.startHead } : {}),
+        })]);
+      }
       await git(plan.sourceWorkspace, ["worktree", "add", "-b", plan.branch, plan.path, plan.baseCommit], { maxBuffer: 64 * 1024 });
       created = true;
       const createdPath = await realpath(plan.path);
@@ -530,9 +555,11 @@ export class GitWorktreeManager {
         if (status) throw new Error("Managed worktree has unreviewed changes; refusing destructive cleanup");
       }
     }
+    // Administrative operations on crew copies must still work when their source folder has gone.
+    const workspace = isCrewBranch(relation.branch) ? this.commonDir : relation.mainWorkspace;
     const [, worktreeOutput] = await allDone([
-      this.assertSameRepository(relation.mainWorkspace),
-      git(relation.mainWorkspace, ["worktree", "list", "--porcelain"]),
+      this.assertSameRepository(workspace),
+      git(workspace, ["worktree", "list", "--porcelain"]),
     ]);
     const entries = parseWorktrees(worktreeOutput);
     const entry = entries.find((candidate) => candidate.path === path.resolve(relation.path));
@@ -558,18 +585,60 @@ export class GitWorktreeManager {
         // Unlike repository-wide prune this cannot drop unrelated worktree indexes.
         const placeholder = await mkdtemp(path.join(recoveryRoot, ".unregister-"));
         await writeFile(path.join(placeholder, ".git"), `gitdir: ${admin}\n`, { flag: "wx", mode: 0o600 });
-        await git(relation.mainWorkspace, ["worktree", "repair", placeholder]);
-        await git(relation.mainWorkspace, ["worktree", "remove", "--force", placeholder]);
+        await git(workspace, ["worktree", "repair", placeholder]);
+        await git(workspace, ["worktree", "remove", "--force", placeholder]);
       } catch (error) {
         throw new WorktreeCleanupError(`unregister failed: ${errorText(error)}`, preservedPath);
       }
     }
-    const branchExists = await git(relation.mainWorkspace, ["show-ref", "--verify", "--quiet", `refs/heads/${relation.branch}`]).then(() => true, () => false);
-    if (branchExists) await git(relation.mainWorkspace, ["branch", "-D", relation.branch], { maxBuffer: 64 * 1024 }).catch((error) => {
+    const branchExists = await git(workspace, ["show-ref", "--verify", "--quiet", `refs/heads/${relation.branch}`]).then(() => true, () => false);
+    if (branchExists) await git(workspace, ["branch", "-D", relation.branch], { maxBuffer: 64 * 1024 }).catch((error) => {
       if (preservedPath) throw new WorktreeCleanupError(errorText(error), preservedPath);
       throw error;
     });
     return preservedPath;
+  }
+
+  private async crewMetadata(branch: string): Promise<Pick<WorktreeRelation, "mainWorkspace" | "baseCommit" | "startHead"> | undefined> {
+    let value: string;
+    try {
+      value = String((await execFileAsync("git", safeGitArgs(["config", "--local", "--get", `branch.${branch}.casperCrew`]), {
+        cwd: this.commonDir, encoding: "utf8", maxBuffer: 64 * 1024,
+      })).stdout);
+    } catch (error) {
+      // Exit 1 with no output means no key (a legacy copy), not an unreadable config or a failed Git process.
+      const failure = error as { code?: number; stdout?: string; stderr?: string };
+      if (failure.code === 1 && !failure.stdout && !failure.stderr) return undefined;
+      throw new Error(`Crew source metadata could not be read: ${errorText(error)}`);
+    }
+    const saved = JSON.parse(value) as Partial<WorktreeRelation> | null;
+    if (!saved || typeof saved.mainWorkspace !== "string" || path.resolve(saved.mainWorkspace) !== saved.mainWorkspace
+      || typeof saved.baseCommit !== "string" || !/^[0-9a-f]{40,64}$/i.test(saved.baseCommit)
+      || (saved.startHead !== undefined && (typeof saved.startHead !== "string" || !/^[0-9a-f]{40,64}$/i.test(saved.startHead)))) {
+      throw new Error("Crew source metadata is invalid; nothing was applied");
+    }
+    return { mainWorkspace: saved.mainWorkspace, baseCommit: saved.baseCommit, ...(saved.startHead ? { startHead: saved.startHead } : {}) };
+  }
+
+  /** Shared by /crew planning and the AI's availability check. No copies inside managed copies. */
+  async assertCrewSource(workspace: string): Promise<void> {
+    const relative = path.relative(this.managedRoot, workspace);
+    const directory = relative.split(path.sep)[0] ?? "";
+    if (!isOutside(relative) && /-[0-9a-f]{8}$/.test(directory) && isCrewBranch(`casper/${directory.slice(0, -9)}`)) {
+      throw new Error("A crew cannot start inside another crew copy");
+    }
+    await access(workspace).catch(() => { throw new Error("The crew's source folder is missing; nothing was applied"); });
+    try {
+      await this.assertSameRepository(workspace);
+      const entries = parseWorktrees(await git(workspace, ["worktree", "list", "--porcelain"]));
+      const entry = entries.find((candidate) => candidate.path === workspace);
+      if (!entry) throw new Error("Source is not a registered worktree");
+      // Also recognise a registered crew from another state home, not just this manager's managed root.
+      if (entry.branch && isCrewBranch(entry.branch)) throw new Error("A crew cannot start inside another crew copy");
+    } catch (error) {
+      if (error instanceof Error && error.message === "A crew cannot start inside another crew copy") throw error;
+      throw new Error("The crew's source folder is no longer a worktree of this repository; nothing was applied");
+    }
   }
 
   private async assertSameRepository(workspace: string): Promise<void> {
@@ -580,9 +649,10 @@ export class GitWorktreeManager {
 
   private async assertRegistered(relation: WorktreeRelation): Promise<void> {
     this.assertManagedPath(relation.path, relation.path !== relation.mainWorkspace);
+    const workspace = isCrewBranch(relation.branch) ? this.commonDir : relation.mainWorkspace;
     const [, worktreeOutput] = await allDone([
-      this.assertSameRepository(relation.mainWorkspace),
-      git(relation.mainWorkspace, ["worktree", "list", "--porcelain"]),
+      this.assertSameRepository(workspace),
+      git(workspace, ["worktree", "list", "--porcelain"]),
     ]);
     const entries = parseWorktrees(worktreeOutput);
     const expectedPath = path.resolve(relation.path);
@@ -622,8 +692,9 @@ export class GitWorktreeManager {
     this.assertManagedPath(plan.path);
     const sessionName = plan.branch.startsWith("casper/") ? plan.branch.slice("casper/".length) : "";
     if (!SESSION_BRANCH_PATTERN.test(sessionName) || path.basename(plan.path) !== slug(sessionName)
-      || path.resolve(plan.sourceWorkspace) !== this.primaryWorkspace
-      || plan.mainWorkspace !== this.primaryWorkspace
+      || (isCrewBranch(plan.branch)
+        ? path.resolve(plan.sourceWorkspace) !== plan.mainWorkspace
+        : path.resolve(plan.sourceWorkspace) !== this.primaryWorkspace || plan.mainWorkspace !== this.primaryWorkspace)
       || !/^[0-9a-f]{40,64}$/i.test(plan.baseCommit) || (plan.startHead !== undefined && !/^[0-9a-f]{40,64}$/i.test(plan.startHead))) {
       throw new Error("Invalid managed worktree plan");
     }
@@ -633,7 +704,9 @@ export class GitWorktreeManager {
     const isMain = relation.path === relation.mainWorkspace;
     this.assertManagedPath(relation.path, !isMain);
     const sessionName = relation.branch.startsWith("casper/") ? relation.branch.slice("casper/".length) : "";
-    if (relation.mainWorkspace !== this.primaryWorkspace
+    if ((isCrewBranch(relation.branch)
+      ? isMain || path.resolve(relation.mainWorkspace) !== relation.mainWorkspace
+      : relation.mainWorkspace !== this.primaryWorkspace)
       || !/^[0-9a-f]{40,64}$/i.test(relation.baseCommit) || (relation.startHead !== undefined && !/^[0-9a-f]{40,64}$/i.test(relation.startHead))
       || (!isMain && (!SESSION_BRANCH_PATTERN.test(sessionName) || path.basename(relation.path) !== slug(sessionName)))) {
       throw new Error("Invalid managed worktree relation");

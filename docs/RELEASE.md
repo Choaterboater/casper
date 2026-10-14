@@ -35,6 +35,15 @@ same final files counts once. Later repairs or reviews invalidate that batch. Bu
 reviewer and fix-round behaviour stays the same. `offer`, `off`, stopped tasks and
 manual/device-check limits still apply. The crew-wide request budget remains planned.
 
+### Crews from any project worktree
+
+`/crew` and the AI's builders can start from any worktree of the same repository,
+never inside another crew copy. Each crew remembers its originating folder
+across restarts and applies only there; other checkouts stay untouched. If that
+folder is gone or no longer belongs to this repository, `/crew` still lists the
+copy with a reason and lets you keep or throw it away, never apply elsewhere.
+The main checkout's messages and receipts are unchanged.
+
 ## v0.2.34: Claude Code plan login and leaner conversation history
 
 - `/login claude-subscription` uses Claude Code's existing verified plan login or starts its own browser sign-in. Claude Code owns credentials and refresh; Casper copies no plan tokens.
