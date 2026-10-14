@@ -326,7 +326,7 @@ test("CONFIGURATION.md's /settings capture is the default 80-column screen, and 
   const release = await readFile(path.join(import.meta.dir, "..", "docs", "RELEASE.md"), "utf8");
   expect(release.slice(0, release.indexOf("## v0.2.34:"))).toContain("`/settings` is one grouped screen");
   const roadmap = await readFile(path.join(import.meta.dir, "..", "site", "roadmap.html"), "utf8");
-  expect(roadmap.slice(roadmap.indexOf("Built, not released"), roadmap.indexOf('id="coming"'))).toContain("seven areas, aligned labels and values");
+  expect(roadmap.slice(roadmap.indexOf('id="v0235"'), roadmap.indexOf('id="v0234"'))).toContain("seven areas, aligned labels and values");
 });
 
 test("every \"it writes `name: value`\" in CONFIGURATION.md is the line /settings writes when you turn that row off", async () => {

@@ -120,10 +120,10 @@
         <ol class="steps">
           <li><strong>You ask.</strong> In plain words, like <code>fix the sum bug in src/sum.js</code>.
           For code changes in a chat, Casper first lists the cases your request states, so the AI's
-          tests cover them. You can edit or skip that list.</li>
+          tests cover them. The list goes to the AI as made; to read and change the plan first, use <code>/plan</code>.</li>
           <li><strong>The AI edits files.</strong> Pi's engine does this part underneath.</li>
           <li><strong>Casper runs your checks.</strong> Your project's own test, lint, type check and
-          build commands. It finds them by itself for Node, Python, Rust and Go projects, or reads
+          build commands. It finds them by itself for Node, Python, Rust, Go and Swift projects, or reads
           them from <code>.casper/project.yaml</code>. No model call for this part.</li>
           <li><strong>Proof.</strong> Casper runs the tests on a copy of the project
           <em>without</em> the change. If they fail there and pass with it, the change is proven.</li>
@@ -135,8 +135,8 @@
 
       <section id="others" aria-labelledby="others-h">
         <h2 id="others-h">Casper and other AI coding tools</h2>
-        <p class="prose">The table above names other tools using public facts, without guessing at their insides. Here are fair,
-        general points instead.</p>
+        <p class="prose">The table further down compares plain Pi and Casper. For other tools, here are fair, general points,
+        without guessing at their insides.</p>
         <ul class="prose">
           <li><strong>Many tools report "done" without running your tests.</strong> Casper runs your
           project's own checks after each code change, by default.</li>
@@ -154,7 +154,7 @@
 
       <section id="show" aria-labelledby="show-h">
         <h2 id="show-h">Two things you can see for yourself</h2>
-        <p class="prose">Real Casper 0.2.33 output. The AI here is a scripted stand-in (no model
+        <p class="prose">Real Casper output, captured on 0.2.33 (since 0.2.35 the writes-off key is Ctrl+X, as shown). The AI here is a scripted stand-in (no model
         key needed). Everything Casper does after the AI's edit is the real code.</p>
 
         <h3>A script gets the verdict, not just text</h3>
@@ -306,16 +306,16 @@ Make this change? → No
           receipt, and adds guard rails for network gear.</p>
         </div>
       <section id="table" aria-labelledby="table-h">
-        <h2 id="table-h">The table: plain Pi vs Casper 0.2.33</h2>
+        <h2 id="table-h">The table: plain Pi vs Casper 0.2.35</h2>
         <p class="prose">"Plain Pi" means Pi as it ships, with no extra packages. Many of Casper's
         extras could be built on Pi with extensions. This table is about what you get without
         building anything.</p>
         <div class="table-wrap">
           <table>
-            <caption>Checked against the Pi 1.1.0 README and docs and Casper 0.2.33 docs. "Yes" means built in
+            <caption>Checked against the Pi 1.1.0 README and docs and Casper 0.2.35 docs. "Yes" means built in
             and on or ready to use.</caption>
             <thead>
-              <tr><th scope="col">What</th><th scope="col">Plain Pi</th><th scope="col">Casper 0.2.33</th></tr>
+              <tr><th scope="col">What</th><th scope="col">Plain Pi</th><th scope="col">Casper 0.2.35</th></tr>
             </thead>
             <tbody>
               <tr>
@@ -351,7 +351,7 @@ Make this change? → No
               <tr>
                 <th scope="row">Request checklist</th>
                 <td class="no">No</td>
-                <td class="yes">On by default for code changes in a chat. You see it and can edit or skip it.</td>
+                <td class="yes">On by default for code changes in a chat; it goes to the AI as made. <code>/plan</code> shows numbered steps and cases you can change in plain words first.</td>
               </tr>
               <tr>
                 <th scope="row">MCP servers</th>
@@ -396,7 +396,7 @@ Make this change? → No
               <tr>
                 <th scope="row">Sign-in choices</th>
                 <td class="yes">Many providers, by subscription or API key</td>
-                <td><code>/login</code> offers four: OpenRouter, Anthropic, OpenAI Codex, GitHub Copilot. A model on your own computer works too, or on another one you add by its address.</td>
+                <td><code>/login</code> offers five: OpenRouter, the Anthropic API, your Claude Code plan, OpenAI Codex (ChatGPT plan), GitHub Copilot. A model on your own computer works too, or on another one you add by its address.</td>
               </tr>
               <tr>
                 <th scope="row">Extensions and Pi packages</th>
@@ -411,7 +411,7 @@ Make this change? → No
               <tr>
                 <th scope="row">Sandbox</th>
                 <td class="no">No</td>
-                <td class="yes">Yes on Linux (through bubblewrap, a small sandbox tool) and macOS: the AI's shell, checks, services and dev servers write only the project, temp and package caches and can't read <code>~/.ssh</code>; the AI's shell and checks reach only listed hosts (others ask), while services and dev servers keep the machine's network on Linux and reach only listed hosts on macOS. Windows has no sandbox yet, and neither does Linux without bubblewrap; there the AI's shell asks before each command that changes something (reads like <code>ls</code> don't).</td>
+                <td class="yes">Yes, off unless you turn it on (<code>/sandbox on</code>; until then the AI's shell asks before commands that change things). On Linux (through bubblewrap, a small sandbox tool) and macOS: the AI's shell, checks, services and dev servers write only the project, temp and package caches and can't read <code>~/.ssh</code>; the AI's shell and checks reach only listed hosts (others ask), while services and dev servers keep the machine's network on Linux and reach only listed hosts on macOS. Windows has no sandbox yet, and neither does Linux without bubblewrap; there the AI's shell asks before each command that changes something (reads like <code>ls</code> don't).</td>
               </tr>
             </tbody>
           </table>
@@ -442,7 +442,7 @@ Make this change? → No
           <article class="card">
             <h3>More providers and modes</h3>
             <p>Pi lists many model providers, plus RPC mode and a session tree (<code>/tree</code>,
-            <code>/fork</code>). Casper's <code>/login</code> offers four providers.</p>
+            <code>/fork</code>). Casper's <code>/login</code> offers five ways to sign in.</p>
           </article>
         </div>
       </section>
@@ -456,7 +456,7 @@ Make this change? → No
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.34</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.35</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

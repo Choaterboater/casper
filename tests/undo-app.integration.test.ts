@@ -487,7 +487,7 @@ test("branch-movement rules are documented for Undo, receipts, and the unrelease
   expect(verification).toContain(branchMoveLine);
   expect(release).toContain("### Task-only receipts after branch movement");
   expect(release.indexOf("### Task-only receipts after branch movement")).toBeLessThan(release.indexOf("## v0.2.34:"));
-  expect(site.slice(site.indexOf("Built, not released"), site.indexOf("</aside>", site.indexOf("Built, not released")))).toContain("Undo leaves git's incoming changes alone");
+  expect(site.slice(site.indexOf('id="v0235"'), site.indexOf('id="v0234"'))).toContain("Undo leaves git's incoming changes alone");
 });
 
 test("switching branches at the same HEAD still adds the receipt line without claiming files", async () => {

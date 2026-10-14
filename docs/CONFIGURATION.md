@@ -817,7 +817,8 @@ doesn't answer still shows in `/model`'s list, marked `off`, with why; one that 
 yet shows `0`, with what to do on that computer.
 
 **Forget one.** In `/model`, highlight it in the list on the left and press **Ctrl+X**; Casper asks
-`1 Keep ollama-myserver · 2 Forget ollama-myserver`.
+`1 Keep ollama-myserver · 2 Forget ollama-myserver`. (While an MCP server has writes on, Ctrl+X turns them off
+first; press it again to forget the server.)
 
 **Where it is kept.** The name, address and kind go in `~/.casper/config.yaml` (Casper writes them,
 keeping the rest of the file, its comments and your other entries as they are):

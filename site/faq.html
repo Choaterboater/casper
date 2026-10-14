@@ -38,7 +38,7 @@
       <div class="contents-layout">
       <header class="page-head">
         <h1>Questions and answers</h1>
-        <p class="lead">Straight answers about Casper 0.2.33. Click a question to open it. If something
+        <p class="lead">Straight answers about Casper 0.2.35. Click a question to open it. If something
         breaks, jump to <a href="#troubleshooting">troubleshooting</a>.</p>
       </header>
 
@@ -63,7 +63,9 @@
           <p>Casper itself is free and open source, under the
           <a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a>.
           The AI model is not Casper's. You sign in with a model provider, and that provider's plans
-          and charges still apply. There is no hard spending cap in Casper.</p>
+          and charges still apply. Casper adds an optional brake: a limit you say in the request ("keep it under $2")
+          or the spend pause in <code>/settings</code> stops the task and asks before it spends more, builders included.
+          It is off unless you set one, and never applies on a Claude or ChatGPT plan, which isn't billed per task.</p>
           <p>Lots of things cost zero tokens: the checks Casper runs, <code>/verify</code>,
           <code>/mcp</code>, <code>/diff</code>, <code>/receipt</code> and local reference search make
           no model call. When a choice will spend tokens, it says the model does it, for example
@@ -301,7 +303,7 @@ Next: 1 Show diff · 2 Undo</pre>
 
         <details>
           <summary>Why did it ask me something?</summary>
-          <p>Casper stops and asks when the next step is yours to decide. In 0.2.33 that includes:</p>
+          <p>Casper stops and asks when the next step is yours to decide. In 0.2.35 that includes:</p>
           <ul>
             <li>an MCP call to a network product (Mist, Central, ClearPass…) that may change something, or a firmware, delete or admin change on your own server (<code>1 No · 2 Yes, this once · 3 Yes, for this session</code>);</li>
             <li>connecting a project's MCP server, or turning a network server's writes on (your own servers connect with the session);</li>
@@ -312,7 +314,7 @@ Next: 1 Show diff · 2 Undo</pre>
             <li>a test that was <em>already</em> failing before the change, before paying to fix
             it;</li>
             <li>a model error that repeated, to retry or stop;</li>
-            <li>the request checklist before a code change (edit it, or <kbd>Esc</kbd> to skip);</li>
+            <li>a plan you asked for with <code>/plan</code>: <code>1 Stop · 2 Build · 3 Change the plan</code> (Enter stops);</li>
             <li><code>Next: 1 Show diff · 2 Undo</code> after each task (Enter runs nothing; not in a folder too big to compare);</li>
             <li>before the AI's shell reaches another machine, or writes outside the project;</li>
             <li>a shell command to a host the sandbox does not know;</li>
@@ -389,9 +391,9 @@ on in ~/.casper/config.yaml)</pre>
           <p>Run <code>casper update</code>. It finds the newest preview and runs that release's own
           installer, with the same checks. <code>casper update --check</code> only says whether there
           is one, and a session tells you in one line when one is out, and keeps a short note at the end of
-          the footer until you update (<code>Casper 0.2.33 is out · casper update</code>). Nothing updates on its own.
-          The install commands pin a version: running the v0.2.33 command again just reinstalls
-          v0.2.33.</p>
+          the footer until you update (<code>Casper 0.2.36 is out · casper update</code>). Nothing updates on its own.
+          The install commands pin a version: running the v0.2.35 command again just reinstalls
+          v0.2.35.</p>
           <p>If a new download fails any check, your old install stays as it was.</p>
         </details>
 
@@ -448,7 +450,7 @@ on in ~/.casper/config.yaml)</pre>
           <summary>How do I stop it asking so much?</summary>
           <p>Type <code>/permissions</code>: a short screen of whether Casper is asking and what is allowed, then a box: <code>2 Stop asking until I quit</code>.
           <code>/permissions details</code> has the exact way to be asked less for each kind. The short version:
-          answer <code>3</code> or <code>4</code> in a box to remember it for the session or the project; for a folder outside the project
+          answer <code>3</code> or <code>4</code> in a box to remember it for the session or the project (for a shell command, that exact command); for a folder outside the project
           answer <code>4 Yes, always for this project</code> (or <code>/permissions write &lt;folder&gt;</code>);
           <code>/permissions all</code> stops the shell's questions until you quit (the footer says <code>ASKING OFF</code>, and
           <code>/permissions ask</code> turns it back). There is no one switch for everything, on purpose. These stay protected whatever you pick:
@@ -548,7 +550,10 @@ on in ~/.casper/config.yaml)</pre>
           <dd>Casper opens exactly where you started it and asks nothing. From your home folder or the
           top of a drive it prints one line naming the project you last worked in, such as
           <code>casper ~/Projects/aibot</code> to work there, and <code>casper new</code> to start a new
-          one. In any other folder, if it holds several projects, one line names them.</dd>
+          one. A home folder or a drive's top is not a project: tasks there don't list the whole folder first
+          (so there is no change list or undo, and the receipt says <code>not a project folder</code>), and the AI is
+          told to put a new project in <code>~/Projects/&lt;name&gt;</code>. In any other folder, if it holds several
+          projects, one line names them.</dd>
 
           <dt>Casper built a template in my empty folder</dt>
           <dd>Your first request fitted a template (a NOC dashboard, an MCP server), so Casper built it
@@ -575,7 +580,7 @@ on in ~/.casper/config.yaml)</pre>
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.34</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.35</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

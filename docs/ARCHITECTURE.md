@@ -29,7 +29,7 @@ touch, what it sees, how its work is checked, and what the receipt says.
 | Terminal | `src/tui/` | `terminal.ts` owns input and numbered questions; `surface.ts` is the rich screen; `commands.ts` lists slash commands for completion; `help.ts` is `/help`; `ask.ts` is the AI's `ask` tool. |
 | Services and pages | `src/services/`, `src/browser/` | Dev servers Casper starts and owns (`manager.ts`, `detect.ts`), smoke checks (`smoke.ts`), page checks after a UI change (`pages.ts`, `page-checks.ts`, `page-report.ts`), showing the AI the pages (`page-look.ts`) and `/preview`. `src/browser/` drives Chrome for the page check and the `browser` tool. |
 | LSP and debugger | `src/lsp/`, `src/debug/` | Language servers (diagnostics after edits, rename) and a DAP step debugger. Both start only after you say yes. |
-| Helpers | `src/agents/manager.ts` | The `delegate` tool: bounded, read-only child sessions. |
+| Helpers and crews | `src/agents/manager.ts`, `src/crew/`, `src/app/crew-checks.ts` | The `delegate` tool: bounded child sessions, read-only explorers and reviewers or builders that edit; `src/crew/` gives each builder its own worktree copy, lands its part in the folder it started from and runs one fix round; `crew-checks.ts` runs the full checks on the combined result. |
 | Everything else | `src/sessions/`, `src/workspace/`, `src/skills/`, `src/packs/`, `src/memory/`, `src/references/`, `src/web/`, `src/visualize/`, `src/flows/`, `src/security/`, `src/doctor/`, `src/new/`, `src/update/`, `src/config/`, `src/project/`, `src/platform/` | Saved conversations and branches, skills, skill packs, memory, reference docs, web lookups, diagrams, suggested flows, `/security-review`, `casper doctor`, `casper new`, `casper update`, settings, project facts and OS helpers. Each folder's main file starts with a comment that says what it owns. |
 
 ## How one request runs
@@ -101,7 +101,7 @@ states it in the same commit.
 These follow from how the owner wants Casper to feel. A change that breaks one will be asked to change.
 
 - **On by default, with an off switch.** A new feature works without setup. Turning it off is one
-  numbered choice in `/settings` (`src/app/settings.ts`), written to `~/.casper/config.yaml` for you by
+  key on the `/settings` screen (`src/app/settings.ts`, a numbered choice on plain terminals), written to `~/.casper/config.yaml` for you by
   `src/config/user-write.ts`. No one should have to edit a config file for normal use.
 - **Numbered choices, 1 is safe.** Every question is a numbered list; Enter picks 1, and 1 never builds,
   spends tokens, writes, turns writes on or remembers anything. Yes is said with the same wording (No · Yes, this once · Yes, for this session · Yes, always for this

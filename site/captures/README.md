@@ -1,6 +1,7 @@
 # Terminal captures
 
-Plain-text copies of real Casper 0.2.33 runs, for the site's `<pre>` blocks.
+Plain-text copies of real Casper 0.2.33 runs, for the site's `<pre>` blocks. Since 0.2.35 the MCP writes-off key
+in `mcp-ask.txt` and `mcp-status.txt` reads Ctrl+X, as it does now; the rest is as captured.
 Nothing here used a model API key or the network.
 
 ## Rules used for every file

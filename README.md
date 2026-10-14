@@ -15,7 +15,7 @@ proves a test fails without the change. You get a short receipt that says what w
 
 Network engineers get extra care: MCP servers (tool servers the AI can call) start with writes
 off, every change asks you in one numbered box, and the AI can't approve anything for you.
-Sign in with OpenRouter, Anthropic (Claude), OpenAI Codex or GitHub Copilot, so you are not tied
+Sign in with OpenRouter, Anthropic (Claude API or your Claude Code plan), OpenAI Codex or GitHub Copilot, so you are not tied
 to one model company, or run a model on your own computer: Ollama, LM Studio, llama.cpp and vLLM show in `/model` by themselves, and one on another computer is added from `/model` by its address ([Local models](docs/CONFIGURATION.md#local-models)). Many things cost zero tokens: the checks, `/verify`, `/mcp`, `/diff`,
 `/receipt` and local reference search make no model call.
 
@@ -36,20 +36,20 @@ Casper itself is free and open source. A task spends money only with your own mo
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.34/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.35/install.sh | sh
 ```
 
 Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.34/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.35/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
 [release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.2.34**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.34`,
+if anything is wrong. These commands pin **v0.2.35**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.35`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 Use the one-line command above rather than downloading a program in your browser: the installer
@@ -69,8 +69,8 @@ cd your-project
 casper
 ```
 
-Type `/login` and press a number: OpenRouter is first (Enter picks it), then Anthropic, OpenAI
-Codex and GitHub Copilot. Already signed in to Claude Code, Codex CLI or GitHub CLI on this computer?
+Type `/login` and press a number: OpenRouter is first (Enter picks it), then the Anthropic API, your
+Claude Code plan, OpenAI Codex (ChatGPT plan) and GitHub Copilot. Already signed in to Claude Code, Codex CLI or GitHub CLI on this computer?
 `/login` offers that first; a plan sign-in is never copied, so the other tool stays signed in. If you skip it, Casper opens sign-in on your first request (or `/model`, on model servers you added). Then ask for what you want, for example `Fix the failing test in sum.js`.
 Casper works, runs the checks, and ends with a receipt:
 
@@ -83,7 +83,7 @@ From the shell:
 ```sh
 casper "Explain this project"
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.2.34 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.2.35 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
@@ -101,9 +101,19 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
   three repair tries by default. Web pages are opened and checked too. [Verification](docs/VERIFICATION.md)
 - **One numbered box for every yes.** `1 No · 2 Yes, this once · 3 Yes, for this session ·
   4 Yes, always for this project`, and network boxes add `Yes to everything on <product> this session`;
-  each box shows only the answers that fit. Nothing asks you to type `yes`. [Terminal guide](docs/TERMINAL_UX.md)
+  each box shows only the answers that fit. Nothing asks you to type `yes`. For a shell command, 3 and 4 remember
+  that exact command, never a prefix: a yes to `rm -rf build` never covers `rm -rf ~`. [Terminal guide](docs/TERMINAL_UX.md)
+- **Plans you change in words.** `/plan <request>` shows numbered steps and test cases, then
+  `1 Stop · 2 Build · 3 Change the plan`: say what to change ("drop step 2") and the model rewrites it. Enter never
+  builds. [Plans](docs/TERMINAL_UX.md)
+- **Work you can follow.** While Casper works, the steps read in plain words (`Looking through the code: 14 searches,
+  9 files read`, `Ran the tests`); Ctrl+O shows every raw tool call, Ctrl+T the last step in full.
+- **Crews for big jobs.** For a job with separate parts the AI starts builders, each in its own copy of your folder;
+  reviewers check each part, the full checks run on the combined result, and one `/undo` takes it all back. Say
+  "split this up" to ask for them, or `/crew <job>` for one by hand. [Crews](docs/CREWS.md)
 - **Undo.** `Next: 1 Show diff · 2 Undo` after each task; `/undo`, `/redo` and `/diff` work on any
-  saved task, also outside git; `/rewind` goes back to just before an earlier prompt to edit it. [Undo](docs/UNDO.md)
+  saved task, also outside git; `/rewind` goes back to just before an earlier prompt to edit it. A task that rebases
+  or pulls counts only its own edits, and Undo leaves what git brought in alone. [Undo](docs/UNDO.md)
 - **Sessions.** Pick up a past chat (`--continue`, `/resume`), or try an idea in a named branch with
   its own folder. [Sessions](docs/SESSIONS.md)
 - **Pages in your browser.** When seeing beats reading (options side by side, a mock-up, a
@@ -119,7 +129,7 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 - **Pull requests and CI.** Ask which pull requests are open or why a check failed; Casper reads
   the failing step through `gh`, and the AI never sees your GitHub login. [GitHub](docs/GITHUB.md)
 - **Skill packs and themes.** `/pack add` a folder or a GitHub commit of skills after a box that
-  shows every file; pick a colour theme in `/settings`. [Packs](docs/PACKS.md)
+  shows every file; pick a colour theme in `/settings`, one grouped screen you can search. [Packs](docs/PACKS.md)
 - **New projects.** `casper new` starts a project with tests and a first commit, with no model
   call. [New projects](docs/NEW.md)
 
@@ -174,6 +184,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 | Contributing | [How Casper is built](docs/ARCHITECTURE.md) · [Working on Casper](docs/DEVELOPING.md) |
 
 ## What's new
+
+v0.2.35: the live steps read in plain words, with Ctrl+O for the raw ones (MCP writes off moves to Ctrl+X); `/plan` numbers its steps and cases and takes changes in plain words; `/settings` is one grouped screen with search; a yes to a shell command covers that exact command; a task that rebases counts only its own edits and Undo leaves git's changes alone; and Crews is complete, with full checks on the combined result and crews from any worktree. See [release notes](docs/RELEASE.md).
 
 v0.2.34: `/login claude-subscription` reuses Claude Code's verified plan login or starts its browser sign-in; the model picker separates Claude Code plan from Anthropic API; login refreshes models without changing your current model or default, and an unavailable provider cannot report refresh success. Bulky old tool output becomes a history stub, and a failed final browser replay gets one bounded repair turn. See [release notes](docs/RELEASE.md).
 

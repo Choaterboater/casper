@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0235">v0.2.35: plain steps</a></li>
               <li><a href="#v0234">v0.2.34: Claude Code plan login</a></li>
               <li><a href="#v0233">v0.2.33: fewer interruptions</a></li>
               <li><a href="#v0232">v0.2.32: remote model servers</a></li>
@@ -111,24 +112,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>The v0.2.34 preview contains the Claude Code plan login and model refresh fixes, leaner tool-output history, and one bounded repair for a failed final browser replay. Built since then, in the next one:</p>
-          <ul>
-            <li><code>/plan</code> numbers steps and test cases. <strong>1 Stop · 2 Build · 3 Change the plan</strong>
-            takes a one-line change in plain words, then the model rewrites the plan and shows it again. No raw editor;
-            Enter stops, never builds. Planning skips steps that only re-confirm a known fact or cause.</li>
-            <li><code>/crew</code> and the AI's builders start from any worktree of the same repository, never inside another crew copy.
-            Work lands only in the originating folder, remembered across restarts. If it is gone or no longer a worktree of this repository,
-            the copy stays listed with a reason; keep or throw it away, never apply elsewhere.</li>
-            <li><code>/settings</code> has seven areas, aligned labels and values, help for the highlighted row and search across areas. Up/Down moves, Enter/Space changes, Left/Right or Tab switches areas, and Esc closes. Narrow windows start with an area list; plain terminals keep grouped numbered choices. Saves and config keys stay the same.</li>
-            <li>When the branch moves during a task, the receipt and <code>/diff</code> show only the task's edits.
-            Undo leaves git's incoming changes alone, explains overlapping files it cannot safely restore,
-            and refuses when the baseline cannot be read.</li>
-            <li>Local models, local addresses and models with a small window get shorter guidance automatically (<strong>Lean guidance</strong> in <code>/settings</code> turns it off).</li>
-            <li>A yes in the <em>Run this command?</em> box covers that exact command, including a command an older Casper kept as a prefix, and <code>gh api</code> runs without asking only as a plain read from GitHub (a search with <code>-X GET</code> included).</li>
-            <li>A task started in your home folder or at a drive's top no longer lists the whole folder first, and the AI is told to put a new project in <code>~/Projects/&lt;name&gt;</code> instead of searching it.</li>
-            <li>With the Claude Code plan login, a tool call Claude names without its prefix runs instead of failing the turn.</li>
-            <li>The live steps read in plain words (<code>Looking through the code: 14 searches, 9 files read</code>, <code>Edited roadmap.html</code>, <code>Ran the tests</code>); <kbd>Ctrl+O</kbd> shows the raw steps, as in Claude Code, Pi and omp. MCP writes off moves to <kbd>Ctrl+X</kbd>.</li>
-          </ul>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.35. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -136,15 +120,14 @@
         <h2 id="coming-h">Planned, not started</h2>
         <aside class="callout soon">
           <strong class="callout-title">Not in any release yet</strong>
-          <p>Nothing else in this section is in v0.2.34: the first part of Crews shipped in v0.2.23, AI-started
-          builders in v0.2.24, reviewers and a fix round in v0.2.25; a limit said in the request has covered the whole crew since v0.2.24. Full checks on the combined result are built for the next release, which completes Crews. Names, commands and details may change, or move to a later version, before
-          they ship.</p>
+          <p>Crews (v0.3), below, is complete: it shipped in parts from v0.2.23 to v0.2.35. Nothing else is scheduled
+          for a version yet; the ideas under Later may move here.</p>
         </aside>
 
         <div class="stack">
         <article class="card" id="v030" aria-labelledby="v030-h">
           <div class="release-heading"><h3 id="v030-h">v0.3 · Crews</h3>
-            <span class="badge soon">shipped in v0.2.23–v0.2.25; the last part is built for the next release</span></div>
+            <span class="badge ok">complete in v0.2.35</span></div>
           <p>Big jobs get a team. The AI splits a big job itself, as Claude Code and omp do; <code>/crew</code>
           is the manual way.</p>
           <ul>
@@ -162,11 +145,12 @@
             <li><strong>Review, fix</strong> <span class="badge">in v0.2.25</span>. The AI can have a reviewer check each landed part and one
             builder fix what it finds. The footer shows <code>1 reviewer · 2 builders · $0.19</code>, and
             the receipt says in one line which landed parts were not reviewed.</li>
-             <li><strong>Full checks on the combined result</strong> <span class="badge soon">built, next release</span>.
+             <li><strong>Full checks on the combined result</strong> <span class="badge">in v0.2.35</span>.
              After the reviewers and fix round, auto verification runs the project's full selected checks once
              on the combined result before the crew reports done, and the receipt shows the run and its status.
              Per-part passes do not replace it; a whole batch already run on the same final files counts once.
-             Later edits or reviews require a fresh batch. Verification-off, offered checks and manual/device-check limits still apply.</li>
+             Later edits or reviews require a fresh batch. Verification-off, offered checks and manual/device-check limits still apply.
+             Since v0.2.35 a crew can start from any worktree of the project; its work lands only in that folder.</li>
             <li><strong>Your limits apply to the crew</strong> <span class="badge">in v0.2.24</span>. A limit said in the request ("keep it
             under $2") holds for the whole crew, builders included, and the footer shows the cost as it goes. Off unless you say one or set
             the spend pause in <code>/settings</code>; never on a Claude or ChatGPT plan, which isn't billed per task.</li>
@@ -370,23 +354,38 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0235" aria-labelledby="v0235-h" open>
+          <summary class="release-heading">
+            <h3 id="v0235-h">v0.2.35 · Plain live steps, plans you change in words, a grouped /settings, and Crews complete</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li>The live steps read in plain words (<code>Looking through the code: 14 searches, 9 files read</code>, <code>Edited roadmap.html</code>, <code>Ran the tests</code>); <kbd>Ctrl+O</kbd> shows the raw steps, as in Claude Code, Pi and omp. MCP writes off moves to <kbd>Ctrl+X</kbd>.</li>
+            <li><code>/plan</code> numbers steps and test cases. <strong>1 Stop · 2 Build · 3 Change the plan</strong> takes a one-line change in plain words, then the model rewrites the plan and shows it again. No raw editor; Enter stops, never builds.</li>
+            <li><code>/settings</code> has seven areas, aligned labels and values, help for the highlighted row and search across areas.</li>
+            <li>A yes in the <em>Run this command?</em> box covers that exact command, including one an older Casper kept as a prefix, and <code>gh api</code> runs without asking only as a plain read from GitHub.</li>
+            <li>A task that rebases, pulls or switches branches counts only its own edits, and Undo leaves git's incoming changes alone. A check that already failed before the change reads <code>Not caused by this change</code>.</li>
+            <li>Crews are complete: full checks on the combined result, and <code>/crew</code> and the AI's builders start from any worktree. Each crew's folder is remembered across restarts, and its work lands there or nowhere: keep or throw it away, never apply elsewhere.</li>
+            <li>Lean guidance for local and small-window models, no whole-folder listing in your home folder, and Shift+Tab saves your effort once.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0234" aria-labelledby="v0234-h" open>
           <summary class="release-heading">
             <h3 id="v0234-h">v0.2.34 · Claude Code plan login and leaner conversation history</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><code>/login claude-subscription</code> reuses Claude Code's verified plan login or starts its own browser sign-in; no plan tokens are copied into Casper.</li>
             <li>The picker separates Claude Code plan from Anthropic API. Login refreshes models without changing your current model or saved default, and unavailable authentication cannot report refresh success.</li>
             <li>Bulky old tool output becomes a stub while recent rounds, failures and referenced output stay visible. A failed final browser replay gets one bounded repair turn.</li>
           </ul>
-          <p>Terminal checks, the remaining Crews work and expanded vendor packs are still planned, not shipped here.</p>
-        </details>
+          </details>
 
         <details class="card release" id="v0233" aria-labelledby="v0233-h" open>
           <summary class="release-heading">
             <h3 id="v0233-h">v0.2.33 · Fewer interruptions, a browser the AI drives itself, slow commands that keep running</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <p>Casper asks less, as Claude Code does, a slow command keeps running in the background, and browser checks
           end honestly on apps that work. Each new thing that runs without asking has a switch in <code>/settings</code>.</p>
@@ -405,7 +404,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0232" aria-labelledby="v0232-h" open>
+        <details class="card release" id="v0232" aria-labelledby="v0232-h">
           <summary class="release-heading">
             <h3 id="v0232-h">v0.2.32 · A model server added by its address, no undo in a folder too big to compare, a new-version note in the footer</h3>
             <span class="badge">released</span>
@@ -1082,7 +1081,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.34</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.35</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
