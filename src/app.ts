@@ -34,7 +34,7 @@ import { Scrubber } from "./secrets/netconan";
 import { scrubToolOutput } from "./secrets/tool-output";
 import type { Readable } from "node:stream";
 import { loadProjectContext, type ProjectContext } from "./project/context";
-import { inspectProject, type ProjectInfo } from "./project/inspect";
+import { broadFolder, inspectProject, type ProjectInfo } from "./project/inspect";
 import type { ChildProject } from "./project/child";
 import { forgetSshSecrets } from "./ssh/login";
 import { useTelemetrySetting } from "./runtime/openrouter-attribution";
@@ -45,7 +45,7 @@ import { TaskObservations } from "./task/observations";
 import { pastedFolderParent, PastedImageFiles } from "./app/images";
 import { LifecycleRegistry } from "./app/lifecycle";
 import { helperActivityLine, RuntimeEventView } from "./app/events";
-import { snapshotFailureReason, snapshotTree } from "./task/changes";
+import { NOT_A_PROJECT, snapshotFailureReason, snapshotTree } from "./task/changes";
 import { renderBanner, wordmarkHeader } from "./tui/banner";
 import type { CheckName, VerificationReport } from "./verify/evidence";
 import { ProcessCleanupError } from "./platform/processes";
@@ -756,6 +756,10 @@ export class CasperApp {
   async snapshotWorkspace(root: string, signal?: AbortSignal): Promise<Map<string, string> | undefined> {
     // During a task: files listed at its start, and files its own tools wrote, are listed even when git ignores them.
     const edited = this.observations.edited().map((file) => path.relative(root, path.resolve(root, file)).split(path.sep).join("/"));
+    // The home folder or a drive's top is not a project: listing it would read up to 20,000 files before every task
+    // only to give up, so it says so at once (no change list, no undo), as for any folder too big to list.
+    const broad = broadFolder(root, this.homeDir());
+    if (broad) { this.snapshotFailure = `${NOT_A_PROJECT} (${broad === "home" ? "your home folder" : "the top of a drive"})`; return undefined; }
     try { return await snapshotTree(root, signal, { include: [...this.snapshotBase?.keys() ?? [], ...edited] }); }
     catch (error) {
       // Kept for the receipt: "Changes unknown: not a project folder (over 20,000 files)".
