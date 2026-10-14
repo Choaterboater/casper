@@ -22,8 +22,8 @@ shellCheckTest("--json streams v1 JSON Lines on stdout: session, text, tools, Ca
   const receiptText = "✓ Verified — the checks pass, and the tests fail without the change\n✓ Changed 1 file: sum.js\n✓ test passed (grep -q fixed sum.js";
   const stream = events(result.stdout, await realpath(f.project));
   const receipt = stream.at(-1);
-  // The check's time shows only from a second up.
-  expect(receipt.text).toMatch(new RegExp(`^${receiptText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:, \\d+\\.\\ds)?\\)\\n`));
+  // The check's time shows only from a second up, with no tenths when they are 0 (1s, 1.4s, 12s).
+  expect(receipt.text).toMatch(new RegExp(`^${receiptText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:, \\d+(?:\\.\\d)?s)?\\)\\n`));
   receipt.text = "<receipt text>";
   // Three model responses (the task, its answer, the requirements review) at 120 tokens each; the
   // cost is the catalog estimate for those tokens.
