@@ -13,6 +13,7 @@ import type { ChangeProof } from "../verify/proof";
 import type { AcceptanceResult } from "../verify/acceptance";
 import { ROUND_MAX_TURNS, type RequirementsReview } from "./review";
 import { formatLimit } from "./spend";
+import { BRANCH_MOVED_LINE, GIT_MOVEMENT_UNKNOWN } from "./git-movement";
 import { formatCost, formatDuration, lineText } from "../tui/format";
 
 /** Tool-reported diagnostics, not process exit evidence or a reusable check pass. */
@@ -52,6 +53,10 @@ export interface TaskResult {
    * the model turn and right after it (added, modified or removed). Undefined when a snapshot
    * failed or was skipped. */
   changedPaths?: string[];
+  /** The project's HEAD or branch moved while the task ran. */
+  branchMoved?: true;
+  /** Git's baseline was unreadable: no task-only change count or Undo can be offered. */
+  branchChangesUnknown?: true;
   /** Paths that changed after the model turn, while Casper's own checks and repair ran. Repair
    * edits are model work too, but they belong to the verification round, not the request. */
   changedDuringChecks?: string[];
@@ -263,6 +268,8 @@ export function formatTaskResult(task: TaskResult): string {
   if (task.changedPaths) lines.push(receiptLine("changes", formatChangedPaths(task.changedPaths, safe)));
   else if (task.possibleMutations) lines.push(receiptLine("changes", `unknown (${task.snapshotFailure ? safe(task.snapshotFailure.reason) : "workspace snapshot failed"})`));
   if (task.changedDuringChecks?.length) lines.push(receiptLine("check edits", formatChangedPaths(task.changedDuringChecks, safe)));
+  if (task.branchChangesUnknown) lines.push(`– ${task.branchMoved ? "The branch moved during this task; " : ""}${GIT_MOVEMENT_UNKNOWN}; undo is unavailable`);
+  else if (task.branchMoved) lines.push(BRANCH_MOVED_LINE);
   if (task.observedChecks?.length) {
     lines.push(receiptLine("shell", `${task.observedChecks.map(({ name, toolStatus }) => `${name}:${toolStatus}`).join(", ")} (diagnostics only)`));
   }
@@ -512,6 +519,8 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
   }
   if (task.changedDuringChecks?.length) lines.push(`– Changed while checking: ${pathList(task.changedDuringChecks, safe, false)}`);
   if (task.changedWhilePlanning?.length) lines.push(`– Changed while planning: ${pathList(task.changedWhilePlanning, safe, false)}`);
+  if (task.branchChangesUnknown) lines.push(`– ${task.branchMoved ? "The branch moved during this task; " : ""}${GIT_MOVEMENT_UNKNOWN}; undo is unavailable`);
+  else if (task.branchMoved) lines.push(BRANCH_MOVED_LINE);
 
   const changed = Boolean(task.changedPaths?.length || (!task.changedPaths && task.possibleMutations));
   if (!report && !task.observedChecks?.length && task.execution === "completed") {
