@@ -58,7 +58,7 @@ test("plain git and gh commands that use your GitHub login are recognised", asyn
     "gh issue list --state open", "gh issue view 7", "gh issue create --title Bug --body 'Steps: 1. run'",
     "gh run list", "gh run view 123 --log-failed", "gh run watch 123", "gh run rerun 123 --failed",
     "gh repo view", "gh repo view example/app", "gh repo clone example/lib", "gh repo clone example/lib vendor/lib2",
-    "gh api repos/example/app/pulls", "gh api -X GET /user --jq .login", "gh api --paginate 'repos/example/app/issues?state=open'",
+    "gh api repos/example/app/pulls", "gh api -X GET /user --jq .login", "gh api --paginate 'repos/example/app/issues?state=open'", "gh api -X GET search/issues -f q=repo:example/app",
     "gh auth status", "gh auth status --hostname github.com",
   ]) expect([command, githubLoginCommand(command, places(root))]).toEqual([command, expect.objectContaining({ tool: command.split(" ")[0] })]);
   expect(githubLoginCommand("git push -u origin fix/tool-ergonomics", places(root))).toEqual({ tool: "git", action: "git push", once: false });
@@ -120,7 +120,7 @@ test("anything more than one plain command stays in the sandbox: operators, subs
     "gh api -X POST repos/example/app/issues", "gh api --method=DELETE repos/example/app", "gh api repos/example/app/issues -f title=x", "gh api repos/x -F title=@body.md",
     "gh api graphql -f query=x", "gh api --input body.json repos/x", "gh api --verbose /user", "gh", "git",
     "gh api repos/x/issues -Fbody=@.env", "gh api repos/x/issues -ftitle=x", "gh api -iXDELETE repos/x", "gh api -X=DELETE repos/x",
-    "gh api http://api.github.com/user", "gh api https://evil.example/x",
+    "gh api http://api.github.com/user", "gh api https://evil.example/x", "gh api search/issues -f q=x", "gh api -X GET graphql -f query=x",
   ]) expect([command, githubLoginCommand(command, places(root, { home }))]).toEqual([command, undefined]);
 });
 
