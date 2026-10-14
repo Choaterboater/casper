@@ -63,6 +63,7 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
           return `LSP diagnostics after edit: ${scrubbed?.texts[0] ?? json}${scrubbed?.note ? ` (${scrubbed.note})` : ""}\nRepair new errors before continuing; unavailable or unversioned reports are not proof of a clean file.`;
         },
         systemPromptAppend: systemPromptAppend(context),
+        leanSystemPromptAppend: systemPromptAppend(context, true),
         // A plan turn refuses every tool but reading, whatever the tool says about itself.
         beforeToolGate: (toolName, input) => (app.planning ? planToolGate(toolName, input) : undefined)
           ?? hiddenSecretGate(toolName, input)
@@ -77,6 +78,7 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         // The conversation outlives a workspace rebind, so it holds a facade that follows the current shell.
         ...(app.shell ? { shell: currentShell(app) } : {}),
         ...(context.cache ? { cache: context.cache } : {}),
+        guidance: () => app.projectContext?.leanGuidance ?? "auto",
         hideToolOutput: () => app.projectContext?.hideToolOutput !== false,
         ...(context.localModels === false ? { localModels: false } : {}),
         ...(context.modelServers?.length ? { modelServers: context.modelServers } : {}),

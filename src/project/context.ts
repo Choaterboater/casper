@@ -86,6 +86,8 @@ export interface ProjectContext {
   routineCommands?: boolean;
   /** `hide_tool_output: off` stops new history masks. Unset: on. */
   hideToolOutput?: boolean;
+  /** `lean_guidance: auto|off` in the user's config. Unset: auto. */
+  leanGuidance?: LoadedConfiguration["leanGuidance"];
   /** `slow_commands: off` in the user's config: a command without its own timeout is stopped at the limit. Unset: on. */
   slowCommands?: boolean;
   /** `stalled_commands: off` in the user's config: a command with no output and no CPU is left to its limit. Unset: on. */
@@ -209,6 +211,7 @@ export async function loadProjectContext(
     ...(configuration.browserClicks !== undefined ? { browserClicks: configuration.browserClicks } : {}),
     ...(configuration.routineCommands !== undefined ? { routineCommands: configuration.routineCommands } : {}),
     ...(configuration.hideToolOutput !== undefined ? { hideToolOutput: configuration.hideToolOutput } : {}),
+    ...(configuration.leanGuidance !== undefined ? { leanGuidance: configuration.leanGuidance } : {}),
     ...(configuration.slowCommands !== undefined ? { slowCommands: configuration.slowCommands } : {}),
     ...(configuration.stalledCommands !== undefined ? { stalledCommands: configuration.stalledCommands } : {}),
     ...(configuration.mcpAutoconnect !== undefined ? { mcpAutoconnect: configuration.mcpAutoconnect } : {}),
@@ -262,7 +265,7 @@ function line(label: string, flags: Array<[boolean, string]>): string[] {
   return on.length ? [`- ${label}: ${on.join(", ")}`] : [];
 }
 
-export function formatProjectContext(context: ProjectContext): string {
+export function formatProjectContext(context: ProjectContext, lean = false): string {
   const { model, policy, rules } = context;
   const sections = [
     "Casper project context (deterministically detected and cached):",
@@ -274,7 +277,9 @@ export function formatProjectContext(context: ProjectContext): string {
     `- commands: ${commands(model)}`,
     `- selected profile: ${context.profileName}`,
     "Casper policy:",
-    `- autonomy: ${AUTONOMY[policy.behavior.autonomy]}`,
+    `- autonomy: ${lean && policy.behavior.autonomy === "high"
+      ? "high: do project work yourself, including ignored files, tests and settings. Don't ask users to edit files you can edit or run scripts outside Casper. For outside needs: one line and one numbered question."
+      : AUTONOMY[policy.behavior.autonomy]}`,
     `- ask questions: ${ASK_QUESTIONS[policy.behavior.askQuestions]}`,
     // On/off flags as one plain line each; a flag that is off is left out.
     ...line("work style", [[policy.behavior.inspectBeforeEditing, "inspect before editing"], [policy.code.preferSmallChanges, "prefer small changes"],
@@ -282,7 +287,8 @@ export function formatProjectContext(context: ProjectContext): string {
     // Instructions to the model, not rules Casper enforces: bash can still run git or rm.
     ...(gitRule(policy.git.commit) === gitRule(policy.git.push) ? [`- git commit and push: ${gitRule(policy.git.commit)}`]
       : [`- git commit: ${gitRule(policy.git.commit)}`, `- git push: ${gitRule(policy.git.push)}`]),
-    "- ask the user first before deleting files they didn't ask to delete, git reset, or force-push. Creating and editing files in this project needs no ask.",
+    lean ? "- Ask before unrequested deletion, git reset or force-push. Project file creation/edits need no ask."
+      : "- ask the user first before deleting files they didn't ask to delete, git reset, or force-push. Creating and editing files in this project needs no ask.",
     "- never discard uncommitted work: git reset --hard, checkout --, restore, clean and stash drop/clear are blocked",
     ...line("isolate", [[policy.workspace.isolateWhen.parallelAgents, "parallel agents"], [policy.workspace.isolateWhen.riskyRefactor, "risky refactors"],
       [policy.workspace.isolateWhen.experimentalBranch, "experimental branches"]]),

@@ -89,6 +89,22 @@ async function appFixture(options: CasperAppOptions = {}) {
 }
 
 describe("Phase 8 bounded subagents", () => {
+  test("readers and builders inherit the parent's live guidance off switch", async () => {
+    let guidance: "auto" | "off" = "off";
+    const children: ChildRuntime[] = [];
+    const agents = new SubagentManager({ guidance: () => guidance, runtimeFactory: () => {
+      const child = new ChildRuntime();
+      children.push(child);
+      return Object.assign(child, { startBuilder: child.startReadOnly.bind(child) });
+    } });
+    cleanup.push(() => agents.close());
+    expect((await agents.run(task)).status).toBe("completed");
+    expect((await agents.runBuilder({ goal: "Build one part", cwd: task.cwd, projectContext: task.projectContext })).status).toBe("completed");
+    for (const child of children) expect(child.options?.guidance?.()).toBe("off");
+    guidance = "auto";
+    for (const child of children) expect(child.options?.guidance?.()).toBe("auto");
+  });
+
   test("pre-cancelled delegation never creates a runtime", async () => {
     let created = 0;
     const agents = manager(() => { created++; return new ChildRuntime(); });

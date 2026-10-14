@@ -6,6 +6,8 @@ import path from "node:path";
 import { CasperApp } from "../src/app";
 import { browserDefaults } from "../src/browser/discovery";
 import { loadProjectContext } from "../src/project/context";
+import { systemPromptAppend, DEFAULT_SYSTEM_PROMPT_APPEND, LEAN_SYSTEM_PROMPT_APPEND } from "../src/app/prompt";
+import { projectGuidance, type GuidanceModel, type GuidanceSetting } from "../src/runtime/guidance";
 import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { removeTempDir } from "./support/temp-dir";
@@ -18,6 +20,8 @@ import { removeTempDir } from "./support/temp-dir";
  * with Pi's own tools; it was 15,464 before the trims). */
 const BUDGET = {
   fixed: 12_200,
+  /** Includes unchanged JSON schemas; lean wording saves at least a fifth of the full fixed request. */
+  lean: 9_000,
   preamble: 1_200,
   /** casper_page is one short line: its guide comes back from the tool, never in the fixed prompt. */
   tools: { browser: 3_500, casper_read_untrusted: 1_100, casper_check: 950, delegate: 950, casper_session: 350, casper_page: 400 } as Record<string, number>,
@@ -45,12 +49,13 @@ class CaptureRuntime implements AgentRuntime {
 }
 
 /** A small TypeScript project with test and build scripts, Chrome present, checks on. */
-async function firstRequest(task: string, options: { git?: boolean } = {}) {
+async function firstRequest(task: string, options: { git?: boolean; model?: GuidanceModel; guidance?: GuidanceSetting } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-fixed-tokens-"));
   cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"), project = path.join(root, "project");
   await mkdir(path.join(home, ".casper"), { recursive: true });
   await mkdir(path.join(project, "src"), { recursive: true });
+  if (options.guidance) await writeFile(path.join(home, ".casper", "config.yaml"), `lean_guidance: ${options.guidance}\n`);
   await writeFile(path.join(project, "package.json"), JSON.stringify({ name: "demo-app", type: "module", scripts: { test: "bun test", build: "tsc -p ." } }));
   await writeFile(path.join(project, "tsconfig.json"), "{}\n");
   await writeFile(path.join(project, "src/math.ts"), "export function add(a: number, b: number): number { return a + b; }\n");
@@ -76,10 +81,19 @@ async function firstRequest(task: string, options: { git?: boolean } = {}) {
   cleanup.push(() => app.close());
   await app.runOnce(task, project);
   const first = runtime.first!;
+  // Pi's context_with_system projection sees this same system/tool state before each provider call.
+  const [projected] = projectGuidance([{ role: "system", content: runtime.system, timestamp: 0,
+    toolsAdded: first.tools.map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.inputSchema })) }], options.model,
+    app.projectContext?.leanGuidance, first.tools, { systemPromptAppend: runtime.system,
+      leanSystemPromptAppend: systemPromptAppend(app.projectContext!, true) });
+  if (projected?.role !== "system") throw new Error("Missing system prompt");
+  const fullSystem = runtime.system;
+  runtime.system = projected.content as string;
+  first.tools = first.tools.map((tool, index) => ({ ...tool, description: projected.toolsAdded![index]!.description }));
   // The tool list as an OpenAI-style request carries it.
   const toolText = JSON.stringify(first.tools.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })));
   const preamble = first.text.includes("User request:") ? first.text.slice(0, first.text.indexOf("User request:")) : "";
-  return { system: runtime.system, names: first.tools.map((tool) => tool.name), toolText, preamble };
+  return { system: runtime.system, fullSystem, names: first.tools.map((tool) => tool.name), toolText, preamble };
 }
 
 test("the fixed part of a request stays small: system prompt plus Casper's tools for a small project", async () => {
@@ -115,4 +129,34 @@ test("check advice is said once: in casper_check, not again in every task's text
   expect(preamble).toContain("If you ran tests yourself, say in one line what ran and the result. Don't claim a check passed that didn't run.");
   expect(preamble).toContain("Count a requirement as done only when a test you can name asserts it");
   expect(preamble).toContain("Do not list the covered ones");
+});
+
+test("lean fixed guidance is well below full, with the same tools and schemas", async () => {
+  const task = "Add a sum function to src/math.ts";
+  const full = await firstRequest(task);
+  for (const model of [{ provider: "ollama", contextWindow: 128_000 }, { provider: "hosted", contextWindow: 16_384 },
+    { provider: "hosted", contextWindow: 32_768 }]) {
+    const lean = await firstRequest(task, { model });
+    expect(lean.system).toContain(LEAN_SYSTEM_PROMPT_APPEND);
+    expect(lean.system).not.toContain(DEFAULT_SYSTEM_PROMPT_APPEND);
+    expect(lean.system.length + lean.toolText.length).toBeLessThan(BUDGET.lean);
+    expect(lean.system.length + lean.toolText.length).toBeLessThan((full.system.length + full.toolText.length) * 0.8);
+    expect(lean.names).toEqual(full.names);
+    const definitions = (text: string) => JSON.parse(text).map((tool: { function: { description?: string } }) => {
+      const { description: _description, ...rest } = tool.function; return rest;
+    });
+    expect(definitions(lean.toolText)).toEqual(definitions(full.toolText));
+  }
+});
+
+test("big hosted models get exactly the full text and descriptions; off restores full for local and small", async () => {
+  const task = "Add a sum function to src/math.ts";
+  const hosted = await firstRequest(task, { model: { provider: "hosted", contextWindow: 200_000 } });
+  expect(hosted.system).toBe(hosted.fullSystem);
+  expect(hosted.system).toContain(DEFAULT_SYSTEM_PROMPT_APPEND);
+  for (const model of [{ provider: "ollama", contextWindow: 128_000 }, { provider: "hosted", contextWindow: 16_384 }]) {
+    const off = await firstRequest(task, { model, guidance: "off" });
+    expect(off.system).toBe(off.fullSystem);
+    expect(off.toolText).toBe(hosted.toolText);
+  }
 });

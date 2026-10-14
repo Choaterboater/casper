@@ -107,6 +107,43 @@ test("Hide old tool output: on by default, off persists, on resumes, and applies
   await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("hide_tool_output is a user setting");
 });
 
+test("Lean guidance: auto by default, keep first, off and auto persist, applies next step", async () => {
+  const { home, project, config } = await folders();
+  expect(await valueOf(home, project, "Lean guidance")).toBe("auto");
+  const host = { ...fakeHost(home, project, ["Lean guidance", "Keep auto", "Lean guidance", "Off", "Done"]), duringTask: true };
+  await runSettings(host);
+  expect(host.asked[1]!.split("\n").slice(1)).toEqual(["1 Keep auto", "2 Off"]);
+  expect(host.asked[1]).toContain("Same tools and abilities");
+  expect(await readFile(config, "utf8")).toBe("lean_guidance: off\n");
+  expect((await host.context())!.leanGuidance).toBe("off");
+  expect(host.text()).toContain("The running task uses it from its next step.");
+  const again = fakeHost(home, project, ["Lean guidance", "Keep off", "Lean guidance", "Auto", "Done"]);
+  await runSettings(again);
+  expect(again.asked[1]!.split("\n").slice(1)).toEqual(["1 Keep off", "2 Auto"]);
+  expect(await readFile(config, "utf8")).toBe("lean_guidance: auto\n");
+  expect(await valueOf(home, project, "Lean guidance")).toBe("auto");
+  expect(FULL_HELP_TEXT).toContain("lean guidance");
+});
+
+test("lean guidance rejects invalid values and project files; only user-selected profiles apply", async () => {
+  const { home, project, config, projectFile } = await folders();
+  for (const value of ["maybe", "true", "false", "on", "[]", "null"]) {
+    await writeFile(config, `lean_guidance: ${value}\n`);
+    await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("lean_guidance must be auto or off");
+  }
+  await writeFile(config, "lean_guidance: off\n");
+  for (const value of ["off", "auto"]) {
+    await writeFile(projectFile, `lean_guidance: ${value}\n`);
+    await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("lean_guidance is a user setting");
+  }
+  const profile = path.join(home, ".casper", "profiles", "fixture");
+  await mkdir(profile, { recursive: true });
+  await writeFile(path.join(profile, "config.yaml"), "lean_guidance: auto\n");
+  await writeFile(projectFile, "profile: fixture\n");
+  expect((await loadConfiguration({ projectRoot: project, homeDir: home })).leanGuidance).toBe("off");
+  expect((await loadConfiguration({ projectRoot: project, homeDir: home, profileName: "fixture" })).leanGuidance).toBe("auto");
+});
+
 test("history hiding follows only a profile the person chose, not one selected by the project", async () => {
   const { home, project, projectFile } = await folders();
   const profile = path.join(home, ".casper", "profiles", "fixture");

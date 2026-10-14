@@ -18,6 +18,7 @@ import { parseSmoke, type SmokeCheck } from "../services/smoke";
 import { parsePagesSetting, type PagesSetting } from "../services/pages";
 import type { SandboxProjectSettings, SandboxUserSettings } from "../sandbox/policy";
 import { PROMPT_CACHE_SETTINGS, type PromptCacheSetting } from "../runtime/cache";
+import type { GuidanceSetting } from "../runtime/guidance";
 import { DISPLAY_LEVELS, type DisplayLevel } from "../tui/display";
 import { DEFAULT_SPEND_LIMITS, type SpendLimits } from "../task/spend";
 import { isOutside } from "../platform/inside";
@@ -138,6 +139,8 @@ export interface LoadedConfiguration {
   routineCommands?: boolean;
   /** `hide_tool_output: off` stops new history masks. Unset: on; existing stubs stay permanent. */
   hideToolOutput?: boolean;
+  /** `lean_guidance: auto|off` in your own config; unset: auto for model servers/small windows. */
+  leanGuidance?: GuidanceSetting;
   /** `slow_commands: off` in your own config: a command run without its own timeout is stopped at the limit instead of moving to the background. Unset: on. */
   slowCommands?: boolean;
   /** `stalled_commands: off` in your own config: a command with no output and no CPU for 45 s is not ended early. Unset: on. */
@@ -304,7 +307,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "hide_tool_output", "slow_commands", "stalled_commands", "mcp_autoconnect", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "hide_tool_output", "lean_guidance", "slow_commands", "stalled_commands", "mcp_autoconnect", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -976,6 +979,8 @@ export async function loadConfiguration(
   let routineCommands: boolean | undefined;
   if (projectDocument.hide_tool_output !== undefined) throw new Error("hide_tool_output is a user setting (~/.casper/config.yaml); a project cannot hide conversation output");
   let hideToolOutput: boolean | undefined;
+  if (projectDocument.lean_guidance !== undefined) throw new Error("lean_guidance is a user setting (~/.casper/config.yaml); a project cannot change model guidance");
+  let leanGuidance: GuidanceSetting | undefined;
   if (projectDocument.slow_commands !== undefined) throw new Error("slow_commands is a user setting (~/.casper/config.yaml); a project cannot keep commands running in the background");
   let slowCommands: boolean | undefined;
   if (projectDocument.stalled_commands !== undefined) throw new Error("stalled_commands is a user setting (~/.casper/config.yaml); a project cannot change which commands Casper ends");
@@ -1006,6 +1011,10 @@ export async function loadConfiguration(
     browserClicks = onOffLayer(document.browser_clicks, label, "browser_clicks") ?? browserClicks;
     routineCommands = onOffLayer(document.routine_commands, label, "routine_commands") ?? routineCommands;
     hideToolOutput = onOffLayer(document.hide_tool_output, label, "hide_tool_output") ?? hideToolOutput;
+    if (document.lean_guidance !== undefined) {
+      if (document.lean_guidance !== "auto" && document.lean_guidance !== "off") throw new Error(`${label}: lean_guidance must be auto or off`);
+      leanGuidance = document.lean_guidance;
+    }
     slowCommands = onOffLayer(document.slow_commands, label, "slow_commands") ?? slowCommands;
     stalledCommands = onOffLayer(document.stalled_commands, label, "stalled_commands") ?? stalledCommands;
     mcpAutoconnect = onOffLayer(document.mcp_autoconnect, label, "mcp_autoconnect") ?? mcpAutoconnect;
@@ -1061,6 +1070,7 @@ export async function loadConfiguration(
     ...(browserClicks !== undefined ? { browserClicks } : {}),
     ...(routineCommands !== undefined ? { routineCommands } : {}),
     ...(hideToolOutput !== undefined ? { hideToolOutput } : {}),
+    ...(leanGuidance !== undefined ? { leanGuidance } : {}),
     ...(slowCommands !== undefined ? { slowCommands } : {}),
     ...(stalledCommands !== undefined ? { stalledCommands } : {}),
     ...(mcpAutoconnect !== undefined ? { mcpAutoconnect } : {}),
