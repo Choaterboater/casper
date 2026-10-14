@@ -244,8 +244,9 @@ function fileOk(word: string, place: Place, folder: boolean, contents = false, w
 
 /** Folders skipped when looking for a private file inside: git's own data, and installed packages. */
 const SKIP_FOLDERS = new Set([".git", "node_modules"]);
-/** More entries than this and the folder counts as holding one: asking costs less than walking a huge tree. */
-const MAX_ENTRIES = 20_000;
+/** More entries than this and the folder counts as holding one: asking costs less than walking a huge tree. An object
+ * so a test can check the rule with a small budget: 20,001 real folders take minutes on a Windows runner. */
+export const ENTRY_BUDGET = { max: 20_000 };
 
 /** True when a .env, key or login file is somewhere inside `folder` (links are not followed, as grep -r and rg don't). */
 function holdsPrivateFile(folder: string): boolean {
@@ -259,7 +260,7 @@ function holdsPrivateFile(folder: string): boolean {
       names = readdirSync(current);
     } catch { continue; }
     for (const name of names) {
-      if (++seen > MAX_ENTRIES) return true;
+      if (++seen > ENTRY_BUDGET.max) return true;
       const full = path.join(current, name);
       if (PRIVATE_NAME.test(full.split(path.sep).join("/"))) return true;
       if (SKIP_FOLDERS.has(name)) continue;
@@ -618,7 +619,7 @@ function plainNamesUnder(starts: readonly string[], place: Place, split: boolean
     let names: string[];
     try { if (!lstatSync(current).isDirectory()) continue; names = readdirSync(current); } catch { continue; }
     for (const name of names) {
-      if (++seen > MAX_ENTRIES || (split && XARGS_SPLITS.test(name))) return false;
+      if (++seen > ENTRY_BUDGET.max || (split && XARGS_SPLITS.test(name))) return false;
       const full = path.join(current, name);
       let entry;
       try { entry = lstatSync(full); } catch { continue; }
