@@ -273,12 +273,13 @@ const GH_FILE = new Set(["-F", "--body-file"]);
 /** gh api: reads only. */
 const GH_API: GitRules = {
   flags: ["--paginate", "--slurp", "-i", "--include", "--silent"],
-  valued: ["-X", "--method", "-H", "--header", "-q", "--jq", "-t", "--template", "--hostname", "--cache", "-p", "--preview"],
+  valued: ["-X", "--method", "-H", "--header", "-q", "--jq", "-t", "--template", "--hostname", "--cache", "-p", "--preview", "-f", "--raw-field"],
 };
 
 /** True when the words after `gh api` only read: one endpoint, GET, and only the options on the list, each written the plain
- * way. A field, a body or graphql never passes, nor does any other way of writing an option (`-Fbody=@.env`, `-iXDELETE`,
- * `-X=POST`), because gh reads those differently from how they look. */
+ * way. A typed field (`-F`, which reads `@file`), a body or graphql never passes, nor does any other way of writing an option
+ * (`-Fbody=@.env`, `-iXDELETE`, `-X=POST`), because gh reads those differently from how they look. A plain-text field
+ * (`-f q=x`) passes only with `-X GET` written out, which sends it in the address; without it gh POSTs it. */
 export function ghApiReads(args: readonly string[]): boolean {
   const split = splitOptions([...args], GH_API);
   if (!split || split.rest.length !== 1) return false;
@@ -286,7 +287,10 @@ export function ghApiReads(args: readonly string[]): boolean {
   // A full address (gh takes any endpoint with :// as one) goes to that host, over http too, with a token gh holds for it.
   if (endpoint.includes("://")) return false;
   // graphql is a POST that can change things; a method other than GET changes things too.
-  return !/^\/?graphql\b/i.test(endpoint) && !split.options.some(([name, value]) => (name === "-X" || name === "--method") && value?.toUpperCase() !== "GET");
+  const methods = split.options.filter(([name]) => name === "-X" || name === "--method").map(([, value]) => value?.toUpperCase());
+  if (methods.some((method) => method !== "GET")) return false;
+  const fields = split.options.some(([name]) => name === "-f" || name === "--raw-field");
+  return !/^\/?graphql\b/i.test(endpoint) && (!fields || methods.length > 0);
 }
 
 /** gh api --hostname: a read from a host the command names itself. */

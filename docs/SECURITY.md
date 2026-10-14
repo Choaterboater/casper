@@ -85,7 +85,7 @@ the operating system, not a list of words:
   `--recurse-submodules` or `--rebase=interactive`); a remote of this repo whose addresses are network ones and set
   nothing that runs a program (`uploadpack`, `receivepack`, `proxy`, `vcs`), or a typed `https://`, `ssh://` or
   `user@host:` address, never a local path, `file://` or `transport::`; a clone only into a new or empty folder inside
-  the project; for `gh`, no `--web`, `--editor`, `--recover`, `--show-token` or `gh api` write (`-X POST`, `-f`, `-F`,
+  the project; for `gh`, no `--web`, `--editor`, `--recover`, `--show-token` or `gh api` write (`-X POST`, `-f` without `-X GET`, `-F`,
   `--input`, `graphql`, a full address, or an option written another way, such as `-Fbody=@.env` or `-iXDELETE`; a
   `gh api --hostname` asks every time), and a `--body-file` only from the project or a place the sandbox lets commands use. That git
   (and the git `gh` starts) also runs with `protocol.file.allow=never`, `protocol.ext.allow=never` and submodules off.
@@ -250,7 +250,7 @@ Routine work doesn't ask either, as in Claude Code's auto mode (**Routine comman
 `rebase` (not `--exec`), `tag` (make), `stash` (not `drop` or `clear`), `worktree add|list`, and `push` to a remote the
 project already has with no `--force`, `-f`, `--force-with-lease`, `--mirror`, `--delete`, `-d`, `:branch` or `+branch`;
 `gh pr create|view|list|checks|diff|checkout|status`, `gh issue create|view|list|comment`, `gh run view|list|watch`,
-`gh repo view` and `gh api` as a plain GET from GitHub (any field, `--input`, `graphql`, full address, `--hostname` or
+`gh repo view` and `gh api` as a plain GET from GitHub (a `-f` text field only with `-X GET`; `-F`, `--input`, `graphql`, full address, `--hostname` or
 option written another way, such as `-Fbody=@.env` or `-iXDELETE`, asks); installs from the project's own files (`npm ci`, `npm install` with no
 package named, `pnpm install`, `yarn`, `bun install`, `pip install -r <file>` or `-e .`, `uv sync`, `poetry install`,
 `bundle install`, `go mod download`, `cargo fetch`); the project's scripts (`npm run <script>` of its package.json,
