@@ -72,9 +72,9 @@ the `irm ... | iex` line to run yourself.
 The helper has no window, so it writes what it does to `~/.casper/update.log` (one file, overwritten by each update;
 versions, process ids, the installer's SHA-256 and error text, nothing else): one line per step, and a last line
 `result: ok` or `result: failed: <why>`. When the last update did not finish, `casper update`, `casper doctor` and the
-line at the start of a session say so, name the log and show the `irm ... | iex` line. Before 0.2.36 the helper was
+line at the start of a session say so, name the log and show the `irm ... | iex` line. Before 0.2.35 the helper was
 started as Casper's own detached child; on a real Windows machine it never ran (the log stopped at `result: pending`),
-so updating from 0.2.35 or older still needs the `irm ... | iex` line once. `scripts/windows-handoff-check.ps1` checks,
+so updating from 0.2.34 or older still needs the `irm ... | iex` line once. `scripts/windows-handoff-check.ps1` checks,
 on a PC, which way of starting a helper outlives its parent.
 
 ## Windows with WSL (Linux inside Windows)

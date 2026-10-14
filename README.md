@@ -185,7 +185,7 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 
 ## What's new
 
-v0.2.35: the live steps read in plain words, with Ctrl+O for the raw ones (MCP writes off moves to Ctrl+X); `/plan` numbers its steps and cases and takes changes in plain words; `/settings` is one grouped screen with search; a yes to a shell command covers that exact command; a task that rebases counts only its own edits and Undo leaves git's changes alone; and Crews is complete, with full checks on the combined result and crews from any worktree. See [release notes](docs/RELEASE.md).
+v0.2.35: the live steps read in plain words, with Ctrl+O for the raw ones (MCP writes off moves to Ctrl+X); `/plan` numbers its steps and cases and takes changes in plain words; `/settings` is one grouped screen with search; a yes to a shell command covers that exact command; a task that rebases counts only its own edits and Undo leaves git's changes alone; Crews is complete, with full checks on the combined result and crews from any worktree; and on Windows `casper update` now works from the next update on (install 0.2.35 with the PowerShell line once). See [release notes](docs/RELEASE.md).
 
 v0.2.34: `/login claude-subscription` reuses Claude Code's verified plan login or starts its browser sign-in; the model picker separates Claude Code plan from Anthropic API; login refreshes models without changing your current model or default, and an unavailable provider cannot report refresh success. Bulky old tool output becomes a history stub, and a failed final browser replay gets one bounded repair turn. See [release notes](docs/RELEASE.md).
 
