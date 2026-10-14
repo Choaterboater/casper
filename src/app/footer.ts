@@ -23,14 +23,14 @@ export function updateNoteText(app: CasperApp): string | undefined {
 export function updateFooter(app: CasperApp): void {
   if (!app.projectContext) return;
   app.terminal.setTitle(windowTitle(conversationName(app), app.commandActive));
-  // "ALLOW ALL" first: no box asks there. Both end with ctrl+o (or /mcp writes off on a plain terminal). Your own
+  // "ALLOW ALL" first: no box asks there. Both end with Ctrl+X (or /mcp writes off on a plain terminal). Your own
   // servers' writes are on by default (My MCP servers), so they are not shown.
   const all = app.broker?.allowAllServers() ?? [];
   const writes = (app.mcp?.writesOn({ own: false }) ?? []).filter((server) => !all.includes(server));
   const parts = [...(all.length ? [`ALLOW ALL: ${all.join(", ")}`] : []), ...(writes.length ? [`WRITES: ${writes.join(", ")}`] : [])];
   // `/permissions all` is on: the shell stops asking until you quit. Always shown, first, and it says how to end it.
   const asking = app.stopAsking ? ["ASKING OFF · /permissions ask"] : [];
-  const mcp = parts.length ? [`${parts.join(" · ")} · ${app.terminal.rich ? "Ctrl+O" : "/mcp writes off"}`] : [];
+  const mcp = parts.length ? [`${parts.join(" · ")} · ${app.terminal.rich ? "Ctrl+X" : "/mcp writes off"}`] : [];
   app.terminal.setBadge([...asking, ...mcp].join(" · ") || undefined);
   app.terminal.setUpdate(updateNoteText(app));
   try {

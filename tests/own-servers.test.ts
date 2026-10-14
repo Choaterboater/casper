@@ -63,7 +63,7 @@ test("your own MCP server connects at the start with writes on, and its change r
   expect(mcp.writesOn()).toEqual(["own"]);
 });
 
-test("writes turned off (ctrl+o) bring the change box back for your own server", async () => {
+test("writes turned off (Ctrl+X) bring the change box back for your own server", async () => {
   const { mcp, broker, boxes } = setup([server("own", "own")], true);
   await broker.prepare("site");
   await mcp.setWrites("own", false);

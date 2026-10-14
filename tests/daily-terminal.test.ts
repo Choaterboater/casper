@@ -60,8 +60,8 @@ test("live work status shows above the prompt before response text, the step und
     // The clock counts up. On a busy machine its first tick can come after 2 s, so any second past 0 will do.
     await screen.until(output => /Waiting for openai-codex\/gpt-6-luna · [1-9]\d*s/.test(Bun.stripANSI(output)));
     events.handle({ type: "tool_start", toolName: "write", toolCallId: "write-1", input: { path: "src/app.ts" } });
-    // The running step is a live row, its mark the spinner, and the status row names it.
-    await screen.until(output => /(?:^|[^│]) {2}\S write · src\/app\.ts/m.test(Bun.stripANSI(output)));
+    // The running step is a live row in plain words, its mark the spinner, and the status row names it.
+    await screen.until(output => /(?:^|[^│]) {2}\S Editing src\/app\.ts/m.test(Bun.stripANSI(output)));
     await screen.until(output => Bun.stripANSI(output).includes("Editing src/app.ts"));
     events.handle({ type: "tool_end", toolName: "write", toolCallId: "write-1", input: { path: "src/app.ts" }, isError: false });
     events.handle({ type: "assistant_text_delta", delta: "Working on it.\n" });

@@ -12,6 +12,8 @@ import { tildePath } from "../new/scaffold";
 import { isOutside } from "../platform/inside";
 import { explainModelError } from "../runtime/model-errors";
 import type { CheckProgressRun } from "../verify/progress";
+import { foundNothing, plainSteps } from "./plain-steps";
+import type { ProjectCommand } from "../project/model";
 
 /** Session-owned effects the renderer needs; the app implements these against its state. */
 export interface RuntimeEventCallbacks {
@@ -35,6 +37,8 @@ export interface RuntimeEventCallbacks {
   homeDir?(): string;
   /** How much of the work shows (display: in the config, /details). Unset: normal. */
   display?(): DisplayLevel;
+  /** The project's own commands, so the plain steps say "Ran the tests" for its test command. */
+  projectCommands?(): Partial<Record<ProjectCommand, string>> | undefined;
   /** Plain terminal: say once a minute that a long check still runs. Unset: yes. (`--json` says no.) */
   announceLongChecks?(): boolean;
 }
@@ -84,6 +88,8 @@ interface Step {
   retried?: boolean;
   /** Casper stopped it before it ran (the spend limit, or a refusal): printed as not run, never counted as a step. */
   notRun?: boolean;
+  /** A search or listing that found nothing. */
+  empty?: boolean;
 }
 
 /** After a tool call Casper stopped at the spend limit. */
@@ -220,23 +226,30 @@ export class RuntimeEventView {
   private renderBox(): void {
     if (!this.terminal.rich) return;
     const now = performance.now();
+    const width = this.terminal.columns ? Math.max(10, this.terminal.columns - 8) : 80;
+    const tailRow = (step: Step) => step.tail && this.level() !== "quiet" ? `${TAIL_MARK}${lastOutputLine(step.tail, width)}` : undefined;
+    // The raw steps (Ctrl+O, and the steps pane): every call on its own row.
     const lines = this.steps.flatMap(step => {
       if (step.endedAt !== undefined || !step.start) return [step.line];
       // Still running: after 10 s say for how long, and for a command show the last line it printed.
       const suffix = runningElapsed(now - step.startedAt);
       const head = suffix ? `${formatToolActivity(step.start, undefined, this.fit(2 + suffix.length))}${suffix}` : step.line;
-      const width = this.terminal.columns ? Math.max(10, this.terminal.columns - 8) : 80;
-      const tail = step.tail && this.level() !== "quiet" ? lastOutputLine(step.tail, width) : "";
-      return tail ? [head, `${TAIL_MARK}${tail}`] : [head];
+      const tail = tailRow(step);
+      return tail ? [head, tail] : [head];
     });
+    // The plain steps, shown by default: what the AI looked through on one line, edits and commands in plain words.
+    const plain = plainSteps(this.steps.map(step => {
+      const tail = step.endedAt === undefined ? tailRow(step) : undefined;
+      return { ...step, ...(tail ? { tailRow: tail } : {}) };
+    }), now, { fit: this.fit(2), commands: this.callbacks.projectCommands?.() ?? {} });
+    const extra: string[] = [];
     // Checks Casper runs itself: a line each once they have run 10 s, with the last line they printed.
     for (const check of [...this.checks.values()].slice(0, BOX_CHECKS)) {
       const suffix = runningElapsed(now - check.startedAt);
       if (!suffix) continue;
-      const width = this.terminal.columns ? Math.max(10, this.terminal.columns - 8) : 80;
-      lines.push(`${BUSY_GLYPH} ${lastOutputLine(check.name, width - suffix.length - 2)}${suffix}`);
+      extra.push(`${BUSY_GLYPH} ${lastOutputLine(check.name, width - suffix.length - 2)}${suffix}`);
       const tail = check.tail ? lastOutputLine(check.tail, width) : "";
-      if (tail) lines.push(`${TAIL_MARK}${tail}`);
+      if (tail) extra.push(`${TAIL_MARK}${tail}`);
     }
     // The elapsed time moves on its own: redraw once a second while a step or a check runs, never otherwise.
     const running = this.checks.size > 0 || this.steps.some(step => step.endedAt === undefined && step.start);
@@ -245,9 +258,11 @@ export class RuntimeEventView {
       this.stepTimer.unref?.();
     } else if (!running && this.stepTimer) this.stopStepTimer();
     const builders = buildersLine(this.callbacks.builderGoals?.() ?? [], this.callbacks.reviewerCount?.() ?? 0);
-    if (builders) lines.push(builders);
+    if (builders) extra.push(builders);
+    lines.push(...extra);
+    plain.push(...extra);
     const status = this.statusText(now, builders);
-    this.terminal.setWork(lines.length || status ? { rows: lines, ...(status ? { status } : {}) } : undefined);
+    this.terminal.setWork(lines.length || status ? { rows: lines, plain, ...(status ? { status } : {}) } : undefined);
   }
 
   /** The status row's words: what the model is doing or what Casper waits for, else the newest running step (and how
@@ -622,6 +637,7 @@ export class RuntimeEventView {
         }
         step.endedAt = performance.now();
         step.failed = event.isError && !notRun;
+        step.empty = !event.isError && stepKind(event.toolName) === "read" && foundNothing(event.output?.text);
         step.printed = endLine(0, true, false);
         // Never ran, or skipped (a check with nothing to run on): its ○ line stays as it is when the group folds.
         const skipped = !event.isError && step.printed.startsWith(NOT_RUN_GLYPH);

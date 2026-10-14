@@ -203,10 +203,10 @@ interface Entry {
   approvedCall?: RunningApprovedCall;
   /** "off" at start and after a changed definition, unless it is your own server that starts with writes on. */
   writes: "off" | "on";
-  /** Started with writes on as your own server. Ends when writes go off (ctrl+o, /mcp writes off) or its tool list
+  /** Started with writes on as your own server. Ends when writes go off (Ctrl+X, /mcp writes off) or its tool list
    * shows a network product. */
   ownWrites: boolean;
-  /** Times writes went off (ctrl+o, /mcp writes off, disconnect, a changed definition): a "for this session" answer
+  /** Times writes went off (Ctrl+X, /mcp writes off, disconnect, a changed definition): a "for this session" answer
    * given before the last one no longer counts. */
   writesOffCount: number;
   /** Times the person's allowances for this server ended (writes turned off by them, disconnect, a changed
@@ -427,7 +427,7 @@ export class MCPManager {
   /** A copy of one loaded definition (for the user's own notes; never shown to the model). */
   definition(name: string): MCPServerDefinition { return structuredClone(this.entry(name).definition); }
 
-  /** Servers with writes on (ctrl+o turns them off). `own: false` leaves out your own servers that started with writes
+  /** Servers with writes on (Ctrl+X turns them off). `own: false` leaves out your own servers that started with writes
    * on, for the footer badge. */
   writesOn(options: { own?: boolean } = {}): string[] {
     return [...this.entries.values()].filter((entry) => entry.writes === "on" && (options.own !== false || !entry.ownWrites))
@@ -487,7 +487,7 @@ export class MCPManager {
   }
 
   /**
-   * Turn writes on or off for one server. Only the user does this (/mcp writes, ctrl+o). Turning
+   * Turn writes on or off for one server. Only the user does this (/mcp writes, Ctrl+X). Turning
    * writes off takes effect at once in Casper; a server started without pins is restarted with
    * them once its running calls finish. Turning writes on waits for running calls, then restarts
    * the server without the preset's pins. A read-only login (from access_check) can't turn on.

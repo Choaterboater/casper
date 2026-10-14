@@ -14,7 +14,7 @@ test("TERMINAL_UX's command table lists every command in the / menu", async () =
 test("TERMINAL_UX's key table has Ctrl+T, and the doc no longer says there is no rollback", async () => {
   const text = await doc();
   const keys = text.slice(text.indexOf("### Keys"), text.indexOf("### Commands"));
-  for (const key of ["Ctrl+T", "Ctrl+O", "Shift+Tab", "Esc"]) expect(keys).toContain(`| ${key}`);
+  for (const key of ["Ctrl+T", "Ctrl+O", "Ctrl+X", "Shift+Tab", "Esc"]) expect(keys).toContain(`| ${key}`);
   expect(text).not.toContain("no workspace rollback");
   expect(text).not.toContain("| `/diff` | Git status and tracked changes against HEAD |");
 });

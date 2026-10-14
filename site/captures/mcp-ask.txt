@@ -25,6 +25,6 @@ Make this change? → No
 
 ● The change was not made.
 
-# (pressed Ctrl+O)
+# (pressed Ctrl+X)
 
 [mcp] Writes off for fixture. Every change asks you again.

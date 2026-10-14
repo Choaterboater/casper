@@ -45,7 +45,7 @@ test("an approval box is the numbered panel: one key answers it, no Enter", asyn
   } finally { session.close(); }
 });
 
-test("typed words in an approval box go nowhere (Enter then picks the highlighted No), and ctrl+o denies an open one", async () => {
+test("typed words in an approval box go nowhere (Enter then picks the highlighted No), and Ctrl+X denies an open one", async () => {
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
@@ -59,7 +59,7 @@ test("typed words in an approval box go nowhere (Enter then picks the highlighte
     session.terminal.setWritesRevert(() => true);
     const open = session.terminal.approve("", "Make this other change?", ["No", "Yes, this once"]);
     await session.screen.until((output) => output.includes("Make this other change?"));
-    session.input.write("\x0f");
+    session.input.write("\x18");
     expect(await open).toBeUndefined();
   } finally { session.close(); }
 });

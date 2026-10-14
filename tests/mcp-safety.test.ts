@@ -298,7 +298,7 @@ test("yes for this session covers later non-destructive changes on that server; 
   await expect(broker.invoke(id("port_bounce"), { serial_number: "SG1" })).rejects.toThrow("you said no");
   expect(boxes).toHaveLength(2);
   expect(boxes[1]).not.toContain("for this session");
-  // Ending the grant (ctrl+o, writes off, reconnect) makes the next change ask again.
+  // Ending the grant (Ctrl+X, writes off, reconnect) makes the next change ask again.
   broker.endSessionGrants("network");
   expect(broker.sessionGrant("network")).toBe(false);
   await expect(broker.invoke(id("set_ssid"), { ssid: "x" })).rejects.toThrow("you said no");
@@ -382,12 +382,12 @@ test("writes the user turned on while the box was open stay on after a yes this 
   expect(mcp.writesOn()).toEqual(["network"]);
 });
 
-test("ctrl+o ends a session answer for good: turning writes back on doesn't bring it back", async () => {
+test("Ctrl+X ends a session answer for good: turning writes back on doesn't bring it back", async () => {
   const { confirm, boxes } = answering("yes-session", "no");
   const { broker, mcp, id } = await setup({ confirm, writesGate: true });
   await broker.invoke(id("set_ssid"), { ssid: "corp" });
   expect(broker.sessionGrant("network")).toBe(true);
-  await mcp.setWrites("network", false); // ctrl+o
+  await mcp.setWrites("network", false); // Ctrl+X
   await mcp.setWrites("network", true);  // /mcp writes network, then 2
   await expect(broker.invoke(id("set_ssid"), { ssid: "x" })).rejects.toThrow("you said no");
   expect(boxes).toHaveLength(2);
@@ -424,7 +424,7 @@ test("Yes, this once at the kind box allows the kind for that change only: the n
   expect(toolCalls(await calls(file))).toHaveLength(2);
 });
 
-test("allowing the kind shows the change box next; the same kind later skips the kind box; ctrl+o ends it", async () => {
+test("allowing the kind shows the change box next; the same kind later skips the kind box; Ctrl+X ends it", async () => {
   const { confirm, boxes } = answering("yes", "yes", "no");
   const { confirmKind, asked } = kindAnswers(true, false);
   const { broker, mcp, file, id } = await setup({ confirm, confirmKind, writesGate: true });
@@ -438,7 +438,7 @@ test("allowing the kind shows the change box next; the same kind later skips the
   expect(asked).toHaveLength(1);
   expect(boxes).toHaveLength(2);
   expect(toolCalls(await calls(file))).toHaveLength(2);
-  // ctrl+o (and /mcp writes off, a disconnect) ends every allowance.
+  // Ctrl+X (and /mcp writes off, a disconnect) ends every allowance.
   broker.endAllowances();
   expect(broker.kindAllowed("network", "admin")).toBe(false);
   await expect(broker.invoke(id("invite_user"), { email: "c@example.com" })).rejects.toThrow("you said no");
@@ -472,7 +472,7 @@ test("a risky kind behind a router is judged by the real tool", async () => {
 
 // --- "Yes to everything on <product> this session" ----------------------------------------------
 
-test("allow all: later changes on that server run without any box, even reboots, risky kinds and an AI-set confirm; another server still asks; ctrl+o ends it", async () => {
+test("allow all: later changes on that server run without any box, even reboots, risky kinds and an AI-set confirm; another server still asks; Ctrl+X ends it", async () => {
   const file = await callsFile();
   const mcp = new MCPManager({ servers: [definition("network", "network", file), definition("other", "network", file)], diagnostics: [] }, {});
   const { confirm, boxes } = answering("allow-all", "no", "no");
@@ -498,7 +498,7 @@ test("allow all: later changes on that server run without any box, even reboots,
   // The other server still asks.
   await expect(broker.invoke("mcp:other:set_ssid", { ssid: "corp" })).rejects.toThrow("you said no");
   expect(boxes).toHaveLength(2);
-  // ctrl+o ends it at once.
+  // Ctrl+X ends it at once.
   expect(broker.endAllowances()).toBe(true);
   expect(broker.allowAllServers()).toEqual([]);
   await expect(broker.invoke("mcp:network:set_ssid", { ssid: "x" })).rejects.toThrow("you said no");
