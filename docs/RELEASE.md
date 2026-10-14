@@ -10,22 +10,7 @@ because GitHub's `latest/download` link skips preview releases. The first publis
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
 
-## v0.2.36: casper update works on Windows
-
-**Not released yet.** The version number and the installers still say v0.2.35; the release step
-sets them and removes this line.
-
-- On Windows, `casper update` asks Windows' WMI service (`Win32_Process.Create`) to start its helper, so the helper
-  is not a child of `casper.exe` and keeps running after Casper exits. Before, the helper was started as Casper's
-  detached child and on a real PC it never ran: `update.log` stopped at `result: pending`. The checks are unchanged
-  (signature, SHA-256, build provenance, the helper's own SHA-256 re-check and version check); the installer's
-  settings go to the helper as checked parameters, since a process Windows starts doesn't get Casper's environment.
-  If WMI refuses, Casper shows the `irm ... | iex` line. It takes effect for the update after this release: an
-  installed 0.2.35 or older still runs its old updater, so update from those with the `irm ... | iex` line once.
-- `scripts/windows-handoff-check.ps1`: run on a Windows PC, it shows which way of starting a helper outlives its
-  parent (hidden child, WMI, scheduled task, and Bun or Node when installed).
-
-## v0.2.35: plain live steps, plans you change in words, a grouped /settings, and Crews complete
+## v0.2.35: plain live steps, plans you change in words, a grouped /settings, Crews complete, and casper update on Windows
 
 - `/settings` is one grouped screen: seven areas, aligned values, help for the highlighted row and search across areas. Up/Down moves, Enter/Space changes, Left/Right or Tab switches areas, and Esc closes. Narrow windows start with an area list; plain terminals keep grouped numbered choices. Saves and config keys are unchanged; `/settings <name>` opens one setting directly.
 - While Casper works, the live steps read in plain words, like Codex: one line updated in place for what the AI looked through (`Looking through the code: 14 searches, 9 files read, 3 found nothing (2m)`), one line for the edits (`Edited roadmap.html`), and a short line per command (`Ran the tests`). The folded rows, edit boxes and failure boxes after each group are unchanged.
@@ -77,6 +62,18 @@ it away, never apply elsewhere.
 
 With these, Crews (v0.3) is complete: a limit you say in the request ("keep it under $2") has covered the whole crew,
 builders included, since v0.2.24.
+
+### casper update works on Windows
+
+On Windows, `casper update` asks Windows' WMI service (`Win32_Process.Create`) to start its helper, so the helper is
+not a child of `casper.exe` and keeps running after Casper exits. Before, it was started as Casper's detached child, and
+on a real PC it never ran (`update.log` stopped at `result: pending`); a check on that PC showed a detached child of a
+Bun or Node program is ended with it, while one started through WMI survives. The checks are unchanged (signature,
+SHA-256, build provenance, the helper's own SHA-256 re-check and version check); the installer's settings go to the
+helper as checked parameters, since a process Windows starts doesn't get Casper's environment. If WMI refuses, Casper
+shows the `irm ... | iex` line. **It takes effect from the next update:** an installed 0.2.34 or older still runs its old
+updater, so install 0.2.35 on Windows with the `irm ... | iex` line once. `scripts/windows-handoff-check.ps1` shows on a
+PC which way of starting a helper outlives its parent.
 
 ### Smaller changes
 

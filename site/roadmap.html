@@ -112,10 +112,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>The v0.2.35 preview has everything up to the grouped /settings and Crews. Built since then, in the next one:</p>
-          <ul>
-            <li>On Windows, <code>casper update</code> starts its helper through Windows itself (WMI), so it keeps running after Casper exits; before, it never ran on a real PC. It takes effect for the update after the release that has it.</li>
-          </ul>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.35. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -359,7 +356,7 @@
 
         <details class="card release" id="v0235" aria-labelledby="v0235-h" open>
           <summary class="release-heading">
-            <h3 id="v0235-h">v0.2.35 · Plain live steps, plans you change in words, a grouped /settings, and Crews complete</h3>
+            <h3 id="v0235-h">v0.2.35 · Plain live steps, plans in words, a grouped /settings, Crews complete, Windows updates</h3>
             <span class="badge ok">current preview</span>
           </summary>
           <ul>
@@ -370,6 +367,7 @@
             <li>A task that rebases, pulls or switches branches counts only its own edits, and Undo leaves git's incoming changes alone. A check that already failed before the change reads <code>Not caused by this change</code>.</li>
             <li>Crews are complete: full checks on the combined result, and <code>/crew</code> and the AI's builders start from any worktree. Each crew's folder is remembered across restarts, and its work lands there or nowhere: keep or throw it away, never apply elsewhere.</li>
             <li>Lean guidance for local and small-window models, no whole-folder listing in your home folder, and Shift+Tab saves your effort once.</li>
+            <li>On Windows, <code>casper update</code> starts its helper through Windows itself (WMI), so it keeps running after Casper exits. Install 0.2.35 with the PowerShell line once; updates after it work from <code>casper update</code>.</li>
           </ul>
         </details>
 
