@@ -88,6 +88,21 @@ test("a read, edit or write of another file and grep do not wait; a shell comman
   expect(await exists(path.join(root, "img", "lighthouse.png"))).toBe(true);
 });
 
+test("a read that names the picture with ~/ waits for it, as the same path inside the project does", async () => {
+  const images = slowImages();
+  const root = await folder();
+  const pending = new PendingPictures();
+  await tool(root, images.urls, pending).execute({ prompt: "a sailboat", path: "assets/boat.png" });
+  // Pi's read takes ~/ as os.homedir(), which a changed HOME does not move in Bun: the temp picture is named from the
+  // real home folder, with ../ when the temp folder is outside it.
+  const fromHome = `~/${path.relative(os.homedir(), path.join(root, "assets", "boat.png"))}`;
+  const read = pending.before("read", { path: fromHome }, root);
+  expect(await stillWaiting(read)).toBe(true);
+  images.answer();
+  expect(await read).toEqual([]);
+  expect(await exists(path.join(root, "assets", "boat.png"))).toBe(true);
+});
+
 test("a wait cut short by Esc leaves the failure for the next call, and a new conversation is not told the old one's", async () => {
   const images = slowImages(429);
   const root = await folder();

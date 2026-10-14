@@ -5,7 +5,7 @@
  * and a second picture for the same path waits for the first. A failure goes to the call that waited for it, or once
  * to the next tool result (or the next request) when nobody did. */
 
-import path from "node:path";
+import { resolveToolPath } from "../platform/project-paths";
 
 interface Job { file: string; shown: string; done: Promise<void>; failure?: string; waited: boolean }
 
@@ -102,7 +102,8 @@ function touches(toolName: string, input: Record<string, unknown>, root: string)
   if (NEVER_WAITS.has(toolName)) return () => false;
   if (toolName === "read" || toolName === "edit" || toolName === "write") {
     if (typeof input.path !== "string") return () => false;
-    const named = path.resolve(root, input.path.replace(/^@/, ""));
+    // As Pi's own file tools read it: ~/ is the home folder, a leading @ is dropped and a file:// URL is its path.
+    const named = resolveToolPath(input.path, root);
     const same = process.platform === "win32" || process.platform === "darwin"
       ? (file: string) => file.toLowerCase() === named.toLowerCase() : (file: string) => file === named;
     return (job) => same(job.file);
