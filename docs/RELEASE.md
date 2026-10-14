@@ -26,6 +26,15 @@ Choice 3 takes one line, such as "drop steps 1 and 4" or "also test X"; the mode
 shows it again with the same choices. The raw editor is gone. Enter still stops, never builds. The planning
 guidance excludes steps that only re-confirm a known fact or an established cause, including reviewer re-checks.
 
+### Crews: full checks on the combined result
+
+After reviewers and the fix round, `auto` verification runs the project's full selected
+checks on the combined result before the crew reports done. The receipt shows the run
+and its status. Per-part passes do not replace it; a whole batch already run on the
+same final files counts once. Later repairs or reviews invalidate that batch. Builder,
+reviewer and fix-round behaviour stays the same. `offer`, `off`, stopped tasks and
+manual/device-check limits still apply. The crew-wide request budget remains planned.
+
 ## v0.2.34: Claude Code plan login and leaner conversation history
 
 - `/login claude-subscription` uses Claude Code's existing verified plan login or starts its own browser sign-in. Claude Code owns credentials and refresh; Casper copies no plan tokens.

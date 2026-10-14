@@ -32,6 +32,7 @@ import { receiptSurface } from "./task-run";
 import { ensureRuntime } from "./runtime-start";
 import { settlePictures } from "./pictures";
 import { followTheme, reloadProject, writeProjectFile } from "./project-file";
+import { crewSweepStart, rememberCrewSweep } from "./crew-checks";
 
 export async function runVerification(app: CasperApp, checks: readonly CheckName[],
   repair: boolean,
@@ -44,12 +45,14 @@ export async function runVerification(app: CasperApp, checks: readonly CheckName
   const controller = new AbortController();
   // A standalone verification task (/verify, branch checks) owns its objective; post-task
   // verification passes `task` and continues the parent request's delegation budget.
-  if (!task) { app.delegateToolForTask = undefined; app.crewParts = undefined; app.builderSteer = undefined; }
+  if (!task) { app.delegateToolForTask = undefined; app.crewParts = undefined; app.crewSweep = undefined; app.builderSteer = undefined; }
   // Your own /verify (no parent task) may use a saved "Always"; anything the AI asked for shows the box every time.
   const evidence = task ?? new VerificationTask(
     VerifierRegistry.forProject(context.model, context.verification.timeoutMs, app.blockOnCleanupFailure, taskNetworkOptions(app, task ? "ai" : "user")), app.activeWorkspaceRoot(),
     (result) => writeCheckResult(app, result),
   );
+  const roundsBefore = evidence.rounds.length;
+  const crewBefore = task && task === app.checkTask ? await crewSweepStart(app) : undefined;
   // /verify <lab check> alone: a failure asks before any repair (Stop first); nothing touches the lab again on its own.
   const labOnly = !task && checks.length > 0 && checks.every((name) => context.model.namedChecks?.[name]?.kind === "lab");
   const cancel = () => controller.abort();
@@ -127,6 +130,7 @@ export async function runVerification(app: CasperApp, checks: readonly CheckName
       pages: task && task === app.checkTask && app.pageTask ? pageRun(app, app.pageTask) : undefined,
     });
     const report = await app.verificationWork;
+    if (task && task === app.checkTask) await rememberCrewSweep(app, report.rounds.slice(roundsBefore), crewBefore);
     await recordCheckTimings(context.stateDirectory, report.rounds.flat());
     // A model task's receipt summarizes its checks; a standalone run gets its own summary.
     if (app.verbose) app.output.write(`${formatVerificationReport(report)}\n`);

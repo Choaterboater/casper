@@ -220,13 +220,13 @@ export class VerificationTask {
     };
   }
 
-  run(names: readonly CheckName[], signal?: AbortSignal, options: { timeoutMs?: number } = {}): Promise<VerificationResult[]> {
+  run(names: readonly CheckName[], signal?: AbortSignal, options: { timeoutMs?: number; force?: boolean } = {}): Promise<VerificationResult[]> {
     // A longer limit the user gave stays with the check for the rest of the task, the model's own runs included.
     if (options.timeoutMs) for (const name of names) this.limits.set(name, options.timeoutMs);
-    return this.enqueue(() => this.runChecks(names, signal));
+    return this.enqueue(() => this.runChecks(names, signal, options.force));
   }
 
-  private async runChecks(names: readonly CheckName[], signal?: AbortSignal): Promise<VerificationResult[]> {
+  private async runChecks(names: readonly CheckName[], signal?: AbortSignal, force = false): Promise<VerificationResult[]> {
     const combined = signal ? AbortSignal.any([signal, this.signal]) : this.signal;
     const round: VerificationResult[] = [];
     for (const name of new Set(names)) {
@@ -237,7 +237,7 @@ export class VerificationTask {
       const before = await workspaceState(this.cwd, scope, combined);
       const cached = this.latest.get(name);
       let result: VerificationResult;
-      if (before.fingerprint && cached?.status === "pass" && cached.freshness === "fresh" && cached.workspaceState === before.fingerprint) {
+      if (!force && before.fingerprint && cached?.status === "pass" && cached.freshness === "fresh" && cached.workspaceState === before.fingerprint) {
         result = { ...cached, reused: true };
       } else {
         const limit = this.limits.get(name);
