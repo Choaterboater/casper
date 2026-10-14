@@ -48,8 +48,8 @@ test("/allowed lists the saved prefixes, the exact commands and the session ones
   const text = await say("/allowed");
   const lines = text.split("\n");
   expect(lines.filter((line) => /^\s+\d+\. /.test(line)).map((line) => line.trim())).toEqual([
-    "1. git log (and anything after it)",
-    "2. npm test (and anything after it)",
+    "1. git log (this exact command, kept by an older Casper)",
+    "2. npm test (this exact command, kept by an older Casper)",
     "3. python3 tools/gen.py (this exact command)",
     "4. cargo build (this exact command) (this session)",
     "5. make -j4 all (this exact command) (this session)",
@@ -86,7 +86,7 @@ test("/allowed forget 3 removes that entry after the list was shown, and it stay
   expect(text).toContain("Forgot 3");
   expect(text).toContain("python3 tools/gen.py");
   expect(await store.allowsCommand("python3 tools/gen.py")).toBe(false);
-  expect(await store.allowsCommand("git log -5")).toBe(true);
+  expect(await store.allowsCommand("git log")).toBe(true);
   const saved = JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8"));
   expect(saved.commands).toEqual([]);
   expect(saved.prefixes).toEqual(["git log", "npm test"]);
@@ -103,7 +103,7 @@ test("forgetting a session entry by number takes it back for this session", asyn
 test("/allowed forget git log removes the saved prefix by its words, and a command by its words", async () => {
   const { say, store, context } = await filled();
   expect(await say("/allowed forget git log")).toContain("Forgot git log");
-  expect(await store.allowsCommand("git log -5")).toBe(false);
+  expect(await store.allowsCommand("git log")).toBe(false);
   expect(await say("/allowed forget  python3   tools/gen.py")).toContain("Forgot");
   expect(await say("/allowed forget cargo build")).toContain("Forgot");
   expect([...store.sessionCommands]).toEqual(["make -j4 all"]);

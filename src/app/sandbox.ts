@@ -20,7 +20,7 @@ import { forgetSshSecrets, sshLoginHandler, sshSessionMemory, type SshLoginHost 
 import { forgetOnceSecrets } from "../secrets/typed";
 import { githubLoginChoices, HOST_CHOICES, NO, REACH_CHOICES, SHELL_COMMAND_CHOICES, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
 import { githubLoginCommand, githubRunEnv, LOGIN_FAILED, startsGitOrGh, type GithubLoginCommand } from "../sandbox/github-login";
-import { answerKey, commandCore, readOnlyCommand } from "../sandbox/read-only";
+import { answerKey, readOnlyCommand } from "../sandbox/read-only";
 import { routineCommand } from "../sandbox/routine";
 
 /**
@@ -352,7 +352,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       // matches it too, and the same words in another folder, or fed another script (`cat a.sh | sh`), ask again.
       const exact = answerKey(command, where);
       if (sessionCommands.has(command) || sessionCommands.has(exact)) return undefined;
-      if (await store.allowsCommand(command, commandCore(command, where), exact)) return undefined;
+      if (await store.allowsCommand(command, exact)) return undefined;
       if (!host.canAsk()) return SHELL_CANT_ASK;
       const kept = shortCommand(exact);
       // A yes leaves no line of its own (the command's own line shows it ran); a remembered one leaves one short line.
