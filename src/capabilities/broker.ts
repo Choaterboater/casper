@@ -207,13 +207,13 @@ export class CapabilityBroker {
   private previews = new Map<string, LastPreview>();
   /** Servers the user answered "Yes, for this session" for, with the server's writes-off count at that moment: later
    * changes there that don't run commands, aren't destructive and that the AI didn't mark confirmed or preview-off
-   * run without asking, until writes go off (ctrl+o, /mcp writes off, a disconnect) or the session ends. */
+   * run without asking, until writes go off (Ctrl+X, /mcp writes off, a disconnect) or the session ends. */
   private readonly sessionGrants = new Map<string, number>();
   /** Risky change kinds the user allowed per server this session, with the server's allowance count at that moment. */
   private readonly allowedKinds = new Map<string, { at: number; kinds: Set<ChangeKind> }>();
   private readonly confirmKind?: ConfirmKind;
   /** Servers the user answered "Yes to everything" for, with the server's allowance count then: every later call
-   * there runs without a box until ctrl+o, writes off, a disconnect or the session ends. Never stored. */
+   * there runs without a box until Ctrl+X, writes off, a disconnect or the session ends. Never stored. */
   private readonly allowAll = new Map<string, number>();
   private readonly onAllowAll?: (server: string, realTool: string) => void;
   /** Told when the user's "Yes to everything" starts on a server (the footer shows it). */
@@ -399,7 +399,7 @@ export class CapabilityBroker {
       && guardArguments(policy.match, capability.tool, frozenArgs, { writes: "on", showOptIn: true }) === "allow";
     const answer = covered ? { realTool: realToolOf(plan), once: false }
       : needsApproval(plan) && !optedIn ? await this.approve(capability, plan, combined, showOnly) : undefined;
-    // Writes turned off (ctrl+o, /mcp writes off) while the box was open: the user's latest word is "off", so a yes
+    // Writes turned off (Ctrl+X, /mcp writes off) while the box was open: the user's latest word is "off", so a yes
     // given in that box no longer counts and doesn't turn writes back on.
     if (answer && writesBefore === "on" && this.writes(this.manager.policy(plan.server)) === "off") {
       throw new NotExecutedError(writesOffReason(plan.server));
@@ -618,7 +618,7 @@ export class CapabilityBroker {
   /** The servers under "Yes to everything" right now (the footer shows them). */
   allowAllServers(): string[] { return [...this.allowAll.keys()].filter((server) => this.allowAllOn(server)).sort(); }
 
-  /** ctrl+o: end every session answer, allowed kind and "Yes to everything", on every server. True when any were in force. */
+  /** Ctrl+X: end every session answer, allowed kind and "Yes to everything", on every server. True when any were in force. */
   endAllowances(): boolean {
     const any = this.sessionGrants.size > 0 || this.allowedKinds.size > 0 || this.allowAll.size > 0;
     this.sessionGrants.clear();
@@ -631,19 +631,19 @@ export class CapabilityBroker {
   sessionGrant(server: string): boolean {
     const given = this.sessionGrants.get(server);
     if (given === undefined) return false;
-    // Writes went off since (ctrl+o, /mcp writes off, a disconnect): the answer is over, even if writes are back on.
+    // Writes went off since (Ctrl+X, /mcp writes off, a disconnect): the answer is over, even if writes are back on.
     if (given !== this.manager.writesOffCount(server)) { this.sessionGrants.delete(server); return false; }
     return true;
   }
 
-  /** End the session answer for one server, or every server (ctrl+o, writes off, reconnect, a changed definition). */
+  /** End the session answer for one server, or every server (Ctrl+X, writes off, reconnect, a changed definition). */
   endSessionGrants(server?: string): void {
     if (server === undefined) this.sessionGrants.clear();
     else this.sessionGrants.delete(server);
   }
 
   /** A session answer covers a change that is not destructive and that the AI didn't mark confirmed or preview-off.
-   * It stands only while the server's writes are on: ctrl+o, /mcp writes off or a disconnect ends it. */
+   * It stands only while the server's writes are on: Ctrl+X, /mcp writes off or a disconnect ends it. */
   private sessionCovers(plan: ApprovalPlan, capability: Capability): boolean {
     if (!this.sessionGrant(plan.server)) return false;
     if (this.writes(capability.policy) === "off") { this.sessionGrants.delete(plan.server); return false; }

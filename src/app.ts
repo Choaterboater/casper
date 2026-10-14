@@ -494,7 +494,7 @@ export class CasperApp {
     // notifications: off (/settings) quiets the bell and the desktop notification, read each time it would ring.
     this.terminal.setNotifications(() => this.projectContext?.notifications !== false);
     this.terminal.setBusySubmit((line, plain) => submitDuringWork(this, line, plain));
-    // ctrl+o: MCP writes off everywhere, at once, even while work runs.
+    // Ctrl+X: MCP writes off everywhere, at once, even while work runs.
     this.terminal.setWritesRevert(() => revertWrites(this));
     // ctrl+t: the last step in full, even while work runs.
     this.terminal.setExpandLast(() => expandLastStep(this));
@@ -507,6 +507,7 @@ export class CasperApp {
       builderGoals: () => this.subagents.runs().filter(run => run.role === "builder").map(run => run.goal),
       reviewerCount: () => this.subagents.runs().filter(run => run.role === "reviewer").length,
       display: () => displayLevel(this),
+      projectCommands: () => this.projectContext?.model.commands,
       announceLongChecks: () => this.onEvent === undefined,
       onToolEnd: event => {
         this.observations.observeToolEnd(event, this.projectContext?.model.commands);
@@ -834,7 +835,7 @@ export class CasperApp {
   /** Ends every allowed change kind and session answer, on every server. */
   endAllowances(): boolean { return this.broker?.endAllowances() ?? false; }
 
-  /** ctrl+o: writes off for every server at once, and every allowed kind and session answer ended. Returns whether
+  /** Ctrl+X: writes off for every server at once, and every allowed kind and session answer ended. Returns whether
    * any of those were in force. */
   private revertWrites(): boolean { return revertWrites(this); }
 

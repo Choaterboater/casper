@@ -242,7 +242,7 @@ test("a firmware kind from find_tool asks first, even for a name that reads as a
   expect(await s.ran("mist_update_device")).toBe(0);
 });
 
-test("ctrl+o restarts it read-only and ends the grant", async () => {
+test("Ctrl+X restarts it read-only and ends the grant", async () => {
   let pinned: string[] = [];
   const s = await networkSession({
     answers: ["3", "1"],
@@ -250,7 +250,7 @@ test("ctrl+o restarts it read-only and ends the grant", async () => {
       await ai.call("find_tool", { query: "wlan vlan, site settings" });
       await ai.call("invoke_tool", WLAN);
       expect(await ai.serverArgs()).not.toContain("--read-only");
-      // ctrl+o
+      // Ctrl+X
       expect(ai.app["revertWrites"]()).toBe(true);
       // The server restarts with its pin once its calls finish.
       const ready = () => ai.manager().status().find((entry) => entry.name === "network")?.state === "ready";

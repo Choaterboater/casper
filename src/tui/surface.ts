@@ -96,8 +96,9 @@ function askOptionLines(prefix: string, option: AskOption, width: number,
 }
 
 /** Work in progress for the screen: the steps of the open group (rows under the AI's words) and what Casper is doing or
- * waiting for now (the status row above the prompt). */
-export interface WorkView { rows: readonly string[]; status?: string }
+ * waiting for now (the status row above the prompt). `rows` are the raw steps, one per call (Ctrl+O); `plain` the
+ * same steps in plain words, shown by default. */
+export interface WorkView { rows: readonly string[]; plain?: readonly string[]; status?: string }
 
 /** Marks a live row may start with, and the colour each takes; a running step's • becomes the spinner. */
 const LIVE_MARK = /^(✓|✗|○|•|–) /;
@@ -170,7 +171,7 @@ class PromptEditor extends Editor {
 }
 
 /** Who asked a numbered question: Casper itself (choices), Casper's approval boxes, or the AI through its ask tool.
- * An approval box takes no typed answer (typed words are a No) and ctrl+o denies it. */
+ * An approval box takes no typed answer (typed words are a No) and Ctrl+X denies it. */
 export type AskOrigin = "ai" | "casper" | "approval";
 /** Keys pressed this soon after a box opens are ignored: they were typed before it appeared (mid-sentence), so they
  * never answer it. tests/support/preload.ts sets 0 for the suite; tests/one-input-style.test.ts checks the real wait. */
@@ -192,7 +193,9 @@ export class TerminalSurface {
   private readonly selected: (text: string) => string;
   private status = "";
   /** Work in progress: the open group's steps (live rows under the AI's words) and the status row's words. */
-  private work?: { rows: string[]; status?: string };
+  private work?: { rows: string[]; plain?: string[]; status?: string };
+  /** Ctrl+O: the live steps show raw, one row per call, instead of in plain words. For this session. */
+  private rawSteps = false;
   /** The task's stages for the footer while work runs; see StepRail. */
   private steps?: string;
   private note = "";
@@ -203,11 +206,11 @@ export class TerminalSurface {
   private onExpandLast?: () => void;
   private userCommands: () => readonly MenuCommand[] = () => [];
   /** "ASKING OFF · /permissions ask" while the shell stops asking, and "ALLOW ALL: <servers>" or "WRITES: <servers>"
-   * with "· Ctrl+O" while an MCP server has writes on; drawn first, and shortened before anything of it is cut off. */
+   * with "· Ctrl+X" while an MCP server has writes on; drawn first, and shortened before anything of it is cut off. */
   private badge?: string;
   /** A newer Casper is out: a short note kept at the end of the idle footer, before `idle` (src/update/notice.ts). */
   private update?: string;
-  /** ctrl+o: turn writes off everywhere. True when something was on. */
+  /** Ctrl+X: turn writes off everywhere. True when something was on. */
   private onWritesRevert?: () => boolean;
   private cwd = "";
   private autocomplete?: AutocompleteProvider;
@@ -328,7 +331,7 @@ export class TerminalSurface {
         while (block.length < editorLines.length) block.push("");
         // The open group's steps show under the AI's words while nothing waits on you, and never more of them than fit
         // above the prompt: a row that ticks off the top of the screen would make the terminal redraw everything.
-        this.transcript.live = this.work?.rows.length && !this.waiting ? this.liveRows : undefined;
+        this.transcript.live = this.shownRows.length && !this.waiting ? this.liveRows : undefined;
         this.transcript.liveCap = Math.max(1, this.terminal.rows - block.length - 3);
         const body = this.transcript.render(width);
         const overlayLines = this.slot ? block.length - editorLines.length
@@ -342,13 +345,18 @@ export class TerminalSurface {
     this.tui.setFocus(this.editor);
     this.tui.addInputListener(data => {
       if (this.exitArmed && !matchesKey(data, "ctrl+c")) this.disarmExit();
-      // ctrl+o turns MCP writes off at once, even while busy or while a question is open; an open
-      // approval is denied, so a change can't slip through while writes go off.
-      if (matchesKey(data, "ctrl+o")) {
+      // Ctrl+X turns MCP writes off at once, even while busy or while a question or picker is open; an open
+      // approval is denied, so a change can't slip through while writes go off. With nothing on, a picker's own
+      // Ctrl+X (forget a server in /model) still gets the key.
+      if (matchesKey(data, "ctrl+x")) {
         const reverted = this.onWritesRevert?.() ?? false;
-        if (!reverted) { this.flashNote("writes are already off"); return { consume: true }; }
-        if (this.askFrom === "approval") this.pendingAsk?.(undefined);
-        this.flashNote("Writes are off now");
+        if (reverted) {
+          if (this.askFrom === "approval") this.pendingAsk?.(undefined);
+          this.flashNote("Writes are off now");
+          return { consume: true };
+        }
+        if (this.slot || this.lending) return undefined;
+        this.flashNote("writes are already off");
         return { consume: true };
       }
       if (this.slot || this.lending) {
@@ -423,6 +431,12 @@ export class TerminalSurface {
       if (matchesKey(data, "ctrl+l")) { this.tui.requestRender(true); return { consume: true }; }
       // A picture from the clipboard goes in as [image N]; with no picture, copied files' paths, else the clipboard's text.
       if (matchesKey(data, PASTE_IMAGE_KEY) && !this.pendingAsk) { void this.pasteImage(); return { consume: true }; }
+      // The raw steps, one row per call, or back to plain words (as Ctrl+O in Claude Code, Pi and omp), even while work runs.
+      if (matchesKey(data, "ctrl+o")) {
+        this.rawSteps = !this.rawSteps;
+        this.flashNote(this.rawSteps ? "raw steps · Ctrl+O for plain" : "plain steps · Ctrl+O for raw");
+        return { consume: true };
+      }
       // The last step in full (an edit's diff, a command's output), even while work runs.
       if (matchesKey(data, "ctrl+t")) {
         if (this.onExpandLast) this.onExpandLast(); else this.flashNote("no step to show yet");
@@ -517,9 +531,9 @@ export class TerminalSurface {
   private footer(width: number): string {
     const full = this.badge;
     if (!full) return this.footerText(width);
-    // The badge leads; a window too narrow for it gets the short form of what is on ("ASKING OFF · ALLOW ALL · Ctrl+O"),
+    // The badge leads; a window too narrow for it gets the short form of what is on ("ASKING OFF · ALLOW ALL · Ctrl+X"),
     // cut only in a window narrower than that.
-    const short = ["ASKING OFF", "ALLOW ALL:", "WRITES:", "Ctrl+O"].filter((word) => full.includes(word)).map((word) => word.replace(/:$/, "")).join(" · ");
+    const short = ["ASKING OFF", "ALLOW ALL:", "WRITES:", "Ctrl+X"].filter((word) => full.includes(word)).map((word) => word.replace(/:$/, "")).join(" · ");
     const text = visibleWidth(full) + 1 < width ? full : short || full;
     const rest = width - visibleWidth(text) - 3;
     const badge = tint(text, "warning", this.io.color, "1");
@@ -675,10 +689,13 @@ export class TerminalSurface {
   /** Work in progress: the open group's steps, shown under the AI's words, and the status row's words ("Waiting for
    * …", "Running bun test · 4s"). Undefined, or nothing in it, ends it. */
   setWork(view?: WorkView): void {
-    const rows = (view?.rows ?? []).map(line => terminalText(line).replace(/\s+/g, " ").trim()).filter(Boolean);
+    const clean = (lines: readonly string[]) => lines.map(line => terminalText(line).replace(/\s+/g, " ").trim()).filter(Boolean);
+    const rows = clean(view?.rows ?? []);
+    const plain = view?.plain ? clean(view.plain) : undefined;
     const status = view?.status ? terminalText(view.status).replace(/\s+/g, " ").trim() || undefined : undefined;
-    const next = rows.length || status ? { rows, ...(status ? { status } : {}) } : undefined;
-    if (next?.status === this.work?.status && next?.rows.join("\n") === this.work?.rows.join("\n")) return;
+    const next = rows.length || plain?.length || status ? { rows, ...(plain ? { plain } : {}), ...(status ? { status } : {}) } : undefined;
+    if (next?.status === this.work?.status && next?.rows.join("\n") === this.work?.rows.join("\n")
+      && next?.plain?.join("\n") === this.work?.plain?.join("\n")) return;
     this.work = next;
     this.updateSpinner();
     this.render();
@@ -686,10 +703,17 @@ export class TerminalSurface {
   /** The work in progress as the screen holds it now (for tests and the layout checks). */
   get workView(): WorkView | undefined { return this.work; }
 
+  /** The steps shown now: in plain words, or raw after Ctrl+O (or when there are no plain words). */
+  private get shownRows(): readonly string[] {
+    return (!this.rawSteps && this.work?.plain) || this.work?.rows || [];
+  }
+  /** Whether the live steps show raw (Ctrl+O), for tests. */
+  get rawStepsShown(): boolean { return this.rawSteps; }
+
   /** The open group's steps, two columns in under the AI's words: a running step's • is the spinner, a finished step
    * keeps its mark in its colour, and a command's latest output line hangs dim under it. */
   private readonly liveRows: Component = {
-    render: width => (this.work?.rows ?? []).map(row => {
+    render: width => this.shownRows.map(row => {
       if (row.startsWith("↳ ")) return this.muted(truncateToWidth(`    ${row}`, width));
       const mark = LIVE_MARK.exec(row);
       if (!mark) return truncateToWidth(`  ${row}`, width);
@@ -818,7 +842,7 @@ export class TerminalSurface {
   /**
    * One approval box: the context lines go into the transcript, then the numbered panel asks. One key picks (or
    * Up/Down and Enter); typed words are a No, the first choice. It resolves the chosen label, or undefined for Esc,
-   * Ctrl+C, ctrl+o, close or abort. A pretyped draft never answers, and nor does a key pressed as the box opened.
+   * Ctrl+C, Ctrl+X, close or abort. A pretyped draft never answers, and nor does a key pressed as the box opened.
    * This channel is the user's alone: the model's ask tool never reaches it.
    */
   async approve(preview: string, question: string, options: { label: string; description?: string }[], signal?: AbortSignal): Promise<string | undefined> {

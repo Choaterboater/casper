@@ -1,5 +1,5 @@
 /** Casper's network server from the app: the setup and login hosts (questions only a person answers, in the approval
- * queue), the offer before a request that names a network product, and ctrl+o (writes off everywhere). Moved from src/app.ts. */
+ * queue), the offer before a request that names a network product, and Ctrl+X (writes off everywhere). Moved from src/app.ts. */
 
 import type { CasperApp } from "../app";
 import os from "node:os";
@@ -125,7 +125,7 @@ export function ownSecretValues(app: CasperApp): string[] {
     .sort((a, b) => b.length - a.length);
 }
 
-/** ctrl+o: writes off for every server at once, and every allowed kind and session answer ended. Returns whether
+/** Ctrl+X: writes off for every server at once, and every allowed kind and session answer ended. Returns whether
  * any of those were in force. */
 export function revertWrites(app: CasperApp): boolean {
   if (app.closing) return false;

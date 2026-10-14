@@ -117,6 +117,7 @@
             <li>A yes in the <em>Run this command?</em> box covers that exact command, including a command an older Casper kept as a prefix, and <code>gh api</code> runs without asking only as a plain read from GitHub (a search with <code>-X GET</code> included).</li>
             <li>A task started in your home folder or at a drive's top no longer lists the whole folder first, and the AI is told to put a new project in <code>~/Projects/&lt;name&gt;</code> instead of searching it.</li>
             <li>With the Claude Code plan login, a tool call Claude names without its prefix runs instead of failing the turn.</li>
+            <li>The live steps read in plain words (<code>Looking through the code: 14 searches, 9 files read</code>, <code>Edited roadmap.html</code>, <code>Ran the tests</code>); <kbd>Ctrl+O</kbd> shows the raw steps, as in Claude Code, Pi and omp. MCP writes off moves to <kbd>Ctrl+X</kbd>.</li>
           </ul>
         </aside>
       </section>
@@ -771,7 +772,7 @@
             <code>/mcp allow</code> picks them ahead of time. "Yes, for this session" never covers a
             reboot, a risky kind or a tool that runs commands. "Yes to everything" covers every
             change on that product, firmware, deletes and admin too, and shows
-            <code>ALLOW ALL</code> in the footer until <kbd>Ctrl+O</kbd>.</li>
+            <code>ALLOW ALL</code> in the footer until <kbd>Ctrl+X</kbd>.</li>
             <li><strong>Device checks ask first.</strong> They can reach any device, only after your
             answer; the box names every device and those not marked lab. <code>/lab import</code>
             fills your lab list from a file.</li>
@@ -972,7 +973,7 @@
           <ul>
             <li><strong>Every MCP server starts with writes off.</strong> Write and delete tools are
             hidden. <code>/mcp writes &lt;server&gt;</code> is the only way to turn them on, and only
-            you can do it. <kbd>Ctrl+O</kbd> turns them off again at once.</li>
+            you can do it. <kbd>Ctrl+X</kbd> turns them off again at once.</li>
             <li><strong>Read-only only when the product says so.</strong> A server's
             <code>access_check</code> tool can confirm a read-only login. Anything else shows
             <code>access not checked</code>.</li>

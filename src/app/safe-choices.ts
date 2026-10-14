@@ -93,7 +93,7 @@ export const REMEMBER_BIG_MODEL_CHOICES = [
 /** /mcp connect: "Remember lab?" Only "Yes" remembers. */
 export const MCP_REMEMBER_CHOICES = [NO, "Yes"] as const;
 /** The MCP change box. 1 does nothing; a change takes a deliberate 2 or later. "Yes, for this session" covers later
- * changes on the same server that are not destructive, until the session ends or ctrl+o. */
+ * changes on the same server that are not destructive, until the session ends or Ctrl+X. */
 export const APPROVE_CHOICES = [NO, YES_ONCE, YES_SESSION] as const;
 /** When the tool's own preview can run first: "Preview first" runs it (nothing changes), then the box comes back. It
  * comes after the yes-words, so 2 and 3 mean the same in every change box. */
@@ -109,7 +109,7 @@ export function junosShowLabel(server: string): string {
 }
 
 /** The change box's last choice: no more boxes on this server for the session, for any change (reboots, deletes, risky
- * kinds, an AI-set confirm). Only the person picks it; ctrl+o, writes off or a disconnect end it; it is never stored. */
+ * kinds, an AI-set confirm). Only the person picks it; Ctrl+X, writes off or a disconnect end it; it is never stored. */
 export function approveAllLabel(product: string): string {
   return `Yes to everything on ${product} this session (no more asking, even reboots, deletes or an AI-set confirm)`;
 }

@@ -10,6 +10,15 @@ because GitHub's `latest/download` link skips preview releases. The first publis
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
 
+## v0.2.35: plain live steps, and Ctrl+X for MCP writes off
+
+**Not released yet.** The version number and the installers still say v0.2.34; the release step
+sets them and removes this line.
+
+- While Casper works, the live steps read in plain words, like Codex: one line updated in place for what the AI looked through (`Looking through the code: 14 searches, 9 files read, 3 found nothing (2m)`), one line for the edits (`Edited roadmap.html`), and a short line per command (`Ran the tests`). The folded rows, edit boxes and failure boxes after each group are unchanged.
+- **Ctrl+O now shows the raw steps** (every tool call on its own row), as in Claude Code, Pi and omp; Ctrl+O again goes back to plain words. Ctrl+T still shows the last step in full.
+- **MCP writes off moved from Ctrl+O to Ctrl+X.** It still works mid-task, while a box is open, and in a picker; it still refuses an open change box. The footer reads `WRITES: <servers> · Ctrl+X`. `/mcp writes off` is unchanged. In `/model`, Ctrl+X still forgets a model server when no writes are on.
+
 ## v0.2.34: Claude Code plan login and leaner conversation history
 
 - `/login claude-subscription` uses Claude Code's existing verified plan login or starts its own browser sign-in. Claude Code owns credentials and refresh; Casper copies no plan tokens.

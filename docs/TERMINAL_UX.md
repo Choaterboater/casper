@@ -25,7 +25,8 @@ takes nothing after its name says so (`Usage: /settings, with nothing after it.`
 | Ctrl+T | Show the last step in full: an edit's whole diff, what a command printed, the provider's own words after an `[error]`, or a plan's cases to test and details (works during work too) |
 | Ctrl+L | Redraw the screen |
 | Ctrl+V (Alt+V on Windows) | Paste a picture from the clipboard; it shows as `[image 1]` and goes with the request. A file you copied in Finder, Explorer or a file manager goes in as its path, and a picture file goes with the request like a dropped one. With neither on the clipboard, its text is pasted |
-| Ctrl+O | Turn MCP writes off for every server at once (see [MCP.md](MCP.md)) |
+| Ctrl+O | Show the raw steps (every tool call on its own row) instead of plain ones, or plain ones again; as in Claude Code, Pi and omp (works during work too) |
+| Ctrl+X | Turn MCP writes off for every server at once and refuse an open change box (see [MCP.md](MCP.md)); works during work and while a box is open |
 
 ### Commands
 
@@ -231,9 +232,15 @@ several commands names its programs and leaves out `cd`, `export`, `echo` headin
 `/output` shows the whole command, secrets hidden. The `✓` or `✗` says how a call ended, so there
 is no "completed".
 
-On a rich terminal the steps show where they happen: under the AI's words, as live rows updated in
-place (`⠋ read · src/x.ts` while it runs, the spinner standing for `•`; `✓ read · src/x.ts` once done), every
-step of the group, even with calls running side by side. A step still running after 10 s adds its elapsed time (`bash · python -m pytest · 4m12s`), and a running command shows its latest output line dimly under it (not at `/details quiet`; plain terminals and `--json` get nothing extra). When the model's
+On a rich terminal the steps show where they happen: under the AI's words, in plain words updated in
+place. Searches, reads and folder listings share one line that counts them,
+`⠋ Looking through the code: 14 searches, 9 files read, 3 found nothing (2m)` (`✓ Looked through …` once done;
+the time shows from 10 s); the group's edits share one line, `✓ Edited roadmap.html, faq.html`; each command gets a
+short line, `✓ Ran the tests` for the project's test command (and the linter, the type check, the build), else
+`✓ Ran git status`; a failure reads `✗ The tests failed` or `✗ Couldn't edit a.py`. Ctrl+O shows the raw steps
+instead, as Claude Code, Pi and omp do: every call on its own row (`⠋ read · src/x.ts` while it runs, the spinner
+standing for `•`; `✓ read · src/x.ts` once done), even with calls running side by side; Ctrl+O again goes back to
+plain words. The steps pane in tmux or iTerm2 always logs the raw steps. A step still running after 10 s adds its elapsed time (`bash · python -m pytest · 4m12s`), and a running command shows its latest output line dimly under it (not at `/details quiet`; plain terminals and `--json` get nothing extra). When the model's
 next words arrive, or its turn ends, the finished steps fold under its words: one muted row naming what
 was done, `└ read AGENTS.md, CONTEXT.md · ran git status, bun test (2m05s)` (a command that ran 10 s or more says how long),
 then the group's edits in one box with a short diff and each failure in a box with what it printed.
@@ -615,7 +622,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   (a question that takes a typed answer shows that with its Other row, not in the hint),
   `Esc is No` for an approval, `Esc cancels` for `/login`, and `Ctrl+S this
   session only · Esc cancels` for `/effort`. Keys are spelled one way everywhere: `Ctrl+O`,
-  `Ctrl+T`, `Ctrl+C`.
+  `Ctrl+T`, `Ctrl+X`, `Ctrl+C`.
 - A question from the AI's `ask` tool starts with a muted `The AI asks:` line. Casper's own
   questions and approvals never do, so the AI can't pass off a question as a Casper approval.
 - A closed box leaves one line and nothing else: `<question> → <answer>` (`Pick a server → network`,

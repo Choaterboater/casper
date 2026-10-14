@@ -150,13 +150,13 @@ export class InteractiveTerminal {
   /** Text pasted into the line just sent, so Casper reads its words only from what the person typed. Empty on the
    * plain terminal, where every line is typed. */
   takeSubmittedPastes(): string[] { return this.surface?.takeSubmittedPastes() ?? []; }
-  /** The MCP writes badge ("WRITES: <servers> · Ctrl+O"); kept here too, so the plain terminal can report it. */
+  /** The MCP writes badge ("WRITES: <servers> · Ctrl+X"); kept here too, so the plain terminal can report it. */
   setBadge(text?: string): void { this.badgeText = text; this.surface?.setBadge(text); }
   get badge(): string | undefined { return this.badgeText; }
   /** A newer Casper is out: the short note at the end of the idle footer. Nothing on the plain terminal, which has the
    * `[update]` line at the start. */
   setUpdate(text?: string): void { this.surface?.setUpdate(text); }
-  /** ctrl+o on the rich terminal: turn writes off everywhere. The handler returns true when any were on. */
+  /** Ctrl+X on the rich terminal: turn writes off everywhere. The handler returns true when any were on. */
   setWritesRevert(handler: (() => boolean) | undefined): void { this.surface?.setWritesRevert(handler); }
   /** Work in progress on the rich terminal: the open group's steps under the AI's words, and the status row above the
    * prompt. Nothing on the plain terminal. Inside tmux or iTerm2 the steps go to the view-only steps pane instead, and
@@ -345,7 +345,7 @@ export class InteractiveTerminal {
    * One approval box (a change, a host, a command, a device check), in the same numbered style as every other
    * question: the context lines, then the choices. Rich: the panel, where one key picks; plain: numbered lines and
    * a number with Enter. It resolves the chosen label (typed words or Enter alone are the first choice, No), or
-   * undefined for Esc, Ctrl+C, ctrl+o, EOF or abort. Lines and keys typed before the box appeared never answer it.
+   * undefined for Esc, Ctrl+C, Ctrl+X, EOF or abort. Lines and keys typed before the box appeared never answer it.
    * The model's ask tool never reaches this channel.
    */
   async approve(preview: string, question: string, options: ReadonlyArray<string | { label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined> {

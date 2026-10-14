@@ -3,7 +3,7 @@ import { PassThrough } from "node:stream";
 import { TerminalSurface } from "../src/tui/surface";
 import { tint } from "../src/tui/format";
 
-/** The MCP writes badge and ctrl+o on the rich surface. */
+/** The MCP writes badge and Ctrl+X on the rich surface. */
 function makeSurface() {
   const input = new PassThrough();
   const surface = new TerminalSurface({
@@ -18,12 +18,12 @@ test("the WRITES badge leads the footer and is never cut off, even 30 columns wi
     surface.start();
     surface.setStatus("project/main │ provider/model · effort high │ ctx 12% │ idle", process.cwd());
     expect(surface.footerLine(80)).not.toContain("WRITES");
-    surface.setBadge("WRITES: aruba-central · Ctrl+O");
-    expect(surface.footerLine(80)).toStartWith("WRITES: aruba-central · Ctrl+O │ project/main");
+    surface.setBadge("WRITES: aruba-central · Ctrl+X");
+    expect(surface.footerLine(80)).toStartWith("WRITES: aruba-central · Ctrl+X │ project/main");
     expect(surface.footerLine(30)).toContain("WRITES");
-    expect(surface.footerLine(30)).toContain("Ctrl+O");
+    expect(surface.footerLine(30)).toContain("Ctrl+X");
     const answer = surface.approve("Run it?\n", "Make this change?", [{ label: "No" }, { label: "Yes, this once" }]);
-    expect(surface.footerLine(80)).toStartWith("WRITES: aruba-central · Ctrl+O │ ? waiting for you");
+    expect(surface.footerLine(80)).toStartWith("WRITES: aruba-central · Ctrl+X │ ? waiting for you");
     surface.setBadge(undefined);
     expect(surface.footerLine(80)).not.toContain("WRITES");
     surface.close();
@@ -41,11 +41,11 @@ test("the ASKING OFF badge is set apart from the idle hint, and a narrow window 
     expect(surface.footerLine(30)).toContain("ASKING OFF");
     expect(surface.footerLine(30)).not.toContain("WRITES");
     // Both on, too narrow for the whole badge: the short form names both.
-    surface.setBadge("ASKING OFF · /permissions ask · WRITES: aruba-central · Ctrl+O");
-    expect(surface.footerLine(50)).toStartWith("ASKING OFF · WRITES · Ctrl+O │ ");
+    surface.setBadge("ASKING OFF · /permissions ask · WRITES: aruba-central · Ctrl+X");
+    expect(surface.footerLine(50)).toStartWith("ASKING OFF · WRITES · Ctrl+X │ ");
     // Allow all with no writes-only server: the short form says ALLOW ALL, not WRITES.
-    surface.setBadge("ALLOW ALL: aruba-central · Ctrl+O");
-    expect(surface.footerLine(30)).toStartWith("ALLOW ALL · Ctrl+O");
+    surface.setBadge("ALLOW ALL: aruba-central · Ctrl+X");
+    expect(surface.footerLine(30)).toStartWith("ALLOW ALL · Ctrl+X");
   } finally { surface.close(); }
 });
 
@@ -90,7 +90,7 @@ test("the footer's new-version note is in the accent colour, set apart from the 
   } finally { surface.close(); }
 });
 
-test("ctrl+o turns writes off and denies an open approval; with nothing on, the approval stays open", async () => {
+test("Ctrl+X turns writes off and denies an open approval; with nothing on, the approval stays open", async () => {
   const { surface, input } = makeSurface();
   try {
     surface.start();
@@ -99,13 +99,13 @@ test("ctrl+o turns writes off and denies an open approval; with nothing on, the 
     surface.setWritesRevert(() => { reverts++; const was = on; on = false; return was; });
     let settled = false;
     const answer = surface.approve("MCP · lab · set_config  [write]\n", "Make this change?", [{ label: "No" }, { label: "Yes, this once" }]).finally(() => { settled = true; });
-    input.write("\x0f");
+    input.write("\x18");
     expect(await answer).toBeUndefined();
     expect(reverts).toBe(1);
     const second = surface.approve("MCP · lab · set_config  [write]\n", "Make this change?", [{ label: "No" }, { label: "Yes, this once" }]);
     let secondSettled = false;
     void second.finally(() => { secondSettled = true; });
-    input.write("\x0f");
+    input.write("\x18");
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(reverts).toBe(2);
     expect(secondSettled).toBe(false);
@@ -115,17 +115,17 @@ test("ctrl+o turns writes off and denies an open approval; with nothing on, the 
   } finally { surface.close(); }
 });
 
-test("ctrl+o says Writes are off now when it just turned them off, and writes are already off when nothing was on", async () => {
+test("Ctrl+X says Writes are off now when it just turned them off, and writes are already off when nothing was on", async () => {
   const { surface, input } = makeSurface();
   try {
     surface.start();
     surface.setStatus("project/main │ idle", process.cwd());
     let on = true;
     surface.setWritesRevert(() => { const was = on; on = false; return was; });
-    input.write("\x0f");
+    input.write("\x18");
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(surface.footerLine(80)).toContain("Writes are off now");
-    input.write("\x0f");
+    input.write("\x18");
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(surface.footerLine(80)).toContain("writes are already off");
   } finally { surface.close(); }

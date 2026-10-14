@@ -181,7 +181,7 @@ def connect_with_writes(s):
     time.sleep(0.5)
     s.send("2")  # 2 Enable for this server
     s.until("Writes on for fixture. Each change still asks you.")
-    s.until("WRITES: fixture · Ctrl+O")
+    s.until("WRITES: fixture · Ctrl+X")
     s.until_ready()
 
 def exercise(bun, repo, root, no_color):
@@ -282,8 +282,8 @@ def exercise(bun, repo, root, no_color):
         # Cancellation may abort the runtime before its result is appended; it must never execute.
         assert len(results) in (2, 3), results
         assert sum(not result["isError"] for result in results) == 1, results
-        # ctrl+o turns writes off at once, and the footer badge goes away.
-        s.send("\x0f")
+        # Ctrl+X turns writes off at once, and the footer badge goes away.
+        s.send("\x18")
         s.until("[mcp] Writes off for fixture. Every change asks you again.")
         s.until_true(lambda text: "WRITES" not in text.rstrip().splitlines()[-1])
         # The cancelled task may still be closing: wait for the idle footer before the next command.
