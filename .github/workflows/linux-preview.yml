@@ -1,16 +1,18 @@
 name: Linux preview
 # Linux runs the whole suite on every pull request, push to main, nightly and manual run. macOS and Windows
 # run only the fast tier on a pull request that leaves OS behaviour alone (tools/test-tier.ts).
+# Linux also runs for a change to docs, the site or the README alone: many tests read them (the roadmap,
+# release notes, help text), and a site-only change once broke main with no run to catch it.
 on:
   workflow_dispatch:
   schedule:
     - cron: '17 3 * * *'
   push:
     branches: [main]
-    paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'docs/**', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/linux-preview.yml']
+    paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'docs/**', 'site/**', 'README.md', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/linux-preview.yml']
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/linux-preview.yml']
+    paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'docs/**', 'site/**', 'README.md', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/linux-preview.yml']
 permissions:
   contents: read
 # A newer push to a pull request stops the older run. Runs on main always finish.
