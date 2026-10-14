@@ -70,8 +70,13 @@ function excerptOf(patch: Buffer): string {
 export class PartRecord {
   private readonly parts: Part[] = [];
 
+  get size(): number { return this.parts.length; }
+  /** Changes to landed work or completed reviews make an earlier combined sweep obsolete. */
+  revision = 0;
+
   /** A part landed in the folder; its number (1, 2, ...) is what the lead gives the reviewer. */
   landed(input: { goal: string; files: string[]; stat: string; patch: Buffer }): number {
+    this.revision++;
     this.parts.push({ goal: input.goal, files: [...input.files], stat: input.stat, excerpt: excerptOf(input.patch),
       version: 0, started: 0, reviewed: false, fixed: false });
     return this.parts.length;
@@ -108,6 +113,7 @@ export class PartRecord {
   markReviewed(n: number, text: string, version: number): void {
     const part = this.parts[n - 1];
     if (!part || part.version !== version) return;
+    this.revision++;
     part.reviewed = true;
     part.notFinished = undefined;
     part.report = text;
@@ -118,6 +124,7 @@ export class PartRecord {
   reviewFailed(n: number, status: string, version: number): void {
     const part = this.parts[n - 1];
     if (!part || part.version !== version || part.reviewed) return;
+    this.revision++;
     part.notFinished = NOT_FINISHED[status] ?? "the reviewer did not finish";
   }
 
@@ -163,6 +170,7 @@ export class PartRecord {
   refreshExcerpt(n: number, patch: Buffer, change?: { files: string[]; stat: string }): string[] {
     const part = this.parts[n - 1];
     if (!part) return [];
+    this.revision++;
     part.excerpt = `(The diff of the fix round, on top of the part's earlier change.)\n${excerptOf(patch)}`;
     part.version++;
     part.started = 0;

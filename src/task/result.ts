@@ -1,4 +1,4 @@
-import { formatVerificationReport, reportText, type VerificationReport, type VerificationResult } from "../verify/evidence";
+import { formatVerificationReport, reportText, type CheckName, type VerificationReport, type VerificationResult } from "../verify/evidence";
 import { modelErrorNext, type ModelErrorCause } from "../runtime/model-errors";
 import type { RiskyLine } from "../network/risky-receipt";
 import { isBuiltinCheck } from "../verify/named";
@@ -108,6 +108,8 @@ export interface TaskResult {
   /** Parts builders landed that no reviewer finished (a reviewer that timed out, failed or was cut off, or none was
    * started): said in one line, never a failure. */
   partsNotReviewed?: PartNotReviewed[];
+  /** The one full selected-check sweep after the crew's reviewers, fixes and final repairs, never cached. */
+  crewChecks?: { status: VerificationReport["status"] | "not-run"; checks: CheckName[]; reason?: string };
   /** Whether /undo can put this task's files back, and why not. `left` names changed files Casper keeps no copy of. */
   undo?: { available: true; left?: Array<{ path: string; why: string }> } | { available: false; reason: string };
   /** Changes on other machines, read from the text of the AI's ssh and scp commands (never guessed beyond it). */
@@ -283,6 +285,7 @@ export function formatTaskResult(task: TaskResult): string {
   if (report?.pages) lines.push(receiptLine("pages", `${report.pages.status}: ${report.pages.pages.map((page) => `${safe(page.path)} ${page.status}${page.httpStatus !== null ? ` (${page.httpStatus})` : ""}`).join("; ") || "none opened"}${report.pages.reason ? `. ${safe(report.pages.reason)}` : ""}`));
   else if (task.pageNotes?.length) lines.push(receiptLine("pages", task.pageNotes.map((note) => safe(note.replace(/^– /, ""))).join("; ")));
   if (task.partsNotReviewed?.length) lines.push(receiptLine("not reviewed", formatNotReviewed(task.partsNotReviewed, safe)));
+  if (task.crewChecks) lines.push(receiptLine("crew checks", crewChecksText(task.crewChecks)));
   if (task.pagesShown) lines.push(receiptLine("look", pagesShownText(task.pagesShown)));
   if (task.bigModel) lines.push(receiptLine("big model", `${safe(task.bigModel.model)} for ${task.bigModel.attempts} ${task.bigModel.attempts === 1 ? "repair" : "repairs"}`));
   if (task.security) lines.push(receiptLine("security", securityText(task.security)));
@@ -306,6 +309,10 @@ export function formatTaskResult(task: TaskResult): string {
     lines.push(receiptLine("browser", `assertions ${task.browser.status}: ${task.browser.checks.map(check => `${safe(check.name)}:${check.status}${check.withdrawn ? ` (${safe(check.withdrawn)})` : ""}, inputs ${check.freshness}, baseline ${check.baseline}`).join("; ")}. Declared local scope only; server build/external state and overall acceptance not certified.`));
   }
   return lines.join("\n");
+}
+
+function crewChecksText(run: NonNullable<TaskResult["crewChecks"]>): string {
+  return `Crew full checks on the combined result: ${run.status}${run.checks.length ? ` (${run.checks.map(lineText).join(", ")})` : ""}${run.reason ? ` — ${lineText(run.reason)}` : ""}`;
 }
 
 function securityText(security: SecuritySummary): string {
@@ -524,6 +531,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
   for (const note of task.pageNotes ?? []) lines.push(safe(note));
   if (task.pagesShown) lines.push(`– ${pagesShownText(task.pagesShown)}`);
   if (task.partsNotReviewed?.length) lines.push(`– Not reviewed: ${formatNotReviewed(task.partsNotReviewed, safe)}`);
+  if (task.crewChecks) lines.push(`– ${crewChecksText(task.crewChecks)}`);
   if (task.security) lines.push(`– Security tools: ${securityText(task.security)} (what the tools found; not proof the code has no problems)`);
   for (const remote of task.remoteChanges ?? []) lines.push(remote.changes.length
     ? `– Changed on ${safe(remote.host)} (from the commands Casper saw): ${remote.changes.map(safe).join("; ")}`

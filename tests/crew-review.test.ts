@@ -8,7 +8,8 @@ import { stringify } from "yaml";
 import { CasperApp } from "../src/app";
 import { BUILDER_LIMITS, SubagentManager, type BuildOutcome } from "../src/agents/manager";
 import { PartRecord, PART_EXCERPT_BYTES } from "../src/crew/parts";
-import { formatReceipt } from "../src/task/result";
+import { formatReceipt, formatShortReceipt, formatTaskResult, taskOutcome } from "../src/task/result";
+import { checkCommand, CHECK_LIMIT_MS } from "./support/check-command";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeBuilderStartOptions, RuntimeEvent, RuntimeEventListener, RuntimeReadOnlyStartOptions, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
@@ -93,10 +94,10 @@ class Main implements AgentRuntime {
 /** What the app printed, for the [crew] lines. */
 let written: string[] = [];
 
-async function app(repo: string, home: string, main: Main, children: () => AgentRuntime = () => new Children()) {
+async function app(repo: string, home: string, main: Main, children: () => AgentRuntime = () => new Children(), config: object = {}) {
   Children.builders = []; Children.readers = []; Children.builderPrompts = []; Children.seenB = []; Children.readerReply = undefined; written = [];
   await mkdir(path.join(repo, ".casper"), { recursive: true });
-  await writeFile(path.join(repo, ".casper", "project.yaml"), stringify({ name: "review-app" }));
+  await writeFile(path.join(repo, ".casper", "project.yaml"), stringify({ name: "review-app", ...config }));
   const casper = new CasperApp({ runtimeFactory: () => main, subagentRuntimeFactory: children, noSandbox: true,
     output: { write: (text: string) => { written.push(text); } }, sessionHomeDir: home,
     loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
@@ -585,6 +586,104 @@ test("[crew] lines say a reviewer is checking the part, and that a builder is fi
   const lines = written.join("");
   expect(lines).toContain("[crew] A reviewer is checking part 1 (1 file)");
   expect(lines).toContain("[crew] The reviewer found 2 problems; a builder is fixing them");
+}, 30_000);
+
+const fullCheckNames = ["typecheck", "lint", "test", "build"] as const;
+const scopedCrewChecks = (verify: object) => ({ verify, verification: { timeoutMs: CHECK_LIMIT_MS,
+  scopes: Object.fromEntries(fullCheckNames.map(name => [name, { inputs: ["a.txt"] }])) }, repair: { maxAttempts: 0 } });
+
+test("Crews runs the project's full checks once on the combined result after reviewers and the fix round, before reporting done", async () => {
+  const { home, repo } = await repository();
+  const verify = Object.fromEntries(fullCheckNames.map(name => [name, checkCommand(`append:.casper/${name}-runs`,
+    ...(name === "test" ? [] : ["require-line:b.txt=fixed by the fix builder", "require-line:c.txt=from the builder", "require-line:lead.txt=final lead edit"]))]));
+  let main: Main;
+  const casper = await app(repo, home, main = new Main(async delegate => {
+    // Seed a still-fresh scoped pass: the final sweep must execute it, not reuse it.
+    await main.tools.find(tool => tool.name === "casper_check")!.execute({ check: "test" });
+    const one = await build(delegate, "b.txt");
+    const two = await build(delegate, "c.txt");
+    await review(delegate, one.part);
+    await review(delegate, two.part);
+    await fix(delegate, "write b.txt", one.part);
+    await review(delegate, one.part);
+    await writeFile(path.join(repo, "lead.txt"), "final lead edit\n");
+    for (const name of fullCheckNames.filter(name => name !== "test")) {
+      expect(await readFile(path.join(repo, ".casper", `${name}-runs`), "utf8").catch(() => "")).toBe("");
+    }
+  }), undefined, scopedCrewChecks(verify));
+  await casper.runOnce("Split this up", repo);
+  for (const name of fullCheckNames) {
+    expect(await readFile(path.join(repo, ".casper", `${name}-runs`), "utf8")).toBe(name === "test" ? "xx" : "x");
+  }
+  const task = casper.getLastTaskResult()!;
+  expect(fullCheckNames.map(name => task.verification!.results.find(result => result.name === name))).toEqual(
+    fullCheckNames.map(name => expect.objectContaining({ name, status: "pass" })));
+  expect(task.verification!.results.some(result => result.reused)).toBe(false);
+  expect(task.crewChecks).toEqual({ status: "pass", checks: [...fullCheckNames] });
+  expect(written.join("").match(/Casper checking the crew's combined result/g)).toHaveLength(1);
+  expect(written.join("").indexOf("combined result")).toBeLessThan(written.join("").indexOf("Crew full checks"));
+}, 60_000);
+
+test("an ordinary code crew with unscoped checks runs the full selection only once", async () => {
+  const { home, repo } = await repository();
+  const verify = Object.fromEntries(fullCheckNames.map(name => [name, checkCommand(`append:.casper/${name}-runs`)]));
+  const casper = await app(repo, home, new Main(async delegate => {
+    const part = await build(delegate, "b.ts");
+    await review(delegate, part.part);
+    await fix(delegate, "write b.ts", part.part);
+    await review(delegate, part.part);
+  }), undefined, { verify, verification: { timeoutMs: CHECK_LIMIT_MS }, repair: { maxAttempts: 0 } });
+  await casper.runOnce("Refactor this; split this up", repo);
+  for (const name of fullCheckNames) expect(await readFile(path.join(repo, ".casper", `${name}-runs`), "utf8")).toBe("x");
+  expect(casper.getLastTaskResult()!.crewChecks).toEqual({ status: "pass", checks: [...fullCheckNames] });
+}, 60_000);
+
+test("the receipt shows the full-check run on the combined result, and its failure cannot report done", async () => {
+  const { home, repo } = await repository();
+  const casper = await app(repo, home, new Main(async delegate => {
+    const one = await build(delegate, "b.txt");
+    await review(delegate, one.part);
+    await fix(delegate, "write b.txt", one.part);
+  }), undefined, scopedCrewChecks({ test: checkCommand("append:.casper/full-runs", "exit:7") }));
+  await casper.runOnce("Split this up", repo);
+  const task = casper.getLastTaskResult()!;
+  expect(await readFile(path.join(repo, ".casper/full-runs"), "utf8")).toBe("x");
+  expect(task.crewChecks).toEqual({ status: "fail", checks: ["test"] });
+  expect(task.verification!.results[0]).toMatchObject({ name: "test", status: "fail", exitCode: 7 });
+  expect(taskOutcome(undefined, task)).toBe("failed");
+  for (const format of [formatReceipt, formatShortReceipt, formatTaskResult]) {
+    expect(format(task)).toContain("Crew full checks on the combined result: fail (test)");
+  }
+  expect(written.join("")).toContain("Crew full checks on the combined result: fail (test)");
+}, 30_000);
+
+test("existing builder, reviewer and fix-round behaviour remains unchanged with final full checks", async () => {
+  const { home, repo } = await repository();
+  let secondFix = "";
+  const casper = await app(repo, home, new Main(async delegate => {
+    const part = await build(delegate, "b.txt");
+    expect(part.part).toBe(1);
+    expect(part.applied).toEqual(["b.txt"]);
+    await review(delegate, part.part);
+    expect(data((await fix(delegate, "write b.txt", part.part)).text).part).toBe(1);
+    await review(delegate, part.part);
+    secondFix = data((await fix(delegate, "write b.txt", part.part)).text).error;
+  }), undefined, scopedCrewChecks({ test: checkCommand("append:.casper/full-runs") }));
+  await casper.runOnce("Split this up", repo);
+  expect(Children.builders).toHaveLength(2);
+  expect(Children.readers).toHaveLength(2);
+  expect(Children.readers.map(reader => reader.options.modelRole)).toEqual(["review", "review"]);
+  expect(Children.readers[0]!.prompt).toContain("+from the builder");
+  expect(Children.readers[1]!.prompt).toContain("+fixed by the fix builder");
+  expect(Children.builderPrompts[1]).toContain("No findings.");
+  expect(Children.builderPrompts[1]).toContain("Fix only");
+  expect(Children.seenB).toEqual(["b.txt\n", "from the builder\n"]);
+  expect(secondFix).toContain("one fix round per part");
+  expect(casper.getLastTaskResult()!.partsNotReviewed).toBeUndefined();
+  expect(casper.getLastTaskResult()!.usage?.tokens).toBe(3000);
+  expect(await readFile(path.join(repo, ".casper/full-runs"), "utf8")).toBe("x");
+  await casper.runOnce("/undo");
+  expect(await readFile(path.join(repo, "b.txt"), "utf8")).toBe("b.txt\n");
 }, 30_000);
 
 test("a fix with no review on file says a builder is fixing the part, without a count", async () => {

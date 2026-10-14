@@ -10,7 +10,8 @@ the AI from using them.
 
 Status: v0.3 Crews, built, not released. The AI starts builders itself; `/crew`
 shipped in v0.2.23. One fix round per part follows a review, and reviewers
-show while they work; the receipt names parts nobody reviewed.
+show while they work; the receipt names parts nobody reviewed. Full checks on the
+combined result are built for the next release.
 
 ## The AI splits big jobs itself
 
@@ -64,6 +65,26 @@ reviewer timed out, failed or was cut off, or none was started, the receipt says
 so in one line: `– Not reviewed: part 2 (a.ts, b.ts; the reviewer timed out)`.
 `/crew` lists those parts too. It is a note, not a failure: nothing is undone,
 no check changes, and nothing waits on you.
+
+**Full checks on the combined result.** In verification `auto` mode, after the
+reviewers, fix round and any later repairs, Casper runs the project's full selected
+checks before the crew's receipt. These are `verification.checks`, or all configured
+and detected automatic checks when no selection is set (typecheck, lint, test,
+build, and automatic named checks). Nothing is pruned for file scope or prose-only
+changes. Earlier per-part passes do not replace this run. A whole batch already
+run after the crew counts once if the combined files and reviews have not changed;
+otherwise Casper runs a fresh batch on the final result. Builder, reviewer and
+one-fix-round limits are unchanged.
+
+The receipt says `– Crew full checks on the combined result: pass (typecheck, lint,
+test, build)` or shows failure/incompleteness. A failure found by the final sweep
+is reported, not given another crew fix round. Timeouts, checks that cannot start,
+skips and sandbox refusals are not passes. `offer`, `off` and stopped tasks start
+no final sweep; the receipt says why it did not run. With no checks configured it
+says incomplete. The project selection and manual-only checks still apply, and
+no device check starts automatically, even if explicitly selected. `/crew`'s
+manual copy/apply flow is unchanged; this sweep is for parts automatically landed
+in your folder.
 
 **Not forced in.** A builder's change is not applied when a file it changed
 was also changed in your folder after its copy started (by you, the AI, or

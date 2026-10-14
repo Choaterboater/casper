@@ -84,6 +84,15 @@ detected command. Auto runs nothing when the model changed no files. It skips a 
 declared scope (see [Configuration](#configuration)) contains none of the changed files. If
 Casper could not compare the workspace, it runs every selected check.
 
+**Crews' combined result.** When builders land parts, `auto` mode finishes with one
+full selected-check batch after the reviewers, fix round and later repairs, without
+scope/prose pruning or reuse of per-part passes. A whole batch already run on that
+same combined result counts once; later edits or reviews require a fresh batch.
+The receipt labels it `Crew full checks on the combined result` and shows its status
+and check names. This final sweep does not start more repairs. `offer`, `off`,
+stopped tasks and device/manual-only checks keep their normal limits; the receipt
+explains a sweep that did not run. See [Crews](CREWS.md).
+
 **No checks set up.** If files changed but there are no checks, the change is `not_verified`
 (`– Not checked — no tests yet. Say "add tests".`), and the model writes tests and the check when
 you ask. The startup banner shows no checks line until there is something to check; `/status`

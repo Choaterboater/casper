@@ -3,6 +3,7 @@
  * Moved from src/app.ts. */
 
 import { builderSteer, builderSteerLine } from "../crew/auto";
+import { finishCrewChecks } from "./crew-checks";
 import type { CasperApp } from "../app";
 import os from "node:os";
 import { riskyBaseline, riskyLinesIn } from "../network/risky-receipt";
@@ -110,6 +111,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   // A new request gets a fresh delegation budget (the budget belongs to the parent task).
   app.delegateToolForTask = undefined;
   app.crewParts = undefined;
+  app.crewSweep = undefined;
   app.builderSteer = builderSteer(prompt);
   app.editGateActive = app.interactive && app.terminal.rich
     && context.policy.behavior.askQuestions === "beforeChanges"
@@ -243,6 +245,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   let acceptance: TaskResult["acceptance"];
   let afterModel: Map<string, string> | undefined;
   let verification: VerificationReport | undefined;
+  let crewChecks: TaskResult["crewChecks"];
   let autoChecks: ReturnType<typeof planAutoChecks> | undefined;
   let pageNotes: string[] | undefined;
   let pagesShown: number | undefined;
@@ -474,6 +477,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   } finally {
     app.taskBaseline = undefined;
     await baseline?.dispose();
+    // Last, after reviewers, fixes and late repairs: one full sweep before the receipt says done.
+    ({ verification, crewChecks } = await finishCrewChecks(app, verificationMode, verification));
     const execution = app.closing || app.commandAbort?.signal.aborted || app.taskRuntimeCancelled || app.checkTask?.signal.aborted ? "cancelled" : app.taskRuntimeFailed ? "failed" : "completed";
     // Keep already-executed evidence on terminal error/cancellation, but never
     // launch another command or repair prompt after the task has stopped.
@@ -509,7 +514,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
       ...(autoChecks?.skipped && !verification?.smoke && !verification?.pages ? { autoSkipped: autoChecks.skipped } : {}),
       ...(pageNotes?.length && !verification?.pages ? { pageNotes } : {}), ...(pagesShown ? { pagesShown } : {}),
-      ...(notReviewed.length ? { partsNotReviewed: notReviewed } : {}),
+      ...(notReviewed.length ? { partsNotReviewed: notReviewed } : {}), ...(crewChecks ? { crewChecks } : {}),
       ...(app.taskTurnLimit !== undefined ? { turnLimit: app.taskTurnLimit } : {}), ...(app.taskSpendStop ? { spendLimit: { ...app.taskSpendStop } } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
       ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...bigModelReceipt(app),
       ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(app.sandbox ? { sandbox: sandboxReceipt(app.sandbox)! } : {}),

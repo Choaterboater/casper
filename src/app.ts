@@ -811,6 +811,8 @@ export class CasperApp {
   delegateToolForTask?: RuntimeTool;
   /** The parts builders landed this task (src/crew/parts.ts); lives and ends with the task's delegate tool. */
   crewParts?: PartRecord;
+  /** A whole selected-check batch already run after the crew, tied to the tree and part revision it checked. */
+  crewSweep?: { tree: Map<string, string>; revision: number; checks: CheckName[] };
   /** What this request's words say about builders ("in parallel", "by yourself"); set at each task's start. */
   builderSteer?: BuilderSteer;
   /** Why the AI can't start builders in this workspace now (src/crew/auto.ts); unset when it can. */
