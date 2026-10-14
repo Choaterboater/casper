@@ -8,71 +8,42 @@ is optional; Casper works with none of them.
 
 ## Settings
 
-You don't need to edit a file to change Casper's switches. `/settings` lists them by number and
-writes your answer into `~/.casper/config.yaml` for you, keeping your comments and other settings:
+You don't need to edit a file to change Casper's switches. `/settings` shows seven areas, with
+aligned labels and values, one row per setting and help for the highlighted row. It saves into
+`~/.casper/config.yaml` for you, keeping your comments and other settings:
 
 ```text
-Settings (saved in ~/.casper/config.yaml for you):
-  Web lookups: on (DuckDuckGo) · Browser tool: on · Browser clicks: on
-  Routine commands: on · Slow commands: on · Stalled commands: on
-  Starter templates: on · Diagram tool: on · Pages the AI makes: on
-  Pictures the AI makes: on · Open pages in the browser: on
-  New-version notice: on · Notifications: on · Suggestions: on
-  Side questions with ?: on · Built-in skills: on · GitHub tool: on · Packs: on
-  Spend notes: at $1 a task · Spend pause: off · Prompt cache: auto
-  Lean guidance: auto · Hide old tool output: on · Local models: on
-  Page checks: on · Show the AI the pages: ask once a session
-  Work shown: normal · Theme: default · Untrusted-text reader: on
-  Helpers that build: on · Playwright tests: on · Compose files: on
-  Send Casper's name to OpenRouter: on · Sign-ins from other tools: on
-  Network server updates: on · My MCP servers: on · My language servers: on
-  Private ssh passwords: on
-Pick one to change:
-  1 Done                              nothing changes
-  2 Web lookups                       on (DuckDuckGo)
-  3 Browser tool                      on
-  4 Browser clicks                    on
-  5 Routine commands                  on
-  6 Slow commands                     on
-  7 Stalled commands                  on
-  8 Starter templates                 on
-  9 Diagram tool                      on
- 10 Pages the AI makes                on
- 11 Pictures the AI makes             on
- 12 Open pages in the browser         on
- 13 New-version notice                on
- 14 Notifications                     on
- 15 Suggestions                       on
- 16 Side questions with ?             on
- 17 Built-in skills                   on
- 18 GitHub tool                       on
- 19 Packs                             on
- 20 Spend notes                       at $1 a task
- 21 Spend pause                       off
- 22 Prompt cache                      auto
- 23 Lean guidance                     auto
- 24 Hide old tool output              on
- 25 Local models                      on
- 26 Page checks                       on
- 27 Show the AI the pages             ask once a session
- 28 Work shown                        normal
- 29 Theme                             default
- 30 Untrusted-text reader             on
- 31 Helpers that build                on
- 32 Playwright tests                  on
- 33 Compose files                     on
- 34 Send Casper's name to OpenRouter  on
- 35 Sign-ins from other tools         on
- 36 Network server updates            on
- 37 My MCP servers                    on
- 38 My language servers               on
- 39 Private ssh passwords             on
+────────────────────────────────────────────────────────────────────────────────
+Settings · saved for you
+[+ Tools]  ◇ Pages   > Checks   $ Models   ◐ Display   ↔ MCP   * Privacy
+Tools & browser
+❯ Web lookups                           on (DuckDuckGo)
+  Browser tool                          on
+  Browser clicks                        on
+  Starter templates                     on
+  Built-in skills                       on
+  GitHub tool                           on
+  Packs                                 on
+  Untrusted-text reader                 on
+
+Web lookups are on (DuckDuckGo).
+↑/↓ move · Enter/Space change · ←/→/Tab area · type to search · Esc close
+────────────────────────────────────────────────────────────────────────────────
 ```
 
-The first lines show every setting and where it stands at a glance; the numbered list follows.
-1 is Done, and each setting asks again with `1 Keep …` first, so Enter never changes anything.
-Every row has its number: past 9, type it and press Enter (`Type 1-39 + Enter or Up/Down + Enter`).
-A plain terminal (`TERM=dumb`) asks the same list as numbered lines.
+The areas are **Tools & browser**, **Pages, pictures & diagrams**, **Commands & checks**,
+**Models & cost**, **Display**, **MCP & network** and **Privacy & sign-ins**.
+Up/Down moves; Enter or Space flips an on/off at once. Other values open the same small numbered
+choice with `1 Keep …` first, then return to the same row. Esc there returns without changing it.
+Left/Right or Tab switches areas (Shift+Tab goes back). Typing filters settings across all areas;
+Space in a search adds a space; Enter changes the match. Backspace clears the search, and Esc closes the screen. No repeated summary or long numbered list.
+Below 80 columns, areas show as a list first: Up/Down picks an area, Enter opens its settings.
+Colours follow **Theme**, including light and dark backgrounds; `NO_COLOR` keeps the screen plain.
+
+A plain terminal (`TERM=dumb`) keeps a numbered list grouped by area, with each area beside its
+values. `1 Done` closes; a setting asks again with `1 Keep …` first. Past nine rows, type the number
+and press Enter. `/settings <name>` opens one setting directly (`/settings Work shown`);
+`/theme` still opens Theme on its own.
 A change applies from now on (built-in skills, packs, the prompt cache, local models, My MCP servers and My language servers from the next start) and says so:
 `[settings] Web lookups: off. Saved in ~/.casper/config.yaml.` Changed while a task runs, it also says when the
 task gets it: from its next step, or, for a tool the task already has (web lookups, the reader, the browser,

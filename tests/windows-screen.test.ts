@@ -179,24 +179,24 @@ conpty("ConPTY: numbered sign-in with hidden key entry, /settings, /resume picke
   expect(s.raw).not.toContain(secret);
   expect(await readFile(path.join(home, ".pi/agent/auth.json"), "utf8").catch(() => "")).not.toContain(secret);
 
+  // Windows Terminal is a rich terminal: /settings is the live screen, grouped by area, with its keys in one hint.
   s.send("/settings\n");
-  await s.until("Pick one to change:");
-  await s.waitFor("row 1 highlighted", () => /→ +1 Done/.test(s.visible()));
-  // Past nine rows every row keeps its number: the last one (Private ssh passwords) is typed, then Enter. A list taller
-  // than the window shows the rows around the highlighted one and counts the rest.
-  await s.waitFor("the list's hint", () => /Type 1-\d\d \+ Enter/.test(s.visible()));
-  expect(s.visible()).toMatch(/Type 1-\d\d \+ Enter or Up\/Down \+ Enter · Esc skip/);
-  const last = /Type 1-(\d\d) \+ Enter/.exec(s.visible())![1]!;
+  await s.until("Settings · saved for you");
+  await s.waitFor("the screen's hint", () => s.visible().includes("type to search") && s.visible().includes("Esc close"));
   await boxReady();
-  s.send(`${last}\n`);
-  await s.until("When ssh you allowed asks for a password");
+  // Typing searches across every area; a setting with several values opens its choices, and Esc goes back unchanged.
+  s.send("Theme");
+  await s.waitFor("the search result", () => s.visible().includes("Search: Theme") && /❯ +Theme/.test(s.visible()));
   await boxReady();
-  s.press("escape");  // back to the list, unchanged
-  await s.untilNew("Pick one to change:");
+  s.send("\r");
+  await s.waitFor("the theme's choices", () => s.visible().includes("Esc back"));
   await boxReady();
   s.press("escape");
-  // A closed list leaves one line, never its rows.
-  await s.until("(saved in ~/.casper/config.yaml for you) — skipped");
+  await s.waitFor("back on the search", () => s.visible().includes("Search: Theme") && !s.visible().includes("Esc back"));
+  await boxReady();
+  s.press("escape");
+  // A closed screen leaves none of its rows behind.
+  await s.waitFor("the screen closed", () => !s.visible().includes("Settings · saved for you"));
   await idle(s);
 
   s.send("hello one\n");
@@ -258,13 +258,14 @@ conpty("ConPTY: a resize redraws at the new width, also with a choice box open",
   await idle(s);
 
   s.send("/settings\n");
-  await s.until("Up/Down + Enter");  // the choice count changes as settings are added
+  await s.until("Settings · saved for you");
   s.resize(80, 24);
   await s.waitFor("80-wide rules", () => ruleWidths(s).length > 0 && ruleWidths(s).every((width) => width === 80));
-  expect(s.visible()).toContain("Up/Down + Enter");
+  expect(s.visible()).toContain("Settings · saved for you");
+  expect(s.visible()).toContain("Esc close");
   await boxReady();
   s.press("escape");
-  await s.until("— skipped");
+  await s.waitFor("the screen closed", () => !s.visible().includes("Settings · saved for you"));
   await idle(s);
 
   s.resize(40, 15);

@@ -59,18 +59,18 @@ test("every subcommand in the table is in /help all", () => {
 });
 
 test("a command that takes nothing after its name says so; it never asks whether you meant itself", () => {
-  for (const line of ["/settings 3", "/settings extra", "/status x", "/context extra", "/usage extra", "/doctor extra", "/clear extra",
+  for (const line of ["/theme 3", "/theme extra", "/status x", "/context extra", "/usage extra", "/doctor extra", "/clear extra",
     "/exit now", "/quit now", "/tree x"]) {
     const name = line.split(" ")[0]!;
     expect(commandProblem(line)).toBe(`Usage: ${name}, with nothing after it.`);
     expect(unknownCommandMessage(name)).not.toContain(`Did you mean ${name}?`);
   }
-  for (const line of ["/settings", "/status", "/quit", "/mcp detail", "/diff 3", "/plan add a flag"]) expect(commandProblem(line)).toBeUndefined();
+  for (const line of ["/settings", "/settings Theme", "/config Work shown", "/status", "/quit", "/mcp detail", "/diff 3", "/plan add a flag"]) expect(commandProblem(line)).toBeUndefined();
   expect(commandProblem("/bogus")).toBe(unknownCommandMessage("/bogus"));
   expect(commandProblem("/qiut")).toContain("Did you mean /quit?");
   // No hint and no subcommands means no words after the name: the table says which.
   expect(COMMAND_REGISTRY.filter((command) => !takesArguments(command)).map((command) => command.name))
-    .toEqual(["status", "context", "usage", "clear", "settings", "theme", "hotkeys", "doctor", "exit", "tree"]);
+    .toEqual(["status", "context", "usage", "clear", "theme", "hotkeys", "doctor", "exit", "tree"]);
 });
 
 test("the menu dims exactly what waits during work: the same table as the check that runs the line", () => {
@@ -204,15 +204,15 @@ function slowRuntime(gate: Promise<void>, started: () => void): AgentRuntime {
   };
 }
 
-test("idle and during work, /settings 3 is a usage error and an unknown command is rejected at once", async () => {
+test("idle and during work, /theme 3 is a usage error and an unknown command is rejected at once", async () => {
   const gate = Promise.withResolvers<void>();
   let started = false;
   const app = await richApp(() => slowRuntime(gate.promise, () => { started = true; }));
   try {
     await app.until(text => text.includes("idle"));
-    app.input.write("/settings 3\r");
-    await app.until(text => text.includes("Usage: /settings, with nothing after it."));
-    expect(app.screen()).not.toContain("Did you mean /settings?");
+    app.input.write("/theme 3\r");
+    await app.until(text => text.includes("Usage: /theme, with nothing after it."));
+    expect(app.screen()).not.toContain("Did you mean /theme?");
     app.input.write("write a poem\r");
     await app.until(() => started);
     let from = app.screen().length;

@@ -17,7 +17,7 @@ Type a request and press Enter (during a task it steers the AI or waits in the q
   /mcp setup network     Set up Casper's server for Mist, Central and ClearPass; /mcp login adds a login
   /references            Search vendor specs you downloaded (/references add gets one)
   /resume, /clear        Pick up a saved conversation, or start a fresh one
-  /settings              Turn web lookups, spend notes and other switches on or off by number
+  /settings [name]       Browse settings by area, type to search, or change one by name
   /help <word>           Search the help; /help all shows everything
 Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an empty line exits. Approvals always need a fresh yes from you. think hard: or big model: at the start of a request sets that task (/help words).
 `;
@@ -101,7 +101,7 @@ Local commands:
   /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
   /output all                       Every tool call of the last task on its own line (the screen folds them into a summary)
   /details [quiet|normal|detailed] [--session]  Alone: the level now. Failures only, steps folded (default), or every step with small diffs; remembered like /effort, --session (before or after) for this session only. Ctrl+T shows the last step in full
-  /settings, /config                Every switch at a glance, then one by number, written to ~/.casper/config.yaml for you: web lookups, browser tool, browser clicks, routine commands, slow commands, stalled commands, starter templates, diagram tool, pages the AI makes, pictures the AI makes, open pages in the browser, new-version notice, notifications, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, lean guidance, hide old tool output, local models, page checks, show the AI the pages, work shown, theme, untrusted-text reader, helpers that build, Playwright tests, Compose files, send Casper's name to OpenRouter, sign-ins from other tools, network server updates, my MCP servers, my language servers, private ssh passwords
+  /settings [name], /config [name]  Seven areas with aligned values and help; Up/Down move, Enter/Space change, Left/Right or Tab switch areas, type to search, Esc close. Plain terminals: grouped numbered choices. Saved in ~/.casper/config.yaml for you: web lookups, browser tool, browser clicks, routine commands, slow commands, stalled commands, starter templates, diagram tool, pages the AI makes, pictures the AI makes, open pages in the browser, new-version notice, notifications, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, lean guidance, hide old tool output, local models, page checks, show the AI the pages, work shown, theme, untrusted-text reader, helpers that build, Playwright tests, Compose files, send Casper's name to OpenRouter, sign-ins from other tools, network server updates, my MCP servers, my language servers, private ssh passwords
   /theme                            Pick the screen's colours (the Theme row of /settings), saved for you
   /hotkeys                          The keys Casper uses
   /copy [n]                         Copy the last answer, or its code block n, to the clipboard

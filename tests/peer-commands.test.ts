@@ -38,7 +38,7 @@ test("the names every peer uses run here: /new is a new conversation, and the al
   expect(COMMANDS.some((command) => command.name === "tree")).toBe(false);
   expect(commandProblem("/tree")).toBeUndefined();
   expect(unknownCommandMessage("/themes")).toContain("Did you mean /theme?");
-  for (const entry of ["/clear, /new", "/usage, /cost", "/settings, /config", "/theme", "/hotkeys", "/copy [n]", "/export [file]", "/rename <title>",
+  for (const entry of ["/clear, /new", "/usage, /cost", "/settings [name], /config [name]", "/theme", "/hotkeys", "/copy [n]", "/export [file]", "/rename <title>",
     "/logout [provider]", "/project new [name]", "/branch                           Show named conversations"]) expect(FULL_HELP_TEXT).toContain(entry);
   expect(FULL_HELP_TEXT).not.toContain("  /tree ");
   expect(FULL_HELP_TEXT).toContain(`Keys: ${KEYS_HELP}`);

@@ -209,7 +209,7 @@ export function handleSlashCommand(app: CasperApp, typed: string): Promise<Verif
   const prompt = canonicalLine(typed);
   if (/^\/pane(?:\s|$)/.test(prompt)) return paneCommand(app, prompt.slice(5).trim()).then(() => undefined);
   if (/^\/details(?:\s|$)/.test(prompt)) return detailsCommand(app, prompt.slice(8).trim()).then(() => undefined);
-  if (prompt.trim() === "/settings") return settingsCommand(app).then(() => undefined);
+  if (/^\/settings(?:\s|$)/.test(prompt)) return settingsCommand(app, prompt.slice(9).trim() || undefined).then(() => undefined);
   if (prompt.trim() === "/theme") return settingsCommand(app, "Theme").then(() => undefined);
   if (/^\/pages(?:\s|$)/.test(prompt)) return pagesCommand(app, prompt.slice(6).trim()).then(() => undefined);
   if (/^\/preview(?:\s|$)/.test(prompt)) return previewCommand(app, prompt.slice(8).trim()).then(() => undefined);
@@ -250,12 +250,12 @@ export async function runUndoCommand(app: CasperApp, command: "undo" | "redo" | 
   return undefined;
 }
 
-/** /settings: the off switches by number; a change is written to ~/.casper/config.yaml and applies from now on.
+/** /settings: grouped switches; a change is written to ~/.casper/config.yaml and applies from now on.
  * `only` (/theme): that one row's question. */
 export function settingsCommand(app: CasperApp, only?: string): Promise<void> {
   return runSettings({
     output: app.output, homeDir: () => app.homeDir(), canAsk: app.interactive && app.terminal.canAsk, duringTask: typedDuringTask(),
-    context: async () => app.projectContext, mcp: () => app.mcp,
+    context: async () => app.projectContext, mcp: () => app.mcp, picker: () => app.terminal.exclusiveHost(),
     reload: async () => {
       const before = app.projectContext;
       if (!before) return;

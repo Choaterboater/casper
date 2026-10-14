@@ -104,7 +104,7 @@ function fakeHost(home: string, project: string, answers: (string | undefined)[]
     output: { write: (chunk: string) => { text += chunk; } }, homeDir: () => home, canAsk: true,
     context: async () => context ??= await loadProjectContext(await inspectProject(project), { homeDir: home }),
     reload: async () => { context = await loadProjectContext(await inspectProject(project), { homeDir: home }); },
-    ask: async (question, options) => { asked.push(`${question}\n${options.map((option, index) => `${index + 1} ${option.label}`).join("\n")}`); return answers.shift(); },
+    ask: async (question, options) => { asked.push(`${question}\n${options.map((option, index) => `${index + 1} ${option.label}${option.description ? ` — ${option.description}` : ""}`).join("\n")}`); return answers.shift(); },
     asked, text: () => text,
   };
 }
@@ -131,18 +131,21 @@ test("/settings: Diagram tool off keeps the visualize providers you listed", asy
   expect(await readFile(config, "utf8")).toBe("visualize:\n  providers: [ mermaid ]\n  enabled: false\n");
 });
 
-test("/settings first screen shows every row's state at a glance, within 80 columns", async () => {
+test("/settings plain list shows every row's state once, grouped by area", async () => {
   const { home, project, config } = await folders();
   await writeFile(config, "browser: off\n");
   const host = fakeHost(home, project, [undefined]);
   await runSettings(host);
   const first = host.asked[0]!;
   const context = (await host.context())!;
-  for (const row of settingRows(context)) expect(first).toContain(`${row.label}: ${row.value}`);
-  expect(first).toContain("Browser tool: off");
-  const glance = first.slice(0, first.indexOf("\n1 Done"));
-  for (const line of glance.split("\n")) expect(line.length).toBeLessThanOrEqual(80);
-  expect(first).toContain("\n1 Done\n2 Web lookups\n");
+  for (const row of settingRows(context)) {
+    const listed = first.split("\n").filter(line => line.includes(`${row.label} — `));
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toEndWith(` · ${row.value}`);
+  }
+  expect(first).toContain("Browser tool — Tools & browser · off");
+  expect(first).not.toContain("Browser tool: off");
+  expect(first).toContain("\n1 Done — nothing changes\n2 Web lookups — Tools & browser");
 });
 
 test("templates: on by default, off from your config, never turned on or off by a project file, and a /settings row saves it", async () => {

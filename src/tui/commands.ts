@@ -93,7 +93,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
       { name: "normal", args: "[--session]", description: "Steps folded (the default)", afterCleanupError: SESSION },
       { name: "detailed", args: "[--session]", description: "Every step with small diffs", afterCleanupError: SESSION },
     ] },
-  { name: "settings", description: "Turn web lookups, spend notes, built-in skills and more on or off by number", aliases: ["config"] },
+  { name: "settings", description: "Browse or search settings by area; change one, saved for you", argumentHint: "[name]", aliases: ["config"] },
   { name: "theme", description: "Pick the screen's colours (the Theme row of /settings)" },
   { name: "hotkeys", description: "The keys Casper uses (Esc, Ctrl+T, Shift+Tab ...)", afterCleanupError: NONE },
   { name: "copy", description: "Copy the last answer, or its code block n, to the clipboard", argumentHint: "[n]" },

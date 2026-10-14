@@ -786,7 +786,7 @@ Type a request and press Enter (during a task it steers the AI or waits in the q
   /mcp setup network     Set up Casper's server for Mist, Central and ClearPass; /mcp login adds a login
   /references            Search vendor specs you downloaded (/references add gets one)
   /resume, /clear        Pick up a saved conversation, or start a fresh one
-  /settings              Turn web lookups, spend notes and other switches on or off by number
+  /settings [name]       Browse settings by area, type to search, or change one by name
   /help &lt;word&gt;           Search the help; /help all shows everything
 Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an empty line exits. Approvals always need a fresh yes from you. think hard: or big model: at the start of a request sets that task (/help words).</pre>
         </details>
@@ -828,7 +828,7 @@ Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an 
           </a>
           <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/CONFIGURATION.md#settings">
             <h3>Settings and local models</h3>
-            <p><code>/settings</code> lists every switch by number. Sign in with OpenRouter, Anthropic, OpenAI Codex or GitHub Copilot, or start a model server on your own computer (Ollama, LM Studio, llama.cpp, vLLM) and its models show in <code>/model</code>; one on another computer is added there by its address. Lean guidance is automatic for model servers or windows of 32,768 tokens or less: shorter wording, the same tools, no extra model call. Big hosted models keep full text; <code>/settings</code> turns lean guidance off.</p>
+            <p><code>/settings</code> groups switches into seven areas with aligned values and help for the highlighted row. Up/Down moves, Enter/Space changes, Left/Right or Tab switches areas, typing searches, and Esc closes; plain terminals keep grouped numbered choices. Sign in with OpenRouter, Anthropic, OpenAI Codex or GitHub Copilot, or start a model server on your own computer (Ollama, LM Studio, llama.cpp, vLLM) and its models show in <code>/model</code>; one on another computer is added there by its address. Lean guidance is automatic for model servers or windows of 32,768 tokens or less: shorter wording, the same tools, no extra model call. Big hosted models keep full text; <code>/settings</code> turns lean guidance off.</p>
           </a>
         </div>
       </section>

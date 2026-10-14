@@ -15,6 +15,7 @@ new version.
 **Not released yet.** The version number and the installers still say v0.2.34; the release step
 sets them and removes this line.
 
+- `/settings` is one grouped screen: seven areas, aligned values, help for the highlighted row and search across areas. Up/Down moves, Enter/Space changes, Left/Right or Tab switches areas, and Esc closes. Narrow windows start with an area list; plain terminals keep grouped numbered choices. Saves and config keys are unchanged; `/settings <name>` opens one setting directly.
 - While Casper works, the live steps read in plain words, like Codex: one line updated in place for what the AI looked through (`Looking through the code: 14 searches, 9 files read, 3 found nothing (2m)`), one line for the edits (`Edited roadmap.html`), and a short line per command (`Ran the tests`). The folded rows, edit boxes and failure boxes after each group are unchanged.
 - **Ctrl+O now shows the raw steps** (every tool call on its own row), as in Claude Code, Pi and omp; Ctrl+O again goes back to plain words. Ctrl+T still shows the last step in full.
 - **MCP writes off moved from Ctrl+O to Ctrl+X.** It still works mid-task, while a box is open, and in a picker; it still refuses an open change box. The footer reads `WRITES: <servers> · Ctrl+X`. `/mcp writes off` is unchanged. In `/model`, Ctrl+X still forgets a model server when no writes are on.

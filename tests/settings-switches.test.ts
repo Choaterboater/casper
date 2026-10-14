@@ -4,7 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { SuggestionController } from "../src/app/suggestions";
 import { FULL_HELP_TEXT } from "../src/tui/help";
-import { atAGlance, runSettings, settingRows, type SettingsHost } from "../src/app/settings";
+import { runSettings, settingRows, type SettingsHost } from "../src/app/settings";
+import { SettingsScreen } from "../src/tui/settings-screen";
+import { SETTINGS_AREAS, settingsArea } from "../src/app/settings-areas";
 import { planPages } from "../src/app/task-tools";
 import type { CasperApp } from "../src/app";
 import { loadConfiguration } from "../src/config/load";
@@ -299,30 +301,32 @@ test("telemetry: off loads from your own config; a project file can't set it", a
   await expect(load()).rejects.toThrow("telemetry must be on or off");
 });
 
-test("the at-a-glance list includes the new rows and stays within 80 columns", async () => {
+test("plain settings include each row once with its area and current value, without a repeated summary", async () => {
   const { home, project, config } = await folders();
   await writeFile(config, "suggestions: false\ncache: short\npages: off\ntelemetry: off\n");
   const host = fakeHost(home, project, [undefined]);
   await runSettings(host);
   const first = host.asked[0]!;
-  for (const item of ["Suggestions: off", "Prompt cache: short", "Page checks: off", "Send Casper's name to OpenRouter: off"]) expect(first).toContain(item);
-  const glance = first.slice(0, first.indexOf("\n1 Done"));
-  for (const line of glance.split("\n")) expect(line.length).toBeLessThanOrEqual(80);
-  const rows = await rowsFor(home, project);
-  for (const line of atAGlance(rows).split("\n")) expect(line.length).toBeLessThanOrEqual(80);
+  for (const row of await rowsFor(home, project)) {
+    expect(first).toContain(`${row.label} — ${SETTINGS_AREAS[settingsArea(row.label)]!.name} · ${row.value}`);
+    expect(first.split("\n").filter(line => line.includes(`${row.label} — `))).toHaveLength(1);
+  }
+  expect(first).not.toContain("Suggestions: off");
 });
 
-test("CONFIGURATION.md's /settings sample is what a default config prints: the lines at a glance and the numbered list", async () => {
+test("CONFIGURATION.md's /settings capture is the default 80-column screen, and docs explain every key and fallback", async () => {
   const { home, project } = await folders();
-  const host = fakeHost(home, project, [undefined]);
-  await runSettings(host);
-  const [question, ...options] = host.asked[0]!.split("\nPick one to change:\n");
+  const screen = new SettingsScreen(await rowsFor(home, project), false, async () => { throw new Error("no change"); }, () => {}, () => {});
   const doc = await readFile(path.join(import.meta.dir, "..", "docs", "CONFIGURATION.md"), "utf8");
-  const sample = /```text\n(Settings \(saved in[^]*?)\n```/.exec(doc)![1]!.split("\nPick one to change:\n");
-  expect(sample[0]).toBe(question!);
-  // The numbered list as the picker lays it out: number, label, then the value.
-  const listed = sample[1]!.split("\n").map((line) => line.trim().replace(/\s{2,}/g, " — "));
-  expect(listed).toEqual(options.join("").split("\n"));
+  const sample = /```text\n([^]*?)\n```/.exec(doc)![1]!;
+  expect(sample).toBe(screen.render(80).join("\n"));
+  for (const phrase of ["Up/Down", "Enter or Space", "Left/Right or Tab", "Typing filters", "Backspace", "Esc closes", "Below 80 columns", "NO_COLOR", "TERM=dumb", "/settings <name>"]) expect(doc).toContain(phrase);
+  const terminal = await readFile(path.join(import.meta.dir, "..", "docs", "TERMINAL_UX.md"), "utf8");
+  expect(terminal).toContain("Up/Down moves; Enter/Space changes; Left/Right or Tab switches areas; type to search; Esc closes");
+  const release = await readFile(path.join(import.meta.dir, "..", "docs", "RELEASE.md"), "utf8");
+  expect(release.slice(0, release.indexOf("## v0.2.34:"))).toContain("`/settings` is one grouped screen");
+  const roadmap = await readFile(path.join(import.meta.dir, "..", "site", "roadmap.html"), "utf8");
+  expect(roadmap.slice(roadmap.indexOf("Built, not released"), roadmap.indexOf('id="coming"'))).toContain("seven areas, aligned labels and values");
 });
 
 test("every \"it writes `name: value`\" in CONFIGURATION.md is the line /settings writes when you turn that row off", async () => {
@@ -379,7 +383,7 @@ test("suggestions: false from /settings applies in the session without a restart
 
 test("the long help's /settings line lists every switch", async () => {
   const { home, project } = await folders();
-  const line = FULL_HELP_TEXT.split("\n").find((entry) => entry.trimStart().startsWith("/settings, /config "))!.toLowerCase();
+  const line = FULL_HELP_TEXT.split("\n").find((entry) => entry.trimStart().startsWith("/settings [name], /config [name] "))!.toLowerCase();
   for (const row of await rowsFor(home, project)) expect(line).toContain(row.label.toLowerCase());
 });
 
