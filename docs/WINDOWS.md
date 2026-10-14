@@ -23,7 +23,7 @@ without checking where the download came from.
 In PowerShell (a normal window, not "Run as administrator"):
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.34/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.35/install.ps1 | iex
 ```
 
 What the installer does:
@@ -54,11 +54,11 @@ casper --help
 Get-Command casper | Select-Object Source
 ```
 
-`casper --version` should print `casper 0.2.34 (<path to casper.exe>)`. The `Source`
+`casper --version` should print `casper 0.2.35 (<path to casper.exe>)`. The `Source`
 line should point into the install folder, not an old checkout or some other program
 called casper.
 
-The command above always installs **v0.2.34**. Running it again reinstalls v0.2.34.
+The command above always installs **v0.2.35**. Running it again reinstalls v0.2.35.
 To get a newer preview, run `casper update`. Windows will not replace a running `casper.exe`,
 so Casper checks that release's own installer (checksum and build provenance, as on other systems),
 saves it to a private temporary folder and starts a separate hidden PowerShell that waits for
@@ -79,7 +79,7 @@ WSL is Linux running inside Windows. If you open a WSL terminal (Ubuntu, for exa
 can use the Linux Casper there instead of the Windows preview. In that terminal:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.34/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.35/install.sh | sh
 ```
 
 - The Linux Casper is a separate install from the Windows one. It has its own `~/.casper`
@@ -238,8 +238,8 @@ commands.
   and the AI's shell asks `Run this command?` before each command that changes something but routine work (git commit,
   `npm test`, `bun install`, files made or removed in the project: **Routine commands** in `/settings`), with `1 No` first
   (reads like `ls`, `cat` or `git status` don't ask, also after a `cd /c/Users/me/project &&` into the project, with
-  `app/*.py` globs, `2>&1` or `python --version`; 3 and 4 cover that exact command, such as `npm test`, also from the
-  same folder inside a line like `cd app && npm test 2>&1 | tail -25`, never `npm test -- --watch` or `rm -rf ~`). A
+  `app/*.py` globs, `2>&1` or `python --version`; 3 and 4 cover that exact command, such as `npm test`; inside a line like `cd app && npm test 2>&1 | tail -25`
+  they cover `cd app && npm test` from that folder, never `npm test -- --watch` or `rm -rf ~`). A
   yes leaves no extra line; a
   remembered one leaves one short `✓ allowed …` line, and `/permissions all` stops asking until you quit.
   A one-shot run refuses the AI's shell commands unless you pass `--no-sandbox`. On

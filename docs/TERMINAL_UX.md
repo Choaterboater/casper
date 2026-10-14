@@ -425,7 +425,8 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
   `+ Add server`, adds a model server on another computer (Ollama, LM Studio, llama.cpp, vLLM): type its
   address, name it, and its models show at once ([Add a model server](CONFIGURATION.md#add-a-model-server-on-another-computer)).
   A server you added shows on the left even when it doesn't answer (`off`, with why on the right; `0`
-  when it answered with no models yet); Ctrl+X on its row asks `1 Keep · 2 Forget` and forgets it, and
+  when it answered with no models yet); Ctrl+X on its row asks `1 Keep · 2 Forget` and forgets it (while an MCP server
+  has writes on, Ctrl+X turns writes off instead; press it again once they are off), and
   what an add or forget said shows at the top of the right side when the picker opens again.
   It refreshes the provider lists in the background and keeps the saved rows when that fails,
   saying why in a few words: `Your anthropic sign-in expired. Run /login to sign in again; showing
@@ -623,8 +624,8 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   Approvals and pickers that take keys only have no Other row. A number picks a row only
   while nothing is typed, so a custom answer cannot start with a row's number unless
   Other is picked first (or a letter is typed first); a digit past the last row is ordinary text. A list longer
-  than nine (plain `/settings`) numbers every row: type the number and press Enter
-  (`Type 1-25 + Enter or Up/Down + Enter`).
+  than nine numbers every row: type the number and press Enter (`Type 1-16 + Enter or Up/Down + Enter` on a
+  rich terminal; a plain one says `Type 1-16:`).
 - `/settings` on a rich terminal is a screen, not a numbered list: seven tabs at 80 columns or more,
   an area list first below that. Up/Down moves; Enter/Space flips an on/off at once or opens a small
   Keep-first choice. Left/Right or Tab switches areas, typing searches all of them, Backspace clears

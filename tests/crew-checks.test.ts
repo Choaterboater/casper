@@ -182,24 +182,24 @@ test("checks that change the final combined files leave the crew incomplete, eve
   expect(final.verification!.status).toBe("incomplete");
 });
 
-test("the roadmap marks combined full checks built and the crew's limit shipped in v0.2.24", async () => {
+test("the roadmap marks Crews complete: combined full checks in v0.2.35, the crew's limit since v0.2.24", async () => {
   const html = await readFile(new URL("../site/roadmap.html", import.meta.url), "utf8");
   const crew = html.slice(html.indexOf('<article class="card" id="v030"'), html.indexOf('<section id="later"'));
-  expect(crew).toContain("Full checks on the combined result");
-  expect(crew).toContain("built, next release");
+  expect(crew).toContain("complete in v0.2.35");
+  expect(crew).toContain("Full checks on the combined result</strong> <span class=\"badge\">in v0.2.35</span>");
   expect(crew).toContain("receipt shows the run and its status");
   expect(crew).toContain("Your limits apply to the crew</strong> <span class=\"badge\">in v0.2.24</span>");
   expect(html).not.toContain("crew-wide request limits have not been started");
 });
 
-test("crew and verification docs describe the final batch and its receipt without claiming a release", async () => {
+test("crew and verification docs describe the final batch and its receipt, and the crew limit as shipped", async () => {
   const crew = await readFile(new URL("../docs/CREWS.md", import.meta.url), "utf8");
   const verification = await readFile(new URL("../docs/VERIFICATION.md", import.meta.url), "utf8");
   const release = await readFile(new URL("../docs/RELEASE.md", import.meta.url), "utf8");
-  expect(crew).toContain("built for the next release");
+  expect(crew).toContain("Since\nv0.2.35 the crew's full checks run on the combined result");
   expect(crew).toContain("Earlier per-part passes do not replace this run");
   expect(verification).toContain("Crew full checks on the combined result");
-  expect(release).toContain("The crew-wide request budget remains planned");
+  expect(release).not.toContain("The crew-wide request budget remains planned");
 });
 
 test("saved receipts and JSON receipt text retain the combined full-check result", async () => {

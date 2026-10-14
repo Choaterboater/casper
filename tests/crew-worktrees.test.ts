@@ -79,8 +79,8 @@ test("the crews guide and unreleased notes explain worktree origins, restart per
   const release = (await readFile(new URL("../docs/RELEASE.md", import.meta.url), "utf8")).split("## v0.2.34:")[0]!;
   expect(release).toContain("Crews from any project worktree");
   expect(release).toContain("never apply elsewhere");
-  const roadmap = (await readFile(new URL("../site/roadmap.html", import.meta.url), "utf8")).split('<section id="coming"')[0]!;
-  expect(roadmap).toContain("Built, not released");
+  const page = await readFile(new URL("../site/roadmap.html", import.meta.url), "utf8");
+  const roadmap = page.slice(page.indexOf('id="v0235"'), page.indexOf('id="v0234"'));
   expect(roadmap).toContain("remembered across restarts");
   expect(roadmap).toContain("never apply elsewhere");
 });

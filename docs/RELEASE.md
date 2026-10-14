@@ -4,53 +4,76 @@
 published, and what the installers promise. **When you'd use it:** to see what is new
 before you upgrade, or when you build or publish a release yourself.
 
-Casper distributes an unsigned **v0.2.34 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.34`,
+Casper distributes an unsigned **v0.2.35 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.35`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
 
-## v0.2.35: plain live steps, and Ctrl+X for MCP writes off
-
-**Not released yet.** The version number and the installers still say v0.2.34; the release step
-sets them and removes this line.
+## v0.2.35: plain live steps, plans you change in words, a grouped /settings, and Crews complete
 
 - `/settings` is one grouped screen: seven areas, aligned values, help for the highlighted row and search across areas. Up/Down moves, Enter/Space changes, Left/Right or Tab switches areas, and Esc closes. Narrow windows start with an area list; plain terminals keep grouped numbered choices. Saves and config keys are unchanged; `/settings <name>` opens one setting directly.
 - While Casper works, the live steps read in plain words, like Codex: one line updated in place for what the AI looked through (`Looking through the code: 14 searches, 9 files read, 3 found nothing (2m)`), one line for the edits (`Edited roadmap.html`), and a short line per command (`Ran the tests`). The folded rows, edit boxes and failure boxes after each group are unchanged.
 - **Ctrl+O now shows the raw steps** (every tool call on its own row), as in Claude Code, Pi and omp; Ctrl+O again goes back to plain words. Ctrl+T still shows the last step in full.
 - **MCP writes off moved from Ctrl+O to Ctrl+X.** It still works mid-task, while a box is open, and in a picker; it still refuses an open change box. The footer reads `WRITES: <servers> · Ctrl+X`. `/mcp writes off` is unchanged. In `/model`, Ctrl+X still forgets a model server when no writes are on.
 
-### Task-only receipts after branch movement
-
-A rebase, pull, merge, checkout, reset, fast-forward or branch switch during a task no longer adds git's
-incoming files to its change count or `/diff`. One plain receipt line explains the branch movement.
-Undo leaves incoming committed changes alone, skips files changed by both sides with a reason, and
-refuses when the baseline cannot be read. Normal tasks and non-git folders are unchanged.
-
 ### Change a plan in plain words
 
-`/plan` numbers its steps and test cases. Both terminals offer `1 Stop · 2 Build · 3 Change the plan`.
-Choice 3 takes one line, such as "drop steps 1 and 4" or "also test X"; the model rewrites the whole plan and
-shows it again with the same choices. The raw editor is gone. Enter still stops, never builds. The planning
-guidance excludes steps that only re-confirm a known fact or an established cause, including reviewer re-checks.
+`/plan` numbers its steps and test cases. Both terminals offer `1 Stop · 2 Build · 3 Change the plan` (the plain
+terminal adds `4 Show the details` when the plan has details). Choice 3 takes one line, such as "drop steps 1 and 4"
+or "also test X"; the model rewrites the whole plan and shows it again with the same choices. The raw editor is gone.
+Enter still stops, never builds. The planning guidance excludes steps that only re-confirm a known fact or an
+established cause, including reviewer re-checks.
+
+### Safer remembered answers
+
+- With no sandbox, "Yes, for this session" and "Yes, always for this project" in the *Run this command?* box remember
+  the exact command, not a prefix: a yes to `rm -rf /tmp/old-build` never covers `rm -rf ~`, and a yes to a push never
+  covers a force push. In `cd app && npm test | tail` the answer covers `cd app && npm test`; a command fed by a pipe
+  (`cat a.sh | sh`) is remembered as the whole line. A prefix an older Casper saved now matches only those exact words;
+  `/allowed` lists it as `this exact command, kept by an older Casper` and forgets it.
+- `gh api` runs without the box only as a plain GET from GitHub. A field, `--input`, `graphql`, a full address,
+  `--hostname` or an option written another way (`-Fbody=@.env`, `-iXDELETE`) asks; a plain-text `-f` field is
+  allowed with `-X GET` written out, as a search uses it.
+
+### Task-only receipts after branch movement
+
+- A rebase, pull, merge, checkout, reset, fast-forward or branch switch during a task no longer adds git's incoming
+  files to its change count or `/diff`. One plain receipt line says the branch moved. Undo leaves incoming committed
+  changes alone (also with Windows line endings), skips files changed by both sides with a reason, and refuses when
+  the baseline cannot be read. Normal tasks and non-git folders are unchanged.
+- When a check also failed on the files from before the change and you choose Leave it, the receipt leads with
+  `– Not caused by this change — test already failed before it; left as it is` instead of `✗ Failed`. A check that
+  fails only now still reads `✗ Failed`, and the `--json` outcome stays `failed`.
 
 ### Crews: full checks on the combined result
 
-After reviewers and the fix round, `auto` verification runs the project's full selected
-checks on the combined result before the crew reports done. The receipt shows the run
-and its status. Per-part passes do not replace it; a whole batch already run on the
-same final files counts once. Later repairs or reviews invalidate that batch. Builder,
-reviewer and fix-round behaviour stays the same. `offer`, `off`, stopped tasks and
-manual/device-check limits still apply. The crew-wide request budget remains planned.
+After reviewers and the fix round, `auto` verification runs the project's full selected checks on the combined result
+before the crew reports done, and the receipt shows the run and its status. Per-part passes do not replace it; a whole
+batch already run on the same final files counts once, and later repairs or reviews invalidate it. `offer`, `off`,
+stopped tasks and manual/device-check limits still apply.
 
 ### Crews from any project worktree
 
-`/crew` and the AI's builders can start from any worktree of the same repository,
-never inside another crew copy. Each crew remembers its originating folder
-across restarts and applies only there; other checkouts stay untouched. If that
-folder is gone or no longer belongs to this repository, `/crew` still lists the
-copy with a reason and lets you keep or throw it away, never apply elsewhere.
-The main checkout's messages and receipts are unchanged.
+`/crew` and the AI's builders can start from any worktree of the same repository, never inside another crew copy. Each
+crew remembers its originating folder across restarts and applies only there; other checkouts stay untouched. If that
+folder is gone or no longer belongs to this repository, `/crew` lists the copy with a reason and lets you keep or throw
+it away, never apply elsewhere.
+
+With these, Crews (v0.3) is complete: a limit you say in the request ("keep it under $2") has covered the whole crew,
+builders included, since v0.2.24.
+
+### Smaller changes
+
+- Local models, loopback addresses and models with a window of 32,768 tokens or less get shorter system text and tool
+  descriptions automatically; `/settings` → **Lean guidance** turns it off. Big hosted models keep the full text.
+- Started in your home folder or at a drive's top, a task no longer lists the whole folder first (no change list or
+  undo there; the receipt says `not a project folder`), and the AI is told to put a new project in
+  `~/Projects/<name>` instead of searching it.
+- With the Claude Code plan login, a tool call Claude names without its `mcp__casper__` prefix runs instead of
+  failing the turn.
+- A picture still being made is waited for when a read, edit or write names it with a `~/` path.
+- Shift+Tab moves the effort level in the footer with each press and saves it once, in one line, when the presses rest.
 
 ## v0.2.34: Claude Code plan login and leaner conversation history
 

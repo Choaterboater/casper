@@ -8,10 +8,11 @@ manual way: you give one builder a job and decide what happens to its work.
 Say "run a crew" or "split this up" to ask for builders, "by yourself" to keep
 the AI from using them.
 
-Status: v0.3 Crews, built, not released. The AI starts builders itself; `/crew`
-shipped in v0.2.23. One fix round per part follows a review, and reviewers
-show while they work; the receipt names parts nobody reviewed. Full checks on the
-combined result are built for the next release.
+Status: v0.3 Crews is complete. `/crew` shipped in v0.2.23 and the AI starts
+builders itself since v0.2.24; one fix round per part follows a review (v0.2.25),
+reviewers show while they work, and the receipt names parts nobody reviewed. Since
+v0.2.35 the crew's full checks run on the combined result, and a crew can start from
+any worktree of the project.
 
 ## Where crews start and land
 
@@ -114,7 +115,7 @@ line to that task asking the AI to split the work across builders. Words about
 crews themselves ("the crew list", "run the crew tests") don't count.
 "no helpers" or "by yourself" means no builders for that request.
 
-**Turn it off.** `/settings` → Helpers that build → Turn them off (it writes
+**Turn it off.** `/settings` → Helpers that build (Enter or Space flips it; it writes
 `delegate: { build: false }` in `~/.casper/config.yaml`). A project file may
 turn builders off for itself, never back on for you. Read-only helpers
 ([DELEGATION.md](DELEGATION.md)) still work.

@@ -38,11 +38,11 @@
       <div class="contents-layout">
       <header class="page-head">
         <h1>Feature tour</h1>
-        <p class="lead">Here are the big things Casper 0.2.33 does, one at a time, with the real text it prints. Newer parts that have no picture here are listed under <a href="#more">More in 0.2.33</a> and on the <a href="roadmap.html">roadmap</a>.</p>
+        <p class="lead">Here are the big things Casper 0.2.35 does, one at a time, with the real text it prints. Newer parts that have no picture here are listed under <a href="#more">More in 0.2.35</a> and on the <a href="roadmap.html">roadmap</a>.</p>
 
         <aside class="callout note">
           <strong class="callout-title">About the terminal boxes on this page</strong>
-          <p>Each dark box is text copied from a real Casper 0.2.33 run. No screenshots, no mock-ups.
+          <p>Each dark box is text copied from a real Casper run, captured on 0.2.33 (newer key names are shown as they are now). No screenshots, no mock-ups.
           To keep them free and repeatable, the "AI" in most of them is a small scripted stand-in: it
           makes one real edit on disk, then says <code>No more changes.</code> Everything after that
           (checks, proof, repairs, receipts, MCP, approvals) is Casper's own code doing its job.
@@ -65,7 +65,7 @@
           <li><a href="#sessions">Sessions</a></li>
           <li><a href="#choices">Numbered choices</a></li>
           <li><a href="#terminal">Rich or plain terminal</a></li>
-          <li><a href="#more">More in 0.2.33</a></li>
+          <li><a href="#more">More in 0.2.35</a></li>
         </ul>
       </nav>
 
@@ -246,7 +246,8 @@ Next: 1 Show diff · 2 Undo</pre>
             <h3>Why it matters</h3>
             <p>The AI gets the real error text, not a guess. Before the first repair, Casper also
             runs a failing check on the old code. If it was already broken, Casper says so, and in a terminal it asks
-            <code>1 Leave it · 2 Fix it anyway</code> before spending tokens.</p>
+            <code>1 Leave it · 2 Fix it anyway</code> before spending tokens. Left as it is, the receipt says
+            <code>Not caused by this change</code>, not <code>Failed</code>.</p>
           </article>
         </div>
 
@@ -739,7 +740,7 @@ on in ~/.casper/config.yaml)</pre>
             <h3>Plain</h3>
             <p><code>NO_COLOR</code> keeps the layout and drops the color. <code>TERM=dumb</code> or
             redirected output gives plain text lines, and a narrow window gets a one-line
-            <code>CASPER 0.2.33 · your coding companion</code> header instead of the art.</p>
+            <code>CASPER 0.2.35 · your coding companion</code> header instead of the art.</p>
           </article>
         </div>
         <details>
@@ -795,7 +796,7 @@ Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an 
       </section>
 
       <section id="more" aria-labelledby="more-h">
-        <h2 id="more-h">More in 0.2.33</h2>
+        <h2 id="more-h">More in 0.2.35</h2>
         <p>These have no terminal picture on this page. Each card links to its guide.</p>
         <div class="grid">
           <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/UNDO.md">
@@ -804,11 +805,19 @@ Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an 
           </a>
           <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/SECURITY.md">
             <h3>Sandbox and asks</h3>
-            <p>On macOS and Linux the AI's shell and your checks write only the project, temp and package caches, can't read <code>~/.ssh</code>, and reach only listed hosts. <code>/sandbox</code> shows what it holds. On Windows, or Linux without bubblewrap, the AI's shell asks before each command that changes something.</p>
+            <p>The sandbox is off unless you turn it on (<code>/sandbox on</code>): Casper asks <code>Run this command?</code> before an AI shell command that changes something, and plain reads and routine work (tests, builds, <code>git commit</code>) run without a box. A 3 or 4 remembers that exact command. With the sandbox on (macOS and Linux), the shell and your checks write only the project, temp and package caches, can't read <code>~/.ssh</code>, and reach only listed hosts.</p>
           </a>
           <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/CONFIGURATION.md#private-ssh-passwords">
             <h3>Private ssh passwords</h3>
             <p>When an <code>ssh</code> or <code>scp</code> you allowed asks for a password, Casper shows its own hidden box. The password goes to ssh only, never to the AI. <code>ssh_login: off</code> turns it off.</p>
+          </a>
+          <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/TERMINAL_UX.md">
+            <h3>Plans and live steps</h3>
+            <p><code>/plan &lt;request&gt;</code> shows numbered steps and test cases, then <code>1 Stop · 2 Build · 3 Change the plan</code>: say what to change in plain words and the model rewrites it; Enter never builds. While Casper works, the steps read in plain words (<code>Looking through the code: 14 searches, 9 files read</code>, <code>Ran the tests</code>); <kbd>Ctrl+O</kbd> shows the raw tool calls, <kbd>Ctrl+T</kbd> the last step in full, and <kbd>Ctrl+X</kbd> turns MCP writes off.</p>
+          </a>
+          <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/CREWS.md">
+            <h3>Crews</h3>
+            <p>For a big job with separate parts the AI starts builders, each in its own copy of your folder; a reviewer checks each part, one fix round follows, and the full checks run on the combined result. Say "split this up" to ask for them, or <code>/crew &lt;job&gt;</code> for one by hand. It works from any worktree, and one <code>/undo</code> takes it all back.</p>
           </a>
           <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/PACKS.md">
             <h3>Skill packs and colour themes</h3>
@@ -828,7 +837,7 @@ Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an 
           </a>
           <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/CONFIGURATION.md#settings">
             <h3>Settings and local models</h3>
-            <p><code>/settings</code> groups switches into seven areas with aligned values and help for the highlighted row. Up/Down moves, Enter/Space changes, Left/Right or Tab switches areas, typing searches, and Esc closes; plain terminals keep grouped numbered choices. Sign in with OpenRouter, Anthropic, OpenAI Codex or GitHub Copilot, or start a model server on your own computer (Ollama, LM Studio, llama.cpp, vLLM) and its models show in <code>/model</code>; one on another computer is added there by its address. Lean guidance is automatic for model servers or windows of 32,768 tokens or less: shorter wording, the same tools, no extra model call. Big hosted models keep full text; <code>/settings</code> turns lean guidance off.</p>
+            <p><code>/settings</code> groups switches into seven areas with aligned values and help for the highlighted row. Up/Down moves, Enter/Space changes, Left/Right or Tab switches areas, typing searches, and Esc closes; plain terminals keep grouped numbered choices. Sign in with OpenRouter, the Anthropic API, your Claude Code plan, OpenAI Codex or GitHub Copilot, or start a model server on your own computer (Ollama, LM Studio, llama.cpp, vLLM) and its models show in <code>/model</code>; one on another computer is added there by its address. Lean guidance is automatic for model servers or windows of 32,768 tokens or less: shorter wording, the same tools, no extra model call. Big hosted models keep full text; <code>/settings</code> turns lean guidance off.</p>
           </a>
         </div>
       </section>
@@ -840,7 +849,7 @@ Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an 
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.34</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.35</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
