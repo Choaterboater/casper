@@ -76,7 +76,9 @@ test("/settings on a plain terminal (TERM=dumb) is a numbered list that reads a 
     const list = f.screen();
     expect(list).toContain("Pick one to change:");
     expect(list).toContain("  1 Done · nothing changes");
-    const last = /\n {2}(\d\d) Private ssh passwords · on\n/.exec(list)?.[1];
+    const last = /\n {2}(\d\d) Private ssh passwords · Privacy & sign-ins · on\n/.exec(list)?.[1];
+    expect(list).not.toContain("Web lookups: on");
+    for (const area of ["Tools & browser", "Pages, pictures & diagrams", "Commands & checks", "Models & cost", "Display", "MCP & network", "Privacy & sign-ins"]) expect(list).toContain(area);
     expect(last).toBeDefined();
     // The last row is reachable by its number: its question, then 1 keeps it.
     f.input.write(`${last}\r`);

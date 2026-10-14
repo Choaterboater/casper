@@ -10,6 +10,9 @@ import { activeThemeName, findTheme, shownThemeName, themeNames } from "../tui/t
 import { packThemeOwner } from "../packs/themes";
 import type { OutputWriter } from "./commands";
 import type { MCPManager } from "../mcp/manager";
+import type { RuntimeModelPickerHost } from "../runtime/types";
+import { showSettings } from "../tui/settings-screen";
+import { groupedSettings, SETTINGS_AREAS, settingsArea } from "./settings-areas";
 
 /** What /settings needs from the app: a numbered question only the person answers, and the project read again. */
 export interface SettingsHost {
@@ -19,6 +22,8 @@ export interface SettingsHost {
   readonly canAsk: boolean;
   /** /settings was typed while a task runs. */
   readonly duringTask?: boolean;
+  /** Rich terminal: lend the editor slot for the live settings screen. */
+  picker?(): RuntimeModelPickerHost | undefined;
   context(): Promise<ProjectContext | undefined>;
   /** The MCP servers, for the sandbox line of each one Casper has a profile for. */
   mcp?(): Pick<MCPManager, "status" | "setSandbox"> | undefined;
@@ -287,27 +292,59 @@ export function atAGlance(rows: readonly Pick<Setting, "label" | "value">[], wid
   return lines.join("\n");
 }
 
-/**
- * /settings: Casper's off switches as one numbered list, so nobody edits a config file. 1 is Done; a pick asks
- * with 1 Keep first, writes the answer into ~/.casper/config.yaml and lists the settings again.
- */
+/** The same save path for the live screen, plain numbered choices and a named setting. */
+async function saveSetting(host: SettingsHost, row: Setting, choice: Choice): Promise<string> {
+  const home = host.homeDir();
+  if (choice.apply) await choice.apply();
+  else await editUserConfig(home, typeof choice.keys === "function" ? await choice.keys(home) : choice.keys, choice.value);
+  await host.reload();
+  const task = host.duringTask && row.applies ? DURING_TASK[row.applies] : "";
+  const note = `${row.label}: ${choice.shown}. Saved in ${row.savedIn ?? USER_CONFIG}.${task}`;
+  host.output.write(`[settings] ${note}\n`);
+  return note;
+}
+
+/** /settings: one live screen on rich terminals, grouped numbered rows on plain ones. */
 export async function runSettings(host: SettingsHost, signal?: AbortSignal, only?: string): Promise<void> {
+  const readRows = async () => {
+    const context = await host.context();
+    return context ? [...settingRows(context), ...mcpSandboxRows(host.mcp?.())] : [];
+  };
+  const picker = host.canAsk && !only ? host.picker?.() : undefined;
+  if (picker) {
+    let rows = await readRows();
+    if (!rows.length || signal?.aborted) return;
+    await picker.mount(view => showSettings(view, rows, async (label, index) => {
+      const row = rows.find(row => row.label === label);
+      const choice = row?.choices[index];
+      if (!row || !choice || signal?.aborted) return { rows, note: "Nothing changed." };
+      const note = await saveSetting(host, row, choice);
+      rows = await readRows();
+      return { rows, note };
+    }, signal));
+    return;
+  }
   for (;;) {
     const context = await host.context();
     if (!context) return;
-    const rows = [...settingRows(context), ...mcpSandboxRows(host.mcp?.())].filter((row) => !only || row.label === only);
+    const rows = [...settingRows(context), ...mcpSandboxRows(host.mcp?.())].filter((row) => !only || row.label.toLowerCase() === only.toLowerCase());
+    if (only && !rows.length) {
+      host.output.write(`[settings] No setting named ${only}. Run /settings to find one.\n`);
+      return;
+    }
     if (!host.canAsk && only) {
-      host.output.write(`${rows.map((row) => `${row.label}: ${row.value}`).join("\n")}\nRun /${only.toLowerCase()} in a Casper session to change it by number.\n`);
+      host.output.write(`${rows.map((row) => `${row.label}: ${row.value}`).join("\n")}\nRun ${rows[0]!.label === "Theme" ? "/theme" : `/settings ${rows[0]!.label}`} in a Casper session to change it by number.\n`);
       return;
     }
     if (!host.canAsk) {
       const width = Math.max(...rows.map((row) => row.label.length)) + 2;
-      host.output.write(`Settings (${USER_CONFIG}):\n${rows.map((row) => `  ${row.label.padEnd(width)}${row.value}`).join("\n")}\nRun /settings in a Casper session to change one by number.\n`);
+      const groups = SETTINGS_AREAS.map((area, index) => `${area.name}:\n${rows.filter(row => settingsArea(row.label) === index).map(row => `  ${row.label.padEnd(width)}${row.value}`).join("\n")}`);
+      host.output.write(`Settings (${USER_CONFIG}):\n${groups.join("\n\n")}\nRun /settings in a Casper session to change one by number.\n`);
       return;
     }
     // `only` (/theme): straight to that row's question, once.
-    const picked = only ?? await host.ask(`Settings (saved in ${USER_CONFIG} for you):\n${atAGlance(rows)}\nPick one to change:`,
-      [{ label: "Done", description: "nothing changes" }, ...rows.map((row) => ({ label: row.label, description: row.value }))], signal);
+    const picked = only ? rows[0]!.label : await host.ask(`Settings (saved in ${USER_CONFIG} for you):\nPick one to change:`,
+      [{ label: "Done", description: "nothing changes" }, ...groupedSettings(rows).map((row) => ({ label: row.label, description: `${SETTINGS_AREAS[settingsArea(row.label)]!.name} · ${row.value}` }))], signal);
     const row = rows.find((candidate) => candidate.label === picked);
     if (!row || signal?.aborted) return;
     const answer = await host.ask(row.question, [{ label: row.keep },
@@ -315,18 +352,12 @@ export async function runSettings(host: SettingsHost, signal?: AbortSignal, only
     const choice = row.choices.find((candidate) => candidate.label === answer);
     if (only && !choice) return;
     if (!choice || signal?.aborted) continue;
-    const home = host.homeDir();
     try {
-      if (choice.apply) await choice.apply();
-      else await editUserConfig(home, typeof choice.keys === "function" ? await choice.keys(home) : choice.keys, choice.value);
+      await saveSetting(host, row, choice);
     } catch (error) {
       host.output.write(`[settings] Not saved: ${error instanceof Error ? error.message : String(error)}\n`);
       return;
     }
-    await host.reload();
-    // Typed during a task: says when the change reaches it (nothing for one that applies now or from the next start).
-    const task = host.duringTask && row.applies ? DURING_TASK[row.applies] : "";
-    host.output.write(`[settings] ${row.label}: ${choice.shown}. Saved in ${row.savedIn ?? USER_CONFIG}.${task}\n`);
     if (only) return;
   }
 }

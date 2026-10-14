@@ -5,7 +5,7 @@ and the `/` commands. **When you'd use it:** when you are learning Casper, or
 want to know what a symbol, key or command does. `/help` shows a short list in
 Casper, `/help <word>` only the lines that mention a word (`/help mcp`), and
 `/help all` the full one. A mistyped command gets "Did you mean …?", and a command that
-takes nothing after its name says so (`Usage: /settings, with nothing after it.`).
+takes nothing after its name says so (`Usage: /theme, with nothing after it.`).
 
 ## Quick reference
 
@@ -53,7 +53,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/btw <question>` | A side question, idle or during a task: your fast model answers with no tools, and the conversation never sees it (like a line you start with `?`; works with side questions off) |
 | `/suggestions [on\|off]` | List the suggested next steps, or turn them on or off |
 | `/details [quiet\|normal\|detailed]` | How much work shows, remembered like `/effort` (`--session` for this session only); alone, the level now; Ctrl+T shows the last step in full |
-| `/settings`, `/config` | Shows every switch and where it stands at a glance, then changes one by number: web lookups, the AI's browser and diagram tools, the new-version notice, suggestions, side questions with ?, built-in skills, spend notes and pause, the prompt cache, page checks, showing the AI the pages, the work shown, the untrusted-text reader, helpers that build, Playwright tests, Compose files and sending Casper's name to OpenRouter ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
+| `/settings [name]`, `/config [name]` | Seven areas, aligned values and help for the highlighted row. Up/Down moves; Enter/Space changes; Left/Right or Tab switches areas; type to search; Esc closes. A name opens one setting. Plain terminals keep grouped numbered choices ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
 | `/theme` | The Theme row of `/settings` on its own: pick the screen's colours |
 | `/hotkeys` | The keys Casper uses, one a line |
 | `/copy [n]` | Copy the last answer, or its code block n, to the clipboard |
@@ -623,8 +623,14 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   Approvals and pickers that take keys only have no Other row. A number picks a row only
   while nothing is typed, so a custom answer cannot start with a row's number unless
   Other is picked first (or a letter is typed first); a digit past the last row is ordinary text. A list longer
-  than nine (`/settings`) numbers every row: type the number and press Enter
+  than nine (plain `/settings`) numbers every row: type the number and press Enter
   (`Type 1-25 + Enter or Up/Down + Enter`).
+- `/settings` on a rich terminal is a screen, not a numbered list: seven tabs at 80 columns or more,
+  an area list first below that. Up/Down moves; Enter/Space flips an on/off at once or opens a small
+  Keep-first choice. Left/Right or Tab switches areas, typing searches all of them, Backspace clears
+  the search and Esc closes (inside a choice, Esc goes back). While searching, Space adds a space;
+  Enter changes the match. Values update at once; colours follow
+  Theme, with no colours under `NO_COLOR`.
 - Every numbered list draws the same way and ends with the same hint, `Press 1-4 or
   Up/Down + Enter`, followed by what else it takes: `Esc skip` for a question or picker
   (a question that takes a typed answer shows that with its Other row, not in the hint),
@@ -636,7 +642,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - A closed box leaves one line and nothing else: `<question> → <answer>` (`Pick a server → network`,
   `network → Connect`, `Make this change? → Yes, this once`), or `<question> — skipped` after Esc
   (`… — skipped (No)` for an approval). The question is its first line; the choices, the hint and the
-  lines under the question go with the box, so a skipped `/settings` leaves one line, not its rows. A
+  lines under the question go with the box. The rich `/settings` screen leaves only its save notes, not its rows. A
   long question is cut with `…` so the answer always shows. One exception: the no-sandbox `Run this command?` box
   leaves nothing after a yes (the command's own line shows it ran), one muted `✓ allowed until you quit: npm test` or
   `✓ allowed always in this project: npm test` line after 3 or 4, and the usual line after a No or Esc. That line is the only record: no `[ask]`,

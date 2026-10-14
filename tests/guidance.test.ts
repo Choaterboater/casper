@@ -116,7 +116,7 @@ test("configuration, Local models and site explain automatic guidance and the pe
   const local = config.slice(config.indexOf("## Local models"));
   expect(local).toContain("**Lean guidance.**");
   expect(local).toContain("even when their window is large or unknown");
-  expect(config).toContain("Type 1-39 + Enter or Up/Down + Enter");
+  expect(config).toContain("↑/↓ move · Enter/Space change · ←/→/Tab area · type to search · Esc close");
   const tour = await readFile(path.join(import.meta.dir, "../site/tour.html"), "utf8");
   for (const phrase of ["Lean guidance is automatic", "32,768 tokens or less", "the same tools, no extra model call", "Big hosted models keep full text", "turns lean guidance off"]) expect(tour).toContain(phrase);
 });

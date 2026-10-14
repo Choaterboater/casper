@@ -157,7 +157,7 @@ test("/settings: Theme lists every theme by name, 1 keeps it, and a pick is save
   expect(asked[1]).toBe("Theme: default. It changes the colours only, from now on; NO_COLOR still turns colour off.\n1 Keep default\n2 Light · for a light terminal background\n3 High-contrast · bright colours, no faint text");
   expect(await Bun.file(config).text()).toBe("theme: high-contrast\n");
   expect(output).toContain("[settings] Theme: high-contrast. Saved in ~/.casper/config.yaml.\n");
-  expect(asked[2]).toContain("Theme: high-contrast");
+  expect(asked[2]).toContain("Theme · Display · high-contrast");
 });
 
 test("/settings: a theme name Casper doesn't have shows as written, and Default puts it right", async () => {
@@ -170,13 +170,13 @@ test("/settings: a theme name Casper doesn't have shows as written, and Default 
     output: { write: () => {} }, homeDir: () => home, canAsk: true,
     context: async () => context ??= await loadProjectContext(await inspectProject(project), { homeDir: home }),
     reload: async () => { context = await loadProjectContext(await inspectProject(project), { homeDir: home }); },
-    ask: async (question, options) => { asked.push(`${question}\n${options.map((option, index) => `${index + 1} ${option.label}`).join("\n")}`); return answers.shift(); },
+    ask: async (question, options) => { asked.push(`${question}\n${options.map((option, index) => `${index + 1} ${option.label}${option.description ? ` · ${option.description}` : ""}`).join("\n")}`); return answers.shift(); },
   };
   await runSettings(host);
-  expect(asked[0]).toContain("Theme: ligth (not found, using default)");
-  expect(asked[1]).toBe("Theme: ligth (not found, using default). It changes the colours only, from now on; NO_COLOR still turns colour off.\n1 Keep it as it is\n2 Default\n3 Light\n4 High-contrast");
+  expect(asked[0]).toContain("Theme · Display · ligth (not found, using default)");
+  expect(asked[1]).toBe("Theme: ligth (not found, using default). It changes the colours only, from now on; NO_COLOR still turns colour off.\n1 Keep it as it is\n2 Default · Casper's own colours\n3 Light · for a light terminal background\n4 High-contrast · bright colours, no faint text");
   expect(await Bun.file(config).text()).toBe("theme: default\n");
-  expect(asked[2]).toContain("Theme: default");
+  expect(asked[2]).toContain("Theme · Display · default");
 });
 
 test("a theme: edited by hand mid-session colours what comes next at the next reload, and a bad name is named once", async () => {

@@ -17,7 +17,7 @@ with ? to ask on the side. Esc stops work. Type / for every command.
                          login
   /references            Search vendor specs you downloaded (/references add gets one)
   /resume, /clear        Pick up a saved conversation, or start a fresh one
-  /settings              Turn web lookups, spend notes and other switches on or off by number
+  /settings [name]       Browse settings by area, type to search, or change one by name
   /help <word>           Search the help; /help all shows everything
 Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an empty line exits.
 Approvals always need a fresh yes from you. think hard: or big model: at the start of a request sets
