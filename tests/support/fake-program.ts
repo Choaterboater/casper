@@ -1,6 +1,6 @@
 import { setDefaultTimeout } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmod, copyFile, link, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { FakeServerName } from "./fake-servers";
@@ -44,9 +44,16 @@ function launcher(): Promise<string> {
     if (await exists(target)) return target;
     await mkdir(folder, { recursive: true });
     const partial = path.join(folder, `partial-${process.pid}-${Date.now()}.exe`);
-    const build = Bun.spawnSync([process.execPath, "build", "--compile", "--no-compile-autoload-dotenv", "--no-compile-autoload-bunfig",
-      LAUNCHER, "--outfile", partial], { stdout: "pipe", stderr: "pipe" });
-    if (build.exitCode !== 0) throw new Error(`Could not build the fake launcher:\n${build.stderr.toString()}`);
+    // Bun 1.4 may leave a copy of its runtime (.<hash>-00000000.bun-build) in the build's folder. Built from a scratch
+    // folder of its own, as scripts/compile.ts does, it never lands in the repository, where a test that compiles
+    // Casper looks for exactly that leftover.
+    const scratch = await mkdtemp(path.join(os.tmpdir(), "casper-launcher-build-"));
+    let build: ReturnType<typeof Bun.spawnSync>;
+    try {
+      build = Bun.spawnSync([process.execPath, "build", "--compile", "--no-compile-autoload-dotenv", "--no-compile-autoload-bunfig",
+        LAUNCHER, "--outfile", partial], { cwd: scratch, stdout: "pipe", stderr: "pipe" });
+    } finally { await rm(scratch, { recursive: true, force: true }).catch(() => {}); }
+    if (build.exitCode !== 0) throw new Error(`Could not build the fake launcher:\n${build.stderr?.toString() ?? ""}`);
     // Another test run may have built it at the same time; either copy will do.
     try { await rename(partial, target); } catch (error) {
       await rm(partial, { force: true });

@@ -25,7 +25,12 @@ function windowsLauncher(): Promise<string> {
     const exe = path.join(os.tmpdir(), `casper-test-launcher-${hash}.exe`);
     if (await stat(exe).then((details) => details.isFile(), () => false)) return exe;
     const building = path.join(os.tmpdir(), `casper-test-launcher-${hash}-${process.pid}-${Date.now()}.exe`);
-    const built = spawnSync(process.execPath, ["build", "--compile", LAUNCHER, "--outfile", building], { encoding: "utf8", windowsHide: true });
+    // From a scratch folder: Bun 1.4 may leave a copy of its runtime (.<hash>-00000000.bun-build) in the build's folder,
+    // and it must never land in the repository (tests/release-compile.test.ts looks for exactly that leftover).
+    const scratch = await mkdtemp(path.join(os.tmpdir(), "casper-launcher-build-"));
+    let built: ReturnType<typeof spawnSync>;
+    try { built = spawnSync(process.execPath, ["build", "--compile", LAUNCHER, "--outfile", building], { cwd: scratch, encoding: "utf8", windowsHide: true }); }
+    finally { await rm(scratch, { recursive: true, force: true }).catch(() => {}); }
     if (built.status !== 0) throw new Error(`could not build the test launcher: ${built.stderr}`);
     // Another test process may have built it first: either copy is the same program.
     await rename(building, exe).catch(async () => { await rm(building, { force: true }); });
