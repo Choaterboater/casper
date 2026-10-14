@@ -320,4 +320,5 @@ test("before the first repair, the hook can leave a failure as it is", async () 
   expect(seen).toEqual([["test"]]);
   expect(repairs).toEqual([]);
   expect(left.reason).toBe("test was already failing before this change; Casper left it as it is.");
+  expect(left.failingBefore).toEqual(["test"]);
 });

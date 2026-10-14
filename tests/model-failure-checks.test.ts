@@ -255,7 +255,10 @@ test("a check that was already failing before the change is named as such; in th
     await screen.until((output) => Bun.stripANSI(output).includes("test was already failing before this change. Fix it anyway?"));
     expect(Bun.stripANSI(screen.output)).toContain("– test was already failing before this change (Casper ran it on the files from before)");
     input.write("\r"); // Enter picks 1 Leave it: no repair.
-    await screen.until((output) => { const text = Bun.stripANSI(output); const at = text.lastIndexOf("✗ Failed — test failed"); return at >= 0 && text.lastIndexOf("idle") > at; });
+    // The receipt says the change did not cause it, instead of leading with ✗ Failed.
+    const verdict = "– Not caused by this change — test already failed before it; left as it is";
+    await screen.until((output) => { const text = Bun.stripANSI(output); const at = text.lastIndexOf(verdict); return at >= 0 && text.lastIndexOf("idle") > at; });
+    expect(Bun.stripANSI(screen.output)).not.toContain("✗ Failed — test failed");
     expect(prompts).toBe(1);
     expect(app.getLastTaskResult()?.verification?.repairAttempts).toBe(0);
   } finally {
