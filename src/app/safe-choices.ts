@@ -21,25 +21,23 @@ export const YES_ALWAYS = "Yes, always for this project";
 /** The yes-words of every approval box, in order: choice 1, 2, 3 and 4 wherever they appear. */
 export const YES_WORDS = [NO, YES_ONCE, YES_SESSION, YES_ALWAYS] as const;
 
-/** Asked after the plan on both terminals (on the rich one, after the plan editor). */
+/** Asked after each plan on both terminals. */
 export const PLAN_QUESTION = "Build this plan?";
 
 /** The choices of PLAN_QUESTION. */
 export const PLAN_CHOICES = [
   { label: "Stop", description: "nothing is built" },
   { label: "Build", description: "the model builds these steps and tests these cases" },
+  { label: "Change the plan", description: "tell the model what to change, then choose again" },
 ] as const satisfies readonly Choice[];
 
-/** The same, on a rich terminal: a third choice opens the plan's lines to change. Stop stays first and Build second. */
-export const PLAN_CHOICES_EDIT = [
-  ...PLAN_CHOICES,
-  { label: "Edit the plan", description: "change the steps and cases first, then choose again" },
-] as const satisfies readonly Choice[];
+export const PLAN_CHANGE_QUESTION = "What should change?";
+export const PLAN_CHANGE_HINT = 'Type a change, e.g. "drop steps 1 and 4" or "also test X" · Enter sends · Esc stops without building';
 
-/** The plain terminal has no Ctrl+T and no editor: its third choice lists the cases and the details, then asks again. */
+/** The plain terminal has no Ctrl+T: a fourth choice lists the build details, then asks again. */
 export const PLAN_CHOICES_DETAILS = [
   ...PLAN_CHOICES,
-  { label: "Show the details", description: "list the cases to test and the details, then choose again" },
+  { label: "Show the details", description: "list the build details, then choose again" },
 ] as const satisfies readonly Choice[];
 
 /** "<model> can't see pictures, and this request has one." Both send the request: 1 on your model without the

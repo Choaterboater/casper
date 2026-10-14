@@ -396,8 +396,9 @@ did not pass or did not run. `/receipt` lists every case.
 ```
 
 **Editing the list.** Nothing waits before work: the list goes to the model as made. To read and
-correct the cases first, use `/plan <request>`: the plan lists the cases to test, and on the rich terminal
-`3 Edit the plan` changes them before anything is built.
+correct the cases first, use `/plan <request>`: the plan numbers its steps and test cases. On both terminals,
+`3 Change the plan` opens one line for plain words such as "also test X". The model rewrites the plan and shows
+it again with `1 Stop · 2 Build · 3 Change the plan`; Enter stops without building. There is no raw plan editor.
 
 If the call fails or its answer has no list of cases, Casper prints one line
 (`– Checklist not made: <reason>`) and the task runs unchanged. The checklist is guidance, not

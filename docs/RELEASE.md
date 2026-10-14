@@ -19,6 +19,13 @@ sets them and removes this line.
 - **Ctrl+O now shows the raw steps** (every tool call on its own row), as in Claude Code, Pi and omp; Ctrl+O again goes back to plain words. Ctrl+T still shows the last step in full.
 - **MCP writes off moved from Ctrl+O to Ctrl+X.** It still works mid-task, while a box is open, and in a picker; it still refuses an open change box. The footer reads `WRITES: <servers> · Ctrl+X`. `/mcp writes off` is unchanged. In `/model`, Ctrl+X still forgets a model server when no writes are on.
 
+### Change a plan in plain words
+
+`/plan` numbers its steps and test cases. Both terminals offer `1 Stop · 2 Build · 3 Change the plan`.
+Choice 3 takes one line, such as "drop steps 1 and 4" or "also test X"; the model rewrites the whole plan and
+shows it again with the same choices. The raw editor is gone. Enter still stops, never builds. The planning
+guidance excludes steps that only re-confirm a known fact or an established cause, including reviewer re-checks.
+
 ## v0.2.34: Claude Code plan login and leaner conversation history
 
 - `/login claude-subscription` uses Claude Code's existing verified plan login or starts its own browser sign-in. Claude Code owns credentials and refresh; Casper copies no plan tokens.
@@ -521,8 +528,8 @@ list the closest few. A typed line that only asks to change the model (`change m
 model call, also during a task.
 
 **A plan you can read.** `/plan` shows what you'll see first (a small mock-up when the change is on screen), plain
-steps and one line for the tests; the files and functions stay one key away (Ctrl+T). After Edit the plan, only
-what you changed and your note are shown.
+steps and, originally, one summary line for the tests; the files and functions stay one key away (Ctrl+T).
+Current `/plan` lists numbered test cases too and takes plain-word change requests instead of editing raw lines.
 
 **Network server updates.** Once a day Casper asks GitHub whether casper-network-mcp has a release newer than the
 one installed and offers it: `network: update ready (0.1.2 → 0.1.3)` with `1 Not now · 2 Update it`. It installs
@@ -717,8 +724,9 @@ in your own config sets the answer (a project file can't). An edit to documentat
 own system and unpacks it once, after its sha256 matches the pin, so a normal install downloads nothing. A
 source checkout still downloads the same pinned release.
 
-**Smaller fixes.** `/plan` shows the plan once, with a summary line and `1 Stop · 2 Build · 3 Edit the plan`
-(3 on a rich terminal), and a call blocked while planning reads "not run". When an ssh login is refused, the AI is told to run plain
+**Smaller fixes.** `/plan` originally showed the plan once, with a summary line and a third choice on a rich
+terminal. Current `/plan` offers `1 Stop · 2 Build · 3 Change the plan` on both terminals and shows a rewritten
+plan again. A call blocked while planning reads "not run". When an ssh login is refused, the AI is told to run plain
 `ssh` so Casper can ask for the password, and `ssh.exe` counts as `ssh` on Windows. On Windows the
 `casper update` helper writes `~/.casper/update.log`, and a failed update is said by `casper update`,
 `casper doctor` and the start of a session. The Mist skill reads RF and DFS settings the right way and finds
@@ -1693,10 +1701,10 @@ or in a receipt's changed files.
 are not in it; a receipt whose lab check ran says it ran outside the sandbox. Dev servers keep the machine's network on Linux, and inside the Linux sandbox
 `localhost` is the sandbox's own. Windows has no sandbox yet.
 
-**Plan editor asks before it builds.** On the rich terminal, Enter in the plan editor (plan first
-or `/plan`) no longer builds straight away: it goes on to "Build this plan?" with `1 Stop · 2 Build`,
-as the plain terminal already did, so Enter never starts a build that uses tokens. Esc still stops.
-One-shot and `--json` runs are unchanged: they show the plan and build nothing.
+**Plan approval keeps Stop first.** This release made "Build this plan?" keep `1 Stop · 2 Build`
+on both terminals, so Enter never starts a build that uses tokens. Current `/plan` adds `3 Change the plan`
+for a plain-word rewrite instead of a raw editor. Esc still stops. One-shot and `--json` runs show the plan
+and build nothing.
 
 ## v0.2.16: build new things
 

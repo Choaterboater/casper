@@ -84,7 +84,7 @@ Local commands:
   /model roles                      Show fast/build/reason/review role mappings
   /model role <fast|build|reason|review> <selector|clear>  Save or clear a role mapping
   /model big <selector|clear>       Set or clear your big model (the reason role); asked for when repairs run out
-  /plan <request>                   Plan first: blocks changes Casper can see while the model plans; you edit, then build
+  /plan <request>                   Numbered plan and test cases; 1 Stop, 2 Build, 3 Change the plan in plain words; blocks changes while planning
   /btw <question>                   A side question, idle or during a task, like a line you start with ? (works with side questions off)
   /suggestions                      List suggested next steps: on, off or faded (hidden after 3 ignores, 14 days)
   /suggestions on|off [name]        Turn every suggestion, or one, on or off (suggestions: false in config.yaml too)

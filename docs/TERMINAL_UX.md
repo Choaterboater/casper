@@ -49,7 +49,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/diff [n\|list]` | The last task's changes (also outside git), task n's, or a list to pick from; before any task, git's view |
 | `/undo [n]`, `/redo [n]` | Put the last task's (or task n's) files back, or back again (no model; [UNDO.md](UNDO.md)) |
 | `/rewind [n]` | Back to just before an earlier prompt (a numbered list, newest first; `/rewind 1` is your last), its words back in the prompt to edit and send; when later tasks changed files, `2 Conversation and files` puts them back too. No model; nothing is deleted ([UNDO.md](UNDO.md#rewind-to-an-earlier-prompt)) |
-| `/plan <request>` | Plan first: the model writes a plan and cases to test, you edit it, then build |
+| `/plan <request>` | Numbered plan and cases; request changes in plain words, then choose Build |
 | `/btw <question>` | A side question, idle or during a task: your fast model answers with no tools, and the conversation never sees it (like a line you start with `?`; works with side questions off) |
 | `/suggestions [on\|off]` | List the suggested next steps, or turn them on or off |
 | `/details [quiet\|normal\|detailed]` | How much work shows, remembered like `/effort` (`--session` for this session only); alone, the level now; Ctrl+T shows the last step in full |
@@ -351,19 +351,27 @@ Steps
   1. Write the tests first, then the change.
   2. Draw the header in the accent colour.
 
-Tests: 3 cases · Ctrl+T shows them and the details
+Tests: 3 cases
+  1. a plain terminal shows the one-line header
+  2. the header is drawn once
+  3. the name fades in at startup
+
+Ctrl+T shows the details
 ```
 
-What you'll see has a small text mock-up when the change shows on screen. The steps are plain words; the
-cases to test are listed once, and the files, functions and exact assertions (the plan's Details) stay one key
-away: Ctrl+T on the rich terminal. Long lines wrap; nothing is cut. Then "Build this plan?": 1 Stop · 2 Build,
-and on a rich terminal 3 Edit the plan, so Enter builds nothing. 3 opens the steps and cases in the editor: edit
-the lines, then Enter shows only what you changed (`Your changes:` with `-` and `+` lines, and the steps' new
-order if you moved any) and asks again. Words typed after a line behind ` - `, ` -- `, ` // `, ` (` or ` note`, or a
-`Note:` line, are your note (`Your note: …`), not part of the step; other words added to a line change it. Esc stops
-without building. Build gives the model the whole plan, the details and your notes included. The plain terminal asks
-without Edit: its tests line ends `choose 3 to see them`, and 3 Show the details lists the cases and the details,
-then asks again; a run that cannot ask lists everything and stops. An answer with only the older `Plan:` and
+What you'll see has a small text mock-up when the change shows on screen. Steps and test cases are numbered
+separately, each starting at 1. Only the files, functions and exact assertions (Details) stay one key away:
+Ctrl+T on the rich terminal. Long lines wrap; nothing is cut. Both terminals then ask "Build this plan?":
+`1 Stop · 2 Build · 3 Change the plan`. Enter chooses Stop, never Build.
+
+Choice 3 opens one empty line: type what to change in plain words, such as "drop steps 1 and 4" or "also test X".
+The model rewrites the whole plan under the same planning gate and shows it again with the same choices. You
+can ask for another change; only an explicit Build starts work. Empty Enter returns to the choices without
+calling the model; Esc stops without building. There is no raw multi-line plan editor. Build gives the model
+the whole revised plan, including its details and cases. On the plain terminal, `4 Show the details` is offered
+when there are details; it lists them and asks again. A run that cannot ask lists everything and stops.
+The planning guidance skips steps that only re-confirm known facts or an established cause (including reviewer
+agents re-checking it); it investigates only a specific unresolved question. An answer with only the older `Plan:` and
 `Tests:` sections reads as before, and anything outside the plan's sections (a `Risks:` list, say) goes with the
 details. When no plan comes of the answer (no numbered steps, Esc, a model failure) Casper prints what the model
 wrote, so nothing it said is lost. `/plan`

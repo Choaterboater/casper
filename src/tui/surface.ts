@@ -7,7 +7,7 @@ import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } fr
 import { readClipboardFiles } from "./clipboard-files";
 import { commandMenu, COMMANDS, findCommand, fitDescriptions, type MenuCommand, menuRunsDuringWork } from "./commands";
 import { BUSY_GLYPH, formatElapsed, hasLineControls, hasTerminalControls, markdownTheme, NOT_RUN_GLYPH, PROMPT_GLYPH, terminalText, tint } from "./format";
-import { answerRecord, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, OTHER_CHOICE, typedChoice, type PickRecord } from "./choices";
+import { answerRecord, answerRecordText, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, OTHER_CHOICE, typedChoice, type PickRecord } from "./choices";
 import { typedDuringTask } from "./give-way";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
@@ -128,6 +128,7 @@ export function promptEcho(text: string, color: boolean): Component {
 class PromptEditor extends Editor {
   glyph: () => string = () => PROMPT_GLYPH;
   paintGutter: (text: string) => string = text => text;
+  singleLine: () => boolean = () => false;
   /** Suggestion rows are lifted out of the box; the surface composites them over the transcript. */
   popup: string[] = [];
   private bottom = "";
@@ -138,6 +139,10 @@ class PromptEditor extends Editor {
   override handleInput(data: string): void {
     if (data.includes("\x1b[200~")) this.pasteBefore = this.getExpandedText();
     super.handleInput(data);
+    if (this.singleLine()) {
+      const text = this.getExpandedText();
+      if (/[\r\n]/.test(text)) this.setText(text.replace(/[\r\n]+/g, " "));
+    }
     if (this.pasteBefore === undefined || !data.includes("\x1b[201~")) return;
     const before = this.pasteBefore;
     this.pasteBefore = undefined;
@@ -233,9 +238,9 @@ export class TerminalSurface {
   private lending = false;
   /** A private box (a key, a password) a command typed during a task holds: the task's boxes wait until it closes. */
   private held?: Promise<void>;
-  /** The open question or list edit came from a command typed during a task: the task's boxes close it (yieldSlot). */
+  /** The open question or input came from a command typed during a task: the task's boxes close it (yieldSlot). */
   private askGivesWay = false;
-  private editGivesWay = false;
+  private lineGivesWay = false;
   private command?: (text?: string) => void;
   private pendingAsk?: (answer: string[] | undefined) => void;
   /** The open question and its options sanitized for display; an answer is the caller's own label. */
@@ -255,11 +260,11 @@ export class TerminalSurface {
   private askOther = false;
   /** The draft the open question set aside, with what is pasted while it is open; back in the prompt when it closes. */
   private askSetAside?: { draft: string; pasted: string[] };
-  /** An open list edit: the editor holds the lines; Enter returns them, Esc/Ctrl+C/close return undefined. */
-  private pendingEdit?: (lines: string[] | undefined) => void;
+  /** An empty, one-line input; Enter sends words, Esc/Ctrl+C/close return undefined. */
+  private pendingLine?: (text: string | undefined) => void;
   /** The row under the last receipt: a lone key on an empty, idle prompt submits its command. Any other key clears it. */
   private nextKeys?: Map<string, string>;
-  private editHeading: string[] = [];
+  private lineHeading: string[] = [];
   private message?: StreamingMarkdown;
   /** Pictures pasted into the prompt, by their number in `[image N]`; the app takes them with the request. */
   private pasted = new Map<number, RuntimeImage>();
@@ -283,12 +288,13 @@ export class TerminalSurface {
     this.editor = new PromptEditor(this.tui, { borderColor: this.border, selectList: {
       selectedPrefix: this.selected, selectedText: this.selected, description: this.muted, scrollInfo: this.muted, noMatch: this.muted,
     } }, { autocompleteMaxVisible: 7 });
-    this.editor.glyph = () => this.pendingAsk || this.pendingEdit ? "?" : this.busy ? BUSY_GLYPH : PROMPT_GLYPH;
-    this.editor.paintGutter = text => this.busy && !this.pendingAsk && !this.pendingEdit ? this.muted(text) : this.accent(text);
+    this.editor.glyph = () => this.pendingAsk || this.pendingLine ? "?" : this.busy ? BUSY_GLYPH : PROMPT_GLYPH;
+    this.editor.paintGutter = text => this.busy && !this.pendingAsk && !this.pendingLine ? this.muted(text) : this.accent(text);
+    this.editor.singleLine = () => Boolean(this.pendingLine);
     this.editor.onSubmit = value => {
       this.submittedPastes = this.editor.pasted;
       this.editor.pasted = [];
-      if (this.pendingEdit) { this.pendingEdit(value.split("\n")); return; }
+      if (this.pendingLine) { this.pendingLine(value.replace(/\s+/g, " ").trim()); return; }
       if (this.pendingAsk) { this.answerAsk(value); return; }
       if (!this.command) {
         // While Casper works the app takes the line (runs it, sends it to the AI or queues it), or says why it waits.
@@ -326,7 +332,7 @@ export class TerminalSurface {
         const block = this.slot ? this.slot.render(width).map(line => truncateToWidth(line, width))
           : this.lending ? [rule, this.muted(truncateToWidth("  exclusive input in progress · Esc or Ctrl+C cancels", width)), rule]
           : this.pendingAsk ? [this.askRule(width), ...this.renderAsk(width, this.terminal.rows - editorLines.length - 2), ...editorLines]
-          : this.pendingEdit ? [rule, ...this.editHeading.flatMap(line => wrapTextWithAnsi(line, width)).map(line => truncateToWidth(line, width)), ...editorLines]
+          : this.pendingLine ? [rule, ...this.lineHeading.flatMap(line => wrapTextWithAnsi(line, width)).map(line => truncateToWidth(line, width)), ...editorLines]
           : this.editor.popup.length ? [rule, ...this.editor.popup, ...status, ...editorLines] : [...status, ...editorLines];
         while (block.length < editorLines.length) block.push("");
         // The open group's steps show under the AI's words while nothing waits on you, and never more of them than fit
@@ -335,7 +341,7 @@ export class TerminalSurface {
         this.transcript.liveCap = Math.max(1, this.terminal.rows - block.length - 3);
         const body = this.transcript.render(width);
         const overlayLines = this.slot ? block.length - editorLines.length
-          : this.pendingAsk || this.pendingEdit ? 0
+          : this.pendingAsk || this.pendingLine ? 0
           : this.editor.popup.length ? this.editor.popup.length + 1 : 0;
         const overflow = this.lending ? 0 : Math.max(0, overlayLines);
         return [...body.slice(0, Math.max(0, body.length - overflow)), ...block, this.footer(width)];
@@ -386,9 +392,9 @@ export class TerminalSurface {
         this.askOther = false; this.editor.setText(""); this.render();
         return { consume: true };
       }
-      if (matchesKey(data, "escape") && (this.busy || this.pendingAsk || this.pendingEdit)) {
+      if (matchesKey(data, "escape") && (this.busy || this.pendingAsk || this.pendingLine)) {
         if (this.pendingAsk) this.pendingAsk(undefined);
-        else if (this.pendingEdit) this.pendingEdit(undefined);
+        else if (this.pendingLine) this.pendingLine(undefined);
         else this.cancel();
         return { consume: true };
       }
@@ -445,7 +451,7 @@ export class TerminalSurface {
       // Pi's thinking-cycle key. Consumed even while busy so the sequence never lands in the draft.
       if (matchesKey(data, "shift+tab")) {
         // While working too: the app applies it from the model's next step. A question or approval is still open first.
-        if (this.pendingAsk || this.pendingEdit) this.flashNote("effort unchanged · answer first");
+        if (this.pendingAsk || this.pendingLine) this.flashNote("effort unchanged · answer first");
         else this.onCycleEffort?.();
         return { consume: true };
       }
@@ -526,7 +532,7 @@ export class TerminalSurface {
   private get approvalOpen(): boolean { return Boolean(this.pendingAsk) && this.askFrom === "approval"; }
 
   /** A question, checklist, approval or picker is open: Casper is waiting on the user, not working. */
-  private get waiting(): boolean { return Boolean(this.pendingAsk || this.pendingEdit || this.slot || this.lending); }
+  private get waiting(): boolean { return Boolean(this.pendingAsk || this.pendingLine || this.slot || this.lending); }
 
   private footer(width: number): string {
     const full = this.badge;
@@ -738,7 +744,7 @@ export class TerminalSurface {
   private configureAutocomplete(): void {
     const provider = this.autocomplete;
     if (!provider) return;
-    if (this.pendingAsk || this.pendingEdit) {
+    if (this.pendingAsk || this.pendingLine) {
       this.editor.setAutocompleteProvider({ ...provider, triggerCharacters: [], getSuggestions: async () => null });
       return;
     }
@@ -849,7 +855,7 @@ export class TerminalSurface {
     // An approval always comes first: it waits only for a private box, and closes any other command's question.
     if (this.held && !typedDuringTask()) { await this.held; return this.approve(preview, question, options, signal); }
     this.yieldSlot(true);
-    if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || signal?.aborted || !options.length) return undefined;
+    if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingLine || signal?.aborted || !options.length) return undefined;
     this.endAssistant();
     if (preview.trim()) this.write(`${terminalText(preview.replace(/\n+$/, ""))}\n`);
     const answer = await this.ask(question, options, false, signal, "approval");
@@ -863,7 +869,7 @@ export class TerminalSurface {
     typed = from !== "approval", ownRecord?: PickRecord["record"]): Promise<string[] | undefined> {
     if (this.held && !typedDuringTask()) return this.held.then(() => this.ask(question, options, multi, signal, from, typed, ownRecord));
     this.yieldSlot();
-    if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
+    if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingLine || signal?.aborted) return Promise.resolve(undefined);
     // The steps and the status row step aside while the box is open, and come back after it.
     this.endAssistant();
     const draft = this.editor.getExpandedText();
@@ -928,36 +934,36 @@ export class TerminalSurface {
     return promise;
   }
 
-  /** The draft a question or edit box set aside, back in the prompt with what was pasted into it. */
+  /** The draft a question or input box set aside, back in the prompt with what was pasted into it. */
   private restoreSetAside(draft: string, pasted: string[]): void {
     this.editor.setText(draft);
     this.editor.pasted = draft ? pasted : [];
   }
 
-  /** Lines for the user to edit in place, one per editor line, under a heading and a key hint. Enter
-   * returns the editor's lines as they stand (blank ones included); Esc, Ctrl+C, abort or close return
-   * undefined. A pretyped draft is set aside and restored. The caller records the outcome. */
-  editLines(heading: string, hint: string, lines: readonly string[], signal?: AbortSignal): Promise<string[] | undefined> {
-    if (this.held && !typedDuringTask()) return this.held.then(() => this.editLines(heading, hint, lines, signal));
+  /** An empty input for a plain-word answer, never prefilled with plan text. Newlines become spaces.
+   * Enter returns the line (empty included); Esc, Ctrl+C, abort or close return undefined. */
+  askLine(question: string, hint: string, signal?: AbortSignal): Promise<string | undefined> {
+    if (this.held && !typedDuringTask()) return this.held.then(() => this.askLine(question, hint, signal));
     this.yieldSlot();
-    if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
+    if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingLine || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant();
     const draft = this.editor.getExpandedText();
     const draftPastes = this.editor.pasted;
-    this.editor.pasted = [];
-    const { promise, resolve } = Promise.withResolvers<string[] | undefined>();
+    const { promise, resolve } = Promise.withResolvers<string | undefined>();
     let settled = false;
-    const finish = (edited: string[] | undefined) => {
+    const finish = (text: string | undefined) => {
       if (settled) return; settled = true;
       signal?.removeEventListener("abort", cancel);
-      this.pendingEdit = undefined; this.editHeading = []; this.editGivesWay = false;
-      this.restoreSetAside(draft, draftPastes); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(edited);
+      this.pendingLine = undefined; this.lineHeading = []; this.lineGivesWay = false;
+      this.writeBlock({ render: width => wrapTextWithAnsi(this.muted(terminalText(answerRecordText(question, text ? [text] : undefined))), width), invalidate() {} });
+      this.records++;
+      this.restoreSetAside(draft, draftPastes); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(text);
     };
     const cancel = () => finish(undefined);
     this.attention("question");
-    this.pendingEdit = finish; this.editGivesWay = typedDuringTask();
-    this.editHeading = [this.accent(terminalText(heading)), this.muted(terminalText(hint))];
-    this.editor.setText(lines.map(line => terminalText(line).replace(/\s+/g, " ")).join("\n"));
+    this.pendingLine = finish; this.lineGivesWay = typedDuringTask();
+    this.lineHeading = [this.accent(terminalText(question)), this.muted(terminalText(hint))];
+    this.editor.setText("");
     this.configureAutocomplete(); this.updateSpinner(); this.render();
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
@@ -1063,13 +1069,13 @@ export class TerminalSurface {
   }
 
   /** A picker that gives way: an approval or question that opens while it is mounted closes it first. So does a question
-   * or list edit a command typed during a task opened, for any box but that command's own. */
+   * or input a command typed during a task opened, for any box but that command's own. */
   private yieldSlot(always = false): void {
     if (!always && typedDuringTask()) return;
     this.yielding = true;
     try {
       if (this.pendingAsk && this.askGivesWay) this.pendingAsk(undefined);
-      if (this.pendingEdit && this.editGivesWay) this.pendingEdit(undefined);
+      if (this.pendingLine && this.lineGivesWay) this.pendingLine(undefined);
     } finally { this.yielding = false; }
     const close = this.slotYield;
     if (!this.slot || !close) return;
@@ -1091,7 +1097,7 @@ export class TerminalSurface {
   /** `onYield`: the picker gives way to an approval or question (it must then close itself); see yieldSlot. One that
    * can't give way (a private box for a key), opened by a command typed during a task, makes the task's boxes wait. */
   exclusiveHost(options: { onYield?: () => void } = {}): RuntimeModelPickerHost | undefined {
-    if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingEdit || !this.started) return undefined;
+    if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingLine || !this.started) return undefined;
     const holds = typedDuringTask() && !options.onYield;
     const claim = () => {
       if (this.closed || this.slot || this.lending || this.approvalOpen) throw new Error("Terminal input is unavailable.");
@@ -1130,7 +1136,7 @@ export class TerminalSurface {
   interrupt(): void {
     if (this.closed) return;
     if (this.pendingAsk) this.pendingAsk(undefined);
-    if (this.pendingEdit) this.pendingEdit(undefined);
+    if (this.pendingLine) this.pendingLine(undefined);
     if (this.busy) { this.cancel(); return; }
     if (this.editor.getText()) { this.editor.setText(""); this.render(); return; }
     // An idle, empty editor: the first Ctrl-C only arms exit, so a reflexive Ctrl-C after a task
@@ -1153,7 +1159,7 @@ export class TerminalSurface {
     clearInterval(this.spinnerTimer);
     this.spinnerTimer = undefined;
     this.endAssistant(); this.closed = true;
-    this.pendingAsk?.(undefined); this.pendingEdit?.(undefined); this.command?.(); this.command = undefined;
+    this.pendingAsk?.(undefined); this.pendingLine?.(undefined); this.command?.(); this.command = undefined;
     // The last lines written (a final notice) are drawn before the terminal is handed back.
     if (this.started) { this.tui.renderNow(); this.tui.stop(); }
     this.eof();
