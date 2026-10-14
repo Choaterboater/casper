@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
-import { HANDOFF_SCRIPT, compareVersions, defaultRunner, gitEnv, newestRelease, runUpdate, type Fetcher, type ProcessRunner } from "../src/update/command";
+import { HANDOFF_SCRIPT, compareVersions, defaultRunner, gitEnv, newestRelease, runUpdate, windowsArgument, wmiCreateScript, type Fetcher, type ProcessRunner } from "../src/update/command";
 import { runningFromBinary } from "../src/update/mode";
 import { UPDATE_LOG, lastUpdateFailure, startUpdateLog, updateFailureLines } from "../src/update/handoff-log";
 import { CHECK_EVERY_MS, refreshUpdateCheck, updateChecksOff, updateFooterNote, updateNotice } from "../src/update/notice";
@@ -354,6 +354,8 @@ test("windows: the verified installer is handed to a detached process that waits
   expect(handed).toBe(files[`${DOWNLOAD}/v0.2.22/install.ps1`]);
   expect(arg("-InstallerSha256")).toBe(sha(files[`${DOWNLOAD}/v0.2.22/install.ps1`]));
   expect(env).toMatchObject({ CASPER_BASE_URL: `${DOWNLOAD}/v0.2.22` });
+  // Started by Windows (WMI), the helper gets none of Casper's settings: the installer's ones go as checked parameters.
+  expect(arg("-BaseUrl")).toBe(`${DOWNLOAD}/v0.2.22`);
   // Nothing is downloaded again and the running program is untouched.
   expect(github.asked.filter((url) => url.endsWith("install.ps1"))).toHaveLength(1);
   expect(await readdir(dir)).toEqual(["casper.exe"]);
@@ -902,4 +904,34 @@ test("update log: casper update, the session start line and casper doctor all sa
   expect(line).toContain("did not finish");
   // once this Casper is the new version, nothing is said
   expect(await updateNotice({ install: { kind: "binary", executable }, currentVersion: "0.2.22", stateDir, env: {}, fetch: fakeGitHub([]).fetch })).toBeUndefined();
+});
+
+test("windows: an argument is quoted the way Windows programs read their command line; & and % stay literal", () => {
+  expect(windowsArgument("plain")).toBe("plain");
+  expect(windowsArgument("")).toBe('""');
+  expect(windowsArgument("C:\\Users\\Jo Smith\\AppData")).toBe('"C:\\Users\\Jo Smith\\AppData"');
+  expect(windowsArgument("a&b%PATH%")).toBe("a&b%PATH%");
+  expect(windowsArgument('say "hi"')).toBe('"say \\"hi\\""');
+  // Backslashes are doubled only before a quote, including the closing one.
+  expect(windowsArgument("C:\\dir with space\\")).toBe('"C:\\dir with space\\\\"');
+  expect(windowsArgument('a\\"b')).toBe('a\\\\\\"b'.replace(/^/, '"') + '"');
+  expect(() => windowsArgument("two\nlines")).toThrow();
+  expect(() => windowsArgument("nul\0")).toThrow();
+});
+
+test("windows: the helper is started by Windows' WMI service with the full PowerShell path and one quoted command line", () => {
+  const script = wmiCreateScript(["powershell", "-File", "C:\\Users\\O'Neil\\handoff.ps1", "-InstallDir", "C:\\Program Files\\Casper"], "C:\\Windows");
+  expect(script).toContain("Invoke-CimMethod -ClassName Win32_Process -MethodName Create");
+  // The whole line is one PowerShell single-quoted literal: a quote in a path is doubled, so nothing in it runs.
+  expect(script).toContain("CommandLine = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -File C:\\Users\\O''Neil\\handoff.ps1 -InstallDir \"C:\\Program Files\\Casper\"'");
+  expect(script).toMatch(/started ' \+ \$r\.ProcessId\); exit 0/);
+  expect(script).not.toMatch(/Invoke-Expression|iex\b|DownloadString|Invoke-WebRequest|irm\b/i);
+  expect(() => wmiCreateScript(["powershell", "-File", "bad\nline"], "C:\\Windows")).toThrow();
+});
+
+test("windows: the helper sets the installer's settings only from checked parameters, never from its own environment", () => {
+  for (const pattern of ["$BaseUrl = ''", "$BinarySha256 = ''", "$Arch = ''"]) expect(HANDOFF_SCRIPT).toContain(pattern);
+  expect(HANDOFF_SCRIPT).toContain("ValidatePattern('^(https://github\\.com/Choaterboater/casper/releases/download/v[0-9A-Za-z.-]+)?$')");
+  expect(HANDOFF_SCRIPT).toContain("foreach ($Name in @('CASPER_BASE_URL', 'CASPER_SHA256', 'CASPER_ARCH', 'CASPER_OS')) { Remove-Item");
+  expect(HANDOFF_SCRIPT.indexOf("if ($BaseUrl) { $env:CASPER_BASE_URL = $BaseUrl }")).toBeLessThan(HANDOFF_SCRIPT.indexOf("& $Installer"));
 });

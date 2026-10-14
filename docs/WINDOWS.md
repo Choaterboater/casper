@@ -61,8 +61,10 @@ called casper.
 The command above always installs **v0.2.35**. Running it again reinstalls v0.2.35.
 To get a newer preview, run `casper update`. Windows will not replace a running `casper.exe`,
 so Casper checks that release's own installer (checksum and build provenance, as on other systems),
-saves it to a private temporary folder and starts a separate hidden PowerShell that waits for
-Casper to exit, then runs that same file. Casper prints one line and exits; the helper then
+saves it to a private temporary folder and asks Windows itself (its WMI service, `Win32_Process.Create`)
+to start a separate hidden PowerShell that waits for Casper to exit, then runs that same file. Started by
+Windows rather than by `casper.exe`, the helper keeps running after Casper exits; the settings the
+installer needs go to it as checked parameters. Casper prints one line and exits; the helper then
 downloads the new program, which takes a little while, so wait about 30 seconds before running `casper --version`.
 The waiting step gives up after five minutes without installing. If that separate step cannot be started, Casper shows
 the `irm ... | iex` line to run yourself.
@@ -70,8 +72,10 @@ the `irm ... | iex` line to run yourself.
 The helper has no window, so it writes what it does to `~/.casper/update.log` (one file, overwritten by each update;
 versions, process ids, the installer's SHA-256 and error text, nothing else): one line per step, and a last line
 `result: ok` or `result: failed: <why>`. When the last update did not finish, `casper update`, `casper doctor` and the
-line at the start of a session say so, name the log and show the `irm ... | iex` line. This hand-off has been run on
-a real Windows machine once, where `casper --version` still said the old version right after the update.
+line at the start of a session say so, name the log and show the `irm ... | iex` line. Before 0.2.36 the helper was
+started as Casper's own detached child; on a real Windows machine it never ran (the log stopped at `result: pending`),
+so updating from 0.2.35 or older still needs the `irm ... | iex` line once. `scripts/windows-handoff-check.ps1` checks,
+on a PC, which way of starting a helper outlives its parent.
 
 ## Windows with WSL (Linux inside Windows)
 
