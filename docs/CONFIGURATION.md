@@ -973,7 +973,8 @@ optional `modelRoles`, and `autoEffortModels` (full model IDs).
 - `/model` saves a new default unless `--session` comes before the model name.
 - `/effort` saves its choice unless `--session` comes after the level.
 - Shift+Tab cycles the same choices, including `auto`, and saves the level it stops at, once, like
-  `/effort`. The `--effort` command-line flag is for one run and never saves.
+  `/effort`: each press only moves the footer, and when the presses rest (under a second) Casper saves and
+  says it in one line, so going round the ring never leaves a line per press. The `--effort` command-line flag is for one run and never saves.
 - Which effort applies: a suffix you typed, then this conversation's remembered choice for the
   model, then the saved choice for the model.
 - Existing conversations and branches keep their model and effort even if you change roles later.

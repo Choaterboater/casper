@@ -332,6 +332,8 @@ export class CasperApp {
   spentBefore = { tokens: 0, cost: 0 };
   /** Shift+Tab steps already accepted. The prompt loop drains this before a request starts. */
   effortSteps = 0;
+  /** The save of a Shift+Tab level, once the presses have rested (EFFORT_SETTLE_MS). */
+  effortSave?: ReturnType<typeof setTimeout>;
   effortCycle: Promise<void> = Promise.resolve();
   workspaceTransition = false;
   workspaceNeedsRebind = false;

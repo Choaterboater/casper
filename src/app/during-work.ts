@@ -190,19 +190,36 @@ export async function setModelDuringWork(app: CasperApp, argument: string): Prom
 
 /** Shift+Tab. A held key walks the ring; the level the presses stop at is saved once, like `/effort`. During a task
  * the model's next step uses it. */
+/** How long Shift+Tab must rest before the level it stopped at is saved and said. */
+export const EFFORT_SETTLE_MS = 800;
+
 export function cycleEffort(app: CasperApp): void {
   if (app.closing) return;
   if (app.effortSteps >= 12) return;
+  // Another press: the level is not settled yet.
+  clearTimeout(app.effortSave);
+  app.effortSave = undefined;
   app.effortSteps++;
   app.effortCycle = app.effortCycle.then(async () => {
+    let applied = false;
     try {
-      if (!app.closing) await applyEffortCycle(app);
-      // What you pick sticks, like /effort: the level the presses stop at is saved once.
-      if (!app.closing && app.effortSteps === 1) await saveCycledEffort(app);
+      if (!app.closing) { await applyEffortCycle(app); applied = true; }
     }
     catch (error) {
       if (!app.closing) app.terminal.flashNote(error instanceof Error ? error.message : String(error));
     } finally { app.effortSteps--; }
+    // What you pick sticks, like /effort, but only where the presses stop: going round the ring is one line and one
+    // save, not one per press. Each press only moves the footer.
+    if (!applied || app.closing || app.effortSteps > 0) return;
+    app.effortSave = setTimeout(() => {
+      app.effortSave = undefined;
+      app.effortCycle = app.effortCycle.then(async () => {
+        if (app.closing || app.effortSteps > 0) return;
+        try { await saveCycledEffort(app); }
+        catch (error) { if (!app.closing) app.terminal.flashNote(error instanceof Error ? error.message : String(error)); }
+      });
+    }, EFFORT_SETTLE_MS);
+    app.effortSave.unref?.();
   });
 }
 

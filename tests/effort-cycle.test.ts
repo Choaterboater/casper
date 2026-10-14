@@ -223,6 +223,12 @@ test("interactive Shift+Tab steps through levels and saves the one it settles on
     input.write("\x1b[Z\x1b[Z");
     await until(text => Bun.stripANSI(text).includes("effort medium · saved"));
     expect(changes).toEqual([{ level: "low", persist: false }, { level: "medium", persist: false }, { level: "medium", persist: true }]);
+    // Presses a person makes, each one landing after the last has applied: still one save, where they rest.
+    changes.length = 0;
+    for (let press = 0; press < 3; press++) { input.write("\x1b[Z"); await Bun.sleep(150); }
+    const before = Bun.stripANSI(output).split("effort off · saved").length;
+    await until(text => Bun.stripANSI(text).split("effort off · saved").length > before);
+    expect(changes).toEqual([{ level: "high", persist: false }, { level: "auto", persist: false }, { level: "off", persist: false }, { level: "off", persist: true }]);
     input.write("\x04");
     expect(await Promise.race([interactive.then(() => "ended"), Bun.sleep(1000).then(() => "stuck")])).toBe("ended");
   } finally {
