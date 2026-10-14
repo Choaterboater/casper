@@ -134,14 +134,14 @@
         <aside class="callout soon">
           <strong class="callout-title">Not in any release yet</strong>
           <p>Nothing else in this section is in v0.2.34: the first part of Crews shipped in v0.2.23, AI-started
-          builders in v0.2.24, reviewers and a fix round in v0.2.25. Full checks on the combined result are built for the next release; crew-wide request limits have not been started. Names, commands and details may change, or move to a later version, before
+          builders in v0.2.24, reviewers and a fix round in v0.2.25; a limit said in the request has covered the whole crew since v0.2.24. Full checks on the combined result are built for the next release, which completes Crews. Names, commands and details may change, or move to a later version, before
           they ship.</p>
         </aside>
 
         <div class="stack">
         <article class="card" id="v030" aria-labelledby="v030-h">
           <div class="release-heading"><h3 id="v030-h">v0.3 · Crews</h3>
-            <span class="badge soon">first parts shipped in v0.2.23, v0.2.24 and v0.2.25</span></div>
+            <span class="badge soon">shipped in v0.2.23–v0.2.25; the last part is built for the next release</span></div>
           <p>Big jobs get a team. The AI splits a big job itself, as Claude Code and omp do; <code>/crew</code>
           is the manual way.</p>
           <ul>
@@ -164,8 +164,9 @@
              on the combined result before the crew reports done, and the receipt shows the run and its status.
              Per-part passes do not replace it; a whole batch already run on the same final files counts once.
              Later edits or reviews require a fresh batch. Verification-off, offered checks and manual/device-check limits still apply.</li>
-            <li><strong>Your limits apply to the crew.</strong> A limit said in the request ("keep it
-            under $2") holds for the whole crew, and the cost is shown as it goes.</li>
+            <li><strong>Your limits apply to the crew</strong> <span class="badge">in v0.2.24</span>. A limit said in the request ("keep it
+            under $2") holds for the whole crew, builders included, and the footer shows the cost as it goes. Off unless you say one or set
+            the spend pause in <code>/settings</code>; never on a Claude or ChatGPT plan, which isn't billed per task.</li>
           </ul>
         </article>
         </div>
