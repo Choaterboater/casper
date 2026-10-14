@@ -111,7 +111,13 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>The v0.2.34 preview contains the Claude Code plan login and model refresh fixes, leaner tool-output history, and one bounded repair for a failed final browser replay. Since then: a task started in your home folder or at a drive's top no longer lists the whole folder first, and the AI is told to put a new project in <code>~/Projects/&lt;name&gt;</code> instead of searching it.</p>
+          <p>The v0.2.34 preview contains the Claude Code plan login and model refresh fixes, leaner tool-output history, and one bounded repair for a failed final browser replay. Built since then, in the next one:</p>
+          <ul>
+            <li>Local models, local addresses and models with a small window get shorter guidance automatically (<strong>Lean guidance</strong> in <code>/settings</code> turns it off).</li>
+            <li>A yes in the <em>Run this command?</em> box covers that exact command, including a command an older Casper kept as a prefix, and <code>gh api</code> runs without asking only as a plain read from GitHub (a search with <code>-X GET</code> included).</li>
+            <li>A task started in your home folder or at a drive's top no longer lists the whole folder first, and the AI is told to put a new project in <code>~/Projects/&lt;name&gt;</code> instead of searching it.</li>
+            <li>With the Claude Code plan login, a tool call Claude names without its prefix runs instead of failing the turn.</li>
+          </ul>
         </aside>
       </section>
 
@@ -301,17 +307,6 @@
         <p class="muted small">Want something on this list, or think something is missing? Open an
         <a href="https://github.com/Choaterboater/casper/issues">issue on GitHub</a>.</p>
 
-      <section id="tool-history" aria-labelledby="tool-history-h">
-        <h2 id="tool-history-h">Built · old tool output</h2>
-        <p>Old bulky reads, successful command output and screenshots now become permanent stubs
-        in the AI's history once they fill a fifth of the model's window, or the prompt passes 60%
-        of it. The latest four rounds, failures and recent references stay visible; saved output is
-        unchanged. Each time rebuilds the cache once, then earlier messages stay identical, and a
-        short task never pays for it. On by default, with
-        <strong>Hide old tool output</strong> in <code>/settings</code> to stop new hiding.</p>
-        <p class="muted small">Inspired by SWE-agent and Waveloom. Implemented after the latest
-        release; not yet published.</p>
-      </section>
 
       <section id="ideas" aria-labelledby="ideas-h">
         <h2 id="ideas-h">Ideas to borrow</h2>
@@ -334,12 +329,11 @@
           <li>Browser steps wait until the target is visible, enabled and not covered, say when a click changed nothing, and report confirm and alert dialogs (Playwright, PostHog).</li>
           <li>Each browser action says what changed on the page, so no screenshot is needed (Playwright MCP, browser-use).</li>
           <li>Several browser steps in one call (browser-use).</li>
-          <li>Lean or full guidance per model: habit skills only for weaker models (Aider, Codex).</li>
           <li>Edits that point at line anchors instead of retyping old text, for small and local models; a stale anchor is refused (omp).</li>
           <li>Selected checks run in parallel, and a repair reruns the failing one first (lefthook).</li>
           <li>A skill loads the first time a matching file is touched (Claude Code).</li>
           <li><code>/goal</code> keeps working until Casper's checks pass (Codex CLI).</li>
-          <li><code>/export</code>, and <code>/share</code> a session as a secret gist (opencode).</li>
+          <li><code>/share</code> a session as a secret gist (opencode).</li>
           <li>Home lab skills for RouterOS, OPNsense and Home Assistant.</li>
           <li>Everyday server and database reads without a box, on this computer and over ssh (kubectl-ai, DBHub).</li>
           <li>Safe container updates with a rollback image and a config backup (dockcheck, WUD).</li>
