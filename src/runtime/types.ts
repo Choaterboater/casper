@@ -5,6 +5,7 @@ import type { ToolObservationInput, ToolObservationOutput } from "./observation"
 import type { PromptCacheSetting } from "./cache";
 import type { BackgroundCommands } from "./background-commands";
 import type { GuidanceSetting } from "./guidance";
+import type { CheckChangeOptions } from "./check-changes";
 
 export interface RuntimeToolContext {
   /** Serialize multi-file mutations with the runtime's native file writers. */
@@ -30,6 +31,8 @@ export interface RuntimeStartOptions {
   /** Lean rendering of Casper's own text only; user/project instructions remain intact. */
   leanSystemPromptAppend?: string;
   tools?: RuntimeTool[];
+  /** Configured check mutations ask the person at the native file-write boundary; absent: refuse. */
+  checkChanges?: CheckChangeOptions;
   /** Append diagnostics to successful native edit/write results before the next model turn.
    * Path is literal (native input syntax expanded once), absolute or relative to cwd. */
   afterFileEdit?: (path: string, signal?: AbortSignal) => Promise<string | undefined>;

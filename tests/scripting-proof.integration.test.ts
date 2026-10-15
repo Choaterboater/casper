@@ -1,19 +1,34 @@
 import { expect, test } from "bun:test";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { isolatedEnvironment } from "../src/platform/environment";
 import { cleanUpAfterEach, fixture, fixProject, lastUser, afterTool, REVIEW, reviewOn, PROOF_REPAIR, weaklyTestedProject, asked, TICKED, shellCheckTest, isAcceptance } from "./support/scripting";
 
 cleanUpAfterEach();
+
+/** Real CLI, with only sandbox detection forced to Windows (no sandbox, noninteractive shell approvals). */
+async function runWithWindowsSandbox(f: Awaited<ReturnType<typeof fixture>>) {
+  const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "fixtures/scripting-windows.ts"), "--json", "--verify", "--require-verification", "Fix sum.js"], {
+    cwd: f.project, env: { ...isolatedEnvironment(f.home), CASPER_OFFLINE: "1" }, stdin: "ignore", stdout: "pipe", stderr: "pipe",
+  });
+  const timer = setTimeout(() => child.kill(), 60_000);
+  try {
+    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    return { stdout, stderr, exit };
+  } finally { clearTimeout(timer); }
+}
 
 shellCheckTest("an unproven fix gets one round to add a test that fails without it; then the receipt says proven", async () => {
   const f = await fixture((_request, payload) => {
     const prompt = lastUser(payload);
     if (prompt.includes(PROOF_REPAIR)) return afterTool(payload) ? { text: "Added a test that fails on the broken code." }
-      : { tools: [{ name: "write", args: { path: "tests/check.sh", content: "grep -q fixed sum.js\n" } }] };
+      : { tools: [{ name: "write", args: { path: "tests/sum.test.sh", content: "grep -q fixed sum.js\n" } }] };
     if (prompt.includes(REVIEW)) return TICKED;
     return afterTool(payload) ? { text: "Fixed sum.js." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] };
   });
   await weaklyTestedProject(f);
+  // Keep the configured runner unchanged; the repair adds a discovered regression test, not a check rewrite.
+  await writeFile(path.join(f.project, "tests/check.sh"), 'test -f sum.js || exit\nfor file in tests/*.test.sh; do\n  [ ! -f "$file" ] || sh "$file" || exit\ndone\n');
   await reviewOn(f);
   const result = await f.run(["--json", "--verify", "--require-verification", "Fix sum.js"]);
   // The first turn is the request itself; the review comes before the proof, and the proof round asks for the test.
@@ -112,16 +127,46 @@ shellCheckTest("a change that rewrites what the test command runs is not verifie
   const f = await fixture((_request, payload) => isAcceptance(payload) ? { text: "```js\ntest(\"sum is fixed\", () => { throw new Error(\"no\"); });\n```" }
     : lastUser(payload).includes(REVIEW) ? TICKED
     : afterTool(payload) || lastUser(payload).includes(PROOF_REPAIR) ? { text: "Fixed sum.js." }
-    : { tools: [{ name: "write", args: { path: "sum.js", content: "still broken\n" } }, { name: "write", args: { path: "run-tests.sh", content: "true\n" } }] });
+    : { tools: [{ name: "write", args: { path: "sum.js", content: "still broken\n" } }, { name: "bash", args: { command: "bun run rewrite" } }] });
   await mkdir(path.join(f.project, ".casper"));
   await writeFile(path.join(f.project, ".casper/project.yaml"), 'verify:\n  test: "sh run-tests.sh"\nverification:\n  acceptance: true\n');
   await writeFile(path.join(f.project, "run-tests.sh"), "grep -q fixed sum.js\n");
+  // Native rewrites now correctly need approval. An opaque script can still change the definition;
+  // this end-of-task evidence check must catch that independently of the write-time text guard.
+  await writeFile(path.join(f.project, "rewrite.sh"), "printf 'true\\n' > run-tests.sh\n");
+  // A package script is routine on Windows too; a bare sh rewrite.sh is correctly refused without a person.
+  await writeFile(path.join(f.project, "package.json"), JSON.stringify({ scripts: { rewrite: "sh rewrite.sh" } }));
   await writeFile(path.join(f.project, "sum.js"), "broken\n");
-  const result = await f.run(["--json", "--verify", "--require-verification", "Fix sum.js"]);
+  const result = await runWithWindowsSandbox(f);
+  expect(await readFile(path.join(f.project, "run-tests.sh"), "utf8")).toBe("true\n");
+  expect(JSON.stringify(f.payloads)).not.toContain("Not run: shell commands need your OK");
   const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
   expect({ exit: result.exit, outcome: receipt.outcome, proof: receipt.proof?.status }).toEqual({ exit: 3, outcome: "not_verified", proof: "unavailable" });
   expect(receipt.proof.reason).toContain("the test command's definition changed in this task (run-tests.sh)");
   // The acceptance check would run through the same rewritten script: it is not run, and says why.
+  expect(receipt.acceptance?.status).toBe("error");
+  expect(f.payloads.filter(isAcceptance)).toHaveLength(0);
+}, 60_000);
+
+test("a rewritten test command with Windows-style paths and CRLF is not verified on any OS, with no acceptance pass", async () => {
+  const f = await fixture((_request, payload) => isAcceptance(payload) ? { text: "Unexpected acceptance call." }
+    : afterTool(payload) || lastUser(payload).includes(PROOF_REPAIR) ? { text: "Fixed sum.js." }
+    : { tools: [{ name: "write", args: { path: "sum.js", content: "still broken\r\n" } }, { name: "bash", args: { command: "bun run rewrite" } }] });
+  await mkdir(path.join(f.project, ".casper"));
+  await mkdir(path.join(f.project, "scripts"));
+  const command = 'bun run ".\\scripts\\run-check.ts"';
+  await writeFile(path.join(f.project, ".casper/project.yaml"), `verify:\r\n  test: ${JSON.stringify(command)}\r\nverification:\r\n  acceptance: true\r\n`);
+  await writeFile(path.join(f.project, "package.json"), JSON.stringify({ scripts: { rewrite: "bun run scripts/rewrite.ts" } }));
+  await writeFile(path.join(f.project, "scripts/run-check.ts"), 'if ((await Bun.file("sum.js").text()).trim() !== "fixed") process.exit(1);\r\n');
+  const rewritten = "process.exit(0);\r\n";
+  await writeFile(path.join(f.project, "scripts/rewrite.ts"), `await Bun.write(new URL("./run-check.ts", import.meta.url), ${JSON.stringify(rewritten)});\r\n`);
+  await writeFile(path.join(f.project, "sum.js"), "broken\r\n");
+  const result = await runWithWindowsSandbox(f);
+  expect(await readFile(path.join(f.project, "scripts/run-check.ts"), "utf8")).toBe(rewritten);
+  const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
+  expect({ exit: result.exit, outcome: receipt.outcome, proof: receipt.proof?.status }).toEqual({ exit: 3, outcome: "not_verified", proof: "unavailable" });
+  expect(receipt.proof.reason).toContain("the test command's definition changed in this task (scripts/run-check.ts)");
+  expect(receipt.checks[0]).toMatchObject({ command, status: "pass" });
   expect(receipt.acceptance?.status).toBe("error");
   expect(f.payloads.filter(isAcceptance)).toHaveLength(0);
 }, 60_000);

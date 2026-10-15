@@ -391,7 +391,7 @@ export class SubagentManager {
     const tally = { built: 0, fixes: 0 };
     const offered = Boolean(builders && !builders.off);
     const buildText = !builders ? "" : offered
-      ? ` Role builder (a job with separate parts): works in its own copy; lands here when it ends unless a file it touched changed meanwhile; then have a reviewer check it unless it is a few lines: reviewer with "of" = the result's part number gets its diff and is not one of the ${SUBAGENT_LIMITS.maxDelegationsPerTask}; builder with "of" fixes that part from its review, once. Up to ${BUILDER_LIMITS.maxConcurrent} at once.`
+      ? ` Role builder: only substantial independent parts (several files each, different areas); small/coupled work stays with one Casper. Own copy; lands unless touched files changed here; have a reviewer check it unless a few lines: reviewer "of" = part number gets its diff, outside the ${SUBAGENT_LIMITS.maxDelegationsPerTask}; builder "of" fixes it once. Up to ${BUILDER_LIMITS.maxConcurrent} at once.`
       : ` No builders here: ${builders.off}.`;
     return {
       name: "delegate",

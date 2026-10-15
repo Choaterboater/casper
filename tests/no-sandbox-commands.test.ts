@@ -31,6 +31,24 @@ test("commands that only read are known; anything that writes, runs a program or
   }
 });
 
+test("git revision and ref queries allow only their read options, never stdin or output files", async () => {
+  const { project } = await fixture();
+  for (const command of [
+    "git rev-list --count origin/main..HEAD", "git rev-list --left-right --count A...B", "git rev-list --max-count=5 --parents HEAD",
+    "git rev-list -n 5 --cherry-pick --left-only origin/main...HEAD", "git rev-list --all --topo-order --oneline",
+    "git show-ref", "git show-ref --heads --tags --dereference", "git show-ref --verify --quiet refs/heads/main", "git show-ref --hash=12",
+    "git for-each-ref", "git for-each-ref --sort=-committerdate --count=10 --format='%(refname:short)' refs/heads/",
+    "git for-each-ref --merged=HEAD --contains HEAD refs/tags/",
+  ]) expect({ command, read: readOnlyCommand(command, project) }).toEqual({ command, read: true });
+  for (const command of [
+    "git rev-list --stdin", "echo HEAD | git rev-list --stdin", "git rev-list --output=out HEAD", "git rev-list --output out HEAD",
+    "git rev-list --alternate-refs", "git rev-list --unknown HEAD", "git rev-list HEAD:.env", "git rev-list HEAD -- ../outside",
+    "git show-ref --exclude-existing", "git show-ref --exclude-existing=refs/heads/", "git show-ref --stdin", "git show-ref --output=out",
+    "git for-each-ref --stdin", "git for-each-ref --output=out", "git for-each-ref --output out", "git for-each-ref --unknown",
+    "git -c core.pager=sh for-each-ref", "git for-each-ref > refs.txt", "git show-ref | tee refs.txt",
+  ]) expect({ command, read: readOnlyCommand(command, project) }).toEqual({ command, read: false });
+});
+
 test("whole-project rg and git grep are reads in a clean fixture and ask when a private file is added", async () => {
   const { project } = await fixture();
   for (const command of ["rg -n foo", "git grep -nw todo"]) expect(readOnlyCommand(command, project)).toBe(true);

@@ -52,6 +52,22 @@ sets them and removes this line.
   completed rows, Ctrl+O details and Alt+O raw steps. Plain terminals retain crew lines. Footer and crew clocks
   separate working time from `waited` time.
 
+### Build-observation fixes (unreleased)
+
+- Network skills need a real subject match; a project's Junos/Ansible stack no longer selects one for
+  unrelated `ps` or `git config` work.
+- AI changes to configured checks and their scripts ask **Change the test check for this project?** with
+  old → new. A command replacement can be session-only (no file write); approved replacements apply now.
+- Receipts count files from the task's commits, amendments and cherry-picks, not just dirty files.
+  Proof copies include safe literal check inputs such as gitignored `.casper/quick-test.ts`; private,
+  outside, linked or absolute inputs get a plain cannot-compare reason instead of misleading evidence.
+- Read guidance uses `read`, `wc` and `tail`; interpreter scripts are for computation. Crew guidance splits
+  only substantial independent multi-file areas and keeps small or coupled work with one Casper.
+- Bundled assets, fixtures and samples no longer look like the project's Ansible playbooks. Save-check
+  suggestions require a changed covered playbook; suggestions start at 1 when no diff/undo is offered.
+- `git rev-list`, `git show-ref` and `git for-each-ref` skip command approval with listed read options;
+  stdin, output-writing and unknown options still ask.
+
 ### SGLang and MLX model servers
 
 Built, not released; these changes are not in v0.2.35.

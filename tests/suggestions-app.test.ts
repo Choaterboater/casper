@@ -8,7 +8,6 @@ import { bundledFlows, findFlow } from "../src/flows/catalog";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEventListener } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
-import { checkCommand } from "./support/check-command";
 import { removeTempDir } from "./support/temp-dir";
 
 /** An interactive app on the plain terminal. The fake model edits calc.py; `shell` makes it also run that command
@@ -79,7 +78,8 @@ async function fixture(options: { projectYaml: string; shell?: string }) {
   } };
 }
 
-const PASSING = `verify:\n  test: ${JSON.stringify(checkCommand())}\nverification:\n  mode: auto\n  checklist: false\nrepair:\n  maxAttempts: 0\n`;
+// No outside-project fixture script: proof copies deliberately reject those inputs.
+const PASSING = `verify:\n  test: ${JSON.stringify(`"${process.execPath}" -e "process.exit(0)" -- fixture`)}\nverification:\n  mode: auto\n  checklist: false\nrepair:\n  maxAttempts: 0\n`;
 
 test("a fix whose tests pass without it gets \"Add a test\" on the row; its number sends the prove-fix flow", async () => {
   const f = await fixture({ projectYaml: PASSING });

@@ -15,7 +15,12 @@ export const MAX_YAML_FILES = 200;
 const MAX_DEPTH = 5;
 /** Files and folders looked at in one scan; a real Ansible project is far smaller. */
 const MAX_ENTRIES = 5000;
-const SKIP_FOLDERS = new Set([".git", "node_modules", ".venv", "venv", ".tox", "collections", "roles", ".casper", "__pycache__", "dist", "build"]);
+// Bundled helpers, fixtures and samples are application data, not the project's playbooks.
+// Explicitly declared checks can still read them through readProjectPlaybook.
+const SKIP_FOLDERS = new Set([
+  ".git", "node_modules", ".venv", "venv", ".tox", "collections", "roles", ".casper", "__pycache__", "dist", "build",
+  "assets", "bundled", "fixtures", "__fixtures__", "samples",
+]);
 
 /** Collections whose modules talk to network devices. */
 export const NETWORK_COLLECTIONS = ["arubanetworks.aoscx", "junipernetworks.junos", "juniper.device"] as const;

@@ -248,8 +248,8 @@ function contains(words: string, trigger: string): boolean {
   return ` ${words} `.includes(` ${trigger} `);
 }
 
-/** Local word match, no model call. 0 means not picked. Strong trigger 6 each, weak trigger with a
- * context word 3, the project's SDK plus a change request plus a context word 2. */
+/** Local word match, no model call. A subject trigger is required: strong 6 each, weak with a
+ * context word 3. The project's SDK boosts a matching change request with context by 2. */
 export function scoreSkillRule(
   rule: BundledSkillRule,
   request: string,
@@ -269,7 +269,9 @@ export function scoreSkillRule(
   const weakHit = weak.length > 0 && context;
   const frameworkHit = context && FRAMEWORK_INTENTS.has(classification.intent)
     && rule.frameworks.some((framework) => project.frameworks.includes(framework));
-  if (!strong && !weakHit && !frameworkHit) return 0;
+  // The stack describes the project, not this request's subject. Generic words such as
+  // "script" or "token" must not load a device skill for unrelated work in that project.
+  if (!strong && !weakHit) return 0;
   return strong * 6 + (weakHit ? 3 : 0) + (frameworkHit ? 2 : 0);
 }
 

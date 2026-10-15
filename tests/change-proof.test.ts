@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readdir, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { diffSnapshots, snapshotTree } from "../src/task/changes";
 import { ChangeBaseline, isCodePath, isTestPath, withoutEnded } from "../src/verify/proof";
-import { checkCommand } from "./support/check-command";
 import { removeTempDir } from "./support/temp-dir";
 import { childTestLimit } from "./support/limits";
 
@@ -100,9 +100,114 @@ test("an existing test that the change makes pass proves it too", async () => {
 
 test("a copy that cannot run the tests is unavailable, never mistaken for proof", async () => {
   // The check needs .git/, which copies never contain: it fails in both copies, so no comparison is possible.
-  const proof = await prove({ "src/sum.js": "broken\n", ".git/marker": "x" }, async (root) => { await write(root, { "src/sum.js": "fixed\n" }); },
-    checkCommand("require:.git/marker", "require-line:src/sum.js=fixed"));
+  const proof = await prove({ "src/sum.js": "broken\n", ".git/marker": "x", "tests/check.js": check(has(".git/marker"), says("src/sum.js", "fixed")) },
+    async (root) => { await write(root, { "src/sum.js": "fixed\n" }); }, CHECK);
   expect(proof).toEqual({ status: "unavailable", check: "test", reason: "test does not pass in a copy of the workspace, so Casper cannot compare with and without the change" });
+});
+
+test("an ignored .casper check input is captured and used in both proof copies, not its state siblings", async () => {
+  const root = await project({ "src/sum.js": "broken\n", ".gitignore": ".casper/\n",
+    ".casper/quick-test.ts": check(says("src/sum.js", "fixed"), `!${has(".casper/private-state.json")}`),
+    ".casper/private-state.json": "not a check input\n" });
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  const before = await snapshotTree(root);
+  const command = `${JSON.stringify(process.execPath)} .casper/quick-test.ts`;
+  const baseline = await ChangeBaseline.capture(root, { command });
+  cleanup.push(() => baseline.dispose());
+  expect(await baseline.before({ root, check: "test", command, timeoutMs: 20_000 })).toBe("fail");
+  await write(root, { "src/sum.js": "fixed\n" });
+  const proof = await baseline.prove({ root, changes: diffSnapshots(before, await snapshotTree(root)), check: "test", command, timeoutMs: 20_000 });
+  expect(proof?.status).toBe("proven");
+});
+
+test("a Windows-relative ignored check input runs in the proof copies on any OS", async () => {
+  const root = await project({ "src/sum.js": "broken\r\n", ".gitignore": ".casper/\n",
+    ".casper/quick-test.ts": check(says("src/sum.js", "fixed")) });
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  const before = await snapshotTree(root);
+  const command = 'bun run ".\\.casper\\quick-test.ts"';
+  const baseline = await ChangeBaseline.capture(root, { command });
+  cleanup.push(() => baseline.dispose());
+  expect(await baseline.before({ root, check: "test", command, timeoutMs: 20_000 })).toBe("fail");
+  await write(root, { "src/sum.js": "fixed\r\n" });
+  const proof = await baseline.prove({ root, changes: diffSnapshots(before, await snapshotTree(root)), check: "test", command, timeoutMs: 20_000 });
+  expect(proof?.status).toBe("proven");
+});
+
+test("foreign Windows absolute check inputs cannot be mistaken for project-relative files", async () => {
+  const root = await project({});
+  await expect(ChangeBaseline.capture(root, { command: 'bun "C:\\fixture\\check.ts"' })).rejects.toThrow(/absolute|outside/);
+});
+
+test("absolute check scripts with relative source imports are unavailable, never run in the live workspace", async () => {
+  const root = await project({ "src/value.ts": "export const value = 0;\n" });
+  const marker = path.join(root, "executed.txt");
+  await write(root, { ".casper/quick-test.ts": `import { value } from "../src/value";\nimport { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marker)}, "executed");\nprocess.exit(value === 1 ? 0 : 1);\n` });
+  const command = `${JSON.stringify(process.execPath)} ${JSON.stringify(path.join(root, ".casper/quick-test.ts"))}`;
+  const reason = "absolute check input paths are unsupported in proof copies; use a project-relative path";
+  await expect(ChangeBaseline.capture(root, { command })).rejects.toThrow(reason);
+  const before = await snapshotTree(root);
+  const baseline = await ChangeBaseline.capture(root, { command: `${JSON.stringify(process.execPath)} .casper/quick-test.ts` });
+  cleanup.push(() => baseline.dispose());
+  await write(root, { "src/value.ts": "export const value = 1;\n" });
+  expect(await baseline.before({ root, check: "test", command, timeoutMs: 20_000 })).toBeUndefined();
+  expect(await baseline.prove({ root, changes: diffSnapshots(before, await snapshotTree(root)), check: "test", command, timeoutMs: 20_000 }))
+    .toMatchObject({ status: "unavailable", reason: expect.stringContaining(reason) });
+  expect(await Bun.file(marker).exists()).toBe(false);
+});
+
+test("absolute check inputs in package scripts are also unsupported in proof copies", async () => {
+  const root = await project({ ".casper/quick-test.ts": "process.exit(0);\n" });
+  await write(root, { "package.json": JSON.stringify({ scripts: { verify: `bun ${JSON.stringify(path.join(root, ".casper/quick-test.ts"))}` } }) });
+  await expect(ChangeBaseline.capture(root, { command: `${JSON.stringify(process.execPath)} run verify` }))
+    .rejects.toThrow("absolute check input paths are unsupported");
+});
+
+test("shell-wrapped absolute scripts, including package scripts, are refused before executing live source", async () => {
+  const root = await project({ "src/value.ts": "export const value = 0;\n" });
+  const marker = path.join(root, "executed.txt");
+  await write(root, { ".casper/quick-test.ts": `import { value } from "../src/value";\nawait Bun.write(${JSON.stringify(marker)}, String(value));\n` });
+  const inner = `${JSON.stringify(process.execPath)} ${JSON.stringify(path.join(root, ".casper/quick-test.ts"))}`;
+  const quote = (text: string) => `'${text.replace(/'/g, `'"'"'`)}'`;
+  for (const shell of ["sh -c", "bash -lc"]) {
+    const command = `${shell} ${quote(inner)}`;
+    await expect(ChangeBaseline.capture(root, { command })).rejects.toThrow("absolute check input paths are unsupported");
+    await write(root, { "package.json": JSON.stringify({ scripts: { verify: command } }) });
+    await expect(ChangeBaseline.capture(root, { command: "bun run verify" })).rejects.toThrow("absolute check input paths are unsupported");
+  }
+  expect(await Bun.file(marker).exists()).toBe(false);
+});
+
+test("package-script check inputs under .casper are captured too, including quoted file names", async () => {
+  const root = await project({ "src/sum.js": "broken\n", "package.json": JSON.stringify({ scripts: { verify: 'bun ".casper/quick test.ts"' } }),
+    ".casper/quick test.ts": check(says("src/sum.js", "fixed")) });
+  const command = `${JSON.stringify(process.execPath)} run verify`;
+  const before = await snapshotTree(root);
+  const baseline = await ChangeBaseline.capture(root, { command });
+  cleanup.push(() => baseline.dispose());
+  await write(root, { "src/sum.js": "fixed\n" });
+  expect((await baseline.prove({ root, changes: diffSnapshots(before, await snapshotTree(root)), check: "test", command, timeoutMs: 20_000 }))?.status).toBe("proven");
+});
+
+test("private, secret, outside and linked check inputs are refused with a reason, never imported", async () => {
+  const root = await project({ ".casper/quick-test.ts": "process.exit(0)\n", ".env": "not for copying\n" });
+  const outside = await project({ "check.ts": "process.exit(0)\n" });
+  await symlink(path.join(outside, "check.ts"), path.join(root, ".casper/linked.ts"));
+  const command = (file: string) => `${JSON.stringify(process.execPath)} ${JSON.stringify(file)}`;
+  await expect(ChangeBaseline.capture(root, { command: command(".casper/quick-test.ts"), pathContext: { denyRead: [path.join(root, ".casper")] } })).rejects.toThrow("private");
+  await expect(ChangeBaseline.capture(root, { command: command(".env") })).rejects.toThrow("private");
+  await expect(ChangeBaseline.capture(root, { command: command(path.join(outside, "check.ts")) })).rejects.toThrow("outside");
+  await expect(ChangeBaseline.capture(root, { command: command(".casper/linked.ts") })).rejects.toThrow("linksOut");
+  await expect(ChangeBaseline.capture(root, { command: command(".git/config") })).rejects.toThrow("excluded state");
+});
+
+test("proof explains a check input that was not captured rather than silently dropping it", async () => {
+  const root = await project({ "src/sum.js": "old\n", ".casper/quick-test.ts": "process.exit(0)\n" });
+  const baseline = await ChangeBaseline.capture(root);
+  cleanup.push(() => baseline.dispose());
+  const proof = await baseline.prove({ root, changes: { added: [], modified: ["src/sum.js"], removed: [] }, check: "test",
+    command: `${JSON.stringify(process.execPath)} .casper/quick-test.ts`, timeoutMs: 20_000 });
+  expect(proof).toMatchObject({ status: "unavailable", reason: expect.stringContaining("no baseline copy") });
 });
 
 test("docs and other non-code edits need no proof: only a code change must be proven", async () => {

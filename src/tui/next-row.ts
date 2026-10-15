@@ -3,7 +3,7 @@
  *
  * Slots 1 and 2 always mean Show diff and Undo, so the same key does the same thing after every task, and 1, the key
  * a stray "1 more thing…" or an answer to the model's own "1)" list would hit, only shows something; other
- * steps (suggested flows, a page check, a lab check) start at 3. Nothing is asked and nothing waits: a lone
+ * steps start at 3 when diff/undo is offered, otherwise at 1. Nothing is asked and nothing waits: a lone
  * number typed on an empty prompt runs that step, and anything else typed is simply the next request. The AI
  * never picks from this row; only a key the user presses does.
  */
@@ -39,7 +39,8 @@ export function buildNextRow(input: { undo?: NextItem; diff?: NextItem; more?: r
   const slots: Array<[number, NextItem]> = [];
   if (input.diff) slots.push([DIFF_SLOT, input.diff]);
   if (input.undo) slots.push([UNDO_SLOT, input.undo]);
-  (input.more ?? []).forEach((item, index) => slots.push([FIRST_EXTRA_SLOT + index, item]));
+  const firstExtra = input.diff || input.undo ? FIRST_EXTRA_SLOT : 1;
+  (input.more ?? []).forEach((item, index) => slots.push([firstExtra + index, item]));
   const shown = slots.filter(([key, item]) => key <= LAST_SLOT && plain(item.label) && item.command.trim());
   if (!shown.length) return undefined;
   const keys = new Map(shown.map(([key, item]) => [String(key), item.command.trim()]));

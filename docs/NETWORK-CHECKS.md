@@ -69,13 +69,17 @@ verify:
 Casper finds Ansible projects by itself: `ansible.cfg`, `galaxy.yml`,
 `collections/requirements.yml`, or playbooks (YAML lists of plays with `hosts:`). It
 finds `aruba-syntax`, `junos-syntax` and `junos-render` from the collections the
-playbooks use. Your own `verify.checks` entries win.
+playbooks use. Discovery skips bundled data folders (`assets`, `bundled`, `fixtures`,
+`__fixtures__`, `samples`), including `src/**/assets/`; an application's bundled YAML is not
+its own playbook project. Explicitly saved checks may still name those files.
+Your own `verify.checks` entries win.
 
 Casper never adds a found check by itself, because each one runs Ansible on your
 project. It lists them as "found, not saved". To save one:
 
 - type `/verify add aruba-syntax`, or
-- pick "Save aruba-syntax" on the row under a receipt, shown after a task that changed YAML.
+- pick "Save aruba-syntax" on the row under a receipt, shown after a task changed a playbook
+  covered by that check (not arbitrary YAML or bundled data).
 
 Either one writes the setting into `.casper/project.yaml` and prints the exact line,
 for example `verify.checks.aruba-syntax: { preset: ansible-syntax, playbooks: [ site.yml ] }`.

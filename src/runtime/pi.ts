@@ -25,13 +25,11 @@ import {
   createAgentSessionRuntime,
   createAgentSessionServices,
   createBashToolDefinition,
-  createEditToolDefinition,
   createFindToolDefinition,
   createGrepToolDefinition,
   createLocalBashOperations,
   createLsToolDefinition,
   createReadToolDefinition,
-  createWriteToolDefinition,
   CredentialSynchronizationError,
   getAgentDir,
   ModelRuntime,
@@ -86,6 +84,7 @@ import type {
 } from "./types";
 import { isOutside } from "../platform/inside";
 import { withToolReason } from "./tool-reason";
+import { CheckChangeGuard, guardedFileTools } from "./check-changes";
 
 class PiToolController {
   private tools: RuntimeTool[];
@@ -891,6 +890,7 @@ export class PiRuntime implements AgentRuntime {
       bounded?.signal.throwIfAborted();
       // ~ in tool paths stays the real home: Pi's own file tools expand it with os.homedir(), and the checks must agree.
       const pathContext = toolPathContext(cwd, os.homedir(), agentDir, options);
+      const checkChanges = new CheckChangeGuard(cwd, options.checkChanges);
       // Every tool's arguments get their shape repaired before Pi validates them (src/runtime/tool-repair.ts).
       const repair = new ToolArgumentRepair();
       const repairing = <D extends { name: string; parameters: unknown; prepareArguments?: (args: unknown) => unknown }>(definition: D): D =>
@@ -1024,7 +1024,7 @@ export class PiRuntime implements AgentRuntime {
         // The AI's bash: Casper's own operations (adapted from Pi's sandbox example), never a repo's .pi/sandbox.json.
         if (!readOnly) {
           const bash = createBashToolDefinition(cwd, {
-            operations: casperBashOperations(options.shell),
+            operations: casperBashOperations(options.shell, undefined, checkChanges),
             spawnHook: (context) => ({ ...context, env: withoutProviderKeys(context.env, options.shell?.keepEnv ?? []) }),
           });
           const execute: typeof bash.execute = (id, ...args) =>
@@ -1142,7 +1142,7 @@ export class PiRuntime implements AgentRuntime {
           // Pi's own file tools, made as Pi makes them, with the argument repair added.
           customTools: [
             createReadToolDefinition(cwd, { autoResizeImages: modelOptions.settingsManager.getImageAutoResize() }),
-            createEditToolDefinition(cwd), createWriteToolDefinition(cwd),
+            ...guardedFileTools(cwd, checkChanges),
             createGrepToolDefinition(cwd), createFindToolDefinition(cwd), createLsToolDefinition(cwd),
           ].map((definition) => repairing(definition) as unknown as ToolDefinition),
           ...(readOnly ? { tools: ["read", "grep", "find", "ls"] } : {}),
@@ -1225,9 +1225,11 @@ function readSmallText(file: string): string | undefined | null {
  * Such a command that stalls (no output and no CPU for a while, src/runtime/stalled-commands.ts) is ended, in the
  * foreground or the background, with the reason added to its output.
  */
-export function casperBashOperations(shell: RuntimeShell | undefined, local: BashOperations = createLocalBashOperations()): BashOperations {
+export function casperBashOperations(shell: RuntimeShell | undefined, local: BashOperations = createLocalBashOperations(), checkChanges?: CheckChangeGuard): BashOperations {
   return {
     async exec(command, cwd, options) {
+      const checkReason = await checkChanges?.shellReason(command);
+      if (checkReason) throw new Error(checkReason);
       const refused = await shell?.approve?.(command, options.signal);
       if (refused) throw new Error(refused);
       const logDir = process.platform === "win32" ? undefined : await shell?.logDir?.();

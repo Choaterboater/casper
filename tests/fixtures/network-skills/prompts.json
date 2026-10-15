@@ -127,24 +127,6 @@
       "expect": [
         "network-central-classic-api"
       ]
-    },
-    {
-      "prompt": "add paging to our script",
-      "frameworks": [
-        "mist"
-      ],
-      "expect": [
-        "network-mist-api"
-      ]
-    },
-    {
-      "prompt": "fix the timeout in the device inventory script",
-      "frameworks": [
-        "clearpass"
-      ],
-      "expect": [
-        "network-clearpass-api"
-      ]
     }
   ],
   "skip": [
@@ -165,7 +147,15 @@
     "rename the device list component",
     "add a policy manager page to the admin UI"
   ],
-  "frameworkNeedsChange": [
+  "frameworkSkips": [
+    {
+      "prompt": "add paging to our script",
+      "frameworks": ["mist"]
+    },
+    {
+      "prompt": "fix the timeout in the device inventory script",
+      "frameworks": ["clearpass"]
+    },
     {
       "prompt": "explain what this repo does",
       "frameworks": [

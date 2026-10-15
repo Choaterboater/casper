@@ -101,8 +101,8 @@ export const rememberTestRule: SuggestionRule = {
   },
 };
 
-/** "Save aruba-syntax so Casper checks your playbooks after each change": the task changed YAML in a project where
- * Casper found Ansible playbooks, and the project has not saved that ready-made check. Only the user's pick saves it. */
+/** "Save aruba-syntax so Casper checks your playbooks after each change": the task changed a playbook covered by
+ * a ready-made check the project has not saved. Unrelated YAML is not a reason to offer it. Only the user's pick saves it. */
 export const saveFoundCheckRule: SuggestionRule = {
   id: "save-network-check",
   priority: 30,
@@ -110,8 +110,9 @@ export const saveFoundCheckRule: SuggestionRule = {
     const found = Object.entries(project.foundChecks ?? {});
     if (task.execution !== "completed" || !found.length) return undefined;
     const changed = (task.changedPaths ?? []).map((file) => file.replace(/\\/g, "/"));
-    if (!changed.some((file) => /\.ya?ml$/i.test(file))) return undefined;
-    const [name, spec] = found.find(([, entry]) => entry.playbooks?.some((playbook) => changed.includes(playbook))) ?? found[0]!;
+    const match = found.find(([, entry]) => entry.playbooks?.some((playbook) => changed.includes(playbook.replace(/\\/g, "/"))));
+    if (!match) return undefined;
+    const [name, spec] = match;
     const line = namedCheckLine(name, spec);
     const what = spec.preset === "ansible-render" ? "renders your Junos playbooks" : "checks your playbooks with ansible-playbook --syntax-check";
     return {

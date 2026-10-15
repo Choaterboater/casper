@@ -11,7 +11,7 @@ import { removeTempDir } from "./support/temp-dir";
 interface Fixture {
   pick: Array<{ prompt: string; frameworks?: string[]; expect: string[] }>;
   skip: string[];
-  frameworkNeedsChange: Array<{ prompt: string; frameworks: string[]; intentOverride?: TaskIntent }>;
+  frameworkSkips: Array<{ prompt: string; frameworks: string[]; intentOverride?: TaskIntent }>;
 }
 
 const FIXTURES = path.join(import.meta.dir, "fixtures", "network-skills");
@@ -68,15 +68,38 @@ describe("picking bundled network skills (local word match, no model call)", () 
     expect([...covered].sort()).toEqual(bundledSkills().map((skill) => skill.metadata.name).sort());
   });
 
-  test("a project SDK counts only for a change request with a network word", async () => {
-    const { frameworkNeedsChange } = await prompts();
-    for (const { prompt, frameworks, intentOverride } of frameworkNeedsChange) {
+  test("project frameworks never substitute for a skill subject in ps and git config discussions", async () => {
+    const options = await fixture();
+    const registry = await SkillRegistry.discover({ ...options, bundled: true });
+    const prompts = [
+      "Fix the command help: on macOS ps E prints the environment, while ps -e selects every process. The script must not mix those options. Document git config --get credential.helper, credential.useHttpPath and credential.https://example.com.username; these keys are not environment variables.",
+      "Add a Python script to compare ps E and ps -e and read git config credential.helper and credential.useHttpPath.",
+      "Fix the API token parser used by the credential script.",
+    ];
+    for (const prompt of prompts) {
+      expect({ prompt, picked: await names(registry, prompt, ["junos"]) }).toEqual({ prompt, picked: [] });
+    }
+    expect(await names(registry, "Fix the Junos NETCONF script that gets interface status using PyEZ", ["junos"]))
+      .toEqual(["network-junos-pyez"]);
+  });
+
+  test("a project SDK boosts a subject match, not unrelated requests", async () => {
+    const { frameworkSkips } = await prompts();
+    for (const { prompt, frameworks, intentOverride } of frameworkSkips) {
       const intent = intentOverride ?? classifyTask(prompt).intent;
       for (const skill of bundledSkills()) {
         expect({ prompt, skill: skill.metadata.name, score: scoreSkillRule(skill.rule, prompt, { frameworks }, { intent }) })
           .toEqual({ prompt, skill: skill.metadata.name, score: 0 });
       }
     }
+  });
+
+  test("the project's SDK still boosts a matching skill subject", () => {
+    const rule = bundledSkills().find((skill) => skill.rule.platform === "junos")!.rule;
+    const prompt = "Fix the Junos RPC script";
+    const classification = classifyTask(prompt);
+    expect(scoreSkillRule(rule, prompt, { frameworks: [] }, classification)).toBe(3);
+    expect(scoreSkillRule(rule, prompt, { frameworks: ["junos"] }, classification)).toBe(5);
   });
 
   test("at most two bundled skills per request", async () => {

@@ -62,8 +62,8 @@ import { lookPrompt, pageLook, SHOW_PAGES_CHOICES, SHOW_PAGES_QUESTION } from ".
 import { offerNewProject, childProjectOfTask, runChildChecks, offerWorkFolder } from "./workspace";
 import { settlePictures } from "./pictures";
 import { runVerification, writeCheckResult, taskNetworkOptions, checksPlan, saveFoundCheck, projectAfterSetup } from "./verification";
-import { reportSkillWarnings } from "./wiring";
-import { ensureRuntime } from "./runtime-start";
+import { projectPrivatePaths, reportSkillWarnings } from "./wiring";
+import { appAgentDir, ensureRuntime } from "./runtime-start";
 import { reloadProject, writeProjectFile } from "./project-file";
 
 export async function runModelTask(app: CasperApp, prompt: string, options: { flow?: Flow; planFirst?: boolean; savedPlan?: SavedPlan; words?: RequestWords } = {}): Promise<VerificationReport | undefined> {
@@ -240,7 +240,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   const plannedCode = changedWhilePlanning?.filter((file) => !isTestPath(file)) ?? [];
   if (proving && plannedCode.length) baselineUnavailable = `files changed while planning (${plannedCode.slice(0, 5).join(", ")}${plannedCode.length > 5 ? " …" : ""}), so Casper has no copy from before the change`;
   else if (proving) {
-    try { baseline = await ChangeBaseline.capture(workspaceRoot, { signal: app.commandAbort?.signal }); app.taskBaseline = { baseline, root: workspaceRoot }; }
+    try { baseline = await ChangeBaseline.capture(workspaceRoot, { signal: app.commandAbort?.signal, command: testCommand,
+      pathContext: { home: app.homeDir(), agentDir: appAgentDir(app), denyRead: projectPrivatePaths(app) } }); app.taskBaseline = { baseline, root: workspaceRoot }; }
     catch (error) {
       if (app.commandAbort?.signal.aborted) return;
       baselineUnavailable = `Casper could not copy the workspace to compare: ${error instanceof Error ? error.message : String(error)}`;
