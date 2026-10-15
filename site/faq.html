@@ -86,10 +86,22 @@
           provider's default model (for OpenRouter, <code>deepseek/deepseek-v4.1-flash</code>).
           <code>/model</code> picks another one. Casper never replaces a model you chose. Type keys or
           codes only in the private login prompt, never in the chat.</p>
-          <p>A model on your own computer works too: start Ollama, LM Studio, llama.cpp or vLLM and its
-          models show in <code>/model</code>, with no sign-in and no file to edit. For one on another
-          computer, pick <code>+ Add server</code> at the bottom of <code>/model</code>'s list and type
-          its address. The details are in the
+          <p>A model on your own computer works too: start Ollama, LM Studio, llama.cpp, vLLM, SGLang or an
+          MLX server (MLX LM / vllm-mlx) and its models show in <code>/model</code>, with no sign-in and no file to edit.
+          Automatic local discovery checks five loopback ports: 11434, 1234, 8080, 8000 and 30000.
+          SGLang uses 30000; MLX shares 8080 with llama.cpp.</p>
+          <p>For one on another computer, pick <code>+ Add server</code> at the bottom of <code>/model</code>'s list,
+          or <strong>Model server on another computer</strong> in <code>/login</code>. Choose
+          <strong>Detect automatically</strong>, then type its address, for example <code>192.0.2.10</code>
+          (<code>localhost</code> works too). With no port, detection tries the same five ports. Every kind is also
+          offered explicitly: Ollama, LM Studio, llama.cpp, vLLM, <strong>SGLang</strong>, <strong>MLX</strong>
+          and OpenAI-style server. Choose a kind if detection can't identify yours; SGLang defaults to port 30000,
+          MLX to 8080. A remote MLX LM server without a reliable identity marker stays OpenAI-style unless you choose
+          MLX; vllm-mlx's <code>owned_by</code> marker is recognized as MLX.</p>
+          <p>These are server kinds, not new login providers, and need no API keys. They use streaming
+          OpenAI-compatible chat and tool calls; tool use depends on the model and server flags
+          (SGLang may need <code>--tool-call-parser</code>). Start the server separately; Casper doesn't install
+          it or download a model. The details are in the
           <a href="https://github.com/Choaterboater/casper/blob/main/docs/CONFIGURATION.md#local-models">configuration guide</a>.</p>
         </details>
 

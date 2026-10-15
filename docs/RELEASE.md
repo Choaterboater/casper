@@ -10,7 +10,7 @@ because GitHub's `latest/download` link skips preview releases. The first publis
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
 
-## v0.2.36: casper new asks nothing
+## v0.2.36: casper new asks nothing, SGLang and MLX model servers
 
 **Not released yet.** The version number and the installers still say v0.2.35; the release step
 sets them and removes this line.
@@ -20,6 +20,23 @@ sets them and removes this line.
   The "What are you building?" kinds and the name question are gone, as in other coding tools: make the folder,
   then say what to build. `casper new <template> <name>` still builds a starter template when you name one, and
   `/project <name>` → Make it does the same as `casper new <name>`.
+
+### SGLang and MLX model servers
+
+Built, not released; these changes are not in v0.2.35.
+
+- Automatic local discovery adds SGLang at `http://127.0.0.1:30000`; MLX shares the existing 8080
+  OpenAI-style probe. The five loopback ports are 11434, 1234, 8080, 8000 and 30000.
+- `/model` offers **`+ Add server`** even with no sign-ins or models. In that flow (also offered from `/login`), choose **Detect automatically** and type
+  an address such as `192.0.2.10`: with no port, Casper checks those same five ports. All server kinds
+  are offered as explicit fallbacks: Ollama, LM Studio, llama.cpp, vLLM, SGLang, MLX (MLX LM / vllm-mlx)
+  and OpenAI-style server. The named SGLang choice defaults to 30000; MLX to 8080.
+- Automatic remote detection recognizes vllm-mlx's `owned_by` marker as MLX. MLX LM has no reliable
+  identity marker and stays OpenAI-style; choose MLX explicitly to label it. These are server kinds,
+  not new login providers: no API keys or separate sign-ins are needed.
+- SGLang and MLX use streaming OpenAI-compatible chat completions and tool calls when supported by
+  the model and server flags. SGLang may need `--tool-call-parser <parser>` suited to the model.
+  Start the server separately; Casper doesn't install a backend or download models.
 
 ## v0.2.35: plain live steps, plans you change in words, a grouped /settings, Crews complete, and casper update on Windows
 

@@ -357,7 +357,7 @@ export class ModelBrowser {
     const wrap = (text: string) => wrapTextWithAnsi(text, Math.max(10, width - 2)).map((line) => `  ${line}`);
     let body: string[] | undefined;
     if (entry?.kind === "add") {
-      body = [this.accent("Add a model server"), "", ...wrap("A model server on another computer (Ollama, LM Studio, llama.cpp, vLLM, or any OpenAI-style server): type its address, Casper finds what runs there, and its models show here."), "", ...wrap(this.muted("Enter starts."))];
+      body = [this.accent("Add a model server"), "", ...wrap("A model server here or on another computer: type its address and Casper detects what answers (Ollama, LM Studio, llama.cpp, vLLM, SGLang, MLX or another OpenAI-style server). If it can't tell, choose the server type. Its models show here."), "", ...wrap(this.muted("Enter starts."))];
     } else if (entry?.saved && !entry.count) {
       body = [this.accent(terminalText(entry.label)) + this.muted(entry.saved.problem ? " · off" : " · no models"), "", ...wrap(`At ${terminalText(entry.saved.address)}.`),
         ...entry.saved.problem ? ["", ...wrap(tint(terminalText(entry.saved.problem), "warning", this.options.color))]

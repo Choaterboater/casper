@@ -112,10 +112,10 @@ def exercise_empty_eof(bun, repo, root):
         s.pump(0.2)
         assert "model run failed" not in s.screen.text(), s.screen.text()
         assert s.screen.text().count("[model] No Casper model selected") == 1, s.screen.text()
-        # With nothing signed in, /model opens sign-in instead of an empty picker.
+        # Keyless model servers remain reachable without signing in.
         s.send("/model\n")
-        s.until("Not signed in yet")
-        s.until("Up/Down + Enter · Esc cancels")
+        s.until("+ Add server")
+        s.until("No models yet. Use /login to sign in, or add a model server.")
         s.send("\x04")
         assert s.wait_exit() == 0, "EOF in picker did not exit: " + s.screen.text()[-4000:]
         assert not (s.root / "home/.casper/settings.json").exists()

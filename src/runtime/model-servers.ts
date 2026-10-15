@@ -1,4 +1,4 @@
-import { KIND_NAMES, KIND_PREFIX, serverNameProblem, type ServerKind } from "../config/model-servers";
+import { DEFAULT_PORT, KIND_NAMES, KIND_PREFIX, serverNameProblem, type ServerKind } from "../config/model-servers";
 import { failureWords, localModelDefaults, NotThisServer, onThisComputer, readServerModels, sameAddress, serverRoot, type LocalCause, type LocalModel } from "./local-models";
 
 /** Adding a model server on another computer (`/model` → `+ Add server`, or `/login`): reading what you typed,
@@ -7,15 +7,16 @@ import { failureWords, localModelDefaults, NotThisServer, onThisComputer, readSe
 /** The ports to try when you give a computer but no port, and what usually listens there. */
 export const USUAL_PORTS: ReadonlyArray<{ port: number; kind: ServerKind }> = [
   { port: 11434, kind: "ollama" }, { port: 1234, kind: "lm-studio" }, { port: 8080, kind: "llama.cpp" }, { port: 8000, kind: "vllm" },
+  { port: 30000, kind: "sglang" },
 ];
 
 /** What you typed, as the roots (no /v1) to look at, and the computer's name for the screens. */
 export type ReadAddress = { roots: string[]; host: string } | { problem: string };
 
-/** Read an address: a bare computer (`192.0.2.10`, `myserver`) or `http://` one with no port gives the four usual ports;
+/** Read an address: a bare computer (`192.0.2.10`, `myserver`) or `http://` one with no port gives the usual ports;
  * `https://` with no port is 443; `host:port` or a full URL is that one. A login, query or fragment is refused: it may
- * carry a key, and the address is kept in a file the AI can read. */
-export function readAddress(raw: string): ReadAddress {
+ * carry a key, and the address is kept in a file the AI can read. With a chosen kind, a bare HTTP host uses its port. */
+export function readAddress(raw: string, kind?: ServerKind): ReadAddress {
   const value = raw.trim();
   if (!value) return { problem: "Type an address, like 192.0.2.10 or myserver:11434." };
   const scheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
@@ -30,10 +31,14 @@ export function readAddress(raw: string): ReadAddress {
   // A copied API address (…/v1/models, …/api/tags) is the server's address with the API path after it.
   url.pathname = url.pathname.replace(/\/(?:v1(?:\/models|\/chat\/completions)?|api(?:\/v0\/models|\/tags|\/version)?|models|chat\/completions|props|health)\/?$/i, "") || "/";
   const bare = url.pathname === "/" || url.pathname === "";
-  if (!url.port && bare && url.protocol === "http:") {
+  // URL.port drops an explicit :80. Keep it distinct from a host with no port (IPv6 brackets stay intact).
+  const authority = value.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").split(/[/?#]/, 1)[0]!;
+  const explicitPort = /:\d+$/.test(authority);
+  if (!url.port && !explicitPort && bare && url.protocol === "http:") {
     // 0.0.0.0 is how a server listens everywhere; here it means this computer.
     const hostname = url.hostname === "0.0.0.0" ? "127.0.0.1" : url.hostname;
-    return { roots: USUAL_PORTS.map(({ port }) => `http://${hostname}:${port}`), host: hostname };
+    const ports = kind ? [DEFAULT_PORT[kind]] : USUAL_PORTS.map(({ port }) => port);
+    return { roots: ports.map((port) => `http://${hostname}:${port}`), host: hostname };
   }
   const root = serverRoot(url.href, url.protocol === "https:" ? 443 : 80, true);
   return root ? { roots: [root], host } : { problem: "Casper can't read that address. Try 192.0.2.10 or myserver:11434." };
@@ -72,17 +77,27 @@ async function json(fetcher: typeof fetch, url: string, signal: AbortSignal): Pr
  * 8000 is llama.cpp. A plain OpenAI-style model list is vLLM only when it says so. */
 async function kindAt(fetcher: typeof fetch, root: string, signal: AbortSignal): Promise<ServerKind> {
   const ask = (path: string) => json(fetcher, `${root}${path}`, signal);
-  const [props, lmStudio, version, tags, models] = await Promise.allSettled([ask("/props"), ask("/api/v0/models"), ask("/api/version"), ask("/api/tags"), ask("/v1/models")]);
-  const all = [props, lmStudio, version, tags, models];
+  const [sglang, props, lmStudio, version, tags, models] = await Promise.allSettled([
+    ask("/get_model_info"), ask("/props"), ask("/api/v0/models"), ask("/api/version"), ask("/api/tags"), ask("/v1/models"),
+  ]);
+  const all = [sglang, props, lmStudio, version, tags, models];
   const ok = (result: PromiseSettledResult<Json | undefined>) => result.status === "fulfilled" ? result.value : undefined;
   const locked = all.find((result) => result.status === "rejected" && result.reason instanceof Locked);
+  const list = ok(models)?.data;
+  const ownedBy = (owner: string) => Array.isArray(list) && list.some((entry) => record(entry)?.owned_by === owner);
+  // SGLang: model_path on /get_model_info (now an alias of /model_info), and ModelCard.owned_by.
+  // https://github.com/sgl-project/sglang/tree/main/python/sglang/srt/entrypoints (http_server.py, openai/protocol.py)
+  if (typeof ok(sglang)?.model_path === "string" || ownedBy("sglang")) return "sglang";
+  // https://github.com/waybarrios/vllm-mlx/blob/main/vllm_mlx/api/models.py: ModelInfo.owned_by.
+  if (ownedBy("vllm-mlx")) return "mlx";
+  // mlx-lm/server.py (https://github.com/ml-explore/mlx-lm): ids/object/created only, generic Python header.
+  // An mlx-community/... id names a model, not its server; without a marker keep the OpenAI-style fallback.
   if (record(ok(props)?.default_generation_settings)) return "llama.cpp";
   // llama-server --api-key leaves its model lists open but locks /props: it wants the key (it isn't Ollama).
   if (props.status === "rejected" && props.reason instanceof Locked && props.reason.modelApi) throw new Locked(true, "llama.cpp");
   const studio = ok(lmStudio)?.data;
   if (Array.isArray(studio) && studio.some((entry) => typeof record(entry)?.type === "string")) return "lm-studio";
-  const list = ok(models)?.data;
-  if (Array.isArray(list) && list.some((entry) => record(entry)?.owned_by === "llamacpp")) return "llama.cpp";
+  if (ownedBy("llamacpp")) return "llama.cpp";
   // Ollama tells its version; an older one, at least its own model list (llama.cpp, which may answer it too, is above).
   if (typeof ok(version)?.version === "string" || Array.isArray(ok(tags)?.models)) return "ollama";
   if (Array.isArray(list)) return list.some((entry) => record(entry)?.owned_by === "vllm" || record(entry)?.max_model_len !== undefined) ? "vllm" : "openai";
@@ -93,24 +108,28 @@ async function kindAt(fetcher: typeof fetch, root: string, signal: AbortSignal):
   throw failed ? (failed as PromiseRejectedResult).reason : new NotThisServer();
 }
 
-/** Look at one root: what kind of server is there and its models. No key is sent. */
-export async function detectServer(root: string, options: { fetch?: typeof fetch; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<Detected> {
+/** Look at one root: what kind of server is there and its models. A chosen kind keeps its name and model reader;
+ * detection still checks for a model API and authentication. No key is sent. */
+export async function detectServer(root: string, options: { fetch?: typeof fetch; signal?: AbortSignal; timeoutMs?: number; kind?: ServerKind } = {}): Promise<Detected> {
   const fetcher = options.fetch ?? localModelDefaults.detectFetch ?? fetch;
   const budget = options.timeoutMs ?? 10_000;
   const timer = AbortSignal.timeout(budget);
   const signal = AbortSignal.any([timer, ...(options.signal ? [options.signal] : [])]);
   const usual = USUAL_PORTS.find(({ port }) => new URL(root).port === String(port))?.kind ?? "openai";
+  let kind = options.kind ?? usual;
   try {
-    const kind = await kindAt(fetcher, root, signal);
+    const detected = await kindAt(fetcher, root, signal);
+    kind = options.kind ?? detected;
     const models = await readServerModels(kind, root, { fetch: fetcher, signal });
     return { state: "found", root, kind, models };
   } catch (error) {
     if (options.signal?.aborted) throw error;
     if (error instanceof Locked) {
-      return error.modelApi ? { state: "key", root, kind: error.kind ?? usual }
+      return error.modelApi ? { state: "key", root, kind: options.kind ?? error.kind ?? usual }
         : { state: "none", root, cause: "login", words: "asked for a sign-in Casper doesn't know (a web page's, not a model server's)" };
     }
     const { cause, words } = failureWords(error, timer.aborted, "a model server", root, budget);
+    if (cause === "key") return { state: "key", root, kind };
     return { state: "none", root, cause, words };
   }
 }
@@ -125,7 +144,7 @@ export function autoName(kind: ServerKind, root: string, taken: Iterable<string>
   const host = ipv4 ? hostname.replaceAll(".", "-")
     : ipv6 ? hostname.replace(/[[\]]/g, "").split(":").filter(Boolean).at(-1) ?? "ipv6"
     : hostname.split(".")[0]!;
-  const usual = USUAL_PORTS.find((entry) => entry.kind === kind)?.port;
+  const usual = kind === "openai" ? undefined : DEFAULT_PORT[kind];
   const port = url.port && Number(url.port) !== usual ? `-${url.port}` : "";
   const clean = (text: string) => text.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
   const base = clean(`${KIND_PREFIX[kind]}-${clean(host) || "server"}${port}`).slice(0, 32).replace(/-+$/, "");

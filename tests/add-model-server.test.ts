@@ -3,7 +3,12 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { addModelServers, forgetModelServer, keyLine, type AddServerDeps } from "../src/runtime/add-model-server";
-import { SERVER_SIDE_TIP } from "../src/runtime/local-models";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { parse } from "yaml";
+import { parseModelServers } from "../src/config/model-servers";
+import { clearLocalServers, configureLocalServers, discoverLocalServers, registerLocalServers, SERVER_SIDE_TIP } from "../src/runtime/local-models";
+import { answer, calls } from "./support/phase8-pi";
+import { Type } from "typebox";
 import type { LoginDisplay } from "../src/tui/login";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -11,7 +16,7 @@ import { removeTempDir } from "./support/temp-dir";
  * the last step, no key is ever asked for or kept, and Esc writes nothing. */
 
 const stops: (() => unknown)[] = [];
-afterEach(async () => { await Promise.all(stops.splice(0).map((stop) => stop())); });
+afterEach(async () => { await Promise.all(stops.splice(0).map((stop) => stop())); clearLocalServers(); });
 
 function serve(routes: Record<string, unknown | ((request: Request) => Response)>): string {
   const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(request) {
@@ -44,8 +49,10 @@ function scripted(steps: Step[]): LoginDisplay & { shown: string[]; notes: strin
     wait(title: string, text: string) { display.shown.push(`${title}: ${text}`); },
     async choose<T extends string>(title: string, items: readonly { id: T; label: string }[]) {
       display.shown.push(`${title} [${items.map((item) => item.label).join(" | ")}]`);
+      // Existing address-first scenarios keep the default automatic detection choice.
+      if (title === "Model server type" && steps[0] && !("choose" in steps[0])) return items.find((item) => item.id === "auto")?.id;
       const step = next("choose", title) as { choose?: string };
-      return items.find((item) => item.label === step.choose)?.id;
+      return items.find((item) => item.label === step.choose || item.label.split(" · port ")[0] === step.choose)?.id;
     },
     async textInput(label: string, _signal?: AbortSignal, options?: { title?: string; initial?: string; check?: (text: string) => string | undefined; hint?: string }) {
       display.shown.push(`${options?.title ?? ""}: ${label} [${options?.initial ?? ""}]${options?.hint ? ` (${options.hint})` : ""}`);
@@ -135,6 +142,24 @@ test("a server that asks for a key is not added: no key box, no key sent, and wh
   expect(await authText(deps.keyFile)).toBe("");
 });
 
+test("cancelling the server type picker writes nothing and makes no requests", async () => {
+  const deps = await folders();
+  deps.fetch = (() => { throw new Error("must not probe before choosing a type"); }) as unknown as typeof fetch;
+  const result = await addModelServers(scripted([{ choose: undefined }]), deps);
+  expect(result).toEqual({ added: [], lines: ["No model server was added."] });
+  expect(await configText(deps.config)).toBe("");
+  expect(await authText(deps.keyFile)).toBe("");
+});
+
+for (const label of ["SGLang", "MLX (MLX LM / vllm-mlx)"]) test(`${label}: a key-protected server is skipped without saving`, async () => {
+  const deps = await folders();
+  const locked = serve({ "GET /v1/models": () => Response.json({ error: "unauthorized" }, { status: 401 }) });
+  const result = await addModelServers(scripted([{ choose: label }, { text: locked }]), deps);
+  expect(result).toEqual({ added: [], lines: [keyLine(locked)] });
+  expect(await configText(deps.config)).toBe("");
+  expect(await authText(deps.keyFile)).toBe("");
+});
+
 test("Esc at the name box writes nothing", async () => {
   const ollama = serve(ollamaRoutes);
   const deps = await folders();
@@ -196,6 +221,63 @@ test("the same server twice is caught; a server with no models is saved with wha
   deps.known = () => [];
   const fresh = await addModelServers(scripted([{ text: empty.replace("http://", "") }, {}]), deps);
   expect(fresh.lines[0]).toContain("but it has no models yet. On that computer run ollama pull qwen3.");
+});
+
+for (const [kind, label, port, metadata] of [
+  ["sglang", "SGLang", 30000, { owned_by: "sglang", max_model_len: 32768 }],
+  ["mlx", "MLX (MLX LM / vllm-mlx)", 8080, { owned_by: "local" }],
+] as const) test(`${kind}: named setup choice saves, reloads, discovers and streams through its OpenAI-compatible server`, async () => {
+  const deps = await folders();
+  const sent: Array<{ path: string; authorization: string | null; body?: Record<string, unknown> }> = [];
+  let toolReply = false;
+  const box = serve({
+    "GET /v1/models": { data: [{ id: "fixture-chat", ...metadata }] },
+    "POST /v1/chat/completions": () => toolReply ? calls([{ name: "fixture_read", args: { path: "fixture.txt" } }]) : answer("backend connected"),
+  });
+  deps.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+    const target = new URL(input instanceof Request ? input.url : String(input));
+    if (target.origin !== `http://myserver:${port}`) throw new Error(`unexpected target: ${target.origin}`);
+    sent.push({ path: target.pathname, authorization: new Headers(init?.headers).get("authorization"),
+      ...(init?.body ? { body: JSON.parse(String(init.body)) as Record<string, unknown> } : {}) });
+    return fetch(`${box}${target.pathname}`, init);
+  }) as typeof fetch;
+  const display = scripted([{ choose: label }, { text: "myserver" }, {}]);
+  const result = await addModelServers(display, deps);
+  const expected = { name: `${kind}-myserver`, address: `http://myserver:${port}`, kind };
+  expect(result.added.map(({ server }) => server)).toEqual([expected]);
+  for (const choice of ["Ollama · port 11434", "LM Studio · port 1234", "llama.cpp · port 8080", "vLLM · port 8000", "SGLang · port 30000", "MLX (MLX LM / vllm-mlx) · port 8080", "OpenAI-style server · port 8000"]) expect(display.shown[0]).toContain(choice);
+  expect(display.shown.some((line) => line.startsWith(`Found ${kind === "sglang" ? "SGLang" : "MLX"} at myserver:${port}`))).toBe(true);
+  const reloaded = parseModelServers(parse(await configText(deps.config)).modelServers, "test config");
+  expect(reloaded).toEqual({ servers: [expected], warnings: [] });
+  configureLocalServers({ auto: false, saved: reloaded.servers });
+  const found = await discoverLocalServers({ auto: false, saved: reloaded.servers, env: {}, fetch: deps.fetch, timeoutMs: 2000 });
+  expect(found.problems).toEqual([]);
+  expect(found.servers).toHaveLength(1);
+  expect(await authText(deps.keyFile)).toBe("");
+  // The SDK creates an empty auth file itself; keep that separate from the wizard's untouched login file.
+  const catalog = await ModelRuntime.create({ authPath: path.join(deps.root, "catalog-auth.json"), modelsPath: null, refreshOnCreate: false, allowModelNetwork: false });
+  expect(registerLocalServers(catalog, found.servers)).toEqual([expected.name]);
+  const model = catalog.getModel(expected.name, "fixture-chat")!;
+  expect(model.baseUrl).toBe(`${expected.address}/v1`);
+  expect(model.contextWindow).toBe(kind === "sglang" ? 32768 : 128000);
+  const reply = await catalog.completeSimple(model, { messages: [{ role: "user", content: "hello", timestamp: Date.now() }] }, { fetch: deps.fetch });
+  expect(reply.stopReason).toBe("stop");
+  expect(reply.content).toEqual([{ type: "text", text: "backend connected" }]);
+  expect(sent.filter((request) => request.path === "/v1/chat/completions").map(({ path, authorization }) => ({ path, authorization }))).toEqual([{ path: "/v1/chat/completions", authorization: "Bearer local" }]);
+  const tools = [{ name: "fixture_read", description: "Read a fixture", parameters: Type.Object({ path: Type.String() }) }];
+  const user = { role: "user" as const, content: "Read fixture.txt", timestamp: Date.now() };
+  toolReply = true;
+  const toolCall = await catalog.completeSimple(model, { tools, messages: [user] }, { fetch: deps.fetch });
+  expect(toolCall.stopReason).toBe("toolUse");
+  expect(toolCall.content).toEqual([{ type: "toolCall", id: "call_0", name: "fixture_read", arguments: { path: "fixture.txt" } }]);
+  expect(sent.at(-1)!.body).toMatchObject({ stream: true, tools: [{ type: "function", function: { name: "fixture_read", parameters: { type: "object", properties: { path: { type: "string" } } } } }] });
+  toolReply = false;
+  const followup = await catalog.completeSimple(model, { tools, messages: [user, toolCall,
+    { role: "toolResult", toolCallId: "call_0", toolName: "fixture_read", content: [{ type: "text", text: "fixture contents" }], isError: false, timestamp: Date.now() }] }, { fetch: deps.fetch });
+  expect(followup.content).toEqual([{ type: "text", text: "backend connected" }]);
+  expect(sent.at(-1)!.body!.messages).toContainEqual({ role: "tool", tool_call_id: "call_0", content: "fixture contents" });
+  expect(sent.filter((request) => request.path !== "/v1/chat/completions").every((request) => request.authorization === null)).toBe(true);
+  expect(await authText(deps.keyFile)).toBe("");
 });
 
 test("forgetting a server takes out its config entry only: the login file is never touched", async () => {
