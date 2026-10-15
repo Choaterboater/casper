@@ -28,6 +28,9 @@ let server: Server | undefined;
 let port = 0;
 /** Another loopback address: not on the listed hosts, so reaching it needs an answer. */
 const UNLISTED = "127.0.0.2";
+// Only the successful request needs this alias. Other sandbox tests run without changing the host's lo0.
+const unlistedRoutable = process.platform !== "darwin" || Object.values(os.networkInterfaces()).flat().some(entry => entry?.address === UNLISTED);
+const needsUnlisted = test.skipIf(!sandboxAvailable || !unlistedRoutable);
 
 // A machine proxy (CI or a company proxy) would carry the allowed request away from this host's test server.
 const PROXY_NAMES = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"];
@@ -35,11 +38,6 @@ const savedProxy = Object.fromEntries(PROXY_NAMES.map((name) => [name, process.e
 
 beforeAll(async () => {
   if (!sandboxAvailable) return;
-  // macOS answers only 127.0.0.1 until the others are added to lo0 (macOS CI does); without it a request there
-  // hangs instead of reaching this test's server.
-  if (process.platform === "darwin" && !Object.values(os.networkInterfaces()).flat().some((entry) => entry?.address === UNLISTED)) {
-    throw new Error(`${UNLISTED} is not on lo0: sudo ifconfig lo0 alias ${UNLISTED} up`);
-  }
   for (const name of PROXY_NAMES) delete process.env[name];
   base = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-sandbox-live-")));
   home = path.join(base, "home"); root = path.join(base, "project"); outside = path.join(base, "outside");
@@ -145,7 +143,7 @@ needsSandbox("a command that reaches out at once waits for the sandbox's proxy, 
   expect(notes.filter((line) => line.startsWith("[sandbox] Blocked 127.0.0.3"))).toHaveLength(1);
 });
 
-needsSandbox("a host you allow for the session is reached", async () => {
+needsUnlisted("a host you allow for the session is reached", async () => {
   answer = "session";
   const result = await run(`curl -sS -m 10 --noproxy '' http://${UNLISTED}:${port}/`);
   expect(result.out).toContain("hello from the host");

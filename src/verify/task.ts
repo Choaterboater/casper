@@ -132,13 +132,19 @@ export class VerificationTask {
   /** The task's one page-notes turn was sent: later runs (after a review or look edit) never send another. */
   pageNotesSent = false;
   private pending: Promise<unknown> = Promise.resolve();
+  private finalTestRun = false;
+  private changedTestRun = false;
+  private readonly deferred = new Set<CheckName>();
 
   constructor(
     private registry: VerifierRegistry,
     private readonly cwd: string,
     private readonly onResult?: (result: VerificationResult) => void,
+    /** Present only for a model task: explicit /verify keeps the configured command. */
+    private readonly changedPaths?: () => Promise<readonly string[] | undefined>,
   ) {}
 
+  get splitTests(): boolean { return Boolean(this.changedPaths && this.registry.hasChangedTests()); }
   get checks(): CheckName[] { return [...this.latest.keys()]; }
   get signal(): AbortSignal { return this.controller.signal; }
   /** A longer limit the user gave this check, if any. */
@@ -210,7 +216,7 @@ export class VerificationTask {
         const abort = () => this.abort();
         signal?.addEventListener("abort", abort, { once: true });
         try {
-          const [result] = await this.run([name], signal);
+          const [result] = await this.run([name], signal, !["typecheck", "lint", "test"].includes(name) ? { phase: "final" } : {});
           // Check output can print tokens and passwords (and named checks read device configs): hidden for the model.
           const shown = result ? checkResultForModel(result) : undefined;
           return shown ? { text: JSON.stringify({ ...shown, coverage: "not-certified" }), isError: shown.status === "fail" }
@@ -220,28 +226,54 @@ export class VerificationTask {
     };
   }
 
-  run(names: readonly CheckName[], signal?: AbortSignal, options: { timeoutMs?: number; force?: boolean } = {}): Promise<VerificationResult[]> {
-    // A longer limit the user gave stays with the check for the rest of the task, the model's own runs included.
-    if (options.timeoutMs) for (const name of names) this.limits.set(name, options.timeoutMs);
-    return this.enqueue(() => this.runChecks(names, signal, options.force));
+  /** The selected test argv for proof copies, never the broad quick-test script during repair/proof. */
+  async changedTestArgv(): Promise<string[] | undefined> {
+    if (!this.changedPaths || !this.registry.hasChangedTests()) return undefined;
+    const { changedTestFiles } = await import("./changed-tests");
+    const files = await changedTestFiles(this.cwd, await this.changedPaths(), this.signal);
+    return files?.length ? ["bun", "test", "--parallel=4", ...files.map(file => `./${file}`)] : undefined;
   }
 
-  private async runChecks(names: readonly CheckName[], signal?: AbortSignal, force = false): Promise<VerificationResult[]> {
+  /** One unchanged configured test invocation, after all model/review/browser edits and before the receipt. */
+  finish(signal?: AbortSignal): Promise<VerificationResult[]> {
+    return this.enqueue(async () => {
+      if (this.finalTestRun || !this.splitTests || this.closed || this.signal.aborted || signal?.aborted
+        || (!this.changedTestRun && !this.deferred.size)) return [];
+      this.finalTestRun = true;
+      return this.runChecks([...(this.changedTestRun ? ["test"] : []), ...this.deferred], signal, true, "final");
+    });
+  }
+
+  run(names: readonly CheckName[], signal?: AbortSignal, options: { timeoutMs?: number; force?: boolean; phase?: "changed" | "final" } = {}): Promise<VerificationResult[]> {
+    // A longer limit the user gave stays with the check for the rest of the task, the model's own runs included.
+    if (options.timeoutMs) for (const name of names) this.limits.set(name, options.timeoutMs);
+    const phase = options.phase ?? (this.changedPaths ? "changed" : "final");
+    const selected = phase === "changed" && this.splitTests ? names.filter(name => {
+      if (["typecheck", "lint", "test"].includes(name)) return true;
+      this.deferred.add(name); return false;
+    }) : names;
+    return this.enqueue(() => this.runChecks(selected, signal, options.force, phase));
+  }
+
+  private async runChecks(names: readonly CheckName[], signal?: AbortSignal, force = false, phase: "changed" | "final" = "final"): Promise<VerificationResult[]> {
     const combined = signal ? AbortSignal.any([signal, this.signal]) : this.signal;
     const round: VerificationResult[] = [];
     for (const name of new Set(names)) {
       if (combined.aborted) break;
       await this.refreshResults(combined);
+      if (phase === "final" && name === "test") this.finalTestRun = true;
       const scope = this.registry.scope(name);
       const editsBefore = this.inputEdits.get(name);
       const before = await workspaceState(this.cwd, scope, combined);
       const cached = this.latest.get(name);
       let result: VerificationResult;
-      if (!force && before.fingerprint && cached?.status === "pass" && cached.freshness === "fresh" && cached.workspaceState === before.fingerprint) {
+      if (!force && (cached?.testPhase ?? "final") === (name === "test" && this.registry.hasChangedTests() ? phase : "final") && before.fingerprint && cached?.status === "pass" && cached.freshness === "fresh" && cached.workspaceState === before.fingerprint) {
         result = { ...cached, reused: true };
       } else {
         const limit = this.limits.get(name);
-        const [executed] = await this.registry.run([name], { signal: combined, ...(limit ? { timeoutMs: limit } : {}) });
+        const changedPaths = phase === "changed" && name === "test" && this.registry.hasChangedTests() ? await this.changedPaths?.() : undefined;
+        if (phase === "changed" && name === "test" && this.registry.hasChangedTests()) this.changedTestRun = true;
+        const [executed] = await this.registry.run([name], { signal: combined, phase, changedPaths, ...(limit ? { timeoutMs: limit } : {}) });
         if (!executed) break;
         const after = await workspaceState(this.cwd, scope, combined);
         const sameWorkspace = executed.cwd === this.cwd;

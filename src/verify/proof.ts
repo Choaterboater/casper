@@ -9,7 +9,7 @@ import { isSecretFile } from "../secrets/files";
 import { checkInputs } from "../task/check-inputs";
 import type { ProjectCommand } from "../project/model";
 import type { TreeChanges } from "../task/changes";
-import { runCommandCheck, type CommandCheckOptions } from "./command";
+import { argvText, runCommandCheck, type CommandCheckOptions } from "./command";
 import type { VerificationResult } from "./evidence";
 
 /** Whether the tests show the change works: they fail on the code without the change (the change's
@@ -237,19 +237,20 @@ export class ChangeBaseline {
   /** Run `command` without the change's non-test edits, then (only if that fails) with them, each in a
    * fresh copy with dependencies linked from the workspace. Undefined when only tests changed. */
   async prove(options: {
-    root: string; changes: TreeChanges; check: ProjectCommand; command: string; timeoutMs: number;
+    root: string; changes: TreeChanges; check: ProjectCommand; command: string; argv?: readonly string[]; timeoutMs: number;
     signal?: AbortSignal; onCleanupFailure?: CommandCheckOptions["onCleanupFailure"];
   }): Promise<ChangeProof | undefined> {
     const changed = [...options.changes.added, ...options.changes.modified, ...options.changes.removed]
       .filter((relative) => !relative.split("/").some((part) => Object.hasOwn(SKIPPED, part)));
     const tests = changed.filter(isTestPath);
     if (!changesCode(options.changes)) return undefined;
-    const { check, command } = options;
-    const run = async (cwd: string) => runCommandCheck({ name: check, command, cwd, timeoutMs: options.timeoutMs, signal: options.signal,
+    const { check } = options;
+    const command = options.argv ? argvText(options.argv) : options.command;
+    const run = async (cwd: string) => runCommandCheck({ name: check, ...(options.argv ? { argv: options.argv } : { command }), cwd, timeoutMs: options.timeoutMs, signal: options.signal,
       onCleanupFailure: options.onCleanupFailure, env: await copyEnv(options.root, cwd, this.links) });
     const copies = await mkdtemp(path.join(this.scratch, "compare-"));
     try {
-      const inputs = await safeInputs(options.root, command, this.pathContext);
+      const inputs = await safeInputs(options.root, options.command, this.pathContext);
       if (inputs.some((input) => input.split("/").includes(".casper") && !this.inputs.includes(input))) {
         throw new Error("the check names an excluded input not captured before the change; Casper has no baseline copy of it");
       }

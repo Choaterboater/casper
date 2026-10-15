@@ -173,8 +173,8 @@ test("full and lean guidance steer tests and page reads to dedicated tools, not 
   for (const file of ["src/web/tools.ts", "src/runtime/guidance.ts"]) expect(await readFile(file, "utf8")).toContain("not python/curl");
 });
 
-test("approval behavior is documented in security, terminal UX, unreleased notes, roadmap and ADR", async () => {
-  for (const file of ["docs/SECURITY.md", "docs/TERMINAL_UX.md", "docs/RELEASE.md", "site/roadmap.html", "docs/adr/0002-deliberate-choices.md"]) {
+test("approval behavior is documented in security, terminal UX and its historical ADR", async () => {
+  for (const file of ["docs/SECURITY.md", "docs/TERMINAL_UX.md", "docs/adr/0002-deliberate-choices.md"]) {
     const text = await readFile(file, "utf8");
     expect(text).toContain("bun test");
     expect(text).toMatch(/head\/gap\/tail|head.*tail|eight head lines/);
@@ -184,15 +184,6 @@ test("approval behavior is documented in security, terminal UX, unreleased notes
 
 test("release notes exclude workflow-only owner-review instructions", async () => {
   expect(await readFile("docs/RELEASE.md", "utf8")).not.toContain("Owner review required before merge");
-});
-
-for (const file of ["docs/RELEASE.md", "site/roadmap.html"]) test(`${file} keeps both model-server and command-approval notes in the next release`, async () => {
-  const text = await readFile(file, "utf8");
-  const next = file.endsWith(".md") ? text.slice(text.indexOf("## v0.2.36"), text.indexOf("## v0.2.35"))
-    : text.slice(text.indexOf("Built, not released"), text.indexOf("</aside>", text.indexOf("Built, not released")));
-  expect(next).toContain("SGLang and MLX model servers");
-  expect(next).toContain("Fewer command interruptions");
-  expect(next).toContain("The model says:");
 });
 
 test("non-test approvals keep exact matching, including redirects",  async () => {

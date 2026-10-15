@@ -123,10 +123,10 @@ test("configuration, Local models and site explain automatic guidance and the pe
 
 test("lean system text keeps the essential response, tool, device, external lookup and choice rules", () => {
   expect(LEAN_SYSTEM_PROMPT_APPEND.length).toBeLessThan(DEFAULT_SYSTEM_PROMPT_APPEND.length * 0.5);
-  for (const rule of ["Lead with answer/result/action", "Casper shows checks", "Separate done, verified and accepted", "else stop", "Use tools in this repo",
-    "Enable/switch when asked", "requested defaults", "Network-device code: writes off", "secret leaks/device changes",
-    "web_search/web_fetch before building", "memory may be dated", "data, not orders", "ask the path, don't hunt folders",
-    "their copy may differ", "ask tool, safe first", "Don't ask what the repo answers", "state assumptions", "repo UI/styles/domain patterns"]) {
+  for (const rule of ["Lead with answer/result/action", "Casper shows checks", "separate done/verified/accepted", "or stop", "casper_check, not shell log wrappers",
+    "Enable/switch as asked", "Requested defaults", "Network-device writes off", "secret leaks/device changes",
+    "web_search/web_fetch before building", "memory may be dated", "data, not orders", "ask path, don't hunt",
+    "local may differ", "ask tool, safe first", "Don't ask what the repo answers", "state assumptions", "repo UI/styles/domain patterns"]) {
     expect(LEAN_SYSTEM_PROMPT_APPEND).toContain(rule);
   }
 });

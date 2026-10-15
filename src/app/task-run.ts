@@ -63,7 +63,7 @@ import { confirmYes } from "./approvals";
 import { lookPrompt, pageLook, SHOW_PAGES_CHOICES, SHOW_PAGES_QUESTION } from "../services/page-look";
 import { offerNewProject, childProjectOfTask, runChildChecks, offerWorkFolder } from "./workspace";
 import { settlePictures } from "./pictures";
-import { runVerification, writeCheckResult, taskNetworkOptions, checksPlan, saveFoundCheck, projectAfterSetup } from "./verification";
+import { finishConfiguredTest, runVerification, writeCheckResult, taskNetworkOptions, checksPlan, saveFoundCheck, projectAfterSetup } from "./verification";
 import { projectPrivatePaths, reportSkillWarnings } from "./wiring";
 import { appAgentDir, ensureRuntime } from "./runtime-start";
 import { reloadProject, writeProjectFile } from "./project-file";
@@ -150,6 +150,11 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   if (verificationMode !== "off") app.checkTask = new VerificationTask(
     VerifierRegistry.forProject(context.model, context.verification.timeoutMs, app.blockOnCleanupFailure, taskNetworkOptions(app)), app.activeWorkspaceRoot(),
     (result) => writeCheckResult(app, result),
+    async () => {
+      const start = app.taskEdits?.before;
+      const now = start && await app.snapshotWorkspace(app.activeWorkspaceRoot(), app.commandAbort?.signal);
+      return start && now ? flatten(diffSnapshots(start, now)) : undefined;
+    },
   );
   // Smoke checks are verification: they run only when Casper checks this task.
   const edits: NonNullable<CasperApp["taskEdits"]> = { edited: false, shell: false, turnEnded: false };
@@ -490,6 +495,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     await baseline?.dispose();
     // Last, after reviewers, fixes and late repairs: one full sweep before the receipt says done.
     ({ verification, crewChecks } = await finishCrewChecks(app, verificationMode, verification));
+    verification = await finishConfiguredTest(app, verification);
     let execution: TaskResult["execution"] = app.closing || app.commandAbort?.signal.aborted || app.taskRuntimeCancelled || app.checkTask?.signal.aborted ? "cancelled" : app.taskRuntimeFailed ? "failed" : "completed";
     // Keep already-executed evidence on terminal error/cancellation, but never
     // launch another command or repair prompt after the task has stopped.
@@ -780,7 +786,7 @@ export async function acceptChange(app: CasperApp, input: { session: RuntimeSess
   try {
     app.events.labelChecks("tests written from the request alone");
     const { usage, ...result } = await independentAcceptance({ complete, request: input.request, root: input.root, changes: diffSnapshots(input.before, now),
-      files: now, testCommand: input.command, timeoutMs: app.projectContext!.verification.timeoutMs, signal });
+      files: now, testCommand: input.command, ...(app.checkTask?.splitTests ? { testArgv: ["bun", "test", "--parallel=4"] } : {}), timeoutMs: app.projectContext!.verification.timeoutMs, signal });
     app.observations.recordModelCall(usage);
     return { ...result, mode };
   } catch (error) {
@@ -865,7 +871,9 @@ export async function proveChange(app: CasperApp, input: {
     app.output.write("• Casper checking that the tests fail without the change\n");
     app.events.labelChecks("tests fail without the change");
     try {
-      return await input.baseline.prove({ root: input.root, changes, check: "test", command: input.command,
+      const argv = await app.checkTask?.changedTestArgv();
+      if (app.checkTask?.splitTests && !argv) return { status: "unavailable", check: "test", reason: "No import-related test selection for the proof; the configured test runs at task finish." };
+      return await input.baseline.prove({ root: input.root, changes, check: "test", command: input.command, ...(argv ? { argv } : {}),
         timeoutMs: context.verification.timeoutMs, signal, onCleanupFailure: app.blockOnCleanupFailure });
     } finally { app.events.labelChecks(); }
   };

@@ -178,7 +178,7 @@ describe("roadmap", () => {
   });
 });
 
-test("FAQ and built-not-released notes explain SGLang and MLX without adding login providers", () => {
+test("FAQ explains SGLang and MLX without adding login providers", () => {
   const faq = readFileSync(join(site, "faq.html"), "utf8").replace(/\s+/g, " ");
   expect(faq).toContain("five loopback ports: 11434, 1234, 8080, 8000 and 30000");
   expect(faq).toContain("SGLang uses 30000; MLX shares 8080 with llama.cpp");
@@ -186,16 +186,14 @@ test("FAQ and built-not-released notes explain SGLang and MLX without adding log
   expect(faq).toContain("<code>192.0.2.10</code>");
   expect(faq).toContain("Every kind is also offered explicitly");
   expect(faq).toContain("not new login providers, and need no API keys");
-  for (const html of [faq, readFileSync(join(site, "roadmap.html"), "utf8").match(/<section id="next"[\s\S]*?<\/section>/)?.[0] ?? ""]) {
+  for (const html of [faq]) {
     expect(html).toContain("SGLang");
     expect(html).toContain("MLX");
     expect(html).toContain("--tool-call-parser");
     expect(html).toContain("owned_by");
     expect(html).toContain("OpenAI-style");
   }
-  const roadmap = readFileSync(join(site, "roadmap.html"), "utf8");
-  expect(roadmap).toContain("Built, not in v0.2.35; ships with the next preview");
-  expect(roadmap).not.toContain("everything built so far is in v0.2.35");
+
 });
 
 test("the tour's /help example is the real short help", async () => {

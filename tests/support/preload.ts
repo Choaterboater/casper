@@ -1,5 +1,6 @@
-import { setDefaultTimeout } from "bun:test";
-import { cleanEnv } from "./env";
+import { afterAll, beforeAll, setDefaultTimeout } from "bun:test";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { isolatedEnvironment } from "./env";
 
 // Many files drive real git, apps and child processes; under load (a parallel run, a busy CI runner) those pass
 // bun's 5 s default without anything being wrong. A test that needs a tighter limit still sets its own.
@@ -10,11 +11,19 @@ setDefaultTimeout(30_000);
 // In-process tests read process.env directly (config profiles, the agent store, provider keys), so a
 // developer's own PI_*/CASPER_* variables or provider keys would give them a different suite than CI's.
 // Start every test file from the same clean environment; tests that need a variable set it themselves.
-const clean = cleanEnv();
+const { home, env: clean } = isolatedEnvironment();
+// Bun reuses the module but runs afterAll on each --rerun-each iteration. Recreate the same fixture paths
+// before the next iteration; test modules may have captured this HOME while they loaded.
+beforeAll(async () => {
+  await mkdir(home, { recursive: true });
+  await writeFile(clean.GIT_CONFIG_GLOBAL!, "");
+});
+afterAll(() => rm(home, { recursive: true, force: true }));
 // Windows names ignore case: cleanEnv calls the host's `Path` PATH, and deleting `Path` would drop PATH too.
 const key = (name: string) => process.platform === "win32" ? name.toUpperCase() : name;
 const kept = new Set(Object.keys(clean).map(key));
 for (const name of Object.keys(process.env)) if (!kept.has(key(name))) delete process.env[name];
+Object.assign(process.env, clean);
 
 // The shell sandbox holds nothing in the suite by default, whatever this machine has installed, so a test's
 // checks and commands run the same on every host. Sandbox tests build their own ShellSandbox (a fake engine,

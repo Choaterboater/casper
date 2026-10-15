@@ -5,7 +5,8 @@ import { FULL_HELP_TEXT, KEYS_HELP } from "../src/tui/help";
 import { extractPlan, planScreenRows } from "../src/flows/plan";
 
 const read = (file: string) => readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
-const documents = ["docs/TERMINAL_UX.md", "docs/VERIFICATION.md", "docs/RELEASE.md", "site/roadmap.html"];
+// Feature behavior belongs in reference docs; release notes and the roadmap box are written at release prep.
+const documents = ["docs/TERMINAL_UX.md", "docs/VERIFICATION.md"];
 const flow = () => findFlow(bundledFlows(), "plan-first")!.body;
 const words = (text: string) => text.replace(/<[^>]+>|[`*]/g, "").replace(/\s+/g, " ");
 
@@ -130,21 +131,12 @@ test("the terminal doc retains the planning gate and separates editing from choi
   expect(text).toContain("not an automatic build");
 });
 
-test("new plan behavior is unreleased, not added to the published preview's notes", () => {
+test("published plan notes do not retroactively claim new behavior", () => {
   const release = read("docs/RELEASE.md");
-  const unreleased = release.slice(release.indexOf("## v0.2.36:"), release.indexOf("## v0.2.35:"));
-  expect(unreleased).toContain("Not released yet");
-  expect(unreleased).toContain("Plans designed before building (unreleased)");
-  expect(unreleased).toContain("Ctrl+G");
-  expect(unreleased).toContain("model report");
   const preview = release.slice(release.indexOf("## v0.2.35:"), release.indexOf("## v0.2.34:"));
   expect(preview).not.toMatch(/Ctrl\+G|date-slug|one round|first-version spec/);
   expect(preview).toContain("numbers its steps and test cases");
   const roadmap = read("site/roadmap.html");
-  const next = roadmap.slice(roadmap.indexOf('<section id="next"'), roadmap.indexOf('<section id="coming"'));
-  expect(next).toContain("Built, not released");
-  expect(next).toContain("Ctrl+G");
-  expect(next).toContain("model report");
   const published = roadmap.slice(roadmap.indexOf('id="v0235"'), roadmap.indexOf('id="v0234"'));
   expect(published).not.toMatch(/Ctrl\+G|date-slug|one round|first-version spec/);
 });

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { tries } from "./support/platform";
+import { OBSERVED_FLAKY } from "./known-flaky";
 
 /**
  * A retry can hide a real failure, so every one is a choice made in this file. These are the known flaky tests:
@@ -22,6 +23,9 @@ const KNOWN_FLAKY: Array<[file: string, title: string, platforms: NodeJS.Platfor
   ["tests/phase5-lsp-real.test.ts", "real Pyright acceptance: repository-wide rename finishes with fresh zero diagnostics", ["win32"]],
   ["tests/phase5-app.integration.test.ts", "real CLI/Pi tool surface appends LSP diagnostics to native writes before the next model request", ["win32"]],
 ];
+const RETRY_FLAKES = KNOWN_FLAKY.map(([file, title, platforms]) => ({ file, title, platforms,
+  owner: "repository owner", reason: "A real child process sometimes exceeds its startup deadline on the named CI runner; only timeouts get another try.",
+}));
 
 const ROOT = path.resolve(import.meta.dir, "..");
 const HELPER = "tests/support/platform.ts";
@@ -55,7 +59,24 @@ test("a test retries only through flakyOn, and only the known flaky tests listed
     }
   }
   expect(direct).toEqual([]);
-  expect(found.sort()).toEqual([...KNOWN_FLAKY].sort());
+  expect(found.sort()).toEqual(RETRY_FLAKES.map(({ file, title, platforms }): [string, string, string[]] => [file, title, platforms]).sort());
+});
+
+test("every retry and observed flake has an owner, reason, existing file and explicit OS", () => {
+  for (const entry of [...RETRY_FLAKES, ...OBSERVED_FLAKY]) {
+    expect(entry.owner.trim().length).toBeGreaterThan(0);
+    expect(entry.reason.trim().length).toBeGreaterThan(20);
+    expect(entry.platforms.length).toBeGreaterThan(0);
+    for (const os of entry.platforms) expect(["win32", "darwin", "linux"]).toContain(os);
+    const source = readFileSync(path.join(ROOT, entry.file), "utf8");
+    if (entry.title) expect(source).toContain(entry.title.replaceAll('"', '\\"'));
+  }
+  for (const [platform, files] of [
+    ["win32", ["project-folder-recent", "effort-cycle", "security-suppressions", "phase9-learn", "claude-subscription-runtime", "crew-review", "review-command", "mcp-network-setup"]],
+    ["darwin", ["clipboard-files", "phase10-browser", "stall-guard"]],
+  ] as const) for (const file of files) {
+    expect(OBSERVED_FLAKY.some(entry => entry.file === `tests/${file}.test.ts` && entry.platforms.includes(platform))).toBe(true);
+  }
 });
 
 test("the guard sees Bun's retry option however its count is written, and a test built on tries directly", () => {

@@ -139,10 +139,10 @@ test("display: loads from your own config or a profile and is refused in a proje
 });
 
 test("a read outside the project gets its own line, once per folder, on the rich and the plain terminal", () => {
-  const home = os.homedir();
+  const home = path.resolve("/session/home");
   for (const rich of [true, false]) {
     for (const level of ["quiet", "normal"] as const) {
-      const s = view(rich, level);
+      const s = view(rich, level, home);
       const read = (id: string, toolName: string, input: Record<string, unknown>): RuntimeEvent[] => [
         { type: "tool_start", toolName, toolCallId: id, input }, { type: "tool_end", toolName, toolCallId: id, input, isError: false }];
       s.handle(

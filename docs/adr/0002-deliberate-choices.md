@@ -227,47 +227,24 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
 
 ### 13. Changing the project's checks needs its own answer
 
-- **What:** AI edit/write of configured checks or their named scripts asks `Change the test check for this project?`,
-  with old → new and No first. Save persists; an existing-command replacement may instead be session-only,
-  leaving the file untouched. Both approved command replacements update current-task registries. Session-only is a quiet kept-file note, not a failed edit; further check edits in that task keep the files without another box.
-- **Why:** a slow or failing check is not permission to weaken what checks the work.
-- **Guard rails:** No, Enter, cancellation or no question channel writes nothing; concurrent saves invalidate
-  the preview. Shell mutations targeting checks or copying over their parent folder are directed to native
-  edit/write; reading a check or copying it to an unrelated file is not a rewrite. This is a text guard,
-  not isolation from opaque scripts. Unrelated settings and user-issued setup flows keep their normal behavior.
-- **A finding:** a native configured-check rewrite persists without its answer, or a session-only choice writes
-  the file or fails to update the active check command.
+[Decision 13](0002/13-project-check-approval.md).
 
 ### 14. Casper installs its own updates quietly by default
 
-- **What:** interactive sessions check daily, plus one extra probe about three minutes in, and attempt a
-  background install at most once a day across sessions. The success-colour notice above the prompt says
-  `✔ Update installed · restart to use it`. No model or tokens.
-- **Why:** a downloaded tool should keep itself current without a forgotten manual command.
-- **Same as:** Claude Code's native installer checks on startup and periodically, installing in the background
-  for the next start ([setup](https://code.claude.com/docs/en/setup#auto-updates)).
-- **Off switch:** **Updates: notify only** checks but never installs; **off** disables checks and notices too.
-  User config `updates: auto | notify | off`; old true/false map to auto/off. `CASPER_NO_UPDATE_CHECK=1` and `CI`
-  disable it. Project files and project-selected profiles cannot set it.
-- **Guard rails:** exactly the manual `runUpdate` verification path, including signatures, SHA-256 and build
-  provenance; idle interactive sessions only, never during checks or in one-shot/JSON runs. Submitted commands
-  wait for an install already running. No restart or reload. A checkout only fast-forwards clean default-branch
-  work tracking origin, with no local commits or untracked files, then frozen installs only if its lockfile changed.
-  No stash, rebase or branch switch. Windows waits for exit through the checked WMI handoff; a private lock
-  excludes other sessions. Failures stay out of the transcript, go to update.log, and leave a retry notice.
-- **A finding:** a weaker verification path, an install overlapping task checks, a dirty/non-default/ahead checkout
-  being changed, a project controlling the setting, or an automatic restart/reload.
+[Decision 14](0002/14-background-updates.md).
 
 ### 15. Agents do not launch agents or touch unrelated tmux servers
 
-- **What:** model guidance and a native shell text guard refuse other coding-agent launches and tmux commands except private `tmux -L <name>` servers successfully started in this task. Builders have the same guard. A new task forgets ownership; an existing socket is not claimed.
-- **Why:** other sessions on the same machine are not part of this task.
-- **Off switch:** the person's explicit request to run the agent or use the other tmux server (not a builder's generated goal). Version-only agent queries are reads. Casper's own picture-generation integration is unchanged.
-- **Guard rails:** this is a command-text guard, not isolation from opaque scripts. The refusal is a plain note, before shell approval or execution.
-- **A finding:** a known direct/wrapped coding-agent invocation runs without the person's request, or an unowned tmux command passes the guard.
+[Decision 15](0002/15-agent-and-tmux-ownership.md).
 
 ## Consequences
 
 - A review that flags one of these choices without showing its guard rail broken is closed as by design.
-- A change to any of these choices updates this list in the same PR.
-- A new on-by-default behaviour that reviewers are likely to flag gets an entry here.
+- Historical decisions 1–12 above stay frozen; their headings and all existing anchors remain valid.
+- New decisions live in `docs/adr/0002/<NN>-<slug>.md`, one decision per file. Keep existing numbers; choose
+  the next unused number. Do not edit this index or an existing decision in a feature PR. Supersede a decision
+  with a new numbered file linking to it, instead of rewriting its history.
+- Reviewers read the files in [0002/](0002/) too. Run `bun tools/adr-index.ts` for the generated numbered index;
+  new files appear automatically, so independent PRs do not edit a shared index. If numbers collide, renumber
+  only the new file before merge.
+- A new on-by-default behaviour that reviewers are likely to flag gets its own decision file.
