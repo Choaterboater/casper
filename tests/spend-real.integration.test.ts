@@ -64,7 +64,7 @@ test("real one-shot: past $5 the next tool call never runs, the run stops withou
   expect(result.stdout).toContain("[spend] This task has used $5.40.");
   expect(result.stdout).toContain("– Incomplete — stopped at $5.40, the $5 limit for one task");
   // The stopped call reads as not run, not as a failure, and the model's instruction stays off the screen.
-  expect(result.stdout).toMatch(/○ bash · touch [^\n]*— not run \(spend limit\)/);
+  expect(result.stdout).toMatch(/– bash · touch [^\n]*— not run \(spend limit\)/);
   expect(result.stdout).not.toContain("Do not call more tools");
   expect(result.stdout).not.toMatch(/✗ bash/);
   expect(result.exit).toBe(2);

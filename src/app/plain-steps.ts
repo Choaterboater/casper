@@ -1,12 +1,13 @@
 /** The live steps as plain lines (the rich terminal's default; Ctrl+O shows the raw steps instead): one line that
  * counts what the AI looked through, updated in place ("Looking through the code: 14 searches, 9 files read, 3 found
- * nothing (2m)"), one line for the edits, and a short line for each command ("Ran the tests"). */
+ * nothing (2m)"), one line for the edits, and a short line for each command ("Ran tests"). */
 
 import type { ToolObservationInput } from "../runtime/observation";
 import type { ProjectCommand } from "../project/model";
 import { BUSY_GLYPH, commandLabel, displayPath, formatDuration, redactPreview, runningElapsed, type ToolLineFit } from "../tui/format";
 import { describeSteps } from "../tui/step-view";
 import type { StepKind } from "./fold";
+import { CHECK_NAMES, commandCheck, githubLabel, runningCheck, testFailureSummary } from "../tui/tool-status";
 
 /** A step of the open group, as the plain list needs it. */
 export interface PlainStep {
@@ -21,10 +22,13 @@ export interface PlainStep {
   notRun?: boolean;
   /** A search or listing that found nothing. */
   empty?: boolean;
+  /** An expected miss or recovered operation, shown on its own neutral line. */
+  note?: string;
   /** The raw line, kept as it is for a step Casper stopped before it ran. */
   line: string;
   /** A running command's latest output row (`↳ …`), shown under it. */
   tailRow?: string;
+  output?: string;
 }
 
 export interface PlainOptions { fit?: ToolLineFit; commands?: Partial<Record<ProjectCommand, string>> }
@@ -33,25 +37,7 @@ export interface PlainOptions { fit?: ToolLineFit; commands?: Partial<Record<Pro
 const NOTHING_FOUND = /^(?:No matches found|No files found matching pattern|\(empty directory\))$/;
 export function foundNothing(text: string | undefined): boolean { return NOTHING_FOUND.test(text?.trim() ?? ""); }
 
-const CHECK_WORDS: Record<ProjectCommand, string> = { test: "the tests", lint: "the linter", typecheck: "the type check", build: "the build" };
-/** Common commands for a check when the project names none. */
-const CHECK_GUESSES: ReadonlyArray<[RegExp, ProjectCommand]> = [
-  [/^(?:(?:bun|npm|pnpm|yarn) (?:run )?test\b|bun test\b|(?:python[\d.]* -m )?pytest\b|cargo test\b|go test\b)/, "test"],
-  [/^(?:(?:bun|npm|pnpm|yarn) (?:run )?lint\b|(?:bunx |npx )?(?:oxlint|eslint)\b|ruff check\b|cargo clippy\b)/, "lint"],
-  [/^(?:(?:bun|npm|pnpm|yarn) (?:run )?typecheck\b|(?:bunx |npx )?tsc\b|mypy\b|pyright\b)/, "typecheck"],
-  [/^(?:(?:bun|npm|pnpm|yarn) (?:run )?build\b|cargo build\b|go build\b)/, "build"],
-];
-
-/** "the tests" for the project's test command (or a common one), else undefined. */
-function checkWords(command: string, commands: PlainOptions["commands"] = {}): string | undefined {
-  const text = command.replace(/\s+/g, " ").trim().replace(/^(?:cd \S+ && )+/, "");
-  for (const [name, own] of Object.entries(commands) as Array<[ProjectCommand, string | undefined]>) {
-    const wanted = own?.replace(/\s+/g, " ").trim();
-    if (wanted && (text === wanted || text.startsWith(`${wanted} `))) return CHECK_WORDS[name];
-  }
-  const guess = CHECK_GUESSES.find(([pattern]) => pattern.test(text));
-  return guess ? CHECK_WORDS[guess[1]] : undefined;
-}
+const CHECK_WORDS = CHECK_NAMES;
 
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 const count = (n: number, one: string, many: string) => n ? `${n} ${n === 1 ? one : many}` : "";
@@ -86,12 +72,19 @@ function lookingLine(steps: readonly PlainStep[], now: number): string {
 
 function commandLine(step: PlainStep, now: number, options: PlainOptions): string {
   const command = typeof step.input?.command === "string" ? step.input.command : undefined;
-  const check = step.toolName === "casper_check" && typeof step.input?.check === "string" && step.input.check in CHECK_WORDS
+  const check = step.toolName === "casper_check" && typeof step.input?.check === "string" && Object.hasOwn(CHECK_WORDS, step.input.check)
     ? CHECK_WORDS[step.input.check as ProjectCommand] : undefined;
-  const named = check ?? (command ? checkWords(command, options.commands) : undefined);
+  const checkId = command ? commandCheck(command, options.commands) : undefined;
+  const named = check ?? (checkId ? CHECK_WORDS[checkId] : undefined);
   const label = named ?? (command ? commandLabel(redactPreview(command), 60).replace(/ …$/, "") : "a command");
-  if (running(step)) return `${BUSY_GLYPH} Running ${label}${runningElapsed(now - step.startedAt)}`;
-  if (step.failed) return `✗ ${capital(label)} failed`;
+  const human = runningCheck(step.input, options.commands) ?? githubLabel(step.input, "", true);
+  if (running(step)) return `${BUSY_GLYPH} ${human ? redactPreview(human).replace(/\s+/g, " ") : `Running ${label}`}${runningElapsed(now - step.startedAt)}`;
+  const github = !step.failed && githubLabel(step.input);
+  if (github) return `✓ ${github}${took(step.endedAt! - step.startedAt)}`;
+  if (step.failed) {
+    const summary = named === "tests" ? testFailureSummary(step.output ?? "") : undefined;
+    return `✗ ${summary ?? `${capital(label)} failed`}`;
+  }
   return `✓ Ran ${label}${took(step.endedAt! - step.startedAt)}`;
 }
 
@@ -106,12 +99,12 @@ function otherLine(step: PlainStep, fit: ToolLineFit): string {
  * Casper stopped before it ran as its raw line. A failed edit the model tried again at once is left out. */
 export function plainSteps(steps: readonly PlainStep[], now: number, options: PlainOptions = {}): string[] {
   const fit = options.fit ?? {};
-  const looks = steps.filter(step => step.kind === "read" && !step.notRun);
+  const looks = steps.filter(step => step.kind === "read" && !step.notRun && !step.note);
   const edits = steps.filter(step => step.kind === "edit" && !step.notRun && !step.retried && !step.failed);
   const rows: string[] = [];
   let looked = false, edited = false;
   for (const step of steps) {
-    if (step.notRun) { rows.push(step.line); continue; }
+    if (step.notRun || step.note) { rows.push(step.line); continue; }
     if (step.retried) continue;
     if (step.kind === "read") {
       if (!looked) rows.push(lookingLine(looks, now));

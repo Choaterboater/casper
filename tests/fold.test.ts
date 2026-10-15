@@ -42,7 +42,7 @@ test("quiet keeps only failures and steps that never ran; detailed shows every s
   expect(renderEditBox(detailed.edits, 60, { color: false, maxLines: detailed.editLines }).join("\n")).not.toContain("more lines");
 });
 
-test("edits with no diff to show are named in the row; the box holds ten rows and says what it left out", () => {
+test("edits with no diff to show are named in the row; each file has a bounded preview", () => {
   const written = planFold([step("write", { path: "/work/app/new.ts" })], "normal", fit);
   expect([written.edits, written.parts.map(part => `${part.verb} ${part.names.join(", ")}`)]).toEqual([[], ["edited new.ts"]]);
   const box = renderEditBox([{ path: "a.ts", added: 20, removed: 20, diff: patch(20) }, { path: "b.ts" }], 50, { color: false, maxLines: 10 });
@@ -50,8 +50,8 @@ test("edits with no diff to show are named in the row; the box holds ten rows an
   const body = box.slice(1, -1).map(row => row.slice(2, -2).trimEnd());
   expect(body[0]).toBe("a.ts  +20 -20");
   expect(body).toContain("b.ts");
-  expect(body.filter(row => /^ {2}[+-] /.test(row))).toHaveLength(8);
-  expect(body.at(-1)).toBe("… 32 more lines · Ctrl+T shows all");
+  expect(body.filter(row => /^ {2}[+-] /.test(row))).toHaveLength(12);
+  expect(body.at(-1)).toBe("… 28 more lines · Ctrl+T shows all");
 });
 
 test("a failure box shows the last lines as they were, redacted, with home as ~, and says more came before", () => {

@@ -254,7 +254,7 @@ def exercise(bun, repo, root, no_color):
         s.send("2")  # "Yes, this once", typed before the box exists.
         s.pump()
         s.release("approval-deny")
-        s.until_new("Press 1-4")
+        s.until_new("Enter to choose · Esc to skip")
         assert "Approval result" not in s.screen.text()[-400:], s.screen.text()
         time.sleep(0.5)
         s.send("\n")  # Enter picks 1, No, despite the old '2' draft.
@@ -264,7 +264,7 @@ def exercise(bun, repo, root, no_color):
         s.send("\x01\x0bapproval-allow\n")
         s.pump()
         s.release("approval-allow")
-        s.until_new("Press 1-4")
+        s.until_new("Enter to choose · Esc to skip")
         time.sleep(0.5)
         s.send("2")  # One key answers the box.
         s.until("Approval result: allowed")
@@ -274,7 +274,7 @@ def exercise(bun, repo, root, no_color):
         s.send("approval-cancel\n")
         s.pump()
         s.release("approval-cancel")
-        s.until_new("Press 1-4")
+        s.until_new("Enter to choose · Esc to skip")
         s.send("\x03")
         s.until("Stopped — cancelled")
         approval_lines = (s.root / "approvals.jsonl").read_text().splitlines()
@@ -312,7 +312,7 @@ def exercise_eof(bun, repo, root):
         s.send("approval-eof\n")
         s.pump()
         s.release("approval-eof")
-        s.until_new("Press 1-4")
+        s.until_new("Enter to choose · Esc to skip")
         s.send("\x04")
         assert s.wait_exit() == 0, "EOF at approval did not close"
         result = (s.root / "approvals.jsonl").read_text()

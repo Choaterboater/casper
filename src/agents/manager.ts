@@ -70,6 +70,8 @@ export interface SubagentRunOptions {
 
 /** One builder: the job, its copy (`cwd`) and the shell its commands run in there. */
 export interface BuilderRunOptions {
+  /** Display-only identity, shared with this builder's approval boxes. */
+  label?: string;
   cwd: string;
   goal: string;
   projectContext: string;
@@ -136,7 +138,7 @@ export interface SubagentManagerOptions {
 
 /** One helper (a delegated child) that is running now; `spent` is what its model responses cost so far;
  * `effort` is its thinking level once its model is chosen (unset for a model that does not think). */
-export interface HelperRun { id: number; role: SubagentRole; goal: string; startedAt: number; spent?: SubagentUsage; effort?: string }
+export interface HelperRun { id: number; role: SubagentRole; goal: string; startedAt: number; spent?: SubagentUsage; effort?: string; label?: string }
 
 /** What a builder the AI started did, for the delegate result (src/crew/auto.ts). */
 export interface BuildOutcome {
@@ -181,7 +183,7 @@ export type HelperActivity =
   | { kind: "start"; run: HelperRun }
   | { kind: "tool"; run: HelperRun; event: Extract<RuntimeEvent, { type: "tool_start" | "tool_end" }> }
   | { kind: "usage"; run: HelperRun }
-  | { kind: "end"; run: HelperRun; status: SubagentStatus };
+  | { kind: "end"; run: HelperRun; status: SubagentStatus; response?: string };
 
 /** What the security review's child gets: its own prompt, a read gate and the full scrubber (the caller's). */
 export interface SecurityReviewRunOptions {
@@ -196,6 +198,7 @@ export interface SecurityReviewRunOptions {
 }
 
 interface ChildSpec {
+  label?: string;
   role: SubagentRole;
   goal: string;
   cwd: string;
@@ -564,7 +567,7 @@ export class SubagentManager {
     const cwd = path.resolve(requireString(input.cwd, "cwd", 4096));
     const options = { ...input, cwd, goal, context, projectContext };
     return this.runChild({
-      role: "builder", goal, cwd, prompt: builderPrompt(options, this.builderTimeoutMs), signal: input.signal,
+      role: "builder", goal, cwd, prompt: builderPrompt(options, this.builderTimeoutMs), signal: input.signal, label: input.label ?? "Builder 1",
       systemPromptAppend: `You are a Casper crew builder: you do one job in your own copy of the project. Be concise.\n\n${projectContext}`,
       maxTurns: BUILDER_LIMITS.maxTurns, maxToolCalls: BUILDER_LIMITS.maxToolCalls, timeoutMs: this.builderTimeoutMs,
       responseBytes: BUILDER_LIMITS.responseBytes, totalTextBytes: BUILDER_LIMITS.totalTextBytes,
@@ -613,7 +616,7 @@ export class SubagentManager {
       wake();
     };
     const onCancel = () => stop("cancelled", "Delegation cancelled");
-    const info: HelperRun = { id: this.nextRunId++, role: options.role, goal: options.goal, startedAt: Date.now() };
+    const info: HelperRun = { id: this.nextRunId++, role: options.role, goal: options.goal, startedAt: Date.now(), ...(options.label ? { label: options.label } : {}) };
     const report = (activity: HelperActivity) => { try { this.options.onActivity?.(activity); } catch { /* display only */ } };
     options.signal?.addEventListener("abort", onCancel, { once: true });
     const timer = setTimeout(() => stop("timed_out", `Delegation exceeded ${options.timeoutMs} ms`), options.timeoutMs);
@@ -772,7 +775,7 @@ export class SubagentManager {
         result.status = "failed";
         result.reason = prefix(error instanceof Error ? error.message : "Subagent failed", 1024);
       }
-    }).finally(() => { this.active.delete(active); report({ kind: "end", run: info, status: result.status }); });
+    }).finally(() => { this.active.delete(active); report({ kind: "end", run: info, status: result.status, response: result.response }); });
     active.drained = work;
     try {
       await Promise.race([work, cancelled]);

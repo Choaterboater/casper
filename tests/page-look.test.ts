@@ -157,8 +157,8 @@ test("by default Casper asks once a session: 1 No · 2 Yes, show the AI the page
     await f.until((text) => text.includes("idle"));
     f.input.write("Add a dark mode toggle to the dashboard\r");
     await f.until((text) => text.includes("Show them to the AI") && text.slice(text.lastIndexOf("Show them to the AI")).includes("? waiting for you"));
-    expect(f.screen()).toContain("1 No");
-    expect(f.screen()).toContain("2 Yes, show the AI the pages");
+    expect(f.screen()).toContain("❯ 1. No");
+    expect(f.screen()).toContain("  2. Yes, show the AI the pages");
     f.input.write("2");
     await f.until(idleAfter("The AI looked at 2 screenshots"));
     expect(f.prompts[1]!.images).toHaveLength(2);

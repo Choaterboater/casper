@@ -31,7 +31,8 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
   information count as reads; config listings, credential/token/password/extraheader and URL rewrite keys, and environment-output
   `ps` groups (`E`, BSD bare `e`, not Linux `-e`) ask. A session yes for `bun test` covers other project test files and log tails
   in the same folder; non-test and permanent approvals stay exact. Boxes keep Casper's question first, then the dimmed reason
-  labelled `The model says:` and a 12-line command preview.
+  labelled `The model says:` (last sentence only, 100 characters plus an ellipsis, one dim row) and a 12-line command preview.
+  The shared arrow-first picker defaults to No; typing words is No with direction, never consent.
 - **Why:** it is the owner's call (2026-10-09). The sandbox broke ordinary work (logins, caches, tools outside
   the project), and asking first is the same protection the user has with any other agent.
 - **Same as:** Claude Code's sandbox is opt-in (`/sandbox`); without it Claude Code asks before shell

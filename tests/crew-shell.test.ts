@@ -188,13 +188,15 @@ test("with the sandbox off, a builder's command that needs a yes is asked in you
   const sandbox = new ShellSandbox({ root: () => main, home, store, tempDirs: [], offByDefault: true });
   expect(sandbox.asksFirst).toBe(true);
   const box = sessionBox(YES_SESSION);
-  const shell = crewShell(sandbox, copy, () => {}, { host: box.host, label: "Builder 2" })!;
+  const waits: boolean[] = [];
+  const shell = crewShell(sandbox, copy, () => {}, { host: box.host, label: "Builder 2", onWait: waiting => { waits.push(waiting); } })!;
   cleanup.push(() => shell.close());
   expect(await shell.approve!("npm install left-pad")).toBeUndefined();
   expect(box.asked).toEqual(["Builder 2 wants to run: npm install left-pad"]);
   // Remembered for the session: the next one runs without a box.
   expect(await shell.approve!("npm install left-pad")).toBeUndefined();
   expect(box.asked).toHaveLength(1);
+  expect(waits).toEqual([true, false]);
 });
 
 for (const nested of [false, true]) for (const routine of [false, true]) test(`a builder classifies ${routine ? "routine checks" : "reads"} in its own copy${nested ? " under ~/.casper/worktrees" : ""}, never the main project or outside`, async () => {

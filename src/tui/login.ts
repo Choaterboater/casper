@@ -1,7 +1,8 @@
-import { isKeyRelease, StdinBuffer, matchesKey, SelectList, Text } from "@earendil-works/pi-tui";
+import { isKeyRelease, StdinBuffer, matchesKey, Text } from "@earendil-works/pi-tui";
 import type { RuntimeLoginIO } from "../runtime/types";
-import { choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, typedChoice } from "./choices";
-import { terminalText, tint } from "./format";
+import { choiceHint, KEY_PICK_MAX, keyChoice, typedChoice } from "./choices";
+import { PickerList } from "./picker";
+import { terminalText } from "./format";
 import { Panel, panelColor } from "./presentation";
 
 /** A typed or pasted password: no control characters (an escape sequence is a key press, not text). Spaces and non-ASCII are fine. */
@@ -82,7 +83,6 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
   let note = "";
   const accent = (text: string) => panelColor(text, "accent", io.color);
   const muted = (text: string) => panelColor(text, "muted", io.color);
-  const selected = (text: string) => tint(text, "selection", io.color);
   const clearPanel = () => io.show();
   const mount = (panel: Panel) => io.show(panel);
   const write = (text: string) => { if (!closed && !signal.aborted) io.output.write(text); };
@@ -123,8 +123,7 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
         if (signal.aborted) return undefined;
         // Numbered rows in the one choice style: a digit picks its row at once (past nine rows the number is typed,
         // then Enter), Enter picks the highlighted one (1 at first). Esc cancels.
-        const list = new SelectList(items.map((item, index) => ({ value: String(index), label: `${choiceNumber(index, items.length)}${terminalText(item.label)}` })), 9,
-        { selectedPrefix: selected, selectedText: selected, description: muted, scrollInfo: muted, noMatch: text => panelColor(text, "warning", io.color) });
+        const list = new PickerList(items.map((item, index) => ({ value: String(index), label: terminalText(item.label) })), io.color);
         const panel = new Panel(terminalText(title), io.color);
         panel.addChild(list);
         if (note) panel.addChild(new Text(muted(terminalText(note)), 0, 0));

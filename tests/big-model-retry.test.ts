@@ -143,10 +143,10 @@ test("at the repair limit Casper offers one more try on the big model; choosing 
     await f.screen.until((output) => output.includes("idle"));
     f.input.write("fix the add function in calc.py\r");
     await f.screen.until(waiting("What now?"));
-    const asked = f.text();
+    const asked = f.text().replace(/\s+/g, " ");
     expect(asked).toContain("test still fails after 3 repairs. What now?");
-    expect(asked).toContain("Stop here");
-    expect(asked).toContain("Retry with your big model");
+    expect(asked).toContain("❯ 1. Stop here");
+    expect(asked).toContain("2. Retry with your big model");
     expect(asked).toContain("fixture/big reads this conversation (about 48k tokens, at least ≈ $0.72), then tries 1 more fix");
     expect(f.selections).toEqual([]);
     f.input.write("2");
@@ -173,7 +173,7 @@ test("Esc or Stop at the repair limit spends nothing more and keeps the receipt 
     f.input.write("fix the add function in calc.py\r");
     await f.screen.until(waiting("What now?"));
     // Without a known size the offer names no price, only that it uses tokens.
-    expect(f.text()).toContain("fixture/big reads this conversation (uses tokens), then tries 1 more fix");
+    expect(f.text().replace(/\s+/g, " ")).toContain("fixture/big reads this conversation (uses tokens), then tries 1 more fix");
     f.input.write("\x1b");
     await f.screen.until(idle);
     expect(f.text()).toContain("↻ Casper tried 3 repairs");

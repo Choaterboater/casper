@@ -187,7 +187,7 @@ test("/login offers Codex CLI's API key first: 1 uses it after OpenAI accepts it
   const run = await login(home, root, { "Found a Codex CLI sign-in on this computer": "1" }, "",
     "if (url === 'https://api.openai.com/v1/models' && init.headers.authorization === 'Bearer sk-synthetic-codex-key') return Response.json({ data: [] }); throw new Error('NETWORK_FORBIDDEN');");
   expect(run.result).toEqual({ status: "saved" });
-  expect(run.screen).toContain("1 Codex CLI · use its OpenAI API key 2 Sign in separately 3 Not now");
+  expect(run.screen).toContain("❯ 1. Codex CLI · use its OpenAI API key 2. Sign in separately 3. Not now");
   expect(run.screen).not.toContain("sk-synthetic-codex-key");
   expect(run.calls).toEqual(["https://api.openai.com/v1/models"]);
   expect(JSON.parse(await readFile(run.auth, "utf8"))).toEqual({ openai: { type: "api_key", key: "sk-synthetic-codex-key" } });
@@ -203,7 +203,7 @@ test("a refused key is not saved and the reason is plain words; Not now saves no
   const later = await login(home, root, { "Found a Codex CLI sign-in": "3" });
   expect(later.result).toEqual({ status: "cancelled", effect: "none" });
   const separately = await login(home, root, { "Found a Codex CLI sign-in": "2", "OpenRouter · paste an API key": "\x1b" });
-  expect(separately.screen).toContain("1 OpenRouter · paste an API key");
+  expect(separately.screen).toContain("❯ 1. OpenRouter · paste an API key");
   expect(separately.result).toEqual({ status: "cancelled", effect: "none" });
   const saved = await readFile(refused.auth, "utf8").then((text) => JSON.parse(text) as Record<string, unknown>, () => ({} as Record<string, unknown>));
   expect(saved.openai).toBeUndefined();
@@ -213,7 +213,7 @@ test("Claude Code's plan sign-in is never copied: picking it starts Casper's own
   const { root, home } = await tempHome();
   await put(path.join(home, ".claude", ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "synthetic-access", refreshToken: "synthetic-refresh" } }));
   const run = await login(home, root, { "Found a Claude Code sign-in on this computer": "1", "API use is billed per token": "\x1b" }, "provider: 'anthropic',");
-  expect(run.screen).toContain("1 Claude Code · sign in to the same Claude account here 2 Sign in separately 3 Not now");
+  expect(run.screen).toContain("❯ 1. Claude Code · sign in to the same Claude account here 2. Sign in separately 3. Not now");
   expect(run.screen).toContain("A plan sign-in is not copied: sharing it would sign the other tool out.");
   // Casper's own sign-in starts (claude.ai's page), never a copy of Claude Code's tokens.
   expect(run.screen).toContain("https://claude.ai/oauth/authorize");

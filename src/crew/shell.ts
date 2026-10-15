@@ -3,7 +3,7 @@ import type { ShellSandbox } from "../sandbox/manager";
 import type { RuntimeShell } from "../runtime/types";
 
 /** The main session's box a builder's command asks in, and the name its questions go by ("Builder 2"). */
-export interface CrewAsk { host: SandboxHost; label: string }
+export interface CrewAsk { host: SandboxHost; label: string; onWait?: (waiting: boolean) => void }
 
 /** "Run this command?  npm install" asked for a builder: "Builder 2 wants to run: npm install"; its other questions get the name in front. */
 const named = (label: string, question: string) =>
@@ -20,9 +20,15 @@ const named = (label: string, question: string) =>
 export function crewShell(sandbox: ShellSandbox, copy: string, note: (line: string) => void, ask?: CrewAsk): (RuntimeShell & { close(): Promise<void> }) | undefined {
   if (!sandbox.store) return undefined;
   const held = sandbox.forCopy(copy, note);
+  const notifyWait = (waiting: boolean) => { try { ask?.onWait?.(waiting); } catch { /* display only */ } };
   const shell = runtimeShell({
     canAsk: () => ask?.host.canAsk() ?? false,
-    pick: async (question, options, signal, settings) => ask ? ask.host.pick(named(ask.label, question), options, signal, settings) : undefined,
+    pick: async (question, options, signal, settings) => {
+      if (!ask) return undefined;
+      notifyWait(true);
+      try { return await ask.host.pick(named(ask.label, question), options, signal, settings); }
+      finally { notifyWait(false); }
+    },
     write: (text) => { for (const line of text.split("\n")) if (line.trim()) note(line.trim()); },
     planning: () => false,
     ...(ask?.host.stopAsking ? { stopAsking: () => ask.host.stopAsking!() } : {}),

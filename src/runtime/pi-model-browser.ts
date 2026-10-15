@@ -1,6 +1,9 @@
 import { fuzzyFilter, getKeybindings, Input, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { TUI } from "@earendil-works/pi-tui";
 import type { Api, Model, ModelsRefreshOptions, ModelsRefreshResult } from "@earendil-works/pi-ai";
+import { choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, typedChoice } from "../tui/choices";
+import { pickerCursor, pickerOptionLines } from "../tui/picker";
+import { stripVTControlCharacters } from "node:util";
 import { terminalText, tint } from "../tui/format";
 import { errorText, refreshFailure } from "./model-errors";
 
@@ -148,6 +151,7 @@ export class ModelBrowser {
   private allModels: Item[] = [];
   private filteredModels: Item[] = [];
   private selectedIndex = 0;
+  private number = "";
   private current?: ModelRef;
   private readonly defaultModel?: ModelRef;
   private scope: string | undefined; // undefined = all providers
@@ -202,7 +206,6 @@ export class ModelBrowser {
   invalidate(): void {}
 
   private accent(text: string): string { return tint(text, "accent", this.options.color); }
-  private selected(text: string): string { return tint(text, "selection", this.options.color); }
   private muted(text: string): string { return tint(text, "muted", this.options.color); }
   private rule(width: number): string { return tint("─".repeat(width), "border", this.options.color); }
 
@@ -225,20 +228,18 @@ export class ModelBrowser {
     lines.push(truncateToWidth(this.summaryLine(), width));
     lines.push(truncateToWidth(this.hintLine(), width));
     lines.push(this.rule(width));
-    return lines;
+    return this.options.color ? lines : lines.map(line => stripVTControlCharacters(line));
   }
 
   private hintLine(): string {
     // The same words as every other picker's hint: "<key> <what it does>", joined by " · ".
     if (this.focus === "sidebar") {
       const entry = this.sidebarEntries()[this.sidebarIndex];
-      if (entry?.kind === "add") return this.muted("  Enter adds a model server · Up/Down providers · Esc cancels");
-      // On one of your servers Ctrl+X comes first: a narrow screen cuts the end of this line.
-      return this.muted(`  ${entry?.saved && this.options.onForgetServer ? "Ctrl+X forgets this server · " : ""}Up/Down providers · Enter or Tab models · type to search · Esc cancels`);
+      if (entry?.kind === "add") return this.muted(choiceHint(1, "add a model server"));
+      // Keep the shared primary hint first; server shortcuts precede the search hint.
+      return this.muted(choiceHint(1, "Tab models", ...(entry?.saved && this.options.onForgetServer ? ["Ctrl+X forgets this server"] : []), "type to search"));
     }
-    return this.muted(`  Tab providers · ${this.options.sessionOnly
-      ? "Enter this session only · Esc cancels · /effort after selecting"
-      : "Enter remember · Ctrl+S this session only · Esc cancels · /effort after selecting"}`);
+    return this.muted(choiceHint(this.filteredModels.length, "Tab providers", this.options.sessionOnly ? "this session only" : "Ctrl+S this session only"));
   }
 
   private statusSuffix(): string {
@@ -314,7 +315,7 @@ export class ModelBrowser {
     const lines: string[] = [this.accent("Models"), ""];
     for (let i = windowStart; i < Math.min(windowStart + windowRows, entries.length); i++) {
       const entry = entries[i]!;
-      const cursor = this.focus === "sidebar" && this.sidebarIndex === i ? this.selected("> ") : "  ";
+      const cursor = pickerCursor(this.focus === "sidebar" && this.sidebarIndex === i, this.options.color);
       if (entry.kind === "add") { lines.push(`${cursor}${this.accent(middleCut(entry.label, width - 2))}`); continue; }
       // One of yours that didn't answer is "off"; one that answered with no models yet is 0.
       const count = entry.saved?.problem && !entry.count ? "off" : String(entry.count);
@@ -385,14 +386,14 @@ export class ModelBrowser {
     const reasons = [...this.noticeLines(width), ...this.localProblems.flatMap((line) => wrapTextWithAnsi(line, Math.max(10, width - 2)))
       .map((line) => tint(`  ${line}`, "warning", this.options.color))].slice(0, Math.max(1, Math.floor(height / 3)));
     const lines = [header + this.statusSuffix(), ...reasons.length ? reasons : [""]];
-    const searchLines = this.searchInput.render(width);
+    const searchLines = this.number ? [this.muted(`Number: ${this.number}`)] : this.searchInput.render(width);
     lines.push(...searchLines, "");
     // One row reserved for the scroll cue so the window never overflows the pane.
     const maxVisible = Math.max(1, height - SEARCH_FURNITURE - 1 - Math.max(0, reasons.length - 1));
     const startIndex = Math.max(0, Math.min(this.selectedIndex - Math.floor(maxVisible / 2), this.filteredModels.length - maxVisible));
     const endIndex = Math.min(startIndex + maxVisible, this.filteredModels.length);
     for (let i = startIndex; i < endIndex; i++) {
-      lines.push(this.rowText(this.filteredModels[i]!, i === this.selectedIndex, width));
+      lines.push(this.rowText(this.filteredModels[i]!, i === this.selectedIndex, width, i));
     }
     if (startIndex > 0 || endIndex < this.filteredModels.length) {
       lines.push(this.muted(`  (${this.selectedIndex + 1}/${this.filteredModels.length})`));
@@ -436,16 +437,14 @@ export class ModelBrowser {
     return `$${fmtPrice(cost.input)}/${fmtPrice(cost.output)}`;
   }
 
-  private rowText(item: Item, selected: boolean, width: number): string {
-    // While the providers have the keys the list's row stays marked, muted: it is what Ctrl+S would pick.
-    const cursor = !selected ? "  " : this.focus === "main" ? this.selected("> ") : this.muted("> ");
-    const marker = sameRef(this.current, item) ? this.accent("✓ ") : "  ";
-    const id = this.muted(`${item.provider}/`) + (selected && this.focus === "main" ? this.selected(item.id) : item.id);
-    const badge = sameRef(this.defaultModel, item) ? this.muted(" · default") : "";
+  private rowText(item: Item, selected: boolean, width: number, index: number): string {
     const meta = this.metaText(item, width);
     const metaWidth = meta ? visibleWidth(meta) + 1 : 0;
     const leftWidth = Math.max(8, width - metaWidth);
-    const left = truncateToWidth(cursor + marker + id + badge, leftWidth);
+    const label = `${sameRef(this.current, item) ? "✓ " : ""}${item.provider}/${item.id}${sameRef(this.defaultModel, item) ? " · default" : ""}`;
+    const room = Math.max(1, leftWidth - 2 - visibleWidth(choiceNumber(index, this.filteredModels.length)));
+    const left = pickerOptionLines([{ label: stripVTControlCharacters(truncateToWidth(label, room, "…")) }], 0,
+      selected && this.focus === "main", leftWidth, this.options.color, { count: this.filteredModels.length, offset: index })[0]!;
     const pad = Math.max(1, leftWidth - visibleWidth(left));
     return truncateToWidth(left + " ".repeat(pad) + meta, width);
   }
@@ -533,16 +532,28 @@ export class ModelBrowser {
       this.options.tui.requestRender();
       return;
     }
+    const digit = !this.searchInput.getValue() && !this.number ? keyChoice(keyData, this.filteredModels.length) : -1;
+    if (digit >= 0) { this.handleSelect(this.filteredModels[digit]!.model); return; }
+    if (!this.searchInput.getValue() && this.filteredModels.length > KEY_PICK_MAX && /^\d$/.test(keyData)) {
+      this.number = (this.number + keyData).slice(0, 3); this.options.tui.requestRender(); return;
+    }
+    if (this.number && matchesKey(keyData, "backspace")) {
+      this.number = this.number.slice(0, -1); this.options.tui.requestRender(); return;
+    }
     if (kb.matches(keyData, "tui.select.up")) {
+      this.number = "";
       if (this.filteredModels.length) {
         this.selectedIndex = this.selectedIndex === 0 ? this.filteredModels.length - 1 : this.selectedIndex - 1;
       }
     } else if (kb.matches(keyData, "tui.select.down")) {
+      this.number = "";
       if (this.filteredModels.length) {
         this.selectedIndex = this.selectedIndex === this.filteredModels.length - 1 ? 0 : this.selectedIndex + 1;
       }
     } else if (kb.matches(keyData, "tui.select.confirm")) {
-      const item = this.filteredModels[this.selectedIndex];
+      const index = this.number ? typedChoice(this.number, this.filteredModels.length) : this.selectedIndex;
+      this.number = "";
+      const item = this.filteredModels[index];
       if (item) this.handleSelect(item.model);
       return;
     } else if (kb.matches(keyData, "tui.select.cancel")) {
@@ -557,6 +568,7 @@ export class ModelBrowser {
       }
       return;
     } else {
+      this.number = "";
       this.searchInput.handleInput(keyData);
       this.filterModels(this.searchInput.getValue());
     }

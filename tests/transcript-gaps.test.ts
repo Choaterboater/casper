@@ -24,7 +24,7 @@ test("one blank row between blocks, never two; plain lines pack together", () =>
   transcript.append("\n");
   transcript.append("[context] compacted\n");
   expect(transcript.render(40)).toEqual([
-    "[model] fixture/demo", "[config] a note", "", "❯ fix it", "", "● I'll look.", "  └ read a.ts", "", "[context] compacted",
+    "[model] fixture/demo", "[config] a note", "", "❯ fix it", "", "● I'll look.", "", "  └ read a.ts", "", "[context] compacted",
   ]);
 });
 
@@ -43,7 +43,7 @@ test("steps with no words above them stand on their own, after a gap; what follo
   transcript.commit(block("❯ go"), "group");
   transcript.commitAttachable(attached => block(attached ? "  └ ran ls" : "● ran ls"));
   transcript.commitAttachable(attached => block(attached ? "  ╭─ box" : "╭─ box"));
-  expect(transcript.render(40)).toEqual(["❯ go", "", "● ran ls", "  ╭─ box"]);
+  expect(transcript.render(40)).toEqual(["❯ go", "", "● ran ls", "", "  ╭─ box"]);
 });
 
 test("the streaming words and the live rows sit where they will commit, so no row above them moves", () => {
@@ -54,7 +54,7 @@ test("the streaming words and the live rows sit where they will commit, so no ro
   const live = block("  • read · a.ts");
   transcript.live = live;
   const streaming = transcript.render(40);
-  expect(streaming).toEqual(["❯ go", "", "● Looking at it.", "  • read · a.ts"]);
+  expect(streaming).toEqual(["❯ go", "", "● Looking at it.", "", "  • read · a.ts"]);
   transcript.preview = undefined;
   transcript.commit(words, "narration");
   // The words commit with the same gap; the live rows stay under them.
@@ -63,7 +63,8 @@ test("the streaming words and the live rows sit where they will commit, so no ro
   transcript.commitAttachable(attached => block(attached ? "  └ read a.ts" : "● read a.ts"));
   const folded = transcript.render(40);
   expect(folded.slice(0, 3)).toEqual(streaming.slice(0, 3));
-  expect(folded[3]).toBe("  └ read a.ts");
+  expect(folded[3]).toBe("");
+  expect(folded[4]).toBe("  └ read a.ts");
   // Live rows past the cap show the newest only.
   transcript.live = block("  ✓ one", "  ✓ two", "  • three");
   transcript.liveCap = 2;

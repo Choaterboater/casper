@@ -88,7 +88,7 @@ test("outside tmux the steps stay on the main screen and no pane is opened", asy
   try {
     s.terminal.setStatus("fixture"); s.terminal.start();
     s.events.handle({ type: "tool_start", toolName: "bash", toolCallId: "b1", input: { command: "npm test" } });
-    await s.screen.until(output => Bun.stripANSI(output).includes("Running npm test"));
+    await s.screen.until(output => Bun.stripANSI(output).includes("Running tests"));
     s.terminal.logHelper("helper explorer · read");
     expect(s.terminal.hasPane).toBe(false);
   } finally { s.close(); }

@@ -5,27 +5,25 @@
 /** The most rows a single digit picks at once. */
 export const KEY_PICK_MAX = 9;
 
-/** A model's explanation is context below Casper's question, never the approval's authority. */
+/** A model's explanation is attributed context, never the approval's authority. */
 export const MODEL_REASON_PREFIX = "The model says: ";
 
-/** "3 " in front of row 3, padded so a list past nine rows lines up (" 3 " beside "12 "). */
+/** "3. " in front of row 3, padded so a list past nine rows lines up. */
 export function choiceNumber(index: number, count: number): string {
-  return `${String(index + 1).padStart(String(count).length)} `;
+  return `${String(index + 1).padStart(String(count).length)}. `;
 }
 
 /** The last row of a box that takes a typed answer (the AI's questions, a project name): picking it opens a line to
  * type the answer in. Casper adds it; it is never one of the asker's choices, and approvals and pickers don't have it. */
 export const OTHER_CHOICE = "Other — type your own answer";
 
-/** The keys part of the hint: "Press 1-4 or Up/Down + Enter", "Press 1 or Enter", or "Type 1-23 + Enter or Up/Down + Enter". */
-export function choiceKeys(count: number): string {
-  if (count <= 1) return "Press 1 or Enter";
-  return count <= KEY_PICK_MAX ? `Press 1-${count} or Up/Down + Enter` : `Type 1-${count} + Enter or Up/Down + Enter`;
-}
+/** Arrows move the highlight; numbering is a shortcut, not a second input style. */
+export const PICKER_HINT = "Enter to choose · Esc to skip";
+export function choiceKeys(_count: number): string { return "Enter to choose"; }
 
-/** The hint under a numbered list: the keys, then what else the box takes ("Esc skip", "Esc is No"). */
-export function choiceHint(count: number, ...rest: string[]): string {
-  return [choiceKeys(count), ...rest].join(" · ");
+/** Every picker keeps the same primary hint; additional non-cancellation shortcuts follow it. */
+export function choiceHint(_count: number, ...rest: string[]): string {
+  return [PICKER_HINT, ...rest.filter(text => !/^Esc\b/.test(text))].join(" · ");
 }
 
 /** The row a single key picks at once (a digit, while every row has one), or -1. */

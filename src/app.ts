@@ -17,7 +17,7 @@ import { loadUserCommands, usableCommands } from "./app/user-commands";
 import { glyphOutput } from "./tui/glyphs";
 import type { PaneSetting } from "./tui/pane-setting";
 import type { DisplayLevel } from "./tui/display";
-import { formatRuntimeStatus, terminalText } from "./tui/format";
+import { formatRuntimeStatus, redactPreview, terminalText } from "./tui/format";
 import { themeNote, useTheme } from "./tui/theme";
 import { registerPackThemes } from "./packs/themes";
 import { discoverReferenceConfiguration, type ReferenceConfiguration } from "./references/config";
@@ -462,6 +462,13 @@ export class CasperApp {
     privatePaths: () => projectPrivatePaths(this),
     // Inside tmux or iTerm2 each helper's steps show in the view-only steps pane; nowhere else.
     onActivity: (activity) => {
+      this.terminal.updateCrew(activity);
+      if (!this.closing && this.terminal.rich && activity.kind === "end" && activity.run.role === "reviewer") {
+        this.events.ensureLineBreak();
+        const summary = activity.status === "completed" ? redactPreview(activity.response?.trim().split(/\r?\n/, 1)[0] ?? "Review completed").replace(/\s+/g, " ").slice(0, 180)
+          : `Review ${activity.status.replaceAll("_", " ")}`;
+        this.output.write(`[crew] Reviewer ${activity.run.id}: ${summary}\n`);
+      }
       if (activity.kind !== "usage") this.terminal.logHelper(helperActivityLine(activity, this.projectContext ? this.activeWorkspaceRoot() : undefined));
       // The footer counts running builders and what they have spent so far.
       if (activity.run.role === "builder" && activity.kind !== "tool") { updateFooter(this); if (this.commandActive) this.events.refreshBuilders(); }

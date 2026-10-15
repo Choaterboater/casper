@@ -14,6 +14,7 @@ import { explainModelError } from "../runtime/model-errors";
 import type { CheckProgressRun } from "../verify/progress";
 import { foundNothing, plainSteps } from "./plain-steps";
 import type { ProjectCommand } from "../project/model";
+import { checkName, expectsTestFailure, githubLabel, outcomeNote, recoveredBy, recoveryKind, runningCheck, type RecoveryKind } from "../tui/tool-status";
 
 /** Session-owned effects the renderer needs; the app implements these against its state. */
 export interface RuntimeEventCallbacks {
@@ -84,6 +85,9 @@ interface Step {
   lines?: { added: number; removed: number };
   diff?: string;
   failed?: boolean;
+  note?: string;
+  /** Keep recoverable failures out of the transcript until a retry succeeds or the turn ends. */
+  recovery?: RecoveryKind;
   /** A failed edit the model tried again at once: counted, not printed. */
   retried?: boolean;
   /** Casper stopped it before it ran (the spend limit, or a refusal): printed as not run, never counted as a step. */
@@ -131,7 +135,11 @@ export function buildersLine(goals: readonly string[], reviewers = 0): string | 
 }
 
 /** What a running step is doing, for the status row: "Running bun test", "Reading src/x.ts", "web_fetch docs.x.com". */
-function doing(step: Step, fit: { root?: string }): string {
+function doing(step: Step, fit: { root?: string }, commands?: Partial<Record<ProjectCommand, string>>): string {
+  const human = runningCheck(step.input, commands) ?? githubLabel(step.input, "", true);
+  if (human && (step.kind === "command" || step.toolName === "casper_check")) return redactPreview(human).replace(/\s+/g, " ");
+  if (step.toolName === "delegate") return "Delegating · helper working";
+  if (step.toolName === "crew") return "Delegating · Builder 1 working";
   const target = toolTarget(step.input, fit, command => commandLabel(redactPreview(command), 60).replace(/ …$/, ""));
   const what = target ? redactPreview(String(target)).replace(/\s+/g, " ").slice(0, 80) : "";
   if (step.kind === "command") return what ? `Running ${what}` : "Running a command";
@@ -172,9 +180,14 @@ export class RuntimeEventView {
   /** Folders outside the project the model looked in: said once each, when its turn ends. */
   private readonly outsideFolders = new Set<string>();
   private outsideToSay: string[] = [];
+  private assistantWords = "";
+  private testFirst = false;
 
   constructor(private readonly terminal: InteractiveTerminal, private readonly output: OutputWriter,
     private readonly callbacks: RuntimeEventCallbacks) {}
+
+  /** A task clock pauses during interactive questions; no wait is charged to a command or response. */
+  private now(): number { return performance.now() - (this.terminal.waitedMs ?? 0); }
 
   /** A read, ls, find or grep outside the project (temp aside) is remembered by folder. The step folds into the
    * turn's summary like any other, so where the model looked would otherwise go unseen. Commands are not parsed. */
@@ -228,7 +241,7 @@ export class RuntimeEventView {
 
   private renderBox(): void {
     if (!this.terminal.rich) return;
-    const now = performance.now();
+    const now = this.now();
     const width = this.terminal.columns ? Math.max(10, this.terminal.columns - 8) : 80;
     const tailRow = (step: Step) => step.tail && this.level() !== "quiet" ? `${TAIL_MARK}${lastOutputLine(step.tail, width)}` : undefined;
     // The raw steps (Ctrl+O, and the steps pane): every call on its own row.
@@ -274,10 +287,19 @@ export class RuntimeEventView {
     if (this.status) return this.status;
     const running = this.steps.filter(step => step.endedAt === undefined && step.start);
     const newest = running.at(-1);
-    if (newest) return `${doing(newest, this.fit())} · ${formatElapsed(now - newest.startedAt)}${running.length > 1 ? ` (+${running.length - 1} more)` : ""}`;
+    if (newest) {
+      const goals = this.callbacks.builderGoals?.() ?? [];
+      const activity = newest.toolName === "delegate" && goals.length
+        ? `Delegating · ${goals.map((_, index) => `Builder ${index + 1}`).join(", ")} working`
+        : doing(newest, this.fit(), this.callbacks.projectCommands?.());
+      return `${activity} · ${formatElapsed(now - newest.startedAt)}${running.length > 1 ? ` (+${running.length - 1} more)` : ""}`;
+    }
     const check = [...this.checks.values()][0];
-    if (check) return `Checking ${lastOutputLine(check.name, 60)} · ${formatElapsed(now - check.startedAt)}`;
-    if (builders) return builders;
+    if (check) return `Running ${lastOutputLine(check.name, 60)} · ${formatElapsed(now - check.startedAt)}`;
+    if (builders) {
+      const goals = this.callbacks.builderGoals?.() ?? [];
+      return goals.length ? `Delegating · ${goals.map((_, index) => `Builder ${index + 1}`).join(", ")} working` : `Delegating · ${builders}`;
+    }
     return this.steps.length ? "Working" : undefined;
   }
 
@@ -295,9 +317,9 @@ export class RuntimeEventView {
   /** A check Casper runs itself starts: returns what to tell about it, or nothing when no line is wanted. */
   watchCheck(name: string): CheckProgressRun | undefined {
     const level = this.level();
-    const title = this.checkTitle ?? name;
+    const title = this.checkTitle ?? checkName(name);
     const id = ++this.checkSeq;
-    const entry: RunningCheck = { name: title, startedAt: performance.now() };
+    const entry: RunningCheck = { name: title, startedAt: this.now() };
     if (this.terminal.rich) {
       if (level === "quiet") return undefined;
       this.checks.set(id, entry);
@@ -329,7 +351,7 @@ export class RuntimeEventView {
   private setResponseActivity(activity: string): void {
     if (!this.terminal.rich) return;
     this.responseActivity = activity;
-    this.responseStartedAt ??= performance.now();
+    this.responseStartedAt ??= this.now();
     this.renderResponseActivity();
     if (!this.activityTimer) {
       this.activityTimer = setInterval(() => this.renderResponseActivity(), 1000);
@@ -340,9 +362,9 @@ export class RuntimeEventView {
   private renderResponseActivity(): void {
     if (!this.responseActivity || this.responseStartedAt === undefined) return;
     // Nothing heard for 10 s: say plainly what Casper is waiting for, counting from the last word.
-    const silent = this.heardAt === undefined ? 0 : performance.now() - this.heardAt;
+    const silent = this.heardAt === undefined ? 0 : this.now() - this.heardAt;
     if (runningElapsed(silent)) { this.status = `Waiting for ${this.waitingFor}${runningElapsed(silent)}`; this.renderBox(); return; }
-    this.status = `${this.responseActivity} · ${formatElapsed(performance.now() - this.responseStartedAt)}`;
+    this.status = `${this.responseActivity} · ${formatElapsed(this.now() - this.responseStartedAt)}`;
     this.renderBox();
   }
 
@@ -361,18 +383,23 @@ export class RuntimeEventView {
 
   /** The model moved on: the finished steps leave the live rows and fold under its words (see planFold): one row naming
    * what went well, the edits in a box, each failure in a box. Ctrl+T then shows the last box in full. */
-  private fold(): void {
-    const done = this.steps.filter(step => step.endedAt !== undefined);
+  private fold(final = false): void {
+    const done = this.steps.filter(step => step.endedAt !== undefined && (final || !step.recovery));
     if (!done.length) return;
-    this.steps = this.steps.filter(step => step.endedAt === undefined);
+    this.steps = this.steps.filter(step => !done.includes(step));
     this.endSpeech();
     this.ensureLineBreak();
+    if (!this.terminal.rich) {
+      for (const step of done) this.output.write(`${step.printed ?? step.line}\n`);
+      this.endedWithNewline = true;
+      return;
+    }
     const fit = this.fit();
     const fold = planFold(done.map(step => ({
       toolName: step.toolName, kind: step.kind, printed: step.printed ?? step.line, title: step.title ?? step.line,
       ...(step.input ? { input: step.input } : {}), ...(step.path !== undefined ? { path: step.path } : {}),
       ...(step.endedAt !== undefined ? { elapsedMs: step.endedAt - step.startedAt } : {}),
-      ...(step.failed ? { failed: true } : {}), ...(step.retried ? { retried: true } : {}), ...(step.notRun ? { notRun: true } : {}),
+      ...(step.failed ? { failed: true } : {}), ...(step.retried ? { retried: true } : {}), ...(step.notRun || step.note ? { notRun: true } : {}),
       ...(step.output ? { output: step.output } : {}), ...(step.lines ? { lines: step.lines } : {}), ...(step.diff ? { diff: step.diff } : {}),
     })), this.level(), { ...fit, home: this.callbacks.homeDir?.() ?? os.homedir() });
     if (fold.parts.length || fold.lines.length || fold.edits.length || fold.failures.length) this.terminal.writeFold(fold);
@@ -430,7 +457,8 @@ export class RuntimeEventView {
 
   /** The receipt is next: fold what finished, and the Working box goes away whatever arrives late. */
   reset(): void {
-    this.fold();
+    this.fold(true);
+    this.assistantWords = ""; this.testFirst = false;
     this.steps = [];
     this.stopStepTimer();
     for (const check of this.checks.values()) if (check.minutes) clearInterval(check.minutes);
@@ -482,7 +510,7 @@ export class RuntimeEventView {
         const same = event.type === "assistant_response_start" && this.responseActivity === waiting;
         if (!same) this.clearResponseActivity();
         this.waitingFor = model || "model response";
-        this.heardAt = performance.now();
+        this.heardAt = this.now();
         this.setResponseActivity(waiting);
         break;
       }
@@ -490,7 +518,7 @@ export class RuntimeEventView {
         if (!this.terminal.rich) break;
         // Some providers deliver tool arguments whole; the box then says what is being prepared.
         const size = event.chars === 0 ? "" : event.chars >= 1024 ? ` · ${(event.chars / 1024).toFixed(1)}k chars` : ` · ${event.chars} chars`;
-        this.heardAt = performance.now();
+        this.heardAt = this.now();
         const what = event.kind === "thinking" ? "Reasoning" : `Preparing ${terminalText(event.toolName ?? "tool call")}`;
         this.setResponseActivity(`${what}${size}`);
         break;
@@ -530,11 +558,14 @@ export class RuntimeEventView {
         break;
       }
       case "assistant_text_delta":
+        this.assistantWords = (this.assistantWords + event.delta).slice(-2000);
+        // Explicit red-phase intent is scoped to the next command, and still needs a successful rerun.
+        this.testFirst = expectsTestFailure(this.assistantWords);
         // Words Casper shows its own way once the turn ends (the plan screen): the status row says what is coming. They
         // are not on screen, so the steps keep gathering until words show or the turn ends.
         if (this.heldText) {
           this.held = (this.held + event.delta).slice(-65_536);
-          this.heardAt = performance.now();
+          this.heardAt = this.now();
           if (this.responseActivity !== this.heldText) { this.clearResponseActivity(); this.setResponseActivity(this.heldText); }
           break;
         }
@@ -548,7 +579,7 @@ export class RuntimeEventView {
         this.endedWithNewline = true;
         break;
       case "tool_start": {
-        if (event.toolCallId) this.toolStarted.set(event.toolCallId, performance.now());
+        if (event.toolCallId) this.toolStarted.set(event.toolCallId, this.now());
         if (!this.terminal.rich) {
           // The plain terminal prints the end line only. It has no status line, so a call that may take a while
           // (a command, a check, an MCP or browser call) and is still running after a moment says it started,
@@ -578,7 +609,7 @@ export class RuntimeEventView {
         const path = typeof event.input?.path === "string" ? event.input.path : undefined;
         if (last?.failed && last.kind === "edit" && stepKind(event.toolName) === "edit" && path !== undefined && last.path === path) last.retried = true;
         this.steps.push({ ...(event.toolCallId ? { id: event.toolCallId } : {}), toolName: event.toolName, kind: stepKind(event.toolName),
-          ...(path !== undefined ? { path } : {}), ...(event.input ? { input: event.input } : {}), start: event, startedAt: performance.now(),
+          ...(path !== undefined ? { path } : {}), ...(event.input ? { input: event.input } : {}), start: event, startedAt: this.now(),
           line: formatToolActivity(event, undefined, this.fit(2)) });
         this.clearResponseActivity(); this.status = undefined;
         this.renderBox();
@@ -598,7 +629,7 @@ export class RuntimeEventView {
         this.noteOutsideRead(event);
         const started = event.toolCallId ? this.toolStarted.get(event.toolCallId) : undefined;
         if (event.toolCallId) { this.toolStarted.delete(event.toolCallId); this.clearSlowStart(event.toolCallId); }
-        const elapsed = started === undefined ? undefined : performance.now() - started;
+        const elapsed = started === undefined ? undefined : this.now() - started;
         // A failed casper_check already printed its formatted result line; its JSON payload is for the model.
         // A finished one keeps its payload: it is never printed, but a skip reads it to show "— skipped".
         const shown: ToolEnd = event.toolName === "casper_check" && event.isError ? { ...event, output: undefined } : event;
@@ -607,17 +638,34 @@ export class RuntimeEventView {
         const spendStop = event.isError && event.output?.text?.trim() === SPEND_STOP_REASON;
         const refusal = event.isError && !spendStop ? refusalForScreen(event.output?.text ?? "") : undefined;
         const notRun = spendStop || refusal !== undefined;
+        const note = outcomeNote(event);
+        const recovery = !notRun && !note ? recoveryKind(event, this.testFirst, this.callbacks.projectCommands?.()) : undefined;
+        if (stepKind(event.toolName) === "command" || event.toolName === "casper_check") {
+          this.testFirst = false; this.assistantWords = "";
+        }
+        // Only a successful matching retry neutralizes these failures, never merely starting a retry.
+        for (const previous of this.steps) {
+          if (!previous.recovery || !recoveredBy(previous.recovery, previous, event)) continue;
+          const reason = previous.recovery === "conflict" ? "conflicts resolved" : previous.recovery === "test-first" ? "expected test-first failure · rerun passed" : `${previous.recovery} · retry finished`;
+          previous.failed = false; previous.recovery = undefined; previous.note = reason;
+          previous.line = previous.printed = `${NOTE_GLYPH} ${commandLabel(redactPreview(previous.input?.command ?? previous.toolName), 60)} — ${reason}`;
+        }
         const suffix = spendStop ? NOT_RUN : REFUSED;
         // `timed`: with the step's time. The rich terminal's folded lines leave it out (the footer and box show time).
-        // Never ran: ○, not the running •.
+        // A designed refusal is a neutral one-line note, never a failure box.
         const endLine = (inset: number, detail: boolean, timed = true) => notRun
-          ? `${NOT_RUN_GLYPH}${formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}) }, undefined, this.fit(inset + suffix.length)).slice(BUSY_GLYPH.length)}${suffix}`
-            + (detail && refusal ? `\n  ${redactPreview(refusal).slice(0, 240)}` : "")
-          : formatToolActivity(detail ? shown : { ...shown, output: undefined }, timed ? elapsed : undefined, this.fit(inset));
+          ? `${NOTE_GLYPH}${formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}) }, undefined, this.fit(inset + suffix.length)).slice(BUSY_GLYPH.length)}${suffix}${refusal ? ` · ${redactPreview(refusal).slice(0, 180)}` : ""}`
+          : formatToolActivity(note ? event : detail ? shown : { ...shown, output: undefined }, timed ? elapsed : undefined, this.fit(inset));
         const label = formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}) }, undefined, this.fit()).slice(BUSY_GLYPH.length + 1);
         this.expanded = event.diff && !event.isError ? { title: label, body: event.diff, diff: true }
-          : { title: `${label}${notRun ? " · not run" : event.isError ? " · failed" : ""}`, body: (refusal ?? event.output?.text ?? "").replace(/\n$/, "") || "(no output text)", diff: false };
+          : { title: `${label}${notRun ? " · not run" : note ? ` · ${note}` : event.isError ? " · failed" : ""}`, body: (refusal ?? event.output?.text ?? "").replace(/\n$/, "") || "(no output text)", diff: false };
         if (!this.terminal.rich) {
+          this.fold();
+          if (recovery) {
+            this.steps.push({ toolName: event.toolName, kind: stepKind(event.toolName), input: event.input, startedAt: started ?? this.now(), endedAt: this.now(),
+              failed: true, recovery, line: endLine(0, true), printed: endLine(0, true) });
+            break;
+          }
           // quiet: only what went wrong (or never ran); detailed: each edit's small diff under its line.
           if (this.level() === "quiet" && !event.isError) break;
           this.endSpeech();
@@ -635,20 +683,22 @@ export class RuntimeEventView {
         }
         if (!step) {
           // It ended after its turn folded (or never said it started): it still shows until the next fold or receipt.
-          step = { toolName: event.toolName, kind: stepKind(event.toolName), startedAt: performance.now() - (elapsed ?? 0), line: "" };
+          step = { toolName: event.toolName, kind: stepKind(event.toolName), startedAt: this.now() - (elapsed ?? 0), line: "" };
           this.steps.push(step);
         }
-        step.endedAt = performance.now();
-        step.failed = event.isError && !notRun;
+        step.endedAt = this.now();
+        step.failed = event.isError && !notRun && !note;
+        if (note) step.note = note;
+        if (recovery) step.recovery = recovery;
         step.empty = !event.isError && stepKind(event.toolName) === "read" && foundNothing(event.output?.text);
         step.printed = endLine(0, true, false);
-        // Never ran, or skipped (a check with nothing to run on): its ○ line stays as it is when the group folds.
+        // Never ran, skipped or found nothing: keep its neutral line when the group folds.
         const skipped = !event.isError && step.printed.startsWith(NOT_RUN_GLYPH);
-        if (notRun || skipped) step.notRun = true;
+        if (notRun || skipped || note) step.notRun = true;
         step.line = endLine(2, skipped);
         step.title = endLine(0, false, false);
         if (event.input) step.input = event.input;
-        if (step.failed && shown.output?.text) step.output = shown.output.text;
+        if (step.failed && event.output?.text) step.output = event.output.text;
         step.expanded = this.expanded;
         if (event.lines && !event.isError) step.lines = event.lines;
         if (event.diff && !event.isError) step.diff = event.diff;
@@ -658,7 +708,8 @@ export class RuntimeEventView {
       case "message_end":
         this.setStaticActivity();
         this.endSpeech();
-        this.fold();
+        this.fold(true);
+        this.assistantWords = ""; this.testFirst = false;
         this.toolStarted.clear();
         this.ensureLineBreak();
         this.sayOutsideReads();

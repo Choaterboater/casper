@@ -145,7 +145,7 @@ test.each(["xterm-256color", "dumb"])("Enter on the plan screen never chooses Bu
     session.terminal.start();
     session.terminal.writeRows(width => planScreenRows({ steps: ["Add a Limiter class"], tests: ["limit(0) throws"] }, width));
     const answer = session.terminal.pick(PLAN_QUESTION, PLAN_CHOICES.map(choice => ({ ...choice })));
-    await session.screen.until(output => output.includes("3 Change the plan"));
+    await session.screen.until(output => /3\.? Change the plan/.test(output));
     session.input.write(term === "dumb" ? "\n" : "\r");
     expect(await answer).toBe("Stop");
   } finally {

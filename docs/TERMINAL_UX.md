@@ -26,7 +26,8 @@ takes nothing after its name says so (`Usage: /theme, with nothing after it.`).
 | Ctrl+G | In a plan, open its saved Markdown in `VISUAL` or `EDITOR`; reread it and show the plan again on return |
 | Ctrl+L | Redraw the screen |
 | Ctrl+V (Alt+V on Windows) | Paste a picture from the clipboard; it shows as `[image 1]` and goes with the request. A file you copied in Finder, Explorer or a file manager goes in as its path, and a picture file goes with the request like a dropped one. With neither on the clipboard, its text is pasted |
-| Ctrl+O | Show the raw steps (every tool call on its own row) instead of plain ones, or plain ones again; as in Claude Code, Pi and omp (works during work too) |
+| Ctrl+O | Open or close crew details while helper rows are shown; otherwise toggle raw/plain steps |
+| Alt+O | Toggle raw steps (every tool call on its own row) or plain ones, including while crew details are open (works during work too) |
 | Ctrl+X | Turn MCP writes off for every server at once and refuse an open change box (see [MCP.md](MCP.md)); works during work and while a box is open |
 
 ### Commands
@@ -192,9 +193,10 @@ model or tool output.
 
 The transcript is grouped into blocks with exactly one blank row between them, never two: your
 request (`❯ …`, bold, on the theme's `userBg` bar across the row), each of the AI's messages (`●` in the
-accent colour, its prose hanging two columns in) with the steps it led to right under it, a box, a
+accent colour, its prose hanging two columns in), a group of steps, a crew note, a box, a
 receipt. Plain lines (`[model]`, `[approval]`, `[task]` and similar bracketed notices, a closed box's record)
-pack together. Green marks success, red an error, amber a notice or decision, cyan the
+pack together. Steps, tool/edit boxes and crew notes share a two-column left edge, including wrapped crew notes.
+Green marks success, red a real failure, amber a decision or warning, cyan the
 accent (banner, `●`, Markdown structure), dim the muted status lines. Each mark at the start
 of a line means one thing: `•` running now (a step, Casper's own checks, the prompt while Casper works),
 `✓` done, `✗` failed, `○` did not run (refused, stopped at the spend limit, a skipped check), `–` a note
@@ -209,13 +211,16 @@ stays at the left edge, full width, while the prose around it hangs under `●`)
 closing rule. A line wider than the window is cut at the edge only (no character added or
 dropped), so a mouse copy of switch config picks up no `│` characters.
 Bordered panels (`src/tui/presentation.ts`) are kept for what matters: the edits a group of steps made
-(`Edited 3 files`, each file with `+N -M` and its changed lines, ten rows at most, then
+(`Edited 3 files`, each file with `+N -M` and at most twelve diff lines per file, then
 `… N more lines · Ctrl+T shows all`), a failed step (titled with its line, `✗ bash · git push — failed`,
-with the last six lines it printed as they were, secrets hidden and your home folder as `~`), `/output`
+with the failing lines and test counts preferred over passing tails, secrets hidden and your home folder as `~`), `/output`
 replaying a tool result, `/diff` boxing `git status` and the colored unified diff, a failed check boxing the
-tail of its stderr and stdout (last 40 lines; the full output stays in the evidence), and exclusive input
-flows such as `/login`. Prose, notices and routine steps stay inline. Except for plans (at most 80 columns), panels span the terminal's current width, like
-the prompt rules and footer, and re-lay out at the new width when the window is resized. Color always accompanies a readable label; tool completion
+failure diagnostics from stderr and stdout (the full output stays in the evidence), and exclusive input
+flows such as `/login`. Prose, notices and routine steps stay inline. Panels cap at 120 columns (plans at 80)
+and re-lay out when resized; prompt rules and the footer still use the window width.
+A missing guessed path, an empty search, a designed refusal or skip, and a confirmed recovered timeout,
+service hiccup, merge conflict or test-first failure are dim `–` notes, not red boxes. Unrecovered failures stay red.
+Test statuses name the failing count when known; running checks use human labels such as `Running tests (11 files)`. Color always accompanies a readable label; tool completion
 does not mean a check passed. `NO_COLOR` keeps the structure without color, while
 redirected output and `TERM=dumb` use plain text.
 
@@ -249,10 +254,16 @@ place. Searches, reads and folder listings share one line that counts them,
 `⠋ Looking through the code: 14 searches, 9 files read, 3 found nothing (2m)` (`✓ Looked through …` once done;
 the time shows from 10 s); the group's edits share one line, `✓ Edited roadmap.html, faq.html`; each command gets a
 short line, `✓ Ran the tests` for the project's test command (and the linter, the type check, the build), else
-`✓ Ran git status`; a failure reads `✗ The tests failed` or `✗ Couldn't edit a.py`. Ctrl+O shows the raw steps
-instead, as Claude Code, Pi and omp do: every call on its own row (`⠋ read · src/x.ts` while it runs, the spinner
-standing for `•`; `✓ read · src/x.ts` once done), even with calls running side by side; Ctrl+O again goes back to
-plain words. The steps pane in tmux or iTerm2 always logs the raw steps. A step still running after 10 s adds its elapsed time (`bash · python -m pytest · 4m12s`), and a running command shows its latest output line dimly under it (not at `/details quiet`; plain terminals and `--json` get nothing extra). When the model's
+`✓ Ran git status`; a failure reads `✗ The tests failed` or `✗ Couldn't edit a.py`. Alt+O shows the raw steps
+instead: every call on its own row (`⠋ read · src/x.ts` while it runs, the spinner
+standing for `•`; `✓ read · src/x.ts` once done), even with calls running side by side; Alt+O again goes back to
+plain words. A small crew panel above the prompt lists each live builder/reviewer with its activity,
+working time and tokens (four rows, then `+N more`). Completed rows fade after 1.2 seconds and disappear
+at six seconds. A helper waiting for approval pauses its own clock and shows `waited` separately;
+other helpers keep working. Plain terminals retain the existing `[crew]` lines.
+Ctrl+O does the same when no helper rows are shown; while helpers run or their completed rows remain,
+it opens or closes crew details instead. Applied builder changes and failures to apply stay in the transcript;
+a failure names the reason and says to use `/crew` to find the retained copy. The steps pane in tmux or iTerm2 always logs the raw steps. A step still running after 10 s adds its elapsed time (`bash · python -m pytest · 4m12s`), and a running command shows its latest output line dimly under it (not at `/details quiet`; plain terminals and `--json` get nothing extra). When the model's
 next words arrive, or its turn ends, the finished steps fold under its words: one muted row naming what
 was done, `└ read AGENTS.md, CONTEXT.md · ran git status, bun test (2m05s)` (a command that ran 10 s or more says how long),
 then the group's edits in one box with a short diff and each failure in a box with what it printed.
@@ -281,7 +292,8 @@ and one concrete next action when work remains. Unknown checks, estimates and
 remaining uncertainty stay explicit. This is guidance to the model; a provider's replies may not follow it.
 
 The prompt box keeps a fixed two-column gutter: `❯` while idle, `•` while a
-command is working, `?` while a question, an approval or lines to edit wait for you. An open question's
+command is working, `?` while an exclusive line input waits for you. An open choice box replaces the prompt entirely:
+there is no empty `?` input row. Typed answers appear inline in the selected Other row; approval comments appear beside No. An open question's
 top rule names who asks, in the box's colour: `── Approval ──` (amber) for Casper's approvals,
 `── Question ──` for the AI's questions and `── Choose ──` for Casper's own pickers. The box never shifts
 horizontally between states, so a draft keeps its wrapping. The footer shows a
@@ -300,7 +312,7 @@ narrower window drops its `· casper update`, and one with no room for it beside
 out; after `/doctor` updates Casper it says `Casper updated · restart to use it` ([Configuration](CONFIGURATION.md)
 has the once-a-day check and `updates: false`). While a stage runs, the task's stages
 lead the footer, each marked ✓ once done, then the elapsed time (right after the spinner, `⠋ 0s │ …`, before the first stage);
-the time counts the whole task, a question's wait included, like the live rows' step times:
+the working time excludes questions and pickers; their time is reported separately as `waited 5m`:
 `⠋ checklist ✓ · building ✓ · checks · 1m05s │ project…`; in a narrow window only the stage running now
 and the time (`⠋ checks · 1m05s │ …`), never a finished one; between stages only the time. When the AI reads, lists or searches a folder outside the project (temp aside), one line under its
 steps says where, once per folder: `[read] outside this project: ~/Projects`. Tool lines print paths relative to the project and fit one row:
@@ -645,7 +657,7 @@ Your provider's plans and charges still apply.
 `/logout <provider>` removes one from that file, like Pi's and Claude Code's `/logout`. A key in an
 environment variable is not touched; unset it yourself.
 
-The list reuses Pi's selection list: a digit picks its row at once, Up/Down moves the
+The list reuses Casper's shared picker: a digit picks its row at once, Up/Down moves the
 visible highlight in place, Enter confirms that item, and Esc exits without contacting
 the provider. Navigation accepts Pi's decoded arrow/Enter sequences, including
 fragmented or batched terminal input. Trailing keys cannot answer the next prompt;
@@ -705,27 +717,24 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   (or toggle it in a multi-select), or use Up/Down and Enter; Space also toggles.
   Esc skips. A question that takes a typed answer (the AI's, a new project's name) ends
   with one more numbered row that Casper adds, never the AI: `Other — type your own answer`.
-  Picking it (its number, or Up/Down and Enter) highlights it and the hint becomes
-  `Type your answer below · Enter send · Esc back to the list`; the answer goes on the
-  `?` line under the box, Enter sends it, and Esc (or Up/Down on an empty line) goes back
-  to the list. Typing letters straight into the box works too and highlights the same row.
+  Picking it (its number, or Up/Down and Enter) highlights it; the answer appears inline beside Other,
+  Enter sends it, and Esc (or Up/Down on an empty answer) goes back to the list. Typing letters straight into the box works too and highlights the same row.
   Approvals and pickers that take keys only have no Other row. A number picks a row only
   while nothing is typed, so a custom answer cannot start with a row's number unless
   Other is picked first (or a letter is typed first); a digit past the last row is ordinary text. A list longer
-  than nine numbers every row: type the number and press Enter (`Type 1-16 + Enter or Up/Down + Enter` on a
-  rich terminal; a plain one says `Type 1-16:`).
+  than nine numbers every row: type the number and press Enter; a plain terminal says `Type 1-16:`.
 - `/settings` on a rich terminal is a screen, not a numbered list: seven tabs at 80 columns or more,
   an area list first below that. Up/Down moves; Enter/Space flips an on/off at once or opens a small
   Keep-first choice. Left/Right or Tab switches areas, typing searches all of them, Backspace clears
   the search and Esc closes (inside a choice, Esc goes back). While searching, Space adds a space;
   Enter changes the match. Values update at once; colours follow
   Theme, with no colours under `NO_COLOR`.
-- Every numbered list draws the same way and ends with the same hint, `Press 1-4 or
-  Up/Down + Enter`, followed by what else it takes: `Esc skip` for a question or picker
-  (a question that takes a typed answer shows that with its Other row, not in the hint),
-  `Esc is No` for an approval, `Esc cancels` for `/login`, and `Ctrl+S this
-  session only · Esc cancels` for `/effort`. Keys are spelled one way everywhere: `Ctrl+O`,
-  `Ctrl+T`, `Ctrl+X`, `Ctrl+C`.
+- Every numbered list uses the same component: accent `❯`, `1.` numbering and aligned dim descriptions.
+  Choice descriptions, the approval's Command frame and its keyboard hint stay explicitly faint even with the
+  high-contrast theme; `NO_COLOR` leaves them plain.
+  Arrows and Enter are primary; digits are immediate shortcuts up to nine choices. The hint is
+  `Enter to choose · Esc to skip`; specialized actions such as Ctrl+S remain available.
+  Approvals, plan choices, `/model`, `/settings` choices, sign-in and startup questions share these rows.
 - A question from the AI's `ask` tool starts with a muted `The AI asks:` line. Casper's own
   questions and approvals never do, so the AI can't pass off a question as a Casper approval.
 - A closed box leaves one line and nothing else: `<question> → <answer>` (`Pick a server → network`,
@@ -737,20 +746,22 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   `✓ allowed always in this project: npm test` line after 3 or 4, and the usual line after a No or Esc. That line is the only record: no `[ask]`,
   `[approval]` or `[server question]` line and no `✓ ask` step under it. The plain terminal prints the
   same line after its numbered lines.
-- A command approval always starts with Casper's own question (`Run this command?`). The model's preceding
-  one-line reason follows, dimmed and labelled `The model says:`. Multi-line commands keep their line breaks; after 12 lines, `… N more lines` shows what was omitted. Secrets stay hidden.
+- A command approval always starts with Casper's own question (`Run this command?`). Only the last sentence of the model's reason
+  follows, dimmed and labelled `The model says:`: at most 100 characters then `…`, clipped to one row without wrapping.
+  Multi-line commands sit in a dim frame and keep their line breaks; after 12 lines (or fewer in a short window),
+  `… N more lines` counts all omitted command lines. Secrets stay hidden. The activity list remains above the box.
   A session yes for `bun test` covers different project test files and log tails in the same folder; other commands
   and permanent approvals keep exact matching.
 - A list taller than the window shows the rows around the highlighted one, with `… 12 more below`
   (and above), so the box never scrolls its own top away.
-- While a picker or approval is open, its `?` row takes no typing: keys go to the box (a number past
-  nine rows is still typed), and the footer says `press a number`. A paste waits as the draft for
+- While a picker or approval is open, there is no prompt input row: keys go to the box (a number past
+  nine rows is still typed), and the footer says `waiting for you`. A paste waits as the draft for
   after the box closes, so a 60-line paste never lands in the box. A question that takes a typed answer
   (the AI's own, a new project's name) takes typing and pastes.
 - Every box takes the same input: approvals (an MCP change, a host, a shell command, a device
-  check, `/mcp writes`) are the same numbered panel as any question. Press a choice's number
-  (no Enter), or Up/Down and Enter; Esc is No. An approval takes no typed answer: typed words go nowhere
-  (the box stays open). Keys pressed in the first moment after a box opens (about 0.3 s) are ignored, so a key
+  check, `/mcp writes`) are the same numbered panel as any question. Use Up/Down and Enter, or a digit shortcut
+  (no Enter); Esc skips without approval. Typing words selects No with an inline comment; Enter declines and sends
+  those words as direction for Casper (or keeps them in the draft when no task can take them). Keys pressed in the first moment after a box opens (about 0.3 s) are ignored, so a key
   typed mid-sentence never answers a box that just appeared.
 - Casper's own numbered questions and approvals also work on the plain terminal: it prints the
   choices as numbered lines and reads `Type 1, 2 or 3:` (`Type 1-24:` past nine); a number or

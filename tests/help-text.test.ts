@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { CLI_HELP_TEXT, FULL_HELP_TEXT, HELP_TEXT, LOGIN_HELP } from "../src/tui/help";
+import { CLI_HELP_TEXT, FULL_HELP_TEXT, HELP_TEXT, HOTKEYS_TEXT, LOGIN_HELP } from "../src/tui/help";
 import { CLI_OPTIONS } from "../src/cli-args";
 
 test("help names Casper's own credential store and model routing, not Pi's", () => {
@@ -14,6 +14,13 @@ test("help names Casper's own credential store and model routing, not Pi's", () 
   expect(LOGIN_HELP).toContain("chat");
   expect(FULL_HELP_TEXT).toContain("Children use Casper roles (explorer→fast, reviewer→review) or the startup default.");
   expect(FULL_HELP_TEXT).toContain("Learning uses the startup default");
+});
+
+test("hotkeys and full help distinguish crew details from the always-available raw toggle", () => {
+  for (const text of [HOTKEYS_TEXT, FULL_HELP_TEXT]) {
+    expect(text).toContain("Ctrl+O opens or closes crew details while helpers are shown");
+    expect(text).toContain("Alt+O always toggles raw steps");
+  }
 });
 
 test("/help all lists the model role commands and every CLI flag", () => {

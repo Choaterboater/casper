@@ -6,12 +6,16 @@ import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO, RuntimePick
 import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } from "../app/images";
 import { readClipboardFiles } from "./clipboard-files";
 import { commandMenu, COMMANDS, findCommand, fitDescriptions, type MenuCommand, menuRunsDuringWork } from "./commands";
-import { BUSY_GLYPH, formatElapsed, hasLineControls, hasTerminalControls, markdownTheme, NOT_RUN_GLYPH, PROMPT_GLYPH, terminalText, tint } from "./format";
-import { answerRecord, answerRecordText, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, MODEL_REASON_PREFIX, OTHER_CHOICE, typedChoice, type PickRecord } from "./choices";
+import { BUSY_GLYPH, dim, formatElapsed, hasLineControls, hasTerminalControls, markdownTheme, NOT_RUN_GLYPH, PROMPT_GLYPH, terminalText, tint } from "./format";
+import { answerRecord, answerRecordText, choiceHint, KEY_PICK_MAX, keyChoice, MODEL_REASON_PREFIX, OTHER_CHOICE, typedChoice, type PickRecord } from "./choices";
 import { typedDuringTask } from "./give-way";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
 import { renderPanel } from "./presentation";
+import { pickerOptionLines, pickerWindow } from "./picker";
+import { modelReasonLine } from "./model-reason";
+import type { HelperActivity } from "../agents/manager";
+import { CrewPanel } from "./crew-panel";
 import { StreamTerminal } from "./stream-terminal";
 import { roleCode } from "./theme";
 import { type EntryKind, Transcript } from "./transcript";
@@ -80,21 +84,6 @@ const IDLE_HINT = "type / for commands";
 
 type AskOption = { label: string; description?: string };
 
-/** One clarification option wrapped to the width under a hanging indent: the label after its marker,
- * its description two columns further in. They share a row only when both fit whole, so nothing is cut. */
-function askOptionLines(prefix: string, option: AskOption, width: number,
-  style: { label: (text: string) => string; description: (text: string) => string }): string[] {
-  const indent = " ".repeat(visibleWidth(prefix));
-  const { label, description } = option;
-  if (indent.length + visibleWidth(label) + (description ? 2 + visibleWidth(description) : 0) <= width) {
-    return [`${prefix}${style.label(label)}${description ? style.description(`  ${description}`) : ""}`];
-  }
-  return [
-    ...wrapTextWithAnsi(label, Math.max(1, width - indent.length)).map((line, index) => `${index ? indent : prefix}${style.label(line)}`),
-    ...(description ? wrapTextWithAnsi(description, Math.max(1, width - indent.length - 2)).map(line => `${indent}  ${style.description(line)}`) : []),
-  ];
-}
-
 /** Work in progress for the screen: the steps of the open group (rows under the AI's words) and what Casper is doing or
  * waiting for now (the status row above the prompt). `rows` are the raw steps, one per call (Ctrl+O); `plain` the
  * same steps in plain words, shown by default. */
@@ -102,6 +91,7 @@ export interface WorkView { rows: readonly string[]; plain?: readonly string[]; 
 
 /** Marks a live row may start with, and the colour each takes; a running step's • becomes the spinner. */
 const LIVE_MARK = /^(✓|✗|○|•|–) /;
+const SHELL_QUESTION = /^(?:(?:Builder \d+: )?(?:Run this command\?|Reach .+\?|Run outside the sandbox with your GitHub login\?)|Builder \d+ wants to run:)/;
 
 /** Your request as Casper shows it again: ❯ and the words, bold, hanging under the mark, on the theme's userBg bar
  * across the row (none without colour, or when the theme has no bar). */
@@ -176,7 +166,7 @@ class PromptEditor extends Editor {
 }
 
 /** Who asked a numbered question: Casper itself (choices), Casper's approval boxes, or the AI through its ask tool.
- * An approval box takes no typed answer (typed words are a No) and Ctrl+X denies it. */
+ * An approval takes an inline comment (typed words are a No) and Ctrl+X revokes writes. */
 export type AskOrigin = "ai" | "casper" | "approval";
 /** Keys pressed this soon after a box opens are ignored: they were typed before it appeared (mid-sentence), so they
  * never answer it. tests/support/preload.ts sets 0 for the suite; tests/one-input-style.test.ts checks the real wait. */
@@ -201,6 +191,9 @@ export class TerminalSurface {
   private work?: { rows: string[]; plain?: string[]; status?: string };
   /** Ctrl+O: the live steps show raw, one row per call, instead of in plain words. For this session. */
   private rawSteps = false;
+  private readonly crew = new CrewPanel();
+  private crewDetails = false;
+  private crewOffset = 0;
   /** The task's stages for the footer while work runs; see StepRail. */
   private steps?: string;
   private note = "";
@@ -230,6 +223,8 @@ export class TerminalSurface {
   private spinnerTimer?: NodeJS.Timeout;
   /** When the current busy/activity stretch began; drives the footer's elapsed timer. */
   private activeSince?: number;
+  private activeWaitedMs = 0;
+  private activeWaitingSince?: number;
   /** Component shown in place of the editor while a picker is mounted. */
   private slot?: Component;
   /** Closes a picker that gives way to an approval or question (one opened during a task). */
@@ -254,10 +249,11 @@ export class TerminalSurface {
   private askActiveIndex = 0;
   /** When the open question appeared; keys before askDefaults.guardMs has passed are ignored. */
   private askOpenedAt = 0;
-  /** The open question takes a typed or pasted answer (the AI's questions, a name); a picker or approval takes keys only. */
+  /** The question accepts a free answer (the AI's questions, a name); approvals instead keep a No comment inline. */
   private askTyped = false;
   /** The Other row was picked: the box takes the typed answer, and Esc goes back to the list. */
   private askOther = false;
+  private submittedAskComment = "";
   /** The draft the open question set aside, with what is pasted while it is open; back in the prompt when it closes. */
   private askSetAside?: { draft: string; pasted: string[] };
   /** An empty, one-line input; Enter sends words, Esc/Ctrl+C/close return undefined. */
@@ -329,22 +325,31 @@ export class TerminalSurface {
         const editorLines = this.editor.render(width);
         const rule = this.border("─".repeat(width));
         const status = this.statusRow(width);
-        const block = this.slot ? this.slot.render(width).map(line => truncateToWidth(line, width))
+        // Crew rows never own input or displace a picker/approval. Small windows reserve the answer first.
+        const crew = this.slot || this.lending ? [] : this.crewRows(Math.max(1, width - 2),
+          Math.max(0, this.terminal.rows - editorLines.length - (this.pendingAsk || this.pendingLine ? 10 : 4)));
+        const block = this.slot ? this.slot.render(Math.min(120, Math.max(1, width - 2))).map(line => truncateToWidth(`  ${line}`, width))
           : this.lending ? [rule, this.muted(truncateToWidth("  exclusive input in progress · Esc or Ctrl+C cancels", width)), rule]
-          : this.pendingAsk ? [this.askRule(width), ...this.renderAsk(width, this.terminal.rows - editorLines.length - 2), ...editorLines]
+          : this.pendingAsk ? [this.askRule(Math.min(120, Math.max(1, width - 2))),
+            ...this.renderAsk(Math.min(120, Math.max(1, width - 2)), this.terminal.rows - crew.length - (crew.length ? 1 : 0) - (this.shownRows.length ? 2 : 0) - 4),
+            this.border("─".repeat(Math.min(120, Math.max(1, width - 2))))]
+            .map(line => truncateToWidth(`  ${line}`, width))
           : this.pendingLine ? [rule, ...this.lineHeading.flatMap(line => wrapTextWithAnsi(line, width)).map(line => truncateToWidth(line, width)), ...editorLines]
           : this.editor.popup.length ? [rule, ...this.editor.popup, ...status, ...editorLines] : [...status, ...editorLines];
-        while (block.length < editorLines.length) block.push("");
+        if (crew.length) block.unshift(...crew.map(line => truncateToWidth(`  ${line}`, width)), ...(this.pendingAsk ? [""] : []));
+        while (!this.pendingAsk && block.length < editorLines.length) block.push("");
         // The open group's steps show under the AI's words while nothing waits on you, and never more of them than fit
         // above the prompt: a row that ticks off the top of the screen would make the terminal redraw everything.
-        this.transcript.live = this.shownRows.length && !this.waiting ? this.liveRows : undefined;
+        this.transcript.live = this.shownRows.length ? this.liveRows : undefined;
         this.transcript.liveCap = Math.max(1, this.terminal.rows - block.length - 3);
         const body = this.transcript.render(width);
         const overlayLines = this.slot ? block.length - editorLines.length
           : this.pendingAsk || this.pendingLine ? 0
           : this.editor.popup.length ? this.editor.popup.length + 1 : 0;
         const overflow = this.lending ? 0 : Math.max(0, overlayLines);
-        return [...body.slice(0, Math.max(0, body.length - overflow)), ...block, this.footer(width)];
+        const shownBody = body.slice(0, Math.max(0, body.length - overflow));
+        const gap = this.pendingAsk && shownBody.length && shownBody.at(-1) !== "" ? [""] : [];
+        return [...shownBody, ...gap, ...block, this.footer(width)];
       },
       invalidate: () => { this.transcript.invalidate(); this.editor.invalidate(); this.slot?.invalidate(); },
     });
@@ -370,6 +375,17 @@ export class TerminalSurface {
         // interrupting here would clear an editor that is not even visible.
         if (this.lending && matchesKey(data, "ctrl+c")) { this.interrupt(); return { consume: true }; }
         return undefined;
+      }
+      // Crew details are view-only: approvals/questions still get their keys first.
+      if (!this.crew.size) this.crewDetails = false;
+      if (this.crewDetails && !this.pendingAsk && !this.pendingLine) {
+        if (matchesKey(data, "escape") || matchesKey(data, "ctrl+o")) {
+          this.crewDetails = false; this.render(); return { consume: true };
+        }
+        if (matchesKey(data, "up") || matchesKey(data, "down")) {
+          this.crewOffset = Math.max(0, Math.min(this.crew.size - 1, this.crewOffset + (matchesKey(data, "up") ? -1 : 1)));
+          this.render(); return { consume: true };
+        }
       }
       // A picker or approval takes keys, not pastes: a paste waits as the draft for after the box, so it never lands
       // in the box's answer row. pi-tui delivers a whole paste as one input. A box that takes a typed answer takes it.
@@ -430,20 +446,24 @@ export class TerminalSurface {
           this.render(); return { consume: true };
         }
       }
-      // A picker or approval takes no typed answer: letters go nowhere (its row stays empty), and the footer says which
-      // keys work. Past nine rows a row's number is typed, so digits still go in.
-      if (this.pendingAsk && !this.askTyped && !data.startsWith("\x1b") && /^[^\x00-\x1f\x7f]+$/.test(data)
+      // Key-only pickers ignore words; approval comments use the hidden editor and always resolve to No.
+      // Past nine rows a row's number is typed, so digits still go in.
+      if (this.pendingAsk && this.askFrom !== "approval" && !this.askTyped && !data.startsWith("\x1b") && /^[^\x00-\x1f\x7f]+$/.test(data)
         && !((this.askOptions?.length ?? 0) > KEY_PICK_MAX && /^\d+$/.test(data))) {
-        this.flashNote(`press a number · Esc ${this.askFrom === "approval" ? "is No" : "skips"}`);
+        this.flashNote(choiceHint(this.askRows()));
         return { consume: true };
       }
       if (matchesKey(data, "ctrl+l")) { this.tui.requestRender(true); return { consume: true }; }
       // A picture from the clipboard goes in as [image N]; with no picture, copied files' paths, else the clipboard's text.
       if (matchesKey(data, PASTE_IMAGE_KEY) && !this.pendingAsk) { void this.pasteImage(); return { consume: true }; }
-      // The raw steps, one row per call, or back to plain words (as Ctrl+O in Claude Code, Pi and omp), even while work runs.
-      if (matchesKey(data, "ctrl+o")) {
+      // Ctrl+O opens crew details when present; Alt+O always toggles raw/plain steps, even while work runs.
+      if (matchesKey(data, "ctrl+o") || matchesKey(data, "alt+o")) {
+        if (matchesKey(data, "ctrl+o") && this.crew.size) {
+          if (!this.waiting) { this.crewDetails = true; this.crewOffset = 0; this.render(); }
+          return { consume: true };
+        }
         this.rawSteps = !this.rawSteps;
-        this.flashNote(this.rawSteps ? "raw steps · Ctrl+O for plain" : "plain steps · Ctrl+O for raw");
+        this.flashNote(this.rawSteps ? "raw steps · Alt+O for plain" : "plain steps · Alt+O for raw");
         return { consume: true };
       }
       // The last step in full (an edit's diff, a command's output), even while work runs.
@@ -563,7 +583,8 @@ export class TerminalSurface {
     if (active) {
       // The elapsed time always sits right after the spinner (after the stage once there is one), so a long-running
       // request is measurable at a glance, and the stages lead, so a narrow window truncates the details, not them.
-      const elapsed = this.activeSince !== undefined ? formatElapsed(Date.now() - this.activeSince) : "";
+      const waited = this.waitedMs;
+      const elapsed = this.activeSince !== undefined ? `${formatElapsed(performance.now() - this.activeSince - waited)}${waited >= 1000 ? ` · waited ${formatElapsed(waited)}` : ""}` : "";
       // The rail shows while a stage runs. Narrow: only the stage running now and the time, so neither is cut off
       // and a finished stage (✓) never stands for what is happening.
       const running = this.steps?.split(" · ").filter(step => !/ (?:✓|skipped)$/.test(step)) ?? [];
@@ -592,19 +613,35 @@ export class TerminalSurface {
 
   /** While work runs (a prompt in flight or tool activity), the footer's state mark, the status row and a running step's
    * mark cycle through braille frames; idle has no mark. */
+  get waitedMs(): number {
+    return this.activeWaitedMs + (this.activeWaitingSince === undefined ? 0 : Math.max(0, performance.now() - this.activeWaitingSince));
+  }
+
   private updateSpinner(): void {
     const working = (this.busy || this.work !== undefined) && !this.closed;
     const active = working && !this.waiting;
-    // The timer counts the whole task, a question's wait included, like the Working box's step times.
-    if (working) this.activeSince ??= Date.now();
-    else this.activeSince = undefined;
-    if (active && this.spinnerTimer === undefined) {
+    if (working) {
+      this.activeSince ??= performance.now();
+      if (this.waiting) this.activeWaitingSince ??= performance.now();
+      else if (this.activeWaitingSince !== undefined) {
+        this.activeWaitedMs += Math.max(0, performance.now() - this.activeWaitingSince);
+        this.activeWaitingSince = undefined;
+      }
+    } else {
+      this.activeSince = undefined;
+      this.activeWaitedMs = 0;
+      this.activeWaitingSince = undefined;
+    }
+    // Crew completions expire even after the main task stops, or while an approval waits.
+    const ticking = active || (!this.closed && this.crew.size > 0);
+    if (ticking && this.spinnerTimer === undefined) {
       this.spinnerTimer = setInterval(() => {
         this.spinnerFrame = (this.spinnerFrame + 1) % SPINNER_FRAMES.length;
+        this.updateSpinner();
         this.render();
       }, SPINNER_INTERVAL_MS);
       this.spinnerTimer.unref?.();
-    } else if (!active && this.spinnerTimer !== undefined) {
+    } else if (!ticking && this.spinnerTimer !== undefined) {
       clearInterval(this.spinnerTimer);
       this.spinnerTimer = undefined;
       this.spinnerFrame = 0;
@@ -709,6 +746,22 @@ export class TerminalSurface {
     this.updateSpinner();
     this.render();
   }
+  /** Helper lifecycle is independent of the current tool group and the optional side pane. */
+  updateCrew(activity: HelperActivity): void {
+    this.crew.update(activity);
+    this.updateSpinner();
+    this.render();
+  }
+  setCrewWaiting(name: string, waiting: boolean): void {
+    this.crew.setWaiting(name, waiting);
+    this.render();
+  }
+  /** The reserved bottom rows at this size, also used by layout checks. */
+  crewRows(width: number, height: number): string[] {
+    if (!this.crew.size) this.crewDetails = false;
+    return this.crew.render(width, height, { color: this.io.color, frame: this.spinnerFrame,
+      details: this.crewDetails && !this.waiting, offset: this.crewOffset });
+  }
   /** The work in progress as the screen holds it now (for tests and the layout checks). */
   get workView(): WorkView | undefined { return this.work; }
 
@@ -725,9 +778,10 @@ export class TerminalSurface {
     render: width => this.shownRows.map(row => {
       if (row.startsWith("↳ ")) return this.muted(truncateToWidth(`    ${row}`, width));
       const mark = LIVE_MARK.exec(row);
+      if (mark?.[1] === "–") return this.muted(truncateToWidth(`  ${row}`, width));
       if (!mark) return truncateToWidth(`  ${row}`, width);
       const glyph = mark[1] === BUSY_GLYPH ? this.accent(SPINNER_FRAMES[this.spinnerFrame]!)
-        : tint(mark[1]!, mark[1] === "✓" ? "success" : mark[1] === "✗" ? "error" : "warning", this.io.color);
+        : tint(mark[1]!, mark[1] === "✓" ? "success" : mark[1] === "✗" ? "error" : mark[1] === "–" ? "muted" : "warning", this.io.color);
       return truncateToWidth(`  ${glyph} ${row.slice(mark[0].length)}`, width);
     }),
     invalidate() {},
@@ -873,6 +927,8 @@ export class TerminalSurface {
     if (this.held && !typedDuringTask()) return this.held.then(() => this.ask(question, options, multi, signal, from, typed, ownRecord));
     this.yieldSlot();
     if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingLine || signal?.aborted) return Promise.resolve(undefined);
+    // Shell approvals arrive through pick(), not approve(); they still own the same safe comment channel.
+    if (from === "casper" && options[0]?.label === "No" && SHELL_QUESTION.test(question)) from = "approval";
     // The steps and the status row step aside while the box is open, and come back after it.
     this.endAssistant();
     const draft = this.editor.getExpandedText();
@@ -886,6 +942,7 @@ export class TerminalSurface {
     // A closed box leaves one line, "<question> → <answer>" or "<question> — skipped", re-fitted per width; the
     // choices and the hint go with the box. It commits after any open tail line.
     let chosen: string[] | undefined;
+    let answerComment = "";
     // The box's own record (a muted line, or none) for a chosen label.
     let own: string | undefined;
     // Closed for the task's own box: the record says so, and the command can be typed again.
@@ -898,10 +955,11 @@ export class TerminalSurface {
         return index >= 0 ? shown[index]!.label : terminalText(answer).replace(/\s+/g, " ").trim();
       });
       const { question: asked, answer } = answerRecord(safeQuestion, said);
+      const comment = from === "approval" && chosen && answerComment ? ` (${answerComment})` : "";
       const lead = from === "ai" ? `${AI_ASKS_LABEL} ` : "";
       // An approval nobody answered is a No; the record says both.
-      const tail = answer !== undefined ? ` → ${answer}` : gaveWay ? " — closed for the task's question; type the command again" : from === "approval" ? ` — skipped (${shown[0]?.label ?? "No"})` : " — skipped";
-      const paint = (question: string) => `${this.muted(lead)}${this.accent(question)}${answer !== undefined ? `${this.accent(" →")} ${this.selected(answer)}` : this.muted(tail)}`;
+      const tail = answer !== undefined ? ` → ${answer}${comment}` : gaveWay ? " — closed for the task's question; type the command again" : from === "approval" ? ` — skipped (${shown[0]?.label ?? "No"})` : " — skipped";
+      const paint = (question: string) => `${this.muted(lead)}${this.accent(question)}${answer !== undefined ? `${this.accent(" →")} ${this.selected(answer)}${this.muted(comment)}` : this.muted(tail)}`;
       // The answer is never cut: a long question is cut short with "…" to leave it room, and a long answer wraps.
       const room = width - visibleWidth(lead) - visibleWidth(tail);
       if (room >= Math.min(24, visibleWidth(asked))) return [paint(truncateToWidth(asked, Math.max(1, room), "…"))];
@@ -918,11 +976,19 @@ export class TerminalSurface {
       this.pendingAsk = undefined; this.askQuestion = undefined; this.askOptions = undefined; this.askLabels = []; this.askFrom = "casper";
       this.askMulti = false; this.askSelections.clear(); this.askActiveIndex = 0; this.askSetAside = undefined; this.askTyped = false;
       this.askOther = false;
-      // Typed words in an approval are a No (the first choice): the record says No, since it is the only record.
-      chosen = from === "approval" && answer && !options.some(option => option.label === answer[0]) ? [options[0]!.label] : answer;
+      // Typed words are a No even if they spell a granting label; only an explicit picker action grants.
+      answerComment = from === "approval" ? terminalText(this.submittedAskComment || this.editor.getExpandedText()).replace(/\s+/g, " ").trim() : "";
+      this.submittedAskComment = "";
+      chosen = from === "approval" && answer && answerComment ? [options[0]!.label] : answer;
       own = chosen?.length === 1 && options.some(option => option.label === chosen![0]) ? ownRecord?.(chosen[0]!) : undefined;
       if (own !== "") { this.writeBlock(record); this.records++; }
-      this.restoreSetAside(setAside.draft, setAside.pasted); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(answer);
+      this.restoreSetAside(setAside.draft, setAside.pasted);
+      // A refusal's words are direction for the task, not just decoration in its transcript record.
+      if (chosen && answerComment) {
+        const accepted = this.onBusySubmit?.(answerComment);
+        if (accepted !== true) this.restoreSetAside([setAside.draft, answerComment].filter(Boolean).join("\n"), setAside.pasted);
+      }
+      this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(chosen);
     };
     const cancel = () => finish(undefined);
     this.attention("question");
@@ -985,30 +1051,76 @@ export class TerminalSurface {
    * When that is taller than `height` rows, only the highlighted option keeps its description, so the
    * question itself stays on screen instead of scrolling away. */
   private renderAsk(width: number, height: number): string[] {
+    height = Math.max(0, height);
+    if (!height) return [];
     const choices = this.askOptions?.length ?? 0;
     // A box that takes a typed answer ends with the Other row; while an answer is typed, it stays highlighted.
     const count = this.askRows();
     const typing = this.askTyping();
-    const active = typing ? choices : this.askActiveIndex;
+    const comment = this.askFrom === "approval" ? this.editor.getExpandedText().replace(/\s+/g, " ").trim() : "";
+    const active = typing ? choices : comment ? 0 : this.askActiveIndex;
     // A multi-select's numbers toggle rather than pick, so its keys say so.
-    const hint = typing ? "Type your answer below · Enter send · Esc back to the list"
-      : this.askMulti ? `Press 1-${count} or Space to toggle · Up/Down move · Enter answer · Esc skip`
-      : this.askFrom === "approval" ? choiceHint(count, "Esc is No")
-      : choiceHint(count, "Esc skip");
-    const head = [
-      ...(this.askFrom === "ai" ? [this.muted(AI_ASKS_LABEL)] : []),
-      ...(this.askQuestion ?? "").split("\n").flatMap((line, at) => wrapTextWithAnsi(
-        at === 1 && line.startsWith(MODEL_REASON_PREFIX) ? this.muted(line) : this.accent(line), width)),
+    const hint = choiceHint(count);
+    const question = (this.askQuestion ?? "").split("\n");
+    const reason = question[1]?.startsWith(MODEL_REASON_PREFIX) ? question[1] : undefined;
+    // Casper's question stays first; the model's last sentence is dim context on one row.
+    const shell = SHELL_QUESTION.test(question[0] ?? "");
+    const inline = shell ? (/^(.*?\?)  ([\s\S]+)$/.exec(question[0]!) ?? /^(Builder \d+ wants to run:) ([\s\S]+)$/.exec(question[0]!)) : null;
+    const title = inline?.[1] ?? question[0] ?? "Choose";
+    const wrappedTitle = wrapTextWithAnsi(this.accent(title), width);
+    const titleRows = shell && wrappedTitle.length > 3 ? [...wrappedTitle.slice(0, 2), this.muted("…")] : wrappedTitle;
+    const context = shell ? [...(inline ? [inline[2]!] : []), ...question.slice(reason ? 2 : 1)] : question.slice(reason ? 2 : 1);
+    let tail = wrapTextWithAnsi(dim(hint, this.io.color), width);
+    if (tail.length > Math.max(1, height - 4)) tail = [dim(truncateToWidth(hint, width), this.io.color)];
+    // Reserve the selected row and, where possible, the two scroll cues before budgeting context.
+    const headBudget = Math.max(0, height - tail.length - Math.min(3, Math.max(1, height - tail.length)));
+    const heading = [
+      ...(this.askFrom === "ai" ? [this.muted(AI_ASKS_LABEL)] : []), ...titleRows,
+      ...(reason ? [this.muted(modelReasonLine(reason, width))] : []),
     ];
-    const tail = wrapTextWithAnsi(this.muted(hint), width);
-    const option = (index: number, compact: boolean) => {
+    const head = heading.slice(0, headBudget);
+    const contextBudget = Math.max(0, Math.min(shell ? 13 : headBudget, headBudget - head.length,
+      height - tail.length - count - head.length));
+    if (shell) {
+      // Count logical command lines, not wrapped terminal rows. Add any newly omitted preview lines
+      // to the footer already supplied by shownCommand; never repeat that old count unchanged.
+      const footer = /^… (\d+) more lines$/.exec(context.at(-1) ?? "");
+      const priorHidden = Number(footer?.[1] ?? 0);
+      const command = footer ? context.slice(0, -1) : context;
+      const frameStart = head.length;
+      const framed = contextBudget >= 3;
+      const commandWidth = Math.max(1, width - (framed ? 4 : 0));
+      const bodyBudget = Math.max(0, contextBudget - (framed ? 2 : 0));
+      const wrapped = command.map(line => wrapTextWithAnsi(line, commandWidth));
+      const all = wrapped.flat();
+      if (all.length + (priorHidden ? 1 : 0) <= bodyBudget) {
+        head.push(...all, ...(priorHidden ? [`… ${priorHidden} more lines`] : []));
+      } else if (bodyBudget) {
+        let remaining = bodyBudget - 1, shown = 0;
+        for (const rows of wrapped) {
+          if (rows.length > remaining) { head.push(...rows.slice(0, remaining)); break; }
+          head.push(...rows); remaining -= rows.length; shown++;
+        }
+        head.push(`… ${priorHidden + command.length - shown} more lines`);
+      }
+      const commandRows = head.splice(frameStart);
+      head.push(...(framed ? renderPanel("Command", commandRows, width, false, "muted") : commandRows).map(line => dim(line, this.io.color)));
+    } else {
+      head.push(...context.flatMap(line => wrapTextWithAnsi(this.muted(line), width)).slice(0, contextBudget));
+    }
+    if (!typing && this.editor.getText() && !comment && head.length < headBudget) head.push(this.muted(`Number: ${this.editor.getText()}`));
+    const commentChars = Array.from(comment);
+    const preview = commentChars.slice(0, 100).join("") + (commentChars.length > 100 ? "…" : "");
+    const entries = Array.from({ length: count }, (_, index) => {
       const entry = index < choices ? this.askOptions![index]! : { label: OTHER_CHOICE };
-      const selected = index === active;
-      const marker = choiceNumber(index, count) + (this.askMulti && index < choices ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "");
-      return askOptionLines(selected ? this.selected("→ ") : "  ",
-        { label: marker + entry.label, description: compact && !selected ? undefined : entry.description }, width,
-        selected ? { label: this.selected, description: this.selected } : { label: text => text, description: this.muted });
-    };
+      const marker = this.askMulti && index < choices ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "";
+      const typedAnswer = typing && index === choices ? this.editor.getExpandedText().replace(/\s+/g, " ").trim() : "";
+      const answerPreview = Array.from(typedAnswer).slice(0, 100).join("") + (Array.from(typedAnswer).length > 100 ? "…" : "");
+      return { ...entry, ...(index === 0 && comment ? { description: undefined } : {}),
+        label: marker + entry.label + (index === 0 && comment ? ` — ${preview}` : typing && index === choices ? ` — ${answerPreview}` : "") };
+    });
+    const labelWidth = Math.max(0, ...this.askOptions?.map(row => visibleWidth(row.label)) ?? [], ...(this.askTyped ? [visibleWidth(OTHER_CHOICE)] : [])) + (this.askMulti ? 4 : 0);
+    const option = (index: number, compact: boolean) => pickerOptionLines(entries, index, index === active, width, this.io.color, { compact, labelWidth });
     const fit = (lines: string[]) => lines.map(line => truncateToWidth(line, width));
     const all = (compact: boolean) => fit([...head, ...Array.from({ length: count }, (_, index) => option(index, compact)).flat(), ...tail]);
     const full = all(false);
@@ -1016,17 +1128,15 @@ export class TerminalSurface {
     const compact = all(true);
     // Still taller than the screen: the rows around the highlighted one, with how many more are above and below, so
     // the box never pushes its own top into the scrollback (where it would stay once the box closes).
-    const room = height - head.length - tail.length - 2;
-    if (compact.length <= height || room < 1 || !count) return compact;
+    if (compact.length <= height) return compact;
+    const available = height - head.length;
+    tail = tail.slice(0, Math.max(0, available - 1));
+    const cues = available - tail.length >= 3;
+    const room = available - tail.length - (cues ? 2 : 0);
     const rows = Array.from({ length: count }, (_, index) => option(index, true));
-    let start = active, end = start + 1, used = rows[start]!.length;
-    for (let grew = true; grew;) {
-      grew = false;
-      if (end < count && used + rows[end]!.length <= room) { used += rows[end]!.length; end++; grew = true; }
-      if (start > 0 && used + rows[start - 1]!.length <= room) { start--; used += rows[start]!.length; grew = true; }
-    }
-    return fit([...head, this.muted(start ? `  … ${start} more above` : ""), ...rows.slice(start, end).flat(),
-      this.muted(end < count ? `  … ${count - end} more below` : ""), ...tail]);
+    const window = pickerWindow(rows, active, room, width);
+    return fit([...head, ...(cues ? [this.muted(window.start ? `  … ${window.start} more above` : "")] : []), ...window.lines,
+      ...(cues ? [this.muted(window.end < count ? `  … ${count - window.end} more below` : "")] : []), ...tail]);
   }
 
   /** Enter on the list: the highlighted option, or every toggled option (the highlighted one if none). */
@@ -1069,7 +1179,12 @@ export class TerminalSurface {
     // While an answer is typed after picking Other, a number is the answer, not a row.
     const index = this.askOther ? -1 : typedChoice(text, this.askRows());
     if (index >= 0) { this.pickAsk(index); return; }
-    if (text) this.pendingAsk?.([text]);
+    if (text) {
+      if (this.askFrom === "approval") {
+        this.submittedAskComment = text;
+        this.pendingAsk?.([this.askLabels[0]!]);
+      } else this.pendingAsk?.([text]);
+    }
   }
 
   private planEdit?: string;

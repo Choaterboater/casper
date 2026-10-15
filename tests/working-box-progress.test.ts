@@ -77,7 +77,7 @@ test("last output line: control characters, secrets, truncation and empty output
 test("a running bash step shows one dim line with its latest output", () => {
   const s = box();
   s.handle(start, { type: "tool_progress", toolName: "bash", toolCallId: "1", text: "tests/a.py ..\ntests/b.py ... [45%]\n" });
-  expect(s.last()).toEqual(["• bash · python -m pytest", "↳ tests/b.py ... [45%]", "Running python -m pytest · 0s"]);
+  expect(s.last()).toEqual(["• bash · python -m pytest", "↳ tests/b.py ... [45%]", "Running tests · 0s"]);
 });
 
 test("quiet, plain terminals and other tools show no output line", () => {

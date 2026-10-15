@@ -10,7 +10,7 @@ const hasTmux = spawnSync("tmux", ["-V"]).status === 0;
 test.skipIf(!hasTmux)("real tmux: /plan panel and choices at 80 columns, Ctrl+G editor and plain-word changes round-trip", async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "casper-plan-tmux-"));
   const socket = path.join(temp, "sock"), project = path.join(temp, "project"), home = path.join(temp, "home");
-  const tmux = (...args: string[]) => spawnSync("tmux", ["-S", socket, "-f", "/dev/null", ...args], { encoding: "utf8" });
+  const tmux = (...args: string[]) => spawnSync("tmux", ["-S", socket, "-f", "/dev/null", ...args], { encoding: "utf8", env: { ...process.env, HOME: home } });
   const capture = () => tmux("capture-pane", "-p", "-t", "plan", "-S", "-300").stdout;
   const wait = async (match: (text: string) => boolean) => {
     const deadline = Date.now() + 15_000;
@@ -31,7 +31,7 @@ test.skipIf(!hasTmux)("real tmux: /plan panel and choices at 80 columns, Ctrl+G 
     const screen = await wait(text => text.includes("Build this plan?") && text.includes("waiting for you"));
     expect(screen).toContain("╭─ Plan · A cleaner, animated header");
     expect(screen).toContain("Ctrl+T details · Ctrl+G edit");
-    for (const text of ["Goal", "What I found", "What you'll see", "Steps", "Done means", "1 Stop", "2 Build", "3 Change the plan", "▄▄███▄▄  CASPER"]) expect(screen).toContain(text);
+    for (const text of ["Goal", "What I found", "What you'll see", "Steps", "Done means", "1. Stop", "2. Build", "3. Change the plan", "▄▄███▄▄  CASPER"]) expect(screen).toContain(text);
     const frame = screen.split("\n").filter(row => /^[╭│╰]/.test(row));
     expect(frame.every(row => Bun.stringWidth(row.trimEnd()) === 80)).toBe(true);
     const body = frame.map(row => row.slice(3, -3).trimEnd());
@@ -48,7 +48,7 @@ test.skipIf(!hasTmux)("real tmux: /plan panel and choices at 80 columns, Ctrl+G 
     await Bun.sleep(350); // Real input guard: keys typed before the box appeared cannot answer it.
     tmux("send-keys", "-t", "plan", "C-g");
     const edited = await wait(text => text.includes("╭─ Plan · A hand-edited header") && text.includes("Build this plan?"));
-    expect(edited).toContain("3 Change the plan");
+    expect(edited).toContain("3. Change the plan");
     await Bun.sleep(350);
     tmux("send-keys", "-t", "plan", "3");
     await wait(text => text.includes("What should change?") && text.replace(/\s+/g, " ").includes("Esc stops without building"));

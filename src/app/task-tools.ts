@@ -91,11 +91,19 @@ export function delegateTool(app: CasperApp): RuntimeTool {
     projectContext: formatProjectContext(app.projectContext!),
     // The task's spend pause sees a builder's spend while it works, and holds its tool calls too. The question
     // follows the task's own stop, not one builder's, since the AI may be waiting on the same answer.
-    runBuilder: (options) => app.subagents.runBuilder({ ...options, beforeToolWait: () => spendGate(app) }),
+    runBuilder: (options) => app.subagents.runBuilder({ ...options, beforeToolWait: async () => {
+      const gate = spendGate(app);
+      const waiting = Boolean(app.spendAsk);
+      const label = options.label ?? "Builder 1";
+      if (waiting) app.terminal.setCrewWaiting(label, true);
+      try { return await gate; }
+      finally { if (waiting) app.terminal.setCrewWaiting(label, false); }
+    } }),
     // Its questions in your box go by the number its [crew] lines show: "Builder 2 wants to run: ...".
-    shell: (copy, note, label) => app.sandbox ? crewShell(app.sandbox, copy, note, { host: sandboxHost(app), label }) : undefined,
+    shell: (copy, note, label) => app.sandbox ? crewShell(app.sandbox, copy, note, { host: sandboxHost(app), label,
+      onWait: (waiting) => app.terminal.setCrewWaiting(label, waiting) }) : undefined,
     observeEdit: (file) => observeEdit(app, file),
-    say: (line) => { if (!app.closing) { app.events.ensureLineBreak(); app.output.write(`[crew] ${terminalText(line)}\n`); } },
+    say: (line) => { if (!app.closing) { app.events.ensureLineBreak(); app.terminal.writeCrew(line); } },
   }, app.buildersOff, app.builderSteer, app.crewParts));
   return app.delegateToolForTask;
 }

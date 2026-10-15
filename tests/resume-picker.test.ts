@@ -60,8 +60,8 @@ test("/resume is a numbered picker (1 stays here); after resuming the last turns
     await app.until(text => text.includes("idle"));
     app.input.write("/resume\r");
     await app.until(text => text.includes("Fix the login bug"));
-    expect(app.screen()).toContain("1 Stay in this conversation");
-    expect(app.screen()).toContain("2 Fix the login bug");
+    expect(app.screen()).toContain("❯ 1. Stay in this conversation");
+    expect(app.screen()).toContain("  2. Fix the login bug");
     expect(app.screen()).not.toContain("a1b2c3d4-0000  ");
     app.input.write("2");
     await app.until(text => text.includes("I changed auth.ts"));

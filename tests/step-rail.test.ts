@@ -34,7 +34,7 @@ test("while work runs the footer leads with the steps; idle, it shows the plain 
   } finally { session.close(); }
 });
 
-test("the footer timer counts a question's wait, like the live rows' step times", async () => {
+test("the footer timer excludes a question's wait and reports it separately", async () => {
   process.env.TERM = "xterm-256color";
   const session = interactiveTerminal();
   try {
@@ -52,8 +52,8 @@ test("the footer timer counts a question's wait, like the live rows' step times"
     const from = session.screen.output.length;
     session.terminal.setSteps("checklist ✓ · building ✓ · checks");
     await session.screen.until(output => Bun.stripANSI(output.slice(from)).includes("checks · "));
-    // Over two seconds passed, all of it waiting: the timer counts them, so it agrees with the box's step times.
-    expect(Bun.stripANSI(session.screen.output.slice(from))).toMatch(/checks · [2-9]s/);
+    // Work time pauses while waiting; the separate wait remains visible.
+    expect(Bun.stripANSI(session.screen.output.slice(from))).toMatch(/checks · 0s · waited [2-9]s/);
     session.terminal.setSteps(undefined);
   } finally { session.close(); }
 }, 15_000);

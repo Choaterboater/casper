@@ -3,6 +3,7 @@ import { stripVTControlCharacters } from "node:util";
 import type { MarkdownTheme } from "@earendil-works/pi-tui";
 import type { RuntimeEvent, RuntimeStatus } from "../runtime/types";
 import { roleCode, type ThemeRole } from "./theme";
+import { commandCheck, githubLabel, outcomeNote, testFailureSummary } from "./tool-status";
 
 /** Prompt gutter glyphs. Idle accepts input; busy keeps the same width so the box never shifts. */
 export const PROMPT_GLYPH = "❯";
@@ -88,6 +89,9 @@ export function tint(text: string, role: ThemeRole, color: boolean, style?: stri
   const codes = style && code ? `${style};${code}` : style || code;
   return codes ? paint(text, codes, color) : text;
 }
+
+/** Faint presentation, independent of a theme's secondary colour; NO_COLOR remains unstyled. */
+export function dim(text: string, color: boolean): string { return paint(text, "2", color); }
 
 /** Assistant Markdown theme: accent for structure, muted and border for the rest. With color off every function is identity. */
 export function markdownTheme(color: boolean): MarkdownTheme {
@@ -352,12 +356,31 @@ export function shortenHome(text: string, home: string = homedir()): string {
 
 /** What a failed step printed last, for its box: the last `max` lines that hold anything, each as it was (only the end
  * trimmed), with secrets redacted, control characters shown safely and the home folder as ~. `earlier`: how many
- * more lines came before them. */
-export function failureLines(text: string, options: { max?: number; home?: string } = {}): { lines: string[]; earlier: number } {
+ * more lines were omitted. Recognizable test failures keep their diagnostics and final counts instead of tail passes. */
+export function failureLines(text: string, options: { max?: number; home?: string } = {}): { lines: string[]; earlier: number; focused?: boolean } {
+  // casper_check returns structured output for the model, not a JSON blob for the box.
+  try {
+    const check = JSON.parse(text);
+    if (check && typeof check === "object" && typeof check.status === "string") {
+      const parts = [check.stderr, check.stdout, check.reason].filter((part): part is string => typeof part === "string" && !!part);
+      text = parts.length ? parts.join("\n") : `Check ${check.status}`;
+    }
+  } catch { /* Ordinary command output. */ }
   const all = shortenHome(redactPreview(text.replace(/\r(?!\n)/g, "\n")), options.home).split("\n")
     .map(line => line.replace(/\t/g, "  ").trimEnd()).filter(line => line.trim());
   const max = Math.max(1, options.max ?? 6);
-  return { lines: all.slice(-max), earlier: Math.max(0, all.length - max) };
+  const failures = all.flatMap((line, index) => /(?:\(fail\)|^\s*(?:FAIL(?:ED)?\b|✗|×)|\b(?:AssertionError|error:|Expected:|Received:)|^E\s|^\s*[-=]+ FAILURES)/i.test(line) ? [index] : []);
+  if (!failures.length) return { lines: all.slice(-max), earlier: Math.max(0, all.length - max) };
+  if (all.length <= max) return { lines: all, earlier: 0, focused: true };
+  const counts = all.flatMap((line, index) => /(?:\b\d+ (?:pass|fail|failed|passed)\b|Tests:|Test Files:|Test Suites:)/.test(line) ? [index] : []);
+  // Keep failure anchors before neighbouring context; reserve room for the final counts.
+  const selected = new Set<number>([...failures.slice(0, Math.max(1, max - Math.min(2, counts.length))), ...counts.slice(-2)].slice(0, max));
+  for (let distance = 1; distance < all.length && selected.size < max; distance++) {
+    for (const index of failures) for (const next of [index - distance, index + distance]) {
+      if (selected.size < max && next >= 0 && next < all.length && !/^\s*(?:\(pass\)|PASS\b|✓)/.test(all[next]!)) selected.add(next);
+    }
+  }
+  return { lines: [...selected].sort((a, b) => a - b).map(index => all[index]!), earlier: all.length - selected.size, focused: true };
 }
 
 /** `root`: paths under it print relative to it; `home` (default the real one) shortens other paths to ~.
@@ -408,8 +431,16 @@ export function formatToolActivity(event: ToolEvent, elapsedMs?: number, fit: To
   // Native tool success is not a verifier pass or authoritative shell exit code. The ✓ says it finished.
   const detail = event.isError && event.output?.text
     ? `\n  ${redactPreview(event.output.text).replace(/\s+/g, " ").slice(0, 240)}${event.output.truncated ? " [truncated]" : ""}` : "";
-  // A casper_check skip never ran: neither ✓ nor ✗.
-  if (!event.isError && event.toolName === "casper_check" && /[{,]"status":"skip"/.test(event.output?.text ?? "")) return `${NOT_RUN_GLYPH} ${name}${line(` — skipped${elapsed}`, elapsed)}`;
+  const note = outcomeNote(event);
+  if (note) return `${NOTE_GLYPH} ${name}${line(` — ${note}${elapsed}`, elapsed)}`;
+  const tests = event.input?.check === "test" || (event.input?.command && commandCheck(event.input.command) === "test");
+  const summary = event.isError && tests ? testFailureSummary(event.output?.text ?? "") : undefined;
+  if (summary) return `✗ ${summary}${elapsed}`;
+  const github = !event.isError && ["bash", "powershell"].includes(event.toolName) && githubLabel(event.input, event.output?.text);
+  if (github) {
+    const label = [...`✓ ${github}${elapsed}`];
+    return fit.width !== undefined && label.length > fit.width ? `${label.slice(0, Math.max(0, fit.width - 1)).join("")}…` : label.join("");
+  }
   const size = event.lines ? ` · +${event.lines.added} -${event.lines.removed}` : "";
   return `${event.isError ? "✗" : "✓"} ${name}${line(`${size}${event.isError ? " — failed" : ""}${elapsed}`, `${size}${elapsed}`)}${detail}`;
 }

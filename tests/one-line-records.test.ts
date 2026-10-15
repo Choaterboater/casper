@@ -55,15 +55,15 @@ test("a closed picker leaves one line; Esc leaves the question and skipped, neve
     const servers = [{ label: "docs", description: "not connected · from ~/.claude.json" }, { label: "network", description: "not connected" },
       { label: "lab", description: "ready" }, { label: "Done" }];
     const first = session.terminal.pick("Pick a server", servers);
-    await session.screen.until((output) => output.includes("Press 1-4"));
+    await session.screen.until((output) => output.includes("Enter to choose · Esc to skip"));
     session.input.write("2");
     expect(await first).toBe("network");
     const action = session.terminal.pick("network", [{ label: "Details" }, { label: "Connect" }, { label: "Back" }]);
-    await session.screen.until((output) => output.includes("Press 1-3"));
+    await session.screen.until((output) => output.includes("3. Back"));
     session.input.write("2");
     expect(await action).toBe("Connect");
     const again = session.terminal.pick("Pick a server", servers);
-    await session.screen.until((output) => output.split("Press 1-4").length > 2);
+    await session.screen.until(() => screenText(session.screen.output).includes("  4. Done"));
     session.input.write("\x1b");
     expect(await again).toBeUndefined();
     await settle(30);
@@ -76,7 +76,7 @@ test("an answered approval is one line after its context; Esc is a No and the li
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const yes = session.terminal.approve("  mkdir made\n", "Run this command?", [NO, YES_ONCE, "Yes, for this session"]);
-    await session.screen.until((output) => output.includes("Press 1-3"));
+    await session.screen.until((output) => output.includes("3. Yes, for this session"));
     session.input.write("2");
     expect(await yes).toBe(YES_ONCE);
     const skipped = session.terminal.approve("", "Make this change?", [NO, YES_ONCE]);
@@ -88,21 +88,21 @@ test("an answered approval is one line after its context; Esc is a No and the li
   } finally { session.close(); }
 });
 
-test("skipped /settings leaves one line, not its 23 rows; a long question is cut with … and the answer stays whole", async () => {
+test("skipped /settings leaves one line, not its 27 rows; a long question is cut with … and the answer stays whole", async () => {
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
-    const rows = Array.from({ length: 23 }, (_, index) => ({ label: `Row ${index + 1}`, description: "on" }));
+    const rows = Array.from({ length: 27 }, (_, index) => ({ label: `Row ${index + 1}`, description: "on" }));
     const skipped = session.terminal.pick("Settings (saved in ~/.casper/config.yaml for you):\n  Web lookups: on · Browser tool: on\nPick one to change:", rows);
-    await session.screen.until((output) => output.includes("Type 1-23"));
+    await session.screen.until((output) => output.includes("Enter to choose · Esc to skip"));
     // Taller than the 30-row screen: the rows around the highlighted one show, the rest are counted, and the box's top
     // never scrolls into the scrollback, where it would stay after the box closes.
-    expect(screenText(session.screen.output)).toMatch(/^ {2}… \d+ more below$/m);
+    expect(screenText(session.screen.output)).toMatch(/^ {4}… \d+ more below$/m);
     expect(screenText(session.screen.output).split("\n").length).toBe(30);
     session.input.write("\x1b");
     await skipped;
     const long = session.terminal.pick(`${"A very long question that goes on ".repeat(5)}?`, [{ label: "Keep it as it is" }, { label: "Change it" }]);
-    await session.screen.until((output) => output.includes("Press 1-2"));
+    await session.screen.until((output) => output.includes("2. Change it"));
     session.input.write("2");
     expect(await long).toBe("Change it");
     await settle(30);
@@ -129,7 +129,7 @@ test("a box with its own record: a yes once leaves nothing, a remembered yes one
     }
     await settle(30);
     expect(transcript(session.screen.output)).toEqual(["✓ allowed until you quit: npm test", "Run this command? cd app && make c 2>&1 | tail → No",
-      "Run this command? cd app && make d 2>&1 | tail — skipped"]);
+      "Run this command? cd app && make d 2>&1 | tail — skipped (No)"]);
   } finally { session.close(); }
 });
 
@@ -183,7 +183,7 @@ test("an approval box shown on screen is the only record of its answer: no [appr
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const answer = recordedApproval(app, "", "Run this command?", [{ label: NO }, { label: YES_ONCE }]);
-    await session.screen.until((output) => output.includes("Press 1-2"));
+    await session.screen.until((output) => output.includes("2. Yes, this once"));
     session.input.write("\x1b");
     expect(await answer).toBeUndefined();
     expect(written.join("")).not.toContain("[approval]");
@@ -195,14 +195,14 @@ test("while a picker is open its row takes no typing and no paste; a paste waits
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const picked = session.terminal.pick("Pick a server", [{ label: "lab" }, { label: "Done" }]);
-    await session.screen.until((output) => output.includes("Press 1-2 or Up/Down + Enter · Esc skip"));
+    await session.screen.until((output) => output.includes("Enter to choose · Esc to skip"));
     const paste = Array.from({ length: 61 }, (_, index) => `line ${index + 1}`).join("\n");
     session.input.write(`\x1b[200~${paste}\x1b[201~`);
     session.input.write("x");
     await settle(30);
     const open = screenText(session.screen.output).split("\n");
     expect(open.some((line) => line.includes("line 61"))).toBe(false);
-    expect(open.filter((line) => line.trim()).at(-1)).toContain("press a number · Esc skips");
+    expect(open.filter((line) => line.trim()).at(-1)).toContain("Enter to choose · Esc to skip");
     session.input.write("1");
     expect(await picked).toBe("lab");
     // The paste is back in the prompt once the picker closes, nothing typed with it.
@@ -222,7 +222,7 @@ test("the AI's own question still takes a typed answer, and so does a long list'
     expect(await typed).toEqual(["Cy"]);
     const rows = Array.from({ length: 12 }, (_, index) => ({ label: `Row ${index + 1}` }));
     const long = session.terminal.pick("Pick one", rows);
-    await session.screen.until((output) => output.includes("Type 1-12"));
+    await session.screen.until((output) => output.includes("12. Row 12"));
     session.input.write("1");
     session.input.write("1\r");
     expect(await long).toBe("Row 11");

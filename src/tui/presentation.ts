@@ -14,7 +14,7 @@ export function panelColor(text: string, tone: PanelTone, color: boolean): strin
 export function renderPanel(title: string, body: readonly string[], width: number, color: boolean, tone: PanelTone = "accent",
   corners: readonly string[] = GLYPHS.corners): string[] {
   const [topLeft, topRight, bottomLeft, bottomRight] = corners;
-  width = Number.isFinite(width) ? Math.max(1, Math.floor(width)) : 80;
+  width = Number.isFinite(width) ? Math.min(120, Math.max(1, Math.floor(width))) : 80;
   const label = terminalText(title).replace(/\s+/g, " ").trim();
   if (width < 8) return [label, ...body].flatMap(line => wrapTextWithAnsi(line, width))
     .map(line => visibleWidth(line) > width ? truncateToWidth(line, width, "…") : line);
@@ -65,6 +65,7 @@ export function renderCodeBlock(title: string, code: readonly string[], width: n
 export class Panel extends Container {
   constructor(public title: string, private readonly color: boolean, private readonly tone: PanelTone = "accent") { super(); }
   override render(width: number): string[] {
+    width = Math.min(120, width);
     return renderPanel(this.title, super.render(Math.max(1, width < 8 ? width : width - 4)), width, this.color, this.tone);
   }
   override handleMouse(event: Parameters<Container["handleMouse"]>[0]) {

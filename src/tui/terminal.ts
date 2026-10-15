@@ -1,4 +1,4 @@
-import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
+import { truncateToWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import readline from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO } from "../runtime/types";
@@ -14,13 +14,16 @@ import { bellSequence, hostCommand, prepareTmuxPane, titleSequence, TITLE_RESTOR
 import { SidePane, type ActivityPane } from "./side-pane";
 import { answerRecordText, MODEL_REASON_PREFIX, numberPrompt, OTHER_CHOICE, type PickRecord } from "./choices";
 import { editPlanFile } from "./plan-editor";
+import type { HelperActivity } from "../agents/manager";
+import { crewTranscriptLine } from "./crew-panel";
+import { modelReasonLine } from "./model-reason";
 
 export { numberPrompt } from "./choices";
 
 /** One transcript line colored by how it starts: ✗ error, ✓ success, a note (–), a warning (⚠) or a step that did not
  * run (○) warning, a running step (•) muted (the theme's colours); a detailed diff line added or removed. */
 export function styleLine(line: string, color: boolean): string {
-  const role: ThemeRole | undefined = line.startsWith(MODEL_REASON_PREFIX) ? "muted" : /^(?:\[error\]|✗)/.test(line) ? "error" : /^✓/.test(line) ? "success"
+  const role: ThemeRole | undefined = line.startsWith(MODEL_REASON_PREFIX) || line.startsWith("– ") ? "muted" : /^(?:\[error\]|✗)/.test(line) ? "error" : /^✓/.test(line) ? "success"
     : /^(?:– |○ |⚠ |\[skills\]|\[cancel|\[approval\]|\[ask\]|\[effort\])/.test(line) ? "warning" : /^CASPER/.test(line) ? "accent" : /^(?: \/help · |…|• )/.test(line) ? "muted"
     : /^ {4}\+ /.test(line) ? "diffAdded" : /^ {4}- /.test(line) ? "diffRemoved" : undefined;
   // The text header is bold as well as the accent colour.
@@ -30,15 +33,15 @@ export function styleLine(line: string, color: boolean): string {
 /** A folded group's rows at this width: two columns in under the AI's words (`attached`, with └), or at the left edge
  * with ● when nothing of theirs is above. */
 export function renderFold(fold: FoldView, width: number, attached: boolean, color: boolean): string[] {
-  const indent = attached ? "  " : "";
-  const inner = Math.max(1, width - indent.length);
-  const rows = [
-    ...stepRows(fold.parts, inner, tint(attached ? "└" : "●", "muted", color), color),
-    ...fold.lines.flatMap(line => terminalText(line).split("\n")).map(row => styleLine(row, color)),
-    ...(fold.edits.length ? renderEditBox(fold.edits, inner, { color, maxLines: fold.editLines }) : []),
-    ...fold.failures.flatMap(failure => failure.output?.trim() ? renderFailureBox(failure, inner, color) : [styleLine(terminalText(failure.title), color)]),
-  ];
-  return rows.map(row => truncateToWidth(`${indent}${row}`, width, ""));
+  const indent = " ".repeat(Math.min(2, Math.max(0, width - 1)));
+  const inner = Math.min(120, Math.max(1, width - indent.length));
+  const groups = [
+    [...stepRows(fold.parts, inner, tint(attached ? "└" : "●", "muted", color), color),
+      ...fold.lines.flatMap(line => terminalText(line).split("\n")).map(row => styleLine(row, color))],
+    fold.edits.length ? renderEditBox(fold.edits, inner, { color, maxLines: fold.editLines }) : [],
+    ...fold.failures.map(failure => failure.output?.trim() ? renderFailureBox(failure, inner, color) : [styleLine(terminalText(failure.title), color)]),
+  ].filter(rows => rows.length);
+  return groups.flatMap((rows, index) => [...(index ? [""] : []), ...rows.map(row => truncateToWidth(`${indent}${row}`, width, ""))]);
 }
 
 /** A group of finished steps as the screen shows it once the AI moves on (see writeFold). */
@@ -86,6 +89,11 @@ export class InteractiveTerminal {
   private confirmation?: (answer: string | undefined) => void;
   private plainQuestions = 0;
   private plainRecords = 0;
+  private plainWaitedMs = 0;
+  private plainWaitingSince?: number;
+  get waitedMs(): number {
+    return this.surface?.waitedMs ?? this.plainWaitedMs + (this.plainWaitingSince === undefined ? 0 : Math.max(0, performance.now() - this.plainWaitingSince));
+  }
   /** Plain line input that arrived while idle but not yet reading (startup, before the first
    * prompt). Lines typed during work are still dropped, and approvals never read this. */
   private readonly earlyLines: string[] = [];
@@ -167,6 +175,15 @@ export class InteractiveTerminal {
     const pane = lines.length ? this.activityPane() : this.pane;
     if (pane) { pane.show(lines); this.surface?.setWork(view?.status ? { rows: [], status: view.status } : undefined); return; }
     this.surface?.setWork(view);
+  }
+  /** Live crew rows stay on the main screen even when the optional steps pane is open. */
+  updateCrew(activity: HelperActivity): void { this.surface?.updateCrew(activity); }
+  setCrewWaiting(name: string, waiting: boolean): void { this.surface?.setCrewWaiting(name, waiting); }
+  crewRows(width: number, height: number): string[] { return this.surface?.crewRows(width, height) ?? []; }
+  /** Crew chatter stays plain on pipes; the rich transcript keeps applied-change and retained-copy outcomes. */
+  writeCrew(line: string): void {
+    const text = crewTranscriptLine(line, this.rich);
+    if (text) this.write(text);
   }
   /** A helper's (delegate's) step: in the steps pane when there is one; the main screen stays quiet. */
   logHelper(line: string): void { this.activityPane()?.log(line); }
@@ -260,13 +277,17 @@ export class InteractiveTerminal {
     const lines = options.diff ? plain.map(line =>
       /^\+(?!\+\+ )/.test(line) ? tint(line, "diffAdded", this.color) : /^-(?!-- )/.test(line) ? tint(line, "diffRemoved", this.color)
         : line.startsWith("@@") ? tint(line, "diffHunk", this.color) : line) : plain;
-    this.surface.writeBlock({ render: width => renderPanel(heading, lines, width, this.color, options.tone ?? "muted"), invalidate() {} }, "group");
+    this.surface.writeBlock({ render: width => renderPanel(heading, lines, Math.max(1, width - 2), this.color, options.tone ?? "muted")
+      .map(row => truncateToWidth(`  ${row}`, width)), invalidate() {} }, "group");
   }
 
   /** `kind`: how the lines sit among the blocks around them on the rich terminal (plain lines pack together). */
   write(text: string, kind: EntryKind = "line"): void {
     const styled = terminalText(text).split("\n").map(line => this.styleLine(line)).join("\n");
-    if (this.surface) this.surface.write(styled, kind); else this.output.write(styled);
+    if (this.surface && /^\[crew\]/.test(terminalText(styled))) {
+      this.surface.writeBlock({ render: width => styled.trimEnd().split("\n")
+        .flatMap(line => wrapTextWithAnsi(line, Math.max(1, width - 2))).map(line => truncateToWidth(`  ${line}`, width)), invalidate() {} }, "group");
+    } else if (this.surface) this.surface.write(styled, kind); else this.output.write(styled);
   }
 
   /**
@@ -284,7 +305,9 @@ export class InteractiveTerminal {
     this.surface.writeAttachable(attached => ({ render: width => renderFold(fold, width, attached, color), invalidate() {} }));
   }
 
-  private styleLine(line: string): string { return styleLine(line, this.color); }
+  private styleLine(line: string): string {
+    return styleLine(line.startsWith(MODEL_REASON_PREFIX) ? modelReasonLine(line, this.output.columns ?? 80) : line, this.color);
+  }
 
   /** A task's result (the receipt) on the rich terminal: a colored edge down its left side, success for a pass,
    * error for a failure, warning for anything in between. The plain terminal gets the lines as they are. */
@@ -410,6 +433,7 @@ export class InteractiveTerminal {
     if (!this.rl || this.closed || this.confirmation || signal?.aborted || !options.length) return undefined;
     this.endAssistant(); this.discardPartialLine();
     this.plainQuestions += 1;
+    this.plainWaitingSince = performance.now();
     const rows = [...options, ...(other ? [{ label: OTHER_CHOICE }] : [])];
     this.write(`${question}\n${rows.map((option, index) => `  ${index + 1} ${option.label}${option.description ? ` · ${option.description}` : ""}`).join("\n")}\n`);
     return new Promise(resolve => {
@@ -427,6 +451,8 @@ export class InteractiveTerminal {
         }
         if (typing && text === "") { this.rl!.prompt(); return; }
         settled = true;
+        if (this.plainWaitingSince !== undefined) this.plainWaitedMs += Math.max(0, performance.now() - this.plainWaitingSince);
+        this.plainWaitingSince = undefined;
         signal?.removeEventListener("abort", cancel);
         this.confirmation = undefined; this.discardPartialLine();
         const named = text === undefined ? undefined : options.find(option => option.label.toLowerCase() === text.toLowerCase());
@@ -458,11 +484,14 @@ export class InteractiveTerminal {
     }
     if (!this.rl || this.closed || this.confirmation || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant(); this.discardPartialLine(); this.plainQuestions++;
+    this.plainWaitingSince = performance.now();
     this.write(`${terminalText(question)}\n${terminalText(hint)}\n`);
     return new Promise(resolve => {
       let settled = false;
       const finish = (value: string | undefined) => {
         if (settled) return; settled = true;
+        if (this.plainWaitingSince !== undefined) this.plainWaitedMs += Math.max(0, performance.now() - this.plainWaitingSince);
+        this.plainWaitingSince = undefined;
         signal?.removeEventListener("abort", cancel);
         this.confirmation = undefined; this.discardPartialLine();
         const text = value === "\x1b" ? undefined : value?.replace(/\s+/g, " ").trim();

@@ -169,8 +169,8 @@ for (const choice of [1, 2]) {
     const running = h.app.runInteractive(dirs.home, "kvcache");
     try {
       await h.until(text => text.includes('"kvcache" isn\'t a folder here.'));
-      expect(h.visible()).toContain("1 Ask it as a question");
-      expect(h.visible()).toContain("2 Start a new project named kvcache");
+      expect(h.visible()).toContain("1. Ask it as a question");
+      expect(h.visible()).toContain("2. Start a new project named kvcache");
       expect(h.prompts).toEqual([]);
       h.input.write(String(choice));
       if (choice === 1) {
@@ -224,9 +224,9 @@ test("a build request outside a project asks before the model starts; 2 builds i
     h.input.write(`${REQUEST}\r`);
     await h.until(text => text.includes("Build this as a new Mist Python project in ~/Projects/mist-aps?"));
     const shown = h.visible();
-    expect(shown).toContain("1 Use this folder");
-    expect(shown).toContain("2 Yes");
-    expect(shown).toContain("3 Other kind");
+    expect(shown).toContain("❯ 1. Use this folder");
+    expect(shown).toContain("  2. Yes");
+    expect(shown).toContain("  3. Other kind");
     // Nothing reached a model before the answer.
     expect(h.starts).toEqual([]);
     expect(h.prompts).toEqual([]);
@@ -288,7 +288,7 @@ test("3 Other kind shows Use this folder, then the kinds, then the name question
     await h.until(text => text.includes("Build this as a new Mist Python project"));
     h.input.write("3");
     await h.until(text => text.includes("What are you building?"));
-    expect(h.visible().slice(h.visible().lastIndexOf("What are you building?"))).toContain("1 Use this folder");
+    expect(h.visible().slice(h.visible().lastIndexOf("What are you building?"))).toContain("❯ 1. Use this folder");
     h.input.write("6");
     await h.until(text => text.includes("Name it? (Enter for mist-aps)"));
     h.input.write("\r");

@@ -109,7 +109,7 @@ export async function runAutoBuilder(host: AutoBuildHost, job: { goal: string; c
   host.say(`${label} is working in its own copy (${copy.branch}): ${shown(job.goal).slice(0, 80)}`);
   let result: SubagentResult;
   try {
-    result = await host.runBuilder({ cwd: copy.path, goal: job.goal, projectContext: host.projectContext, shell, main: copy.mainWorkspace,
+    result = await host.runBuilder({ label, cwd: copy.path, goal: job.goal, projectContext: host.projectContext, shell, main: copy.mainWorkspace,
       ...(job.context ? { context: job.context } : {}), ...(job.signal ? { signal: job.signal } : {}) });
   } catch (error) {
     result = { role: "builder", cwd: copy.path, goal: job.goal, status: "failed", reason: message(error),

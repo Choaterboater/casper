@@ -39,6 +39,19 @@ sets them and removes this line.
   dimmed and labelled `The model says:`. They preserve line breaks and
   cap previews at 12 lines with an omitted-line count. Model guidance prefers web/check tools over shell plumbing.
 
+### Terminal polish (unreleased)
+
+- One shared picker: arrows and Enter first, `1.` digit shortcuts, accent `❯`, aligned dim descriptions and
+  `Enter to choose · Esc to skip`. Open boxes replace the empty prompt row; typed refusal words stay inline beside No.
+- Command reasons show only their last sentence, dim on one row, capped at 100 characters plus `…`; commands keep
+  their line breaks in a dim frame. Steps remain visible above the box. Groups have one blank line, one left edge,
+  and boxes cap at 120 columns; edit previews show twelve diff lines per file.
+- Real failures stay red with failing diagnostics and test counts; lookup misses, skips/refusals and confirmed
+  recovered errors become quiet dim notes. Checks and GitHub actions get specific human labels.
+- Live builders/reviewers sit above the prompt with activity, time and tokens; four rows plus overflow, fading
+  completed rows, Ctrl+O details and Alt+O raw steps. Plain terminals retain crew lines. Footer and crew clocks
+  separate working time from `waited` time.
+
 ### SGLang and MLX model servers
 
 Built, not released; these changes are not in v0.2.35.

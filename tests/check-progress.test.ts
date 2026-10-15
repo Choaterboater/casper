@@ -53,17 +53,17 @@ test("a running check gets its row after 10 seconds, not before, with its last o
   const s = view();
   const run = s.events.watchCheck("test")!;
   run.update("collecting\ntests/a.test.ts ok\n");
-  expect(s.last()).toEqual(["Checking test · 0s"]);
+  expect(s.last()).toEqual(["Running tests · 0s"]);
   clock += 9_999;
   s.tick();
-  expect(s.last()).toEqual(["Checking test · 9s"]);
+  expect(s.last()).toEqual(["Running tests · 9s"]);
   clock += 1;
   s.tick();
-  expect(s.last()).toEqual(["• test · 10s", "↳ tests/a.test.ts ok", "Checking test · 10s"]);
+  expect(s.last()).toEqual(["• tests · 10s", "↳ tests/a.test.ts ok", "Running tests · 10s"]);
   clock += 3 * 60_000;
   run.update("still going \u001b[31mred\u001b[0m\u0007 token=sk-or-v1-abcdef0123456789abcdef0123456789\n\n");
   const lines = s.last()!;
-  expect(lines[0]).toBe("• test · 3m10s");
+  expect(lines[0]).toBe("• tests · 3m10s");
   expect(lines[1]).toStartWith("↳ still going red");
   expect(lines[1]).not.toMatch(/[\u001b\u0007]|abcdef0123456789abcdef/);
 });
@@ -103,7 +103,7 @@ test("a plain terminal prints one line a minute for a long check; --json prints 
   const minute = ticks.find(t => t.every === PLAIN_CHECK_EVERY_MS)!;
   expect(s.written).toEqual([]);
   minute.fn(); minute.fn(); minute.fn();
-  expect(s.written.join("")).toBe("[checks] test still running · 1m\n[checks] test still running · 2m\n[checks] test still running · 3m\n");
+  expect(s.written.join("")).toBe("[checks] tests still running · 1m\n[checks] tests still running · 2m\n[checks] tests still running · 3m\n");
   run.end();
   expect(minute.live).toBe(false);
   expect(s.boxes).toEqual([]);
@@ -122,7 +122,7 @@ test("the plain-terminal minute line waits while a numbered question is open", (
   expect(s.written).toEqual([]);
   terminal.questionOpen = false;
   minute.fn();
-  expect(s.written.join("")).toContain("[checks] test still running");
+  expect(s.written.join("")).toContain("[checks] tests still running");
 });
 
 const begin: RuntimeEvent = { type: "assistant_response_start", provider: "openrouter", model: "kimi-k2" };
@@ -174,7 +174,7 @@ test("the box says what Casper waits for as soon as the request goes out, before
   expect(s.last()).toEqual(["Waiting for openrouter/kimi-k2 · 14s"]);
 });
 
-test("the retry line is drawn in the warning colour, not dim like a running line", () => {
+test("the retry line is a quiet dim note, like a running line", () => {
   const ambient = { term: process.env.TERM, noColor: process.env.NO_COLOR };
   process.env.TERM = "xterm-256color"; delete process.env.NO_COLOR;
   let screen = "";
@@ -183,7 +183,7 @@ test("the retry line is drawn in the warning colour, not dim like a running line
     const terminal = new InteractiveTerminal(new PassThrough(), { isTTY: true, columns: 80, write: (text: string) => { screen += text; return true; } } as never, () => {}, () => {});
     terminal.write("– Can't reach openrouter · trying again in 2s (2 of 3)\n");
     terminal.write("• bash · bun test\n");
-    expect(screen).toContain(tint("– Can't reach openrouter · trying again in 2s (2 of 3)", "warning", true));
+    expect(screen).toContain(tint("– Can't reach openrouter · trying again in 2s (2 of 3)", "muted", true));
     expect(screen).toContain(tint("• bash · bun test", "muted", true));
   } finally {
     if (ambient.term === undefined) delete process.env.TERM; else process.env.TERM = ambient.term;
