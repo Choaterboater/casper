@@ -18,6 +18,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { suiteFiles } from "./test-shard";
+import { terminalReason } from "./test-terminal";
 
 /** Above 5 s in tests/timings.json: about 110 of the timed files, which hold 98% of the suite's time. */
 export const HEAVY_MS = 5_000;
@@ -91,6 +92,8 @@ export function heavyReason(file: string, source: string, timings: Readonly<Reco
     const text = helper(name);
     if (text !== undefined && STARTS_PROCESSES.some((pattern) => pattern.test(text))) return `starts processes through ${name}`;
   }
+  const terminal = terminalReason(file, source, helper);
+  if (terminal) return `real terminal (${terminal})`;
   const time = timings[file];
   if (typeof time === "number" && time > HEAVY_MS) return `takes ${(time / 1000).toFixed(1)} s`;
   return undefined;

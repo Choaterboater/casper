@@ -106,10 +106,15 @@ test("Linux and macOS CI run the live sandbox tests", () => {
 
 test("the full suite runs files in parallel, slowest first, with the eval tests in their own script; CI uses it", () => {
   const scripts = (JSON.parse(readFileSync(path.resolve(import.meta.dir, "../package.json"), "utf8")) as { scripts: Record<string, string> }).scripts;
-  expect(scripts["test:suite"]).toContain("bun test --parallel --timings=tests/timings.json");
-  expect(scripts["test:suite"]).toContain("--path-ignore-patterns='tests/eval-*'");
-  // The real debugger shares the machine's debugger and Python; it runs alone after the rest.
-  expect(scripts.test).toBe("bun run test:suite && bun test tests/phase10-debugger-real.test.ts");
+  expect(scripts["test:suite"]).toBe("bun tools/test-suite.ts");
+  const runner = readFileSync(path.resolve(import.meta.dir, "../tools/test-suite.ts"), "utf8");
+  expect(runner).toContain("workers = availableParallelism()");
+  expect(runner).toContain("Math.min(4, workers)");
+  expect(runner).toContain('"--timings=tests/timings.json"');
+  expect(runner).toContain('suiteFiles("tests", "parallel")');
+  // Terminal users and the real debugger never share the parallel workers.
+  expect(scripts.test).toBe("bun run test:suite && bun run test:terminal && bun test tests/phase10-debugger-real.test.ts");
+  expect(scripts["test:timings"]).toBe("bun tools/test-suite.ts --update-timings && bun tools/test-terminal.ts --update-timings");
   expect(scripts["test:evals"]).toContain("tests/eval-");
   expect(scripts["test:fast"]).toBeUndefined();
   for (const name of ["linux-preview.yml", "macos-preview.yml"]) {
@@ -129,9 +134,9 @@ test("the full suite runs files in parallel, slowest first, with the eval tests 
   // macOS runs the browser test on its own after the suite: under load there it grew to 300 s and ran last.
   const mac = Object.values(load("macos-preview.yml").jobs).flatMap((job) => job.steps.map((step) => step.run ?? "")).join("\n");
   expect(mac).toContain("-- bun run test:suite --path-ignore-patterns='tests/phase10-browser.test.ts'");
-  // Windows runs each part on 3 workers, not one per core: the tests' own child processes need the room.
+  // Windows runs each part on two workers: spawned CLIs and servers need CPU/memory headroom.
   const windows = load("windows-preview.yml").jobs.suite!.steps.map((step) => step.run ?? "").join("\n");
-  expect(windows).toMatch(/bun test --parallel=3 --timings=tests\/timings\.json @files/);
+  expect(windows).toMatch(/bun test --parallel=2 --timings=tests\/timings\.json @files/);
 });
 
 test("the release counts only whole-suite runs: a push, nightly or manual run on Linux, macOS and Windows, never a pull request's", () => {
@@ -170,13 +175,14 @@ test("every preview runs nightly, and a pull request on macOS or Windows always 
   expect(fast.run).toContain('files="$(bun tools/test-tier.ts fast)"');
   expect(fast.run).toMatch(/bash tools\/stall-guard\.sh .* -- bun test --parallel --timings=tests\/timings\.json \$files/);
   for (const start of ["The shell sandbox", "Browser test", "Real debugger test"]) expect(ifOf(start), start).toContain("steps.tier.outputs.tier == 'full'");
-  // Windows: the four parts always run, of the tier chosen; the build, ConPTY and installer job only when full.
+  // Windows: six parts always run; source terminals and the build/installer job run only when full.
   expect(windows.jobs.suite!.needs).toBe("changes");
   // If the changes job fails, the parts still run, the whole suite, and the build job too: a job skipped
   // because a needed job failed would count as passed for a required check.
   expect(windows.jobs.suite!.if).toBe("${{ !cancelled() }}");
   expect(windows.jobs.suite!.env?.TIER).toBe("${{ needs.changes.outputs.tier || 'full' }}");
-  expect(windows.jobs.suite!.steps.map((step) => step.run ?? "").join("\n")).toContain("bun tools/test-shard.ts 4 ${{ matrix.part }} $env:TIER");
+  expect(windows.jobs.suite!.steps.map((step) => step.run ?? "").join("\n")).toContain("bun tools/test-shard.ts 6 ${{ matrix.part }} $env:TIER");
+  expect(windows.jobs.terminal!.if).toBe("${{ !cancelled() && needs.changes.outputs.tier != 'fast' }}");
   expect(windows.jobs.standalone!.if).toBe("${{ !cancelled() && needs.changes.outputs.tier != 'fast' }}");
   expect(windows.jobs.changes!.if).toBeUndefined();
   // No suite file is left out of every tier.
@@ -250,8 +256,9 @@ test("Linux runs the suite when only docs, the site or the README change, since 
 test("a stuck preview run is cut off in minutes, not at the old 30 to 45 minute job limit, and the evidence is still kept", () => {
   for (const name of ["linux-preview.yml", "macos-preview.yml", "windows-preview.yml", "windows-arm64.yml"]) {
     for (const [jobName, job] of Object.entries(load(name).jobs)) {
-      // macOS has room for its 18-minute suite step and the browser test's own step after it.
-      expect(job["timeout-minutes"], `${name} ${jobName}`).toBeLessThanOrEqual(name === "macos-preview.yml" ? 25 : 20);
+      // macOS and the rebalanced Windows suite allow 25 minutes; other jobs stay at 20 or less.
+      const ceiling = name === "macos-preview.yml" || name === "windows-preview.yml" && jobName === "suite" ? 25 : 20;
+      expect(job["timeout-minutes"], `${name} ${jobName}`).toBeLessThanOrEqual(ceiling);
     }
   }
   for (const name of ["linux-preview.yml", "macos-preview.yml"]) {

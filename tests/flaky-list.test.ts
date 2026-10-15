@@ -148,9 +148,12 @@ describe("flakyOn's two tries", () => {
   });
 });
 
-test("nothing retries the whole suite: no --retry or --rerun-each in the scripts, bunfig or CI", () => {
+test("parallel suite scripts never retry; only the separate serial terminal runner allows one per-test retry", () => {
   const files = ["package.json", "bunfig.toml", "tools/test-shard.ts", "tools/test-tier.ts", "tools/stall-guard.sh",
     ...readdirSync(path.join(ROOT, ".github", "workflows")).map((name) => `.github/workflows/${name}`)];
   const found = files.filter((file) => /--retry\b|--rerun-each\b|^\s*retry\s*=/m.test(readFileSync(path.join(ROOT, file), "utf8")));
   expect(found).toEqual([]);
+  const terminal = readFileSync(path.join(ROOT, "tools/test-terminal.ts"), "utf8");
+  expect(terminal).toContain('"--max-concurrency=1", "--retry=1", "--timeout=120000"');
+  expect(terminal).not.toMatch(/"--parallel(?:=\d+)?"/);
 });
