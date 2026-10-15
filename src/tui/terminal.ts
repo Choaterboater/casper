@@ -12,14 +12,14 @@ import type { MenuCommand } from "./commands";
 import type { NextRow } from "./next-row";
 import { bellSequence, hostCommand, prepareTmuxPane, titleSequence, TITLE_RESTORE, TITLE_SAVE, type HostCommand, type HostTerminal } from "./host-terminal";
 import { SidePane, type ActivityPane } from "./side-pane";
-import { answerRecordText, numberPrompt, OTHER_CHOICE, type PickRecord } from "./choices";
+import { answerRecordText, MODEL_REASON_PREFIX, numberPrompt, OTHER_CHOICE, type PickRecord } from "./choices";
 
 export { numberPrompt } from "./choices";
 
 /** One transcript line colored by how it starts: ✗ error, ✓ success, a note (–), a warning (⚠) or a step that did not
  * run (○) warning, a running step (•) muted (the theme's colours); a detailed diff line added or removed. */
 export function styleLine(line: string, color: boolean): string {
-  const role: ThemeRole | undefined = /^(?:\[error\]|✗)/.test(line) ? "error" : /^✓/.test(line) ? "success"
+  const role: ThemeRole | undefined = line.startsWith(MODEL_REASON_PREFIX) ? "muted" : /^(?:\[error\]|✗)/.test(line) ? "error" : /^✓/.test(line) ? "success"
     : /^(?:– |○ |⚠ |\[skills\]|\[cancel|\[approval\]|\[ask\]|\[effort\])/.test(line) ? "warning" : /^CASPER/.test(line) ? "accent" : /^(?: \/help · |…|• )/.test(line) ? "muted"
     : /^ {4}\+ /.test(line) ? "diffAdded" : /^ {4}- /.test(line) ? "diffRemoved" : undefined;
   // The text header is bold as well as the accent colour.

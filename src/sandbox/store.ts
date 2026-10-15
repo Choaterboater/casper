@@ -119,6 +119,8 @@ export class SandboxStore {
   addCommand(command: string): Promise<void> { return this.update((data) => { if (!data.commands.includes(command)) data.commands.push(command); }); }
   /** The exact commands you said "Yes, for this session" to: kept only in memory, gone when Casper exits. */
   readonly sessionCommands = new Set<string>();
+  /** Validated project test-run identities, never compared as executable command text. Memory only. */
+  readonly sessionTestRuns = new Set<string>();
   /** The same for git and gh commands with your GitHub login (`git push`). */
   readonly sessionGithub = new Set<string>();
   /** Everything allowed for this project, in the order /allowed numbers it: saved prefixes, saved commands, then the
@@ -132,7 +134,7 @@ export class SandboxStore {
     if (data.checksOutside) entries.push({ kind: "checks", value: CHECKS_OUTSIDE_ENTRY, session: false });
     for (const value of data.github ?? []) entries.push({ kind: "github", value, session: false });
     for (const value of this.sessionGithub) if (!data.github?.includes(value)) entries.push({ kind: "github", value, session: true });
-    for (const value of this.sessionCommands) if (!data.commands.includes(value)) entries.push({ kind: "command", value, session: true });
+    for (const value of new Set([...this.sessionCommands, ...this.sessionTestRuns])) if (!data.commands.includes(value)) entries.push({ kind: "command", value, session: true });
     return entries;
   }
   /** Take back a saved command prefix. False when it was not there. */
@@ -146,6 +148,7 @@ export class SandboxStore {
   /** Take back an exact command, saved or for this session. False when it was not there. */
   async removeCommand(command: string): Promise<boolean> {
     let found = this.sessionCommands.delete(command);
+    if (this.sessionTestRuns.delete(command)) found = true;
     await this.update((data) => {
       if (data.commands.includes(command)) { found = true; data.commands = data.commands.filter((entry) => entry !== command); }
     });
@@ -158,10 +161,10 @@ export class SandboxStore {
       if (data.checksOutside) { delete data.checksOutside; count++; }
       count += new Set([...data.github ?? [], ...this.sessionGithub]).size;
       delete data.github;
-      count += new Set([...data.commands, ...this.sessionCommands].map((v) => `c:${v}`).concat((data.prefixes ?? []).map((v) => `p:${v}`))).size;
+      count += new Set([...data.commands, ...this.sessionCommands, ...this.sessionTestRuns].map((v) => `c:${v}`).concat((data.prefixes ?? []).map((v) => `p:${v}`))).size;
       data.commands = []; delete data.prefixes;
     });
-    this.sessionCommands.clear(); this.sessionGithub.clear();
+    this.sessionCommands.clear(); this.sessionTestRuns.clear(); this.sessionGithub.clear();
     return count;
   }
 

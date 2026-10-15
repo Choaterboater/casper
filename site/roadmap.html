@@ -114,6 +114,7 @@
           <strong class="callout-title">Built, not released</strong>
           <p>The v0.2.35 preview has everything up to the Windows update fix. Built since then, in the next one:</p>
           <ul>
+            <li>Fewer command interruptions: individual public config reads, command lookup, process information (not environments), safe fetches and project-file redirects skip approval; builder checks use their own copy. A session yes for <code>bun test</code> covers other project test files and log tails. Boxes keep Casper's question first, then the dimmed reason labelled "The model says:", and keep command line breaks (12-line preview).</li>
             <li><code>casper new &lt;name&gt;</code> asks nothing: it makes an empty project in <code>~/Projects/&lt;name&gt;</code> (or opens it when it exists) and opens Casper there. No "what kind?" question; name a template only when you want one.</li>
           </ul>
           <p><strong>SGLang and MLX model servers.</strong> Automatic local discovery adds SGLang on loopback

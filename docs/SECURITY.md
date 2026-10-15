@@ -220,7 +220,9 @@ the operating system, not a list of words:
 
 With no sandbox, each command the AI's shell (and the service tool's own start command) wants to run, but
 plain reads and routine work (below), asks `Run this command?  npm test` (with **Routine commands** off) with `1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for
-this project`. 3 and 4 cover that exact command only: a yes to `rm -rf /tmp/old-build` never covers `rm -rf ~`, a yes
+this project`. 3 covers `bun test` across different test files inside the same project folder and different log tails;
+only read/status plumbing may accompany that runner, never another changing command, outside/private files or another folder.
+4 and all non-test approvals keep exact-command matching: a yes to `rm -rf /tmp/old-build` never covers `rm -rf ~`, a yes
 to `git push upstream feature` never covers `git push --force origin main`, and other options or files ask again. A
 line whose other commands are all plain reads counts as its one command that is not, with the folder it runs in
 (`cd app && npm test 2>&1 | tail -25` is `cd app && npm test`, and a later line of that kind matches it; `npm test` with
@@ -231,7 +233,10 @@ command (`/allowed` lists it as `this exact command, kept by an older Casper`, a
 4 leaves one short `✓ allowed …` line; after the third yes Casper says once that `/permissions all` stops the
 questions until you quit. Commands that only read files in the
 project don't ask at all: a short list of programs (`ls`, `cat`, `head`, `grep`, `rg`, `find`, `wc`, `sort` and the
-like), git subcommands (`git status`, `diff`, `log`, `show`, `grep`, `blame` ...), each with the options it may
+like), `command -v`, `type`, `which`, `ps` (not environment-printing `E` option groups or BSD bare words containing `e`;
+Linux `ps -e` still counts as a read), `date`, `uname`, and git subcommands
+(`git status`, `diff`, `log`, `show`, `grep`, `blame`, `merge-base`, and individual config reads: `git config <key>`, `--get`, `--global`;
+`--list`/`-l`, keys naming credential/token/password/extraheader or `url.*.insteadof`/`pushinsteadof`, and config writes still ask), each with the options it may
 have, `--version` alone for a few toolchains (`python`, `py`, `node`, `git` ...), and `find ... | xargs wc` (names only, each reaching `wc` whole), joined
 by `|`, `&&`, `;`, `2>&1` or `2>/dev/null`. A leading `cd` to a folder in the project counts too (later files are
 read from there; on Windows a Git Bash path such as `/c/Users/me/project` is `C:\Users\me\project`; with `CDPATH` or `BASH_ENV` set, only a
@@ -239,14 +244,14 @@ read from there; on Windows a Git Bash path such as `/c/Users/me/project` is `C:
 is expanded by Casper the way bash would, each file it picks checked like a named one. Any other option (`git grep -O`,
 `git -c`, `--ext-diff`, `rg --pre`, `find -exec`, `sort --compress-program`), a `VAR=value` start, `$` or `~`, `[`
 or `{`, a glob that picks a private file or a folder name starting with a dot, `xargs` with anything but `wc`, `find -printf` or a name with a space or quote fed to `xargs`, a
-redirect, a file outside the project or private (`.env`, `*.env`, `.envrc`,
+redirect other than the project writes below, a file outside the project or private (`.env`, `*.env`, `.envrc`,
 keys such as `*.key` and `id_rsa`, credentials and secrets files, `~/.ssh`, `~/.casper`, your `sandbox.denyRead`), also
 named through git (`git show HEAD:.env`), a link that leads to one, or a search of a folder that holds one asks as usual.
 
 Routine work doesn't ask either, as in Claude Code's auto mode (**Routine commands** in `/settings`, on; it writes
 `routine_commands: false` when you turn it off, and a project file can't set it): `git add` (not `-f`), `commit` (`--amend` too),
 `restore --staged`, `switch`, `checkout -b` or of a branch (never a file or `:/`), `branch` (make or list), `fetch` and `pull`
-(no `+branch` or `--force`), `merge`,
+(no `+branch` or `--force`; fetch also refuses `--prune`, deleting refspecs and local-branch destinations), `merge`,
 `rebase` (not `--exec`), `tag` (make), `stash` (not `drop` or `clear`), `worktree add|list`, and `push` to a remote the
 project already has with no `--force`, `-f`, `--force-with-lease`, `--mirror`, `--delete`, `-d`, `:branch` or `+branch`;
 `gh pr create|view|list|checks|diff|checkout|status`, `gh issue create|view|list|comment`, `gh run view|list|watch`,
@@ -264,8 +269,16 @@ must stay in the project. A file it reads and sends on (`cp .env x`, `git commit
 be one a plain read could print, so a private file asks. Options are read as the program reads them: `--forc` is
 `--force` and `-xmake` is `-x make`. A line is routine only when every command on it is a read or routine (`npm test && rm -rf ~` asks). Still asked: `sudo`,
 a download run through a shell (`curl … | sh`), a new package (`npm install left-pad`, `pip install requests`), `chmod`,
-and anything not on the list. Off, every command that is not a plain read asks.
+and anything not on the list. Output redirects (`>`, `>>`, `2>&1`) to literal project files count as routine project
+writes: links resolved, never outside, private or `.git/`, and never after a command that could replace the path.
+Plain `result=$?` and `exit $name` / `exit N` are routine status plumbing; assignments to shell-control variables,
+other expansions (`$HOME`, `$(…)`), scripts and subshells still ask. Builder checks use their own copy as the project root,
+including copies under `~/.casper/worktrees`; private state and explicit denyRead stay private.
+Off, every command that is not a plain read asks.
 
+The command box always leads with Casper's own question (`Run this command?`). The model's preceding one-line reason
+appears below it, labelled `The model says:` and dimmed, never as the approval's authority. Multi-line commands keep
+line breaks; after 12 lines the preview says `… N more lines`. Secrets and terminal controls stay hidden.
 Enter runs nothing. A run that can't ask refuses it:
 `Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.`
 Your project's own checks, services and dev servers then run with your permissions, as before
@@ -304,7 +317,7 @@ Each row names the test that fails without it.
 | A held check that prints `EPERM` or `Operation not permitted` is "could not check", not a bug: no repair, no test edits; outside the sandbox only on your answer or your own config, never a project file's. | `✗ test — blocked by the sandbox (the check printed EPERM; not a bug in your code)` | `tests/checks-outside-sandbox.test.ts` › “a check that prints EPERM inside the sandbox is blocked, not failed, and never repaired”; `tests/checks-outside-sandbox.test.ts` › “a blocked check starts no repair and the report says the check could not be checked”; `tests/checks-outside-sandbox.test.ts` › “a project file cannot send its checks outside the sandbox; your own file can”; `tests/checks-outside-sandbox.test.ts` › “'for this session' is not saved; 'always for this project' is kept privately and /allowed lists and forgets it” |
 | When the sandbox could not start, it says so; the AI's command that found it asks too, and the check or tool run goes ahead not sandboxed, as the receipt says. | `[sandbox] The sandbox could not start` | `tests/sandbox-asks.test.ts` › “the AI's first command after the sandbox fails to start asks too, and a one-shot run refuses it”; `tests/sandbox-wiring.test.ts` › “when the sandbox fails to start on a check or a tool run, that run still goes ahead, not sandboxed, and the receipt says so” |
 | With no sandbox, the AI's shell asks before each command that isn't a plain read or routine work (`ls`, `git status` and the like don't ask; Enter runs nothing); a run that can't ask refuses with the `--no-sandbox` hint. | `Run this command?  npm test` | `tests/sandbox-asks.test.ts` › “a run that can't ask refuses the command with the --no-sandbox hint, and never waits”; `tests/no-sandbox-commands.test.ts` › “with no sandbox, ls and git status run without a box, even where nobody can ask”; `tests/no-sandbox-compound-lines.test.ts` › “a cd counts only into a folder in the project, reached without a link, and not inside a pipe”; `tests/no-sandbox-compound-lines.test.ts` › “with CDPATH or BASH_ENV set, a relative cd asks (bash may find the name somewhere else); ./ and full paths still read”; `tests/no-sandbox-compound-lines.test.ts` › “* and ? are expanded here: each file must be in the project and not private; a dot part, an option or a pattern asks”; `tests/no-sandbox-compound-lines.test.ts` › “xargs only for wc fed by find: grep or cat through xargs would print files the check never saw”; `tests/no-sandbox-compound-lines.test.ts` › “xargs splits names on spaces and quotes: a name that would split, or a link out of the project, asks”; `tests/no-sandbox-compound-lines.test.ts` › “a remembered command covers no file read after it on the line (it may have made that file a link)”; `tests/no-sandbox-compound-lines.test.ts` › “a program remembered by a relative path is not another folder's program of the same name”; `tests/no-sandbox-commands.test.ts` › “an option that takes a value never hides another option behind it: -n --output, -U --no-index, --abbrev --contents= ask”; `tests/no-sandbox-commands.test.ts` › “git's -U, --unified and --abbrev take only a joined value: the next word is a file and is checked”; `tests/no-sandbox-commands.test.ts` › “a git reader's <rev>:<path> is checked as that path: a private or denyRead file asks”; `tests/no-sandbox-commands.test.ts` › “key and secret files ask like .env: *.key, *.env, .envrc, .pgpass, credentials and secrets files”; `tests/sandbox-app.test.ts` › “with no sandbox here, the banner says so and gives the fix” |
-| A "Yes, for this session" or "Yes, always for this project" to a shell command covers that exact command only, never one that starts the same way (`rm -rf ~` after a yes to `rm -rf /tmp/old-build`, a force push after a yes to a push). | `Run this command?  rm -rf ~` asks again | `tests/no-sandbox-commands.test.ts` › “a yes to rm -rf /tmp/old-build never covers rm -rf ~, and a yes to a push never covers a force push”; `tests/no-sandbox-commands.test.ts` › “the box offers the yes-words; Yes, for this session covers that exact command, never one that starts the same way” |
+| A "Yes, for this session" to `bun test` covers other project test files and log tails in the same folder; other session answers and "Yes, always for this project" cover that exact command only, never one that starts the same way (`rm -rf ~` after a yes to `rm -rf /tmp/old-build`, a force push after a yes to a push). | `Run this command?  rm -rf ~` asks again | `tests/no-sandbox-commands.test.ts` › “a yes to rm -rf /tmp/old-build never covers rm -rf ~, and a yes to a push never covers a force push”; `tests/no-sandbox-commands.test.ts` › “the box offers the yes-words; Yes, for this session covers that exact command, never one that starts the same way” |
 | With no sandbox, routine work (git commit and push to a known remote without force, installs from the project's files, its builds and tests, files made or removed in the project) runs without the box; `sudo`, `curl … \| sh`, a force push, deleting outside the project and a new package still ask, and `routine_commands: false` (your own config only) brings the box back. | `Run this command?  git push --force` | `tests/routine-commands.test.ts` › “routine work is routine; sudo, downloads run through a shell, force pushes, deletes outside the project and new packages are not”; `tests/routine-commands.test.ts` › “a line is routine only when every command on it is a read or routine”; `tests/routine-commands.test.ts` › “with no sandbox a routine command runs with no box, even where nobody can ask, and a risky one still asks”; `tests/routine-commands.test.ts` › “Routine commands off: every command that is not a read asks again”; `tests/routine-commands.test.ts` › “routine_commands is your own setting: on unless your config turns it off, never in a project file” |
 | `--no-sandbox` is reported on the receipt and in the JSON (`sandbox.held: false`). | `– Shell commands and checks were not sandboxed (--no-sandbox)` | `tests/sandbox-app.test.ts` › “--no-sandbox: the one-shot banner, the receipt and the JSON say shell commands were not sandboxed”; `tests/sandbox-wiring.test.ts` › “with --no-sandbox nothing is wrapped, and the receipt and JSON say so” |
 | A project can only add denies; a repo's `.pi/sandbox.json` is ignored. | `[sandbox] Ignored .pi/sandbox.json: a project can't loosen the sandbox.` | `tests/sandbox-policy.test.ts` › “your own settings add hosts and write folders; a project's settings only add denies”; `tests/sandbox-policy.test.ts` › “a project can't turn the sandbox off; you can”; `tests/sandbox-app.test.ts` › “a repo's .pi/sandbox.json is ignored, and Casper says so” |

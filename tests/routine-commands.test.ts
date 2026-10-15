@@ -49,7 +49,7 @@ const ROUTINE = [
   "gh api -X GET search/issues -f q=x", "gh api --method GET search/issues --raw-field q=is:open", "gh api -f q=x -X get search/issues",
   "npm ci", "npm install", "npm i", "npm install --no-audit", "pnpm install", "yarn", "yarn install", "bun install",
   "pip install -r requirements.txt", "pip install -e .", "uv sync", "poetry install", "bundle install", "go mod download", "cargo fetch",
-  "npm run build", "npm run build -- --watch", "npm test", "bun test", "bun test tests/a.test.ts", "pnpm test", "yarn test", "bun run lint",
+  "npm run build", "npm run build -- --watch", "npm test", "npm test > out.txt", "bun test", "bun test tests/a.test.ts", "pnpm test", "yarn test", "bun run lint",
   "npx tsc --noEmit", "bunx tsc", "tsc", "eslint src", "prettier --write src", "oxlint", "pytest -q", "python -m pytest", "python3 -m unittest",
   "go build ./...", "go test ./...", "go vet ./...", "cargo build", "cargo test", "cargo check", "cargo clippy", "cargo fmt",
   "make", "make test", "make -j4 test", "make -k -s build", "mvn test", "mvn -q -DskipTests package", "gradle build", "./gradlew test", "dotnet build", "dotnet test",
@@ -78,7 +78,7 @@ const NOT_ROUTINE = [
   "npm install left-pad", "npm i -g typescript", "npm install --global", "pip install requests", "pip install -r /tmp/r.txt", "bun add zod",
   "pnpm add zod", "yarn add zod", "cargo install ripgrep", "go install example.com/x@latest",
   "npm run missing", "npx cowsay hi", "bunx cowsay", "chmod -R 777 /", "chown me /etc/hosts", "python script.py", "node x.js",
-  "eslint /etc", "make -C /tmp", "FOO=1 npm test", "npm test > out.txt", "echo hi | sh",
+  "eslint /etc", "make -C /tmp", "FOO=1 npm test", "echo hi | sh",
 ];
 
 /** Found in review: each of these ran a program, threw work away or sent a private file, and must ask. */

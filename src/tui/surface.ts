@@ -7,7 +7,7 @@ import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } fr
 import { readClipboardFiles } from "./clipboard-files";
 import { commandMenu, COMMANDS, findCommand, fitDescriptions, type MenuCommand, menuRunsDuringWork } from "./commands";
 import { BUSY_GLYPH, formatElapsed, hasLineControls, hasTerminalControls, markdownTheme, NOT_RUN_GLYPH, PROMPT_GLYPH, terminalText, tint } from "./format";
-import { answerRecord, answerRecordText, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, OTHER_CHOICE, typedChoice, type PickRecord } from "./choices";
+import { answerRecord, answerRecordText, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, MODEL_REASON_PREFIX, OTHER_CHOICE, typedChoice, type PickRecord } from "./choices";
 import { typedDuringTask } from "./give-way";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
@@ -994,7 +994,8 @@ export class TerminalSurface {
       : choiceHint(count, "Esc skip");
     const head = [
       ...(this.askFrom === "ai" ? [this.muted(AI_ASKS_LABEL)] : []),
-      ...wrapTextWithAnsi(this.accent(this.askQuestion ?? ""), width),
+      ...(this.askQuestion ?? "").split("\n").flatMap((line, at) => wrapTextWithAnsi(
+        at === 1 && line.startsWith(MODEL_REASON_PREFIX) ? this.muted(line) : this.accent(line), width)),
     ];
     const tail = wrapTextWithAnsi(this.muted(hint), width);
     const option = (index: number, compact: boolean) => {

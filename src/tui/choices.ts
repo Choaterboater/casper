@@ -5,6 +5,9 @@
 /** The most rows a single digit picks at once. */
 export const KEY_PICK_MAX = 9;
 
+/** A model's explanation is context below Casper's question, never the approval's authority. */
+export const MODEL_REASON_PREFIX = "The model says: ";
+
 /** "3 " in front of row 3, padded so a list past nine rows lines up (" 3 " beside "12 "). */
 export function choiceNumber(index: number, count: number): string {
   return `${String(index + 1).padStart(String(count).length)} `;
