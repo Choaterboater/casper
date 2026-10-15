@@ -29,8 +29,8 @@ test("an ask shows a standalone question and Up/Down selects an option", async (
     const answer = session.terminal.ask("Which database?", OPTIONS, false);
     await session.screen.until(output => output.includes("Which database?") && output.includes("SQLite") && output.includes("Postgres"));
     const visible = Bun.stripANSI(session.screen.output);
-    expect(visible).toMatch(/Which database\?[^\r\n]*\r?\n→ 1 SQLite/);
-    expect(visible).toContain("  2 Postgres");
+    expect(visible).toMatch(/  Which database\?[^\r\n]*\r?\n  ❯ 1\. SQLite/);
+    expect(visible).toContain("    2. Postgres");
     session.input.write("\x1b[B\r");
     const result = await Promise.race([answer, new Promise<"timeout">(resolve => setTimeout(() => resolve("timeout"), 250))]);
     expect(result).toEqual(["Postgres"]);
@@ -43,7 +43,7 @@ test("a question from the AI opens with \"The AI asks:\"; Casper's own questions
     session.terminal.setStatus("fixture"); session.terminal.start();
     const fromAi = session.terminal.ask("Casper wants to reach collector.example. Allow?", OPTIONS, false, undefined, "ai");
     await session.screen.until(output => output.includes("collector.example"));
-    expect(Bun.stripANSI(session.screen.output)).toMatch(/The AI asks:[^\r\n]*\r?\nCasper wants to reach collector\.example\. Allow\?/);
+    expect(Bun.stripANSI(session.screen.output)).toMatch(/  The AI asks:[^\r\n]*\r?\n  Casper wants to reach collector\.example\. Allow\?/);
     session.input.write("1");
     expect(await fromAi).toEqual(["SQLite"]);
     const fromCasper = session.terminal.ask("Which database?", OPTIONS, false);
@@ -53,7 +53,7 @@ test("a question from the AI opens with \"The AI asks:\"; Casper's own questions
     expect(Bun.stripANSI(session.screen.output)).toContain("Which database?");
     // The AI's question and its record carry the label; Casper's never do.
     expect(Bun.stripANSI(session.screen.output)).toContain("The AI asks: Casper wants to reach collector.example. Allow? → SQLite");
-    expect(Bun.stripANSI(session.screen.output)).not.toMatch(/The AI asks:[^\r\n]*Which database\?|The AI asks:\s*\r?\nWhich database\?/);
+    expect(Bun.stripANSI(session.screen.output)).not.toMatch(/The AI asks:[^\r\n]*Which database\?|The AI asks:\s*\r?\n  Which database\?/);
   } finally { session.close(); }
 });
 
@@ -62,8 +62,8 @@ test("pressing a choice's number picks it at once; a digit after typed text stay
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const byNumber = session.terminal.ask("Which database?", OPTIONS, false, undefined, "ai");
-    await session.screen.until(output => output.includes("2 Postgres"));
-    expect(Bun.stripANSI(session.screen.output)).toContain("  3 Other — type your own answer\r\nPress 1-3 or Up/Down + Enter · Esc skip");
+    await session.screen.until(output => output.includes("2. Postgres"));
+    expect(Bun.stripANSI(session.screen.output)).toContain("    3. Other — type your own answer\r\n  Enter to choose · Esc to skip");
     session.input.write("2");
     expect(await byNumber).toEqual(["Postgres"]);
     // A digit past the last row (the Other row is 3) is ordinary text.
@@ -215,7 +215,7 @@ test("a long question and long options wrap in full at 60 columns, below the mod
     for (const line of frame) expect(visibleWidth(line)).toBeLessThanOrEqual(60);
     // The panel follows the transcript instead of covering its tail.
     expect(frame).toContain("Two backends fit; the choice changes the deploy.");
-    const panel = frame.slice(frame.findIndex(line => line.startsWith("Which storage")), frame.findIndex(line => line.includes("skip")));
+    const panel = frame.slice(frame.findIndex(line => line.startsWith("  Which storage")), frame.findIndex(line => line.includes("skip")));
     const text = panel.join(" ").replace("→", " ").replace(/\s+/g, " ");
     expect(text).toContain(question);
     for (const option of options) expect(text).toContain(`${option.label} ${option.description}`);
@@ -231,24 +231,24 @@ test("a question taller than the screen stays on screen: only the highlighted op
   const session = interactiveTerminal();
   const repaint = async (columns: number) => {
     const repaints = session.screen.output.split(REPAINT).length;
-    session.screen.writer.columns = columns; session.screen.writer.rows = 20; session.screen.writer.emit("resize");
+    session.screen.writer.columns = columns; session.screen.writer.rows = 18; session.screen.writer.emit("resize");
     await session.screen.until(() => session.screen.output.split(REPAINT).length > repaints && lastFrame(session.screen.output).some(line => line.includes("skip")));
-    // The rows a 20-row terminal shows: the frame's last 20 lines.
-    return lastFrame(session.screen.output).slice(-20).map(line => line.trimEnd());
+    // The rows an 18-row terminal shows: the frame's last 18 lines.
+    return lastFrame(session.screen.output).slice(-18).map(line => line.trimEnd());
   };
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const answer = session.terminal.ask(question, options, false);
     await session.screen.until(output => output.includes("skip"));
     let visible = await repaint(60);
-    expect(visible).toContain(question);
-    expect(visible.join(" ").replace(/\s+/g, " ")).toContain(`→ 1 Option 1 ${options[0]!.description}`);
-    expect(visible).toContain("  2 Option 2");
+    expect(visible).toContain(`  ${question}`);
+    expect(visible.join(" ").replace(/\s+/g, " ")).toContain(`❯ 1. Option 1 ${options[0]!.description}`);
+    expect(visible).toContain("    2. Option 2");
     expect(visible.join(" ")).not.toContain("Explanation 2");
     session.input.write("\x1b[B");
     visible = await repaint(61);
-    expect(visible).toContain(question);
-    expect(visible.join(" ").replace(/\s+/g, " ")).toContain(`→ 2 Option 2 ${options[1]!.description}`);
+    expect(visible).toContain(`  ${question}`);
+    expect(visible.join(" ").replace(/\s+/g, " ")).toContain(`❯ 2. Option 2 ${options[1]!.description}`);
     expect(visible.join(" ")).not.toContain("Explanation 1");
     session.input.write("\r");
     expect(await answer).toEqual(["Option 2"]);

@@ -2,7 +2,8 @@ import { matchesKey, truncateToWidth, visibleWidth, type Component } from "@eare
 import { stripVTControlCharacters } from "node:util";
 import type { RuntimePickerView } from "../runtime/types";
 import { SETTINGS_AREAS, settingsArea } from "../app/settings-areas";
-import { choiceHint, choiceNumber, keyChoice, typedChoice } from "./choices";
+import { choiceHint, keyChoice, typedChoice } from "./choices";
+import { pickerOptionLines, pickerWindow } from "./picker";
 import { hasLineControls, lineText, tint } from "./format";
 
 export interface ScreenSetting {
@@ -121,13 +122,10 @@ export class SettingsScreen implements Component {
       lines.push(style(this.choosing.label, "accent"));
       const options = [{ label: this.choosing.keep }, ...this.choosing.choices];
       const cap = Math.max(1, Math.min(10, this.height() - 11));
-      const start = Math.max(0, Math.min(this.choiceIndex - Math.floor(cap / 2), options.length - cap));
-      lines.push(...options.slice(start, start + cap).map((option, offset) => {
-        const index = start + offset;
-        return style(`${index === this.choiceIndex ? "❯" : " "} ${choiceNumber(index, options.length)}${lineText(option.label)}${"description" in option && option.description ? ` · ${lineText(option.description)}` : ""}`,
-          index === this.choiceIndex ? "selection" : "muted");
-      }));
-      if (options.length > cap) lines.push(style(`${this.choiceIndex + 1}/${options.length} · ↑/↓ for more`, "muted"));
+      const window = pickerWindow(options.map((_, index) =>
+        pickerOptionLines(options, index, index === this.choiceIndex, width, this.color)), this.choiceIndex, cap, width);
+      lines.push(...window.lines);
+      if (window.start || window.end < options.length) lines.push(style(`${this.choiceIndex + 1}/${options.length} · ↑/↓ for more`, "muted"));
       if (this.choiceNumber) lines.push(`Number: ${this.choiceNumber}`);
       lines.push(style(fit(lineText(this.choosing.question)), "muted"));
       lines.push(style(choiceHint(options.length, "Esc back"), "muted"));

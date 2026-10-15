@@ -149,8 +149,8 @@ test("at about $5 the task pauses on a numbered question, Stop here first; Enter
     expect(shown.indexOf("Looking around.")).toBeGreaterThanOrEqual(0);
     expect(shown.lastIndexOf("Looking around.")).toBeLessThan(shown.lastIndexOf("– This task has used $1.20"));
     expect(shown).toContain("task 2.4k tok · $5.02");
-    expect(shown).toMatch(/→ 1 Stop here[^\n]*the work so far is kept/);
-    expect(shown).toMatch(/2 Keep going[^\n]*asks again at \$10/);
+    expect(shown).toMatch(/❯ 1\. Stop here[^\n]*the work so far is kept/);
+    expect(shown).toMatch(/  2\. Keep going[^\n]*asks again at \$10/);
     input.write("\r");
     await screen.until(output => output.includes("stopped at $5.02"));
     expect(f.state.toolRan).toBe(0);
@@ -163,7 +163,7 @@ test("at about $5 the task pauses on a numbered question, Stop here first; Enter
     // Keep going: the tool runs, and nothing is stopped.
     const before = Bun.stripANSI(screen.output).length;
     input.write("tidy them again\r");
-    await screen.until(output => output.slice(before).includes("2 Keep going"));
+    await screen.until(output => output.slice(before).includes("2. Keep going"));
     input.write("2");
     await screen.until(() => f.state.reasons.length === 2);
     expect(f.state.reasons[1]).toBeUndefined();

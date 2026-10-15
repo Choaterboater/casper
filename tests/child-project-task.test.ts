@@ -108,8 +108,8 @@ test.skipIf(!python)("after the receipt: 1 Stay here · 2 Switch there; Enter st
     await harness.until((text) => Bun.stripANSI(text).includes("idle"));
     harness.input.write("fix the sites count\r");
     await harness.until((text) => Bun.stripANSI(text).includes("The work is in ~/Documents/sample-tools."));
-    expect(harness.output()).toContain("1 Stay here");
-    expect(harness.output()).toContain("2 Switch there");
+    expect(harness.output()).toContain("❯ 1. Stay here");
+    expect(harness.output()).toContain("  2. Switch there");
     harness.input.write("2");
     await harness.until((text) => Bun.stripANSI(text).includes("[folder] Working in ~/Documents/sample-tools"));
     await harness.until((text) => Bun.stripANSI(text).includes("Your next request starts a new conversation there"));

@@ -4,8 +4,9 @@
 
 import type { CasperApp } from "../app";
 import { detectWebService, isDetectedWebService } from "../services/detect";
-import { formatDuration, redactPreview, terminalText } from "../tui/format";
+import { failureLines, formatDuration, redactPreview, terminalText } from "../tui/format";
 import type { ProjectContext } from "../project/context";
+import { testFailureSummary } from "../tui/tool-status";
 import { formatReceipt, liveCheckLine } from "../task/result";
 import { type CheckName, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "../verify/evidence";
 import { VerifierRegistry } from "../verify/registry";
@@ -159,14 +160,17 @@ export function writeCheckResult(app: CasperApp, result: VerificationResult): vo
   // so no ✗ line before it; the receipt says it once more.
   const asked = result.ended === "timeout" && app.interactive && app.terminal.canAsk;
   if (app.verbose) app.output.write(`${formatVerificationResult(result)}\n`);
-  else if (app.modelCheckCalls === 0 && !asked) app.output.write(`${liveCheckLine(result)}\n`);
+  else if (app.modelCheckCalls === 0 && !asked) {
+    const summary = result.name === "test" && result.status === "fail" && !result.ended ? testFailureSummary(`${result.stderr}\n${result.stdout}`) : undefined;
+    app.output.write(`${summary ? `✗ ${summary}` : liveCheckLine(result)}\n`);
+  }
   if (result.status !== "fail") return;
   if (result.ended === "blocked") app.output.write(`${SANDBOX_CHECK_BLOCKED}\n`);
   for (const [stream, text] of [["stderr", result.stderr], ["stdout", result.stdout]] as const) {
     if (!text.trim()) continue;
-    const lines = text.replace(/\n$/, "").split("\n");
-    const shown = lines.length > 40 ? [`… ${lines.length - 40} earlier line(s) omitted; the full output stays in the check evidence`, ...lines.slice(-40)] : lines;
-    app.terminal.writePanel(`${result.name}: ${stream}`, redactPreview(shown.join("\n")), { tone: "error" });
+    const { lines, earlier, focused } = failureLines(text, { max: 40 });
+    const shown = [...(earlier ? [`… ${earlier} ${focused ? "other" : "earlier"} line(s) omitted; the full output stays in the check evidence`] : []), ...lines];
+    app.terminal.writePanel(`${result.name}: ${stream}`, shown.join("\n"), { tone: "error" });
   }
 }
 

@@ -558,7 +558,8 @@ class PiRuntimeSession implements RuntimeSession {
           const lines = event.isError ? undefined : event.toolName === "edit" ? patchLineCounts(event.result)
             : write && write.before !== null ? writeLineCounts(write.before, write.after) : undefined;
           const diff = !event.isError && event.toolName === "edit" ? editPatch(event.result) : undefined;
-          this.emit({ type: "tool_end", toolName: event.toolName, toolCallId: event.toolCallId, input, output: event.toolName === "bash" || event.toolName === "casper_check" || event.isError ? observationOutput(event.result) : undefined,
+          // Lookup notes (empty results and skipped repeats) need bounded text even on success.
+          this.emit({ type: "tool_end", toolName: event.toolName, toolCallId: event.toolCallId, input, output: ["bash", "casper_check", "read", "grep", "find", "ls"].includes(event.toolName) || event.isError ? observationOutput(event.result) : undefined,
             isError: event.isError, ...(lines ? { lines } : {}), ...(diff ? { diff } : {}) });
           break;
         }

@@ -276,9 +276,10 @@ other expansions (`$HOME`, `$(…)`), scripts and subshells still ask. Builder c
 including copies under `~/.casper/worktrees`; private state and explicit denyRead stay private.
 Off, every command that is not a plain read asks.
 
-The command box always leads with Casper's own question (`Run this command?`). The model's preceding one-line reason
-appears below it, labelled `The model says:` and dimmed, never as the approval's authority. Multi-line commands keep
-line breaks; after 12 lines the preview says `… N more lines`. Secrets and terminal controls stay hidden.
+The command box always leads with Casper's own question (`Run this command?`). Only the last sentence of the model's reason
+appears below it, labelled `The model says:` and dimmed, never as the approval's authority. It is capped at 100 characters
+then `…` and clipped to one row without wrapping. Multi-line commands keep line breaks; after 12 lines (or fewer in a
+short window) the preview says `… N more lines`, counting all omitted command lines. Secrets and terminal controls stay hidden.
 Enter runs nothing. A run that can't ask refuses it:
 `Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.`
 Your project's own checks, services and dev servers then run with your permissions, as before

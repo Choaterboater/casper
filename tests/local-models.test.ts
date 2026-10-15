@@ -851,8 +851,8 @@ test("/model with a server you added: Ctrl+X on its row asks first (1 Keep · 2 
   const result = JSON.parse(stdout);
   expect(result.first).toContain("ollama-box");
   expect(result.first).toContain("+ Add server");
-  expect(result.text).toContain("1 Keep ollama-box");
-  expect(result.text).toContain("2 Forget ollama-box");
+  expect(result.text).toContain("❯ 1. Keep ollama-box");
+  expect(result.text).toContain("  2. Forget ollama-box");
   expect(result.text).not.toContain("key");
   expect(result.text).toContain("No models yet. Use /login to sign in, or add a model server.");
   expect(result.text).toContain("[model] Forgot ollama-box.");

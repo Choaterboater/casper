@@ -259,9 +259,9 @@ export function githubLoginChoices(action: string, remember = true): Choice[] {
  * 3 and 4 cover this exact command only, so a yes to `rm -rf build` never covers `rm -rf ~`. */
 export const SHELL_COMMAND_CHOICES = [
   { label: NO, description: "the command does not run" },
-  { label: YES_ONCE, description: "it runs with your permissions and network" },
-  { label: YES_SESSION, description: "this exact command doesn't ask again until Casper exits" },
-  { label: YES_ALWAYS, description: "this exact command; kept in ~/.casper, never in the repo" },
+  { label: YES_ONCE, description: "only this time" },
+  { label: YES_SESSION, description: "until you quit" },
+  { label: YES_ALWAYS, description: "always in this project" },
 ] as const satisfies readonly Choice[];
 
 /** "Next: the AI can read the 12 changed files for security problems …" after /security-review's tools. Enter spends nothing. */

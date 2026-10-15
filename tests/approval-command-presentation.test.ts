@@ -12,6 +12,7 @@ import { remoteTargets } from "../src/sandbox/remote";
 import { SandboxStore } from "../src/sandbox/store";
 import { toolReason, withToolReason } from "../src/runtime/tool-reason";
 import { tint } from "../src/tui/format";
+import { renderPanel } from "../src/tui/presentation";
 import { InteractiveTerminal, styleLine } from "../src/tui/terminal";
 import { fakeEngine } from "./support/sandbox-fakes";
 import { removeTempDir } from "./support/temp-dir";
@@ -25,7 +26,7 @@ test("Casper's question stays first even when the model calls a destructive comm
   expect(shellQuestion("rm -rf build", "just reading files").split("\n")[0]).toBe("Run this command?");
 });
 
-test("the preceding last nonempty line is labelled as the model's words after Casper's question", () => {
+test("the preceding last sentence is labelled as the model's words after Casper's question", () => {
   expect(shellQuestion("custom-tool --check", "Earlier context.\n\nCheck the generated output.\n\n"))
     .toBe("Run this command?\nThe model says: Check the generated output.\ncustom-tool --check");
   expect(shellQuestion("custom-tool --check", " \n\t")).toBe("Run this command?  custom-tool --check");
@@ -120,12 +121,15 @@ test("the rich numbered box dims the labelled model reason after Casper's questi
     session.terminal.start();
     const command = Array.from({ length: 15 }, (_, index) => `custom-tool step-${index}`).join("\n");
     const answer = session.terminal.pick(shellQuestion(command, "Check the custom steps."), [...SHELL_COMMAND_CHOICES]);
-    expect(await waitUntil(() => Bun.stripANSI(session.screen.output).includes("4 Yes, always"))).toBe(true);
+    expect(await waitUntil(() => Bun.stripANSI(session.screen.output).includes("4. Yes, always"))).toBe(true);
     const visible = Bun.stripANSI(session.screen.output).replaceAll("\r", "");
-    expect(visible).toContain(`Run this command?\nThe model says: Check the custom steps.\n${shownCommand(command)}\n`);
+    const commandRows = renderPanel("Command", [...command.split("\n").slice(0, 10), "… 5 more lines"], session.screen.writer.columns - 2, false, "muted");
+    expect(visible).toContain(`  Run this command?\n  The model says: Check the custom steps.\n${commandRows.map(row => `  ${row}`).join("\n")}\n`);
     expect(session.screen.output).toContain(tint("The model says: Check the custom steps.", "muted", true));
     expect(session.screen.output).not.toContain(tint("The model says: Check the custom steps.", "accent", true));
-    expect(visible).not.toContain("custom-tool step-12");
+    // The entire command row, including omitted-line text, padding and border, is one faint span.
+    for (const row of commandRows) expect(session.screen.output).toContain(`\x1b[2m${row}\x1b[0m`);
+    expect(visible).not.toContain("custom-tool step-10");
     session.input.write("1");
     expect(await answer).toBe(NO);
   } finally { session.close(); }

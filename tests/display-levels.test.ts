@@ -54,16 +54,18 @@ const work: RuntimeEvent[] = [
 ];
 
 /** A box's rows without the frame: what it says. */
-const inside = (screen: string[]) => screen.map(line => line.replace(/^│ ?|│$/g, "").trimEnd());
+const inside = (screen: string[]) => screen.map(line => line.replace(/^ {2}│ ?|│$/g, "").trimEnd());
 
 test("normal folds steps into one row naming them, the edit into a box with its diff, and the failure into a box", () => {
   const s = view(true, "normal");
   s.handle(...work);
-  expect(s.screen[0]).toBe("● read src/math.ts");
-  expect(s.screen[1]).toStartWith(`${CORNER}─ Edited 1 file ─`);
-  expect(inside(s.screen.slice(2, 5))).toEqual(["src/math.ts  +1 -1", "  - export const b = 2;", "  + export const b = 3;"]);
-  expect(s.screen[6]).toStartWith(`${CORNER}─ ✗ bash · bun test — failed ─`);
-  expect(inside([s.screen[7]!])).toEqual(["1 fail"]);
+  expect(s.screen[0]).toBe("  ● read src/math.ts");
+  expect(s.screen[1]).toBe("");
+  expect(s.screen[2]).toStartWith(`  ${CORNER}─ Edited 1 file ─`);
+  expect(inside(s.screen.slice(3, 6))).toEqual(["src/math.ts  +1 -1", "  - export const b = 2;", "  + export const b = 3;"]);
+  expect(s.screen[7]).toBe("");
+  expect(s.screen[8]).toStartWith(`  ${CORNER}─ ✗ bash · bun test — failed ─`);
+  expect(inside([s.screen[9]!])).toEqual(["1 fail"]);
   // The plain terminal keeps one line per step.
   const plain = view(false, "normal");
   plain.handle(...work);
@@ -73,7 +75,7 @@ test("normal folds steps into one row naming them, the edit into a box with its 
 test("quiet shows failures only, on the rich and the plain terminal", () => {
   const rich = view(true, "quiet");
   rich.handle(...work);
-  expect(rich.screen[0]).toStartWith(`${CORNER}─ ✗ bash · bun test — failed ─`);
+  expect(rich.screen[0]).toStartWith(`  ${CORNER}─ ✗ bash · bun test — failed ─`);
   expect(rich.screen.join("\n")).not.toMatch(/read|Edited|✓/);
   const plain = view(false, "quiet");
   plain.handle(...work);
@@ -86,7 +88,7 @@ test("detailed shows every step and every edit's diff", () => {
     s.handle(...work);
     const text = s.screen.join("\n");
     expect(text).toContain("✓ read · src/math.ts");
-    if (rich) expect(inside(s.screen.slice(2, 5))).toEqual(["src/math.ts  +1 -1", "  - export const b = 2;", "  + export const b = 3;"]);
+    if (rich) expect(inside(s.screen.slice(3, 6))).toEqual(["src/math.ts  +1 -1", "  - export const b = 2;", "  + export const b = 3;"]);
     else expect(text).toContain("✓ edit · src/math.ts · +1 -1\n    - export const b = 2;\n    + export const b = 3;");
     expect(text).toContain("✗ bash · bun test");
   }

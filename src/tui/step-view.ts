@@ -4,6 +4,7 @@ import type { ToolObservationInput } from "../runtime/observation";
 import { diffLines } from "./display";
 import { commandLabel, displayPath, failureLines, formatDuration, redactPreview, terminalText, tint, type ToolLineFit } from "./format";
 import { renderPanel } from "./presentation";
+import { checkName, githubLabel } from "./tool-status";
 
 /** A finished step as the folded row names it. */
 export interface NamedStep { toolName: string; input?: ToolObservationInput; elapsedMs?: number }
@@ -51,6 +52,12 @@ export function describeSteps(steps: readonly NamedStep[], fit: ToolLineFit = {}
       }
       case "bash": case "powershell": {
         // The row says the program; a label's "…" for cut words would only repeat the row's own ending.
+        const github = githubLabel(input);
+        if (github) {
+          const [verb, ...target] = github.split(" ");
+          add(verb!.toLowerCase(), ["PR", "PRs"], target.join(" "));
+          break;
+        }
         const label = typeof input.command === "string" ? commandLabel(redactPreview(input.command), 60).replace(/ …$/, "") : step.toolName;
         const slow = step.elapsedMs !== undefined && step.elapsedMs >= SLOW_MS ? ` (${formatDuration(step.elapsedMs)})` : "";
         add("ran", ["command", "commands"], `${shown(label)}${slow}`);
@@ -59,7 +66,7 @@ export function describeSteps(steps: readonly NamedStep[], fit: ToolLineFit = {}
       case "edit": case "write": add("edited", ["file", "files"], where ?? "a file", true); break;
       case "web_fetch": add("fetched", ["page", "pages"], typeof input.url === "string" ? shown(input.url.replace(/^https?:\/\//i, ""), 60) : "a page"); break;
       case "web_search": add("searched the web for", ["query", "queries"], typeof input.query === "string" ? `"${shown(input.query, 60)}"` : "something"); break;
-      case "casper_check": add("checked", ["check", "checks"], typeof input.check === "string" ? shown(input.check, 40) : "a check"); break;
+      case "casper_check": add("checked", ["check", "checks"], typeof input.check === "string" ? shown(checkName(input.check), 40) : "a check"); break;
       default: add("used", ["tool", "tools"], shown(terminalText(step.toolName), 40));
     }
   }
@@ -114,11 +121,12 @@ const BOX_FILES = 9;
 
 /**
  * The files a group of edits changed, in one box: each file's path and `+N -M`, then its changed lines (red and green)
- * until the box holds `maxLines` rows. A box that could not show every line ends with how many more and the key that
- * shows them all. The same file edited twice is one entry. Changed lines are cut at the edge, never wrapped.
+ * up to twelve diff lines per file (Infinity opts into the full diff). A box that could not show every line ends
+ * with how many more and the key that shows them all. The same file edited twice is one entry. Changed lines are cut at the edge, never wrapped.
  */
 export function renderEditBox(files: readonly EditedFile[], width: number, options: { color: boolean; maxLines?: number }): string[] {
   const { color } = options;
+  width = Math.min(120, width);
   const merged = new Map<string, { added: number; removed: number; counted: boolean; lines: ReturnType<typeof diffLines> }>();
   for (const file of files) {
     const entry = merged.get(file.path) ?? { added: 0, removed: 0, counted: false, lines: [] };
@@ -128,10 +136,11 @@ export function renderEditBox(files: readonly EditedFile[], width: number, optio
   }
   const entries = [...merged.entries()];
   const inner = Math.max(1, width - 4);
-  const max = Math.max(entries.length ? 1 : 0, options.maxLines ?? Infinity);
-  const named = entries.slice(0, Math.min(BOX_FILES, max));
+  // The normal fold's old group budget must not let the first file consume every preview.
+  // Detailed display explicitly opts into the complete diff with Infinity.
+  const perFile = options.maxLines === Infinity ? Infinity : 12;
+  const named = entries.slice(0, BOX_FILES);
   const moreFiles = entries.length - named.length;
-  let room = max - named.length - (moreFiles ? 1 : 0);
   const totalLines = entries.reduce((sum, [, entry]) => sum + entry.lines.length, 0);
   let shownLines = 0;
   const body: string[] = [];
@@ -140,11 +149,10 @@ export function renderEditBox(files: readonly EditedFile[], width: number, optio
   for (const [file, entry] of named) {
     const label = truncateToWidth(terminalText(file).replace(/\s+/g, " "), Math.max(1, inner - (entry.counted ? 12 : 0)), "…");
     body.push(`${label}${counts(entry)}`);
-    for (const line of entry.lines) {
-      if (room <= 0) break;
+    for (const line of entry.lines.slice(0, perFile)) {
       const text = redactPreview(line.text).replace(/\t/g, "  ").replace(/\n/g, " ");
       body.push(tint(truncateToWidth(`  ${line.sign} ${text}`, inner, ""), line.sign === "+" ? "diffAdded" : "diffRemoved", color));
-      room--; shownLines++;
+      shownLines++;
     }
   }
   if (moreFiles) body.push(tint(`… ${moreFiles} more ${moreFiles === 1 ? "file" : "files"}`, "muted", color));
@@ -177,12 +185,13 @@ const FAILURE_ROWS = 8;
  */
 export function renderFailureBox(failure: FailedStep, width: number, color: boolean): string[] {
   const inner = Math.max(1, width - 4);
-  const { lines, earlier } = failureLines(failure.output ?? "", { max: 6, ...(failure.home ? { home: failure.home } : {}) });
+  const { lines, earlier, focused } = failureLines(failure.output ?? "", { max: 6, ...(failure.home ? { home: failure.home } : {}) });
   const wrapped = lines.flatMap(line => wrapTextWithAnsi(line, inner));
-  // Long lines wrap: the box keeps the last rows, under one row that says more came before.
+  // Preserve the failure at the start and the counts at the end even when a diagnostic wraps.
   const cut = earlier > 0 || wrapped.length > FAILURE_ROWS;
-  const rows = cut ? wrapped.slice(-(FAILURE_ROWS - 1)) : wrapped;
-  const above = earlier ? `${earlier} earlier ${earlier === 1 ? "line" : "lines"}` : "more above";
+  const rows = wrapped.length > FAILURE_ROWS - 1 && cut
+    ? [...wrapped.slice(0, FAILURE_ROWS - 3), ...wrapped.slice(-2)] : wrapped;
+  const above = earlier ? `${earlier} ${focused ? "other" : "earlier"} ${earlier === 1 ? "line" : "lines"}` : "more output";
   const body = [...(cut ? [tint(`… ${above} · Ctrl+T shows all`, "muted", color)] : []), ...rows];
   return renderPanel(failure.title, body, width, color, "error");
 }

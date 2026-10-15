@@ -121,9 +121,24 @@ test("the browser lists provider-prefixed rows with metadata and Casper's footer
     expect(text).toContain("free");
     expect(text).toContain("first · fixture/first · 131k ctx · 4k out · $3/15 per M · reasoning · vision");
     // It opens on the providers on the left; Tab moves to the list, and each side has its own hint.
-    expect(text).toContain("Up/Down providers · Enter or Tab models · type to search · Esc cancels");
+    expect(text).toContain("Enter to choose · Esc to skip · Tab models · type to search");
     picker.handleInput("\t");
-    expect(rendered(picker)).toContain("Tab providers · Enter remember · Ctrl+S this session only · Esc cancels · /effort after selecting");
+    expect(rendered(picker)).toContain("Enter to choose · Esc to skip · Tab providers · Ctrl+S this session only");
+  } finally { picker.dispose(); }
+});
+
+test.each([80, 160])("the model list shares numbered shortcuts and a plain hint at %i columns", width => {
+  let picked = "";
+  const picker = new ModelBrowser({ tui: fakeTui(), catalog: fakeCatalog([fakeModel("fixture", "first"), fakeModel("fixture", "second")]),
+    color: false, sessionOnly: false, onSelect(model) { picked = model.id; }, onCancel() {} });
+  try {
+    picker.handleInput("\t");
+    const lines = picker.render(width);
+    expect(lines.join("\n")).toContain("❯ 1. fixture/second");
+    expect(lines.join("\n")).toContain("Enter to choose · Esc to skip");
+    expect(lines.join("\n")).not.toContain("\x1b");
+    expect(lines.every(line => visibleWidth(line) <= width)).toBe(true);
+    picker.handleInput("2"); expect(picked).toBe("first");
   } finally { picker.dispose(); }
 });
 
@@ -177,8 +192,8 @@ test("search words open the picker on the model list; without them Esc cancels f
   });
   try {
     const text = rendered(queried);
-    expect(text).not.toContain("> All models");
-    expect(text).toContain("Tab providers · Enter remember");
+    expect(text).not.toContain("❯ All models");
+    expect(text).toContain("Enter to choose · Esc to skip · Tab providers");
   } finally { queried.dispose(); }
   let cancelled = 0;
   const plain = new ModelBrowser({
@@ -186,7 +201,7 @@ test("search words open the picker on the model list; without them Esc cancels f
     onSelect: () => {}, onCancel: () => { cancelled += 1; },
   });
   try {
-    expect(rendered(plain)).toContain("> All models");
+    expect(rendered(plain)).toContain("❯ All models");
     plain.handleInput("\x1b"); // Esc
     expect(cancelled).toBe(1);
   } finally { plain.dispose(); }
@@ -218,29 +233,29 @@ test("a refresh that adds a provider keeps the provider cursor on the same provi
   });
   try {
     picker.handleInput("\x1b[B"); picker.handleInput("\x1b[B"); // All models → alpha → beta.
-    expect(rendered(picker)).toContain("> beta");
+    expect(rendered(picker)).toContain("❯ beta");
     models.push(fakeModel("aardvark", "x-model")); // Sorts above beta, shifting its row.
     refresh.settle({ aborted: false, errors: new Map() });
     await refresh.promise; await Promise.resolve();
     const text = rendered(picker);
-    expect(text).toContain("> beta");
+    expect(text).toContain("❯ beta");
     expect(text).toContain("beta/b-model");
     expect(text).not.toContain("aardvark/x-model");
   } finally { picker.dispose(); }
 });
 
-test("only the side that has the keys draws a bright cursor; the list's mark stays, muted", () => {
+test("only the side that has the keys draws the shared accent cursor", () => {
   const models = [fakeModel("alpha", "a-model"), fakeModel("beta", "b-model")];
   const picker = new ModelBrowser({
     tui: fakeTui(), catalog: fakeCatalog(models), color: true, sessionOnly: false,
     onSelect: () => {}, onCancel: () => {},
   });
   try {
-    const bright = tint("> ", "selection", true);
-    const muted = tint("> ", "muted", true);
+    const bright = tint("❯ ", "accent", true);
+    const muted = tint("❯ ", "muted", true);
     const onProviders = picker.render(120).join("\n");
     expect(onProviders.split(bright).length - 1).toBe(1); // The provider cursor only.
-    expect(onProviders).toContain(muted); // The list's marked row: what Ctrl+S would pick.
+    expect(onProviders).not.toContain(muted);
     picker.handleInput("\t");
     const onList = picker.render(120).join("\n");
     expect(onList.split(bright).length - 1).toBe(1); // The list's row only.
@@ -344,7 +359,7 @@ test("with no search words the picker starts on the provider sidebar, where Up/D
     expect(sidebar).toContain("All models");
     expect(sidebar).toContain("alpha");
     expect(sidebar).toContain("beta");
-    expect(sidebar).toContain("> All models"); // No Tab needed: the providers have the keys.
+    expect(sidebar).toContain("❯ All models"); // No Tab needed: the providers have the keys.
     picker.handleInput("\x1b[B"); // Down → scope to alpha.
     expect(rendered(picker)).toContain("alpha (1)");
     expect(rendered(picker)).toContain("alpha/a-model");
@@ -353,9 +368,9 @@ test("with no search words the picker starts on the provider sidebar, where Up/D
     expect(rendered(picker)).toContain("beta (2)");
     expect(rendered(picker)).toContain("beta/b-model");
     picker.handleInput("\r"); // Enter → the model list.
-    expect(rendered(picker)).not.toContain("> beta");
+    expect(rendered(picker)).not.toContain("❯ beta");
     picker.handleInput("\t"); // Tab → back to the providers, still on beta.
-    expect(rendered(picker)).toContain("> beta");
+    expect(rendered(picker)).toContain("❯ beta");
   } finally { picker.dispose(); }
 });
 
@@ -537,7 +552,7 @@ test("your servers: an offline one shows as off with why, the add row is last an
       picker.handleInput("\x1b[B"); // The add row.
       text = rendered(picker, 80);
       expect(text).toContain("Add a model server");
-      expect(text).toContain("Enter adds a model server");
+      expect(text.split("\n").at(-2)).toBe("Enter to choose · Esc to skip · add a model server");
       picker.handleInput("\r");
       expect(actions).toEqual(["add"]);
     } finally { picker.dispose(); }
@@ -568,12 +583,13 @@ test("after an add the picker says what happened until a key is pressed; a new s
       const lines = picker.render(60).map(stripAnsi);
       const left = lines.map((line) => line.split(" │ ")[0]!);
       const right = lines.map((line) => line.split(" │ ")[1] ?? "").join(" ").replace(/\s+/g, " ");
-      // It answered with none: 0, not off; its row says what to do, and the hint starts with Ctrl+X (a narrow screen cuts the end).
-      expect(left.some((line) => line.startsWith("> ollama-box") && line.trimEnd().endsWith("0"))).toBe(true);
+      // It answered with none: 0, not off; its row says what to do. The shared hint comes first; a wider screen keeps the server shortcut.
+      expect(left.some((line) => line.startsWith("❯ ollama-box") && line.trimEnd().endsWith("0"))).toBe(true);
       expect(right).toContain("Added ollama-box, but it has no models yet.");
       expect(right).toContain("ollama-box · no models");
       expect(right).toContain("No models there yet.");
-      expect(lines.some((line) => line.startsWith("  Ctrl+X forgets this server · Up/Down providers"))).toBe(true);
+      expect(lines.at(-2)).toStartWith("Enter to choose · Esc to skip · Tab models");
+      expect(picker.render(120).map(stripAnsi).at(-2)).toBe("Enter to choose · Esc to skip · Tab models · Ctrl+X forgets this server · type to search");
       expect(lines.join("\n")).not.toContain("Use /login to sign in");
       picker.handleInput("\x1b[A");
       expect(rendered(picker)).not.toContain("Added ollama-box");

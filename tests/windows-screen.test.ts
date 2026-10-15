@@ -140,8 +140,9 @@ conpty("ConPTY: a small task, undo and redo, and a shell command that asks first
 
   // No sandbox on Windows: a command that changes things asks first, in a numbered box where 1 is No.
   s.send("run mkdir\n");
-  await s.until("Run this command?  mkdir made");
-  await s.until("→ 1 No");
+  await s.until("Run this command?");
+  await s.until("│ mkdir made");
+  await s.until("❯ 1. No");
   await boxReady();
   s.send("2");
   await s.until("ran mkdir made");
@@ -154,8 +155,8 @@ conpty("ConPTY: a small task, undo and redo, and a shell command that asks first
 conpty("ConPTY: numbered sign-in with hidden key entry, /settings, /resume picker and /pane", async () => {
   const { s, home, conversations } = await startCasper();
   s.send("/login\n");
-  await s.until("Press 1-8 or Up/Down + Enter · Esc cancels");
-  expect(s.visible()).toContain("→ 1 ");
+  await s.until("Enter to choose · Esc to skip");
+  expect(s.visible()).toContain("❯ 1. ");
   await boxReady();
   s.press("escape");
   await s.until("[login] Cancelled; no credential saved.");
@@ -164,11 +165,11 @@ conpty("ConPTY: numbered sign-in with hidden key entry, /settings, /resume picke
   // Arrows move the highlight; a pasted key stays hidden and is not saved on Esc.
   const secret = "synthetic-private-api-key-0123456789";
   s.send("/login\n");
-  await s.untilNew("Press 1-8 or Up/Down + Enter · Esc cancels");
+  await s.untilNew("Enter to choose · Esc to skip");
   await boxReady();
   s.press("down");
   s.press("down");
-  await s.waitFor("row 3 highlighted", () => /→ 3 Anthropic API · paste an API key/.test(s.visible()));
+  await s.waitFor("row 3 highlighted", () => /❯ 3\. Anthropic API · paste an API key/.test(s.visible()));
   s.press("enter");
   await s.until("Private input: [empty]");
   s.write(`\x1b[200~${secret}\x1b[201~`);
@@ -189,10 +190,10 @@ conpty("ConPTY: numbered sign-in with hidden key entry, /settings, /resume picke
   await s.waitFor("the search result", () => s.visible().includes("Search: Theme") && /❯ +Theme/.test(s.visible()));
   await boxReady();
   s.send("\r");
-  await s.waitFor("the theme's choices", () => s.visible().includes("Esc back"));
+  await s.waitFor("the theme's choices", () => s.visible().includes("1. Keep default") && s.visible().includes("2. Light"));
   await boxReady();
   s.press("escape");
-  await s.waitFor("back on the search", () => s.visible().includes("Search: Theme") && !s.visible().includes("Esc back"));
+  await s.waitFor("back on the search", () => s.visible().includes("Search: Theme") && !s.visible().includes("1. Keep default"));
   await boxReady();
   s.press("escape");
   // A closed screen leaves none of its rows behind.
@@ -207,7 +208,7 @@ conpty("ConPTY: numbered sign-in with hidden key entry, /settings, /resume picke
   await idle(s);
   s.send("/resume\n");
   await s.until("Resume which conversation?");
-  await s.until("2 hello one");
+  await s.until("2. hello one");
   await boxReady();
   s.send("2");
   await s.until("[session] Back in");
@@ -260,7 +261,8 @@ conpty("ConPTY: a resize redraws at the new width, also with a choice box open",
   s.send("/settings\n");
   await s.until("Settings · saved for you");
   s.resize(80, 24);
-  await s.waitFor("80-wide rules", () => ruleWidths(s).length > 0 && ruleWidths(s).every((width) => width === 80));
+  // Mounted settings share the two-column gutter: 78-column rules in an 80-column screen.
+  await s.waitFor("80-wide inset settings rules", () => s.visible().split("\n").filter(line => /^ {2}─{78}$/.test(line)).length === 2);
   expect(s.visible()).toContain("Settings · saved for you");
   expect(s.visible()).toContain("Esc close");
   await boxReady();
@@ -286,7 +288,7 @@ conpty("ConPTY: Windows Terminal gets rounded corners and color, the old console
   ] as const) {
     const { s } = await startCasper({ terminal, env });
     s.send("/login\n");
-    await s.until("Press 1-8 or Up/Down + Enter · Esc cancels");
+    await s.until("Enter to choose · Esc to skip");
     expect(s.visible()).toContain(corner);
     await boxReady();
     s.press("escape");
@@ -305,10 +307,10 @@ conpty("ConPTY: the old console draws every mark in ASCII, not only the spinner"
   await s.until("* edited hello.txt");
   await idle(s);
   s.send("run mkdir\n");
-  await s.until("> 1 No");
+  await s.until("> 1. No");
   await boxReady();
   s.press("escape");
-  await s.until("o bash · mkdir made — not run");
+  await s.until("- bash · mkdir made — not run");
   await idle(s);
   // Live, the old console showed ❯ → ✓ ▌ • ↳ ○ … while only the spinner fell back.
   expect(s.visible()).toMatch(/^> make hello/m);

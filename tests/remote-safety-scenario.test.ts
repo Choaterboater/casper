@@ -131,8 +131,8 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
   const run = await scenario();
   const answers: Array<[string, string]> = [
     ["idle", `${PROMPT}\r`],
-    ...Array.from({ length: SSH_STEPS }, (): [string, string] => ["Press 1-4", "2"]),
-    ["2 Switch there", "\r"],
+    ...Array.from({ length: SSH_STEPS }, (): [string, string] => ["Enter to choose · Esc to skip", "2"]),
+    ["2. Switch there", "\r"],
     ["→ Stay here", ""],
     ["idle", "/exit\r"],
   ];
@@ -143,10 +143,12 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
 
   // Asked before each ssh, naming the real address and the alias, with No first.
   for (const command of ["ssh deploy@build-server hostname", "ssh deploy@build-server 'sampleapp-admin create api-token ci'", "ssh deploy@198.51.100.20 'apt-get install -y nginx'"]) {
-    expect(screen).toContain(`?  ${command}\n→ 1 No  the command does not run\n  2 Yes, this once`);
+    expect(screen.replace(/[│╭╮╰╯─]/g, "").replace(/\s+/g, " ")).toContain(`${command} ❯ 1. No the command does not run 2. Yes, this once`);
   }
-  expect(screen).toContain("Reach 198.51.100.20 (build-server)?  ssh deploy@build-server hostname");
-  expect(screen.split("Press 1-4").length - 1).toBe(SSH_STEPS);
+  expect(screen).toContain("Reach 198.51.100.20 (build-server)?");
+  expect(screen.indexOf("ssh deploy@build-server hostname", screen.indexOf("Reach 198.51.100.20 (build-server)?"))).toBeGreaterThan(0);
+  expect(screen.split("❯ 1. No").length - 1).toBe(SSH_STEPS);
+  expect(screen.split("Enter to choose · Esc to skip").length - 1).toBe(SSH_STEPS + 1);
   // Only what you said yes to ran on the host.
   expect(await run.sshRan()).toEqual([
     "ssh deploy@build-server hostname",
@@ -156,7 +158,7 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
   ]);
 
   // ~/.ssh/config was refused, and it shows as not run, not as a failure.
-  expect(screen).toContain("○ bash · cat ~/.ssh/config — not run\n  This command reads ~/.ssh, which is private (keys and logins). Casper keeps it from the AI.");
+  expect(screen).toContain("– bash · cat ~/.ssh/config — not run · This command reads ~/.ssh");
   expect(screen).not.toContain("✗ bash");
   expectNothingLeaked(screen, run.sentToModel());
   // The new token's output did reach the model, with its secret hidden.
@@ -178,7 +180,7 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
   // The short receipt folds the passing check and the changed files into one line under the verdict.
   expect(receipt.replace(/\s+/g, " ")).toContain("· changed tools/pyproject.toml, tools/stats.py, tools/tests/test_stats.py");
   // Offered to move there, Stay first; Enter stayed.
-  expect(receipt).toContain("The work is in ~/Documents/tools.\n→ 1 Stay here");
+  expect(receipt).toContain("The work is in ~/Documents/tools.\n  ❯ 1. Stay here");
   expect(receipt).toContain("The work is in ~/Documents/tools. → Stay here");
   // No noise: no 0.0s, no memory warning.
   expect(screen).not.toMatch(/\b0\.\ds\b/);
@@ -191,8 +193,8 @@ posix("one-shot with no sandbox: nothing waits, no ssh runs, ~/.ssh stays privat
   const screen = result.stdout + result.stderr;
   expect(await run.sshRan()).toEqual([]);
   expect(screen).toContain("[shell] Not run: the AI's command reaches 198.51.100.20 (build-server), and this run can't ask you. Nothing was sent.");
-  expect(screen).toContain("○ bash · cat ~/.ssh/config — not run");
-  expect(screen).toContain("○ bash · cat ../.ssh/config — not run");
+  expect(screen).toContain("– bash · cat ~/.ssh/config — not run");
+  expect(screen).toContain("– bash · cat ../.ssh/config — not run");
   expectNothingLeaked(screen, run.sentToModel());
   // The model said the work was done; the receipt says what did not happen.
   expect(screen).toContain(CLAIM);

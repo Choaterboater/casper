@@ -13,6 +13,7 @@ import { seccompHelper } from "../sandbox/seccomp";
 import type { TaskResult } from "../task/result";
 import { terminalText } from "../tui/format";
 import { MODEL_REASON_PREFIX } from "../tui/choices";
+import { modelReasonSummary } from "../tui/model-reason";
 import { blockedBySandbox } from "../verify/command";
 import { hideCommandSecrets } from "../secrets/files";
 import { remoteTargets, runsAlone, segmentTargets, splitShell, targetLabel, trustedProgram, type LocalPlaces, type RemoteTarget } from "../sandbox/remote";
@@ -86,8 +87,8 @@ export const shownCommand = (command: string) => {
   const lines = terminalText(hideCommandSecrets(command).text).replace(/\n$/, "").split("\n");
   return lines.length > 12 ? `${lines.slice(0, 12).join("\n")}\n… ${lines.length - 12} more lines` : lines.join("\n");
 };
-/** The model's preceding one-line reason, never terminal controls or a typed secret. */
-const commandReason = (text?: string) => terminalText(hideCommandSecrets(text ?? "").text).split("\n").map((line) => line.trim()).filter(Boolean).at(-1);
+/** The model's last sentence, bounded for display, never terminal controls or a typed secret. */
+const commandReason = (text?: string) => modelReasonSummary(terminalText(hideCommandSecrets(text ?? "").text));
 const commandQuestion = (question: string, command: string, preceding?: string) => {
   const reason = commandReason(preceding);
   const shown = shownCommand(command);

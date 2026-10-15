@@ -56,7 +56,7 @@ flakyOn("win32")("API-key login verifies with the provider, keeps secrets off sc
       try {
         const result = await runtime.authenticate({ provider: ${JSON.stringify(provider)}, terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
           screen += text;
-          if (text.includes('Up/Down + Enter · Esc cancels')) setImmediate(() => input.write('\\r'));
+          if (text.includes('Enter to choose · Esc to skip')) setImmediate(() => input.write('\\r'));
           if (text.includes('Private API key')) setImmediate(() => { input.write('\\x1b[200~synthetic-private-key\\x1b[201~'); setTimeout(() => input.write('\\r'), 20); });
         } } }, operation) } });
         console.log(JSON.stringify({ result, screen, calls, headers }));
@@ -98,7 +98,7 @@ test("Enter at the numbered sign-in list picks OpenRouter with an API key", asyn
     try {
       const result = await runtime.authenticate({ terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         screen += text;
-        if (text.includes('Up/Down + Enter · Esc cancels')) setImmediate(() => input.write('\\r'));
+        if (text.includes('Enter to choose · Esc to skip')) setImmediate(() => input.write('\\r'));
         if (text.includes('Private API key')) setImmediate(() => { input.write('synthetic-key'); setTimeout(() => input.write('\\r'), 20); });
       } } }, operation) } });
       console.log(JSON.stringify({ result, screen }));
@@ -106,7 +106,7 @@ test("Enter at the numbered sign-in list picks OpenRouter with an API key", asyn
   `);
   const result = JSON.parse(output);
   expect(result.result).toEqual({ status: "saved" });
-  expect(Bun.stripANSI(result.screen)).toContain("1 OpenRouter");
+  expect(Bun.stripANSI(result.screen)).toContain("❯ 1. OpenRouter");
   expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8")).openrouter.key).toBe("synthetic-key");
 });
 
@@ -158,7 +158,7 @@ test("a provider-rejected API key is never saved and prompts again", async () =>
     try {
       const result = await runtime.authenticate({ provider: 'openrouter', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         screen += text;
-        if (text.includes('Up/Down + Enter · Esc cancels')) setImmediate(() => input.write('\\r'));
+        if (text.includes('Enter to choose · Esc to skip')) setImmediate(() => input.write('\\r'));
         if (text.includes('Private API key') && sent < keys.length) {
           const key = keys[sent++];
           setImmediate(() => { input.write(key); setTimeout(() => input.write('\\r'), 20); });
@@ -224,7 +224,7 @@ test("OpenRouter browser sign-in exchanges the pasted authorization code and sav
     try {
       const result = await runtime.authenticate({ provider: 'openrouter', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         screen += text;
-        if (text.includes('Up/Down + Enter · Esc cancels')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
+        if (text.includes('Enter to choose · Esc to skip')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
         const displayed = Bun.stripANSI(text).replace(/[\\r\\n]/g, '');
         if (!authorized && displayed.includes('https://openrouter.ai/auth')) authorized = true;
         if (authorized && text.includes('Private authorization code')) setImmediate(() => { input.write('synthetic-private-code'); setTimeout(() => input.write('\\r'), 20); });
@@ -305,7 +305,7 @@ test("Anthropic browser sign-in completes through private manual input or real l
       try {
         const result = await runtime.authenticate({ provider, terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
           screen += text;
-          if (text.includes('Up/Down + Enter · Esc cancels')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
+          if (text.includes('Enter to choose · Esc to skip')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
           const displayed = Bun.stripANSI(text).replace(/[\\r\\n]/g, '');
           const url = displayed.match(/https:\\/\\/[^ ╭┌]+/)?.[0];
           if (url && !authUrl) {
@@ -351,7 +351,7 @@ test("private key entry rejects executable syntax, multiline and oversized unfin
       try {
         const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
           screen += text;
-          if (text.includes('Up/Down + Enter · Esc cancels')) setImmediate(() => input.write('\\r'));
+          if (text.includes('Enter to choose · Esc to skip')) setImmediate(() => input.write('\\r'));
           if (text.includes('Private API key')) setImmediate(() => { input.write('\\x1b[200~' + ${literal} + ${key.length > 8192 ? "''" : "'\\x1b[201~'"}); setTimeout(() => input.write('\\r'), 20); });
         } } }, operation) } });
         console.log(JSON.stringify({ result, safe: !screen.includes('SHOULD_NOT_EXIST') && !screen.includes('SECRET_ENV') && !screen.includes('line1') }));
@@ -383,7 +383,7 @@ flakyOn("win32")("API-key replacement refreshes the selected non-Codex parent wi
     const before = session.getStatus(); const input = new PassThrough();
     try {
       const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
-        if (text.includes('Up/Down + Enter · Esc cancels')) setImmediate(() => input.write('\\r'));
+        if (text.includes('Enter to choose · Esc to skip')) setImmediate(() => input.write('\\r'));
         if (text.includes('Private API key')) setImmediate(() => { input.write('synthetic-new'); setTimeout(() => input.write('\\r'), 20); });
       } } }, operation) } }); console.log(JSON.stringify({ result, before, after: session.getStatus() }));
     } finally { await runtime.dispose(); input.destroy(); }
@@ -410,7 +410,7 @@ flakyOn("win32")("provider refusal and occupied browser port expose no diagnosti
       try {
         const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
           screen += text;
-          if (text.includes('Up/Down + Enter · Esc cancels')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
+          if (text.includes('Enter to choose · Esc to skip')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
           if (text.includes('Private authorization code')) setImmediate(() => { input.write('private-code'); setTimeout(() => input.write('\\r'), 20); });
         } } }, operation) } }); console.log(JSON.stringify({ result, calls, safe: !screen.includes('PRIVATE_PROVIDER_DIAGNOSTIC') && !screen.includes('private-code') }));
       } finally { await runtime.dispose(); input.destroy(); if (occupied) await new Promise(resolve => server.close(resolve)); }
@@ -432,7 +432,7 @@ test("Ctrl+C at the sign-in list is cancellation, not login failure", async () =
     const runtime = new PiRuntime(); const input = new PassThrough();
     try {
       const result = await runtime.authenticate({ terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
-        if (text.includes('Up/Down + Enter · Esc cancels')) setImmediate(() => input.write('\\x03'));
+        if (text.includes('Enter to choose · Esc to skip')) setImmediate(() => input.write('\\x03'));
       } } }, operation) } }); console.log(JSON.stringify(result));
     } finally { await runtime.dispose(); input.destroy(); }
   `);
@@ -449,7 +449,7 @@ test("Esc at the sign-in list never creates auth or starts a session, and the li
     globalThis.fetch = () => { throw new Error('NETWORK_FORBIDDEN'); };
     try {
       const result = await runtime.authenticate({ terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
-        screen += text; if (text.includes('Up/Down + Enter · Esc cancels')) setTimeout(() => input.write('\\x1b'), 0);
+        screen += text; if (text.includes('Enter to choose · Esc to skip')) setTimeout(() => input.write('\\x1b'), 0);
       } } }, operation) } });
       console.log(JSON.stringify({ result, screen }));
     } finally { await runtime.dispose(); input.destroy(); }
@@ -470,7 +470,7 @@ test("when Casper opens sign-in by itself, a provider with one way still shows t
     globalThis.fetch = () => { throw new Error('NETWORK_FORBIDDEN'); };
     try {
       const result = await runtime.authenticate({ provider: 'github-copilot', list: true, terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
-        screen += text; if (text.includes('Esc cancels')) setTimeout(() => input.write('\\x1b'), 0);
+        screen += text; if (text.includes('Enter to choose · Esc to skip')) setTimeout(() => input.write('\\x1b'), 0);
       } } }, operation) } });
       console.log(JSON.stringify({ result, screen }));
     } finally { await runtime.dispose(); input.destroy(); }
@@ -479,8 +479,8 @@ test("when Casper opens sign-in by itself, a provider with one way still shows t
   expect(result.result).toEqual({ status: "cancelled", effect: "none" });
   const visible = Bun.stripANSI(result.screen);
   expect(visible).toContain("Sign in to GitHub Copilot");
-  expect(visible).toContain("1 GitHub Copilot · enter a code at github.com");
-  expect(visible).toContain("Press 1 or Enter · Esc cancels");
+  expect(visible).toContain("❯ 1. GitHub Copilot · enter a code at github.com");
+  expect(visible).toContain("Enter to choose · Esc to skip");
   expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).exists()).toBe(false);
 });
 
@@ -688,7 +688,7 @@ posixOnly("login saves through a symlinked HOME ancestor", async () => {
     const runtime = new PiRuntime(); const input = new PassThrough();
     try {
       const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
-        if (text.includes('Up/Down + Enter · Esc cancels')) setImmediate(() => input.write('\\r'));
+        if (text.includes('Enter to choose · Esc to skip')) setImmediate(() => input.write('\\r'));
         if (text.includes('Private API key')) setImmediate(() => { input.write('\\x1b[200~synthetic-private-key\\x1b[201~'); setTimeout(() => input.write('\\r'), 20); });
       } } }, operation) } });
       console.log(JSON.stringify(result));
@@ -708,7 +708,7 @@ posixOnly("plain login permits Claude Code selection with an unsafe Casper desti
       const runtime = new PiRuntime(); const input = new PassThrough(); let picked = false;
       try {
         const result = await runtime.authenticate({ others: false, terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
-          if (!picked && text.includes('Up/Down + Enter · Esc cancels')) { picked = true; setImmediate(() => { for (let i = 0; i < ${down}; i++) setTimeout(() => input.write('\\x1b[B'), i * 30); setTimeout(() => input.write('\\r'), ${down} * 30); }); }
+          if (!picked && text.includes('Enter to choose · Esc to skip')) { picked = true; setImmediate(() => { for (let i = 0; i < ${down}; i++) setTimeout(() => input.write('\\x1b[B'), i * 30); setTimeout(() => input.write('\\r'), ${down} * 30); }); }
         } } }, operation) } });
         console.log(JSON.stringify({ result, picked }));
       } finally { await runtime.dispose(); input.destroy(); }
@@ -755,7 +755,7 @@ flakyOn("win32")("CASPER_OAUTH_CALLBACK_HOST cannot expose browser sign-in on a 
     const runtime = new PiRuntime(); const input = new PassThrough(); let chosen = false;
     try {
       const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
-        if (!chosen && text.includes('Up/Down + Enter · Esc cancels')) { chosen = true; setImmediate(() => input.write('\\x1b[B\\r')); }
+        if (!chosen && text.includes('Enter to choose · Esc to skip')) { chosen = true; setImmediate(() => input.write('\\x1b[B\\r')); }
         if (text.includes('Private authorization')) setImmediate(() => input.write('\\x1b'));
       } } }, operation) } });
       console.log(JSON.stringify({ result, requests }));

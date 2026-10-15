@@ -263,7 +263,7 @@ test("/project <name> opens a project folder inside this one before the model st
     // A name that isn't there: Stay first, and Enter stays.
     harness.input.write("/project netbox-sync\r");
     await harness.until(text => Bun.stripANSI(text).includes("netbox-sync isn't a folder in Documents. Make it?"));
-    expect(Bun.stripANSI(harness.output())).toContain("1 Stay in Documents");
+    expect(Bun.stripANSI(harness.output())).toContain("❯ 1. Stay in Documents");
     harness.input.write("\r");
     await harness.until(text => Bun.stripANSI(text).includes("[folder] Staying in Documents."));
     // The project's name opens it.

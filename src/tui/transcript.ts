@@ -105,7 +105,8 @@ export class Transcript implements Component {
     if (this.tail) { this.push(this.tail, this.tailKind, this.tailContinued); this.tail = ""; }
     const attached = this.lead;
     if (!attached) this.leadNext = true;
-    this.push({ block: make(attached), kind: attached ? "attached" : "group" }, attached ? "attached" : "group");
+    this.leadNext = true;
+    this.push({ block: make(attached), kind: "group" }, "group");
   }
 
   invalidate(): void { this.renderedWidth = 0; }
@@ -122,21 +123,19 @@ export class Transcript implements Component {
     const lines = [...this.rendered];
     if (this.tail) lines.push(...wrapTextWithAnsi(this.tail, width));
     const blankLast = () => !lines.length || lines[lines.length - 1] === "";
-    let lead = this.lead;
     if (this.preview) {
       const rows = trimBlank(fit(this.preview.render(width), width));
       if (rows.length) {
         // The same gap the words get when they commit, so no row moves.
         if (!blankLast() && (this.tail || gapBefore(this.lastKind, "narration"))) lines.push("");
         lines.push(...rows);
-        lead = true;
       }
     }
     if (this.live) {
       let rows = fit(this.live.render(width), width);
       if (rows.length > this.liveCap) rows = rows.slice(rows.length - Math.max(0, this.liveCap));
       if (rows.length) {
-        if (!lead && !blankLast()) lines.push("");
+        if (!blankLast()) lines.push("");
         lines.push(...rows);
       }
     }

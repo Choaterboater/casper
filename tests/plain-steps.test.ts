@@ -36,23 +36,23 @@ test("searches and reads share one line that counts them, updated in place, with
   clock += 120_000;
   s.handle({ type: "tool_progress", toolName: "read", toolCallId: "4", text: "" });
   s.handle(end("4", "read", { path: "/work/app/b.ts" }));
-  expect(s.plain).toEqual(["✓ Looked through the code: 2 searches, 2 files read, 1 found nothing (2m)"]);
+  expect(s.plain).toEqual(["– grep · foo — nothing found", "✓ Looked through the code: 1 search, 2 files read (2m)"]);
   // The raw steps are still there for Ctrl+O and the steps pane.
   expect(s.rows).toHaveLength(4);
-  expect(s.rows![0]).toStartWith("✓ grep");
+  expect(s.rows![0]).toStartWith("– grep");
   s.events.reset();
 });
 
-test("edits share one line and each command gets a short one: the project's test command reads Ran the tests", () => {
+test("edits share one line and each command gets a short one: the project's test command reads Ran tests", () => {
   clock = 1_000;
   const s = view();
   s.handle(start("1", "edit", { path: "/work/app/site/roadmap.html" }), end("1", "edit", { path: "/work/app/site/roadmap.html" }));
   s.handle(start("2", "bash", { command: "bun test" }));
-  expect(s.plain).toEqual(["✓ Edited site/roadmap.html", "• Running the tests"]);
+  expect(s.plain).toEqual(["✓ Edited site/roadmap.html", "• Running tests"]);
   s.handle(end("2", "bash", { command: "bun test" }), start("3", "write", { path: "/work/app/faq.html" }), end("3", "write", { path: "/work/app/faq.html" }));
   s.handle(start("4", "bash", { command: "git status" }), end("4", "bash", { command: "git status" }));
   s.handle(start("5", "bash", { command: "bun run lint" }), end("5", "bash", { command: "bun run lint" }, "1 error", true));
-  expect(s.plain).toEqual(["✓ Edited site/roadmap.html, faq.html", "✓ Ran the tests", "✓ Ran git status", "✗ The linter failed"]);
+  expect(s.plain).toEqual(["✓ Edited site/roadmap.html, faq.html", "✓ Ran tests", "✓ Ran git status", "✗ Lint failed"]);
   s.events.reset();
 });
 

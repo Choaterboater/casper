@@ -29,7 +29,7 @@ def exercise(bun, repo, root, no_color=False):
         s.until("│ idle")  # Wait for the raw editor, not just the startup banner.
         draft = "x" * 95
         s.send("/model\n" + draft + "\x1b[D\x1b[D")
-        s.until("Up/Down providers")  # It opens on the providers; typing goes to the search.
+        s.until("Enter to choose · Esc to skip")  # It opens on providers; typing goes to search.
         s.send("second")
         s.until("second · fixture/second")
         s.send("\x13")  # Ctrl+S is the explicit session-only alternative.
@@ -105,7 +105,7 @@ def exercise_empty_eof(bun, repo, root):
         s.send("hello\n")
         # With no model, Casper opens sign-in itself instead of printing a fake failed receipt.
         s.until("No model yet. Sign in to a provider to start")
-        s.until("Up/Down + Enter · Esc cancels")
+        s.until("Enter to choose · Esc to skip")
         s.send("\x1b")
         s.until("[login] Cancelled; no credential saved.")
         s.until("[model] No Casper model selected")

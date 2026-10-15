@@ -1730,7 +1730,8 @@ async function runCrew(host: CommandHost, argument: string): Promise<void> {
     notReviewed: () => host.crewParts?.notReviewed() ?? [],
     runBuilder: (options) => host.subagents.runBuilder(options),
     // Its commands that need a yes come to your box, named for it, and /permissions all counts as for yours.
-    shell: (copy, note) => sandbox ? crewShell(sandbox, copy, note, { label: "Builder 1", host: {
+    shell: (copy, note) => sandbox ? crewShell(sandbox, copy, note, { label: "Builder 1",
+      onWait: (waiting) => host.terminal.setCrewWaiting("Builder 1", waiting), host: {
       canAsk: () => host.interactive && host.terminal.canAsk && !host.closing,
       pick: (question, options, signal, settings) => host.terminal.pick(question, options, signal ?? host.commandAbort?.signal, settings?.record ? { record: settings.record } : {}),
       write: (text) => { if (!host.closing) host.output.write(text); },

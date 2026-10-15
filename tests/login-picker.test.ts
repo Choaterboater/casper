@@ -94,9 +94,9 @@ test("the sign-in list is numbered: a digit picks that row at once, and Esc canc
     try {
       await waitFor(() => screen.includes("Sign in"));
       const visible = Bun.stripANSI(screen);
-      expect(visible).toContain("1 OpenAI Codex");
-      expect(visible).toContain("2 GitHub Copilot");
-      expect(visible).toContain("Esc cancels");
+      expect(visible).toContain("1. OpenAI Codex");
+      expect(visible).toContain("2. GitHub Copilot");
+      expect(visible).toContain("Enter to choose · Esc to skip");
       expect(visible).not.toContain("Cancel\n");
       input.write(key);
       expect(await pending).toBe(expected);

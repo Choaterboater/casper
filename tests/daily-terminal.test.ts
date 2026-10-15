@@ -70,7 +70,7 @@ test("live work status shows above the prompt before response text, the step und
     const frame = plainLines(screen.output.split(REPAINT).at(-1)!);
     expect(frame).toContain("● Working on it.");
     // One row naming the finished step, above the model's words; no running row and no status row left.
-    expect(frame.filter(line => line.includes("src/app.ts"))).toEqual(["● edited src/app.ts"]);
+    expect(frame.filter(line => line.includes("src/app.ts"))).toEqual(["  ● edited src/app.ts"]);
     expect(frame.indexOf("● edited src/app.ts")).toBeLessThan(frame.indexOf("● Working on it."));
     expect(frame.join("\n")).not.toContain("Waiting for openai-codex/gpt-6-luna");
     expect(frame.join("\n")).not.toContain("Esc stops");
@@ -190,7 +190,7 @@ test("a code block with emoji or CJK characters wider than the screen draws with
   } finally { terminal.close(); input.destroy(); }
 });
 
-test("tool panels and code blocks span the whole terminal width and follow it through a resize", async () => {
+test("tool panels cap at 120 columns with the shared indent; code blocks keep the full width through a resize", async () => {
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
   const screen = fakeWriter(100, 40);
   const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {});
@@ -206,9 +206,9 @@ test("tool panels and code blocks span the whole terminal width and follow it th
       screen.writer.columns = columns; screen.writer.emit("resize");
       await screen.until(output => output.split(REPAINT).length > repaints && output.split(REPAINT).at(-1)!.includes("Waiting for fixture/model"));
       // Round corners, or square ones on the old Windows console (src/tui/glyphs.ts).
-      const borders = plainLines(screen.output.split(REPAINT).at(-1)!).filter(line => /^[╭╰┌└]/.test(line));
-      expect(borders.filter(line => /^[╭┌]/.test(line)).map(line => line.replace(/[╭─╮┌┐]/g, "").trim())).toEqual(["output"]);
-      expect(borders.map(line => visibleWidth(line))).toEqual(Array(2).fill(columns));
+      const borders = plainLines(screen.output.split(REPAINT).at(-1)!).filter(line => /^ {2}[╭╰┌└]/.test(line));
+      expect(borders.filter(line => /^ {2}[╭┌]/.test(line)).map(line => line.replace(/[╭─╮┌┐]/g, "").trim())).toEqual(["output"]);
+      expect(borders.map(line => visibleWidth(line))).toEqual(Array(2).fill(Math.min(columns, 122)));
       // The code block's title line spans the width too.
       const code = plainLines(screen.output.split(REPAINT).at(-1)!).find(line => line.startsWith("── ts "));
       expect(visibleWidth(code!)).toBe(columns);

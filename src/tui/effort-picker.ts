@@ -1,20 +1,19 @@
-import { Container, matchesKey, SelectList, Text } from "@earendil-works/pi-tui";
+import { Container, matchesKey, Text } from "@earendil-works/pi-tui";
 import type { RuntimePickerView } from "../runtime/types";
-import { choiceHint, choiceNumber, keyChoice } from "./choices";
+import { choiceHint, keyChoice } from "./choices";
+import { PickerList } from "./picker";
 import { effortHint } from "./effort";
 import { terminalText, tint } from "./format";
 
 export async function pickEffort(view: RuntimePickerView, levels: string[], current?: string, signal?: AbortSignal, title = "Reasoning effort · auto or a supported fixed level"): Promise<{ level: string; persist: boolean } | undefined> {
   signal?.throwIfAborted();
   const accent = (text: string) => tint(text, "accent", view.color);
-  const selected = (text: string) => tint(text, "selection", view.color);
   const muted = (text: string) => tint(text, "muted", view.color);
   const border = (text: string) => tint(text, "border", view.color);
   // The one choice style: numbered rows, a digit picks and remembers, as Enter does.
-  const list = new SelectList(levels.map((level, index) => ({
-    value: level, label: `${choiceNumber(index, levels.length)}${terminalText(level)}`, description: effortHint(level),
-  })), 9,
-    { selectedPrefix: selected, selectedText: selected, description: muted, scrollInfo: muted, noMatch: muted });
+  const list = new PickerList(levels.map(level => ({
+    value: level, label: terminalText(level), description: effortHint(level),
+  })), view.color);
   list.setSelectedIndex(Math.max(0, levels.indexOf(current ?? "")));
   const rule = { render: (width: number) => [border("─".repeat(width))], invalidate() {} };
   const panel = new Container();

@@ -160,9 +160,9 @@ test("/plan: the plan turn refuses changes; 2 builds the plan", async () => {
     expect(reasons["bash ls"]).toBeUndefined();
     expect(reasons.mcp).toStartWith("Not run: Planning only");
     expect(reasons.read).toBeUndefined();
-    expect(f.screen.output).toContain("1 Stop");
-    expect(f.screen.output).toContain("2 Build");
-    expect(f.screen.output).toContain("3 Change the plan");
+    expect(f.screen.output).toContain("❯ 1. Stop");
+    expect(f.screen.output).toContain("  2. Build");
+    expect(f.screen.output).toContain("  3. Change the plan");
     // A call blocked while planning reads "not run", never "failed".
     expect(f.screen.output).not.toMatch(/✗ (?:bash|edit|write)[^\n]*failed/);
     expect(f.prompts).toHaveLength(1);
@@ -406,9 +406,9 @@ test.each(["xterm-256color", "dumb"])("after a change request the model rewrites
     const shown = f.screen.output.slice(from);
     expect(shown).toContain("  1. Call the limiter from the API");
     expect(shown).toContain("  1. X passes");
-    expect(shown).toContain("1 Stop");
-    expect(shown).toContain("2 Build");
-    expect(shown).toContain("3 Change the plan");
+    expect(shown).toContain(term === "dumb" ? "  1 Stop" : "❯ 1. Stop");
+    expect(shown).toContain(term === "dumb" ? "  2 Build" : "  2. Build");
+    expect(shown).toContain(term === "dumb" ? "  3 Change the plan" : "  3. Change the plan");
     // No build occurred, and the rewrite still refuses edits and MCP writes.
     expect(shown).not.toContain("Built.");
     expect(f.gate.slice(5, 10).filter(({ reason }) => reason !== undefined)).toHaveLength(3);
@@ -764,7 +764,7 @@ async function capturedPlan(noColor = false): Promise<string[]> {
     const rows = f.screen.raw.replace(/\r\n?/g, "\n").split("\n");
     const start = rows.findIndex(row => Bun.stripANSI(row).startsWith(noColor ? "Casper plan · Colour regression" : "╭─ Plan · Colour regression"));
     expect(start).toBeGreaterThanOrEqual(0);
-    const end = rows.findIndex((row, index) => index > start && Bun.stripANSI(row).startsWith(noColor ? "Build this plan?" : "╰"));
+    const end = rows.findIndex((row, index) => index > start && Bun.stripANSI(row).trimStart().startsWith(noColor ? "Build this plan?" : "╰"));
     expect(end).toBeGreaterThan(start);
     return rows.slice(start, noColor ? end : end + 1);
   } finally {

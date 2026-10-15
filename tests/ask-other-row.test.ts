@@ -34,7 +34,7 @@ function screenText(raw: string, cols = 100, rows = 30): string {
 /** The open box: from "The AI asks:" (or the question) to the hint under the rows. */
 function box(raw: string, first = "The AI asks:"): string {
   const lines = screenText(raw).split("\n").map((line) => line.trimEnd());
-  const start = lines.lastIndexOf(first);
+  const start = lines.lastIndexOf(`  ${first}`);
   const end = lines.findIndex((line, index) => index > start && /Esc /.test(line));
   return lines.slice(start, end + 1).join("\n");
 }
@@ -53,28 +53,28 @@ test("the AI's question ends with an Other row; its number opens the answer line
     expect(box(session.screen.output)).toBe([
       "The AI asks:",
       QUESTION,
-      "→ 1 Just the fix  the smallest change that works",
-      "  2 Fix and tests",
-      "  3 Fix, tests and docs",
-      "  4 Stop here",
-      "  5 Other — type your own answer",
-      "Press 1-5 or Up/Down + Enter · Esc skip",
-    ].join("\n"));
+      "❯ 1. Just the fix".padEnd(35) + "the smallest change that works",
+      "  2. Fix and tests",
+      "  3. Fix, tests and docs",
+      "  4. Stop here",
+      "  5. Other — type your own answer",
+      "Enter to choose · Esc to skip",
+    ].map(line => `  ${line}`).join("\n"));
     session.input.write("5");
-    await session.screen.until((output) => output.includes("Esc back to the list"));
+    await waitFor(() => box(session.screen.output).includes("❯ 5. Other — type your own answer —"));
     expect(box(session.screen.output)).toBe([
       "The AI asks:",
       QUESTION,
-      "  1 Just the fix  the smallest change that works",
-      "  2 Fix and tests",
-      "  3 Fix, tests and docs",
-      "  4 Stop here",
-      "→ 5 Other — type your own answer",
-      "Type your answer below · Enter send · Esc back to the list",
-    ].join("\n"));
+      "  1. Just the fix".padEnd(35) + "the smallest change that works",
+      "  2. Fix and tests",
+      "  3. Fix, tests and docs",
+      "  4. Stop here",
+      "❯ 5. Other — type your own answer —",
+      "Enter to choose · Esc to skip",
+    ].map(line => `  ${line}`).join("\n"));
     // Numbers on the answer line are the answer, not rows.
     session.input.write("2 files, then stop");
-    await waitFor(() => screenText(session.screen.output).includes("? 2 files, then stop"));
+    await waitFor(() => screenText(session.screen.output).includes("Other — type your own answer — 2 files, then stop"));
     session.input.write("\r");
     expect(await answer).toEqual(["2 files, then stop"]);
     await waitFor(() => screenText(session.screen.output).includes(`The AI asks: ${QUESTION} → 2 files, then stop`));
@@ -89,23 +89,23 @@ test("Up/Down and Enter reach the Other row; Esc goes back to the list, and Esc 
     const answer = session.terminal.ask(QUESTION, OPTIONS, false, undefined, "ai");
     await session.screen.until((output) => output.includes(OTHER_CHOICE));
     session.input.write("\x1b[A");
-    await waitFor(() => box(session.screen.output).includes("→ 5 Other"));
+    await waitFor(() => box(session.screen.output).includes("❯ 5. Other"));
     session.input.write("\r");
-    await session.screen.until((output) => output.includes("Esc back to the list"));
+    await waitFor(() => box(session.screen.output).includes("❯ 5. Other — type your own answer —"));
     session.input.write("half");
-    await waitFor(() => screenText(session.screen.output).includes("? half"));
+    await waitFor(() => screenText(session.screen.output).includes("Other — type your own answer — half"));
     session.input.write("\x1b");
-    await waitFor(() => box(session.screen.output).endsWith("Press 1-5 or Up/Down + Enter · Esc skip"));
-    expect(screenText(session.screen.output)).not.toContain("? half");
+    await waitFor(() => !screenText(session.screen.output).includes("— half") && box(session.screen.output).endsWith("Enter to choose · Esc to skip"));
+    expect(screenText(session.screen.output)).not.toContain("— half");
     // Back at the list, keys pick again.
     session.input.write("2");
     expect(await answer).toEqual(["Fix and tests"]);
     const skipped = session.terminal.ask(QUESTION, OPTIONS, false, undefined, "ai");
-    await waitFor(() => box(session.screen.output).endsWith("Esc skip"));
+    await waitFor(() => box(session.screen.output).endsWith("Esc to skip"));
     session.input.write("5");
-    await waitFor(() => box(session.screen.output).endsWith("Esc back to the list"));
+    await waitFor(() => box(session.screen.output).includes("❯ 5. Other — type your own answer —"));
     session.input.write("\x1b");
-    await waitFor(() => box(session.screen.output).endsWith("Esc skip"));
+    await waitFor(() => !box(session.screen.output).includes("Other — type your own answer —"));
     session.input.write("\x1b");
     expect(await skipped).toBeUndefined();
     await waitFor(() => screenText(session.screen.output).includes(`The AI asks: ${QUESTION} — skipped`));
@@ -119,7 +119,7 @@ test("typing letters straight into the box still answers, with the Other row hig
     const answer = session.terminal.ask(QUESTION, OPTIONS, false, undefined, "ai");
     await session.screen.until((output) => output.includes(OTHER_CHOICE));
     session.input.write("only the parser");
-    await waitFor(() => box(session.screen.output).includes("→ 5 Other — type your own answer"));
+    await waitFor(() => box(session.screen.output).includes("❯ 5. Other — type your own answer"));
     session.input.write("\r");
     expect(await answer).toEqual(["only the parser"]);
   } finally { session.close(); }
@@ -130,22 +130,22 @@ test("a typed Casper picker has the row; approvals and key-only pickers never do
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const typed = session.terminal.pick("Name the project?", [{ label: "mist-aps" }, { label: "Use this folder" }], undefined, { typed: true });
-    await waitFor(() => box(session.screen.output, "Name the project?").includes("  3 Other — type your own answer"));
-    expect(box(session.screen.output, "Name the project?")).toContain("Press 1-3 or Up/Down + Enter · Esc skip");
+    await waitFor(() => box(session.screen.output, "Name the project?").includes("  3. Other — type your own answer"));
+    expect(box(session.screen.output, "Name the project?")).toContain("Enter to choose · Esc to skip");
     session.input.write("3");
-    await session.screen.until((output) => output.includes("Esc back to the list"));
+    await waitFor(() => box(session.screen.output, "Name the project?").includes("❯ 3. Other"));
     session.input.write("lab-tools\r");
     expect(await typed).toBe("lab-tools");
 
     const picker = session.terminal.pick("Pick a server", [{ label: "lab" }, { label: "Done" }]);
-    await waitFor(() => box(session.screen.output, "Pick a server").endsWith("Press 1-2 or Up/Down + Enter · Esc skip"));
+    await waitFor(() => box(session.screen.output, "Pick a server").endsWith("Enter to choose · Esc to skip"));
     expect(box(session.screen.output, "Pick a server")).not.toContain("Other");
     session.input.write("3");
     session.input.write("1");
     expect(await picker).toBe("lab");
 
     const approval = session.terminal.approve("", "Make this change?", [NO, YES_ONCE]);
-    await waitFor(() => box(session.screen.output, "Make this change?").endsWith("Press 1-2 or Up/Down + Enter · Esc is No"));
+    await waitFor(() => box(session.screen.output, "Make this change?").endsWith("Enter to choose · Esc to skip"));
     expect(box(session.screen.output, "Make this change?")).not.toContain("Other");
     session.input.write("1");
     expect(await approval).toBe(NO);

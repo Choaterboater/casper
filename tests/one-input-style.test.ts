@@ -38,14 +38,14 @@ test("an approval box is the numbered panel: one key answers it, no Enter", asyn
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const answer = session.terminal.approve("Change in Central: set the port\n  port  1/1/1\n", "Make this change?", ["No", "Yes, this once", "Yes, for this session"]);
-    await session.screen.until((output) => output.includes("Make this change?") && output.includes("3 Yes, for this session"));
+    await session.screen.until((output) => output.includes("Make this change?") && output.includes("3. Yes, for this session"));
     expect(Bun.stripANSI(session.screen.output)).toContain("port  1/1/1");
     session.input.write("2");
     expect(await answer).toBe("Yes, this once");
   } finally { session.close(); }
 });
 
-test("typed words in an approval box go nowhere (Enter then picks the highlighted No), and Ctrl+X denies an open one", async () => {
+test("typed words in an approval box stay inline and Enter chooses No, and Ctrl+X denies an open one", async () => {
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
@@ -53,8 +53,8 @@ test("typed words in an approval box go nowhere (Enter then picks the highlighte
     await session.screen.until((output) => output.includes("Make this change?"));
     session.input.write("yes please\r");
     expect(await typed).toBe("No");
-    // The box's one-line record shows the No, never the words.
-    await session.screen.until((output) => Bun.stripANSI(output).includes("Make this change? → No"));
+    // The record identifies the safe answer and preserves the person's comment.
+    await session.screen.until((output) => Bun.stripANSI(output).includes("Make this change? → No (yes please)"));
     expect(Bun.stripANSI(session.screen.output)).not.toContain("→ yes please");
     session.terminal.setWritesRevert(() => true);
     const open = session.terminal.approve("", "Make this other change?", ["No", "Yes, this once"]);

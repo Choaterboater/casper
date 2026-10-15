@@ -27,7 +27,7 @@ function fakeTerminal(rich: boolean) {
   let text = "";
   let lead = false;
   const terminal = {
-    rich, columns: 100, questionsShown: 0, questionOpen: false,
+    rich, columns: 100, questionsShown: 0, questionOpen: false, waitedMs: 0,
     setWork(view?: WorkView) { work = view; },
     endAssistant() { if (text) { screen.push(...text.split("\n").filter(Boolean)); text = ""; lead = true; } },
     assistant(delta: string) { text += delta; },
@@ -85,7 +85,7 @@ test("rich terminal: steps tick in as live rows, then fold under the AI's words 
   t.handle({ type: "assistant_text_delta", delta: "Looking.\n" });
   t.handle(end("b", "read", { path: "/work/app/src/x.ts" }), { type: "message_end" });
   // No words came before the first step, so its row stands on its own (●); the next hangs under the words (└).
-  expect(t.screen).toEqual(["● ran git status", "Looking.", "  └ read src/x.ts"]);
+  expect(t.screen).toEqual(["  ● ran git status", "Looking.", "  └ read src/x.ts"]);
   expect(t.screen.some(line => line.startsWith("•") || line.includes("completed") || line.includes("running"))).toBe(false);
   expect(t.box).toBeUndefined();
 });
@@ -104,11 +104,12 @@ test("rich terminal: live rows show every step of the group; the fold puts edits
   t.handle({ type: "assistant_text_delta", delta: "Fixed it." });
   const screen = t.screen.join("\n");
   // The failed edit was tried again at once: shown nowhere. The failed command is a box with what it printed.
-  expect(t.screen[0]).toBe("● read c.py");
-  expect(t.screen[1]).toStartWith(`${CORNER}─ Edited 2 files ─`);
-  expect(t.screen.slice(2, 6).map(row => row.slice(2).trim().replace(/│$/, "").trim())).toEqual(["a.py  +1 -1", "- x = 1", "+ x = 2", "b.py"]);
+  expect(t.screen[0]).toBe("  ● read c.py");
+  expect(t.screen[1]).toBe("");
+  expect(t.screen[2]).toStartWith(`  ${CORNER}─ Edited 2 files ─`);
+  expect(t.screen.slice(3, 7).map(row => row.slice(4).trim().replace(/│$/, "").trim())).toEqual(["a.py  +1 -1", "- x = 1", "+ x = 2", "b.py"]);
   expect(screen).toContain(`${CORNER}─ ✗ bash · python3 -m pytest … — failed ─`);
-  expect(screen).toMatch(/│ tests\/test_a\.py F +│\n│ 1 failed +│/);
+  expect(screen).toMatch(/│ tests\/test_a\.py F +│\n  │ 1 failed +│/);
   expect(screen).not.toContain("old text not found");
   expect(t.box).toBeUndefined();
 });
@@ -121,20 +122,22 @@ test("edits fold into one box naming each file, a few changed lines each; with n
     { ...end(String(index), "edit", { path: `/work/app/${file}` }), lines: { added: 1, removed: 1 }, diff } as RuntimeEvent));
   t.handle(start("r", "read", { path: "/work/app/a.py" }), end("r", "read", { path: "/work/app/a.py" }));
   t.handle({ type: "assistant_text_delta", delta: "Done." });
-  expect(t.screen[0]).toBe("● read a.py");
-  expect(t.screen[1]).toStartWith(`${CORNER}─ Edited 7 files ─`);
-  // Every file is named; the changed lines fill the rest of the box's ten rows, and the last row says what is left.
-  const rows = t.screen.slice(2, 13).map(row => row.slice(2).trim().replace(/│$/, "").trim());
+  expect(t.screen[0]).toBe("  ● read a.py");
+  expect(t.screen[1]).toBe("");
+  expect(t.screen[2]).toStartWith(`  ${CORNER}─ Edited 7 files ─`);
+  // Each file gets its own preview: a small diff is never crowded out by another file.
+  const rows = t.screen.slice(3, 24).map(row => row.slice(4).trim().replace(/│$/, "").trim());
   expect(rows.filter(row => row.endsWith("+1 -1")).map(row => row.split(" ")[0])).toEqual(files);
-  expect(rows.at(-1)).toBe("… 11 more lines · Ctrl+T shows all");
+  expect(rows.filter(row => row === "+ new")).toHaveLength(7);
+  expect(t.screen.join("\n")).not.toContain("more lines");
   const written = fakeTerminal(true);
   written.handle(start("w", "write", { path: "/work/app/new.py" }), end("w", "write", { path: "/work/app/new.py" }), { type: "message_end" });
-  expect(written.screen).toEqual(["● edited new.py"]);
+  expect(written.screen).toEqual(["  ● edited new.py"]);
   const reads = fakeTerminal(true);
   reads.handle(start("1", "read", { path: "/work/app/a.py" }), end("1", "read", { path: "/work/app/a.py" }));
   reads.handle(start("2", "bash", { command: "ls" }), end("2", "bash", { command: "ls" }));
   reads.handle({ type: "assistant_text_delta", delta: "Done." });
-  expect(reads.screen).toEqual(["● read a.py · ran ls"]);
+  expect(reads.screen).toEqual(["  ● read a.py · ran ls"]);
 });
 
 test("steps with no words between them stay one group: a turn of only tool calls, or words held for the plan screen", () => {
@@ -146,7 +149,7 @@ test("steps with no words between them stay one group: a turn of only tool calls
   t.view.holdText("Writing the plan");
   t.handle({ type: "assistant_text_delta", delta: "hidden words" });
   t.handle(start("3", "read", { path: "/work/app/c.ts" }), end("3", "read", { path: "/work/app/c.ts" }), { type: "message_end" });
-  expect(t.screen).toEqual(["● read a.ts, b.ts, c.ts"]);
+  expect(t.screen).toEqual(["  ● read a.ts, b.ts, c.ts"]);
 });
 
 test("the live rows never stay after the receipt, even for a tool that ends after its turn", async () => {
@@ -157,7 +160,7 @@ test("the live rows never stay after the receipt, even for a tool that ends afte
   expect(t.box).toEqual(["✓ bash · sleep 5"]);
   t.view.reset();
   expect(t.box).toBeUndefined();
-  expect(t.screen).toEqual(["● ran sleep 5"]);
+  expect(t.screen).toEqual(["  ● ran sleep 5"]);
 
   // On the real surface the prompt's return clears the box too. A width change repaints the whole screen.
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
@@ -184,6 +187,20 @@ test("the live rows never stay after the receipt, even for a tool that ends afte
   } finally { terminal.close(); input.destroy(); }
 });
 
+test("tool timings exclude time spent waiting for an answer on rich and plain terminals", () => {
+  let now = 1000;
+  const clock = spyOn(performance, "now").mockImplementation(() => now);
+  try {
+    for (const rich of [true, false]) {
+      const t = fakeTerminal(rich);
+      t.handle(start("wait", "bash", { command: "custom-tool --check" }));
+      now += 122000; t.terminal.waitedMs = 120000;
+      t.handle(end("wait", "bash", { command: "custom-tool --check" }));
+      expect(rich ? t.box : t.screen).toEqual(["✓ bash · custom-tool · 2s"]);
+    }
+  } finally { clock.mockRestore(); }
+});
+
 test("plain terminal prints only the end line of each tool", () => {
   const t = fakeTerminal(false);
   t.handle(start("a", "bash", { command: "git status" }));
@@ -204,7 +221,7 @@ test("rich: a finished step keeps its time in its live row, and a slow command i
       t.handle(end("1", "bash", { command: "bun test" }));
       if (rich) expect(t.box).toEqual(["✓ bash · bun test · 16s"]);
       t.handle({ type: "message_end" });
-      expect(t.screen.at(-1)).toBe(rich ? "● ran bun test (16s)" : "✓ bash · bun test · 16s");
+      expect(t.screen.at(-1)).toBe(rich ? "  ● ran bun test (16s)" : "✓ bash · bun test · 16s");
     }
   } finally { clock.mockRestore(); }
 });
@@ -214,7 +231,7 @@ test("rich: the AI's answered question leaves no ask step (its box is the record
   t.handle(start("1", "ask", {}), end("1", "ask", {}), { type: "message_end" });
   expect(t.screen).toEqual([]);
   t.handle(start("2", "ask", {}), end("2", "ask", {}, true), { type: "message_end" });
-  expect(t.screen).toEqual(["✗ ask — failed"]);
+  expect(t.screen).toEqual(["  ✗ ask — failed"]);
 });
 
 test("the folded row names what was done, each kind once, and keeps names on a narrow screen by giving each kind a row", () => {
@@ -240,10 +257,10 @@ test("a tool call stopped at the spend limit shows as not run, never as a failed
     const input = { command: "ssh root@10.0.0.5 'systemctl restart sampleapp'" };
     t.handle(start("1", "read", { path: "/work/app/a.py" }), end("1", "read", { path: "/work/app/a.py" }));
     t.handle(start("2", "bash", input), end("2", "bash", input, true, SPEND_STOP_REASON), { type: "message_end" });
-    expect(t.screen).toContain("○ bash · ssh root@10.0.0.5 … — not run (spend limit)");
+    expect(t.screen).toContain(`${rich ? "  " : ""}– bash · ssh root@${input.command.split("@")[1]!.split(" ")[0]} … — not run (spend limit)`);
     expect(t.screen.join("\n")).not.toContain("Do not call more tools");
     expect(t.screen.join("\n")).not.toMatch(/failed|✗/);
-    if (rich) expect(t.screen).toContain("● read a.py");
+    if (rich) expect(t.screen).toContain("  ● read a.py");
   }
 });
 
@@ -256,9 +273,8 @@ test("a command Casper refused shows as not run with the reason said to you, nev
     t.handle(start("1", "bash", cat), end("1", "bash", cat, true, privateRead));
     t.handle(start("2", "bash", ssh), end("2", "bash", ssh, true, reachDeclined(target)), { type: "message_end" });
     const screen = t.screen.join("\n");
-    expect(t.screen).toContain("○ bash · cat ~/.ssh/config — not run");
-    expect(t.screen).toContain("  This command reads ~/.ssh, which is private (keys and logins). Casper keeps it from the AI.");
-    expect(t.screen).toContain("  You said no to reaching 198.51.100.20 (build-server).");
+    expect(screen).toContain("– bash · cat ~/.ssh/config — not run · This command reads ~/.ssh");
+    expect(screen).toContain("You said no");
     expect(screen).not.toMatch(/failed|✗|Ask the user|ask the user|Don't try/);
   }
   expect(refusalForScreen(reachCantAsk(target))).toBe("This command reaches 198.51.100.20 (build-server), another machine, and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK.");
@@ -274,7 +290,7 @@ test("a call blocked while planning shows as not run with the reason, never as f
     const input = { command: "git log --oneline -5 > log.txt" };
     t.handle(start("1", "bash", input), end("1", "bash", input, true, planToolGate("bash", input)), { type: "message_end" });
     const screen = t.screen.join("\n");
-    expect(t.screen).toContain("○ bash · git log … — not run");
+    expect(screen).toContain("– bash · git log … — not run");
     expect(screen).toContain("Planning only: Casper blocks file changes until you choose Build.");
     expect(screen).not.toMatch(/failed|✗/);
   }
@@ -365,7 +381,7 @@ test("a skipped casper_check shows as skipped on both terminals; its payload nev
   for (const rich of [true, false]) {
     const t = fakeTerminal(rich);
     t.handle(start("c", "casper_check", { check: "junos" }), end("c", "casper_check", { check: "junos" }, false, payload), { type: "message_end" });
-    expect(t.screen).toEqual(["○ casper_check · junos — skipped"]);
+    expect(t.screen).toEqual([`${rich ? "  " : ""}– casper_check · junos — skipped`]);
   }
   const failed = fakeTerminal(false);
   failed.handle(start("f", "casper_check", { check: "test" }), end("f", "casper_check", { check: "test" }, true, JSON.stringify({ name: "test", status: "fail" })));

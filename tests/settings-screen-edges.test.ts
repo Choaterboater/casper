@@ -40,13 +40,13 @@ test("a pack can add more than nine theme choices: numbers take Enter, arrows sc
     calls.push(choice); return { rows: [{ ...theme, value: theme.choices[choice]!.value as string }], note: "Saved." };
   }, () => {}, () => {});
   text(screen); screen.handleInput("Theme"); screen.handleInput("\r");
-  expect(text(screen)).toContain("Type 1-16 + Enter");
+  expect(text(screen)).toContain("Enter to choose · Esc to skip");
   screen.handleInput("1"); screen.handleInput("2"); expect(calls).toEqual([]);
   screen.handleInput("\r"); await Bun.sleep(0);
   expect(calls).toEqual([10]); expect(text(screen)).toMatch(/❯ Theme +colour-10/);
   screen.handleInput("\r");
   for (let index = 0; index < 15; index++) screen.handleInput("\x1b[B");
-  expect(text(screen)).toContain("❯ 16 Colour 14");
+  expect(text(screen)).toContain("❯ 16. Colour 14");
   expect(text(screen)).toContain("16/16");
   screen.handleInput("\x1b"); expect(calls).toEqual([10]);
 });

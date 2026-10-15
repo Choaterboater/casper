@@ -105,9 +105,9 @@ async function changed(f: Awaited<ReturnType<typeof fixture>>, expected: string)
   key(screen, "Work shown");
   expect(text(screen)).toContain("❯ Work shown");
   key(screen, "\r");
-  expect(text(screen)).toContain("1 Keep normal");
-  expect(text(screen)).toContain("2 Quiet");
-  expect(text(screen)).toContain("3 Detailed");
+  expect(text(screen)).toContain("1. Keep normal");
+  expect(text(screen)).toContain("2. Quiet");
+  expect(text(screen)).toContain("3. Detailed");
   key(screen, "\x1b"); expect(text(screen)).toContain("❯ Work shown");
   key(screen, "\r"); key(screen, "1");
   await expect(stat(f.config)).rejects.toThrow();
