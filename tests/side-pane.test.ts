@@ -1,92 +1,71 @@
-import { afterEach, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { afterAll, afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { SidePane } from "../src/tui/side-pane";
 import { hostCommand, type HostCommand } from "../src/tui/host-terminal";
+import { privateTmux } from "./support/private-tmux";
+import { run as runFixture } from "./support/run";
 
-const hasTmux = spawnSync("tmux", ["-V"]).status === 0;
-const cleanups: Array<() => void> = [];
-afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
+const mux = await privateTmux();
+afterAll(async () => { await mux?.close(); });
+const cleanups: Array<() => void | Promise<unknown>> = [];
+afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
-async function until(condition: () => boolean, deadline = 8000): Promise<void> {
-  const limit = performance.now() + deadline;
-  while (performance.now() < limit) { if (condition()) return; await Bun.sleep(25); }
-  throw new Error("Condition was not reached before its deadline");
+/** Stand-in user session on the private server, excluding its keepalive session from pane assertions. */
+async function tmuxServer() {
+  await mux!.run("new-session", "-d", "-s", "user", "-x", "200", "-y", "50", "sleep 600");
+  cleanups.push(() => mux!.run("kill-session", "-t", "user"));
+  const socket = (await mux!.run("display-message", "-p", "-t", "user", "#{socket_path}")).trim();
+  const pid = (await mux!.run("display-message", "-p", "-t", "user", "#{pid}")).trim();
+  const userPane = (await mux!.run("display-message", "-p", "-t", "user", "#{pane_id}")).trim();
+  const env = { ...mux!.env, TMUX: `${socket},${pid},0`, TMUX_PANE: userPane };
+  const panes = async () => (await mux!.run("list-panes", "-s", "-t", "user", "-F", "#{pane_id} #{pane_active} #{pane_input_off}")).trim().split("\n");
+  // SidePane's public API is synchronous. Run it in a bounded standalone child, never in the parallel worker.
+  const exercise = (mode: string, watchedPid?: number) => runFixture([process.execPath, path.join(import.meta.dir, "fixtures/side-pane-tmux.ts"), mode, mux!.server, ...(watchedPid ? [String(watchedPid)] : [])], { env, timeoutMs: 20_000 });
+  return { userPane, panes, exercise };
 }
 
-/** A private tmux server with one pane that stands for the user's own: never the developer's tmux. */
-function tmuxServer() {
-  const dir = mkdtempSync(path.join(os.tmpdir(), "casper-tmux-"));
-  const socket = path.join(dir, "sock");
-  const tmux = (...args: string[]) => spawnSync("tmux", ["-S", socket, "-f", "/dev/null", ...args], { encoding: "utf8" });
-  expect(tmux("new-session", "-d", "-s", "user", "-x", "200", "-y", "50", "sleep 600").status).toBe(0);
-  const pid = tmux("display-message", "-p", "#{pid}").stdout.trim();
-  const userPane = tmux("display-message", "-p", "-t", "user", "#{pane_id}").stdout.trim();
-  cleanups.push(() => { tmux("kill-server"); rmSync(dir, { recursive: true, force: true }); });
-  const env = { ...process.env, TMUX: `${socket},${pid},0`, TMUX_PANE: userPane };
-  const panes = () => tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_active} #{pane_input_off}").stdout.trim().split("\n");
-  const capture = (pane: string) => tmux("capture-pane", "-p", "-t", pane).stdout;
-  return { env, userPane, panes, capture, tmux };
-}
-
-test.skipIf(!hasTmux)("inside tmux the steps pane opens beside Casper, view only, and closes at exit without touching the user's pane", async () => {
-  const server = tmuxServer();
-  const pane = SidePane.open({ host: { tmux: true, tmuxPane: server.userPane, iterm: false }, env: server.env })!;
-  expect(pane).toBeDefined();
-  cleanups.push(() => pane.close());
-  const panes = server.panes();
-  expect(panes).toHaveLength(2);
-  const [user, steps] = [panes.find(line => line.startsWith(`${server.userPane} `))!, panes.find(line => !line.startsWith(`${server.userPane} `))!];
-  // The user's pane keeps focus; the steps pane takes no input.
+test.skipIf(!mux)("inside tmux the steps pane opens beside Casper, view only, and closes at exit without touching the user's pane", async () => {
+  const server = await tmuxServer();
+  const result = await server.exercise("content");
+  expect({ status: result.status, stderr: result.stderr, timedOut: result.timedOut }).toMatchObject({ status: 0, timedOut: false });
+  const { opened, screen, afterKeys, remaining, fileExists } = JSON.parse(result.stdout);
+  expect(opened).toHaveLength(2);
+  const user = opened.find((line: string) => line.startsWith(`${server.userPane} `))!;
+  const steps = opened.find((line: string) => !line.startsWith(`${server.userPane} `))!;
   expect(user).toBe(`${server.userPane} 1 0`);
   expect(steps.endsWith(" 0 1")).toBe(true);
-  const id = steps.split(" ")[0]!;
-  pane.show(["• bash · npm test", "Waiting for model · 3s"]);
-  pane.show(["• bash · npm test", "Waiting for model · 4s"]);
-  pane.log("helper explorer · ✓ read · src/app.ts");
-  await until(() => server.capture(id).includes("helper explorer"));
-  const screen = server.capture(id);
   expect(screen).toContain("view only");
   expect(screen).toContain("• bash · npm test");
-  // The running timer is not a new line.
   expect(screen.match(/Waiting for model/g)).toHaveLength(1);
-  // Keys sent to it go nowhere.
-  server.tmux("send-keys", "-t", id, "rm -rf /tmp/x", "Enter");
-  expect(server.capture(id)).not.toContain("rm -rf");
-  pane.close();
-  await until(() => server.panes().length === 1);
-  expect(server.panes()[0]).toStartWith(`${server.userPane} `);
-  expect(existsSync(pane.file)).toBe(false);
+  expect(afterKeys).not.toContain("rm -rf");
+  expect(remaining).toHaveLength(1);
+  expect(remaining[0]).toStartWith(`${server.userPane} `);
+  expect(fileExists).toBe(false);
 });
 
-test.skipIf(!hasTmux)("a Casper that is killed outright still leaves no steps pane behind", async () => {
-  const server = tmuxServer();
-  const child = Bun.spawn(["sleep", "600"]);
-  cleanups.push(() => child.kill());
-  const pane = SidePane.open({ host: { tmux: true, tmuxPane: server.userPane, iterm: false }, env: server.env, pid: child.pid })!;
-  cleanups.push(() => pane.close());
-  // The process it watches is not this one, so only the watch can close it.
-  expect(server.panes()).toHaveLength(2);
-  child.kill("SIGKILL");
-  await until(() => server.panes().length === 1);
-  expect(server.panes()[0]).toStartWith(`${server.userPane} `);
+test.skipIf(!mux)("a Casper that is killed outright still leaves no steps pane behind", async () => {
+  const server = await tmuxServer();
+  const child = Bun.spawn(["sleep", "600"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  cleanups.push(async () => { child.kill(); await child.exited; });
+  const result = await server.exercise("watch", child.pid);
+  expect({ status: result.status, stderr: result.stderr, timedOut: result.timedOut }).toMatchObject({ status: 0, timedOut: false });
+  const { opened, remaining } = JSON.parse(result.stdout);
+  expect(opened).toHaveLength(2);
+  expect(remaining).toHaveLength(1);
+  expect(remaining[0]).toStartWith(`${server.userPane} `);
 });
 
-test.skipIf(!hasTmux)("a Casper that crashes closes its steps pane on the way out", async () => {
-  const server = tmuxServer();
-  const script = `
-    import { SidePane } from ${JSON.stringify(path.join(import.meta.dir, "..", "src", "tui", "side-pane.ts"))};
-    const pane = SidePane.open({ host: { tmux: true, tmuxPane: process.env.TMUX_PANE, iterm: false } });
-    if (!pane) process.exit(3);
-    console.log(pane.file);
-    throw new Error("crash");`;
-  const result = spawnSync(process.execPath, ["-e", script], { env: server.env, encoding: "utf8" });
+test.skipIf(!mux)("a Casper that crashes closes its steps pane on the way out", async () => {
+  const server = await tmuxServer();
+  const result = await server.exercise("crash");
+  expect(result.timedOut).toBe(false);
   expect(result.status).not.toBe(0);
   expect(result.status).not.toBe(3);
+  expect(result.stderr).toContain("error: crash");
   // Closed by the exit handler, not the once-a-second watch: gone as soon as the process is.
-  expect(server.panes()).toHaveLength(1);
+  expect(await server.panes()).toHaveLength(1);
   expect(existsSync(result.stdout.trim())).toBe(false);
 });
 

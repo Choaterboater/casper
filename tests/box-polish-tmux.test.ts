@@ -1,30 +1,24 @@
-import { expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
-import { mkdtemp } from "node:fs/promises";
-import os from "node:os";
+import { afterAll, expect, test } from "bun:test";
 import path from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { cleanEnv } from "./support/env";
-import { removeTempDir } from "./support/temp-dir";
+import { privateTmux } from "./support/private-tmux";
 
-const tmux = process.platform !== "win32" && Bun.which("tmux");
+const tmux = await privateTmux();
+afterAll(async () => { await tmux?.close(); });
 const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
 (tmux ? test : test.skip)("real private tmux: arrow selection, dim approval regions across themes, NO_COLOR and 80/160/202-column boxes", async () => {
-  const home = await mkdtemp(path.join(os.tmpdir(), "casper-box-ux-"));
-  const socket = `casper-box-${process.pid}-${Math.random().toString(16).slice(2)}`;
-  const env = { ...cleanEnv(), HOME: home, TERM: "xterm-256color" };
-  const run = (...args: string[]) => spawnSync(tmux || "tmux", ["-L", socket, "-f", "/dev/null", ...args], { env, encoding: "utf8", timeout: 10000 });
-  const capture = () => { const r = run("capture-pane", "-e", "-p", "-t", "screen:0.0"); expect(r.status).toBe(0); return r.stdout; };
+  const { run } = tmux!;
+  const capture = () => run("capture-pane", "-e", "-p", "-t", "screen:0.0");
   const until = async (text: string) => {
     let output = "";
-    for (let i = 0; i < 200; i++) { output = capture(); if (Bun.stripANSI(output).includes(text)) return output; await Bun.sleep(50); }
+    for (let i = 0; i < 200; i++) { output = await capture(); if (Bun.stripANSI(output).includes(text)) return output; await Bun.sleep(50); }
     throw new Error(`Missing ${text} in private fixture screen: ${Bun.stripANSI(output)}`);
   };
   try {
     for (const { color, highContrast } of [{ color: true, highContrast: false }, { color: true, highContrast: true }, { color: false, highContrast: true }]) {
       const fixture = path.join(import.meta.dir, "fixtures/box-polish-tmux.ts");
       const command = `${color ? "env -u NO_COLOR" : "env NO_COLOR=1"} ${quote(process.execPath)} ${quote(fixture)}${highContrast ? " --high-contrast" : ""}`;
-      expect(run("new-session", "-d", "-s", "screen", "-x", "202", "-y", "40", command).status).toBe(0);
+      await run("new-session", "-d", "-s", "screen", "-x", "202", "-y", "40", command);
       const wide = await until("Enter to choose · Esc to skip");
       expect(Bun.stripANSI(wide)).toContain("❯ 1. No");
       expect(Bun.stripANSI(wide)).toContain("✗ 1 of 130 tests failed");
@@ -47,19 +41,19 @@ const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
         expect(wide).toMatch(/\x1b\[(?:36|96)m❯/);
         expect(wide).toMatch(/\x1b\[(?:31|91)m[^\n]*✗ 1 of 130 tests failed/);
       } else expect(wide).not.toMatch(/\x1b\[[\d;]*m/);
-      expect(run("resize-window", "-t", "screen:0", "-x", "160", "-y", "40").status).toBe(0);
+      await run("resize-window", "-t", "screen:0", "-x", "160", "-y", "40");
       await Bun.sleep(350);
       const medium = await until("Enter to choose · Esc to skip");
       expect(Bun.stripANSI(medium).split("\n").every(row => visibleWidth(row) <= 160)).toBe(true);
-      expect(run("resize-window", "-t", "screen:0", "-x", "80", "-y", "40").status).toBe(0);
+      await run("resize-window", "-t", "screen:0", "-x", "80", "-y", "40");
       await Bun.sleep(350);
-      run("send-keys", "-t", "screen:0.0", "Down");
+      await run("send-keys", "-t", "screen:0.0", "Down");
       const narrow = await until("❯ 2. Yes, this once");
       expect(Bun.stripANSI(narrow).split("\n").every(row => visibleWidth(row) <= 80)).toBe(true);
       // The real guard ignores stale keys only in the first 300 ms after the box appeared.
-      await Bun.sleep(350); run("send-keys", "-t", "screen:0.0", "Enter");
+      await Bun.sleep(350); await run("send-keys", "-t", "screen:0.0", "Enter");
       await until("Fixture answer: Yes, this once");
-      run("kill-session", "-t", "screen");
+      await run("kill-session", "-t", "screen");
     }
-  } finally { run("kill-server"); await removeTempDir(home); }
+  } finally { await run("kill-session", "-t", "screen").catch(() => {}); }
 }, 60000);

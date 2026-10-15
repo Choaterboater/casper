@@ -1,21 +1,24 @@
-import { expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { afterAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
+import { privateTmux } from "./support/private-tmux";
 import { removeTempDir } from "./support/temp-dir";
 
-const hasTmux = spawnSync("tmux", ["-V"]).status === 0;
+const mux = await privateTmux();
+afterAll(async () => { await mux?.close(); });
 
-test.skipIf(!hasTmux)("real tmux: /plan panel and choices at 80 columns, Ctrl+G editor and plain-word changes round-trip", async () => {
-  const temp = await mkdtemp(path.join(os.tmpdir(), "casper-plan-tmux-"));
-  const socket = path.join(temp, "sock"), project = path.join(temp, "project"), home = path.join(temp, "home");
-  const tmux = (...args: string[]) => spawnSync("tmux", ["-S", socket, "-f", "/dev/null", ...args], { encoding: "utf8", env: { ...process.env, HOME: home } });
-  const capture = () => tmux("capture-pane", "-p", "-t", "plan", "-S", "-300").stdout;
+test.skipIf(!mux)("real tmux: /plan panel and choices at 80 columns, Ctrl+G editor and plain-word changes round-trip", async () => {
+  const temp = await mkdtemp(path.join(mux!.home, "casper-plan-tmux-"));
+  const project = path.join(temp, "project"), home = path.join(temp, "home");
+  const capture = () => mux!.run("capture-pane", "-p", "-t", "plan", "-S", "-300");
   const wait = async (match: (text: string) => boolean) => {
     const deadline = Date.now() + 15_000;
-    while (Date.now() < deadline) { const text = capture(); if (match(text)) return text; await Bun.sleep(50); }
-    throw new Error(`terminal did not match:\n${capture()}`);
+    while (Date.now() < deadline) { const text = await capture(); if (match(text)) return text; await Bun.sleep(50); }
+    throw new Error(`terminal did not match:\n${await capture()}`);
+  };
+  const completeFrame = (text: string, title: string) => {
+    const heading = text.lastIndexOf(title), choices = text.lastIndexOf("3. Change the plan");
+    return heading >= 0 && text.includes("Build this plan?") && choices > heading && text.lastIndexOf("waiting for you") > choices;
   };
   try {
     await mkdir(project); await mkdir(home);
@@ -25,10 +28,10 @@ test.skipIf(!hasTmux)("real tmux: /plan panel and choices at 80 columns, Ctrl+G 
     const runner = path.join(import.meta.dir, "fixtures/plan-terminal.ts");
     const quote = (text: string) => `'${text.replace(/'/g, `'"'"'`)}'`;
     const command = `env -u NO_COLOR TERM=xterm-256color VISUAL=${quote(`${JSON.stringify(process.execPath)} ${JSON.stringify(editor)}`)} ${quote(process.execPath)} ${quote(runner)} ${quote(project)} ${quote(home)}`;
-    expect(tmux("new-session", "-d", "-s", "plan", "-x", "80", "-y", "55", command).status).toBe(0);
+    await mux!.run("new-session", "-d", "-s", "plan", "-x", "80", "-y", "55", command);
     await wait(text => text.includes("idle"));
-    tmux("send-keys", "-t", "plan", "-l", "/plan make the existing header cleaner and animated"); tmux("send-keys", "-t", "plan", "Enter");
-    const screen = await wait(text => text.includes("Build this plan?") && text.includes("waiting for you"));
+    await mux!.run("send-keys", "-t", "plan", "-l", "/plan make the existing header cleaner and animated"); await mux!.run("send-keys", "-t", "plan", "Enter");
+    const screen = await wait(text => completeFrame(text, "╭─ Plan · A cleaner, animated header"));
     expect(screen).toContain("╭─ Plan · A cleaner, animated header");
     expect(screen).toContain("Ctrl+T details · Ctrl+G edit");
     for (const text of ["Goal", "What I found", "What you'll see", "Steps", "Done means", "1. Stop", "2. Build", "3. Change the plan", "▄▄███▄▄  CASPER"]) expect(screen).toContain(text);
@@ -46,17 +49,20 @@ test.skipIf(!hasTmux)("real tmux: /plan panel and choices at 80 columns, Ctrl+G 
     expect(frame.find(row => row.includes("Draw the header in the accent colour"))).toEndWith("src/tui/banner.ts  │");
     expect(body.findIndex(row => row.includes("The renderer already keeps"))).toBeLessThan(body.findIndex(row => row === "Open questions"));
     await Bun.sleep(350); // Real input guard: keys typed before the box appeared cannot answer it.
-    tmux("send-keys", "-t", "plan", "C-g");
-    const edited = await wait(text => text.includes("╭─ Plan · A hand-edited header") && text.includes("Build this plan?"));
+    await mux!.run("send-keys", "-t", "plan", "C-g");
+    const edited = await wait(text => completeFrame(text, "╭─ Plan · A hand-edited header"));
     expect(edited).toContain("3. Change the plan");
     await Bun.sleep(350);
-    tmux("send-keys", "-t", "plan", "3");
+    await mux!.run("send-keys", "-t", "plan", "3");
     await wait(text => text.includes("What should change?") && text.replace(/\s+/g, " ").includes("Esc stops without building"));
-    tmux("send-keys", "-t", "plan", "-l", "make it quieter"); tmux("send-keys", "-t", "plan", "Enter");
-    await wait(text => text.includes("╭─ Plan · A revised header") && text.includes("Build this plan?"));
+    await mux!.run("send-keys", "-t", "plan", "-l", "make it quieter"); await mux!.run("send-keys", "-t", "plan", "Enter");
+    await wait(text => completeFrame(text, "╭─ Plan · A revised header"));
     await Bun.sleep(350);
-    tmux("send-keys", "-t", "plan", "Enter");
+    await mux!.run("send-keys", "-t", "plan", "Enter");
     const stopped = await wait(text => text.includes("Stopped without building.") && text.includes("idle"));
     expect(stopped).not.toContain("Building the plan");
-  } finally { tmux("kill-server"); await removeTempDir(temp); }
+  } finally {
+    try { await mux!.run("kill-session", "-t", "plan"); }
+    finally { await removeTempDir(temp); }
+  }
 }, 60_000);
