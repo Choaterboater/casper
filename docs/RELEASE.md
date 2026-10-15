@@ -14,125 +14,49 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.2.35 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.35`,
+Casper distributes an unsigned **v0.2.36 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.36`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
 
-## v0.2.36: casper new asks nothing, model servers, fewer command interruptions and designed plans
+## v0.2.36: empty projects, designed plans, model servers, quieter commands and background updates
 
-**Not released yet.** The version number and the installers still say v0.2.35; the release step
-sets them and removes this line.
+### Added
 
-- Casper updates itself quietly by default, using the same signed checksums, SHA-256 and build
-  provenance path as `casper update`. Clean default-branch checkouts only fast-forward (and install
-  frozen dependencies only when `bun.lock` changes); other checkouts stay untouched. Installs wait
-  for idle time, never task checks or one-shot/`--json` runs, never restart or reload Casper, and
-  are attempted at most once a day across sessions. Checks also get one extra probe about three
-  minutes into a session. The success-colour notice is right-aligned above the prompt, idle or
-  working: `✔ Update installed · restart to use it`; narrow screens shorten it, then hide it.
-  Windows uses the fixed handoff after exit, waiting for long sessions too. Plain terminals print
-  one `[update]` line. Quiet failures write `~/.casper/update.log` and show `update failed · casper update`.
-  **Updates: auto / notify only / off** replaces New-version notice; old booleans still work and
-  project files cannot change it. `CASPER_NO_UPDATE_CHECK=1` and `CI` still disable it.
-- `casper "words"` at a terminal now starts a persistent session with those words as its first request,
-  then stays open for follow-ups. This needs both stdin and stdout to be TTYs, no forcing flags and `CI` unset.
-  Use `-p` / `--print` to run once and exit; use `-p` explicitly in scripts. Existing scripts stay one-shot
-  when either stream is non-TTY, or with `--json`, a lone `-` prompt, `--require-verification`, `--max-turns`,
-  or `CI` set. Exit codes, JSON events and receipt semantics are unchanged.
-- An interactive lone word that isn't a folder, from home or a drive root, asks whether you meant a
-  request or a new project of that name. No project is created without your choice. Existing folders
-  still open directly; elsewhere, or with two or more words, there is no such question. One-shot runs
-  never ask it; `casper new <name>` stays the explicit way to start a named project.
-- `casper new <name>` makes an empty project in `~/Projects/<name>` and opens Casper there, with no questions; an
-  existing folder of that name is opened instead. `casper new` with no name uses the first free `my-project` name.
-  The "What are you building?" kinds and the name question are gone, as in other coding tools: make the folder,
-  then say what to build. `casper new <template> <name>` still builds a starter template when you name one, and
-  `/project <name>` → Make it does the same as `casper new <name>`.
-- Fewer command interruptions: individual public git config reads, command lookup, process/system information, safe fetches and project-file
-  output redirects run without asking, including exit-status plumbing around tests. Outside, private and `.git` writes,
-  substitutions, scripts and pruning/forced fetches still ask. Config listings and credential/token/password/extraheader or
-  URL rewrite keys ask too, as do environment-printing `ps` groups (`E`, BSD bare `e`); Linux `ps -e` remains a read.
-  Builder reads and routine checks use their own copy.
-- A session yes for `bun test` covers different project test files and log tails in the same folder; other commands and
-  permanent approvals keep exact matching. Command boxes keep Casper's question first; the model's preceding reason follows,
-  dimmed and labelled `The model says:`. They preserve line breaks and
-  use a head/gap/tail preview: about eight head lines, the omitted count, then three tail lines. Pushes, removals, downloads, sudo, installs and redirects in the middle stay visible. Literal project-path environment assignments and safe set prefixes preserve routine/test approvals; existence tests and version-only commands are reads. Model guidance prefers web/check tools over shell plumbing.
-- Coding-agent launches and unowned tmux servers are refused unless the person explicitly asks; builders follow the same rule. Private named servers created this task remain usable.
-- A session-only check change leaves a quiet kept-file note, uses the approved command and does not ask again for check-file edits in that task.
-- The footer keeps one state on the left and project/model/context/one task figure on the right, dropping cost, context, then model in narrow windows. Matching folder/branch names appear once; internal phases and session totals no longer crowd the footer. Empty working prompts say `type to queue a message`, and the first command-line request has the typed request's `❯` and colour.
+- SGLang and MLX model servers can now be discovered on your computer or added by address without a separate sign-in.
+- Optional `/plan` asks up to three questions only about choices that change the build, then shows a plan.
+- Plans show findings, mock-ups and steps for existing projects, or a first-version spec for a new app, site or game.
+- Saved plans reopen with `/plan`, Ctrl+G edits them in your editor, and Ctrl+T shows extra details.
+- Builds follow the accepted checklist and report each item's progress in the receipt as a **model report**, not proof.
 
-### Terminal polish (unreleased)
+### Changed
 
-- One shared picker: arrows and Enter first, `1.` digit shortcuts, accent `❯`, aligned dim descriptions and
-  `Enter to choose · Esc to skip`. Open boxes replace the empty prompt row; typed refusal words stay inline beside No.
-- Command reasons show only their last sentence, dim on one row, capped at 100 characters plus `…`; commands keep
-  their line breaks in a dim frame. Steps remain visible above the box. Groups have one blank line, one left edge,
-  and boxes cap at 120 columns; edit previews show twelve diff lines per file.
-- Real failures stay red with failing diagnostics and test counts; lookup misses, skips/refusals and confirmed
-  recovered errors become quiet dim notes. Checks and GitHub actions get specific human labels.
-- Live builders/reviewers sit above the prompt with activity, time and tokens; four rows plus overflow, fading
-  completed rows, Ctrl+O details and Alt+O raw steps. Plain terminals retain crew lines. Footer and crew clocks
-  separate working time from `waited` time.
+- `casper new <name>` opens an empty project without questions, or opens the folder if it already exists.
+- Terminal requests stay open for follow-ups, while `-p` / `--print` runs once and exits without changing existing scripts.
+- At home or a drive root, a lone word asks whether you meant a request or a new project before creating anything.
+- Verified background updates are on by default, with **Updates: auto / notify only / off** in `/settings`.
+- A notice above the prompt says `✔ Update installed · restart to use it` without restarting Casper for you.
+- Fewer command interruptions for everyday reads and project work, while sensitive commands still need your approval.
+- A session yes for `bun test` covers other project test files and log tails in the same folder.
+- Command boxes put Casper's question first, label the model's reason, and keep important command lines visible in a shorter preview.
+- Casper launches other coding agents or uses unrelated tmux sessions only when you explicitly ask.
+- Check changes ask for approval and can be session-only, leaving your files unchanged without repeated questions during that task.
+- Supported Bun projects run related tests while working, then your unchanged configured test once at the end.
+- Pickers use arrow keys, numbered shortcuts and inline refusal comments instead of leaving an empty input row.
+- The footer shows one task's state and cost, removes repeated folder names, and drops detail in narrow windows.
+- Live builders/reviewers show activity, time and tokens above the prompt, with Ctrl+O for details and Alt+O for raw steps.
+- Casper keeps small, closely connected jobs with one helper and uses builders only for larger, independent parts.
 
-### Build-observation fixes (unreleased)
+### Fixed
 
-- Network skills need a real subject match; a project's Junos/Ansible stack no longer selects one for
-  unrelated `ps` or `git config` work.
-- AI changes to configured checks and their scripts ask **Change the test check for this project?** with
-  old → new. A command replacement can be session-only (no file write); approved replacements apply now.
-- Receipts count files from the task's commits, amendments and cherry-picks, not just dirty files.
-  Proof copies include safe literal check inputs such as gitignored `.casper/quick-test.ts`; private,
-  outside, linked or absolute inputs get a plain cannot-compare reason instead of misleading evidence.
-- Read guidance uses `read`, `wc` and `tail`; interpreter scripts are for computation. Crew guidance splits
-  only substantial independent multi-file areas and keeps small or coupled work with one Casper.
-- Bundled assets, fixtures and samples no longer look like the project's Ansible playbooks. Save-check
-  suggestions require a changed covered playbook; suggestions start at 1 when no diff/undo is offered.
-- `git rev-list`, `git show-ref` and `git for-each-ref` skip command approval with listed read options;
-  stdin, output-writing and unknown options still ask.
-
-### SGLang and MLX model servers
-
-Built, not released; these changes are not in v0.2.35.
-
-- Automatic local discovery adds SGLang at `http://127.0.0.1:30000`; MLX shares the existing 8080
-  OpenAI-style probe. The five loopback ports are 11434, 1234, 8080, 8000 and 30000.
-- `/model` offers **`+ Add server`** even with no sign-ins or models. In that flow (also offered from `/login`), choose **Detect automatically** and type
-  an address such as `192.0.2.10`: with no port, Casper checks those same five ports. All server kinds
-  are offered as explicit fallbacks: Ollama, LM Studio, llama.cpp, vLLM, SGLang, MLX (MLX LM / vllm-mlx)
-  and OpenAI-style server. The named SGLang choice defaults to 30000; MLX to 8080.
-- Automatic remote detection recognizes vllm-mlx's `owned_by` marker as MLX. MLX LM has no reliable
-  identity marker and stays OpenAI-style; choose MLX explicitly to label it. These are server kinds,
-  not new login providers: no API keys or separate sign-ins are needed.
-- SGLang and MLX use streaming OpenAI-compatible chat completions and tool calls when supported by
-  the model and server flags. SGLang may need `--tool-call-parser <parser>` suited to the model.
-  Start the server separately; Casper doesn't install a backend or download models.
-
-### Plans designed before building (unreleased)
-
-- Plan polish: wrapped facts/questions keep hanging bullet indents; mock-ups have a small dim inner box below
-  the prose. Open questions contains only questions (statements move to What I found), and known main step
-  files are dimmed and right-aligned, wrapping below when space is tight. Frame edges use the theme's accent;
-  paths and mock-up boxes are explicitly faint even in high-contrast, while `NO_COLOR` keeps the plan plain.
-- `/plan` stays optional. A clear request returns a plan directly; only choices that change the build get at
-  most 3 questions in one round, with 2-4 options each and the normal picker's Type your own. The initial answer
-  is question JSON parsed by the host, not a tool call; the next prompt includes the answers and must return
-  a plan without more questions. The read-only planning gate is unchanged.
-- Existing-project plans have Title, Goal, What I found, What you'll see (a mock-up at most 60 columns), numbered
-  Steps, Done means (criteria including checks), Open questions only for unknowns, and optional Details. A
-  new/empty folder or make-an-app/site/game request gets a spec: Goal, Screens, Data, Look (a named style),
-  First version, Later and Done means, with no forced implementation steps.
-- The rich plan has an accent frame at most 80 columns wide, with dim paths; plain terminals and `NO_COLOR`
-  have no frame. Ctrl+T shows Details. Ctrl+G opens the saved Markdown using `VISUAL` or `EDITOR`; Casper
-  rereads it on return and shows it again. Choice `3 Change the plan` still takes plain words: the model
-  rewrites the whole plan and shows the same `1 Stop · 2 Build · 3 Change the plan` choices. Enter still stops,
-  never builds.
-- Plans are saved in gitignored `.casper/plans/date-slug.md`; `/plan` alone lists recent plans to reopen.
-  Build receives the whole accepted plan and its Done means checklist. Work names the current step, such as
-  `Step 2 of 4 · Draw the header`. The receipt reports each item from Steps (or First version in a spec):
-  completed items as done, not-done items with reasons, labelled **model report**, not check proof;
-  recorded checks still decide verification.
+- Real failures keep their error messages and test counts, while harmless lookup misses, refusals and recovered errors become quiet notes.
+- Network skills no longer appear for unrelated requests just because your project uses network tools.
+- Bundled playbook examples no longer trigger suggestions to save a project check.
+- Receipts count files from the task's commits, amendments and cherry-picks, even when no uncommitted changes remain.
+- Proof can compare projects whose checks use ignored files, and explains when a comparison is unavailable.
+- Fewer stuck test runs and hangs, with clearer timeout messages and an option to stop leftover programs or leave them running.
+- Quiet test runs show the last test file announced instead of leaving you guessing what is running.
 
 ## v0.2.35: plain live steps, plans you change in words, a grouped /settings, Crews complete, and casper update on Windows
 
@@ -2572,7 +2496,7 @@ below.
    serve the anonymous one-liner. Do not put executable binaries in Git history.
 5. Run the published-release workflow and verify the anonymous installer URLs; on a
    clean machine, `casper --version` and `casper -p /visualize repo` inside a small
-   source project (`-p` from the next preview; omit it for v0.2.35). On Windows, verify the PowerShell installer and inline
+   source project. On Windows, verify the PowerShell installer and inline
    visualization separately on that host.
 
 ## The release key
@@ -2623,6 +2547,13 @@ ssh-keygen -Y verify -f allowed_signers -I casper-release -n casper-release \
 ## Known preview limits
 
 - Some screen issues remain.
+- The interactive shell sandbox is off unless you turn it on (`/sandbox on`); reads and routine
+  work run without a command box. One-shot runs keep the sandbox where it can run. Windows has no sandbox,
+  and Linux needs bubblewrap; where no sandbox runs, commands and checks use your permissions.
+- Windows `casper update` uses WMI (`Win32_Process.Create`) to keep its helper alive after exit.
+  Updating 0.2.35 → 0.2.36 is the first real test of the WMI handoff and is not yet verified on a
+  real PC. Updates from 0.2.34 or older still need the PowerShell install line once; if WMI
+  refuses, Casper shows that line. The background helper waits for the session to exit.
 - Binaries are not code-signed or notarized. SmartScreen (Windows) or Gatekeeper
   (macOS) may warn. `install.sh` clears the macOS quarantine flag. The release key signs
   the list of files, not the programs, so it does not stop these warnings; see
@@ -2643,8 +2574,9 @@ ssh-keygen -Y verify -f allowed_signers -I casper-release -n casper-release \
   and lacks every change listed above. Those corrections ship in v0.2.13.
 - Windows diagram output is inline; screenshot/diagram artifact files require the
   POSIX bridge. Optional browser/debugger/LSP/MCP behavior is not fully host-tested.
-- There is no npm/Homebrew distribution channel. `casper update` installs a newer preview
-  when you run it; nothing updates on its own, and there is no rollback to an older one.
+- There is no npm/Homebrew distribution channel. Verified background updates are on by default
+  (`/settings` → Updates: notify only / off changes that); `casper update` also installs on request.
+  Nothing restarts Casper for you, and there is no rollback to an older one.
 - Installation does not install project language tools, browser/debugger adapters or
   Git Bash. Pi's model-facing Bash tool needs an available Bash on Windows; Casper's
   own verification commands use the Windows shell.

@@ -16,7 +16,7 @@ Type `1` on the empty prompt to see the task's diff, or `2` to undo it. 1 only s
 stray `1` never undoes a task. Enter alone does nothing, and anything
 else you type is simply your next request. The row is gone once you type something else.
 
-A one-shot run ends with the commands instead (this v0.2.35 receipt predates `-p`; in the next preview, add `-p` to run each once):
+A one-shot run ends with the commands instead (this v0.2.35 receipt predates `-p`; add `-p` to run each once):
 
 ```
 Undo: casper /undo 12 · Diff: casper /diff 12
@@ -37,9 +37,8 @@ Undo: casper /undo 12 · Diff: casper /diff 12
 | `/receipt 12` | Receipt 12, headed "Task 12 · 14:02 · fix the login bug". |
 | `/receipt list` | The last 10 receipts: number, time, first line and request. |
 
-For one-shot commands in the next preview, use `casper -p /undo`, `casper -p /redo`,
-`casper -p /diff 12`, `casper -p /receipt list`. `-p` / `--print` is built, not released; v0.2.35
-runs a command-line prompt once without it. There, a task number that doesn't exist, a bad number,
+For one-shot commands, use `casper -p /undo`, `casper -p /redo`,
+`casper -p /diff 12`, `casper -p /receipt list`. A task number that doesn't exist, a bad number,
 or an undo Casper refuses exits 1 with the reason. With no
 commits yet and no task, `/diff` lists the files and says there is nothing to compare with.
 
@@ -66,7 +65,7 @@ commits yet and no task, `/diff` lists the files and says there is nothing to co
     2 Undo the other 2 files · the files you changed since stay as they are
   ```
 
-  Enter picks 1, which changes nothing. A one-shot `casper -p /undo` (`-p` in the next preview) changes nothing and exits 1:
+  Enter picks 1, which changes nothing. A one-shot `casper -p /undo` changes nothing and exits 1:
   "notes.py changed after task 12, so Casper left everything as it is."
 - **Undo can be undone.** Just before undoing, Casper copies the files once more, so `/redo` (or `1` on the
   row after an undo) puts them back.

@@ -23,7 +23,7 @@ without checking where the download came from.
 In PowerShell (a normal window, not "Run as administrator"):
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.35/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.36/install.ps1 | iex
 ```
 
 What the installer does:
@@ -54,11 +54,11 @@ casper --help
 Get-Command casper | Select-Object Source
 ```
 
-`casper --version` should print `casper 0.2.35 (<path to casper.exe>)`. The `Source`
+`casper --version` should print `casper 0.2.36 (<path to casper.exe>)`. The `Source`
 line should point into the install folder, not an old checkout or some other program
 called casper.
 
-The command above always installs **v0.2.35**. Running it again reinstalls v0.2.35.
+The command above always installs **v0.2.36**. Running it again reinstalls v0.2.36.
 To get a newer preview, run `casper update`. Windows will not replace a running `casper.exe`,
 so Casper checks that release's own installer (checksum and build provenance, as on other systems),
 saves it to a private temporary folder and asks Windows itself (its WMI service, `Win32_Process.Create`)
@@ -77,9 +77,9 @@ started as Casper's own detached child; on a real Windows machine it never ran (
 so updating from 0.2.34 or older still needs the `irm ... | iex` line once. `scripts/windows-handoff-check.ps1` checks,
 on a PC, which way of starting a helper outlives its parent.
 
-### Background updates (built, not released)
+### Background updates
 
-The next preview defaults to **Updates: auto**: it quietly uses the same signed checksum,
+Since v0.2.36 Casper defaults to **Updates: auto**: it quietly uses the same signed checksum,
 SHA-256 and build-provenance checks as `casper update`, then the fixed Windows WMI handoff.
 The notice above the prompt says `✔ Update installed · restart to use it`; on Windows this means
 the checked installer is ready and the helper waits until this Casper exits before replacing
@@ -92,7 +92,7 @@ installing; **off**, `CASPER_NO_UPDATE_CHECK=1` or `CI` stops background activit
 
 ### Starting a session or running once
 
-**Built, not released (next preview):** in PowerShell with stdin and stdout both attached to the
+**Since v0.2.36:** in PowerShell with stdin and stdout both attached to the
 terminal, no forcing flags and `CI` unset, `casper "Explain this project"` starts a session with that first request
 and stays open. `casper -p "Explain this project"` (or `--print`) runs once and exits; use `-p`
 explicitly in scripts. Redirecting either stream, `--json`, a lone `-` prompt,
@@ -106,7 +106,7 @@ WSL is Linux running inside Windows. If you open a WSL terminal (Ubuntu, for exa
 can use the Linux Casper there instead of the Windows preview. In that terminal:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.35/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.36/install.sh | sh
 ```
 
 - The Linux Casper is a separate install from the Windows one. It has its own `~/.casper`

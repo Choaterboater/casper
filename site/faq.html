@@ -38,7 +38,7 @@
       <div class="contents-layout">
       <header class="page-head">
         <h1>Questions and answers</h1>
-        <p class="lead">Straight answers about Casper 0.2.35. Click a question to open it. If something
+        <p class="lead">Straight answers about Casper 0.2.36. Click a question to open it. If something
         breaks, jump to <a href="#troubleshooting">troubleshooting</a>.</p>
       </header>
 
@@ -315,7 +315,7 @@ Next: 1 Show diff · 2 Undo</pre>
 
         <details>
           <summary>Why did it ask me something?</summary>
-          <p>Casper stops and asks when the next step is yours to decide. In 0.2.35 that includes:</p>
+          <p>Casper stops and asks when the next step is yours to decide. In 0.2.36 that includes:</p>
           <ul>
             <li>an MCP call to a network product (Mist, Central, ClearPass…) that may change something, or a firmware, delete or admin change on your own server (<code>1 No · 2 Yes, this once · 3 Yes, for this session</code>);</li>
             <li>connecting a project's MCP server, or turning a network server's writes on (your own servers connect with the session);</li>
@@ -326,7 +326,7 @@ Next: 1 Show diff · 2 Undo</pre>
             <li>a test that was <em>already</em> failing before the change, before paying to fix
             it;</li>
             <li>a model error that repeated, to retry or stop;</li>
-            <li>an optional plan you asked for with <code>/plan</code>: <code>1 Stop · 2 Build · 3 Change the plan</code> (Enter stops); choice 3 stays plain words. Built, not released: a clear request returns a plan directly, and only choices that change the build get up to 3 questions in one round, with 2-4 options and Type your own; answers lead to a plan, not more questions. New apps, sites and games get a first-version spec without forced steps. <kbd>Ctrl+T</kbd> shows Details; <kbd>Ctrl+G</kbd> opens saved Markdown using <code>VISUAL</code> or <code>EDITOR</code> and rereads it on return; <code>/plan</code> alone lists recent gitignored plans. Build gets the checklist; the receipt reports each item from Steps (or First version in a spec): completed items as done, not-done items with reasons, labelled model report, not check proof;</li>
+            <li>an optional plan you asked for with <code>/plan</code>: <code>1 Stop · 2 Build · 3 Change the plan</code> (Enter stops); choice 3 stays plain words. A clear request returns a plan directly, and only choices that change the build get up to 3 questions in one round, with 2-4 options and Type your own; answers lead to a plan, not more questions. New apps, sites and games get a first-version spec without forced steps. <kbd>Ctrl+T</kbd> shows Details; <kbd>Ctrl+G</kbd> opens saved Markdown using <code>VISUAL</code> or <code>EDITOR</code> and rereads it on return; <code>/plan</code> alone lists recent gitignored plans. Build gets the checklist; the receipt reports each item from Steps (or First version in a spec): completed items as done, not-done items with reasons, labelled model report, not check proof;</li>
             <li><code>Next: 1 Show diff · 2 Undo</code> after each task (Enter runs nothing; not in a folder too big to compare);</li>
             <li>before the AI's shell reaches another machine, or writes outside the project;</li>
             <li>a shell command to a host the sandbox does not know;</li>
@@ -400,12 +400,16 @@ on in ~/.casper/config.yaml)</pre>
 
         <details>
           <summary>How do I update?</summary>
-          <p>Run <code>casper update</code>. It finds the newest preview and runs that release's own
-          installer, with the same checks. <code>casper update --check</code> only says whether there
-          is one, and a session tells you in one line when one is out, and keeps a short note at the end of
-          the footer until you update (<code>Casper 0.2.36 is out · casper update</code>). Nothing updates on its own.
-          The install commands pin a version: running the v0.2.35 command again just reinstalls
-          v0.2.35.</p>
+          <p>Verified background updates are on by default. They wait for idle time, never install during
+          task checks or one-shot/JSON runs, and never restart Casper. The row above the prompt says
+          <code>✔ Update installed · restart to use it</code>; on Windows the checked installer waits for
+          Casper to exit before replacing the program. <strong>Updates: auto / notify only / off</strong>
+          in <code>/settings</code> changes this. In notify-only mode the row says
+          <code>Casper 0.2.37 is out · casper update</code> until you update.</p>
+          <p><code>casper update</code> installs on request using the same checks;
+          <code>casper update --check</code> only checks for a newer preview. Failures name
+          <code>~/.casper/update.log</code>. The install commands pin a version: running the v0.2.36
+          command again just reinstalls v0.2.36.</p>
           <p>If a new download fails any check, your old install stays as it was.</p>
         </details>
 
@@ -451,7 +455,7 @@ on in ~/.casper/config.yaml)</pre>
 
         <details>
           <summary>Can I use it in scripts or CI?</summary>
-          <p>Yes. <strong>Built, not released:</strong> use <code>casper -p "your request"</code>
+          <p>Yes. <strong>Since 0.2.36:</strong> use <code>casper -p "your request"</code>
           (or <code>--print</code>) to run once and exit; use <code>-p</code> explicitly in scripts.
           With stdin and stdout both TTYs, no forcing flags and <code>CI</code> unset,
           <code>casper "your request"</code> starts a session and stays open for follow-ups instead.
@@ -598,7 +602,7 @@ on in ~/.casper/config.yaml)</pre>
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.35</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.36</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

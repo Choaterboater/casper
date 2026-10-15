@@ -36,20 +36,20 @@ Casper itself is free and open source. A task spends money only with your own mo
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.35/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.36/install.sh | sh
 ```
 
 Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.35/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.36/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
 [release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.2.35**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.35`,
+if anything is wrong. These commands pin **v0.2.36**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.36`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 Use the one-line command above rather than downloading a program in your browser: the installer
@@ -81,20 +81,20 @@ Casper works, runs the checks, and ends with a receipt:
 From the shell:
 
 ```sh
-casper "Explain this project"  # start a session with this first request (built, not released)
+casper "Explain this project"  # start a session with this first request
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.2.35 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.2.36 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
-**Built, not released (next preview):** when stdin and stdout are both terminals, no forcing flags are given and `CI` is unset,
+**Since v0.2.36:** when stdin and stdout are both terminals, no forcing flags are given and `CI` is unset,
 `casper "Explain this project"` sends the first request and stays open for follow-ups. A lone word that
 isn't a folder, at home or a drive root, asks whether you meant a request or a new project of that name;
 elsewhere, or with two or more words, there is no such question.
 
 ### One-shot runs and scripts
 
-Use `casper -p "Explain this project"` (or `--print`) to run once and exit in the next preview.
+Use `casper -p "Explain this project"` (or `--print`) to run once and exit.
 Use `-p` explicitly in scripts. Existing scripts stay one-shot when either stdin or stdout is not
 a terminal, or with `--json`, a lone `-` prompt, `--require-verification`, `--max-turns`, or `CI` set.
 Exit codes and receipts are unchanged. [Scripting](docs/SCRIPTING.md).
@@ -122,7 +122,7 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
   builds. Ctrl+T shows Details; Ctrl+G opens saved Markdown in `VISUAL` or `EDITOR` and rereads it on return.
   `/plan` alone reopens recent gitignored plans. Build gets the checklist; progress is a **model report**.
   The receipt reports each item from Steps (or First version in a spec): completed items as done, not-done
-  items with reasons, labelled **model report**, not check proof. These plan additions are built, not released yet.
+  items with reasons, labelled **model report**, not check proof.
   [Plans](docs/TERMINAL_UX.md)
 - **Work you can follow.** While Casper works, the steps read in plain words (`Looking through the code: 14 searches,
   9 files read`, `Ran the tests`); Ctrl+O shows every raw tool call, Ctrl+T the last step in full.
@@ -202,6 +202,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 | Contributing | [How Casper is built](docs/ARCHITECTURE.md) · [Working on Casper](docs/DEVELOPING.md) |
 
 ## What's new
+
+v0.2.36: `casper new` opens an empty project without questions; terminal requests stay open for follow-ups (`-p` / `--print` runs once); optional plans ask only about build-changing choices, save editable specs and carry a checklist into the build; SGLang and MLX servers are discovered locally or by address; command approvals, pickers, the footer and live crew rows are clearer; verified background updates are on by default; and checks use related tests during work, then the unchanged configured test once at the end. See [release notes](docs/RELEASE.md).
 
 v0.2.35: the live steps read in plain words, with Ctrl+O for the raw ones (MCP writes off moves to Ctrl+X); `/plan` numbers its steps and cases and takes changes in plain words; `/settings` is one grouped screen with search; a yes to a shell command covers that exact command; a task that rebases counts only its own edits and Undo leaves git's changes alone; Crews is complete, with full checks on the combined result and crews from any worktree; and on Windows `casper update` now works from the next update on (install 0.2.35 with the PowerShell line once). See [release notes](docs/RELEASE.md).
 

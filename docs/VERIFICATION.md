@@ -10,7 +10,7 @@ to read a receipt, or to turn checking off for code you do not trust.
 
 ```bash
 casper                               # interactive: checks run after each change (or are offered once known to be slow)
-casper -p "Fix the login flow"       # one-shot: checks run after the change (next preview)
+casper -p "Fix the login flow"       # one-shot: checks run after the change
 casper -p --verify "Fix the login flow" # always run checks for this run, even if configured otherwise
 casper --no-verify                   # no checks for this run
 casper -p "/verify"                  # run typecheck, lint, test, build now, no model
@@ -18,10 +18,10 @@ casper -p "/verify typecheck test"    # only these checks, in this order
 casper -p "/verify repair test"      # run the check; start the model only if it fails
 ```
 
-**Built, not released:** `-p` / `--print` explicitly runs once in the next preview. With stdin and
+**Since v0.2.36:** `-p` / `--print` explicitly runs once. With stdin and
 stdout both TTYs, no forcing flags and `CI` unset, `casper "your request"` instead starts a session
 with that first request. Existing scripts stay one-shot; receipts and exit codes are unchanged.
-See [SCRIPTING.md](SCRIPTING.md). The published v0.2.35 needs no `-p` for a one-shot prompt.
+See [SCRIPTING.md](SCRIPTING.md).
 
 Tell Casper your check commands in `.casper/project.yaml` (see [Configuration](#configuration)),
 or let it find them (see [Where the checks come from](#where-the-checks-come-from)). The banner,
@@ -325,7 +325,7 @@ A pass marked `reused` did not run again: its declared inputs are unchanged sinc
 earlier in the same task (often the model's own `casper_check`), and the time shown is that
 earlier run's.
 
-For a one-shot repair in the next preview, use `casper -p "/verify repair test"`. `/receipt` (or
+For a one-shot repair, use `casper -p "/verify repair test"`. `/receipt` (or
 `--verbose` for a whole run) shows the detailed form: how each command ran, its input scope and
 freshness, reuse, and the "not independently certified" note described in
 [How checks are tracked](#how-checks-are-tracked).

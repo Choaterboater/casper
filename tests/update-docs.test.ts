@@ -10,9 +10,9 @@ test("background updates document modes, terminal row, Windows handoff and verif
   const terminal = await read("docs/TERMINAL_UX.md");
   for (const text of ["right-aligned row just above the prompt", "idle or working", "✔ Update installed · restart to use it", "✔ restart to update", "`NO_COLOR`", "Plain terminals print one `[update]", "update failed · casper update"]) expect(terminal).toContain(text);
   const windows = await read("docs/WINDOWS.md");
-  for (const text of ["Background updates (built, not released)", "WMI handoff", "restart to use it", "waits until this Casper exits", "Background handoffs wait for the whole session"]) expect(windows).toContain(text);
+  for (const text of ["### Background updates", "WMI handoff", "restart to use it", "waits until this Casper exits", "Background handoffs wait for the whole session"]) expect(windows).toContain(text);
   const security = await read("docs/SECURITY.md");
-  for (const text of ["Background self-updates (built, not released)", "same\n  `runUpdate` path as `casper update`", "SHA256SUMS signature", "SHA-256", "GitHub build provenance", "never during task checks", "No stash, rebase or branch switch", "private lock"]) expect(security).toContain(text);
+  for (const text of ["Background self-updates (since v0.2.36)", "same\n  `runUpdate` path as `casper update`", "SHA256SUMS signature", "SHA-256", "GitHub build provenance", "never during task checks", "No stash, rebase or branch switch", "private lock"]) expect(security).toContain(text);
   const choices = await deliberateChoices();
   expect(choices).toContain("# 13. Changing the project's checks needs its own answer");
   expect(choices).toContain("# 14. Casper installs its own updates quietly by default");

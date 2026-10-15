@@ -158,7 +158,7 @@
         key needed). Everything Casper does after the AI's edit is the real code.</p>
 
         <h3>A script gets the verdict, not just text</h3>
-        <p><strong>Built, not released:</strong> use <code>casper -p "your request"</code> (or
+        <p><strong>Since 0.2.36:</strong> use <code>casper -p "your request"</code> (or
         <code>--print</code>) to run once and exit; use <code>-p</code> explicitly in scripts.
         <code>casper "your request"</code> now stays open for follow-ups when stdin and stdout are
         both TTYs, no forcing flags are given and <code>CI</code> is unset. Existing scripts stay
@@ -313,16 +313,16 @@ Make this change? → No
           receipt, and adds guard rails for network gear.</p>
         </div>
       <section id="table" aria-labelledby="table-h">
-        <h2 id="table-h">The table: plain Pi vs Casper 0.2.35</h2>
+        <h2 id="table-h">The table: plain Pi vs Casper 0.2.36</h2>
         <p class="prose">"Plain Pi" means Pi as it ships, with no extra packages. Many of Casper's
         extras could be built on Pi with extensions. This table is about what you get without
         building anything.</p>
         <div class="table-wrap">
           <table>
-            <caption>Checked against the Pi 1.1.0 README and docs and Casper 0.2.35 docs. "Yes" means built in
+            <caption>Checked against the Pi 1.1.0 README and docs and Casper 0.2.36 docs. "Yes" means built in
             and on or ready to use.</caption>
             <thead>
-              <tr><th scope="col">What</th><th scope="col">Plain Pi</th><th scope="col">Casper 0.2.35</th></tr>
+              <tr><th scope="col">What</th><th scope="col">Plain Pi</th><th scope="col">Casper 0.2.36</th></tr>
             </thead>
             <tbody>
               <tr>
@@ -388,7 +388,7 @@ Make this change? → No
               <tr>
                 <th scope="row">Scripting</th>
                 <td class="yes"><code>-p</code> print mode, <code>--mode json</code> events, RPC mode, SDK</td>
-                <td class="yes"><code>-p</code> / <code>--print</code> for one-shot runs (built, not released); <code>--json</code> events ending in a receipt object, plus exit codes: 1 failed, 2 incomplete, 3 not verified (with <code>--require-verification</code>).</td>
+                <td class="yes"><code>-p</code> / <code>--print</code> for one-shot runs; <code>--json</code> events ending in a receipt object, plus exit codes: 1 failed, 2 incomplete, 3 not verified (with <code>--require-verification</code>).</td>
               </tr>
               <tr>
                 <th scope="row">Undo a task's file changes</th>
@@ -463,7 +463,7 @@ Make this change? → No
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.35</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.36</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
