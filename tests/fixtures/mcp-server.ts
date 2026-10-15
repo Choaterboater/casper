@@ -278,6 +278,7 @@ export function fixtureServer(mode = "generic") {
 }
 
 if (import.meta.main) {
+  if (process.env.FIXTURE_START_DELAY_MS) await Bun.sleep(Number(process.env.FIXTURE_START_DELAY_MS));
   if (process.env.FIXTURE_CHATTY) {
     // A server that logs a lot (INFO logging): Casper must keep draining stderr.
     const line = `INFO poll ${"x".repeat(200)}\n`;

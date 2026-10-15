@@ -8,6 +8,7 @@ import { discoverLSPConfiguration } from "../src/lsp/config";
 import { discoverReferenceConfiguration } from "../src/references/config";
 import { needsFifos, needsSymlinks } from "./support/platform";
 import { cleanEnv } from "./support/env";
+import { childTestLimit, finished } from "./support/limits";
 import { removeTempDir } from "./support/temp-dir";
 
 test("profile selections reject traversal and malformed values at every precedence layer", async () => {
@@ -220,13 +221,12 @@ test("Casper shows configuration warnings at startup", async () => {
   try {
     await mkdir(path.join(root, ".casper"));
     await writeFile(path.join(root, ".casper/project.yaml"), "skils:\n  maxActive: 2\n\"x\\e]0;T\\a\": 1\n");
-    const child = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts"), "/project"], {
-      cwd: root, env: cleanEnv({ HOME: root, CASPER_PROFILE: "default" }), stdout: "pipe", stderr: "pipe",
-    });
-    const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
-    expect(code).toBe(0);
+    const { stdout, stderr, exit, killed } = await finished(() => Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts"), "/project"], {
+      cwd: root, env: cleanEnv({ HOME: root, CASPER_PROFILE: "default" }), stdin: "ignore", stdout: "pipe", stderr: "pipe",
+    }));
+    expect({ exit, killed }, stderr).toEqual({ exit: 0, killed: false });
     expect(stdout).toContain("[config] .casper/project.yaml: unknown key skils (ignored)");
     expect(stdout).toContain("[config] .casper/project.yaml: unknown key x");
     expect(stdout).not.toContain("\x1b]");
   } finally { await removeTempDir(root); }
-});
+}, childTestLimit());

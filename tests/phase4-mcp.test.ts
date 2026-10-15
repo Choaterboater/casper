@@ -11,6 +11,7 @@ import { boundCapabilityResult } from "../src/capabilities/result";
 import { fixtureServer } from "./fixtures/mcp-server";
 import { rejection } from "./support/settle";
 import { removeTempDir } from "./support/temp-dir";
+import { CHILD_KILL_MS, childTestLimit } from "./support/limits";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -20,8 +21,12 @@ function definition(name = "generic", mode = "generic"): MCPServerDefinition {
     type: "stdio", command: process.execPath, args: [fixturePath], env: { FIXTURE_MODE: mode, FIXTURE_ID: name },
   } };
 }
-function manager(servers = [definition()], timeoutMs = 2000) {
-  const value = new MCPManager({ servers, diagnostics: [] }, { timeoutMs });
+function manager(servers = [definition()], timeoutMs?: number) {
+  // A healthy child gets a spawn/handshake budget, independently of short call-timeout tests.
+  // Explicit limits still control both clocks for deliberate failed-start tests.
+  const value = new MCPManager({ servers, diagnostics: [] }, {
+    connectTimeoutMs: timeoutMs ?? CHILD_KILL_MS, callTimeoutMs: timeoutMs ?? 2000,
+  });
   cleanup.push(() => value.close());
   return value;
 }
@@ -32,6 +37,21 @@ async function until(check: () => boolean) {
     await Bun.sleep(10);
   }
 }
+
+test("fixture startup budgets do not stretch call timeouts or deliberate failed-start deadlines", () => {
+  expect(manager().status()[0]?.limits).toEqual({ connectS: CHILD_KILL_MS / 1000, callS: 2 });
+  expect(manager([definition("stall", "stall")], 300).status()[0]?.limits).toEqual({ connectS: 0.3, callS: 0.3 });
+});
+
+test("fixture readiness waits for the handshake and catalog beyond the old two-second startup window", async () => {
+  const delayed = definition();
+  if (delayed.transport.type !== "stdio") throw new Error("expected stdio fixture");
+  delayed.transport.env = { ...delayed.transport.env, FIXTURE_START_DELAY_MS: "3500" };
+  const mcp = manager([delayed]);
+  await mcp.connect("generic");
+  expect(mcp.status()[0]).toMatchObject({ state: "ready", toolCount: 340 });
+  expect(mcp.catalog()[0]?.tools).toHaveLength(340);
+}, childTestLimit());
 
 test("MCP config discovery is metadata-only, layered, isolated per entry, and redacts errors", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-mcp-config-"));
@@ -148,7 +168,7 @@ test("a reload diffs definitions in place and revokes consent only for changed p
   await expect(mcp.connect("added")).rejects.toThrow("Unknown MCP server");
   await expect(mcp.reload({ diagnostics: [], servers: [definition("keep"), definition("keep")] }))
     .rejects.toThrow("Duplicate MCP server name");
-});
+}, childTestLimit(3));
 
 test("340 generic tools expose at most eight schemas and rare tools remain discoverable and callable", async () => {
   const mcp = manager();
