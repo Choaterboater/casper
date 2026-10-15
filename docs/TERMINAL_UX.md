@@ -649,6 +649,10 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   `✓ allowed always in this project: npm test` line after 3 or 4, and the usual line after a No or Esc. That line is the only record: no `[ask]`,
   `[approval]` or `[server question]` line and no `✓ ask` step under it. The plain terminal prints the
   same line after its numbered lines.
+- A command approval always starts with Casper's own question (`Run this command?`). The model's preceding
+  one-line reason follows, dimmed and labelled `The model says:`. Multi-line commands keep their line breaks; after 12 lines, `… N more lines` shows what was omitted. Secrets stay hidden.
+  A session yes for `bun test` covers different project test files and log tails in the same folder; other commands
+  and permanent approvals keep exact matching.
 - A list taller than the window shows the rows around the highlighted one, with `… 12 more below`
   (and above), so the box never scrolls its own top away.
 - While a picker or approval is open, its `?` row takes no typing: keys go to the box (a number past
@@ -758,7 +762,13 @@ tree digest), or how many past three. The per-file table (a bounded `git diff --
 with `--verbose`; `/diff` shows the task's full changes.
 `/permissions details` explains actual boundaries from the state Casper is in: whether the shell
 sandbox holds shell commands and checks here, or (without it) that the AI's shell asks
-before each command that changes something (reads like `ls` and routine work like `npm test` or `git commit` don't; `sudo`, `curl … | sh`, a force push and a new package still ask). `/sandbox` lists what it holds and `/allowed` the commands you said yes to.
+before commands beyond reads and routine work. Reads include individual public config lookups (`git config <key>`, `--get`, `--global`),
+`command -v`/`type`/`which`, `ps`, `date`, and `uname`. Config `--list`/`-l` and keys naming credential/token/password/extraheader
+or `url.*.insteadof`/`pushinsteadof` ask. So do `ps` environment-output groups containing `E` or BSD bare words containing `e`;
+Linux `ps -e` remains a read. Routine work includes project tests, `git commit`, safe `git fetch`
+(no pruning, forced or deleting refspecs), project-file output redirects, and `result=$?; …; exit $result`.
+Outside/private/`.git` redirects, substitutions, scripts, `sudo`, `curl … | sh`, force pushes and new packages still ask.
+Builder reads and checks use the builder's own copy as the project root. `/sandbox` lists what it holds and `/allowed` the commands you said yes to.
 With the sandbox on, a plain `git push` or `gh pr create` the AI runs asks `Run outside the sandbox with your GitHub
 login?  git push -u origin main` (1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project;
 Enter or Esc is No; a `gh pr merge`, `close`, `reopen`, `ready`, `review` or `checkout`, `gh issue close` or `reopen`,

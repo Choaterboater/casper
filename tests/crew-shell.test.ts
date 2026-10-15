@@ -31,7 +31,7 @@ test("a builder's sandbox is rooted at its copy and never asks: a write elsewher
   const asked: string[] = [];
   const sandbox = new ShellSandbox({ root: () => main, home, store, tempDirs: [], askHost: (host) => { asked.push(host); return Promise.resolve("session"); },
     askWrite: (targets) => { asked.push(...targets); return Promise.resolve(true); } });
-  const copySandbox = sandbox.forCopy(copy);
+  const copySandbox = sandbox.forCopy(path.relative(process.cwd(), copy));
   cleanup.push(() => copySandbox.close());
   expect(copySandbox.root).toBe(copy);
   expect(await copySandbox.decideWrite(main, "ai")).toBe("cant-ask");
@@ -195,6 +195,55 @@ test("with the sandbox off, a builder's command that needs a yes is asked in you
   // Remembered for the session: the next one runs without a box.
   expect(await shell.approve!("npm install left-pad")).toBeUndefined();
   expect(box.asked).toHaveLength(1);
+});
+
+for (const nested of [false, true]) for (const routine of [false, true]) test(`a builder classifies ${routine ? "routine checks" : "reads"} in its own copy${nested ? " under ~/.casper/worktrees" : ""}, never the main project or outside`, async () => {
+  const { home, main, copy: plainCopy, store } = await folders();
+  const copy = nested ? path.join(home, ".casper", "worktrees", "project", "builder-1") : plainCopy;
+  for (const root of [main, copy]) {
+    await mkdir(path.join(root, "src", "app"), { recursive: true });
+    await writeFile(path.join(root, "src", "app", "sandbox.ts"), "export {};\n");
+    await writeFile(path.join(root, "package.json"), JSON.stringify({ scripts: { [root === copy ? "typecheck" : "mainOnly"]: "tsc --noEmit" } }));
+  }
+  const sandbox = new ShellSandbox({ root: () => main, home, store, tempDirs: [], offByDefault: true });
+  cleanup.push(() => sandbox.close());
+  const box = sessionBox(undefined);
+  box.host.routineCommands = () => routine;
+  const shell = crewShell(sandbox, copy, () => {}, { host: box.host, label: "Builder 1" })!;
+  cleanup.push(() => shell.close());
+  // These are approvals only: no command is executed by this test. Absolute paths use shell slashes on Windows too.
+  const sh = (file: string) => `'${file.split(path.sep).join("/")}'`;
+  const allowed = routine ? [
+    "bun run typecheck",
+    `cd ${sh(copy)} && bun run typecheck`,
+    `touch ${sh(path.join(copy, "checked.txt"))}`,
+  ] : [
+    "git diff --check; git diff -- src/app/sandbox.ts",
+    "cat src/app/sandbox.ts",
+    `cat ${sh(path.join(copy, "src", "app", "sandbox.ts"))}`,
+    `cd ${sh(copy)} && git diff --check; git diff -- src/app/sandbox.ts`,
+  ];
+  for (const command of allowed) {
+    expect({ command, refused: await shell.approve!(command) }).toEqual({ command, refused: undefined });
+    expect(box.asked).toEqual([]);
+  }
+  // Without a person to approve, paths into the main project, private state or another folder must be refused.
+  const oneShot = sessionBox(undefined, { canAsk: false });
+  oneShot.host.routineCommands = () => true;
+  const unattended = crewShell(sandbox, copy, () => {}, { host: oneShot.host, label: "Builder 1" })!;
+  cleanup.push(() => unattended.close());
+  for (const root of [main, home, path.dirname(copy)]) for (const command of [
+    `cat ${sh(path.join(root, "src", "app", "sandbox.ts"))}`,
+    `git diff -- ${sh(path.join(root, "src", "app", "sandbox.ts"))}`,
+    `touch ${sh(path.join(root, "checked.txt"))}`,
+    `cd ${sh(root)} && bun run typecheck`,
+  ]) {
+    expect({ command, refused: await unattended.approve!(command) }).toEqual({ command, refused: SHELL_CANT_ASK });
+  }
+  expect(await unattended.approve!("cat .env")).toBe(SHELL_CANT_ASK);
+  expect(await unattended.approve!("bun run mainOnly")).toBe(SHELL_CANT_ASK);
+  expect(oneShot.asked).toEqual([]);
+  expect(box.asked).toEqual([]);
 });
 
 test("a builder's command follows /permissions all and your remembered answers, and a run that can't ask skips it and reports it", async () => {

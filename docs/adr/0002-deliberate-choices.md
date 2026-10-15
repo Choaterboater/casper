@@ -27,7 +27,11 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
 - **What:** at Casper's own start the shell sandbox is off unless `sandbox: on` is in your config (or you type
   `/sandbox on`). The AI's shell then asks `Run this command?` (`1 No · 2 Yes, this once · 3 Yes, for this
   session · 4 Yes, always for this project`) before a command that is neither a plain read nor routine work (item 2).
-  `src/sandbox/manager.ts` (`SandboxKind` `default`).
+  `src/sandbox/manager.ts` (`SandboxKind` `default`). Individual public config reads, command lookup and process/system
+  information count as reads; config listings, credential/token/password/extraheader and URL rewrite keys, and environment-output
+  `ps` groups (`E`, BSD bare `e`, not Linux `-e`) ask. A session yes for `bun test` covers other project test files and log tails
+  in the same folder; non-test and permanent approvals stay exact. Boxes keep Casper's question first, then the dimmed reason
+  labelled `The model says:` and a 12-line command preview.
 - **Why:** it is the owner's call (2026-10-09). The sandbox broke ordinary work (logins, caches, tools outside
   the project), and asking first is the same protection the user has with any other agent.
 - **Same as:** Claude Code's sandbox is opt-in (`/sandbox`); without it Claude Code asks before shell
@@ -46,7 +50,11 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
 - **What:** with no sandbox, routine work runs unasked: everyday git (`add`, `commit`, `switch`, `fetch`, `pull`,
   `merge`, `rebase`, `stash`, a push to a remote the project already has), `gh pr create|view|…`, installs from
   the project's own files (`npm ci`, `bun install`, `pip install -r`), the project's scripts, builds, tests and
-  linters, and `mkdir`/`touch`/`cp`/`mv`/`rm` of files in the project. A line counts only when every command on
+  linters, and `mkdir`/`touch`/`cp`/`mv`/`rm` of files in the project. Literal project-file output redirects count as
+  project writes (not outside, private or `.git`, and not after a command that could replace their paths).
+  `result=$?` and `exit $name` / `exit N` are status plumbing, not permission to expand other variables or run scripts.
+  Fetch never prunes or accepts forced/deleting refspecs or local-branch destinations. Builder checks use their own copy,
+  including under `~/.casper/worktrees`, without opening private state. A line counts only when every command on
   it is a read or routine. `src/sandbox/routine.ts`.
 - **Why:** a box on `npm test` and `git commit` teaches people to press yes without reading.
 - **Same as:** Claude Code's auto mode, which runs routine commands without a prompt and still stops risky ones.

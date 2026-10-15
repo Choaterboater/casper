@@ -12,7 +12,8 @@ import { lineCommands, readOnlyCommand, type ReadPlace } from "./read-only";
  * or removing files in the project. A line is routine only when every command on it is a plain read or routine. Anything
  * else asks as before: sudo, a download run through a shell, a force push or a deleted remote branch, rm of the project,
  * its .git or anything outside it, a named new package, and every program not listed. A text check and an allow-list,
- * like read-only.ts (whose line reading it shares: no $, ~, redirect, substitution or subshell).
+ * like read-only.ts (whose line reading it shares: literal project redirects and status plumbing, never other expansion,
+ * ~, substitution or subshell).
  */
 
 interface Here { root: string; realRoot: string; cwd: string; where: ReadPlace }
@@ -22,7 +23,7 @@ export function routineCommand(command: string, where: ReadPlace | string): bool
   const line = lineCommands(command, where);
   if (!line) return false;
   const place: ReadPlace = typeof where === "string" ? { root: where } : where;
-  return line.commands.every((part) => part.reads || (!part.globs && part.folders.every((cwd) =>
+  return line.commands.every((part) => part.reads || part.plumbing || (!part.globs && part.folders.every((cwd) =>
     routinePart(part.words, { root: line.root, realRoot: line.realRoot, cwd, where: place }))));
 }
 
@@ -170,7 +171,9 @@ function gitWork(args: readonly string[], here: Here): boolean {
     }
     case "branch":
       return options.every((option) => ["-a", "-r", "-l", "-v", "--list", "--all", "--remotes", "--show-current", "--verbose"].includes(option)) && words.length <= 2;
-    case "fetch": case "pull":
+    case "fetch":
+      return fetchWork(rest, here);
+    case "pull":
       // No force: a +refspec, --force or --refmap rewrites local branches (and pull merges on top).
       if (!none(["-f", "--force", "--refmap"])) return false;
       return words.length === 0 || (remotes(here.root).includes(words[0]!) && words.slice(1).every(plainRef));
@@ -187,6 +190,27 @@ function gitWork(args: readonly string[], here: Here): boolean {
     default:
       return false;
   }
+}
+
+/** Fetch options that do not prune, run another program or rewrite local branches. Unknown/abbreviated flags ask. */
+function fetchWork(args: readonly string[], here: Here): boolean {
+  const flags = new Set(["--all", "--tags", "--no-tags", "--quiet", "--verbose", "--progress", "--no-progress", "--dry-run", "--atomic", "--no-prune", "--no-prune-tags", "--no-recurse-submodules", "-q", "-v", "-n", "-t"]);
+  const values = new Set(["--depth", "--deepen", "--shallow-since", "--shallow-exclude", "--jobs", "-j"]);
+  const words: string[] = [];
+  for (let at = 0; at < args.length; at++) {
+    const word = args[at]!;
+    if (flags.has(word)) continue;
+    const [option, value] = word.split("=");
+    if (values.has(option!)) {
+      const given = value ?? args[++at];
+      if (!given || given.startsWith("-")) return false;
+      continue;
+    }
+    if (word.startsWith("-")) return false;
+    words.push(word);
+  }
+  return words.length === 0 || (remotes(here.root).includes(words[0]!) && words.slice(1).every((ref) =>
+    plainRef(ref) && (!ref.includes(":") || ref.split(":")[1]!.startsWith("refs/remotes/"))));
 }
 
 const PUSH_OPTIONS = ["-u", "-v", "-q", "-n", "--set-upstream", "--tags", "--follow-tags", "--verbose", "--quiet", "--dry-run", "--porcelain", "--atomic", "--no-verify"];

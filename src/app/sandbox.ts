@@ -12,6 +12,7 @@ import { SandboxStore } from "../sandbox/store";
 import { seccompHelper } from "../sandbox/seccomp";
 import type { TaskResult } from "../task/result";
 import { terminalText } from "../tui/format";
+import { MODEL_REASON_PREFIX } from "../tui/choices";
 import { blockedBySandbox } from "../verify/command";
 import { hideCommandSecrets } from "../secrets/files";
 import { remoteTargets, runsAlone, segmentTargets, splitShell, targetLabel, trustedProgram, type LocalPlaces, type RemoteTarget } from "../sandbox/remote";
@@ -20,7 +21,7 @@ import { forgetSshSecrets, sshLoginHandler, sshSessionMemory, type SshLoginHost 
 import { forgetOnceSecrets } from "../secrets/typed";
 import { githubLoginChoices, HOST_CHOICES, NO, REACH_CHOICES, SHELL_COMMAND_CHOICES, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
 import { githubLoginCommand, githubRunEnv, LOGIN_FAILED, startsGitOrGh, type GithubLoginCommand } from "../sandbox/github-login";
-import { answerKey, readOnlyCommand } from "../sandbox/read-only";
+import { answerKey, readOnlyCommand, testRunKey } from "../sandbox/read-only";
 import { routineCommand } from "../sandbox/routine";
 
 /**
@@ -44,6 +45,8 @@ export interface SandboxHost {
   /** Routine commands (routine_commands, on unless turned off): with no sandbox, routine work (see routineCommand) runs
    * without the box. Unset: off, every command that is not a read asks. */
   routineCommands?(): boolean;
+  /** Text snapshotted before this tool call; its last nonempty line titles the approval box. */
+  precedingText?(): string | undefined;
   /** The private ssh login: Casper's own hidden box for a password or passphrase ssh asks for. Unset: a run that can't ask. */
   ssh?: SshLoginHost;
 }
@@ -78,16 +81,27 @@ export const SSH_NOT_PLAIN_LINE = `[ssh] The login was refused. Casper can only 
 export const SSH_REFUSED_LINE = `[ssh] The login was refused. Casper's hidden password box was offered for this command; if the person said no or the password was wrong, ask them what to do. ${SSH_NEVER}`;
 
 export const hostQuestion = (host: string) => `A shell command wants to reach ${terminalText(host)}. Allow it?`;
-/** A command as a question shows it: one line, with any secret the AI typed into it hidden. */
-export const shownCommand = (command: string) => terminalText(hideCommandSecrets(command).text).replace(/\s+/g, " ").trim();
-export const shellQuestion = (command: string) => `Run this command?  ${shownCommand(command)}`;
-/** "Reach 10.0.0.5 (build-server)?  ssh root@build-server uptime" */
-export const reachQuestion = (target: RemoteTarget, command: string) => `Reach ${terminalText(targetLabel(target))}?  ${shownCommand(command)}`;
+/** Keep the command's layout (including heredocs), with secrets hidden and a bounded preview. */
+export const shownCommand = (command: string) => {
+  const lines = terminalText(hideCommandSecrets(command).text).replace(/\n$/, "").split("\n");
+  return lines.length > 12 ? `${lines.slice(0, 12).join("\n")}\n… ${lines.length - 12} more lines` : lines.join("\n");
+};
+/** The model's preceding one-line reason, never terminal controls or a typed secret. */
+const commandReason = (text?: string) => terminalText(hideCommandSecrets(text ?? "").text).split("\n").map((line) => line.trim()).filter(Boolean).at(-1);
+const commandQuestion = (question: string, command: string, preceding?: string) => {
+  const reason = commandReason(preceding);
+  const shown = shownCommand(command);
+  if (reason) return `${question}\n${MODEL_REASON_PREFIX}${reason}\n${shown}`;
+  return `${question}${shown.includes("\n") ? "\n" : "  "}${shown}`;
+};
+export const shellQuestion = (command: string, preceding?: string) => commandQuestion("Run this command?", command, preceding);
+/** The target stays explicit even when the model supplied a reason. */
+export const reachQuestion = (target: RemoteTarget, command: string, preceding?: string) => commandQuestion(`Reach ${terminalText(targetLabel(target))}?`, command, preceding);
 /** The AI reads these when a command to another machine does not run. */
 export const reachCantAsk = (target: RemoteTarget) => `Not run: this command reaches ${targetLabel(target)}${target.unclear ? "" : ", another machine,"} and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user; they can run it themselves${target.unclear ? " or in a Casper session" : `, in a Casper session, or with --allow-reach ${target.typed} for one run`}.`;
 export const reachDeclined = (target: RemoteTarget) => `Not run: the user said no to reaching ${targetLabel(target)}. Don't try it again another way; ask the user what to do instead.`;
 /** "Run outside the sandbox with your GitHub login?  git push -u origin main" */
-export const githubLoginQuestion = (command: string) => `Run outside the sandbox with your GitHub login?  ${shownCommand(command)}`;
+export const githubLoginQuestion = (command: string, preceding?: string) => commandQuestion("Run outside the sandbox with your GitHub login?", command, preceding);
 export const GITHUB_LOGIN_DECLINED = "Not run: the user said no to using their GitHub login for this command. Don't try it again another way; ask the user what to do instead.";
 export const GITHUB_LOGIN_LINE = "[sandbox] Plain git and gh commands you allow run outside the sandbox, with your GitHub login; the AI reads their output, never the login.";
 /** The AI reads these when a git or gh command failed in the sandbox for want of the login. There is no setting that
@@ -100,7 +114,7 @@ export const SHELL_DECLINED = "Not run: the user said no to this command. Don't 
 /** Said once a session, after the third shell box answered yes. */
 export const STOP_ASKING_HINT = "Tip: /permissions all stops these questions until you quit (/permissions ask turns them back on).";
 /** A remembered exact command, as its one short line shows it. */
-const shortCommand = (command: string) => { const shown = shownCommand(command); return shown.length > 60 ? `${shown.slice(0, 59)}…` : shown; };
+const shortCommand = (command: string) => { const shown = shownCommand(command).replace(/\s+/g, " ").trim(); return shown.length > 60 ? `${shown.slice(0, 59)}…` : shown; };
 export const writeQuestion = (from: WriteAsker, folder: string) => `${from === "shell" ? "A shell command" : "The AI"} wants to write to ${terminalText(folder)}. Allow it?`;
 /** "A and B", "A, B and C": the places one question names. */
 export const writePlaces = (places: string[]) => places.length > 1 ? `${places.slice(0, -1).join(", ")} and ${places.at(-1)}` : places[0] ?? "";
@@ -152,9 +166,9 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
   const show = (entry: string) => displayPath(entry, sandbox.root, sandbox.home);
   /** Hosts you said "Yes, for this session" to. */
   const sessionReach = new Set<string>();
-  /** With no sandbox: the exact commands you said "Yes, for this session" to. */
+  /** With no sandbox: exact commands and project test-run families you approved for this session. */
   // Kept on the store, so /allowed lists and forgets them.
-  const { sessionCommands } = store;
+  const { sessionCommands, sessionTestRuns } = store;
   /** Commands you said yes to just now, with the hosts they reach (wrap lets them through). */
   const cleared = new Map<string, RemoteTarget[]>();
   /** git and gh commands you said yes to just now: wrap runs them outside the sandbox with your GitHub login. */
@@ -194,14 +208,14 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
   };
   /** "Run outside the sandbox with your GitHub login?": a reason refuses the command. Not answered by /permissions all,
    * and a run that can't ask leaves the command in the sandbox, as before. */
-  const githubLogin = async (command: string, signal?: AbortSignal): Promise<string | undefined> => {
+  const githubLogin = async (command: string, signal?: AbortSignal, preceding?: string): Promise<string | undefined> => {
     const found = githubPlain(command, sandbox.root);
     if (!found) return undefined;
     // A command that types its own address could send the project anywhere, and a merge, close or rerun can't be taken
     // back: they ask every time, whatever was remembered for another kind.
     if (!found.once && (store.sessionGithub.has(found.action) || await store.allowsGithub(found.action))) { githubCleared.add(command); return undefined; }
     if (!host.canAsk()) { githubUnasked.add(command); return undefined; }
-    const answer = await host.pick(githubLoginQuestion(command), githubLoginChoices(found.action, !found.once), signal);
+    const answer = await host.pick(githubLoginQuestion(command, preceding), githubLoginChoices(found.action, !found.once), signal);
     if (answer === YES_SESSION && !found.once) store.sessionGithub.add(found.action);
     else if (answer === YES_ALWAYS && !found.once) {
       try { await store.addGithub(found.action); }
@@ -214,7 +228,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
   let shellYeses = 0;
   const sayOnce = (line: string) => { if (said.has(line)) return; said.add(line); host.write(`${line}\n`); };
   /** undefined: runs (and whether the question already showed the command); a string: refused, the AI reads why. */
-  const reach = async (command: string, signal?: AbortSignal): Promise<{ refused?: string; asked: boolean }> => {
+  const reach = async (command: string, signal?: AbortSignal, preceding?: string): Promise<{ refused?: string; asked: boolean }> => {
     const targets = remoteTargets(command, sandbox.home);
     if (!targets.length) return { asked: false };
     let asked = false;
@@ -225,7 +239,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
         sayOnce(`[shell] Not run: the AI's command reaches ${targetLabel(target)}, and this run can't ask you. Nothing was sent.`);
         return { refused: reachCantAsk(target), asked };
       }
-      const answer = await sessionYesOr(host, reachQuestion(target, command), [...REACH_CHOICES], signal);
+      const answer = await sessionYesOr(host, reachQuestion(target, command, preceding), [...REACH_CHOICES], signal);
       asked = true;
       // A machine the command names as $HOST could be any machine next time: that yes counts for this command only.
       if (answer === YES_SESSION) { if (!target.unclear) sessionReach.add(target.host); }
@@ -335,10 +349,12 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
     async approve(command, signal, options) {
       // The host question already showed this command and you said yes, like bash's own start after a failed sandbox.
       if (options?.reached) return remoteTargets(command, sandbox.home).length ? undefined : shell.approve!(command, signal);
-      const remote = await reach(command, signal);
+      // Capture before waiting for another box: a later response must not retitle this command.
+      const preceding = host.precedingText?.();
+      const remote = await reach(command, signal, preceding);
       if (remote.refused) return remote.refused;
       // A plain git or gh command that needs your GitHub login, which the sandbox hides: asked here, run outside it.
-      if (sandbox.on) { const refused = await githubLogin(command, signal); if (refused) return refused; }
+      if (sandbox.on) { const refused = await githubLogin(command, signal, preceding); if (refused) return refused; }
       if (!sandbox.asksFirst) return undefined;
       // The host question showed this command and you said yes: it is not asked twice.
       if (remote.asked) return undefined;
@@ -347,21 +363,22 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       if (readOnlyCommand(command, where)) return undefined;
       // So does routine work (git commit, npm test, bun install, rm -rf dist), as in Claude Code's auto mode, unless you turned it off.
       if (host.routineCommands?.() && routineCommand(command, where)) return undefined;
-      // A remembered answer covers this exact command only: a yes to `rm -rf build` never covers `rm -rf ~`. In
+      // Test-run session answers may vary project files and log tails; all other answers stay exact. In
       // `cd app && npm test 2>&1 | tail -25` that is `cd app && npm test` (answerKey), so a later line of that kind
       // matches it too, and the same words in another folder, or fed another script (`cat a.sh | sh`), ask again.
       const exact = answerKey(command, where);
-      if (sessionCommands.has(command) || sessionCommands.has(exact)) return undefined;
+      const testRun = testRunKey(command, where);
+      if (sessionCommands.has(command) || sessionCommands.has(exact) || (testRun && sessionTestRuns.has(testRun))) return undefined;
       if (await store.allowsCommand(command, exact)) return undefined;
       if (!host.canAsk()) return SHELL_CANT_ASK;
-      const kept = shortCommand(exact);
+      const kept = testRun ? "bun test (project test files)" : shortCommand(exact);
       // A yes leaves no line of its own (the command's own line shows it ran); a remembered one leaves one short line.
       const record = (answer: string) => answer === YES_ONCE ? "" : answer === YES_SESSION ? `✓ allowed until you quit: ${kept}`
         : answer === YES_ALWAYS ? `✓ allowed always in this project: ${kept}` : undefined;
-      const answer = await sessionYesOr(host, shellQuestion(command), [...SHELL_COMMAND_CHOICES], signal, { record });
+      const answer = await sessionYesOr(host, shellQuestion(command, preceding), [...SHELL_COMMAND_CHOICES], signal, { record });
       if (answer !== undefined && answer !== NO && !host.stopAsking?.() && ++shellYeses === 3) sayOnce(STOP_ASKING_HINT);
       if (answer === YES_ONCE) return undefined;
-      if (answer === YES_SESSION) { sessionCommands.add(exact); return undefined; }
+      if (answer === YES_SESSION) { (testRun ? sessionTestRuns : sessionCommands).add(testRun ?? exact); return undefined; }
       if (answer === YES_ALWAYS) { await store.addCommand(exact); return undefined; }
       return SHELL_DECLINED;
     },

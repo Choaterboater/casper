@@ -161,7 +161,9 @@ export class ShellSandbox {
    * It shares this sandbox's runtime (there is one per process): closing it leaves yours running.
    */
   forCopy(root: string, note: (line: string) => void = () => {}): ShellSandbox {
-    const copy = new ShellSandbox({ ...this.options, engine: this.engine, root: () => root, askHost: () => undefined, askWrite: () => undefined, note });
+    // Resolve once: the copy's project root must not follow the session's root or a later working-directory change.
+    const copyRoot = path.resolve(root);
+    const copy = new ShellSandbox({ ...this.options, engine: this.engine, root: () => copyRoot, askHost: () => undefined, askWrite: () => undefined, note });
     copy.parent = this;
     copy.parentDenyRead = this.policy().denyRead;
     return copy;

@@ -85,6 +85,7 @@ import type {
   RuntimeEvent,
 } from "./types";
 import { isOutside } from "../platform/inside";
+import { withToolReason } from "./tool-reason";
 
 class PiToolController {
   private tools: RuntimeTool[];
@@ -897,6 +898,26 @@ export class PiRuntime implements AgentRuntime {
       const addendum = { full: [COMMAND_GUIDANCE, toolRules, SEARCH_GUIDANCE].join("\n\n"),
         lean: [LEAN_COMMAND_GUIDANCE, toolRules, LEAN_SEARCH_GUIDANCE].join("\n\n") };
       const extensionFactory = (pi: ExtensionAPI) => {
+        // Tools may execute only after the entire response streams. Some providers also reuse a text block
+        // across calls, so snapshot at toolcall_start, then bind the final call id at toolcall_end.
+        const reasons = new Map<string, string>();
+        const startingReasons = new Map<number, string>();
+        let precedingText = "";
+        pi.on("agent_start", () => { reasons.clear(); });
+        pi.on("agent_end", () => { reasons.clear(); startingReasons.clear(); precedingText = ""; });
+        pi.on("message_start", ({ message }) => {
+          if (message.role === "assistant") { precedingText = ""; startingReasons.clear(); }
+        });
+        pi.on("message_update", ({ assistantMessageEvent: update }) => {
+          if (update.type === "text_delta") precedingText = (precedingText + update.delta).slice(-65_536);
+          else if (update.type === "toolcall_start") startingReasons.set(update.contentIndex,
+            precedingText.split("\n").map((line) => line.trim()).filter(Boolean).at(-1) ?? "");
+          else if (update.type === "toolcall_end") {
+            reasons.set(update.toolCall.id, startingReasons.get(update.contentIndex) ?? "");
+            startingReasons.delete(update.contentIndex);
+          }
+        });
+        pi.on("tool_execution_end", ({ toolCallId }) => { reasons.delete(toolCallId); });
         // Project only Casper's wording, after Pi restores the prompt/tool state, for every model step.
         pi.on("context_with_system", (event, ctx) => ({ messages: projectGuidance(event.messages, ctx.model,
           (bounded?.guidance ?? options.guidance)?.(), tools.current(), { ...options, addendum }) }));
@@ -1000,10 +1021,15 @@ export class PiRuntime implements AgentRuntime {
           if (!event.isError) options.shell?.wroteOutside?.(absolute);
         });
         // The AI's bash: Casper's own operations (adapted from Pi's sandbox example), never a repo's .pi/sandbox.json.
-        if (!readOnly) pi.registerTool(repairing(createBashToolDefinition(cwd, {
-          operations: casperBashOperations(options.shell),
-          spawnHook: (context) => ({ ...context, env: withoutProviderKeys(context.env, options.shell?.keepEnv ?? []) }),
-        })));
+        if (!readOnly) {
+          const bash = createBashToolDefinition(cwd, {
+            operations: casperBashOperations(options.shell),
+            spawnHook: (context) => ({ ...context, env: withoutProviderKeys(context.env, options.shell?.keepEnv ?? []) }),
+          });
+          const execute: typeof bash.execute = (id, ...args) =>
+            withToolReason(reasons.get(id) ?? "", () => bash.execute(id, ...args));
+          pi.registerTool(repairing({ ...bash, execute }));
+        }
         if (options.scrubToolOutput) pi.on("tool_result", async (event, ctx) => {
           if (!SCRUBBED_TOOLS.has(event.toolName)) return;
           const texts = event.content.flatMap((block) => block.type === "text" ? [block.text] : []);
@@ -1062,8 +1088,8 @@ export class PiRuntime implements AgentRuntime {
           parameters: Type.Unsafe<Record<string, unknown>>(tool.inputSchema),
           prepareArguments: repair.hook(tool.name, tool.inputSchema, (args) => args as Record<string, unknown>),
           ...(tool.sequential ? { executionMode: "sequential" as const } : {}),
-          execute: async (_id, args, signal, _update, ctx) => {
-            const result = await tool.execute(args, signal, { withFileLocks });
+          execute: async (id, args, signal, _update, ctx) => {
+            const result = await withToolReason(reasons.get(id) ?? "", () => tool.execute(args, signal, { withFileLocks }));
             if (result.isError) throw new Error(result.text);
             return { content: toolContent(result, Boolean(ctx?.model?.input?.includes("image"))), details: {} };
           },

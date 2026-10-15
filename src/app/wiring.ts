@@ -33,6 +33,7 @@ import { checksPlan } from "./verification";
 import { mcpServerSandbox } from "../mcp/sandbox";
 import { trustProjectFile } from "./project-file";
 import { addToPath, keepEngineFromFetchingRipgrep } from "../security/ripgrep";
+import { toolReason } from "../runtime/tool-reason";
 
 /** What the sandbox asks through: Casper's own numbered question, only while someone can answer it. Its questions
  * wait their turn in the approval queue, so two at once are both asked and a question nobody saw is never a No. */
@@ -49,6 +50,7 @@ export function sandboxHost(app: CasperApp): SandboxHost {
     stopAsking: () => app.stopAsking && app.interactive && app.terminal.canAsk && !app.closing,
     labHosts: () => app.projectContext?.lab?.hosts ?? [],
     routineCommands: () => app.projectContext?.routineCommands !== false,
+    precedingText: toolReason,
     // ssh asks for a password: Casper's own numbered question, then its own hidden box (never "The AI asks"). Both in
     // the one turn of the approval queue, so nothing slips in between.
     ssh: {

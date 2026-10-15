@@ -10,7 +10,7 @@ because GitHub's `latest/download` link skips preview releases. The first publis
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
 
-## v0.2.36: casper new asks nothing, SGLang and MLX model servers
+## v0.2.36: casper new asks nothing, SGLang and MLX model servers, fewer command interruptions
 
 **Not released yet.** The version number and the installers still say v0.2.35; the release step
 sets them and removes this line.
@@ -20,6 +20,15 @@ sets them and removes this line.
   The "What are you building?" kinds and the name question are gone, as in other coding tools: make the folder,
   then say what to build. `casper new <template> <name>` still builds a starter template when you name one, and
   `/project <name>` → Make it does the same as `casper new <name>`.
+- Fewer command interruptions: individual public git config reads, command lookup, process/system information, safe fetches and project-file
+  output redirects run without asking, including exit-status plumbing around tests. Outside, private and `.git` writes,
+  substitutions, scripts and pruning/forced fetches still ask. Config listings and credential/token/password/extraheader or
+  URL rewrite keys ask too, as do environment-printing `ps` groups (`E`, BSD bare `e`); Linux `ps -e` remains a read.
+  Builder reads and routine checks use their own copy.
+- A session yes for `bun test` covers different project test files and log tails in the same folder; other commands and
+  permanent approvals keep exact matching. Command boxes keep Casper's question first; the model's preceding reason follows,
+  dimmed and labelled `The model says:`. They preserve line breaks and
+  cap previews at 12 lines with an omitted-line count. Model guidance prefers web/check tools over shell plumbing.
 
 ### SGLang and MLX model servers
 
