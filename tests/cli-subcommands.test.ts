@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import os from "node:os";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { parseCliArgs, parseDoctorArgs, parseSecurityArgs, parseUpdateArgs, SUBCOMMANDS, UsageError } from "../src/cli-args";
 import { cleanEnv } from "./support/env";
@@ -80,10 +81,14 @@ test("casper new --list prints the templates with no model and no saved state", 
   expect(stdout).toContain("network-mcp");
 });
 
-test("casper new without a template, when it can't ask, is a usage mistake (exit 64)", async () => {
-  const { stdout, code } = await run(["new", "my-tool"]);
+test("casper new with nothing, when it can't ask, is a usage mistake (exit 64); casper new <name> makes an empty project, no question", async () => {
+  const { stdout, code } = await run(["new"]);
   expect(code).toBe(64);
   expect(stdout).toContain("casper new needs a template and a name when it can't ask");
+  const named = await run(["new", "my-tool"]);
+  expect(named.code).toBe(0);
+  expect(named.stdout).toContain("Ready: ~/Projects/my-tool · empty folder");
+  expect(existsSync(path.join(named.cwd, "Projects", "my-tool", ".git"))).toBe(true);
 });
 
 test("casper security: a bad flag or folder exits 64; a run prints the tools' report and never calls a model", async () => {

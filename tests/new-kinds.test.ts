@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { lstat, mkdtemp, readdir } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { askBuildRequest, newProjectFromQuestions, type NewProjectFlow } from "../src/app/new-project";
@@ -44,28 +44,39 @@ async function scripted(answers: Array<string | undefined>) {
   return { flow, asked, created };
 }
 
-test("the kinds come first, then which one, with Back first", async () => {
-  const s = await scripted(["Network", "Aruba CX Ansible (show commands, lab only)", ""]);
-  await newProjectFromQuestions(s.flow, {});
-  expect(s.asked[0]).toEqual({ question: "What are you building?", labels: ["My own", "Network", "MCP server", "Web app or dashboard", "Python tool"] });
-  expect(s.asked[1]!.question).toBe("Which network project?");
-  expect(s.asked[1]!.labels).toEqual(["Back", "Mist Python scripts", "Aruba CX Ansible (show commands, lab only)", "Junos Ansible (show commands and rendered config, lab only)"]);
-  expect(s.created.map((entry) => entry.template)).toEqual(["aoscx-ansible"]);
+test("casper new <name> asks nothing and makes an empty project of that name", async () => {
+  const s = await scripted([]);
+  const result = await newProjectFromQuestions(s.flow, { name: "lab-notes" });
+  expect(s.asked).toEqual([]);
+  expect(s.created.map(({ template, name }) => ({ template, name }))).toEqual([{ template: "empty", name: "lab-notes" }]);
+  expect(result?.status).toBe("ready");
 });
 
-test("Back returns to the kinds; a kind with one template skips the second question", async () => {
-  const s = await scripted(["Web app or dashboard", "Back", "MCP server", "my-mcp"]);
-  await newProjectFromQuestions(s.flow, {});
-  expect(s.asked.map((entry) => entry.question).slice(0, 3)).toEqual(["What are you building?", "Which web app or dashboard?", "What are you building?"]);
-  expect(s.asked[3]!.question).toStartWith("Name it?");
-  expect(s.created.map(({ template, name }) => ({ template, name }))).toEqual([{ template: "network-mcp", name: "my-mcp" }]);
-});
-
-test("Enter at the second question is Back, and Esc after it builds nothing", async () => {
-  const s = await scripted(["Network", "", undefined]);
-  expect(await newProjectFromQuestions(s.flow, {})).toBeUndefined();
-  expect(s.asked[2]!.question).toBe("What are you building?");
+test("casper new <name> when that folder exists opens it, with no question and nothing built; a taken default moves to the next free name", async () => {
+  const s = await scripted([]);
+  const projects = path.join(s.flow.homeDir, "Projects");
+  await mkdir(path.join(projects, "sglang"), { recursive: true });
+  await writeFile(path.join(projects, "sglang", "notes.md"), "mine\n");
+  const opened = await newProjectFromQuestions(s.flow, { name: "sglang" });
+  expect(s.asked).toEqual([]);
   expect(s.created).toEqual([]);
+  expect(opened?.dir).toBe(path.join(projects, "sglang"));
+  await mkdir(path.join(projects, "my-project"), { recursive: true });
+  await writeFile(path.join(projects, "my-project", "x"), "x");
+  await newProjectFromQuestions(s.flow, {});
+  expect(s.asked).toEqual([]);
+  expect(s.created.map(({ name }) => name)).toEqual(["my-project-2"]);
+});
+
+test("no name: the first free default name, no question; a named template still builds that template", async () => {
+  const unnamed = await scripted([]);
+  await newProjectFromQuestions(unnamed.flow, {});
+  expect(unnamed.asked).toEqual([]);
+  expect(unnamed.created.map(({ template }) => template)).toEqual(["empty"]);
+  const chosen = await scripted([]);
+  await newProjectFromQuestions(chosen.flow, { template: "web-app", name: "inventory" });
+  expect(chosen.asked).toEqual([]);
+  expect(chosen.created.map(({ template, name }) => ({ template, name }))).toEqual([{ template: "web-app", name: "inventory" }]);
 });
 
 test("My own at a build request makes an empty project named from the request", async () => {
@@ -103,40 +114,6 @@ posixOnly("My own inside someone's repository: no second git", async () => {
   expect(result.status).toBe("ready");
   expect(await lstat(path.join(fakes.parent, "inner/.git")).then(() => true, () => false)).toBe(false);
   expect(formatNewProjectReceipt(result)[0]).toBe("Ready: ~/Projects/inner · empty folder · no template");
-});
-
-test("words at the name question become the next Enter choice", async () => {
-  const s = await scripted(["My own", "a thing like a config backup tool", ""]);
-  await newProjectFromQuestions(s.flow, {});
-  expect(s.asked[2]!.question).toBe("Name it? (Enter for config-backup-tool)");
-  expect(s.created.map(({ template, name }) => ({ template, name }))).toEqual([{ template: "empty", name: "config-backup-tool" }]);
-});
-
-test("a request typed at What are you building? builds the kind it reads as and keeps the words as the first request", async () => {
-  const s = await scripted(["build a react web app for my lab inventory", ""]);
-  const queued: string[] = [];
-  const result = await newProjectFromQuestions(s.flow, {}, undefined, (text) => queued.push(text));
-  expect(result?.status).toBe("ready");
-  expect(s.created.map(({ template }) => template)).toEqual(["web-app"]);
-  expect(queued).toEqual(["build a react web app for my lab inventory"]);
-});
-
-test("a request with no clear kind at What are you building? builds an empty project named from the words", async () => {
-  const s = await scripted(["a nightly backup of my switch configs", ""]);
-  const queued: string[] = [];
-  await newProjectFromQuestions(s.flow, {}, undefined, (text) => queued.push(text));
-  expect(s.asked[1]!.question).toMatch(/^Name it\? \(Enter for [a-z]/);
-  expect(s.created.map(({ template }) => template)).toEqual(["empty"]);
-  expect(s.created[0]!.name).not.toBe("my-project");
-  expect(queued).toEqual(["a nightly backup of my switch configs"]);
-});
-
-test("one or two words that aren't a choice are still not a request", async () => {
-  const s = await scripted(["blah thing"]);
-  const queued: string[] = [];
-  expect(await newProjectFromQuestions(s.flow, {}, undefined, (text) => queued.push(text))).toBeUndefined();
-  expect(queued).toEqual([]);
-  expect(s.created).toEqual([]);
 });
 
 test("Enter at What are you building? picks My own (anything you describe), not Network", async () => {

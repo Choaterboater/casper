@@ -10,6 +10,17 @@ because GitHub's `latest/download` link skips preview releases. The first publis
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
 
+## v0.2.36: casper new asks nothing
+
+**Not released yet.** The version number and the installers still say v0.2.35; the release step
+sets them and removes this line.
+
+- `casper new <name>` makes an empty project in `~/Projects/<name>` and opens Casper there, with no questions; an
+  existing folder of that name is opened instead. `casper new` with no name uses the first free `my-project` name.
+  The "What are you building?" kinds and the name question are gone, as in other coding tools: make the folder,
+  then say what to build. `casper new <template> <name>` still builds a starter template when you name one, and
+  `/project <name>` → Make it does the same as `casper new <name>`.
+
 ## v0.2.35: plain live steps, plans you change in words, a grouped /settings, Crews complete, and casper update on Windows
 
 - `/settings` is one grouped screen: seven areas, aligned values, help for the highlighted row and search across areas. Up/Down moves, Enter/Space changes, Left/Right or Tab switches areas, and Esc closes. Narrow windows start with an area list; plain terminals keep grouped numbered choices. Saves and config keys are unchanged; `/settings <name>` opens one setting directly.

@@ -163,27 +163,40 @@ export function opened(result: NewProjectResult | undefined): result is NewProje
   return result !== undefined && result.status !== "not_created";
 }
 
-/** The full question set for `casper new` and /project new: the kind and the name when missing, then the build
- * in `parent` (~/Projects by default). Undefined when the user stopped at a question. A request typed at
- * "What are you building?" (three words or more) picks the kind and the name, and goes to `request` to run
- * as the first request in the new project. */
+/** `casper new` and /project new: an empty project (a template only when one was named, `casper new web-app app`),
+ * asking at most its name, then the build in `parent` (~/Projects by default). No "what kind?" question: as in other
+ * coding tools, you make the folder and then say what to build. Undefined when the user stopped at the name. */
 export async function newProjectFromQuestions(flow: NewProjectFlow, given: { template?: string; name?: string }, parentDir?: string,
-  request?: (text: string) => void): Promise<NewProjectResult | undefined> {
-  let typed: string | undefined;
-  const template = given.template ?? await askTemplate(flow, request ? { request: (text) => { typed = text; } } : {});
-  if (!template || template === "extra") return undefined;
+  _request?: (text: string) => void): Promise<NewProjectResult | undefined> {
+  const template = given.template ?? EMPTY_TEMPLATE;
   const parent = parentDir ?? await projectsFolder(flow.homeDir);
-  let name = given.name;
-  const taken = name ? await nameProblem(parent, name, flow.homeDir) : undefined;
-  if (taken) flow.write(`[new] ${taken}`);
-  const suggested = typed === undefined ? undefined : newProjectSuggestion(typed, listTemplates());
-  const fallback = typeof suggested === "object" ? suggested.name : (typed && projectSlug(typed)) || defaultNameFor(template);
-  if (!name || taken) name = await askName(flow, parent, fallback);
-  if (!name) return undefined;
-  const result = await buildProject(flow, parent, template, name);
-  if (typed !== undefined && opened(result)) request?.(typed);
-  return result;
+  // A folder of that name already there: open it rather than ask for another name.
+  if (given.name && validName(given.name) && await nameProblem(parent, given.name, flow.homeDir)) {
+    const dir = path.join(parent, given.name);
+    const info = await lstat(dir).catch(() => undefined);
+    if (info?.isDirectory() && !info.isSymbolicLink()) {
+      const displayDir = tildePath(dir, flow.homeDir);
+      flow.write(`[new] ${displayDir} already exists; opening it.`);
+      return { status: "ready", exitCode: 0, dir, displayDir, name: given.name, checks: [], notes: [], kept: [] };
+    }
+  }
+  // No name, or one that is taken by something else: the first free one, said in the receipt line.
+  const name = given.name && !(await nameProblem(parent, given.name, flow.homeDir)) ? given.name : await freeName(parent, given.name ?? defaultNameFor(template), flow.homeDir);
+  if (!name) { flow.write("[new] No free project name was found; give one: casper new <name>"); return undefined; }
+  return buildProject(flow, parent, template, name);
 }
+
+/** `base`, else `base-2`, `base-3` … up to 99: the first name with no folder or an empty one. */
+async function freeName(parent: string, base: string, home: string): Promise<string | undefined> {
+  const root = validName(base) ? base : EMPTY_DEFAULT_NAME_FALLBACK;
+  for (let n = 1; n < 100; n++) {
+    const name = n === 1 ? root : `${root}-${n}`;
+    if (validName(name) && !(await nameProblem(parent, name, home))) return name;
+  }
+  return undefined;
+}
+
+const EMPTY_DEFAULT_NAME_FALLBACK = "my-project";
 
 /** Empty: no entries at all (createProject only builds in an empty folder). */
 export async function isEmptyFolder(dir: string): Promise<boolean> {

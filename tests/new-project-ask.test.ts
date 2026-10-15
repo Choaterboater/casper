@@ -455,7 +455,7 @@ test("the plain terminal in an empty folder asks nothing either", async () => {
   } finally { await finish(h, running, false); await dirs.cleanup(); }
 });
 
-test("casper new at a terminal builds the project and opens Casper there; Esc builds nothing and exits 1", async () => {
+test("casper new at a terminal builds the project and opens Casper there, asking nothing, also with no name", async () => {
   const dirs = await setup("casper-new-cli-");
   const h = harness(dirs.home, { newProject: { template: "python-cli", name: "ping-tool" } });
   const running = h.app.runInteractive(dirs.work);
@@ -467,16 +467,15 @@ test("casper new at a terminal builds the project and opens Casper there; Esc bu
     expect(h.app.newProjectExitCode).toBeUndefined();
   } finally { await finish(h, running); }
 
-  const esc = harness(dirs.home, { newProject: {} });
-  const escRunning = esc.app.runInteractive(dirs.work);
+  // With no name nothing is asked either: the first free default name is built and opened.
+  const unnamed = harness(dirs.home, { newProject: {} });
+  const unnamedRunning = unnamed.app.runInteractive(dirs.work);
   try {
-    await esc.until(text => text.includes("What are you building?"));
-    esc.input.write("\x1b");
-    await escRunning;
-    expect(esc.visible()).toContain("Nothing was created.");
-    expect(esc.app.newProjectExitCode).toBe(1);
-    expect(esc.starts).toEqual([]);
-  } finally { await esc.app.close(); esc.input.destroy(); await dirs.cleanup(); }
+    await unnamed.until(text => text.includes("idle"));
+    expect(unnamed.visible()).not.toContain("What are you building?");
+    expect(unnamed.visible()).not.toContain("Name it?");
+    expect(unnamed.created).toHaveLength(1);
+  } finally { await finish(unnamed, unnamedRunning); await dirs.cleanup(); }
 });
 
 test("/project new lists the templates, and once the model has started it builds but keeps this conversation's folder", async () => {
@@ -499,7 +498,7 @@ test("/project new lists the templates, and once the model has started it builds
   } finally { await finish(h, running); await dirs.cleanup(); }
 });
 
-test("/project new after the model started never drops a typed request silently: it says it didn't run and how to run it", async () => {
+test("/project new after the model started asks nothing, builds the project, and keeps this conversation's folder", async () => {
   const dirs = await setup("casper-new-slash-typed-");
   const h = harness(dirs.home);
   const running = h.app.runInteractive(dirs.work);
@@ -509,13 +508,10 @@ test("/project new after the model started never drops a typed request silently:
     await h.until(() => h.prompts.length === 1);
     await h.until(settled);
     h.input.write("/project new\r");
-    await h.until(text => text.includes("What are you building?"));
-    h.input.write("a nightly backup of my switch configs\r");
-    await h.until(text => text.includes("Name it? (Enter for "));
-    h.input.write("\r");
     await h.until(text => text.includes("To work in it, run: casper ~/Projects/"));
-    await h.until(text => text.includes("[new] Your request didn't run here."));
-    expect(h.visible()).toMatch(/\[new\] Your request didn't run here\. Run casper ~\/Projects\/[a-z0-9-]+ and type it there\./);
+    expect(h.visible()).not.toContain("What are you building?");
+    expect(h.visible()).not.toContain("Name it?");
+    expect(h.created).toHaveLength(1);
     expect(h.prompts.length).toBe(1);
     await h.until(settled);
   } finally { await finish(h, running); await dirs.cleanup(); }
