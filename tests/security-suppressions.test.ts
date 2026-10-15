@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeAll, expect, test } from "bun:test";
 import { mkdtemp, readdir, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -10,9 +10,11 @@ import {
   type IgnoreContext,
 } from "../src/security/suppressions";
 import type { SecurityFinding } from "../src/security/types";
-import { fakeTools, gitIn } from "./fixtures/security-tools/setup";
+import { FAKE_PROGRAM_SETUP_MS, fakeTools, gitIn, prepareFakePrograms } from "./fixtures/security-tools/setup";
 import { needsSymlinks } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
+
+beforeAll(prepareFakePrograms, FAKE_PROGRAM_SETUP_MS);
 
 const temps: string[] = [];
 afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });
@@ -184,6 +186,8 @@ test("a modified .gitleaks.toml is not given to gitleaks, and the report says so
   const home = await temp("casper-security-home-");
   let tools = await fakeTools(home, { gitleaks: "clean", ruff: "clean" });
   let report = await new SecurityCheck({ root, homeDir: home, find: tools.find, only: ["gitleaks"] }).run();
+  // Show the tool's real failure (including launcher build diagnostics), not an undefined recording's .args.
+  expect(report.tools.find(tool => tool.id === "gitleaks"), JSON.stringify(report.tools)).toMatchObject({ status: "ok" });
   let args = (await tools.recorded("gitleaks"))!.args;
   // The tools run in the project's real folder.
   expect(args[args.indexOf("--config") + 1]).toBe(path.join(await realpath(root), ".gitleaks.toml"));
@@ -192,6 +196,7 @@ test("a modified .gitleaks.toml is not given to gitleaks, and the report says so
   await writeFile(path.join(root, ".gitleaks.toml"), "[extend]\nuseDefault = true\n[[allowlists]]\npaths = ['''.*''']\n");
   tools = await fakeTools(home, { gitleaks: "clean" });
   report = await new SecurityCheck({ root, homeDir: home, find: tools.find, only: ["gitleaks"] }).run();
+  expect(report.tools.find(tool => tool.id === "gitleaks"), JSON.stringify(report.tools)).toMatchObject({ status: "ok" });
   args = (await tools.recorded("gitleaks"))!.args;
   expect(args[args.indexOf("--config") + 1]).not.toContain(root);
   expect(report.ignoreFiles).toEqual([{ file: ".gitleaks.toml", tool: "gitleaks", status: "changed", used: false }]);
@@ -199,7 +204,7 @@ test("a modified .gitleaks.toml is not given to gitleaks, and the report says so
   expect(formatSecurityReport(report)).toContain(".gitleaks.toml changed since your last commit, so Casper used the default rules.");
   // Nothing was written inside the repo.
   expect((await readdir(root)).sort()).toEqual([".git", ".gitleaks.toml", "a.py"]);
-});
+}, 30_000);
 
 needsSymlinks("an approval made through a linked folder counts when the project is opened by its real path, and back", async () => {
   // macOS's temp folder is such a link (/var is /private/var), and so is a linked ~/code.

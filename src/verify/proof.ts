@@ -9,7 +9,7 @@ import { isSecretFile } from "../secrets/files";
 import { checkInputs } from "../task/check-inputs";
 import type { ProjectCommand } from "../project/model";
 import type { TreeChanges } from "../task/changes";
-import { runCommandCheck } from "./command";
+import { runCommandCheck, type CommandCheckOptions } from "./command";
 import type { VerificationResult } from "./evidence";
 
 /** Whether the tests show the change works: they fail on the code without the change (the change's
@@ -238,7 +238,7 @@ export class ChangeBaseline {
    * fresh copy with dependencies linked from the workspace. Undefined when only tests changed. */
   async prove(options: {
     root: string; changes: TreeChanges; check: ProjectCommand; command: string; timeoutMs: number;
-    signal?: AbortSignal; onCleanupFailure?: () => void;
+    signal?: AbortSignal; onCleanupFailure?: CommandCheckOptions["onCleanupFailure"];
   }): Promise<ChangeProof | undefined> {
     const changed = [...options.changes.added, ...options.changes.modified, ...options.changes.removed]
       .filter((relative) => !relative.split("/").some((part) => Object.hasOwn(SKIPPED, part)));

@@ -1,13 +1,14 @@
-import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
+import { afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { SECURITY_TOOLS } from "../src/security/tools";
-import { fakeProgram, fixtureRepo } from "./fixtures/security-tools/setup";
+import { FAKE_PROGRAM_SETUP_MS, fakeProgram, fixtureRepo, prepareFakePrograms } from "./fixtures/security-tools/setup";
 import { cleanEnv } from "./support/env";
 import { removeTempDir } from "./support/temp-dir";
 
 setDefaultTimeout(60_000);
+beforeAll(prepareFakePrograms, FAKE_PROGRAM_SETUP_MS);
 
 const cli = path.resolve(import.meta.dir, "../src/cli.ts");
 const fake = path.resolve(import.meta.dir, "fixtures/security-tools/fake-tool.ts");

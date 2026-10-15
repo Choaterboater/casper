@@ -1,11 +1,13 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { formatResultLine, formatSecurityHeader, formatSecurityReport, SECURITY_OFFLINE_LINE, securityNetworkLine, securityReportJson } from "../src/security/format";
 import { MCP_NEEDS_TOOLS, OSV_NO_DATA, SecurityCheck } from "../src/security/run";
-import { fakeTools, fixtureRepo, SEMGREP_NOT_ON_WINDOWS, SEMGREP_RUNS } from "./fixtures/security-tools/setup";
+import { FAKE_PROGRAM_SETUP_MS, fakeTools, fixtureRepo, prepareFakePrograms, SEMGREP_NOT_ON_WINDOWS, SEMGREP_RUNS } from "./fixtures/security-tools/setup";
 import { removeTempDir } from "./support/temp-dir";
+
+beforeAll(prepareFakePrograms, FAKE_PROGRAM_SETUP_MS);
 
 const temps: string[] = [];
 afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });

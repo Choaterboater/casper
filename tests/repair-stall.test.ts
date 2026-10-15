@@ -1,5 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
+import { afterEach, expect, spyOn, test } from "bun:test";
+import { ChildProcess, execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -47,6 +47,28 @@ test("a repair round that changes no files and leaves the same failure ends at o
   expect(report.status).toBe("fail");
   expect(report.reason).toBe("The last repair changed nothing and the failure is the same.");
   expect(prompts).toHaveLength(1);
+});
+
+test("a completed Git status with a missed child close event does not spend another repair", async () => {
+  const cwd = repo();
+  // Reproduce the first snapshot becoming unknown at the 2 s deadline even though
+  // Git exited successfully and all its output arrived. execFile waits for close.
+  const emit = ChildProcess.prototype.emit;
+  let missed = 0;
+  const events = spyOn(ChildProcess.prototype, "emit").mockImplementation(function (this: ChildProcess, event: string | symbol, ...args: unknown[]) {
+    if (event === "close" && !missed) { missed++; return false; }
+    return Reflect.apply(emit, this, [event, ...args]) as boolean;
+  });
+  const prompts: string[] = [];
+  try {
+    const report = await verifyAndRepair({ registry: registry(cwd, ["FAIL adds (3ms)", "FAIL adds (9ms)", "FAIL adds (4ms)", "FAIL adds (2ms)"]),
+      checks: ["test"], cwd, request: "fix", maxAttempts: 3, repair: async (prompt) => { prompts.push(prompt); } });
+    expect(missed).toBe(1);
+    expect(report.status).toBe("fail");
+    expect(report.reason).toBe("The last repair changed nothing and the failure is the same.");
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("?? app.ts");
+  } finally { events.mockRestore(); }
 });
 
 test("a repair round that changes files but not the failure is told so in the next prompt's first line", async () => {

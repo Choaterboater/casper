@@ -34,5 +34,5 @@ export function crewShell(sandbox: ShellSandbox, copy: string, note: (line: stri
     ...(ask?.host.stopAsking ? { stopAsking: () => ask.host.stopAsking!() } : {}),
     ...(ask?.host.routineCommands ? { routineCommands: () => ask.host.routineCommands!() } : {}),
   }, held, sandbox.store);
-  return { ...shell, close: async () => { await shell.close(); await held.close(); } };
+  return { ...shell, onCleanupFailure: ask?.host.onCleanupFailure, close: async () => { await shell.close(); await held.close(); } };
 }

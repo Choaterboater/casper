@@ -5,8 +5,10 @@ import path from "node:path";
 import { DEAD_PROXY } from "../src/mcp/check/sandbox";
 import { SecurityCheck, type SecurityReport } from "../src/security/run";
 import { RUFF_SECURITY_RULES, toolArgs } from "../src/security/tools";
-import { fakeTools, fixtureRepo, SEMGREP_RUNS } from "./fixtures/security-tools/setup";
+import { FAKE_PROGRAM_SETUP_MS, fakeTools, fixtureRepo, prepareFakePrograms, SEMGREP_RUNS } from "./fixtures/security-tools/setup";
 import { removeTempDir } from "./support/temp-dir";
+
+beforeAll(prepareFakePrograms, FAKE_PROGRAM_SETUP_MS);
 
 let root: string;
 let home: string;

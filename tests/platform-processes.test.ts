@@ -70,6 +70,38 @@ test("a platform without process groups terminates verified descendants children
   expect(signals.some((entry) => entry.id === 2000 || entry.id === 1001)).toBe(false);
 });
 
+for (const groups of [false, true]) {
+  test(`ownership retires exited identities during long-running process churn (groups=${groups})`, async () => {
+    const root: ProcessRecord = { pid: 1000, parent: 42, group: groups ? 1000 : 0, stamp: "root" };
+    const table = new Map([[root.pid, root]]);
+    const signalled: number[] = [];
+    const platform: ProcessPlatform = {
+      groups,
+      list: async () => new Map(table),
+      signalProcess: pid => { signalled.push(pid); table.delete(pid); },
+      signalGroup: group => {
+        signalled.push(group);
+        for (const item of table.values()) if (item.group === group) table.delete(item.pid);
+      },
+    };
+    const owner = new OwnedProcesses(root.pid, () => table.has(root.pid), platform);
+    await owner.capture();
+    // More than the lifetime identity limit, but only two live processes at once.
+    // Each complete OS snapshot proves the previous child has exited.
+    for (let index = 0; index < 4100; index++) {
+      const pid = 10_000 + index;
+      table.set(pid, { pid, parent: root.pid, group: groups ? pid : 0, stamp: `child-${index}` });
+      await owner.capture();
+      table.delete(pid);
+    }
+    const survivor: ProcessRecord = { pid: 20_000, parent: root.pid, group: groups ? 20_000 : 0, stamp: "survivor" };
+    table.set(survivor.pid, survivor);
+    expect(await owner.stop()).toBe("stopped");
+    expect(table.size).toBe(0);
+    expect(signalled).toEqual([survivor.pid, root.pid]);
+  }, 20_000);
+}
+
 test("an untrustworthy process listing fails closed instead of terminating anything", async () => {
   const signals: Array<{ kind: "process" | "group"; id: number }> = [];
   const platform: ProcessPlatform = {

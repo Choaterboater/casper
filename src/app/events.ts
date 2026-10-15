@@ -334,7 +334,7 @@ export class RuntimeEventView {
         if (this.terminal.questionOpen) return;
         this.endSpeech();
         this.ensureLineBreak();
-        this.output.write(`[checks] ${terminalText(title)} still running · ${minutes}m\n`);
+        this.output.write(`[checks] ${terminalText(title)} still running · ${minutes}m${entry.tail ? ` · ${lastOutputLine(entry.tail, 200)}` : ""}\n`);
         this.endedWithNewline = true;
       }, PLAIN_CHECK_EVERY_MS);
       entry.minutes.unref?.();

@@ -134,8 +134,20 @@ export class UndoStore {
       const out: Buffer[] = [];
       let size = 0, truncated = false, stderr = "";
       const limit = options.limit ?? 256 * 1024 * 1024;
-      const timer = setTimeout(() => { child.kill("SIGKILL"); reject(new GitError("git took too long", "ETIMEDOUT")); }, GIT_TIMEOUT_MS);
-      const abort = () => { child.kill("SIGKILL"); reject(new GitError("cancelled", "ABORT_ERR")); };
+      let settled = false;
+      const cleanup = () => { clearTimeout(timer); options.signal?.removeEventListener("abort", abort); };
+      const fail = (error: GitError) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        child.kill("SIGKILL");
+        // Git may already have exited while an inherited pipe is still open. Killing that dead child
+        // cannot close our pipe handles: release them too, or cancellation leaves the app alive.
+        child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy();
+        reject(error);
+      };
+      const timer = setTimeout(() => fail(new GitError("git took too long", "ETIMEDOUT")), GIT_TIMEOUT_MS);
+      const abort = () => fail(new GitError("cancelled", "ABORT_ERR"));
       options.signal?.addEventListener("abort", abort, { once: true });
       child.stdout.on("data", (chunk: Buffer) => {
         if (size >= limit) { truncated = true; return; }
@@ -144,14 +156,16 @@ export class UndoStore {
         out.push(chunk); size += chunk.length;
       });
       child.stderr.on("data", (chunk: Buffer) => { if (stderr.length < 4096) stderr += chunk.toString("utf8"); });
-      child.on("error", (error: NodeJS.ErrnoException) => { clearTimeout(timer); reject(new GitError(error.message, error.code)); });
+      child.on("error", (error: NodeJS.ErrnoException) => fail(new GitError(error.message, error.code)));
       child.on("close", (code) => {
-        clearTimeout(timer);
-        options.signal?.removeEventListener("abort", abort);
+        if (settled) return;
+        settled = true;
+        cleanup();
         if (code === 0) resolve({ stdout: Buffer.concat(out), truncated });
         else reject(new GitError(stderr.trim().split("\n").find(Boolean)?.replace(/^(?:fatal|error): /, "") ?? `git exited ${code}`));
       });
       child.stdin.on("error", () => {});
+      if (options.signal?.aborted) { abort(); return; }
       child.stdin.end(options.input ?? "");
     });
   }

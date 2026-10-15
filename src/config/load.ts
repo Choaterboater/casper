@@ -7,6 +7,7 @@ import { isValidProfileName } from "./profile";
 import { readReferenceFile } from "../references/files";
 import type { ProjectCommand, ProjectModelOverrides } from "../project/model";
 import { CHECK_NAMES, type CheckName } from "../verify/evidence";
+import { DEFAULT_CHECK_TIMEOUT_MS } from "../verify/command";
 import { labNamedChecks, parseNamedChecks } from "../verify/named";
 import { LAB_IN_PROJECT_ERROR, mergeLabSettings, parseLabSettings, type LabSettings } from "../network/spec";
 import { SKILL_IMPORTS, type SkillImport } from "../skills/registry";
@@ -757,7 +758,7 @@ export async function loadConfiguration(
   // A profile the repository picks is held like a project file: it can't turn them back on.
   if (pickedByProject) onOffLayer(profileDocument.pages, labels.profile, "pages", "; a list of pages is a project setting (.casper/project.yaml)");
   let maxActive = 6;
-  let timeoutMs = 600_000;
+  let timeoutMs = DEFAULT_CHECK_TIMEOUT_MS;
   let maxAttempts = 3;
   // Spending on the big model is the user's own choice: a project file never makes it.
   if (isMapping(projectDocument.repair) && projectDocument.repair.bigModelLastTry !== undefined) throw new Error(BIG_MODEL_IN_PROJECT_ERROR);

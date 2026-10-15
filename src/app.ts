@@ -49,6 +49,7 @@ import { NOT_A_PROJECT, snapshotFailureReason, snapshotTree } from "./task/chang
 import { renderBanner, wordmarkHeader } from "./tui/banner";
 import type { CheckName, VerificationReport } from "./verify/evidence";
 import { ProcessCleanupError } from "./platform/processes";
+import { CleanupRecovery } from "./app/cleanup";
 import { safeGitArgs } from "./platform/git";
 import { SpendGuard } from "./task/spend";
 import { VerificationTask } from "./verify/task";
@@ -346,11 +347,12 @@ export class CasperApp {
   taskRuntimeFailed = false;
   /** The files from before the current task's change, while it runs: tells a failure the change caused from one already there. */
   taskBaseline?: { baseline: ChangeBaseline; root: string };
+  /** Legacy embedders may still hand a pending incident to the command gate. */
   cleanupError?: ProcessCleanupError;
-  readonly blockOnCleanupFailure = () => {
-    this.cleanupError = new ProcessCleanupError();
-    this.commandAbort?.abort(); this.verificationAbort?.abort(); this.checkTask?.abort();
-    void this.session?.abort().catch(() => {});
+  readonly cleanupRecovery = new CleanupRecovery();
+  cleanupReports: NonNullable<TaskResult["cleanup"]> = [];
+  readonly blockOnCleanupFailure = (error: ProcessCleanupError = new ProcessCleanupError()) => {
+    this.cleanupRecovery.queue(error);
   };
   savedModelDisplay?: string;
   /** False when no sign-in exists (no saved provider, no provider key): the banner and footer say how to start. */
@@ -615,6 +617,14 @@ export class CasperApp {
 
   getLastTaskResult(): TaskResult | undefined {
     return this.lastTaskResult ? structuredClone(this.lastTaskResult) : undefined;
+  }
+
+  /** Current-command recovery overlays a copy, never the historical task a command only read. */
+  getCommandTaskResult(): TaskResult | undefined {
+    const task = this.getLastTaskResult();
+    return this.cleanupReports.length
+      ? { ...(task ?? { execution: "completed" }), cleanup: structuredClone(this.cleanupReports) }
+      : task;
   }
 
   async runOnce(prompt: string, cwd = process.cwd()): Promise<VerificationReport | undefined> {

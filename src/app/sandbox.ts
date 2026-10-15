@@ -1,4 +1,5 @@
 import { mkdtemp, rm } from "node:fs/promises";
+import type { ProcessCleanupError } from "../platform/processes";
 import os from "node:os";
 import path from "node:path";
 import { existsSync } from "node:fs";
@@ -32,6 +33,8 @@ import { routineCommand } from "../sandbox/routine";
  */
 
 export interface SandboxHost {
+  /** An owned command could not be confirmed stopped, including a builder's command. */
+  onCleanupFailure?(error?: ProcessCleanupError): void;
   /** Someone can answer a question now (an interactive session at a terminal, not closing). */
   canAsk(): boolean;
   /** `record`: the line a box answered with that choice leaves instead of "<question> → <answer>" ("" for none; undefined keeps it). */

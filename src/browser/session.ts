@@ -861,9 +861,9 @@ export class BrowserSession {
   private deadline?: { hold: () => void; resume: () => void };
   constructor(private readonly options: BrowserSessionOptions) {}
 
-  assertCleanup(): void { if (this.cleanupError) throw this.cleanupError; }
+  assertCleanup(): void { if (this.cleanupError && !this.cleanupError.acknowledged) throw this.cleanupError; }
 
-  status() { return { state: this.cleanupError ? "failed" : this.controller.signal.aborted ? "closed" : this.page ? "ready" : this.startup ? "starting" : "idle",
+  status() { return { state: this.cleanupError && !this.cleanupError.acknowledged ? "failed" : this.controller.signal.aborted ? "closed" : this.page ? "ready" : this.startup ? "starting" : "idle",
     ownedProcessCleanup: this.cleanupError ? "unknown" : undefined,
     runId: this.runId, screenshots: this.screenshotCount, ownedBrowserPid: this.browser?.process()?.pid }; }
 
@@ -1744,7 +1744,7 @@ export class BrowserSession {
     }
     await this.artifacts?.close();
     await serverClose;
-    if (outcome === "unknown") throw new ProcessCleanupError();
+    if (outcome === "unknown") throw new ProcessCleanupError(this.chromeOwner);
     if (this.profile) await rm(this.profile, { recursive: true, force: true });
   }
 }

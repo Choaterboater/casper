@@ -87,6 +87,7 @@ export interface OutputWriter {
 /** Everything the extracted slash-command handlers touch on the app. The app stays the
  * owner of all state; this interface makes the (wide) coupling explicit instead of private. */
 export interface CommandHost {
+  blockOnCleanupFailure?(error?: import("../platform/processes").ProcessCleanupError): void;
   readonly output: OutputWriter;
   /** What side questions (`? …`) cost this session, for /usage. */
   readonly sideQuestions?: { requests: number; tokens: number; estimatedCost: number; unknown: boolean };
@@ -1732,6 +1733,7 @@ async function runCrew(host: CommandHost, argument: string): Promise<void> {
     // Its commands that need a yes come to your box, named for it, and /permissions all counts as for yours.
     shell: (copy, note) => sandbox ? crewShell(sandbox, copy, note, { label: "Builder 1",
       onWait: (waiting) => host.terminal.setCrewWaiting("Builder 1", waiting), host: {
+      onCleanupFailure: host.blockOnCleanupFailure,
       canAsk: () => host.interactive && host.terminal.canAsk && !host.closing,
       pick: (question, options, signal, settings) => host.terminal.pick(question, options, signal ?? host.commandAbort?.signal, settings?.record ? { record: settings.record } : {}),
       write: (text) => { if (!host.closing) host.output.write(text); },

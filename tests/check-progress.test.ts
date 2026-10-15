@@ -112,6 +112,15 @@ test("a plain terminal prints one line a minute for a long check; --json prints 
   expect(ticks.filter(t => t.every === PLAIN_CHECK_EVERY_MS && t.live)).toEqual([]);
 });
 
+test("a plain-terminal slow check names the last file in its minute line", () => {
+  const s = view({ rich: false });
+  const run = s.events.watchCheck("test")!;
+  run.update("Last announced test file: tests/slow.test.ts · no output for 10s");
+  ticks.find(t => t.every === PLAIN_CHECK_EVERY_MS)!.fn();
+  expect(s.written.join("")).toContain("[checks] tests still running · 1m · Last announced test file: tests/slow.test.ts");
+  run.end();
+});
+
 test("the plain-terminal minute line waits while a numbered question is open", () => {
   const s = view({ rich: false });
   s.events.watchCheck("test");

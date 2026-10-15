@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -13,6 +13,15 @@ import { taskExitCode } from "../src/task/result";
 import { UndoStore } from "../src/task/undo";
 import { posixOnly } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
+
+async function eventually(check: () => void | Promise<void>, ms = 5_000): Promise<void> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    try { await check(); return; }
+    catch (error) { if (Date.now() >= deadline) throw error; }
+    await Bun.sleep(10);
+  }
+}
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => removeTempDir(root))); });
@@ -69,12 +78,10 @@ function makeApp(place: { home: string; project: string }, turns: Turn[], option
     async dispose() {},
   };
   let output = "";
-  const waiters: Array<{ test: () => boolean; resolve: () => void }> = [];
   const app = new CasperApp({
     ...(options.input ? { input: options.input } : {}),
     output: { write: (text: string) => {
       output += text;
-      for (const waiter of [...waiters]) if (waiter.test()) { waiters.splice(waiters.indexOf(waiter), 1); waiter.resolve(); }
     } },
     runtimeFactory: () => runtime, sessionHomeDir: place.home,
     loadProjectContext: (info) => loadProjectContext(info, { homeDir: place.home }),
@@ -83,12 +90,7 @@ function makeApp(place: { home: string; project: string }, turns: Turn[], option
     loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
     loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
   });
-  const until = (test: () => boolean) => {
-    if (test()) return Promise.resolve();
-    const { promise, resolve } = Promise.withResolvers<void>();
-    waiters.push({ test, resolve });
-    return promise;
-  };
+  const until = (test: () => boolean) => eventually(() => expect(test()).toBe(true), 25_000);
   return { app, rewinds, notes, output: () => output, until };
 }
 
@@ -108,6 +110,57 @@ function session(place: { home: string; project: string }, turns: Turn[], sessio
   const close = async () => { input.end(); await running; await made.app.close(); };
   return { ...made, input, send, close };
 }
+
+posixOnly("cancelling undo after git exits closes inherited pipes, so the worker can exit", async () => {
+  const place = await folder();
+  const bin = path.join(place.root, "bin");
+  await mkdir(bin);
+  const pidFile = path.join(place.root, "git.pid"), abortFile = path.join(place.root, "abort");
+  const resultFile = path.join(place.root, "result.json");
+  // The real git-shaped child exits, but its descendant deliberately keeps stdout/stderr open.
+  await writeFile(path.join(bin, "git"), `#!/bin/sh\n/bin/sleep 60 &\nprintf '%s' "$$" > "$UNDO_TEST_PID"\nexit 0\n`);
+  await chmod(path.join(bin, "git"), 0o755);
+  const worker = `
+    import { readFile, writeFile } from "node:fs/promises";
+    import { UndoStore } from ${JSON.stringify(new URL("../src/task/undo.ts", import.meta.url).href)};
+    const store = new UndoStore({ root: ${JSON.stringify(place.project)}, stateDirectory: ${JSON.stringify(place.home)} });
+    const initial = await store.snapshot();
+    if (!("tree" in initial)) throw new Error(initial.unavailable);
+    process.env.PATH = ${JSON.stringify(bin)};
+    process.env.UNDO_TEST_PID = ${JSON.stringify(pidFile)};
+    const controller = new AbortController();
+    const timer = setInterval(async () => {
+      if (await readFile(${JSON.stringify(abortFile)}).then(() => true, () => false)) controller.abort();
+    }, 10);
+    try { await writeFile(${JSON.stringify(resultFile)}, JSON.stringify(await store.snapshot(controller.signal))); }
+    finally { clearInterval(timer); }
+  `;
+  const child = spawn(process.execPath, ["--eval", worker], { detached: true, stdio: ["ignore", "ignore", "pipe"] });
+  let errors = "", exited = false, closed = false;
+  child.stderr!.on("data", (chunk) => { errors += chunk; });
+  child.once("close", () => { closed = true; });
+  child.once("exit", () => { exited = true; });
+  const stopGroup = () => {
+    try { process.kill(-child.pid!, "SIGKILL"); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+  };
+  try {
+    let gitPid = 0;
+    await eventually(async () => { gitPid = Number(await readFile(pidFile, "utf8")); expect(gitPid).toBeGreaterThan(0); });
+    await eventually(() => expect(() => process.kill(gitPid, 0)).toThrow());
+    expect(exited).toBe(false);
+    await writeFile(abortFile, "abort");
+    await eventually(async () => expect(JSON.parse(await readFile(resultFile, "utf8"))).toEqual({ unavailable: "the task was stopped before a copy was saved" }));
+    // Cancellation settled the promise; it must also release the dead child's still-open pipes.
+    await eventually(() => expect(exited).toBe(true));
+    expect(errors).toBe("");
+    expect(child.exitCode).toBe(0);
+  } finally {
+    // Own only this test's detached group, including its pipe-holding descendant, even after the worker exits.
+    stopGroup();
+    await eventually(() => expect(closed).toBe(true));
+  }
+}, 30_000);
 
 test("one-shot: the receipt says how to undo; casper /undo in a later run puts the file back", async () => {
   const place = await folder();

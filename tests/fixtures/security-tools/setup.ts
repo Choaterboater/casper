@@ -1,6 +1,6 @@
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ToolLocation } from "../../../src/security/install";
@@ -18,25 +18,61 @@ const LAUNCHER = path.join(import.meta.dir, "launcher.ts");
 
 let launcherExe: Promise<string> | undefined;
 
+/** A complete file, never a missing/empty output from a failed compile or publication. */
+async function launcherExists(file: string): Promise<boolean> {
+  return stat(file).then(details => details.isFile() && details.size > 0, () => false);
+}
+
+/** Fixture-only seams let every host test Windows build failures and competing publishers. */
+export async function buildSharedLauncher(exe: string, options: {
+  compile?: (outfile: string, cwd: string) => SpawnSyncReturns<string>;
+  publish?: (from: string, to: string) => Promise<void>;
+  scratchRoot?: string;
+} = {}): Promise<string> {
+  const failures: string[] = [];
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    if (await launcherExists(exe)) return exe;
+    // Bun may leave .bun-build runtime files: keep all compile output out of the repository.
+    const scratch = await mkdtemp(path.join(options.scratchRoot ?? os.tmpdir(), "casper-launcher-build-"));
+    const building = path.join(scratch, "launcher.exe");
+    let built: SpawnSyncReturns<string> | undefined;
+    try {
+      built = options.compile ? options.compile(building, scratch) : spawnSync(process.execPath,
+        ["build", "--compile", LAUNCHER, "--outfile", building],
+        { cwd: scratch, encoding: "utf8", windowsHide: true, timeout: 60_000 });
+      if (built.status !== 0 || built.signal || built.error) throw new Error("compile failed");
+      if (!await launcherExists(building)) throw new Error("compile produced no nonempty launcher");
+      // Publish atomically without replacing another worker's (possibly running) executable.
+      // A failed link is only a competing publisher if its completed file really exists.
+      try { await (options.publish ?? link)(building, exe); }
+      catch (error) { if (!await launcherExists(exe)) throw error; }
+      if (!await launcherExists(exe)) throw new Error("shared launcher missing after publication");
+      return exe;
+    } catch (error) {
+      failures.push(`attempt ${attempt}: ${String(error)}; status=${built?.status ?? "null"}; signal=${built?.signal ?? "null"}; error=${String(built?.error ?? "none")}; stdout=${JSON.stringify(built?.stdout ?? "")}; stderr=${JSON.stringify(built?.stderr ?? "")}`);
+    } finally {
+      await rm(scratch, { recursive: true, force: true }).catch(() => {});
+    }
+    if (attempt < 3) await Bun.sleep(100 * attempt);
+  }
+  throw new Error(`could not build/publish the test launcher:\n${failures.join("\n")}`);
+}
+
 /** launcher.ts built into an .exe once per version of it, shared by every test (Windows only). */
 function windowsLauncher(): Promise<string> {
   launcherExe ??= (async () => {
     const hash = createHash("sha256").update(await readFile(LAUNCHER)).update(Bun.version).digest("hex").slice(0, 16);
-    const exe = path.join(os.tmpdir(), `casper-test-launcher-${hash}.exe`);
-    if (await stat(exe).then((details) => details.isFile(), () => false)) return exe;
-    const building = path.join(os.tmpdir(), `casper-test-launcher-${hash}-${process.pid}-${Date.now()}.exe`);
-    // From a scratch folder: Bun 1.4 may leave a copy of its runtime (.<hash>-00000000.bun-build) in the build's folder,
-    // and it must never land in the repository (tests/release-compile.test.ts looks for exactly that leftover).
-    const scratch = await mkdtemp(path.join(os.tmpdir(), "casper-launcher-build-"));
-    let built: ReturnType<typeof spawnSync>;
-    try { built = spawnSync(process.execPath, ["build", "--compile", LAUNCHER, "--outfile", building], { cwd: scratch, encoding: "utf8", windowsHide: true }); }
-    finally { await rm(scratch, { recursive: true, force: true }).catch(() => {}); }
-    if (built.status !== 0) throw new Error(`could not build the test launcher: ${built.stderr}`);
-    // Another test process may have built it first: either copy is the same program.
-    await rename(building, exe).catch(async () => { await rm(building, { force: true }); });
-    return exe;
-  })();
+    return buildSharedLauncher(path.join(os.tmpdir(), `casper-test-launcher-${hash}.exe`));
+  })().catch(error => { launcherExe = undefined; throw error; });
   return launcherExe;
+}
+
+/** Covers three 60-second compile attempts, backoff and filesystem cleanup on a cold Windows host. */
+export const FAKE_PROGRAM_SETUP_MS = 240_000;
+
+/** Run in a budgeted beforeAll, not inside a security execution timer or a short consumer test. */
+export async function prepareFakePrograms(): Promise<void> {
+  if (process.platform === "win32") await windowsLauncher();
 }
 
 /**

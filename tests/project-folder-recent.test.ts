@@ -83,10 +83,11 @@ test("without a rich terminal the home-folder hint names the most recently used 
     const child = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts")], {
       cwd: home, env: cleanEnv({ HOME: home, CASPER_PROFILE: "default" }), stdin: "ignore", stdout: "pipe", stderr: "pipe",
     });
-    const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
-    expect(code).toBe(0);
+    const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(code, `CLI stderr: ${stderr}`).toBe(0);
     // Windows shows the real path; elsewhere the home folder is ~.
     const shown = process.platform === "win32" ? path.join(home, "Documents", "charlie-used") : "~/Documents/charlie-used";
     expect(stdout).toContain(`[folder] Opened in your home folder. To work in charlie-used: casper ${shown}`);
   } finally { await removeTempDir(home); }
-});
+// Loading the CLI's module graph competes with other spawned tests on Windows CI.
+}, process.platform === "win32" ? 60_000 : 15_000);

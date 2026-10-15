@@ -2,9 +2,12 @@ import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import type { CheckName, VerificationResult } from "./evidence";
 import { withoutProviderKeys } from "../platform/environment";
-import { osSupportsProcessGroups, ownSpawnedTree, type OwnedProcesses, terminateTree } from "../platform/processes";
+import { osSupportsProcessGroups, ownSpawnedTree, type OwnedProcesses, ProcessCleanupError, terminateTree } from "../platform/processes";
 import { type CheckProgress, currentCheckProgress, ProgressFeed } from "./progress";
 import { currentSandbox, type SandboxWrapOptions, type ShellSandbox } from "../sandbox/manager";
+
+/** Overall wall-clock limit for each command check, not a per-test or idle-output limit. */
+export const DEFAULT_CHECK_TIMEOUT_MS = 600_000;
 
 const OUTPUT_BYTES = 8192;
 
@@ -118,10 +121,11 @@ export interface CommandCheckOptions {
    * a caller that holds it some other way. Unset: the session sandbox with its defaults. */
   sandbox?: Omit<SandboxWrapOptions, "cwd"> | false;
   cwd: string;
+  /** Overall command deadline, including quiet or CPU-bound workers; output never resets it. */
   timeoutMs: number;
   signal?: AbortSignal;
-  /** The host must block further repair/work when an owned tree cannot be stopped. */
-  onCleanupFailure?: () => void;
+  /** The host reports owned processes and offers Stop/Leave when cleanup is uncertain. */
+  onCleanupFailure?: (error?: ProcessCleanupError) => void;
   /** The command's environment; unset inherits Casper's. AI provider keys are always taken out. */
   env?: NodeJS.ProcessEnv;
   /** Told how the run goes (start, the end of its output, end) for the Working box. Unset: the app's own sink, if any. */
@@ -186,25 +190,31 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
 
   return new Promise((resolve) => {
     let reason: string | undefined;
-    // A separate process group lets timeout/cancellation terminate shell children
-    // as well as the shell; Windows has no groups and terminates verified descendants.
+    // Track descendants too: Bun's parallel workers lead their own process groups.
+    // Windows has no groups and terminates verified descendants.
     let child;
     let owner: OwnedProcesses | undefined;
     try {
       child = spawn(plan.file, plan.args, { cwd, shell: plan.shell, windowsHide: true, detached: osSupportsProcessGroups, stdio: ["ignore", "pipe", "pipe"], env: withoutProviderKeys(options.env ?? process.env) });
-      owner = ownSpawnedTree(child.pid, () => child!.exitCode === null && child!.signalCode === null);
+      owner = ownSpawnedTree(child.pid, () => child!.exitCode === null && child!.signalCode === null, { trackGroups: true });
     } catch (error) {
       resolve({ ...base(), status: "fail", exitCode: null, signal: null, reason: `Could not execute: ${error instanceof Error ? error.message : String(error)}`, ended: "no_start" });
       return;
     }
     const feed = new ProgressFeed(options.progress ?? currentCheckProgress(), name);
     let killTimer: ReturnType<typeof setTimeout> | undefined;
+    let drainTimer: ReturnType<typeof setTimeout> | undefined;
+    let closed = false;
     let settled = false;
+    let cleanupError: ProcessCleanupError | undefined;
+    const reportCleanup = () => {
+      if (!cleanupError) { cleanupError = new ProcessCleanupError(owner); options.onCleanupFailure?.(cleanupError); }
+      return cleanupError;
+    };
     const kill = async (terminationSignal: NodeJS.Signals) => {
       const outcome = await terminateTree(owner, child.pid, terminationSignal);
       if (outcome === "unknown" && !settled) {
-        reason = "Owned process cleanup is unconfirmed; further checks and repair must be blocked";
-        options.onCleanupFailure?.();
+        reason = reportCleanup().message;
         // An unverified root may still own open pipes. Do not wait forever for
         // close after cleanup has already reported that it cannot terminate it.
         finish(null, null);
@@ -214,12 +224,12 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
       if (settled) return;
       settled = true;
       feed.end();
-      clearTimeout(timer); clearTimeout(killTimer);
+      clearTimeout(timer); clearTimeout(killTimer); clearTimeout(drainTimer);
       signal?.removeEventListener("abort", abort);
       child.stdout.destroy(); child.stderr.destroy();
       child.unref(); // Unknown cleanup must not turn a reported failure into an exit hang.
       const ended = checkEnded(exitCode, reason, plan.shell ? stderr.text() : "", process.platform, stdout.text());
-      const result: VerificationResult = { ...base(), status: !reason && exitCode === 0 ? "pass" : "fail", exitCode, signal: exitSignal, reason, ...(ended ? { ended } : {}) };
+      const result: VerificationResult = { ...base(), status: !reason && exitCode === 0 ? "pass" : "fail", exitCode, signal: exitSignal, reason, ...(ended ? { ended } : {}), ...(cleanupError ? { repair: "never" as const } : {}) };
       if (!held || result.status === "pass" || reason) { sandbox?.finished(held); resolve(withSlowTest(result, stdout.slowTest || stderr.slowTest)); return; }
       // A failure the sandbox caused says so, in the receipt and to the AI: "blocked by the sandbox (wanted to write /etc/hosts)".
       const output = `${result.stderr}\n${result.stdout}`;
@@ -236,7 +246,16 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
       reason = message;
       stopped = true;
       void kill("SIGTERM");
-      killTimer = setTimeout(() => { void kill("SIGKILL"); }, 100);
+      killTimer = setTimeout(() => {
+        void kill("SIGKILL").then(() => {
+          // A missed/reparented worker can keep inherited pipes open even after
+          // cleanup reports stopped. The deadline must settle independently of close.
+          if (!settled) {
+            if (!closed) reportCleanup();
+            finish(null, child.signalCode);
+          }
+        });
+      }, 100);
     };
     const abort = () => stop("Verification cancelled");
     const timer = setTimeout(() => stop(`Timed out after ${timeoutMs}ms`), timeoutMs);
@@ -244,11 +263,25 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
     child.stdout.on("data", (chunk: Buffer) => { stdout.add(chunk); feed.add(chunk); });
     child.stderr.on("data", (chunk: Buffer) => { stderr.add(chunk); feed.add(chunk); });
     child.on("error", (error) => { reason = `Could not execute: ${error.message}`; });
+    // A shell can exit while a worker keeps its pipes open (or closes them and spins).
+    // Clean the owned group on root exit, not only on close/timeout. A check never owns
+    // a background service beyond its command's lifetime.
+    child.on("exit", async (exitCode, exitSignal) => {
+      await kill("SIGKILL");
+      if (settled || closed) return;
+      drainTimer = setTimeout(() => {
+        if (settled || closed) return;
+        reason = "Owned process cleanup is unconfirmed: output pipes remained open after command exit";
+        reportCleanup();
+        finish(exitCode, exitSignal);
+      }, 250);
+    });
     child.on("close", async (exitCode, exitSignal) => {
-      clearTimeout(timer); clearTimeout(killTimer);
-      // On Windows also drain cleanup after a normal root exit: its observed
-      // descendants may still be alive. Never discard an unknown outcome.
-      if (reason || owner) await kill("SIGKILL");
+      closed = true;
+      clearTimeout(timer); clearTimeout(killTimer); clearTimeout(drainTimer);
+      // Drain cleanup even after a normal root exit, on every OS. The exit callback
+      // may still be stopping descendants; never discard an unknown outcome.
+      await kill("SIGKILL");
       // Windows has no signals: a tree Casper stopped ends with exit code 1, which is not the command's own.
       finish(stopped && process.platform === "win32" ? null : exitCode, exitSignal);
     });

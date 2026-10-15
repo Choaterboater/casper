@@ -58,7 +58,7 @@ export class LSPManager {
   constructor(readonly projectRoot: string, readonly configuration: LSPConfiguration, private readonly timeoutMs = 10_000) {}
 
   assertCleanup(): void {
-    if (this.cleanupError) throw this.cleanupError;
+    if (this.cleanupError && !this.cleanupError.acknowledged) throw this.cleanupError;
     try { for (const server of this.servers.values()) server.connection.assertCleanup(); }
     catch (error) { if (error instanceof ProcessCleanupError) this.cleanupError = error; throw error; }
   }
@@ -90,7 +90,7 @@ export class LSPManager {
   }
 
   connect(name: string): Promise<void> {
-    if (this.cleanupError) return Promise.reject(this.cleanupError);
+    if (this.cleanupError && !this.cleanupError.acknowledged) return Promise.reject(this.cleanupError);
     if (this.lifetime.signal.aborted) return Promise.reject(new Error("LSP manager closed"));
     const pending = this.starting.get(name);
     if (pending) return pending.work;

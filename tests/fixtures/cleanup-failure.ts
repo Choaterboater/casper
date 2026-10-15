@@ -36,6 +36,21 @@ try {
     assert.equal(result.status, "fail");
     assert.match(result.reason!, /cleanup is unconfirmed/);
     assert.equal(blocked, true);
+    const { VerifierRegistry } = await import("../../src/verify/registry");
+    let incident: processes.ProcessCleanupError | undefined;
+    const registry = VerifierRegistry.forProject({ project: { root: project }, commands: { test: checkCommand() } } as import("../../src/project/model").ProjectModel,
+      1000, error => { incident = error; });
+    await registry.run(["test"]);
+    assert.ok(incident instanceof processes.ProcessCleanupError, "The registry must forward the actual incident");
+    let retries = 0;
+    const retry = processes.OwnedProcesses.prototype.retryStop;
+    processes.OwnedProcesses.prototype.retryStop = function () { retries++; return retry.call(this); };
+    try { assert.equal(await incident.stop(), "unknown"); }
+    finally { processes.OwnedProcesses.prototype.retryStop = retry; }
+    assert.equal(retries, 1, "The registry must preserve the owner for an explicit Stop");
+    incident.acknowledge();
+    const [next] = await registry.run(["test"]);
+    assert.notEqual(next?.reason, "Owned process cleanup is unconfirmed; no further checks started");
   } else if (mode === "app-verifier") {
     const { CasperApp } = await import("../../src/app");
     const { checkCommand } = await import("../support/check-command");
@@ -55,9 +70,10 @@ try {
     try {
       const report = await app.runOnce("/verify repair test", project);
       assert.notEqual(report?.status, "pass");
-      await assert.rejects(() => app.runOnce("continue"), /cleanup is unconfirmed/);
-      await app.runOnce("/status"); // cleanup failure must not leave commandActive latched
-      assert.equal(starts, 0);
+      // Unattended cleanup is reported, but it must not become a permanent command lock.
+      await assert.rejects(() => app.runOnce("continue"), /No runtime may start/);
+      await app.runOnce("/status");
+      assert.equal(starts, 1);
     } finally { await app.close(); }
   } else if (mode === "lsp") {
     const { LSPManager } = await import("../../src/lsp/manager");

@@ -38,7 +38,7 @@ export class LSPConnection {
   }
 
   get alive(): boolean { return !this.ended; }
-  assertCleanup(): void { if (this.cleanupError) throw this.cleanupError; }
+  assertCleanup(): void { if (this.cleanupError && !this.cleanupError.acknowledged) throw this.cleanupError; }
 
   private send(message: unknown): void {
     if (this.ended) throw new Error("LSP connection closed");
@@ -104,7 +104,7 @@ export class LSPConnection {
     for (const pending of this.pending.values()) { pending.cleanup(); pending.reject(new Error(message)); }
     this.pending.clear();
     this.termination = terminateTree(this.owner, this.child.pid, "SIGKILL").then(outcome => {
-      if (outcome === "unknown") this.cleanupError = new ProcessCleanupError();
+      if (outcome === "unknown") this.cleanupError = new ProcessCleanupError(this.owner);
       return outcome;
     });
   }
