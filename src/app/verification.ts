@@ -8,9 +8,9 @@ import { failureLines, formatDuration, redactPreview, terminalText } from "../tu
 import type { ProjectContext } from "../project/context";
 import { testFailureSummary } from "../tui/tool-status";
 import { formatReceipt, liveCheckLine } from "../task/result";
-import { type CheckName, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "../verify/evidence";
+import { verificationStatus, type CheckName, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "../verify/evidence";
 import { VerifierRegistry } from "../verify/registry";
-import { longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } from "../verify/repair-loop";
+import { withHostChecks, longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } from "../verify/repair-loop";
 import { ALREADY_FAILING_CHOICES, unfinishedChoices } from "./safe-choices";
 import { VerificationTask } from "../verify/task";
 import { checkCommands, isBuiltinCheck, labNamedChecks } from "../verify/named";
@@ -35,6 +35,26 @@ import { settlePictures } from "./pictures";
 import { followTheme, reloadProject, writeProjectFile } from "./project-file";
 import { crewSweepStart, rememberCrewSweep } from "./crew-checks";
 import { applySessionCheckOverrides } from "./check-changes";
+
+/** Iteration checks are not the final test contract. Run that unchanged once, without a green-rerun repair loop. */
+export async function finishConfiguredTest(app: CasperApp, previous?: VerificationReport): Promise<VerificationReport | undefined> {
+  if (!app.checkTask || app.closing || app.commandAbort?.signal.aborted || app.taskRuntimeCancelled || app.taskRuntimeFailed
+    || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined) return previous;
+  const final = await app.checkTask.finish(app.commandAbort?.signal);
+  if (!final.length) return previous;
+  await recordCheckTimings(app.projectContext!.stateDirectory, final);
+  const refreshed = await app.checkTask.refresh(app.commandAbort?.signal);
+  // A broad script may miss a new assertion: retain its unresolved failure even if that script exits green.
+  const unresolved = previous?.results.find(result => result.name === "test" && result.testPhase === "changed" && result.status === "fail");
+  const results = unresolved && final.every(result => result.status === "pass")
+    ? refreshed.map(result => result.name === "test" ? unresolved : result) : refreshed;
+  const failures = results.filter(result => result.status === "fail" && result.kind !== "report");
+  const unfinished = failures.length > 0 && failures.every(result => result.ended);
+  const status = withHostChecks(unfinished ? "incomplete" : verificationStatus(results), results, previous?.smoke, previous?.pages);
+  return { ...previous, status: previous?.status === "fail" || previous?.status === "blocked" ? previous.status
+      : final.some(result => result.freshness === "stale") && status !== "fail" ? "incomplete" : status,
+    repairAttempts: previous?.repairAttempts ?? 0, results, rounds: [...app.checkTask.rounds] };
+}
 
 export async function runVerification(app: CasperApp, checks: readonly CheckName[],
   repair: boolean,

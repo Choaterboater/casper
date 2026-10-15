@@ -10,6 +10,7 @@ import { migrationsScope } from "./migrations";
 import { detectedE2e, E2E_CHECK, e2eNotInstalled, e2eResult } from "./e2e";
 import { COMPOSE_CHECK, COMPOSE_COMMAND, composeScope, detectedCompose, DOCKER_MISSING, runComposeCheck } from "./compose";
 import type { VerificationScope } from "./scope";
+import { changedTestFiles, hasChangedTestPhase } from "./changed-tests";
 
 export interface Verifier {
   name: CheckName;
@@ -22,6 +23,7 @@ export interface Verifier {
   runnable?: false;
   /** `timeoutMs`: a longer limit the user gave an unfinished check ("Allow more time"), at most one hour. */
   run(signal?: AbortSignal, options?: { timeoutMs?: number }): Promise<VerificationResult>;
+  runChanged?(paths: readonly string[] | undefined, signal?: AbortSignal, options?: { timeoutMs?: number }): Promise<VerificationResult>;
 }
 
 /** Runs one named check that uses a ready-made preset. Casper passes its network check runner; tests pass a fake. */
@@ -94,6 +96,8 @@ export class VerifierRegistry {
 
   command(name: CheckName): string | undefined { return this.verifiers.get(name)?.command; }
 
+  hasChangedTests(): boolean { return Boolean(this.verifiers.get("test")?.runChanged); }
+
   scope(name: CheckName): VerificationScope | undefined {
     const scope = this.verifiers.get(name)?.scope;
     return scope ? structuredClone(scope) : undefined;
@@ -101,7 +105,7 @@ export class VerifierRegistry {
 
   async run(
     names: readonly CheckName[],
-    options: { signal?: AbortSignal; onResult?: (result: VerificationResult) => void; timeoutMs?: number } = {},
+    options: { signal?: AbortSignal; onResult?: (result: VerificationResult) => void; timeoutMs?: number; phase?: "changed" | "final"; changedPaths?: readonly string[] } = {},
   ): Promise<VerificationResult[]> {
     const selected = [...new Set(names)].map((name) => {
       const verifier = this.verifiers.get(name);
@@ -110,7 +114,10 @@ export class VerifierRegistry {
     });
     const results: VerificationResult[] = [];
     for (const verifier of selected) {
-      const result = await verifier.run(options.signal, options.timeoutMs ? { timeoutMs: options.timeoutMs } : undefined);
+      const limits = options.timeoutMs ? { timeoutMs: options.timeoutMs } : undefined;
+      const result = options.phase === "changed" && verifier.runChanged
+        ? await verifier.runChanged(options.changedPaths, options.signal, limits)
+        : await verifier.run(options.signal, limits);
       results.push(result);
       options.onResult?.(result);
       if (options.signal?.aborted) break;
@@ -135,6 +142,14 @@ export class VerifierRegistry {
         name,
         scope: model.verificationScopes?.[name],
         ...(command?.trim() ? { command } : { runnable: false as const }),
+        ...(name === "test" && hasChangedTestPhase(command) ? { runChanged: async (paths: readonly string[] | undefined, signal?: AbortSignal, runOptions?: { timeoutMs?: number }) => {
+          if (cleanupFailed()) return blocked(name);
+          const files = await changedTestFiles(cwd, paths, signal);
+          if (!files?.length) return { name, cwd, status: "skip" as const, ...nothing, testPhase: "changed" as const,
+            reason: files ? "No import-related tests; the configured test check runs at task finish." : "Import graph unavailable; the configured test check runs at task finish." };
+          return { ...await runCommandCheck({ name, argv: ["bun", "test", "--parallel=4", ...files.map(file => `./${file}`)], cwd,
+            timeoutMs: limit(runOptions?.timeoutMs), signal, onCleanupFailure: onCleanup, ...wrap }), testPhase: "changed" as const };
+        } } : {}),
         run: async (signal, runOptions) => cleanupFailed() ? blocked(name)
           : command?.trim()
           ? runCommandCheck({ name, command, cwd, timeoutMs: limit(runOptions?.timeoutMs), signal, onCleanupFailure: onCleanup, ...wrap })

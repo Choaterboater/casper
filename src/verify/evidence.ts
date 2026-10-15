@@ -16,6 +16,8 @@ export type RepairClass = "repairable" | "ask" | "never";
 
 export interface VerificationResult {
   name: CheckName;
+  /** Import-related iteration evidence never substitutes for the final configured test command. */
+  testPhase?: "changed";
   status: "pass" | "fail" | "skip";
   command?: string;
   cwd: string;

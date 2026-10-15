@@ -1,15 +1,13 @@
-import { expect, test, vi } from "bun:test";
+import { expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import { GLYPHS } from "../src/tui/glyphs";
 import { TerminalSurface } from "../src/tui/surface";
-
-/** The footer spinner is the visible-motion contract: while a prompt runs or tool activity is
- * on screen the state glyph cycles through braille frames (ASCII ones in the old Windows console), and it
- * leaves the footer when idle (no state mark then). Rendered output is the observable surface; private timer fields are not asserted. */
+import { withEnv } from "./support/env";
+import { waitUntil } from "./support/wait";
 
 const SPINNER = GLYPHS.spinner;
-/** A footer line that starts with a frame. The ASCII frames (| / - \) also turn up inside other text, such as "/ for commands". */
 const spinning = (text: string) => Bun.stripANSI(text).split(/\r?\n|\r/).some(line => SPINNER.some(frame => line.startsWith(`${frame} `)));
+const rich = (body: () => Promise<void>) => withEnv({ TERM: "xterm-256color", NO_COLOR: undefined }, body);
 
 function makeSurface() {
   const chunks: string[] = [];
@@ -22,49 +20,39 @@ function makeSurface() {
   return { surface, chunks };
 }
 
-test("the footer spinner and the status row's spinner animate while work is present", async () => {
-  vi.useFakeTimers();
+test("the footer spinner and the status row's spinner animate while work is present", () => rich(async () => {
+  const { surface, chunks } = makeSurface();
+  const footerFrames = () => SPINNER.filter(frame => chunks.some(text => Bun.stripANSI(text).split(/\r?\n|\r/).some(line => line.startsWith(`${frame} `))));
+  const rowFrames = () => new Set(chunks.filter(text => text.includes("Running find · Esc stops"))
+    .map(text => SPINNER.find(frame => text.includes(`${frame} Running find`))).filter(frame => frame !== undefined));
   try {
-    const { surface, chunks } = makeSurface();
     surface.start();
     chunks.length = 0;
     surface.setWork({ rows: [], status: "Running find" });
-    vi.advanceTimersByTime(SPINNER.length * 120 + 120);
-    await Promise.resolve(); // requestRender schedules on process.nextTick; drain it.
-    await Promise.resolve();
-    const moving = SPINNER.filter(frame => chunks.some(text => Bun.stripANSI(text).split(/\r?\n|\r/).some(line => line.startsWith(`${frame} `))));
-    expect(moving.length).toBeGreaterThan(1);
-    // Elapsed time rides the same footer, right after the spinner. Bun's fake timers freeze Date, so it renders
-    // as "0s" here; the assertion proves the wiring, not clock arithmetic.
-    expect(chunks.some(text => SPINNER.some(frame => text.includes(`${frame} working 0s`)))).toBe(true);
-    // The status row above the prompt spins too, and says Esc stops the work.
-    const rowFrames = chunks
-      .filter(text => text.includes("Running find · Esc stops"))
-      .map(text => SPINNER.find(frame => text.includes(`${frame} Running find`)))
-      .filter(frame => frame !== undefined);
-    expect(new Set(rowFrames).size).toBeGreaterThan(1);
-    surface.close();
-  } finally { vi.useRealTimers(); }
-});
+    // Fake timers do not flush Pi's nextTick/render chain. Poll actual written frames on the platform clock.
+    expect(await waitUntil(() => footerFrames().length > 1 && rowFrames().size > 1)).toBe(true);
+    expect(footerFrames().length).toBeGreaterThan(1);
+    expect(rowFrames().size).toBeGreaterThan(1);
+    expect(chunks.some(text => SPINNER.some(frame => text.includes(`${frame} working `)) && /working \d+s/.test(text))).toBe(true);
+  } finally { surface.close(); }
+}));
 
-test("the footer drops the spinner and the time after the work clears", async () => {
-  // Bun's fake timers do not flush the renderer's nextTick/setTimeout chain reliably, so the
-  // idle transition is exercised against the platform clock; 300ms is bounded and rare.
+test("the footer drops the spinner and the time after the work clears", () => rich(async () => {
   const { surface, chunks } = makeSurface();
   try {
     surface.start();
     surface.setWork({ rows: [], status: "Running find" });
-    await new Promise(resolve => setTimeout(resolve, 200));
+    expect(await waitUntil(() => chunks.some(spinning))).toBe(true);
     chunks.length = 0;
     surface.setWork(undefined);
-    await new Promise(resolve => setTimeout(resolve, 300));
-    const idle = chunks.filter(text => text.includes("Casper · / for commands"));
-    expect(idle.length).toBeGreaterThan(0);
-    expect(spinning(idle.at(-1)!)).toBe(false);
+    const idle = () => chunks.filter(text => text.includes("Casper · / for commands"));
+    expect(await waitUntil(() => idle().length > 0)).toBe(true);
+    expect(spinning(idle().at(-1)!)).toBe(false);
     expect(Bun.stripANSI(surface.footerLine(80))).toStartWith("Casper · / for commands");
   } finally { surface.close(); }
-});
-test("a picker open during work (the model picker, sign-in) shows waiting for you, not a spinner", async () => {
+}));
+
+test("a picker open during work (the model picker, sign-in) shows waiting for you, not a spinner", () => rich(async () => {
   const { surface } = makeSurface();
   try {
     surface.start();
@@ -81,4 +69,4 @@ test("a picker open during work (the model picker, sign-in) shows waiting for yo
     expect(spinning(seen)).toBe(false);
     expect(surface.footerLine(80)).not.toContain("waiting for you");
   } finally { surface.close(); }
-});
+}));

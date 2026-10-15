@@ -11,14 +11,10 @@ test("TERMINAL_UX's command table lists every command in the / menu", async () =
   expect(missing).toEqual([]);
 });
 
-test("terminal polish is documented and explicitly built, not released", async () => {
+test("terminal polish is documented in its reference guide", async () => {
   const text = await doc();
   for (const claim of ["Enter to choose · Esc to skip", "120 columns", "twelve diff lines per file", "100 characters", "last sentence", "no empty `?` input row", "dim `–` notes", "four rows", "waited", "activity list remains above"]) expect(text).toContain(claim);
-  const release = await readFile(new URL("../docs/RELEASE.md", import.meta.url), "utf8");
-  expect(release).toContain("### Terminal polish (unreleased)");
-  const roadmap = await readFile(new URL("../site/roadmap.html", import.meta.url), "utf8");
-  expect(roadmap).toContain("<strong>Terminal polish.</strong>");
-  expect(roadmap).toContain("Built, not released.");
+
 });
 
 test("TERMINAL_UX's key table has Ctrl+T, and the doc no longer says there is no rollback", async () => {

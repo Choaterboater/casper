@@ -57,6 +57,20 @@ test("failing test names are read from bun, jest, vitest and pytest output, dedu
   expect(failedTestNames("error: Cannot find module '../src/value.js'")).toEqual([]);
 });
 
+test("the host's iteration argv runs only the generated acceptance file, never the broad configured script", async () => {
+  const root = await project();
+  await writeFile(path.join(root, "tests/value.test.js"), "throw new Error('the existing suite must not run');");
+  const files = await snapshotTree(root);
+  let prompt = "";
+  const result = await independentAcceptance({ complete: async input => { prompt = input.user; return answer(file('expect(value).toBe("FIXED")'))(input); },
+    request: "Make value FIXED.", root, changes: { added: [], modified: ["src/value.js"], removed: [] }, files,
+    testCommand: "bun .casper/quick-test.ts", testArgv: [process.execPath, "test", "--parallel=4"], timeoutMs: 60_000 });
+  expect(result.status).toBe("pass");
+  expect(prompt).toContain("--parallel=4");
+  expect(prompt).not.toContain("quick-test.ts");
+  expect(await readdir(path.join(root, "tests"))).toEqual(["value.test.js"]);
+});
+
 test("tests that pass the change make the check pass", async () => {
   const root = await project();
   expect((await run(root, answer(file("expect(value).toBe(\"FIXED\")")))).status).toBe("pass");

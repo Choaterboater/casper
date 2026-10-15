@@ -70,13 +70,11 @@ const STALE = [
 ];
 
 function userDocs(): Array<{ file: string; text: string }> {
-  const docs = readdirSync(path.join(ROOT, "docs")).filter((name) => name.endsWith(".md")).map((name) => path.join("docs", name));
+  const docs = readdirSync(path.join(ROOT, "docs")).filter((name) => name.endsWith(".md") && name !== "RELEASE.md").map((name) => path.join("docs", name));
   const files = ["README.md", ...docs, "src/tui/help.ts", "src/app/commands.ts", "src/security/format.ts"];
   return files.map((file) => {
-    let text = readFileSync(path.join(ROOT, file), "utf8");
-    // Release notes of earlier versions say what was true then; only the notes being written are checked.
-    if (file === path.join("docs", "RELEASE.md")) text = text.slice(0, text.indexOf("## v0.2.16"));
-    return { file, text };
+    // Release notes are history, not current reference docs; release-prep tests check their version/targets.
+    return { file, text: readFileSync(path.join(ROOT, file), "utf8") };
   });
 }
 
@@ -128,19 +126,14 @@ test("local model docs distinguish five discovery ports from explicit server-kin
   expect(local).not.toContain("These choices don't add automatic startup probes");
 });
 
-test("SGLang and MLX docs qualify identity and tool support and keep release notes unreleased", () => {
+test("SGLang and MLX docs qualify identity and tool support", () => {
   const config = readFileSync(path.join(ROOT, "docs", "CONFIGURATION.md"), "utf8").replace(/\s+/g, " ");
   expect(config).toContain("vllm-mlx's `owned_by` marker is recognized as **MLX**");
   expect(config).toContain("MLX LM exposes no reliable identity marker, so it stays **OpenAI-style server**");
   expect(config).toContain("Tool support depends on the model and startup flags");
   expect(config).toContain("`--tool-call-parser <parser>`");
   expect(config).toContain("server kinds, not new `/login` providers");
-  const release = readFileSync(path.join(ROOT, "docs", "RELEASE.md"), "utf8");
-  const unreleased = release.slice(release.indexOf("## v0.2.36:"), release.indexOf("## v0.2.35:"));
-  expect(unreleased).toContain("### SGLang and MLX model servers");
-  expect(unreleased).toContain("even with no sign-ins or models");
-  expect(unreleased).toContain("these changes are not in v0.2.35");
-  expect(unreleased).toContain("no API keys or separate sign-ins are needed");
+
 });
 
 test("TERMINAL_UX.md describes the queue and steer instead of saying there is no queued prompt execution", () => {

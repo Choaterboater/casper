@@ -10,6 +10,7 @@ import { SkillRegistry } from "../src/skills/registry";
 import { canonicalLine, commandMenu, COMMANDS, findCommand } from "../src/tui/commands";
 import { commandProblem, FULL_HELP_TEXT, HOTKEYS_TEXT, KEYS_HELP, unknownCommandMessage } from "../src/tui/help";
 import { richApp } from "./support/app";
+import { withEnv } from "./support/env";
 import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -156,7 +157,7 @@ test("/copy, /export, /rename and /logout work on the conversation, the clipboar
   expect(moved).toContain("For a new project type /project new my-tool");
 });
 
-test("on the screen: /new starts a new conversation, never the new-project questions; /theme opens the Theme question", async () => {
+test("on the screen: /new starts a new conversation, never the new-project questions; /theme opens the Theme question", () => withEnv({ TERM: "xterm-256color" }, async () => {
   const app = await richApp((project) => fakeRuntime({ names: [], exported: [], signedIn: [] }, project));
   try {
     await app.until((text) => text.includes("idle"));
@@ -173,4 +174,4 @@ test("on the screen: /new starts a new conversation, never the new-project quest
     expect(app.screen().slice(from)).not.toContain("Pick one to change:");
     app.input.write("\x1b");
   } finally { await app.close(); }
-}, 30_000);
+}), 30_000);

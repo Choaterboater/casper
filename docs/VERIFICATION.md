@@ -81,6 +81,36 @@ for paths git touched, the diff starts at the new HEAD, not the old folder copy.
 files with a plain reason. If Casper cannot read the branch baseline, it reports changes as unknown and
 refuses Undo rather than guessing. Normal tasks and non-git folders are unchanged. See [Undo](UNDO.md).
 
+## Iteration checks and the final configured test
+
+For the known Bun test entrypoints `bun test` and `bun .casper/quick-test.ts` (also `bun run
+.casper/quick-test.ts`), Casper splits a model task's test runs without editing your check configuration
+or scripts. During work and repair, it runs typecheck and lint as selected, and invokes
+`bun test --parallel=4` with only changed test files and tests that import changed files. Other selected
+automatic checks (such as build) wait for the final batch; explicitly requested checks still run directly. The import
+graph includes transitive imports, re-exports, literal dynamic imports and `require`; it does not execute
+project code to discover tests. Fixture directories, dependencies and build outputs are not test roots.
+Type-only dependencies are covered by typecheck, not this runtime-import selection.
+
+An empty or unavailable graph is a visible deferred skip, never a pass and never permission to start
+the broad suite during iteration. Runtime-computed imports and tests that read documents/data without
+importing them may not be selected; the final configured command covers those cases. Proof copies use
+the same selected test argv, rather than invoking quick-test again. Selection is bounded; an unreadable,
+invalid or oversized graph defers to the final run.
+
+After all model, review and browser-repair edits, **before the receipt**, Casper runs your unchanged
+configured test command once. A targeted pass cannot substitute for it. A final failure remains a failure;
+a final green cannot erase an unresolved targeted failure. Casper starts no repair/rerun loop for that
+final command. Cancelled/stopped tasks and unchanged tasks with no requested checks start no final command. A crew's final
+full sweep counts as that run rather than duplicating it. Explicit `/verify` still runs the configured
+command directly; custom runners, shell pipelines and Bun commands with extra flags retain their current
+behavior rather than being guessed at. Test evidence identifies iteration runs as `testPhase: changed`.
+The split does not change sandbox, timeout, cancellation or command-approval rules.
+
+Never rewrite `.casper/project.yaml` or a check script to narrow or speed it up. Use targeted `bun test`
+commands directly for additional diagnostics. Casper owns this per-change/final invocation split, not the
+model. The owner's configured quick-test selection still runs once at task finish.
+
 ## Changing configured checks
 
 The AI cannot silently replace the project's configured checks or the scripts they name. Native
@@ -93,6 +123,29 @@ remain ordinary edits. Shell commands targeting a possible check rewrite (includ
 are refused and directed to native edit/write so the exact change can be shown. Plain reads and copying
 checks to unrelated files are not rewrites; other shell permission rules still apply. This text guard is
 not an operating-system sandbox against opaque scripts. User-issued setup commands keep their own flows.
+
+## Working on Casper's own tests
+
+While working, run typecheck, lint and targeted `bun test --parallel=4 tests/example.test.ts` commands.
+Run the full set once at the end, at width four maximum; CI runs everything. Do not narrow the owner's
+configured check to save time. Keep at most two Casper sessions/crews building on a machine.
+
+`tests/support/preload.ts` clears ambient CI, git overrides, colour, agent and credential state before
+loading each test file. It supplies a throwaway HOME, XDG folders and an ordinary empty git config file
+for both `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM`, including on Windows. Bun caches `os.homedir()` at
+startup: pass a fixture home to code paths that take one, or launch a child with HOME/USERPROFILE set
+when testing native home resolution. Never monkey-patch built-ins globally. A test needing an env
+setting supplies it explicitly: `cleanEnv(extra)` for child processes, or serial `await withEnv(extra, body)` for in-process
+fixtures (restored in `finally`, including on rejection). Pass a source env as cleanEnv's second argument
+for pure env tests. Never mutate the platform. Screens use `tests/support/private-tmux.ts`: private
+`tmux -L`, throwaway HOME, cleanup in `finally`.
+
+For a suspected flake, use **Actions → Deflake one test file** (`.github/workflows/deflake.yml`): choose
+one `tests/*.test.ts` file, 1–100 independent runs and Linux, macOS or Windows. Inspect every run's logs
+and the pass/fail counts in the summary/artifact; a skipped test is not evidence. Do not merge a green
+rerun after a PR's own new/changed test failed. Prove it with this workflow, then fix it or record its
+owner, OS and reason in `tests/known-flaky.ts`. Observations there do not enable assertion retries;
+`tests/flaky-list.test.ts` still guards the separate timeout-only retry allowlist.
 
 ## Verification modes
 

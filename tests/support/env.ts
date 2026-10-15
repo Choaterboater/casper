@@ -1,3 +1,5 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 /**
@@ -32,14 +34,24 @@ function canonical(name: string): string {
  * `APPDATA`/`LOCALAPPDATA`. A fake `HOME` alone would leave the child reading the real profile,
  * so it moves those too unless the test sets them itself.
  */
-export function cleanEnv(extra: Record<string, string | undefined> = {}): Record<string, string | undefined> {
+export function cleanEnv(extra: Record<string, string | undefined> = {}, source: NodeJS.ProcessEnv = process.env): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = {};
-  for (const [name, value] of Object.entries(process.env)) {
-    if (!name.startsWith("PI_") && !name.startsWith("CASPER_") && !CREDENTIAL.test(name)) env[canonical(name)] = value;
+  for (const [name, value] of Object.entries(source)) {
+    const upper = name.toUpperCase();
+    if (!/^(PI_|CASPER_|GIT_)/.test(upper) && !CREDENTIAL.test(upper)
+      && !/^(CI|NO_COLOR|FORCE_COLOR|TMUX|TMUX_PANE|ITERM_SESSION_ID|TERM_PROGRAM|COLORTERM)$/.test(upper)) env[canonical(name)] = value;
   }
+  // Keep only the empty git config files installed by the preload, never ambient git configuration.
+  if (isolatedGitConfig) Object.assign(env, { GIT_CONFIG_GLOBAL: isolatedGitConfig, GIT_CONFIG_SYSTEM: isolatedGitConfig });
   // A model server on the developer's computer (Ollama and the like) never answers a test's Casper; `extra` may undo it.
   const changes: Record<string, string | undefined> = { CASPER_LOCAL_MODELS: "off", ...extra };
   const given = (name: string) => Object.keys(extra).some(key => key.toUpperCase() === name);
+  if (extra.HOME !== undefined) {
+    if (!given("XDG_CONFIG_HOME")) changes.XDG_CONFIG_HOME = path.join(extra.HOME, ".config");
+    if (!given("XDG_CACHE_HOME")) changes.XDG_CACHE_HOME = path.join(extra.HOME, ".cache");
+    if (!given("XDG_DATA_HOME")) changes.XDG_DATA_HOME = path.join(extra.HOME, ".local", "share");
+    if (!given("XDG_STATE_HOME")) changes.XDG_STATE_HOME = path.join(extra.HOME, ".local", "state");
+  }
   if (WINDOWS && extra.HOME !== undefined) {
     if (!given("USERPROFILE")) changes.USERPROFILE = extra.HOME;
     if (!given("APPDATA")) changes.APPDATA = path.join(extra.HOME, "AppData", "Roaming");
@@ -50,4 +62,29 @@ export function cleanEnv(extra: Record<string, string | undefined> = {}): Record
     if (value !== undefined) env[canonical(name)] = value;
   }
   return env;
+}
+
+let isolatedGitConfig: string | undefined;
+
+/** One disposable home per test worker/file, including an ordinary empty file Git can open on Windows. */
+export function isolatedEnvironment(): { home: string; env: NodeJS.ProcessEnv } {
+  const home = mkdtempSync(path.join(os.tmpdir(), "casper-test-home-"));
+  isolatedGitConfig = path.join(home, "empty-gitconfig");
+  writeFileSync(isolatedGitConfig, "");
+  return { home, env: cleanEnv({ HOME: home, TERM: "dumb" }) };
+}
+
+/** In-process environment fixtures only: keep tests using this helper serial; pass cleanEnv to children instead. */
+export async function withEnv<T>(extra: NodeJS.ProcessEnv, body: () => T | Promise<T>): Promise<T> {
+  const saved = { ...process.env };
+  try {
+    for (const [name, value] of Object.entries(extra)) {
+      unset(process.env, name);
+      if (value !== undefined) process.env[canonical(name)] = value;
+    }
+    return await body();
+  } finally {
+    for (const name of Object.keys(process.env)) unset(process.env, name);
+    Object.assign(process.env, saved);
+  }
 }

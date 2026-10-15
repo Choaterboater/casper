@@ -28,7 +28,7 @@ export async function rememberCrewSweep(app: CasperApp, rounds: VerificationResu
   const checks = fullSelection(app);
   const last = rounds.at(-1);
   if (!checks.length || !last || last.length !== checks.length
-    || checks.some(name => !last.some(result => result.name === name && !result.reused && result.freshness !== "stale"))) return;
+    || checks.some(name => !last.some(result => result.name === name && !result.testPhase && !result.reused && result.freshness !== "stale"))) return;
   // A later check may have invalidated an earlier entry in the historical round.
   const current = await app.checkTask!.refresh(app.commandAbort?.signal);
   if (checks.some(name => !current.some(result => result.name === name && result.freshness !== "stale"))) return;
@@ -70,7 +70,7 @@ export async function finishCrewChecks(app: CasperApp, mode: TaskResult["verific
   try {
     const before = tree ?? await app.snapshotWorkspace(app.activeWorkspaceRoot(), app.commandAbort?.signal);
     // Force an actual run even when earlier per-part/scoped passes still have matching inputs.
-    await app.checkTask.run(automatic, app.commandAbort?.signal, { force: true });
+    await app.checkTask.run(automatic, app.commandAbort?.signal, { force: true, phase: "final" });
     const results = await app.checkTask.refresh(app.commandAbort?.signal);
     const final = results.filter(result => automatic.includes(result.name));
     const after = before && await app.snapshotWorkspace(app.activeWorkspaceRoot(), app.commandAbort?.signal);

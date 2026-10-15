@@ -3,7 +3,7 @@ import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { TreeChanges } from "../task/changes";
-import { runCommandCheck } from "./command";
+import { argvText, runCommandCheck } from "./command";
 import { isCodePath, isTestPath } from "./proof";
 
 /** One model call outside the task conversation. `effort` and `maxTokens`, when given, override the
@@ -102,6 +102,8 @@ export async function independentAcceptance(input: {
   /** The workspace snapshot now; only its paths are used. */
   files: Map<string, string>;
   testCommand: string;
+  /** A host-selected runner for just the generated file; avoids repeating a broad iteration script. */
+  testArgv?: readonly string[];
   timeoutMs: number;
   signal?: AbortSignal;
 }): Promise<AcceptanceResult> {
@@ -130,7 +132,7 @@ export async function independentAcceptance(input: {
     const text = await readText(path.join(input.root, file));
     if (text !== undefined) sections.push(`Existing test ${file} (style example):\n\`\`\`\n${clip(text, EXAMPLE_LIMIT)}\n\`\`\``);
   }
-  sections.push(`Your file will be saved as ${relative} and run with: ${input.testCommand} ./${relative}`);
+  sections.push(`Your file will be saved as ${relative} and run with: ${input.testArgv ? argvText(input.testArgv) : input.testCommand} ./${relative}`);
 
   const answer = await input.complete({ systemPrompt: ACCEPTANCE_SYSTEM_PROMPT, user: sections.join("\n\n"), signal: input.signal, effort: EFFORT, maxTokens: MAX_TOKENS });
   const usage = answer.usage;
@@ -145,7 +147,7 @@ export async function independentAcceptance(input: {
   try {
     await mkdir(directory, { recursive: true });
     await writeFile(target, body + markerLine(relative, marker));
-    const result = await runCommandCheck({ name: "test", command: `${input.testCommand} ./${relative}`, cwd: input.root, timeoutMs: input.timeoutMs, signal: input.signal });
+    const result = await runCommandCheck({ name: "test", ...(input.testArgv ? { argv: [...input.testArgv, `./${relative}`] } : { command: `${input.testCommand} ./${relative}` }), cwd: input.root, timeoutMs: input.timeoutMs, signal: input.signal });
     if (result.exitCode === null) return { status: "error", reason: `the acceptance tests did not finish (${(result.reason ?? "no exit status").replace(/\.$/, "")})`, usage };
     if (result.exitCode === 0) {
       if (!await stat(marker).then(() => true, () => false)) return { status: "error", reason: "the test command passed but did not run the acceptance tests, so nothing is trusted", usage };
