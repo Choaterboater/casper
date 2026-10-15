@@ -143,6 +143,78 @@ async function finish(h: Harness, running: Promise<void>, rich = true) {
   h.input.destroy();
 }
 
+for (const surface of ["rich", "plain"] as const) {
+  test(`${surface}: a startup request runs first, then the session keeps reading`, async () => {
+    const dirs = await setup("casper-first-request-");
+    const h = harness(dirs.home, { surface });
+    const running = h.app.runInteractive(dirs.work, "explain this folder");
+    try {
+      await h.until(() => h.prompts.length === 1);
+      await h.until(surface === "rich" ? settled : text => text.endsWith("> "));
+      expect(h.prompts[0]).toContain("explain this folder");
+      expect(h.app.interactive).toBe(true);
+      h.input.write(surface === "rich" ? "and what next?\r" : "and what next?\n");
+      await h.until(() => h.prompts.length === 2);
+      expect(h.prompts[1]).toContain("and what next?");
+      expect(h.visible()).not.toContain("isn't a folder here");
+      await h.until(surface === "rich" ? settled : text => text.endsWith("> "));
+    } finally { await finish(h, running, surface === "rich"); await dirs.cleanup(); }
+  });
+}
+
+for (const choice of [1, 2]) {
+  test(`home lone startup word: choice ${choice} asks or starts the named project`, async () => {
+    const dirs = await setup("casper-first-word-");
+    const h = harness(dirs.home);
+    const running = h.app.runInteractive(dirs.home, "kvcache");
+    try {
+      await h.until(text => text.includes('"kvcache" isn\'t a folder here.'));
+      expect(h.visible()).toContain("1 Ask it as a question");
+      expect(h.visible()).toContain("2 Start a new project named kvcache");
+      expect(h.prompts).toEqual([]);
+      h.input.write(String(choice));
+      if (choice === 1) {
+        await h.until(() => h.prompts.length === 1);
+        expect(h.prompts[0]).toContain("kvcache");
+        expect(h.created).toEqual([]);
+        expect(h.starts).toEqual([dirs.home]);
+      } else {
+        await h.until(text => text.includes("Ready: ~/Projects/kvcache"));
+        await h.until(text => text.includes("idle"));
+        expect(h.created.map(({ name }) => name)).toEqual(["kvcache"]);
+        expect(h.app.projectContext!.info.root).toBe(path.join(dirs.home, "Projects/kvcache"));
+        expect(h.prompts).toEqual([]);
+      }
+      await h.until(settled);
+      expect(h.app.interactive).toBe(true);
+    } finally { await finish(h, running); await dirs.cleanup(); }
+  });
+}
+
+test("two startup words at home bypass the lone-word question", async () => {
+  const dirs = await setup("casper-first-words-");
+  const h = harness(dirs.home);
+  const running = h.app.runInteractive(dirs.home, "explain kvcache");
+  try {
+    await h.until(() => h.prompts.length === 1);
+    await h.until(settled);
+    expect(h.visible()).not.toContain("isn't a folder here");
+  } finally { await finish(h, running); await dirs.cleanup(); }
+});
+
+test("a startup build request uses the usual new-project question", async () => {
+  const dirs = await setup("casper-first-build-");
+  const h = harness(dirs.home);
+  const running = h.app.runInteractive(dirs.work, REQUEST);
+  try {
+    await h.until(text => text.includes("Build this as a new Mist Python project"));
+    h.input.write("2");
+    await h.until(() => h.prompts.length === 1);
+    expect(h.starts).toEqual([path.join(dirs.home, "Projects/mist-aps")]);
+    await h.until(settled);
+  } finally { await finish(h, running); await dirs.cleanup(); }
+});
+
 test("a build request outside a project asks before the model starts; 2 builds it and the model starts in the new folder", async () => {
   const dirs = await setup("casper-new-ask-yes-");
   const h = harness(dirs.home);

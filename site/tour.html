@@ -570,9 +570,14 @@ command output: on. Extra check: netconan not found (built-in only).</pre>
 
       <section id="scripting" aria-labelledby="scripting-h">
         <h2 id="scripting-h">Scripting: --json and exit codes</h2>
-        <p>Give Casper a prompt on the command line and it does that one task, then exits. Add
-        <code>--json</code> and every event is one JSON object per line on stdout. The last line is the
-        receipt.</p>
+        <p><strong>Built, not released:</strong> <code>casper "your request"</code> starts a persistent
+        session with that first request when stdin and stdout are both TTYs, no forcing flags are given
+        and <code>CI</code> is unset. Use <code>casper -p "your request"</code> (or <code>--print</code>)
+        to run once and exit; use <code>-p</code> explicitly in scripts.</p>
+        <p>Existing scripts stay one-shot when either stream is non-TTY, or with <code>--json</code>, a
+        lone <code>-</code> prompt, <code>--require-verification</code>, <code>--max-turns</code>, or
+        <code>CI</code> set. Receipts and exit codes are unchanged. With <code>--json</code>, every event
+        is one JSON object per line on stdout. The last line is the receipt.</p>
         <figure class="capture">
           <pre class="term" tabindex="0" data-title="bash — ~/project"><span class="dim"># (the model here is the scripted stand-in; checks, proof and receipt are real)</span>
 
@@ -776,9 +781,10 @@ on in ~/.casper/config.yaml)</pre>
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">/help</span>
 Casper — your coding companion
 
-Type a request and press Enter (during a task it steers the AI or waits in the queue). Start a line with ? to ask on the side. Esc stops work. Type / for every command.
+Type a request and press Enter (during a task it steers the AI or waits in the queue). Start a line with ? to ask on the side. Esc stops work. Type / for every command; /help &lt;word&gt; searches and /help all shows everything.
   casper [folder]        Open Casper here, or in that folder
-  casper &lt;prompt&gt;        Run one request and exit (options: /help all)
+  casper "first request"  Open a session and start this request
+  casper -p "request"    Run one request and exit (--print is the same; options: /help all)
   casper new [name]      Start a new project (casper new --list shows the kinds)
   /model, /effort        Pick the model, and how hard it thinks (Shift+Tab cycles effort)
   /diff, /undo, /redo    See the last task's changes, or put its files back
@@ -788,7 +794,6 @@ Type a request and press Enter (during a task it steers the AI or waits in the q
   /references            Search vendor specs you downloaded (/references add gets one)
   /resume, /clear        Pick up a saved conversation, or start a fresh one
   /settings [name]       Browse settings by area, type to search, or change one by name
-  /help &lt;word&gt;           Search the help; /help all shows everything
 Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an empty line exits. Approvals always need a fresh yes from you. think hard: or big model: at the start of a request sets that task (/help words).</pre>
         </details>
         <p>Want more? The <a href="network.html">Network page</a> goes deep on MCP and device safety,

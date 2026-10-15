@@ -6,9 +6,10 @@ import { NEW_HELP_LINE } from "../new/templates";
 
 export const HELP_TEXT = `Casper — your coding companion
 
-Type a request and press Enter (during a task it steers the AI or waits in the queue). Start a line with ? to ask on the side. Esc stops work. Type / for every command.
+Type a request and press Enter (during a task it steers the AI or waits in the queue). Start a line with ? to ask on the side. Esc stops work. Type / for every command; /help <word> searches and /help all shows everything.
   casper [folder]        Open Casper here, or in that folder
-  casper <prompt>        Run one request and exit (options: /help all)
+  casper "first request"  Open a session and start this request
+  casper -p "request"    Run one request and exit (--print is the same; options: /help all)
   casper new [name]      Start a new project (casper new --list shows the kinds)
   /model, /effort        Pick the model, and how hard it thinks (Shift+Tab cycles effort)
   /diff, /undo, /redo    See the last task's changes, or put its files back
@@ -18,7 +19,6 @@ Type a request and press Enter (during a task it steers the AI or waits in the q
   /references            Search vendor specs you downloaded (/references add gets one)
   /resume, /clear        Pick up a saved conversation, or start a fresh one
   /settings [name]       Browse settings by area, type to search, or change one by name
-  /help <word>           Search the help; /help all shows everything
 Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an empty line exits. Approvals always need a fresh yes from you. think hard: or big model: at the start of a request sets that task (/help words).
 `;
 
@@ -35,8 +35,9 @@ export const HOTKEYS_TEXT = `Keys:\n${KEYS_HELP.split(/(?<=\.) (?=[A-Z])/).map((
 export const FULL_HELP_TEXT = `Casper — your coding companion
 
 Usage:
-  casper               Start interactive mode
-  casper <prompt>      Run one prompt and exit; options go before the prompt (quote the whole request to send them as words)
+  casper               Start an interactive session
+  casper "first request"  Open a session and start this request
+  casper -p "request"  Run one request and exit; --print is the same; options go before the prompt (quote the whole request to send them as words)
   casper <folder>      Open that folder, like --cd <folder> with no prompt
   casper --version, -v Print the installed version and the path that is running
   casper learn <repo>  Write learning drafts from a repo using a read-only model run; a draft does nothing until you promote it
@@ -71,6 +72,8 @@ Usage:
                        Project-defined servers need interactive /mcp or /lsp connect review
   casper --help, -h    Show help
   casper --licenses    Print third-party license notices
+
+With an initial request, Casper runs once and exits instead if either stdin or stdout is not a TTY, CI is set, or you use --json, a lone - (prompt from stdin), --require-verification or --max-turns. -p/--print always runs once and needs a prompt.
 
 Local commands:
   /help                             Short help (no model)

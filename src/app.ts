@@ -617,7 +617,7 @@ export class CasperApp {
     return handlePrompt(this, prompt.trim());
   }
 
-  async runInteractive(cwd = process.cwd()): Promise<void> { return runInteractive(this, cwd); }
+  async runInteractive(cwd = process.cwd(), firstRequest?: string): Promise<void> { return runInteractive(this, cwd, firstRequest); }
 
   /** OS SIGINT and terminal Ctrl-C share cancellation, without disposing the session. */
   interrupt(): boolean {

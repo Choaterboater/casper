@@ -4,7 +4,7 @@
 init tool (`uv init` or `bun init`), lays a bundled template over it, adds the dev packages, runs the
 project's own checks once, and makes a first commit with your own git identity.
 
-## Four ways in
+## Ways in
 
 | Where | What happens |
 | --- | --- |
@@ -13,6 +13,16 @@ project's own checks once, and makes a first commit with your own git identity.
 | `casper` from your home folder or a drive root (`C:\`, `/`) | Casper opens right there and asks nothing. One line says where it opened and the command that opens the project you last worked in (`casper ~/Projects/myapp` when there is none yet; on Windows the real path), and `casper new` starts a new project. These folders are broad, so the AI can see and write across all of it: open a project folder when you want it kept to one. They are not a project either: tasks there don't list the folder first (so no change list or undo, and the receipt says `not a project folder`), and the AI is told not to search it broadly and to put a new project in `~/Projects/<name>`. |
 | `casper` in any other folder | Opens exactly there, with no question. A folder that only holds projects prints one line, such as "This folder holds 5 projects (aibot, casper, and 3 more). To work in one: casper aibot", when it holds two or more. |
 | A build request in a folder that holds other things | In a folder that is not a project and not empty (Documents, say), "build a tool that lists Mist APs per site" asks once, before any model call: "Build this as a new Mist Python project in ~/Projects/mist-aps? 1 Use this folder · 2 Yes · 3 Other kind". Enter keeps this folder, and Other kind lists the kinds after "Use this folder". Typing a name instead of a number (or picking the last row, 4 Other — type your own answer, and typing it) uses that name; typing "yes" builds it and "no" keeps this folder, and a number that isn't a choice asks again. Yes builds it, opens it, and your request goes on there, so its checks and proof run in the new project. It is asked at most once a session, and only before the model has started: a conversation's folder is fixed once it exists. |
+
+**Built, not released (next preview):** `casper "build a todo app"` starts a persistent session
+with that first request when stdin and stdout are both TTYs, no forcing flags are given and `CI`
+is unset. At home or a drive root, a lone word that isn't a folder (`casper myapp`) first asks
+whether you meant a request or a new project of that name. It does not create a project without
+your choice. Existing folders still open directly; elsewhere, or with two or more words, that
+question is not asked. `casper new myapp` explicitly starts the named project, with no such question.
+Use `-p` / `--print` to run once. Either stream being non-TTY, `--json`, a lone `-` prompt,
+`--require-verification`, `--max-turns`, or `CI` set also keeps a prompt one-shot; these runs
+never ask the lone-word question. See [SCRIPTING.md](SCRIPTING.md).
 
 `/project new [name]`, `/project new <template> <name>` and `/project new --list` do the same inside a
 session (`/new` starts a new conversation, as in other coding agents). Before the

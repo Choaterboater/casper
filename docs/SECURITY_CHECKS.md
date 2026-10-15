@@ -161,6 +161,6 @@ This is the AI's opinion of the code it read. It does not prove the code has no 
 - **Ignores stay yours.** Nothing the AI says can approve or hide an ignore. Only an
   ignore you committed, or one you approved with your own `3`, counts.
 - **Scripts.** A one-shot or `--json` run never starts the AI review by itself: it says
-  so and spends nothing. `casper "/security-review ai"` runs it without asking, like
+  so and spends nothing. `casper -p "/security-review ai"` (`-p` in the next preview) runs it without asking, like
   `/security-review ai` in a session (the cost is printed first), and with `--json` the receipt's `usage` says what it spent.
   `casper security` never calls a model.

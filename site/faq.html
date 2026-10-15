@@ -451,8 +451,14 @@ on in ~/.casper/config.yaml)</pre>
 
         <details>
           <summary>Can I use it in scripts or CI?</summary>
-          <p>Yes. <code>casper "your request"</code> runs once and exits. <code>--json</code> streams
-          events as JSON Lines. Exit codes tell the script what happened: for example, with
+          <p>Yes. <strong>Built, not released:</strong> use <code>casper -p "your request"</code>
+          (or <code>--print</code>) to run once and exit; use <code>-p</code> explicitly in scripts.
+          With stdin and stdout both TTYs, no forcing flags and <code>CI</code> unset,
+          <code>casper "your request"</code> starts a session and stays open for follow-ups instead.
+          Existing scripts stay one-shot when either stream is non-TTY, or with <code>--json</code>,
+          a lone <code>-</code> prompt, <code>--require-verification</code>, <code>--max-turns</code>,
+          or <code>CI</code> set. <code>--json</code> streams events as JSON Lines.</p>
+          <p>Exit codes and receipts are unchanged. Exit codes tell the script what happened: for example, with
           <code>--require-verification</code> a change Casper could not verify exits
           <code>3</code>, and a command-line mistake exits <code>64</code>. See
           <a href="https://github.com/Choaterboater/casper/blob/main/docs/SCRIPTING.md">SCRIPTING.md</a>.</p>

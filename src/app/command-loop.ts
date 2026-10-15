@@ -20,7 +20,7 @@ import { leadingImagePath, startsWithImageFile } from "./images";
 import { serviceManager } from "./task-tools";
 import { updateFooter, loadPaneSetting, askPaneOnce, paneCommand, detailsCommand } from "./footer";
 import { settleQueuedLines } from "./during-work";
-import { newProjectFlowWithAbort, openProjectFolder, newProjectCommand } from "./workspace";
+import { newProjectFlowWithAbort, openProjectFolder, newProjectCommand, initialProjectRequest, openWorkspaceBeforeRuntime } from "./workspace";
 import { rebindWorkspace } from "./session-branches";
 import { runModelTask, runSuggestion } from "./task-run";
 import { parseRequestWords } from "./request-words";
@@ -34,15 +34,18 @@ import { pagesCommand } from "./pages";
 import { rewind } from "./rewind";
 import { readPlan, recentPlans } from "../flows/plan-store";
 
-export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promise<void> {
+export async function runInteractive(app: CasperApp, cwd = process.cwd(), firstRequest?: string): Promise<void> {
   // Own the terminal before the banner so startup output is transcript, not
   // loose text a later redraw would drop.
   app.interactive = true;
   app.terminal.start();
   let workspace = cwd;
-  if (!app.projectContext && app.newProjectRequest) {
+  if (firstRequest) app.queuedPrompt = firstRequest;
+  const initialProject = firstRequest ? await initialProjectRequest(app, cwd, firstRequest) : undefined;
+  const newProject = app.newProjectRequest ?? initialProject;
+  if (newProject && (!app.projectContext || initialProject)) {
     // `casper new` on a terminal: the project first, then Casper opens there. Nothing built: no session.
-    const result = await newProjectFlowWithAbort(app, (flow) => newProjectFromQuestions(flow, app.newProjectRequest!, undefined, (text) => { app.queuedPrompt = text; }));
+    const result = await newProjectFlowWithAbort(app, (flow) => newProjectFromQuestions(flow, newProject, undefined, (text) => { app.queuedPrompt = text; }));
     if (!opened(result)) {
       if (!result && !app.closing) app.output.write("Nothing was created.\n");
       app.newProjectExitCode = result?.exitCode ?? 1;
@@ -51,6 +54,7 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promi
       return;
     }
     workspace = result.dir;
+    if (app.projectContext) await openWorkspaceBeforeRuntime(app, workspace);
   } else if (!app.projectContext) workspace = await openProjectFolder(app, cwd);
   if (!app.projectContext) {
     await app.start(workspace);

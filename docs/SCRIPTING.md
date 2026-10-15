@@ -4,7 +4,15 @@
 in the terminal. **When you'd use it:** you want one task done with no human at the keyboard, and
 you want the script to know if it worked (by exit code or by JSON).
 
-Give Casper a prompt on the command line and it runs that one prompt, then exits.
+**Built, not released (next preview):** use `casper -p "your request"` (or `--print`) to run one
+prompt, then exit. Use `-p` explicitly in scripts. With stdin and stdout both TTYs (terminals),
+no forcing flags and `CI` unset, `casper "your request"` instead starts a persistent session,
+sends that first request and stays open for follow-ups. The published v0.2.35 still runs a
+command-line prompt once; `-p` / `--print` arrives in the next preview.
+
+Existing scripts stay one-shot: either stdin or stdout being non-TTY, `--json`, a lone `-` prompt,
+`--require-verification`, `--max-turns`, or `CI` set forces one run. `--verify` and `--no-verify`
+alone do not force one-shot mode. Exit codes, JSON events and receipt meanings are unchanged.
 The flags below let you pick the model for the run, get machine-readable events, continue a
 conversation, and get an exit code that says whether the change was checked.
 
@@ -28,14 +36,18 @@ echo "exit ${PIPESTATUS[0]}"   # bash: Casper's exit code, not jq's
   (`casper ~/code/app`) opens that folder instead of sending its path as a prompt; a single word
   that can only be a path but is not a folder exits 64 with `Not a folder: <path>`. A quoted
   request such as `casper "fix src/app.py"` is still a prompt.
+- In the next preview, an interactive lone word that isn't a folder, from home or a drive root,
+  asks whether it is a request or a new project name before sending it or creating a project.
+  Elsewhere, or with two or more words, that question is not asked. Explicit one-shot runs never ask it.
 
 **Read the prompt from stdin.** A lone `-` as the prompt reads it from stdin (at most 1 MiB):
 
 ```sh
-casper --json --verify - < task.md
+casper -p --json --verify - < task.md
 ```
 
-Prefer this in scripts. Casper runs on Bun, which cannot hide its command line the way Node
+Prefer stdin in scripts (`-p` is available in the next preview; `--json --verify -` works today).
+Casper runs on Bun, which cannot hide its command line the way Node
 programs such as Pi can. A prompt given as arguments stays visible in `ps` to other users of the
 machine, and a `pkill -f` with words from the prompt (a model stopping "src/server.ts", say)
 would match Casper itself. The benchmark harness passes Casper's prompt this way. `-` with no
@@ -47,13 +59,14 @@ pipe (a terminal on stdin) or an empty stdin is a usage error (exit 64).
 |---|---|
 | `--model <provider/model-id[:effort]>` | Use this model for this run only. Also accepts `@role` selectors (`@fast`, `@build`, `@reason`, `@review`, `@default`; see [CONFIGURATION.md](CONFIGURATION.md#model-roles-and-automatic-effort)). The saved default is never changed. |
 | `--effort <level\|auto>` | Reasoning effort for this run only: `auto`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. Any level works on any model: a level the model lacks runs as the nearest level above it, else below (`medium` on a model with only low and high runs as high; a model without reasoning runs without it). Not remembered. Do not combine with an effort suffix in `--model`. |
-| `--json` | JSON Lines events on stdout ([below](#json-events)). Everything a person would read (banner, transcript, receipt) goes to stderr. Needs a prompt. |
+| `-p` / `--print` | Run one prompt, print the result and exit, even in a terminal (built, not released). |
+| `--json` | Forces one-shot mode. JSON Lines events on stdout ([below](#json-events)). Everything a person would read (banner, transcript, receipt) goes to stderr. Needs a prompt. |
 | `--verify` / `--no-verify` | Casper runs the checks after this run's edits (`auto`), or runs none (`off`). Cannot be combined. See [VERIFICATION.md](VERIFICATION.md). |
-| `--require-verification` | Implies `--verify`. Changes Casper did not verify exit **3** instead of 0. Needs a prompt. Cannot be combined with `--no-verify`. |
+| `--require-verification` | Forces one-shot mode and implies `--verify`. Changes Casper did not verify exit **3** instead of 0. Needs a prompt. Cannot be combined with `--no-verify`. |
 | `--continue` | Continue this folder's most recent conversation. With none, a new one starts, with the notice `[session] No earlier conversation in this workspace; starting a new one.` |
 | `--resume <id-prefix>` | Continue the saved conversation whose ID starts with this prefix. `casper /resume` lists IDs. No match, or more than one, is a usage error. Cannot be combined with `--continue`. |
 | `--cd <path>` | Work in that folder instead of the current directory. A path that is not a folder is a usage error. |
-| `--max-turns <n>` | Stop each model request after `n` model turns (1–9999). The run is then incomplete (exit 2) and Casper runs no checks. The requirements review (`verification.review: true`) and the proof repair round have their own 12-turn budget; hitting that is not this stop (see [VERIFICATION.md](VERIFICATION.md#requirements-review)). |
+| `--max-turns <n>` | Forces one-shot mode. Stop each model request after `n` model turns (1–9999). The run is then incomplete (exit 2) and Casper runs no checks. The requirements review (`verification.review: true`) and the proof repair round have their own 12-turn budget; hitting that is not this stop (see [VERIFICATION.md](VERIFICATION.md#requirements-review)). |
 | `--verbose` | The detailed evidence receipt instead of the plain one. |
 | `--allow-host <host>` | Shell commands may reach this host for this run, as if you said yes to it. Repeatable. A run that can't ask names this flag when it blocks a host. |
 | `--allow-write <folder>` | Shell commands and the AI's edits may write this folder outside the project for this run (relative to where you typed the command; `~` is your home). Repeatable. Git's own files and private places stay closed. |
@@ -307,7 +320,8 @@ Notes on this example:
 - Replace `<model-id>` with a real OpenRouter model ID.
 - `set -o pipefail` makes the step fail with Casper's exit code rather than `jq`'s.
 - Provider API keys such as `OPENROUTER_API_KEY` are read from the environment.
-- The flags on this page ship in v0.2.13 and later, so pin the installer to v0.2.13 or newer. The
+- The flags used in this CI example ship in v0.2.13 and later, so pin the installer to v0.2.13
+  or newer. The
   receipt's `verdict` and `proofSkipped` fields and a check's `ended` field ship in v0.2.14.
 - Checks run the repository's own configured commands without asking. They run in the shell
   sandbox where it can run (Linux with bubblewrap, macOS); on a runner without it they run with
