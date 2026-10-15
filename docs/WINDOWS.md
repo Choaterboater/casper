@@ -66,7 +66,7 @@ to start a separate hidden PowerShell that waits for Casper to exit, then runs t
 Windows rather than by `casper.exe`, the helper keeps running after Casper exits; the settings the
 installer needs go to it as checked parameters. Casper prints one line and exits; the helper then
 downloads the new program, which takes a little while, so wait about 30 seconds before running `casper --version`.
-The waiting step gives up after five minutes without installing. If that separate step cannot be started, Casper shows
+For a manual update the waiting step gives up after five minutes without installing. If that separate step cannot be started, Casper shows
 the `irm ... | iex` line to run yourself.
 
 The helper has no window, so it writes what it does to `~/.casper/update.log` (one file, overwritten by each update;
@@ -76,6 +76,19 @@ line at the start of a session say so, name the log and show the `irm ... | iex`
 started as Casper's own detached child; on a real Windows machine it never ran (the log stopped at `result: pending`),
 so updating from 0.2.34 or older still needs the `irm ... | iex` line once. `scripts/windows-handoff-check.ps1` checks,
 on a PC, which way of starting a helper outlives its parent.
+
+### Background updates (built, not released)
+
+The next preview defaults to **Updates: auto**: it quietly uses the same signed checksum,
+SHA-256 and build-provenance checks as `casper update`, then the fixed Windows WMI handoff.
+The notice above the prompt says `✔ Update installed · restart to use it`; on Windows this means
+the checked installer is ready and the helper waits until this Casper exits before replacing
+`casper.exe`. Background handoffs wait for the whole session, not the manual command's five-minute
+limit. Nothing restarts Casper or changes the running program. After quitting, allow the helper
+time to install before starting Casper again. Failures are in `~/.casper/update.log` and the notice
+says `update failed · casper update`. **Updates: notify only** (`updates: notify`) checks without
+installing; **off**, `CASPER_NO_UPDATE_CHECK=1` or `CI` stops background activity. One-shot and
+`--json` runs never install.
 
 ### Starting a session or running once
 

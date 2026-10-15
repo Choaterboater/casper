@@ -435,6 +435,18 @@ Each row names the test that fails without it.
   from it. Without an `ssh-keygen` that can check signatures, the installers say so and go on (asked of
   `ssh-keygen` alone, never read from what the check printed). The programs are not code-signed or notarized, so macOS or Windows may warn
   ([RELEASE.md](RELEASE.md#paid-code-signing-owner-decision)).
+- **Background self-updates (built, not released)** default to `updates: auto`. They call the same
+  `runUpdate` path as `casper update`: the pinned release key's SHA256SUMS signature, the installer's
+  SHA-256, the binary digest passed to the installer, and GitHub build provenance when a capable,
+  signed-in `gh` is available. No weaker background download or execution path exists. Windows uses
+  the checked WMI handoff after Casper exits. A source checkout is fast-forwarded only on clean
+  `main`/its default branch tracking origin, with no local commits or untracked work; a changed
+  lockfile runs `bun install --frozen-lockfile`. No stash, rebase or branch switch. Installs are
+  attempted at most once a day across sessions, in idle interactive time, never during task checks,
+  never in one-shot/`--json` runs, and never restart or reload the session. A private lock prevents
+  overlapping sessions. Quiet failures write updater-controlled diagnostics (no environment or
+  subprocess output) to `~/.casper/update.log`. `updates: notify` checks only; `off`, legacy `false`,
+  `CASPER_NO_UPDATE_CHECK=1` and `CI` disable it. A project or project-selected profile cannot change it.
 - **The model provider sees what the AI reads.** Code, file contents, command output and chat go to the
   provider you picked, with secrets hidden as [SECRETS.md](SECRETS.md) says (known formats only; there is
   no full secret scanner). They may also stay on disk as plain text. Use read-only credentials for AI

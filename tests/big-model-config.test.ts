@@ -25,12 +25,12 @@ test("repair.bigModelLastTry and suggestions load from the user's config and a p
     const loaded = await loadConfiguration({ projectRoot, homeDir });
     expect(loaded.repair).toEqual({ maxAttempts: 3, bigModelLastTry: true });
     expect(loaded.suggestions).toBe(false);
-    expect(loaded.updates).toBeUndefined();
+    expect(loaded.updates).toBe("auto");
     expect(loaded.warnings).toEqual([]);
     await writeFile(path.join(homeDir, ".casper/config.yaml"), "updates: off\n");
-    expect((await loadConfiguration({ projectRoot, homeDir })).updates).toBe(false);
+    expect((await loadConfiguration({ projectRoot, homeDir })).updates).toBe("off");
     await writeFile(path.join(homeDir, ".casper/config.yaml"), "updates: sometimes\n");
-    await expect(loadConfiguration({ projectRoot, homeDir })).rejects.toThrow("updates must be true or false");
+    await expect(loadConfiguration({ projectRoot, homeDir })).rejects.toThrow("updates must be auto, notify or off");
     await writeFile(path.join(homeDir, ".casper/config.yaml"), "repair:\n  bigModelLastTry: true\nsuggestions: false\n");
     await writeFile(path.join(homeDir, ".casper/profiles/work/config.yaml"), "repair:\n  bigModelLastTry: false\nsuggestions: true\n");
     const profile = await loadConfiguration({ projectRoot, homeDir, profileName: "work" });

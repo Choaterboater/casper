@@ -46,6 +46,83 @@ function fakeHost(home: string, project: string, answers: (string | undefined)[]
 const rowsFor = async (home: string, project: string) => settingRows(await loadProjectContext(await inspectProject(project), { homeDir: home }));
 const valueOf = async (home: string, project: string, label: string) => (await rowsFor(home, project)).find((row) => row.label === label)!.value;
 
+test("Updates row: auto by default, Keep first, and every mode saves as text and reloads", async () => {
+  const { home, project, config } = await folders();
+  const initial = (await rowsFor(home, project)).find((row) => row.label === "Updates")!;
+  expect(initial.value).toBe("auto");
+  expect(initial.keep).toBe("Keep auto");
+  expect(initial.choices.map((choice) => [choice.label, choice.keys, choice.value])).toEqual([
+    ["Notify only", ["updates"], "notify"], ["Off", ["updates"], "off"],
+  ]);
+  expect(initial.question).toContain("restart to use the update");
+  expect(initial.question).toContain("CASPER_NO_UPDATE_CHECK=1 and CI");
+  expect((await rowsFor(home, project)).some((row) => row.label === "New-version notice")).toBe(false);
+  expect(SETTINGS_AREAS[settingsArea("Updates")]!.name).toBe("Display");
+  const host = fakeHost(home, project, ["Updates", "Keep auto", "Done"]);
+  await runSettings(host);
+  expect(host.asked[1]!.split("\n").slice(1).map((line) => line.split(" — ")[0])).toEqual(["1 Keep auto", "2 Notify only", "3 Off"]);
+  await expect(readFile(config, "utf8")).rejects.toThrow();
+  for (const mode of ["notify", "off", "auto"] as const) {
+    const shown = mode === "notify" ? "notify only" : mode;
+    const choice = mode === "notify" ? "Notify only" : `${mode[0]!.toUpperCase()}${mode.slice(1)}`;
+    const change = fakeHost(home, project, ["Updates", choice, "Done"]);
+    await runSettings(change);
+    expect(await readFile(config, "utf8")).toBe(`updates: ${mode}\n`);
+    expect((await change.context())!.updates).toBe(mode);
+    expect(await valueOf(home, project, "Updates")).toBe(shown);
+    expect(change.text()).toContain(`[settings] Updates: ${shown}. Saved in ~/.casper/config.yaml.`);
+  }
+});
+
+test("updates defaults to auto and normalizes every mode and the legacy boolean switch", async () => {
+  const { home, project, config } = await folders();
+  const load = () => loadConfiguration({ projectRoot: project, homeDir: home, profileName: "default" });
+  expect((await load()).updates).toBe("auto");
+  for (const [source, mode] of [["auto", "auto"], ["notify", "notify"], ["off", "off"], ["false", "off"], ["true", "auto"], ["on", "auto"]] as const) {
+    await writeFile(config, `updates: ${source}\n`);
+    const loaded = await load();
+    expect(loaded.updates).toBe(mode);
+    expect(loaded.warnings).toEqual([]);
+    expect(await valueOf(home, project, "Updates")).toBe(mode === "notify" ? "notify only" : mode);
+  }
+  for (const invalid of ["sometimes", "[]", "{}", "1", '"false"']) {
+    await writeFile(config, `updates: ${invalid}\n`);
+    await expect(load()).rejects.toThrow("updates must be auto, notify or off");
+  }
+});
+
+test("a project cannot set updates in any mode or with the legacy booleans", async () => {
+  const { home, project, projectFile } = await folders();
+  for (const value of ["auto", "notify", "off", "true", "false"]) {
+    await writeFile(projectFile, `updates: ${value}\n`);
+    await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("updates is a user setting");
+  }
+});
+
+test("updates follows only a user-selected profile, never a profile chosen by the project", async () => {
+  const { home, project, config, projectFile } = await folders();
+  const previous = process.env.CASPER_PROFILE;
+  try {
+    delete process.env.CASPER_PROFILE;
+    const profile = path.join(home, ".casper", "profiles", "fixture");
+    const own = path.join(home, ".casper", "profiles", "default");
+    await mkdir(profile, { recursive: true });
+    await mkdir(own, { recursive: true });
+    await writeFile(config, "updates: off\n");
+    await writeFile(path.join(own, "config.yaml"), "updates: notify\n");
+    await writeFile(projectFile, "profile: fixture\n");
+    for (const mode of ["auto", "notify", "off"] as const) {
+      await writeFile(path.join(profile, "config.yaml"), `updates: ${mode}\n`);
+      expect((await loadConfiguration({ projectRoot: project, homeDir: home })).updates).toBe("notify");
+      expect((await loadConfiguration({ projectRoot: project, homeDir: home, profileName: "fixture" })).updates).toBe(mode);
+    }
+    await writeFile(config, "profile: fixture\nupdates: auto\n");
+    expect((await loadConfiguration({ projectRoot: project, homeDir: home })).updates).toBe("off");
+  } finally {
+    if (previous === undefined) delete process.env.CASPER_PROFILE; else process.env.CASPER_PROFILE = previous;
+  }
+});
+
 test("Suggestions row: 1 keeps them on, a pick writes suggestions: false, and it reads back off", async () => {
   const { home, project, config } = await folders();
   const host = fakeHost(home, project, ["Suggestions", "Keep them on", "Suggestions", "Turn them off", "Done"]);

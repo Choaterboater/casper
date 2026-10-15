@@ -13,11 +13,12 @@ import type { RuntimeSession } from "../runtime/types";
 import { formatFooterSpend } from "../task/spend";
 import { phaseEvent, type PhaseEvent } from "./json-events";
 import { editUserConfig } from "../config/user-write";
+import { updateChecksOff } from "../update/notice";
 
-/** The footer's new-version note as things stand now: none while the setting is off (/settings can turn it off
- * mid-session), restart once /doctor updated Casper, else what the last check found (src/app/wiring.ts). */
+/** The update row as things stand now: none while the setting is off (/settings can turn it off mid-session),
+ * restart once Casper was updated in this session, else the app's latest notice (src/app/wiring.ts). */
 export function updateNoteText(app: CasperApp): string | undefined {
-  return app.projectContext?.updates === false ? undefined : app.updatedInSession ? "Casper updated · restart to use it" : app.updateNote;
+  return app.projectContext?.updates === "off" || updateChecksOff(process.env) ? undefined : app.updatedInSession ? "✔ Update installed · restart to use it" : app.updateNote;
 }
 
 export function updateFooter(app: CasperApp): void {

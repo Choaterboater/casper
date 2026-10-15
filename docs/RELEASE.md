@@ -15,6 +15,17 @@ new version.
 **Not released yet.** The version number and the installers still say v0.2.35; the release step
 sets them and removes this line.
 
+- Casper updates itself quietly by default, using the same signed checksums, SHA-256 and build
+  provenance path as `casper update`. Clean default-branch checkouts only fast-forward (and install
+  frozen dependencies only when `bun.lock` changes); other checkouts stay untouched. Installs wait
+  for idle time, never task checks or one-shot/`--json` runs, never restart or reload Casper, and
+  are attempted at most once a day across sessions. Checks also get one extra probe about three
+  minutes into a session. The success-colour notice is right-aligned above the prompt, idle or
+  working: `✔ Update installed · restart to use it`; narrow screens shorten it, then hide it.
+  Windows uses the fixed handoff after exit, waiting for long sessions too. Plain terminals print
+  one `[update]` line. Quiet failures write `~/.casper/update.log` and show `update failed · casper update`.
+  **Updates: auto / notify only / off** replaces New-version notice; old booleans still work and
+  project files cannot change it. `CASPER_NO_UPDATE_CHECK=1` and `CI` still disable it.
 - `casper "words"` at a terminal now starts a persistent session with those words as its first request,
   then stays open for follow-ups. This needs both stdin and stdout to be TTYs, no forcing flags and `CI` unset.
   Use `-p` / `--print` to run once and exit; use `-p` explicitly in scripts. Existing scripts stay one-shot

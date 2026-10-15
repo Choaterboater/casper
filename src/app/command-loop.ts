@@ -146,6 +146,9 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
   app.workspaceTransition = transition;
   let command = prompt.startsWith("/");
   try {
+    // Reserve the command first so an updater still checking cannot begin an install. An install already in
+    // progress finishes before any task/check begins; it never restarts or reloads this process.
+    if (app.updateWork) await app.updateWork;
     // A Shift+Tab that arrived with this submit still applies; new presses see commandActive and wait.
     while (app.effortSteps > 0) await app.effortCycle;
     if (app.closing) return;

@@ -49,7 +49,7 @@ test("the settings list shows each switch and where it stands", async () => {
   await writeFile(config, "web: off\nupdates: false\nspend:\n  pauseAt: 5\n");
   const context = await loadProjectContext(await inspectProject(project), { homeDir: home });
   expect(settingRows(context).map((row) => `${row.label}: ${row.value}`)).toEqual([
-    "Web lookups: off", "Browser tool: on", "Browser clicks: on", "Routine commands: on", "Slow commands: on", "Stalled commands: on", "Starter templates: on", "Diagram tool: on", "Pages the AI makes: on", "Pictures the AI makes: on", "Open pages in the browser: on", "New-version notice: off", "Notifications: on", "Suggestions: on", "Side questions with ?: on", "Built-in skills: on", "GitHub tool: on", "Packs: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task",
+    "Web lookups: off", "Browser tool: on", "Browser clicks: on", "Routine commands: on", "Slow commands: on", "Stalled commands: on", "Starter templates: on", "Diagram tool: on", "Pages the AI makes: on", "Pictures the AI makes: on", "Open pages in the browser: on", "Updates: off", "Notifications: on", "Suggestions: on", "Side questions with ?: on", "Built-in skills: on", "GitHub tool: on", "Packs: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task",
     "Prompt cache: auto", "Lean guidance: auto", "Hide old tool output: on", "Local models: on", "Page checks: on", "Show the AI the pages: ask once a session",
     "Work shown: normal", "Theme: default", "Untrusted-text reader: on", "Helpers that build: on", "Playwright tests: on", "Compose files: on", "Send Casper's name to OpenRouter: on", "Sign-ins from other tools: on", "Network server updates: on", "My MCP servers: on", "My language servers: on", "Private ssh passwords: on",
   ]);

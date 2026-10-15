@@ -569,6 +569,7 @@ Any other `sandbox` or `shell` key in a project file is named at startup and ign
 | --- | --- |
 | `CASPER_AGENT_DIR` | Folder for sign-ins, the model catalog, engine resources and conversations. Defaults to `~/.casper/agent`. Relative paths resolve from the folder you start Casper in; `~/` expands to your home folder. A folder you set here never receives the one-time import from Pi. Shell commands can't write it, as with `~/.casper`. |
 | `CASPER_OFFLINE` | Set to `1` to stop provider catalog downloads and automatic sign-in browser launches. Cached models remain available. This is **not** a network block: model calls and sign-in still use the network. |
+| `CASPER_NO_UPDATE_CHECK` | Set to `1` to disable background Casper update checks, notices and installs, regardless of `updates:`. `CI` disables them too. Explicit `casper update` still works. |
 | `CASPER_TELEMETRY` | Set to `0` to send no OpenRouter app attribution headers (`HTTP-Referer`, `X-OpenRouter-Title`, `X-OpenRouter-Categories`, `X-OpenRouter-App-Visibility`) on model requests and key checks; the bundled engine's own attribution is turned off with it. Works like Pi's `PI_TELEMETRY`: unset keeps attribution, and when set only `1`, `true` or `yes` keep it. An inherited `PI_TELEMETRY` is ignored. `telemetry: off` in your own config (**Send Casper's name to OpenRouter** in `/settings`) does the same; either one off is off. |
 | `CASPER_OAUTH_CALLBACK_HOST` | Address the browser sign-in listens on; defaults to `127.0.0.1`. Casper refuses browser sign-in for any other value. |
 | `CASPER_TUI_WRITE_LOG` | Optional log file of raw terminal output, or an existing folder for timestamped logs. It can contain sensitive output, so `/login` is refused while it is set. |
@@ -1023,7 +1024,7 @@ loading with an error if it tries.
 repair:
   bigModelLastTry: true
 suggestions: false   # no suggested next steps anywhere
-updates: false       # no "a newer Casper is out" line at the start of a session, nor its note in the footer
+updates: off         # no background update checks, notices or installs; default: auto, notices only: notify
 sideQuestions: false # a line starting with ? is an ordinary request, not a side question
 localModels: false   # don't look for Ollama, LM Studio, llama.cpp or vLLM on this computer
 modelServers:        # servers you added in /model (+ Add server); Casper writes it; ~/.casper/config.yaml only
@@ -1045,14 +1046,31 @@ notifications: off   # no bell and no desktop notification when a long task ends
 casper-network-mcp releases newer than the one it pins; see [MCP.md](MCP.md). `tools: { downloads: off }`
 and `CASPER_OFFLINE=1` stop it too.
 
-A session checks for a newer Casper at most once a day, in the background (no model, no
-tokens), and shows what the last check found as one `[update]` line at the start. The footer
-keeps a short note of it before `idle` until you update (`Casper 0.2.33 is out · casper update`; a
-source checkout: `Casper is 2 changes behind · casper update`), also when a check during the
-session finds it, and a session left open looks again once a day. A release install asks GitHub
-for the newest release; a source checkout fetches and counts how far its branch is behind.
-`updates: false`, `CASPER_NO_UPDATE_CHECK=1` or `CI` turns it off; a project cannot. Turned off
-in `/settings` during a session, the note goes at once. `casper update` installs or pulls it; `casper update --check` only says whether there is one.
+**Updates** in `/settings` replaces **New-version notice** and saves `updates:` as one of:
+
+- `auto` (the default): check and install updates in the background, with no model or tokens.
+  Restart Casper to use an installed update.
+- `notify` (**notify only**): check for a newer Casper and show the live notice row (one `[update]`
+  line on plain terminals), but never install it in the background. Use `casper update` when you want to install it.
+- `off`: no background checks, notices or installs.
+
+Checks normally happen at most once a day, shared across sessions, plus one extra probe about
+three minutes into an interactive session to catch a release published since startup. A busy task or
+its checks postpone that probe until idle. Installs are attempted at most once a day, never during
+checks, never in one-shot or `--json` runs, and never restart or reload Casper.
+A release install asks GitHub for the newest release and uses the same verified `casper update`
+path. A checkout only fast-forwards a clean `main` (or default branch) tracking that branch on
+origin, with no local commits or untracked files; it never stashes, rebases or switches branches.
+Only a changed `bun.lock` triggers `bun install --frozen-lockfile`. Otherwise the notice says
+`Casper update ready · casper update`. Quiet failures go to `~/.casper/update.log` and show
+`update failed · casper update`. `CASPER_NO_UPDATE_CHECK=1` and `CI` disable all background update checks, notices and
+installs in every mode. `casper update` still installs or pulls explicitly, even with updates off;
+`casper update --check` only says whether there is one.
+
+Set `updates:` only in `~/.casper/config.yaml` or a profile you chose yourself. A project file
+cannot set it, and a project-selected profile cannot change it. Old `updates: false` means `off`;
+old `updates: true` (or `on`) means `auto`. A change in `/settings` applies from now on; choosing
+`off` removes the update note at once.
 
 ### What a task spends
 

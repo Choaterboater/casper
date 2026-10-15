@@ -206,7 +206,7 @@ export class TerminalSurface {
   /** "ASKING OFF · /permissions ask" while the shell stops asking, and "ALLOW ALL: <servers>" or "WRITES: <servers>"
    * with "· Ctrl+X" while an MCP server has writes on; drawn first, and shortened before anything of it is cut off. */
   private badge?: string;
-  /** A newer Casper is out: a short note kept at the end of the idle footer, before `idle` (src/update/notice.ts). */
+  /** Update state from the app: a right-aligned row above the prompt, idle or working. */
   private update?: string;
   /** Ctrl+X: turn writes off everywhere. True when something was on. */
   private onWritesRevert?: () => boolean;
@@ -338,6 +338,12 @@ export class TerminalSurface {
           : this.editor.popup.length ? [rule, ...this.editor.popup, ...status, ...editorLines] : [...status, ...editorLines];
         if (crew.length) block.unshift(...crew.map(line => truncateToWidth(`  ${line}`, width)), ...(this.pendingAsk ? [""] : []));
         while (!this.pendingAsk && block.length < editorLines.length) block.push("");
+        // Notices yield to exclusive input and short screens. Reserve the notice and footer, plus a live row and
+        // its gap when steps are shown: a notice must never displace the prompt, crew rows or overflow the live tail.
+        const noticeRoom = this.shownRows.length ? 4 : 2;
+        if (!this.waiting && block.length + noticeRoom <= this.terminal.rows) {
+          block.splice(block.length - editorLines.length, 0, ...this.updateRow(width));
+        }
         // The open group's steps show under the AI's words while nothing waits on you, and never more of them than fit
         // above the prompt: a row that ticks off the top of the screen would make the terminal redraw everything.
         this.transcript.live = this.shownRows.length ? this.liveRows : undefined;
@@ -595,17 +601,6 @@ export class TerminalSurface {
     if (!this.status) return truncateToWidth(this.muted("Casper · / for commands"), width);
     if (!idle) return truncateToWidth(this.muted(this.status), width);
     // Idle: the hint first when the whole line fits; otherwise the details are cut, never the state at the end.
-    if (this.update) {
-      // A newer Casper sits right before `idle`, in the accent colour: whole, or without its "· casper update" when the
-      // window is narrower. It never pushes out the folder and the model; with no room left beside them it waits.
-      const core = Math.min(visibleWidth(details), visibleWidth(details.split(" │ ").slice(0, 2).join(" │ ")));
-      for (const note of [this.update, this.update.split(" · ")[0]!]) {
-        const shown = `${this.muted(" │ ")}${this.accent(note)}${this.muted(IDLE_TAIL)}`;
-        if (visibleWidth(`${IDLE_HINT} │ ${details} │ ${note}${IDLE_TAIL}`) <= width) return `${this.muted(`${IDLE_HINT} │ ${details}`)}${shown}`;
-        const room = width - visibleWidth(` │ ${note}${IDLE_TAIL}`);
-        if (room >= core) return `${this.muted(truncateToWidth(details, room, "…"))}${shown}`;
-      }
-    }
     if (visibleWidth(`${IDLE_HINT} │ ${this.status}`) <= width) return this.muted(`${IDLE_HINT} │ ${this.status}`);
     const room = width - visibleWidth(IDLE_TAIL);
     return this.muted(room > 3 ? `${truncateToWidth(details, room, "…")}${IDLE_TAIL}` : truncateToWidth(this.status, width));
@@ -671,6 +666,7 @@ export class TerminalSurface {
     this.badge = next;
     this.render();
   }
+  /** A persistent update notice, separate from footer status and transient notes. Undefined clears it. */
   setUpdate(text?: string): void {
     const next = text ? terminalText(text).replace(/\s+/g, " ").trim() || undefined : undefined;
     if (next === this.update) return;
@@ -786,6 +782,14 @@ export class TerminalSurface {
     }),
     invalidate() {},
   };
+
+  /** Whole text, a shorter action, or nothing: never wrap an update notice over the prompt. */
+  private updateRow(width: number): string[] {
+    if (!this.update || this.closed) return [];
+    const short = this.update.includes("restart to use it") ? "✔ restart to update" : this.update.split(" · ")[0]!;
+    const text = [this.update, short].find(note => visibleWidth(note) <= width);
+    return text ? [" ".repeat(width - visibleWidth(text)) + tint(text, "success", this.io.color)] : [];
+  }
 
   /** The one row above the prompt while work runs: the spinner, what Casper is doing or waiting for, and that Esc
    * stops it. Nothing while a question or picker waits on you. A narrow window cuts the words, never the key. */
