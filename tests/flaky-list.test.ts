@@ -72,7 +72,7 @@ test("every retry and observed flake has an owner, reason, existing file and exp
     if (entry.title) expect(source).toContain(entry.title.replaceAll('"', '\\"'));
   }
   for (const [platform, files] of [
-    ["win32", ["project-folder-recent", "effort-cycle", "security-suppressions", "phase9-learn", "claude-subscription-runtime", "crew-review", "review-command", "mcp-network-setup"]],
+    ["win32", ["project-folder-recent", "effort-cycle", "security-suppressions", "phase9-learn", "claude-subscription-runtime", "crew-review", "review-command", "mcp-network-setup", "mcp-access", "mcp-check-probe", "phase4-mcp", "review-config"]],
     ["darwin", ["clipboard-files", "phase10-browser", "stall-guard"]],
   ] as const) for (const file of files) {
     expect(OBSERVED_FLAKY.some(entry => entry.file === `tests/${file}.test.ts` && entry.platforms.includes(platform))).toBe(true);

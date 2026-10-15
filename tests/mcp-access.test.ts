@@ -6,6 +6,7 @@ import {
   readOnlyLoginReason, writesOffReason,
 } from "../src/mcp/access";
 import { MCPManager, type MCPTool } from "../src/mcp/manager";
+import { CHILD_KILL_MS, childTestLimit } from "./support/limits";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -16,9 +17,10 @@ async function check(mode: string) {
   const manager = new MCPManager({ servers: [{
     name: "aruba-central", source: "fixture", cwd: process.cwd(), disabled: false,
     transport: { type: "stdio", command: process.execPath, args: [networkFixture], env: { FIXTURE_MODE: mode } },
-  }], diagnostics: [] }, { timeoutMs: 5000 });
+  }], diagnostics: [] }, { connectTimeoutMs: CHILD_KILL_MS, callTimeoutMs: 5000 });
   cleanup.push(() => manager.close());
   await manager.connect("aruba-central");
+  expect(manager.status()[0]).toMatchObject({ state: "ready" });
   const broker = new CapabilityBroker(manager);
   const labelOf = (tool: MCPTool): CapabilitySafety => broker.search(tool.name.replaceAll("_", " "), 10).find((d) => d.name === tool.name)!.safety;
   const tool = accessCheckTool(manager.catalog()[0]!.tools, labelOf);
@@ -37,7 +39,7 @@ test("a server whose products all say read-only is a read-only login", async () 
   expect(accessModelLines("aruba-central", result, "on")).toEqual(["aruba-central: login is read-only. Write tools are hidden. Don't plan changes on it."]);
   expect(gatesConfirmedOff(result)).toBe(true);
   expect((await check("access-structured")).result?.state).toBe("read-only");
-});
+}, childTestLimit(2));
 
 test("read-write, mixed and broken answers never make a login read-only", async () => {
   expect((await check("access-rw")).result?.state).toBe("read-write");
@@ -51,7 +53,7 @@ test("read-write, mixed and broken answers never make a login read-only", async 
   expect(accessStatusText(undefined)).toBe("access not checked");
   expect(accessModelLines("aruba-central", undefined, "off")).toEqual(["aruba-central: every change asks the user first, in Casper's box; they can allow it once or for this session. Don't ask them again in chat."]);
   expect(accessModelLines("aruba-central", { state: "read-write", products: [] }, "on")).toEqual([]);
-});
+}, childTestLimit(6));
 
 test("Casper only calls an access_check that is marked read-only and needs no arguments", async () => {
   expect((await check("access-unannotated")).tool).toBeUndefined();
@@ -60,7 +62,7 @@ test("Casper only calls an access_check that is marked read-only and needs no ar
   expect(accessCheckTool([marked], () => "read")).toBe(marked);
   expect(accessCheckTool([marked], () => "exec")).toBeUndefined();
   expect(accessCheckTool([{ ...marked, annotations: { readOnlyHint: true, destructiveHint: true } }], () => "read")).toBeUndefined();
-});
+}, childTestLimit(2));
 
 test("malformed product lists are unknown, and server text is kept only when short and plain", () => {
   const text = (value: unknown) => ({ content: [{ type: "text", text: JSON.stringify(value) }] });

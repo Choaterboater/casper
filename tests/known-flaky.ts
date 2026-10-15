@@ -25,4 +25,8 @@ export const OBSERVED_FLAKY: Flake[] = [
   observed("phase10-browser", "darwin", "Multiline textarea replacement failed on macOS; investigate the browser result, never retry a wrong value.", "fill replaces an entire multiline textarea rather than only the clicked paragraph"),
   observed("stall-guard", "darwin", "The stalled-file recovery fixture failed on macOS under load.", "after a stall, the files Bun was still running run once more, and that run's exit code is the step's"),
   observed("mcp-network-setup", "win32", "Main's Windows network-MCP setup tests failed during fixture setup; reproduce with the pinned launcher and server."),
+  observed("mcp-access", "win32", "PR #337, Windows suite (3), run 38762130296 attempt 1: the fake MCP server missed its 5 s connection budget, leaving an empty catalog at line 24. Investigate startup readiness, not the access assertion."),
+  observed("mcp-check-probe", "win32", "PR #337, Windows suite (3), run 38762130296 attempt 1: the fake MCP probe missed its 10 s connection budget at line 17.", "a server that starts lists every tool and is stopped afterwards"),
+  observed("phase4-mcp", "win32", "PR #337, Windows suite (3), run 38762130296 attempt 2: the fake MCP reload fixture missed its 2 s connection budget; line 122 saw failed instead of ready.", "a reload diffs definitions in place and revokes consent only for changed programs"),
+  observed("review-config", "win32", "PR #337, Windows suite (3), run 38762130296 attempt 1: the real CLI startup exceeded Bun's 30 s test deadline before configuration warnings could be asserted.", "Casper shows configuration warnings at startup"),
 ];
