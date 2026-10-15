@@ -27,6 +27,9 @@ import { isOutside } from "../platform/inside";
 /** `showPages:` whether the AI is shown page screenshots after a UI change: ask once a session, always, or never. */
 export const SHOW_PAGES_SETTINGS = ["ask", "on", "off"] as const;
 export type ShowPagesSetting = typeof SHOW_PAGES_SETTINGS[number];
+/** `updates:` install in the background, only notify, or neither. Unset: auto. */
+export const UPDATES_SETTINGS = ["auto", "notify", "off"] as const;
+export type UpdatesSetting = typeof UPDATES_SETTINGS[number];
 export type Autonomy = "low" | "medium" | "high";
 export type AskQuestions = "beforeChanges" | "onlyWhenBlocked";
 export type GitActionPolicy = "never" | "neverUnlessRequested";
@@ -71,8 +74,8 @@ export interface LoadedConfiguration {
   repair: { maxAttempts: number; bigModelLastTry?: boolean };
   /** `suggestions: false` turns every suggestion off (user or profile only). */
   suggestions?: boolean;
-  /** `updates: false` turns off the line and the footer note that say a newer Casper is out (user or profile only). */
-  updates?: boolean;
+  /** `updates: auto|notify|off`: background installs, notices only, or neither (user or user-selected profile only). Unset: auto. */
+  updates?: UpdatesSetting;
   /** `sideQuestions: false`: a line that starts with `?` is an ordinary request, not a side question (user or profile only). */
   sideQuestions?: boolean;
   /** `localModels: false`: Casper does not look for model servers on this computer (user or profile only). */
@@ -759,7 +762,7 @@ export async function loadConfiguration(
   // Spending on the big model is the user's own choice: a project file never makes it.
   if (isMapping(projectDocument.repair) && projectDocument.repair.bigModelLastTry !== undefined) throw new Error(BIG_MODEL_IN_PROJECT_ERROR);
   if (projectDocument.suggestions !== undefined) throw new Error("suggestions is a user setting (~/.casper/config.yaml); a project cannot turn suggestions on or off");
-  if (projectDocument.updates !== undefined) throw new Error("updates is a user setting (~/.casper/config.yaml); a project cannot turn the new-version notice on or off");
+  if (projectDocument.updates !== undefined) throw new Error("updates is a user setting (~/.casper/config.yaml); a project cannot change how Casper updates");
   // A side question is a model call at your cost: a project file never turns it on or off.
   if (projectDocument.sideQuestions !== undefined) throw new Error("sideQuestions is a user setting (~/.casper/config.yaml); a project cannot turn side questions on or off");
   // Which servers on your computer Casper asks for models is yours too.
@@ -775,7 +778,7 @@ export async function loadConfiguration(
   if (projectDocument.cache !== undefined) throw new Error(CACHE_IN_PROJECT_ERROR);
   let bigModelLastTry: boolean | undefined;
   let suggestions: boolean | undefined;
-  let updates: boolean | undefined;
+  let updates: UpdatesSetting = "auto";
   let sideQuestions: boolean | undefined;
   let localModels: boolean | undefined;
   let cache: PromptCacheSetting | undefined;
@@ -805,10 +808,10 @@ export async function loadConfiguration(
       suggestions = document.suggestions;
     }
     if (document.updates !== undefined && document.updates !== null) {
-      // YAML reads a bare `off` as text, but it means the same as false.
-      const value = document.updates === "off" ? false : document.updates === "on" ? true : document.updates;
-      if (typeof value !== "boolean") throw new Error(`${label}: updates must be true or false`);
-      updates = value;
+      // Keep the old boolean switch (and its YAML on/off spelling) working.
+      const value = document.updates === false ? "off" : document.updates === true || document.updates === "on" ? "auto" : document.updates;
+      if (!UPDATES_SETTINGS.some((setting) => setting === value)) throw new Error(`${label}: updates must be ${alternatives(UPDATES_SETTINGS)}`);
+      updates = value as UpdatesSetting;
     }
     if (document.sideQuestions !== undefined && document.sideQuestions !== null) {
       const value = document.sideQuestions === "off" ? false : document.sideQuestions === "on" ? true : document.sideQuestions;
@@ -1031,7 +1034,7 @@ export async function loadConfiguration(
       ...(checklist !== undefined ? { checklist } : {}) },
     repair: { maxAttempts, ...(bigModelLastTry !== undefined ? { bigModelLastTry } : {}) },
     ...(suggestions !== undefined ? { suggestions } : {}),
-    ...(updates !== undefined ? { updates } : {}),
+    updates,
     ...(sideQuestions !== undefined ? { sideQuestions } : {}),
     ...(localModels !== undefined ? { localModels } : {}),
     ...(modelServers.length ? { modelServers } : {}),

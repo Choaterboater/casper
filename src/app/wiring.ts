@@ -17,7 +17,7 @@ import { VisualizationRouter } from "../visualize/router";
 import { DEFAULT_WEB } from "../config/load";
 import { casperAgentDir } from "../runtime/agent-store";
 import { loginValuesFrom, WebLookup, webProvider } from "../web/lookup";
-import { CHECK_EVERY_MS, refreshUpdateCheck, updateChecksOff, updateFooterNote, updateNotice, type NoticeOptions } from "../update/notice";
+import { backgroundUpdate, INSTALLED_NOTE, updateChecksOff, updateFooterNote, type NoticeOptions } from "../update/notice";
 import { createSessionSandbox, runtimeShell, type SandboxHost } from "./sandbox";
 import { forgetSshSecrets } from "../ssh/login";
 import { withLoginDisplay } from "../tui/login";
@@ -217,43 +217,43 @@ export async function bannerChecks(app: CasperApp, context: ProjectContext): Pro
   return plan.mode === "off" || hasChecks(plan) ? { checks: describeChecksPlan(plan) } : {};
 }
 
-/** How often a session left open looks at the saved check; the check itself still asks at most once a day. Tests make
- * it short. */
-export const updateTick = { ms: 60 * 60 * 1000 };
+/** Poll idle time without polling GitHub. One extra probe catches releases published after startup. */
+export const updateTick = { ms: 60_000, earlyMs: 3 * 60_000 };
 
-/** A session (never a one-shot run) says when a newer Casper is out, from the last check, then checks again in the
- * background at most once a day. The footer keeps a short note of it until you update, also when a check during the
- * session finds it. Off with `updates: false` (also when /settings turns it off mid-session), CASPER_NO_UPDATE_CHECK=1
- * or CI. */
+/** Checks and installs only in interactive idle time; a submitted command drains updateWork before it starts.
+ * The early probe is the sole exception to daily lookups; installs still have a shared once-a-day guard. */
 export async function reportNewerCasper(app: CasperApp, context: ProjectContext): Promise<void> {
   if (!app.updateCheck || updateChecksOff(process.env)) return;
   const signal = app.updateCheckAbort.signal;
-  const options: NoticeOptions = { ...app.updateCheck, stateDir: path.join(app.sessionHomeDir ?? os.homedir(), ".casper"), signal };
-  const on = () => (app.projectContext ?? context).updates !== false;
-  if (on()) {
-    const line = await updateNotice(options).catch(() => undefined);
-    if (line) app.output.write(`[update] ${line}\n`);
-  }
-  // Only the note itself: the whole footer is drawn once Casper reads keys. Drawn earlier, its "idle" would say Casper
-  // is ready while it is still starting, and an Enter typed then would be lost.
-  const note = () => updateFooterNote(options).then((text) => {
+  const options: NoticeOptions = { startedAt: Date.now(), ...app.updateCheck, stateDir: path.join(app.sessionHomeDir ?? os.homedir(), ".casper"), signal };
+  const mode = () => (app.projectContext ?? context).updates ?? "auto";
+  let printed = false;
+  const note = (text?: string) => {
     if (signal.aborted) return;
     app.updateNote = text;
-    app.terminal.setUpdate(updateNoteText(app));
-  }, () => undefined);
-  // One look at a time, and at most one try a day from this session: a failed one (offline, GitHub busy) saves nothing,
-  // so refreshUpdateCheck's own once-a-day rule alone would try again at every tick.
-  const now = options.now ?? Date.now;
-  let tried = Number.NEGATIVE_INFINITY;
-  let running: Promise<void> | undefined;
-  const check = () => running ??= (async () => {
-    if (on() && !signal.aborted && now() - tried >= CHECK_EVERY_MS) { tried = now(); await refreshUpdateCheck(options); }
-    await note();
-  })().finally(() => { running = undefined; });
-  if (signal.aborted) return;
-  void check();
-  // A session left open looks again every hour: the saved check another session made shows here too.
-  const tick = setInterval(() => void check(), updateTick.ms);
-  tick.unref?.();
-  signal.addEventListener("abort", () => clearInterval(tick), { once: true });
+    if (text === INSTALLED_NOTE) app.updatedInSession = true;
+    const shown = updateNoteText(app);
+    app.terminal.setUpdate(shown);
+    if (!app.terminal.rich && shown && !printed) { printed = true; app.output.write(`[update] ${shown}\n`); }
+  };
+  if (mode() !== "off") note(await updateFooterNote(options).catch(() => undefined));
+  // One-shot and --json runs may report saved news, but never start timers, checks or installs.
+  if (!app.interactive || app.onEvent || signal.aborted) return;
+  let earlyPending = false;
+  const idle = () => !app.commandActive && !app.verificationWork && !app.checkTask && !app.subagents?.isBusy && !app.closing;
+  const check = () => {
+    if (app.updateWork || signal.aborted) return;
+    if (mode() === "off") { note(); return; }
+    if (!idle()) return;
+    const early = earlyPending;
+    earlyPending = false;
+    app.updateWork = (async () => {
+      note(await backgroundUpdate(options, { mode: mode(), early, canInstall: () => idle() && mode() === "auto" && !signal.aborted }));
+    })().catch(() => {}).finally(() => { app.updateWork = undefined; });
+  };
+  check();
+  const early = setTimeout(() => { earlyPending = true; check(); }, updateTick.earlyMs);
+  const tick = setInterval(check, updateTick.ms);
+  early.unref?.(); tick.unref?.();
+  signal.addEventListener("abort", () => { clearTimeout(early); clearInterval(tick); }, { once: true });
 }

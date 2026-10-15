@@ -162,8 +162,7 @@ export class InteractiveTerminal {
   /** The MCP writes badge ("WRITES: <servers> · Ctrl+X"); kept here too, so the plain terminal can report it. */
   setBadge(text?: string): void { this.badgeText = text; this.surface?.setBadge(text); }
   get badge(): string | undefined { return this.badgeText; }
-  /** A newer Casper is out: the short note at the end of the idle footer. Nothing on the plain terminal, which has the
-   * `[update]` line at the start. */
+  /** The right-aligned notice above the prompt, idle or working. Plain output is emitted once by app/wiring. */
   setUpdate(text?: string): void { this.surface?.setUpdate(text); }
   /** Ctrl+X on the rich terminal: turn writes off everywhere. The handler returns true when any were on. */
   setWritesRevert(handler: (() => boolean) | undefined): void { this.surface?.setWritesRevert(handler); }

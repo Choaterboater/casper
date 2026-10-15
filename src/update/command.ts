@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
@@ -42,6 +42,8 @@ export type DetachedStarter = (argv: string[], options: { env: NodeJS.ProcessEnv
 
 export interface UpdateOptions {
   check: boolean;
+  /** Background updates capture output and only fast-forward a clean default branch with no local commits. */
+  background?: boolean;
   install: Install;
   currentVersion: string;
   write: (line: string) => void;
@@ -172,7 +174,8 @@ try {
   try { $casper = Get-Process -Id $WaitPid -ErrorAction Stop }
   catch [Microsoft.PowerShell.Commands.ProcessCommandException] { $casper = $null }
   if ($casper) {
-    if (-not $casper.WaitForExit($WaitSeconds * 1000)) {
+    if ($WaitSeconds -eq 0) { $casper.WaitForExit() }
+    elseif (-not $casper.WaitForExit($WaitSeconds * 1000)) {
       Write-Step "Casper (process $WaitPid) was still running after $WaitSeconds seconds"
       Write-Step 'result: failed: Casper did not exit in time, so nothing was changed'
       exit 1
@@ -217,8 +220,23 @@ try {
 }
 `;
 
-export async function runUpdate(options: UpdateOptions): Promise<{ exitCode: number }> {
-  return options.install.kind === "checkout" ? updateCheckout(options, options.install.root) : updateBinary(options, options.install.executable);
+export interface UpdateResult { exitCode: number; updated?: boolean; deferred?: boolean }
+
+export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
+  const result = await (options.install.kind === "checkout" ? updateCheckout(options, options.install.root) : updateBinary(options, options.install.executable));
+  if (result.updated && options.stateDir) {
+    // Manual updates and /doctor also reach a session that is already open. Failure to save a notice cannot undo an install.
+    try {
+      if (options.install.kind === "checkout" || (options.platform ?? process.platform) !== "win32") await removeUpdateLog(options.stateDir);
+      if (!options.background) await rm(path.join(options.stateDir, "update-check.json"), { force: true });
+      await mkdir(options.stateDir, { recursive: true });
+      const file = path.join(options.stateDir, "update-installed.json");
+      const temporary = `${file}.${process.pid}.tmp`;
+      await writeFile(temporary, JSON.stringify({ install: options.install, from: options.currentVersion, installedAt: Date.now() }), { mode: 0o600 });
+      await rename(temporary, file);
+    } catch { /* notice only */ }
+  }
+  return result;
 }
 
 // --- Versions and releases ---
@@ -297,7 +315,7 @@ export async function lookUpNewest(fetcher: Fetcher, env: NodeJS.ProcessEnv, sig
 
 // --- A release binary ---
 
-async function updateBinary(options: UpdateOptions, executable: string): Promise<{ exitCode: number }> {
+async function updateBinary(options: UpdateOptions, executable: string): Promise<UpdateResult> {
   const { write, currentVersion } = options;
   const fetcher = options.fetch ?? ((url, init) => fetch(url, init));
   const newest = await lookUpNewest(fetcher, options.env ?? process.env, options.signal);
@@ -365,17 +383,18 @@ async function updateBinary(options: UpdateOptions, executable: string): Promise
     }
     write(`Updating Casper from ${currentVersion} to ${version}.`);
     if (!windows) {
-      const result = await run(["sh", file, "--dir", folder, "--version", version], { env, inherit: true, ...(options.signal ? { signal: options.signal } : {}) });
+      const result = await run(["sh", file, "--dir", folder, "--version", version], { env, inherit: !options.background, ...(options.background ? { timeoutMs: 300_000 } : {}), ...(options.signal ? { signal: options.signal } : {}) });
+      if (options.background && result.code !== 0) write(result.stderr || result.stdout || "The installer failed.");
       return finished(write, result.code === 0, currentVersion, version);
     }
     // Windows will not replace casper.exe while it runs, so a separate process does it once this one has exited.
     const handoff = path.join(temp, "handoff.ps1");
     await writeFile(handoff, HANDOFF_SCRIPT, { mode: 0o600 });
     // The log is started here, before the helper, so a helper that never runs leaves a `pending` log to find.
-    const log = options.stateDir ? await startUpdateLog(options.stateDir, currentVersion, version) : undefined;
+    const log = options.stateDir ? await startUpdateLog(options.stateDir, currentVersion, version, options.background ? options.pid ?? process.pid : undefined) : undefined;
     const started = await (options.startDetached ?? windowsStarter)([
       "powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", handoff,
-      "-WaitPid", String(options.pid ?? process.pid), "-Installer", file, "-InstallerSha256", createHash("sha256").update(installer).digest("hex"),
+      "-WaitPid", String(options.pid ?? process.pid), ...(options.background ? ["-WaitSeconds", "0"] : []), "-Installer", file, "-InstallerSha256", createHash("sha256").update(installer).digest("hex"),
       "-InstallDir", folder, "-Version", version, "-Cleanup", temp, ...(log ? ["-LogFile", log] : []),
       "-BaseUrl", base, ...(binaryDigest ? ["-BinarySha256", binaryDigest] : []), ...(/^(x64|arm64)$/.test(arch) ? ["-Arch", arch] : []),
     ], { env }).catch(() => false);
@@ -386,7 +405,7 @@ async function updateBinary(options: UpdateOptions, executable: string): Promise
     }
     handedOff = true;
     write(`Casper cannot replace itself while it runs. A hidden helper does it once this Casper has exited, and it downloads the new program first. Close Casper if it is still open, wait about 30 seconds, then run casper --version.${log ? ` If it still shows ${currentVersion}, ${updateLogPath(options.stateDir!)} says what happened.` : ""}`);
-    return { exitCode: 0 };
+    return { exitCode: 0, updated: true };
   } finally { if (!handedOff) await rm(temp, { recursive: true, force: true }); }
 }
 
@@ -409,9 +428,9 @@ async function builtByGitHub(run: ProcessRunner, file: string, options: UpdateOp
   return (await run(["gh", "attestation", "verify", file, "--repo", RELEASE_REPO], { env, timeoutMs: 120_000, ...signal })).code === 0;
 }
 
-function finished(write: (line: string) => void, ok: boolean, from: string, to: string): { exitCode: number } {
+function finished(write: (line: string) => void, ok: boolean, from: string, to: string): UpdateResult {
   write(ok ? `Casper is now ${to}.` : `The installer stopped before it finished; Casper ${from} is still installed.`);
-  return { exitCode: ok ? 0 : 1 };
+  return { exitCode: ok ? 0 : 1, ...(ok ? { updated: true } : {}) };
 }
 
 // --- A source checkout ---
@@ -436,7 +455,7 @@ async function checkoutVersion(root: string): Promise<string | undefined> {
 
 const changes = (count: number) => `${count} new change${count === 1 ? "" : "s"}`;
 
-async function updateCheckout(options: UpdateOptions, root: string): Promise<{ exitCode: number }> {
+async function updateCheckout(options: UpdateOptions, root: string): Promise<UpdateResult> {
   const { write } = options;
   const run = options.run ?? defaultRunner;
   const env = gitEnv(options.env ?? process.env);
@@ -447,6 +466,7 @@ async function updateCheckout(options: UpdateOptions, root: string): Promise<{ e
   if (top.code === null) return fail(`Git is not installed, so the Casper checkout at ${root} cannot be updated.`);
   if (top.code !== 0) return fail(`Casper runs from ${root}, which is not a git checkout, so it cannot be updated with git.`);
   if ((await git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")).code !== 0) {
+    if (options.background) return { exitCode: 0, deferred: true };
     // Names the branch it is on and, when the remote's main branch is known, the one step that makes it updatable.
     const branch = (await git("symbolic-ref", "--quiet", "--short", "HEAD")).stdout.trim();
     if (!branch) return fail(`The Casper checkout at ${root} is not on a branch, so there is nothing to pull from${options.check ? "" : " and it was not updated"}.`);
@@ -454,6 +474,19 @@ async function updateCheckout(options: UpdateOptions, root: string): Promise<{ e
     const main = remoteHead.startsWith("origin/") ? remoteHead.slice("origin/".length) : "";
     return fail(`The Casper checkout at ${root} is on ${branch}, which has no remote to pull from${options.check ? "" : ", so it was not updated"}.`
       + (main && main !== branch ? ` To update it, switch to ${main} (git switch ${main}) and run casper update again.` : ""));
+  }
+  if (options.background) {
+    const branch = await git("symbolic-ref", "--quiet", "--short", "HEAD");
+    const remote = await git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD");
+    if (remote.code !== 0 || !remote.stdout.trim().startsWith("origin/")) return { exitCode: 0, deferred: true };
+    const defaultBranch = remote.stdout.trim().slice("origin/".length);
+    const status = await git("status", "--porcelain", "--untracked-files=all");
+    const upstream = await git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}");
+    const ahead = await git("rev-list", "--count", "@{upstream}..HEAD");
+    if (branch.code !== 0 || branch.stdout.trim() !== defaultBranch || status.code !== 0 || status.stdout.trim()
+      || upstream.code !== 0 || upstream.stdout.trim() !== `origin/${defaultBranch}` || ahead.code !== 0 || ahead.stdout.trim() !== "0") {
+      return { exitCode: 0, deferred: true };
+    }
   }
   const before = await checkoutVersion(root) ?? options.currentVersion;
 
@@ -467,7 +500,8 @@ async function updateCheckout(options: UpdateOptions, root: string): Promise<{ e
 
   const head = async () => (await git("rev-parse", "HEAD")).stdout.trim();
   const start = await head();
-  const pull = await git("pull", "--ff-only", "--quiet");
+  // The background check already fetched. Merge that exact upstream: no second fetch or branch switching.
+  const pull = options.background ? await git("merge", "--ff-only", "--quiet", "@{upstream}") : await git("pull", "--ff-only", "--quiet");
   if (pull.code !== 0) {
     // Its own commits are in the way only when the branch has diverged (each side has commits the other lacks): a
     // checkout that is only ahead pulls cleanly, so its failed pull is the network or a lock. Git's text covers changes in the way.
@@ -478,16 +512,36 @@ async function updateCheckout(options: UpdateOptions, root: string): Promise<{ e
       : `Git could not pull into the Casper checkout at ${root} (is the network down?), so it was not updated.`);
   }
   const end = await head();
-  if (end === start) { write(`The Casper checkout at ${root} is already up to date (${before}).`); return { exitCode: 0 }; }
+  // Pending dependencies belong to this checkout, even if a later fast-forward did not change the lockfile again.
+  const pending = options.stateDir ? await readFile(path.join(options.stateDir, "update-dependencies.json"), "utf8").then(text => JSON.parse(text)).catch(() => undefined) : undefined;
+  const dependenciesPending = pending?.root === root;
+  if (end === start) {
+    if (dependenciesPending) return installCheckoutDependencies(options, root, end);
+    write(`The Casper checkout at ${root} is already up to date (${before}).`); return { exitCode: 0 };
+  }
   const count = Number((await git("rev-list", "--count", `${start}..${end}`)).stdout.trim()) || 0;
   const after = await checkoutVersion(root) ?? before;
   write(after !== before ? `Updated the Casper checkout at ${root} from ${before} to ${after}.`
     : `Updated the Casper checkout at ${root} (still ${after}, ${changes(count)}).`);
 
   // `git diff --quiet` exits 1 when the lockfile differs between the two commits.
-  if ((await git("diff", "--quiet", start, end, "--", "bun.lock")).code !== 1) return { exitCode: 0 };
-  const installed = await run([options.bun ?? process.execPath, "install", "--frozen-lockfile"], { cwd: root, env: options.env ?? process.env, inherit: true,
+  if (!dependenciesPending && (await git("diff", "--quiet", start, end, "--", "bun.lock")).code !== 1) return { exitCode: 0, updated: true };
+  return installCheckoutDependencies(options, root, end);
+}
+
+async function installCheckoutDependencies(options: UpdateOptions, root: string, head: string): Promise<UpdateResult> {
+  const { write } = options;
+  const pending = options.stateDir ? path.join(options.stateDir, "update-dependencies.json") : undefined;
+  if (pending) {
+    await mkdir(options.stateDir!, { recursive: true });
+    await writeFile(pending, JSON.stringify({ root, head }), { mode: 0o600 });
+  }
+  const installed = await (options.run ?? defaultRunner)([options.bun ?? process.execPath, "install", "--frozen-lockfile"], { cwd: root, env: options.env ?? process.env, inherit: !options.background, ...(options.background ? { timeoutMs: 300_000 } : {}),
     ...(options.signal ? { signal: options.signal } : {}) });
-  if (installed.code === 0) { write("Casper's dependency list (bun.lock) changed, so it ran bun install in the checkout."); return { exitCode: 0 }; }
-  return fail(`Casper's dependency list (bun.lock) changed, but bun install failed; run bun install --frozen-lockfile in ${root}.`);
+  if (installed.code === 0) {
+    if (pending) await rm(pending, { force: true });
+    write("Casper's dependency list (bun.lock) changed, so it ran bun install in the checkout."); return { exitCode: 0, updated: true };
+  }
+  write(`Casper's dependency list (bun.lock) changed, but bun install failed; run bun install --frozen-lockfile in ${root}.`);
+  return { exitCode: 1 };
 }

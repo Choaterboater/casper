@@ -81,6 +81,26 @@ function makeApp(runtime: ToolRuntime, home: string, output: string[] = []) {
   return app;
 }
 
+test("a submitted command waits for an idle update to finish before any task work starts", async () => {
+  const { home, project } = await fixture();
+  const runtime = new ToolRuntime();
+  const output: string[] = [];
+  const app = makeApp(runtime, home, output);
+  await app.start(project);
+  const pending = Promise.withResolvers<void>();
+  app.updateWork = pending.promise;
+  const work = app.runOnce("/help");
+  expect(app.commandActive).toBe(true);
+  const before = output.join("");
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(output.join("")).toBe(before);
+  expect(runtime.prompts).toEqual([]);
+  pending.resolve();
+  await work;
+  expect(output.join("").length).toBeGreaterThan(before.length);
+  app.updateWork = undefined;
+});
+
 test("acceptance: 'map out the authentication flow' yields a visual, saves artifacts outside the workspace, and leaves code untouched", async () => {
   const { home, project } = await fixture();
   const runtime = new ToolRuntime();

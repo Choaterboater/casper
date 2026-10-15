@@ -20,11 +20,11 @@ export function updateLogPath(stateDir: string): string {
 }
 
 /** Starts a fresh log (the helper appends to it). Returns its path, or undefined when it could not be written. */
-export async function startUpdateLog(stateDir: string, from: string, to: string): Promise<string | undefined> {
+export async function startUpdateLog(stateDir: string, from: string, to: string, waitingPid?: number): Promise<string | undefined> {
   const file = updateLogPath(stateDir);
   try {
     await mkdir(stateDir, { recursive: true });
-    await writeFile(file, [`casper update ${from} -> ${to}`, `target: ${to}`, `started: ${new Date().toISOString()}`, "result: pending", ""].join("\n"), { mode: 0o600 });
+    await writeFile(file, [`casper update ${from} -> ${to}`, `target: ${to}`, `started: ${new Date().toISOString()}`, ...(waitingPid ? [`waiting-for-exit: ${waitingPid}`] : []), "result: pending", ""].join("\n"), { mode: 0o600 });
     return file;
   } catch { return undefined; }
 }
@@ -47,7 +47,13 @@ export async function lastUpdateFailure(stateDir: string, currentVersion: string
     if (!last) return undefined;
     const result = last.slice("result: ".length);
     if (result === "ok") return undefined;
-    if (result === "pending") return now - info.mtimeMs > PENDING_TOO_LONG_MS ? { version, reason: "the helper that installs it never finished", file } : undefined;
+    if (result === "pending") {
+      const waiting = Number(lines.find(line => line.startsWith("waiting-for-exit: "))?.slice("waiting-for-exit: ".length));
+      if (Number.isSafeInteger(waiting) && waiting > 0) {
+        try { process.kill(waiting, 0); return undefined; } catch { /* parent exited; allow time to install */ }
+      }
+      return now - info.mtimeMs > PENDING_TOO_LONG_MS ? { version, reason: "the helper that installs it never finished", file } : undefined;
+    }
     return { version, reason: result.replace(/^failed:\s*/, "") || "it did not finish", file };
   } catch { return undefined; }
 }

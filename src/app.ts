@@ -271,6 +271,8 @@ export class CasperApp {
   private readonly startupWarnings: readonly string[];
   readonly updateCheck?: { install: Install; currentVersion: string };
   readonly updateCheckAbort = new AbortController();
+  /** Idle updater reservation: submitted tasks wait for it before touching checks or checkout code. */
+  updateWork?: Promise<void>;
   /** What the last check found that is newer, for the footer (src/app/wiring.ts reportNewerCasper). */
   updateNote?: string;
   /** /doctor installed a newer Casper in this session: the footer says to restart, not to update. */
@@ -658,6 +660,7 @@ export class CasperApp {
       await this.session?.abort();
     } finally {
       try {
+        await this.updateWork?.catch(() => {});
         await this.visualizationWork?.catch(() => {});
         await this.verificationWork;
         await this.checkTask?.close();

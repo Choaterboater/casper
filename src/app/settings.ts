@@ -1,6 +1,6 @@
 import { isMap } from "yaml";
 import type { ProjectContext } from "../project/context";
-import { DEFAULT_READER, DEFAULT_WEB, SHOW_PAGES_SETTINGS, type ShowPagesSetting } from "../config/load";
+import { DEFAULT_READER, DEFAULT_WEB, SHOW_PAGES_SETTINGS, type ShowPagesSetting, UPDATES_SETTINGS, type UpdatesSetting } from "../config/load";
 import { editUserConfig, USER_CONFIG, userConfigValue } from "../config/user-write";
 import { DEFAULT_SPEND_LIMITS, formatLimit } from "../task/spend";
 import { PROMPT_CACHE_SETTINGS, type PromptCacheSetting } from "../runtime/cache";
@@ -98,6 +98,22 @@ function cacheRow(now: PromptCacheSetting): Setting {
       .map((setting) => ({ label: `${setting[0]!.toUpperCase()}${setting.slice(1)}`, description: CACHE_WORDS[setting], keys: ["cache"], value: setting, shown: setting })) };
 }
 
+const UPDATES_WORDS: Record<UpdatesSetting, string> = {
+  auto: "check and install in the background; restart to use the update",
+  notify: "say when a newer Casper is out, without installing it",
+  off: "no background checks, notices or installs",
+};
+
+/** Casper's own updates are the user's choice, not the project's. */
+function updatesRow(now: UpdatesSetting): Setting {
+  const shown = (value: UpdatesSetting) => value === "notify" ? "notify only" : value;
+  return { label: "Updates", value: shown(now),
+    question: `Updates: ${shown(now)} (${UPDATES_WORDS[now]}). Auto is the default. CASPER_NO_UPDATE_CHECK=1 and CI disable all background checks, notices and installs. casper update still works when off.`,
+    keep: `Keep ${shown(now)}`,
+    choices: UPDATES_SETTINGS.filter((setting) => setting !== now)
+      .map((setting) => ({ label: setting === "notify" ? "Notify only" : `${setting[0]!.toUpperCase()}${setting.slice(1)}`, description: UPDATES_WORDS[setting], keys: ["updates"], value: setting, shown: shown(setting) })) };
+}
+
 const SHOW_PAGES_WORDS: Record<ShowPagesSetting, { value: string; choice: string }> = {
   ask: { value: "ask once a session", choice: "Ask once a session" },
   on: { value: "always", choice: "Always show them" },
@@ -184,9 +200,7 @@ export function settingRows(context: ProjectContext): Setting[] {
     onOffRow("Open pages in the browser", context.openPages !== false,
       "A page the AI makes opens in your browser the first time in a session, and its tab reloads itself after each change. Off: Casper prints the link only (as it always does over SSH or with no desktop).",
       ["open_pages"], true, "step"),
-    { label: "New-version notice", value: context.updates === false ? "off" : "on",
-      question: `The line and the footer note that say a newer Casper is out are ${context.updates === false ? "off" : "on"}.`, keep: `Keep it ${context.updates === false ? "off" : "on"}`,
-      choices: [context.updates === false ? { label: "Turn it on", keys: ["updates"], value: true, shown: "on" } : { label: "Turn it off", keys: ["updates"], value: false, shown: "off" }] },
+    updatesRow(context.updates ?? "auto"),
     onOffRow("Notifications", context.notifications !== false,
       "When a task that ran over 10 seconds ends, or a question waits for you, the terminal rings, with a desktop notification where it shows them, and only while the terminal is not in front (when it says so). Off: nothing rings.",
       ["notifications"], true),

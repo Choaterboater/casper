@@ -1,12 +1,12 @@
-import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { afterEach, beforeEach, expect, setDefaultTimeout, test } from "bun:test";
+import { mkdir, mkdtemp, readFile, readdir, stat, utimes, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { HANDOFF_SCRIPT, compareVersions, defaultRunner, gitEnv, newestRelease, runUpdate, windowsArgument, wmiCreateScript, type Fetcher, type ProcessRunner } from "../src/update/command";
 import { runningFromBinary } from "../src/update/mode";
 import { UPDATE_LOG, lastUpdateFailure, startUpdateLog, updateFailureLines } from "../src/update/handoff-log";
-import { CHECK_EVERY_MS, refreshUpdateCheck, updateChecksOff, updateFooterNote, updateNotice } from "../src/update/notice";
+import { backgroundUpdate, INSTALLED_NOTE, FAILED_NOTE, CHECK_EVERY_MS, refreshUpdateCheck, updateChecksOff, updateFooterNote, updateNotice } from "../src/update/notice";
 import { testReleaseKey, type TestKey } from "./support/release-signing";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -452,14 +452,25 @@ test("GitHub unreachable, limiting requests or answering nonsense: one plain lin
 
 // --- Source checkout: real git, a fake bun ---
 
-const GIT_ENV = (() => {
+const GIT_ENV: Record<string, string> = (() => {
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(process.env)) if (value !== undefined && !/^GIT_/i.test(name)) env[name] = value;
-  return { ...env, GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "test@example.com", GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@example.com" };
+  // These cases exercise enabled updates, even on CI. Opt-out behavior has its own explicit env tests.
+  return { ...env, CI: "0", CASPER_NO_UPDATE_CHECK: "0", GIT_CONFIG_NOSYSTEM: "1",
+    GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "test@example.com", GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@example.com" };
 })();
 
+beforeEach(async () => {
+  // Git for Windows cannot read os.devNull as a config file. Use real empty files on every OS.
+  const root = await tempDir("casper-update-git-config-");
+  const config = path.join(root, "empty.gitconfig");
+  await writeFile(config, "");
+  GIT_ENV.GIT_CONFIG_GLOBAL = config;
+  GIT_ENV.GIT_CONFIG_SYSTEM = config;
+});
+
 function git(cwd: string, ...args: string[]): string {
-  const result = Bun.spawnSync(["git", "-c", "init.defaultBranch=main", "-c", "commit.gpgsign=false", ...args], { cwd, env: GIT_ENV, stdout: "pipe", stderr: "pipe" });
+  const result = Bun.spawnSync(["git", "-c", "init.defaultBranch=main", "-c", "commit.gpgsign=false", "-c", `core.hooksPath=${os.devNull}`, ...args], { cwd, env: GIT_ENV, stdout: "pipe", stderr: "pipe" });
   if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
   return result.stdout.toString().trim();
 }
@@ -471,25 +482,82 @@ async function commitVersion(repo: string, version: string, lock?: string, messa
   git(repo, "commit", "-q", "-m", message);
 }
 
+function configureFixtureGit(repo: string): void {
+  git(repo, "config", "--local", "user.name", "Test");
+  git(repo, "config", "--local", "user.email", "test@example.com");
+  git(repo, "config", "--local", "core.autocrlf", "false");
+}
+
 async function checkoutPair() {
   const root = await tempDir("casper-update-git-");
   const upstream = path.join(root, "upstream");
   await mkdir(upstream);
   git(upstream, "init", "-q");
+  configureFixtureGit(upstream);
   await commitVersion(upstream, "0.2.21", "lock-1");
   git(root, "clone", "-q", upstream, "checkout");
-  return { upstream, checkout: path.join(root, "checkout") };
+  const checkout = path.join(root, "checkout");
+  configureFixtureGit(checkout);
+  git(checkout, "branch", "--set-upstream-to=origin/main", "main");
+  git(checkout, "remote", "set-head", "origin", "main");
+  return { upstream, checkout };
 }
+
+test("checkout fixtures explicitly own main, local identity and origin/HEAD without ambient git config", async () => {
+  const { upstream, checkout } = await checkoutPair();
+  for (const repo of [upstream, checkout]) {
+    expect(git(repo, "symbolic-ref", "--short", "HEAD")).toBe("main");
+    expect(git(repo, "config", "--local", "user.name")).toBe("Test");
+    expect(git(repo, "config", "--local", "user.email")).toBe("test@example.com");
+  }
+  expect(git(checkout, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")).toBe("origin/main");
+  expect(git(checkout, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")).toBe("origin/main");
+  expect(updateChecksOff(GIT_ENV)).toBe(false);
+});
+
+// Production gitEnv intentionally removes GIT_CONFIG_* overrides. Reapply test isolation after that boundary.
+const fixtureGitRunner: ProcessRunner = (argv, options) => defaultRunner(argv, {
+  ...options, env: { ...options.env, GIT_CONFIG_GLOBAL: GIT_ENV.GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM: GIT_ENV.GIT_CONFIG_SYSTEM, GIT_CONFIG_NOSYSTEM: "1" },
+});
+
+test.each(["global", "system"] as const)("fixture git uses an empty temporary %s config for setup and update subprocesses on every OS", async level => {
+  const config = GIT_ENV[`GIT_CONFIG_${level.toUpperCase()}`]!;
+  expect(config).toBeTypeOf("string");
+  expect(temps).toContain(path.dirname(config));
+  expect((await stat(config)).isFile()).toBe(true);
+  expect(await readFile(config, "utf8")).toBe("");
+  expect(git(path.dirname(config), "config", `--${level}`, "--list")).toBe("");
+  // Even an explicit inherited override cannot escape the fixture after production strips GIT_CONFIG_*.
+  const result = await fixtureGitRunner(["git", "config", `--${level}`, "--list"], {
+    cwd: path.dirname(config), env: { ...gitEnv(GIT_ENV), [`GIT_CONFIG_${level.toUpperCase()}`]: path.join(path.dirname(config), "missing-config") },
+  });
+  expect(result.code).toBe(0);
+  expect(result.stdout).toBe("");
+});
 
 /** Real git; `bun` is recorded, not run. */
 function checkoutRunner() {
   const bunCalls: Array<{ argv: string[]; cwd?: string }> = [];
   const run: ProcessRunner = async (argv, options) => {
     if (argv[0] === "fake-bun") { bunCalls.push({ argv, ...(options.cwd ? { cwd: options.cwd } : {}) }); return { code: 0, stdout: "", stderr: "" }; }
-    return defaultRunner(argv, options);
+    return fixtureGitRunner(argv, options);
   };
   return { run, bunCalls };
 }
+
+test("the update git runner ignores global excludes even after production gitEnv strips config overrides", async () => {
+  const { checkout } = await checkoutPair();
+  const home = await tempDir("casper-update-git-home-");
+  const ignored = path.join(home, "ignored");
+  await writeFile(ignored, "notes.txt\n");
+  git(home, "config", "--file", path.join(home, ".gitconfig"), "core.excludesFile", ignored);
+  await writeFile(path.join(checkout, "notes.txt"), "untracked work");
+  const env = gitEnv({ ...GIT_ENV, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, ".config") });
+  expect(env.GIT_CONFIG_GLOBAL).toBeUndefined();
+  const status = await fixtureGitRunner(["git", "status", "--porcelain", "--untracked-files=all"], { cwd: checkout, env });
+  expect(status.code).toBe(0);
+  expect(status.stdout.trim()).toBe("?? notes.txt");
+});
 
 async function updateCheckout(checkout: string, check = false) {
   const { run, bunCalls } = checkoutRunner();
@@ -578,7 +646,7 @@ test("checkout: a changed lockfile whose bun install fails says what is left to 
   const { upstream, checkout } = await checkoutPair();
   await commitVersion(upstream, "0.2.22", "lock-2");
   const lines: string[] = [];
-  const run: ProcessRunner = async (argv, options) => argv[0] === "fake-bun" ? { code: 1, stdout: "", stderr: "" } : defaultRunner(argv, options);
+  const run: ProcessRunner = async (argv, options) => argv[0] === "fake-bun" ? { code: 1, stdout: "", stderr: "" } : fixtureGitRunner(argv, options);
   const result = await runUpdate({ releaseKey: NO_KEY, check: false, install: { kind: "checkout", root: checkout }, currentVersion: "0.2.21", write: (line) => lines.push(line), run, bun: "fake-bun", env: GIT_ENV });
   expect(result.exitCode).toBe(1);
   expect(lines).toEqual([
@@ -674,14 +742,16 @@ test("notice: a checkout counts what it is behind, and the count goes away once 
   const { upstream, checkout } = await checkoutPair();
   const stateDir = await tempDir("casper-notice-");
   const { run } = checkoutRunner();
-  const options = { install: { kind: "checkout" as const, root: checkout }, currentVersion: "0.2.21", stateDir, run, env: GIT_ENV };
+  let now = 1_000_000;
+  const options = { install: { kind: "checkout" as const, root: checkout }, currentVersion: "0.2.21", stateDir, run, env: GIT_ENV, now: () => now };
   await refreshUpdateCheck(options);
   expect(await updateNotice(options)).toBeUndefined();
   await commitVersion(upstream, "0.2.22");
   await commitVersion(upstream, "0.2.23");
-  await refreshUpdateCheck({ ...options, now: () => Date.now() + CHECK_EVERY_MS });
+  now += CHECK_EVERY_MS;
+  await refreshUpdateCheck(options);
   expect(await updateNotice(options)).toBe("The Casper checkout is 2 changes behind. Run casper update to pull them.");
-  expect(await updateFooterNote(options)).toBe("Casper is 2 changes behind · casper update");
+  expect(await updateFooterNote(options)).toBe("Casper update ready · casper update");
   git(checkout, "pull", "-q", "--ff-only");
   expect(await updateNotice(options)).toBeUndefined();
   expect(await updateFooterNote(options)).toBeUndefined();
@@ -697,14 +767,15 @@ test("notice: a checkout branch with no remote is quiet", async () => {
 });
 
 /** A session's app, as far as the new-version line and the footer note use it: the footer's update note is recorded. */
-function noticeApp(home: string, fetch: Fetcher, clock: { now: number }, updates?: boolean) {
+function noticeApp(home: string, fetch: Fetcher, clock: { now: number }, updates: "auto" | "notify" | "off" = "notify") {
   const notes: Array<string | undefined> = [];
   const lines: string[] = [];
   const drawn: string[] = [];
   const app = {
     updateCheck: { install: { kind: "binary" as const, executable: "/opt/casper/casper" }, currentVersion: "0.2.21", fetch, env: {}, now: () => clock.now },
+    interactive: true, commandActive: false,
     sessionHomeDir: home, homeDir: () => home, updateCheckAbort: new AbortController(), updatedInSession: false, updateNote: undefined as string | undefined,
-    projectContext: { info: { name: "project", root: home }, ...(updates === false ? { updates } : {}) } as { info: { name: string; root: string }; updates?: boolean },
+    projectContext: { info: { name: "project", root: home }, updates } as { info: { name: string; root: string }; updates?: "auto" | "notify" | "off" },
     output: { write: (text: string) => { lines.push(text); } },
     terminal: { rich: false, setTitle: () => { drawn.push("title"); }, setBadge: () => { drawn.push("badge"); }, setStatus: () => { drawn.push("status"); },
       setUpdate: (text?: string) => { notes.push(text); } },
@@ -748,7 +819,7 @@ test("notice: a session puts the footer note up when its background check finds 
     clock.now += CHECK_EVERY_MS;
     await asked(2);
     // Turned off in /settings mid-session: the note goes and no tick asks GitHub any more.
-    app.projectContext.updates = false;
+    app.projectContext.updates = "off";
     updateFooter(app as unknown as App);
     expect(notes.at(-1)).toBeUndefined();
     clock.now += CHECK_EVERY_MS;
@@ -758,7 +829,7 @@ test("notice: a session puts the footer note up when its background check finds 
     delete app.projectContext.updates;
     app.updatedInSession = true;
     updateFooter(app as unknown as App);
-    expect(notes.at(-1)).toBe("Casper updated · restart to use it");
+    expect(notes.at(-1)).toBe("✔ Update installed · restart to use it");
     // Closing the session stops the ticks.
     app.updateCheckAbort.abort();
     const count = notes.length;
@@ -790,7 +861,7 @@ test("notice: a failed look is not tried again for a day, however often the sess
     clock.now += CHECK_EVERY_MS - 1;
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(github.asked).toHaveLength(1);
-    expect(notes.filter(Boolean)).toEqual([]);
+    expect(notes.filter(Boolean).every(note => note === "update failed · casper update")).toBe(true);
     // A day after the try, it asks once more.
     clock.now += 1;
     await asked(2);
@@ -809,7 +880,7 @@ test("notice: with updates: false a session says nothing, shows no note and asks
   await mkdir(path.join(home, ".casper"), { recursive: true });
   await writeFile(path.join(home, ".casper", "update-check.json"), JSON.stringify({ checkedAt: 1, kind: "binary", version: "0.2.22" }));
   const { github, fetch } = countedGitHub([{ tag_name: "v0.2.23" }]);
-  const { app, notes, lines } = noticeApp(home, fetch, { now: 1_000_000_000 }, false);
+  const { app, notes, lines } = noticeApp(home, fetch, { now: 1_000_000_000 }, "off");
   const saved = { CI: process.env.CI, CASPER_NO_UPDATE_CHECK: process.env.CASPER_NO_UPDATE_CHECK };
   delete process.env.CI; delete process.env.CASPER_NO_UPDATE_CHECK;
   try {
@@ -934,4 +1005,286 @@ test("windows: the helper sets the installer's settings only from checked parame
   expect(HANDOFF_SCRIPT).toContain("ValidatePattern('^(https://github\\.com/Choaterboater/casper/releases/download/v[0-9A-Za-z.-]+)?$')");
   expect(HANDOFF_SCRIPT).toContain("foreach ($Name in @('CASPER_BASE_URL', 'CASPER_SHA256', 'CASPER_ARCH', 'CASPER_OS')) { Remove-Item");
   expect(HANDOFF_SCRIPT.indexOf("if ($BaseUrl) { $env:CASPER_BASE_URL = $BaseUrl }")).toBeLessThan(HANDOFF_SCRIPT.indexOf("& $Installer"));
+});
+
+async function until(predicate: () => boolean) {
+  for (let i = 0; i < 400 && !predicate(); i++) await new Promise(resolve => setTimeout(resolve, 5));
+  expect(predicate()).toBe(true);
+}
+
+const auto = { mode: "auto" as const, canInstall: () => true };
+
+test("background binary uses the normal signed, hashed and provenance-checked installer quietly, once a day", async () => {
+  const key = testReleaseKey();
+  const { executable } = await binaryInstall();
+  const stateDir = await tempDir("casper-auto-");
+  const github = signedRelease("0.2.22", key);
+  const calls: Array<{ argv: string[]; inherit?: boolean }> = [];
+  const run: ProcessRunner = async (argv, options) => {
+    calls.push({ argv, inherit: options.inherit });
+    return { code: 0, stdout: argv[1] === "--version" ? "gh version 2.56.0" : "", stderr: "" };
+  };
+  const options = { install: { kind: "binary" as const, executable }, currentVersion: "0.2.21", stateDir, fetch: github.fetch, run,
+    env: {}, platform: "linux" as const, arch: "x64", releaseKey: key.publicKey };
+  expect(await backgroundUpdate(options, auto)).toBe(INSTALLED_NOTE);
+  expect(calls.map(call => call.argv.slice(0, 3).join(" "))).toEqual(["gh auth status", "gh --version", "gh attestation verify", "gh attestation verify", expect.stringMatching(/^sh /)]);
+  expect(calls.at(-1)!.inherit).toBe(false);
+  expect(await readFile(executable, "utf8")).toBe("old"); // The fake runner did not replace the running program.
+  expect(await backgroundUpdate(options, auto)).toBe(INSTALLED_NOTE);
+  expect(calls.filter(call => call.argv[0] === "sh")).toHaveLength(1);
+  expect(await updateFooterNote(options)).toBe(INSTALLED_NOTE);
+});
+
+test("background verification refuses missing/bad signatures, bad hashes and provenance; install failures log without terminal output", async () => {
+  const key = testReleaseKey();
+  for (const kind of ["signature", "hash", "provenance", "install", "lookup"] as const) {
+    const { executable } = await binaryInstall();
+    const stateDir = await tempDir("casper-auto-fail-");
+    const github = kind === "lookup" ? fakeGitHub(() => new Response("busy", { status: 503 }))
+      : signedRelease("0.2.22", key, kind === "signature" ? { signature: null } : kind === "hash" ? { script: installer("0.2.22") + "changed" } : {});
+    const calls: string[][] = [];
+    const run: ProcessRunner = async (argv) => {
+      calls.push(argv);
+      return { code: kind === "provenance" && argv[1] === "attestation" && !argv.includes("--help") || kind === "install" && argv[0] === "sh" ? 1 : 0,
+        stdout: argv[1] === "--version" ? "gh version 2.56.0" : "", stderr: "" };
+    };
+    const options = { install: { kind: "binary" as const, executable }, currentVersion: "0.2.21", stateDir, fetch: github.fetch, run,
+      env: {}, platform: "linux" as const, arch: "x64", releaseKey: key.publicKey };
+    expect(await backgroundUpdate(options, auto)).toBe(FAILED_NOTE);
+    expect(await updateFooterNote(options)).toBe(FAILED_NOTE);
+    expect(await readFile(executable, "utf8")).toBe("old");
+    expect(await readFile(path.join(stateDir, "update.log"), "utf8")).toContain("result: failed:");
+    expect(calls.some(argv => argv[0] === "sh")).toBe(kind === "install");
+    const looked = github.asked.length;
+    await backgroundUpdate(options, auto);
+    expect(github.asked).toHaveLength(looked);
+  }
+});
+
+test("background notify, off, environment opt-outs and a busy caller never install", async () => {
+  for (const mode of ["notify", "off", "busy", "ci", "env"] as const) {
+    const stateDir = await tempDir("casper-auto-mode-");
+    const github = fakeGitHub([{ tag_name: "v0.2.22" }]);
+    const { run, calls } = recordingRunner();
+    const options = { install: { kind: "binary" as const, executable: "/opt/casper/casper" }, currentVersion: "0.2.21", stateDir, fetch: github.fetch, run,
+      env: mode === "ci" ? { CI: "1" } : mode === "env" ? { CASPER_NO_UPDATE_CHECK: "1" } : {} };
+    const note = await backgroundUpdate(options, { mode: mode === "notify" || mode === "off" ? mode : "auto", canInstall: () => mode !== "busy" });
+    expect(note).toBe(mode === "notify" || mode === "busy" ? "Casper 0.2.22 is out · casper update" : undefined);
+    expect(calls).toEqual([]);
+    expect(github.asked).toHaveLength(mode === "notify" || mode === "busy" ? 1 : 0);
+  }
+});
+
+test("a failed extra probe cannot erase the shared daily installation-attempt guard", async () => {
+  const key = testReleaseKey();
+  const { executable } = await binaryInstall();
+  const stateDir = await tempDir("casper-auto-attempt-");
+  const bad = signedRelease("0.2.22", key, { signature: null });
+  const good = signedRelease("0.2.22", key);
+  let phase = 0, now = 1_000_000;
+  const fetch: Fetcher = (url, init) => phase === 0 ? bad.fetch(url, init) : phase === 1 ? Promise.resolve(new Response("busy", { status: 503 })) : good.fetch(url, init);
+  const { run, calls } = recordingRunner();
+  const options = { install: { kind: "binary" as const, executable }, currentVersion: "0.2.21", stateDir, fetch, run, env: {},
+    platform: "linux" as const, arch: "x64", releaseKey: key.publicKey, now: () => now };
+  expect(await backgroundUpdate(options, auto)).toBe(FAILED_NOTE);
+  const attemptedAt = JSON.parse(await readFile(path.join(stateDir, "update-check.json"), "utf8")).attemptedAt;
+  phase = 1;
+  expect(await backgroundUpdate(options, { ...auto, early: true })).toBe(FAILED_NOTE);
+  expect(JSON.parse(await readFile(path.join(stateDir, "update-check.json"), "utf8")).attemptedAt).toBe(attemptedAt);
+  phase = 2;
+  await backgroundUpdate(options, { ...auto, early: true });
+  expect(calls).toEqual([]);
+  now += CHECK_EVERY_MS;
+  expect(await backgroundUpdate(options, auto)).toBe(INSTALLED_NOTE);
+  expect(await updateFooterNote(options)).toBe(INSTALLED_NOTE);
+  expect((await readdir(stateDir)).includes("update.log")).toBe(false);
+});
+
+test("two sessions reclaiming a dead lock still run at most one updater", async () => {
+  const stateDir = await tempDir("casper-auto-lock-");
+  const lock = path.join(stateDir, "update.lock");
+  await mkdir(lock);
+  await writeFile(path.join(lock, "owner"), "0:dead");
+  await utimes(lock, new Date(0), new Date(0));
+  const { executable } = await binaryInstall();
+  const github = fakeGitHub([{ tag_name: "v0.2.22" }], releaseFiles("0.2.22"));
+  const { run, calls } = recordingRunner();
+  const options = { install: { kind: "binary" as const, executable }, currentVersion: "0.2.21", stateDir, fetch: github.fetch, run, env: {}, releaseKey: NO_KEY, platform: "linux" as const };
+  const notes = await Promise.all([backgroundUpdate(options, auto), backgroundUpdate(options, auto)]);
+  expect(notes).toContain(INSTALLED_NOTE);
+  expect(calls.filter(call => call.argv[0] === "sh")).toHaveLength(1);
+  expect((await readdir(stateDir)).filter(name => name.endsWith(".lock"))).toEqual([]);
+});
+
+test("background checkout fast-forwards only clean default branches and installs only changed lockfiles", async () => {
+  for (const lockChanged of [false, true]) {
+    const { upstream, checkout } = await checkoutPair();
+    await commitVersion(upstream, "0.2.22", lockChanged ? "lock-2" : undefined);
+    const { run, bunCalls } = checkoutRunner();
+    const stateDir = await tempDir("casper-auto-source-");
+    const options = { install: { kind: "checkout" as const, root: checkout }, currentVersion: "0.2.21", stateDir, run, bun: "fake-bun", env: GIT_ENV };
+    expect(await backgroundUpdate(options, auto)).toBe(INSTALLED_NOTE);
+    expect(git(checkout, "rev-parse", "HEAD")).toBe(git(upstream, "rev-parse", "HEAD"));
+    expect(bunCalls).toEqual(lockChanged ? [{ argv: ["fake-bun", "install", "--frozen-lockfile"], cwd: checkout }] : []);
+    expect(await updateFooterNote({ ...options, startedAt: Date.now() - 60_000 })).toBe(INSTALLED_NOTE);
+    expect(await updateFooterNote({ ...options, startedAt: Date.now() + 1 })).toBeUndefined();
+  }
+});
+
+test("a failed frozen install keeps its notice; manual retry finishes dependencies with or without another fast-forward", async () => {
+  for (const advance of [false, true]) {
+    const { upstream, checkout } = await checkoutPair();
+    await commitVersion(upstream, "0.2.22", "lock-2");
+    const stateDir = await tempDir("casper-auto-dependencies-");
+    let fail = true, installs = 0;
+    const run: ProcessRunner = (argv, options) => {
+      if (argv[0] === "fake-bun") { installs++; return Promise.resolve({ code: fail ? 1 : 0, stdout: "", stderr: "" }); }
+      return fixtureGitRunner(argv, options);
+    };
+    const options = { install: { kind: "checkout" as const, root: checkout }, currentVersion: "0.2.21", stateDir, run, bun: "fake-bun", env: GIT_ENV };
+    expect(await backgroundUpdate(options, auto)).toBe(FAILED_NOTE);
+    expect(await updateFooterNote(options)).toBe(FAILED_NOTE);
+    expect(await readFile(path.join(stateDir, "update.log"), "utf8")).toContain("result: failed:");
+    await refreshUpdateCheck(options, true);
+    expect(await updateFooterNote(options)).toBe(FAILED_NOTE);
+    // A later commit without a lockfile change must not strand the earlier failed install forever.
+    if (advance) await commitVersion(upstream, "0.2.23");
+    fail = false;
+    expect((await runUpdate({ ...options, check: false, write() {} })).updated).toBe(true);
+    expect(installs).toBe(2);
+    expect(await updateFooterNote({ ...options, startedAt: Date.now() - 60_000 })).toBe(INSTALLED_NOTE);
+    expect((await readdir(stateDir)).includes("update-dependencies.json")).toBe(false);
+  }
+});
+
+test("background checkout accepts a known non-main default and defers when the default is unknown", async () => {
+  for (const known of [false, true]) {
+    const { upstream, checkout } = await checkoutPair();
+    if (known) {
+      git(upstream, "branch", "-m", "stable");
+      git(checkout, "fetch");
+      git(checkout, "switch", "-c", "stable", "--track", "origin/stable");
+      git(checkout, "remote", "set-head", "origin", "stable");
+    } else git(checkout, "remote", "set-head", "origin", "--delete");
+    await commitVersion(upstream, "0.2.22");
+    const before = git(checkout, "rev-parse", "HEAD");
+    const { run } = checkoutRunner();
+    const stateDir = await tempDir("casper-auto-default-");
+    // Newer git may rediscover origin/HEAD during fetch; model an unknown default consistently on all git versions.
+    const runner: ProcessRunner = (argv, options) => !known && argv.includes("refs/remotes/origin/HEAD")
+      ? Promise.resolve({ code: 1, stdout: "", stderr: "" }) : run(argv, options);
+    const note = await backgroundUpdate({ install: { kind: "checkout", root: checkout }, currentVersion: "0.2.21", stateDir, run: runner, bun: "fake-bun", env: GIT_ENV }, auto);
+    expect(note).toBe(known ? INSTALLED_NOTE : "Casper update ready · casper update");
+    expect(git(checkout, "rev-parse", "HEAD")).toBe(known ? git(upstream, "rev-parse", "HEAD") : before);
+  }
+});
+
+test("background checkout leaves tracked dirt, untracked files, other branches, detached heads and local commits untouched", async () => {
+  for (const unsafe of ["tracked", "untracked", "branch", "detached", "diverged", "ahead"] as const) {
+    const { upstream, checkout } = await checkoutPair();
+    await commitVersion(upstream, "0.2.22");
+    if (unsafe === "tracked") await writeFile(path.join(checkout, "bun.lock"), "work in progress");
+    if (unsafe === "untracked") await writeFile(path.join(checkout, "notes.txt"), "work in progress");
+    if (unsafe === "branch") { git(checkout, "switch", "-c", "work"); git(checkout, "branch", "--set-upstream-to=origin/main"); }
+    if (unsafe === "detached") { git(checkout, "switch", "--detach"); }
+    if (unsafe === "diverged") await commitVersion(checkout, "0.2.21-local");
+    if (unsafe === "ahead") { git(checkout, "pull", "--ff-only"); await commitVersion(checkout, "0.2.23-local"); }
+    const before = git(checkout, "rev-parse", "HEAD"), status = git(checkout, "status", "--porcelain", "--untracked-files=all");
+    const { run, bunCalls } = checkoutRunner();
+    const stateDir = await tempDir("casper-auto-unsafe-");
+    const note = await backgroundUpdate({ install: { kind: "checkout", root: checkout }, currentVersion: "0.2.21", stateDir, run, bun: "fake-bun", env: GIT_ENV }, auto);
+    expect(git(checkout, "rev-parse", "HEAD")).toBe(before);
+    expect(git(checkout, "status", "--porcelain", "--untracked-files=all")).toBe(status);
+    expect(bunCalls).toEqual([]);
+    expect(note).toBe(unsafe === "ahead" || unsafe === "detached" ? undefined : "Casper update ready · casper update");
+  }
+});
+
+test("session probes once after a few minutes, defers during tasks/checks, respects daily cache and prints plain news once", async () => {
+  const { reportNewerCasper, updateTick } = await import("../src/app/wiring");
+  const saved = { CI: process.env.CI, CASPER_NO_UPDATE_CHECK: process.env.CASPER_NO_UPDATE_CHECK, ...updateTick };
+  delete process.env.CI; delete process.env.CASPER_NO_UPDATE_CHECK;
+  updateTick.ms = 10; updateTick.earlyMs = 50;
+  const home = await tempDir("casper-auto-timer-");
+  let version = "0.2.21";
+  const github = countedGitHub(() => Response.json([{ draft: false, tag_name: `v${version}` }]));
+  const { app, notes, lines } = noticeApp(home, github.fetch, { now: 1_000_000 });
+  const host = app as unknown as Parameters<typeof reportNewerCasper>[0];
+  try {
+    app.commandActive = true;
+    await reportNewerCasper(host, host.projectContext!);
+    await new Promise(resolve => setTimeout(resolve, 80));
+    expect(github.github.asked).toHaveLength(0);
+    app.commandActive = false;
+    host.verificationWork = Promise.resolve({} as never);
+    await new Promise(resolve => setTimeout(resolve, 40));
+    expect(github.github.asked).toHaveLength(0);
+    host.verificationWork = undefined;
+    // The postponed early check is still only one probe.
+    await until(() => github.github.asked.length === 1);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(github.github.asked).toHaveLength(1);
+    expect(lines).toEqual([]);
+    // A fresh session's extra early probe sees a release published after its startup lookup.
+    app.updateCheckAbort.abort();
+    const second = noticeApp(home, github.fetch, { now: 1_000_001 });
+    const next = second.app as unknown as Parameters<typeof reportNewerCasper>[0];
+    try {
+      await reportNewerCasper(next, next.projectContext!);
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(github.github.asked).toHaveLength(1);
+      version = "0.2.22";
+      await until(() => second.notes.includes("Casper 0.2.22 is out · casper update"));
+      expect(github.github.asked).toHaveLength(2);
+      await new Promise(resolve => setTimeout(resolve, 80));
+      expect(github.github.asked).toHaveLength(2);
+      expect(second.lines).toEqual(["[update] Casper 0.2.22 is out · casper update\n"]);
+    } finally { next.updateCheckAbort.abort(); await next.updateWork; }
+    expect(notes.filter(Boolean)).toEqual([]);
+  } finally {
+    app.updateCheckAbort.abort(); await host.updateWork;
+    updateTick.ms = saved.ms; updateTick.earlyMs = saved.earlyMs;
+    for (const name of ["CI", "CASPER_NO_UPDATE_CHECK"] as const) if (saved[name] === undefined) delete process.env[name]; else process.env[name] = saved[name];
+  }
+});
+
+test("one-shot and JSON reporters only print saved news once and never check or install", async () => {
+  const { reportNewerCasper } = await import("../src/app/wiring");
+  const saved = { CI: process.env.CI, CASPER_NO_UPDATE_CHECK: process.env.CASPER_NO_UPDATE_CHECK };
+  delete process.env.CI; delete process.env.CASPER_NO_UPDATE_CHECK;
+  try {
+    for (const json of [false, true]) {
+      const home = await tempDir("casper-auto-once-");
+      await mkdir(path.join(home, ".casper"));
+      await writeFile(path.join(home, ".casper", "update-check.json"), JSON.stringify({ checkedAt: 1, kind: "binary", version: "0.2.22" }));
+      const github = countedGitHub([{ tag_name: "v0.2.23" }]);
+      const { app, lines } = noticeApp(home, github.fetch, { now: CHECK_EVERY_MS * 2 }, "auto");
+      const host = app as unknown as Parameters<typeof reportNewerCasper>[0];
+      host.interactive = json;
+      if (json) Object.assign(host, { onEvent: () => {} });
+      await reportNewerCasper(host, host.projectContext!);
+      expect(host.updateWork).toBeUndefined();
+      expect(github.github.asked).toHaveLength(0);
+      expect(lines).toEqual(["[update] Casper 0.2.22 is out · casper update\n"]);
+      host.updateCheckAbort.abort();
+    }
+  } finally {
+    for (const name of ["CI", "CASPER_NO_UPDATE_CHECK"] as const) if (saved[name] === undefined) delete process.env[name]; else process.env[name] = saved[name];
+  }
+});
+
+test("background Windows handoff waits for a long session to exit, logs pending and keeps the old executable", async () => {
+  const { executable } = await binaryInstall("casper.exe");
+  const stateDir = await tempDir("casper-auto-windows-");
+  const github = fakeGitHub([{ tag_name: "v0.2.22" }], releaseFiles("0.2.22"));
+  const handoff = fakeHandoff();
+  const options = { install: { kind: "binary" as const, executable }, currentVersion: "0.2.21", stateDir, fetch: github.fetch,
+    run: recordingRunner().run, startDetached: handoff.start, platform: "win32" as const, releaseKey: NO_KEY, env: {}, pid: process.pid };
+  expect(await backgroundUpdate(options, auto)).toBe(INSTALLED_NOTE);
+  const argv = handoff.calls[0]!.argv;
+  expect(argv.slice(argv.indexOf("-WaitSeconds"), argv.indexOf("-WaitSeconds") + 2)).toEqual(["-WaitSeconds", "0"]);
+  expect(HANDOFF_SCRIPT).toContain("if ($WaitSeconds -eq 0) { $casper.WaitForExit() }");
+  expect(await readFile(executable, "utf8")).toBe("old");
+  expect(await lastUpdateFailure(stateDir, "0.2.21", Date.now() + CHECK_EVERY_MS)).toBeUndefined();
+  expect(await readFile(path.join(stateDir, "update.log"), "utf8")).toContain(`waiting-for-exit: ${process.pid}`);
 });

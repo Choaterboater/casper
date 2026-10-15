@@ -27,8 +27,8 @@ export interface ProjectContext {
   repair: LoadedConfiguration["repair"];
   /** `suggestions: false` in the user's config: no suggestions anywhere. */
   suggestions?: boolean;
-  /** `updates: false` in the user's config: no new-version line at the start of a session, nor its footer note. */
-  updates?: boolean;
+  /** `updates: auto|notify|off` in the user's config: background installs, notices only, or neither. Unset: auto. */
+  updates?: LoadedConfiguration["updates"];
   /** `sideQuestions: false` in the user's config: a line starting with `?` is an ordinary request. */
   sideQuestions?: boolean;
   /** `localModels: false` in the user's config: no model servers on this computer are looked for. */
