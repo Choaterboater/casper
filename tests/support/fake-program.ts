@@ -1,10 +1,11 @@
-import { setDefaultTimeout } from "bun:test";
+import { beforeAll, setDefaultTimeout } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, copyFile, link, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { FakeServerName } from "./fake-servers";
 import { removeTempDir } from "./temp-dir";
+import { buildSharedLauncher, FAKE_PROGRAM_SETUP_MS } from "../fixtures/security-tools/setup";
 
 /**
  * Fake programs for tests, written in JavaScript so the same fake runs on every OS.
@@ -30,39 +31,24 @@ const BUNDLED = [LAUNCHER, SERVERS, path.join(FIXTURES, "fake-network-mcp.ts"), 
 /** A program's file name on this OS: `name.exe` on Windows. */
 export const programName = (name: string): string => windows && !/\.exe$/i.test(name) ? `${name}.exe` : name;
 
-const exists = (file: string) => stat(file).then(() => true, () => false);
+/** Share an in-flight build, but let later consumers recover after a failed compiler start. */
+export function sharedLauncher(build: () => Promise<string>): () => Promise<string> {
+  let built: Promise<string> | undefined;
+  return () => built ??= build().catch(error => { built = undefined; throw error; });
+}
 
-let built: Promise<string> | undefined;
+// Compilation is fixture setup, not part of a consumer test's short server/CLI budget.
+beforeAll(async () => { if (windows) await launcher(); }, FAKE_PROGRAM_SETUP_MS);
 
 /** The launcher .exe, built once for this source and this Bun, and shared by every test run on this PC. */
-function launcher(): Promise<string> {
-  built ??= (async () => {
-    const hash = createHash("sha256").update(Bun.version).update(process.execPath);
-    for (const file of BUNDLED) hash.update(await readFile(file));
-    const folder = path.join(os.tmpdir(), "casper-test-fakes");
-    const target = path.join(folder, `launcher-${hash.digest("hex").slice(0, 16)}.exe`);
-    if (await exists(target)) return target;
-    await mkdir(folder, { recursive: true });
-    const partial = path.join(folder, `partial-${process.pid}-${Date.now()}.exe`);
-    // Bun 1.4 may leave a copy of its runtime (.<hash>-00000000.bun-build) in the build's folder. Built from a scratch
-    // folder of its own, as scripts/compile.ts does, it never lands in the repository, where a test that compiles
-    // Casper looks for exactly that leftover.
-    const scratch = await mkdtemp(path.join(os.tmpdir(), "casper-launcher-build-"));
-    let build: ReturnType<typeof Bun.spawnSync>;
-    try {
-      build = Bun.spawnSync([process.execPath, "build", "--compile", "--no-compile-autoload-dotenv", "--no-compile-autoload-bunfig",
-        LAUNCHER, "--outfile", partial], { cwd: scratch, stdout: "pipe", stderr: "pipe" });
-    } finally { await rm(scratch, { recursive: true, force: true }).catch(() => {}); }
-    if (build.exitCode !== 0) throw new Error(`Could not build the fake launcher:\n${build.stderr?.toString() ?? ""}`);
-    // Another test run may have built it at the same time; either copy will do.
-    try { await rename(partial, target); } catch (error) {
-      await rm(partial, { force: true });
-      if (!(await exists(target))) throw error;
-    }
-    return target;
-  })();
-  return built;
-}
+const launcher = sharedLauncher(async () => {
+  const hash = createHash("sha256").update(Bun.version).update(process.execPath);
+  for (const file of BUNDLED) hash.update(await readFile(file));
+  const folder = path.join(os.tmpdir(), "casper-test-fakes");
+  const target = path.join(folder, `launcher-${hash.digest("hex").slice(0, 16)}.exe`);
+  await mkdir(folder, { recursive: true });
+  return buildSharedLauncher(target, { entrypoint: LAUNCHER });
+});
 
 const PREAMBLE = [
   `const fs = require("node:fs");`,

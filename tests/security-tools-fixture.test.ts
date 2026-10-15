@@ -6,6 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { buildSharedLauncher, FAKE_PROGRAM_SETUP_MS, fakeProgram, prepareFakePrograms } from "./fixtures/security-tools/setup";
 import { removeTempDir } from "./support/temp-dir";
+import { cleanEnv } from "./support/env";
+import { childTestLimit, finished } from "./support/limits";
 
 beforeAll(prepareFakePrograms, FAKE_PROGRAM_SETUP_MS);
 
@@ -36,6 +38,36 @@ test("the launcher retries a failed compile, publishes only a complete output, a
   expect(await readdir(root)).toEqual(["shared.exe"]);
   expect(await buildSharedLauncher(exe, { compile: () => { throw new Error("must use the shared file"); } })).toBe(exe);
 });
+
+test("launcher compilation is awaited before publication, leaving the test worker responsive", async () => {
+  const root = await temp();
+  const exe = path.join(root, "shared.exe");
+  let yielded = false;
+  const built = await buildSharedLauncher(exe, { scratchRoot: root, compile: async outfile => {
+    await new Promise<void>(resolve => queueMicrotask(() => { yielded = true; resolve(); }));
+    await writeFile(outfile, "async compiled fixture");
+    return result();
+  } });
+  expect(yielded).toBe(true);
+  expect(built).toBe(exe);
+  expect(await readFile(exe, "utf8")).toBe("async compiled fixture");
+  expect(await readdir(root)).toEqual(["shared.exe"]);
+});
+
+test("a native shared launcher compiles and runs without loading the fixture's dotenv or bunfig", async () => {
+  const root = await temp();
+  const entrypoint = path.join(root, "entry.ts");
+  await writeFile(entrypoint, 'console.log(process.env.CASPER_LAUNCHER_ENV ?? "isolated");');
+  await writeFile(path.join(root, ".env"), "CASPER_LAUNCHER_ENV=unexpected-dotenv\n");
+  await writeFile(path.join(root, "bunfig.toml"), 'preload = ["./preload.ts"]\n');
+  await writeFile(path.join(root, "preload.ts"), 'throw new Error("unexpected fixture preload");');
+  const exe = await buildSharedLauncher(path.join(root, "native.exe"), { entrypoint, scratchRoot: root });
+  const result = await finished(() => Bun.spawn([exe], {
+    cwd: root, env: cleanEnv({ HOME: root }), stdin: "ignore", stdout: "pipe", stderr: "pipe",
+  }));
+  expect({ exit: result.exit, killed: result.killed, stderr: result.stderr }).toEqual({ exit: 0, killed: false, stderr: "" });
+  expect(result.stdout.trim()).toBe("isolated");
+}, FAKE_PROGRAM_SETUP_MS + childTestLimit());
 
 test("exhausted compile retries report status, signal, error, stdout and stderr for every attempt", async () => {
   const root = await temp();
