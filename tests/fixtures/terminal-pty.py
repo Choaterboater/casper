@@ -112,6 +112,8 @@ class Session:
                 self.screen.feed(self.decoder.decode(data))
 
     def until(self, text, timeout=15):
+        if text == "│ idle":  # Legacy callers wait for the state, now at the left.
+            return self.until_ready(timeout)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             self.pump(0.03)
@@ -142,8 +144,8 @@ class Session:
         has its spinner and elapsed time ("⠋ building · 3s │ …"), while it asks "? waiting for you"; both are gone only
         when it is back. The WRITES badge may lead the footer, and the first frame ("Casper · / for commands") has no │ (later idle frames may lead with "type / for commands │")."""
         def ready(text):
-            footer = text.rstrip().splitlines()[-1]
-            return "│" in footer and not re.search(r"\d+s │|waiting for you", footer)
+            lines = text.rstrip().splitlines()
+            return bool(lines and re.match(r"idle(?:\s|$)", lines[-1]))
         self.until_true(ready, timeout)
 
     def wait_exit(self, timeout=30):
@@ -287,7 +289,7 @@ def exercise(bun, repo, root, no_color):
         s.until("[mcp] Writes off for fixture. Every change asks you again.")
         s.until_true(lambda text: "WRITES" not in text.rstrip().splitlines()[-1])
         # The cancelled task may still be closing: wait for the idle footer before the next command.
-        s.until_true(lambda text: text.rstrip().endswith("idle"))
+        s.until_ready()
         s.send("/login\n")
         s.until("This runtime does not support login")
         assert not any(request.startswith("/") for request in s.requests())

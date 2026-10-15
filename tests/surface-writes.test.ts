@@ -18,11 +18,12 @@ test("the WRITES badge leads the footer and is never cut off, even 30 columns wi
     surface.setStatus("project/main │ provider/model · effort high │ ctx 12% │ idle", process.cwd());
     expect(surface.footerLine(80)).not.toContain("WRITES");
     surface.setBadge("WRITES: aruba-central · Ctrl+X");
-    expect(surface.footerLine(80)).toStartWith("WRITES: aruba-central · Ctrl+X │ project/main");
+    expect(surface.footerLine(80)).toStartWith("idle · WRITES: aruba-central · Ctrl+X");
+    expect(surface.footerLine(80)).toEndWith("project/main");
     expect(surface.footerLine(30)).toContain("WRITES");
     expect(surface.footerLine(30)).toContain("Ctrl+X");
     const answer = surface.approve("Run it?\n", "Make this change?", [{ label: "No" }, { label: "Yes, this once" }]);
-    expect(surface.footerLine(80)).toStartWith("WRITES: aruba-central · Ctrl+X │ ? waiting for you");
+    expect(surface.footerLine(80)).toStartWith("? waiting for you · WRITES: aruba-central · Ctrl+X");
     surface.setBadge(undefined);
     expect(surface.footerLine(80)).not.toContain("WRITES");
     surface.close();
@@ -36,15 +37,16 @@ test("the ASKING OFF badge is set apart from the idle hint, and a narrow window 
     surface.start();
     surface.setStatus("demo-project │ m · high │ ctx 27%~ │ idle", process.cwd());
     surface.setBadge("ASKING OFF · /permissions ask");
-    expect(surface.footerLine(200)).toStartWith("ASKING OFF · /permissions ask │ type / for commands │ demo-project");
-    expect(surface.footerLine(30)).toContain("ASKING OFF");
+    expect(surface.footerLine(200)).toStartWith("idle · asking off · /permissions ask");
+    expect(surface.footerLine(200)).toEndWith("demo-project │ m · high │ ctx 27%~");
+    expect(surface.footerLine(30)).toContain("asking off");
     expect(surface.footerLine(30)).not.toContain("WRITES");
     // Both on, too narrow for the whole badge: the short form names both.
     surface.setBadge("ASKING OFF · /permissions ask · WRITES: aruba-central · Ctrl+X");
-    expect(surface.footerLine(50)).toStartWith("ASKING OFF · WRITES · Ctrl+X │ ");
+    expect(surface.footerLine(50)).toStartWith("idle · asking off · WRITES · Ctrl+X");
     // Allow all with no writes-only server: the short form says ALLOW ALL, not WRITES.
     surface.setBadge("ALLOW ALL: aruba-central · Ctrl+X");
-    expect(surface.footerLine(30)).toStartWith("ALLOW ALL · Ctrl+X");
+    expect(surface.footerLine(30)).toStartWith("idle · ALLOW ALL · Ctrl+X");
   } finally { surface.close(); }
 });
 

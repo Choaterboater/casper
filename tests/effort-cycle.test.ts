@@ -306,7 +306,7 @@ test("during a running task: /usage runs, Shift+Tab and /effort apply from the n
   try {
     await until(text => Bun.stripANSI(text).includes("idle"));
     input.write("write a poem\r");
-    await until(() => prompts.length === 1 && screen().includes("building"));
+    await until(() => prompts.length === 1 && screen().includes("working"));
     input.write("/usage\r");
     await until(() => screen().includes("Usage:"));
     input.write("\x1b[Z");

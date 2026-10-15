@@ -87,7 +87,7 @@ The AI cannot silently replace the project's configured checks or the scripts th
 edit/write asks **Change the test check for this project?**, with the old → new text and No first.
 An approved saved command replacement takes effect for the current task too. For a replacement of an
 existing command, **Use this command for this session only** updates the active check registries without
-writing the file; it ends when this Casper session closes. Script rewrites need an explicit save.
+writing the file; it ends when this Casper session closes. The edit shows a quiet `– kept .casper/project.yaml as it is: session-only check in use`, not a red failure. Further check-file edit attempts in that task keep the files without asking again; Casper uses the session-only command instead. A later task can ask again. Script rewrites otherwise need an explicit save.
 No, Enter, cancellation or a run that cannot ask leaves the file unchanged. Unrelated project settings
 remain ordinary edits. Shell commands targeting a possible check rewrite (including directory copies)
 are refused and directed to native edit/write so the exact change can be shown. Plain reads and copying

@@ -21,6 +21,7 @@ export interface CheckChange {
 }
 export interface CheckChangeOptions {
   commands(): Record<string, string>;
+  taskKey?(): unknown;
   ask(change: CheckChange): Promise<"save" | "session" | undefined>;
   /** Apply approved replacements to the current registries, for both saved and session-only changes. */
   useSessionCommands?(commands: Record<string, string>): void;
@@ -28,7 +29,14 @@ export interface CheckChangeOptions {
 
 /** Native file operations call this inside Pi's mutation queue, with the actual final text (not a guessed edit).
  * Shell writes naming these files are refused: native edit/write can show the exact old → new before saving. */
+export class SessionOnlyCheck extends Error {
+  constructor(readonly file: string) { super(`kept ${file} as it is: session-only check in use`); }
+}
+
 export class CheckChangeGuard {
+  private taskKey: unknown;
+  private sessionOnly = false;
+  private pending = Promise.resolve();
   constructor(private readonly root: string, private readonly options?: CheckChangeOptions) {}
 
   private async configured(text?: string): Promise<Record<string, string>> {
@@ -59,10 +67,19 @@ export class CheckChangeGuard {
     return files;
   }
 
-  async write(file: string, after: string, signal?: AbortSignal): Promise<void> {
+  write(file: string, after: string, signal?: AbortSignal): Promise<void> {
+    const next = this.pending.then(() => this.writeOne(file, after, signal));
+    this.pending = next.catch(() => {});
+    return next;
+  }
+
+  private async writeOne(file: string, after: string, signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
+    const key = this.options?.taskKey?.();
+    if (key !== this.taskKey) { this.taskKey = key; this.sessionOnly = false; }
     const identity = realpathLongest(file);
     if (!(await this.files()).has(identity)) { await writeFile(file, after, "utf8"); return; }
+    if (this.sessionOnly) throw new SessionOnlyCheck(path.relative(this.root, file).split(path.sep).join("/"));
     const before = await readFile(file, "utf8").catch((error) => {
       if (error.code === "ENOENT") return "";
       throw error;
@@ -91,7 +108,8 @@ export class CheckChangeGuard {
     signal?.throwIfAborted();
     if (answer === "session" && change.sessionCommands && this.options?.useSessionCommands) {
       this.options.useSessionCommands(change.sessionCommands);
-      throw new Error("Session-only check override applied; the file was not changed.");
+      this.sessionOnly = true;
+      throw new SessionOnlyCheck(change.file);
     }
     if (answer !== "save") throw new Error("Not changed: changing configured checks needs your OK. Use native edit/write to request it; No or no answer keeps the existing check.");
     // A save made while the box was open invalidates this approval; never overwrite unseen text.
@@ -235,8 +253,13 @@ export function guardedFileTools(cwd: string, guard: CheckChangeGuard) {
     } }),
   ].map((tool) => {
     const definition = tool as ToolDefinition;
-    const execute: typeof definition.execute = (id, input, signal, update, context) =>
-      signals.run(signal, () => definition.execute(id, input, signal, update, context));
+    const execute: typeof definition.execute = async (id, input, signal, update, context) => {
+      try { return await signals.run(signal, () => definition.execute(id, input, signal, update, context)); }
+      catch (error) {
+        if (!(error instanceof SessionOnlyCheck)) throw error;
+        return { content: [{ type: "text", text: `– ${error.message}. Use the session-only command; do not try to save the file again this task.` }], details: { sessionOnlyCheck: true } };
+      }
+    };
     return { ...definition, execute };
   });
 }

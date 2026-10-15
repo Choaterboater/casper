@@ -60,7 +60,7 @@ test("a tool that ends after its turn still prints its line before the prompt re
   const interactive = app.runInteractive(project);
   // The folded row names the step; its live row ("  ✓ bash · sleep 5") is gone by then.
   const printed = (output: string) => output.match(/● ran sleep 5/g)?.length ?? 0;
-  const idle = (output: string) => output.trimEnd().endsWith("│ idle");
+  const idle = (output: string) => /(?:^|[\r\n])idle +[^\r\n]*$/.test(output.trimEnd());
   try {
     await screen.until(output => output.includes("idle"));
     input.write("wait a bit\r");

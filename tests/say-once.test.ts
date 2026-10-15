@@ -42,7 +42,7 @@ test("/status writes provider/model and the context share as the footer does", a
   try {
     await app.until(text => text.includes("idle"));
     app.input.write("hello\r");
-    await app.until(text => text.includes("fixture/demo · high │ ctx 1%~ │ idle"));
+    await app.until(text => text.includes("fixture/demo · high │ ctx 1%~") && /(?:^|[\r\n])idle +[^\r\n]*$/.test(text.trimEnd()));
     app.input.write("/status\r");
     await app.until(text => text.includes(" context   "));
     const screen = app.screen();

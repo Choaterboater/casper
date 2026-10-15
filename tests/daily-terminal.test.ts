@@ -246,17 +246,17 @@ test("a rows-only resize writes every visible row again in place, so the prompt 
     void terminal.readCommand();
     for (let line = 0; line < 20; line++) terminal.write(`line ${line}\n`);
     // The footer is styled (the status is dimmed), so match on the plain text.
-    await screen.until(output => Bun.stripANSI(output).includes("fixture │ idle"));
+    await screen.until(output => Bun.stripANSI(output).includes("idle "));
     const painted = screen.output.length;
     // A terminal may drop the rows below the cursor when it shrinks (xterm.js does: the prompt's lower
     // border and the footer), so no row can be assumed intact.
     screen.writer.rows = 8; screen.writer.emit("resize");
-    await screen.until(output => Bun.stripANSI(output.slice(painted)).includes("fixture │ idle"));
+    await screen.until(output => Bun.stripANSI(output.slice(painted)).includes("idle "));
     const repaint = screen.output.slice(painted);
     expect(repaint).not.toContain("\x1b[3J");
     const rule = "─".repeat(60);
     expect(plainLines(repaint).map(line => line.replace(/^\r/, "").trimEnd()))
-      .toEqual(["line 16", "line 17", "line 18", "line 19", rule, "❯", rule, "type / for commands │ fixture │ idle"]);
+      .toEqual(["line 16", "line 17", "line 18", "line 19", rule, "❯", rule, `idle${" ".repeat(49)}fixture`]);
   } finally { terminal.close(); input.destroy(); }
 });
 

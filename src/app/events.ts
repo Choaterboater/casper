@@ -230,7 +230,7 @@ export class RuntimeEventView {
       this.output.write("\n");
     }
 
-    this.output.write(`> ${prompt}\n`);
+    this.terminal.writePrompt(prompt);
     this.endedWithNewline = true;
   }
 

@@ -9,6 +9,7 @@ import { pidFile, STALLED_EXIT_CODE, stalledMessage, watchStall } from "./stalle
 import { matchConversation } from "../sessions/resume";
 import { PiModels } from "./pi-models";
 import { BASH_TIMEOUT_CAP_SECONDS, COMMAND_GUIDANCE, SEARCH_GUIDANCE, LEAN_COMMAND_GUIDANCE, LEAN_SEARCH_GUIDANCE, projectGuidance } from "./guidance";
+import { AgentShellGuard, AGENT_SHELL_GUIDANCE } from "./agent-shell-guard";
 export { BASH_TIMEOUT_CAP_SECONDS } from "./guidance";
 import { configureLocalServers, dropLocalServers, forgetLocalServer, localServers, localServerSettled, localServersHereSettled, onLocalServer, registerLocalServers, rememberLocalServer, savedLocalServers } from "./local-models";
 import { addModelServers, forgetModelServer } from "./add-model-server";
@@ -132,6 +133,7 @@ class PiRuntimeSession implements RuntimeSession {
     private readonly readOnly?: { options: RuntimeReadOnlyStartOptions | RuntimeBuilderStartOptions; limitReason: () => string | undefined; wrapUp: (reason: string) => void },
     private readonly cache?: PromptCacheSetting,
     private readonly hideToolOutput?: () => boolean,
+    private readonly agentShellGuard?: AgentShellGuard,
   ) {
     this.bind(runtime.session);
     runtime.setRebindSession(async (session) => { this.bind(session); });
@@ -366,6 +368,7 @@ class PiRuntimeSession implements RuntimeSession {
   async prompt(text: string, signal?: AbortSignal, options?: { request: string; maxTurns?: number; images?: readonly RuntimeImage[] }): Promise<void> {
     if (this.promptActive) throw new Error("A prompt is already active.");
     this.promptActive = true;
+    this.agentShellGuard?.task(options?.request ?? text, signal ?? options?.request ?? text);
     const controller = this.promptController = new AbortController();
     const promptSignal = AbortSignal.any([
       controller.signal,
@@ -555,12 +558,13 @@ class PiRuntimeSession implements RuntimeSession {
           this.toolInputs.delete(event.toolCallId);
           const write = this.writes.get(event.toolCallId);
           this.writes.delete(event.toolCallId);
-          const lines = event.isError ? undefined : event.toolName === "edit" ? patchLineCounts(event.result)
+          const kept = !event.isError && event.result?.details?.sessionOnlyCheck === true;
+          const lines = event.isError || kept ? undefined : event.toolName === "edit" ? patchLineCounts(event.result)
             : write && write.before !== null ? writeLineCounts(write.before, write.after) : undefined;
           const diff = !event.isError && event.toolName === "edit" ? editPatch(event.result) : undefined;
           // Lookup notes (empty results and skipped repeats) need bounded text even on success.
-          this.emit({ type: "tool_end", toolName: event.toolName, toolCallId: event.toolCallId, input, output: ["bash", "casper_check", "read", "grep", "find", "ls"].includes(event.toolName) || event.isError ? observationOutput(event.result) : undefined,
-            isError: event.isError, ...(lines ? { lines } : {}), ...(diff ? { diff } : {}) });
+          this.emit({ type: "tool_end", toolName: event.toolName, toolCallId: event.toolCallId, input, output: ["bash", "casper_check", "read", "grep", "find", "ls"].includes(event.toolName) || event.isError || kept ? observationOutput(event.result) : undefined,
+            isError: event.isError, ...(kept ? { sessionOnlyCheck: true } : {}), ...(lines ? { lines } : {}), ...(diff ? { diff } : {}) });
           break;
         }
         case "agent_end": {
@@ -879,6 +883,7 @@ export class PiRuntime implements AgentRuntime {
     }
     if (!bounded) models.useModelServers(this.modelServers(modelRuntime, models));
     const tools = new PiToolController(options.tools ?? []);
+    const agentShellGuard = new AgentShellGuard(Boolean(bounded));
     let limitReason: string | undefined;
     let toolCalls = 0;
     let turns = 0;
@@ -897,8 +902,8 @@ export class PiRuntime implements AgentRuntime {
       const repairing = <D extends { name: string; parameters: unknown; prepareArguments?: (args: unknown) => unknown }>(definition: D): D =>
         ({ ...definition, prepareArguments: repair.hook(definition.name, definition.parameters, definition.prepareArguments) } as D);
       const toolRules = `Tool rules:\n${PI_TOOL_RULES.map((rule) => `- ${rule}`).join("\n")}`;
-      const addendum = { full: [COMMAND_GUIDANCE, toolRules, SEARCH_GUIDANCE].join("\n\n"),
-        lean: [LEAN_COMMAND_GUIDANCE, toolRules, LEAN_SEARCH_GUIDANCE].join("\n\n") };
+      const addendum = { full: [COMMAND_GUIDANCE, toolRules, SEARCH_GUIDANCE, AGENT_SHELL_GUIDANCE].join("\n\n"),
+        lean: [LEAN_COMMAND_GUIDANCE, toolRules, LEAN_SEARCH_GUIDANCE, AGENT_SHELL_GUIDANCE].join("\n\n") };
       const extensionFactory = (pi: ExtensionAPI) => {
         // Tools may execute only after the entire response streams. Some providers also reuse a text block
         // across calls, so snapshot at toolcall_start, then bind the final call id at toolcall_end.
@@ -959,6 +964,8 @@ export class PiRuntime implements AgentRuntime {
           // Keep Pi's native execution, output handling, and process-tree cleanup.
           // An omitted timeout stays omitted: casperBashOperations applies the default limit, and may move the command to the background.
           if (event.toolName === "bash" && typeof event.input.timeout === "number" && event.input.timeout > BASH_TIMEOUT_CAP_SECONDS) event.input.timeout = BASH_TIMEOUT_CAP_SECONDS;
+          const agentReason = event.toolName === "powershell" && typeof event.input.command === "string" ? agentShellGuard.reason(event.input.command) : undefined;
+          if (agentReason) return { block: true, reason: agentReason };
           const risky = event.toolName === "bash" && typeof event.input.command === "string" ? gitGuardReason(event.input.command) : undefined;
           if (risky) return { block: true, reason: risky };
           // Private files, git's own files and protected places, also where a link out of the project leads (see src/platform/project-paths.ts).
@@ -1025,7 +1032,7 @@ export class PiRuntime implements AgentRuntime {
         // The AI's bash: Casper's own operations (adapted from Pi's sandbox example), never a repo's .pi/sandbox.json.
         if (!readOnly) {
           const bash = createBashToolDefinition(cwd, {
-            operations: casperBashOperations(options.shell, undefined, checkChanges),
+            operations: casperBashOperations(options.shell, undefined, checkChanges, agentShellGuard),
             spawnHook: (context) => ({ ...context, env: withoutProviderKeys(context.env, options.shell?.keepEnv ?? []) }),
           });
           const execute: typeof bash.execute = (id, ...args) =>
@@ -1046,7 +1053,7 @@ export class PiRuntime implements AgentRuntime {
           return { content: scrubbed.note ? [...content, { type: "text" as const, text: scrubbed.note }] : content };
         });
         pi.on("tool_result", async (event, ctx) => {
-          if (event.isError || !["edit", "write"].includes(event.toolName) || typeof event.input.path !== "string" || !options.afterFileEdit) return;
+          if (event.isError || (event.details && Reflect.get(event.details, "sessionOnlyCheck")) || !["edit", "write"].includes(event.toolName) || typeof event.input.path !== "string" || !options.afterFileEdit) return;
           const file = nativeEditPath(event.input.path);
           if (file === undefined) return;
           let text: string | undefined;
@@ -1064,7 +1071,7 @@ export class PiRuntime implements AgentRuntime {
         if (!readOnly) pi.on("tool_result", (event) => {
           const oldFile = oldFiles.get(event.toolCallId);
           oldFiles.delete(event.toolCallId);
-          if (event.isError) return;
+          if (event.isError || (event.details && Reflect.get(event.details, "sessionOnlyCheck"))) return;
           const texts = elisionTexts(event.toolName, event.input, oldFile);
           if (texts && newElisions(texts.before, texts.after).length) return { content: [...event.content, { type: "text" as const, text: ELISION_NOTE }] };
         });
@@ -1134,6 +1141,7 @@ export class PiRuntime implements AgentRuntime {
               COMMAND_GUIDANCE,
               toolRules,
               SEARCH_GUIDANCE,
+              AGENT_SHELL_GUIDANCE,
             ],
           },
         });
@@ -1190,7 +1198,7 @@ export class PiRuntime implements AgentRuntime {
       sessionManager: bounded ? SessionManager.inMemory(options.cwd) : SessionManager.create(options.cwd),
     });
     this.wrapper = new PiRuntimeSession(this.runtime, tools, models, bounded ? { options: bounded, limitReason: () => limitReason, wrapUp: (reason) => { deadline ??= reason; } } : undefined,
-      bounded ? (bounded.cache === "off" ? "off" : "short") : options.cache, bounded?.hideToolOutput ?? options.hideToolOutput);
+      bounded ? (bounded.cache === "off" ? "off" : "short") : options.cache, bounded?.hideToolOutput ?? options.hideToolOutput, agentShellGuard);
     return this.wrapper;
   }
 
@@ -1226,9 +1234,11 @@ function readSmallText(file: string): string | undefined | null {
  * Such a command that stalls (no output and no CPU for a while, src/runtime/stalled-commands.ts) is ended, in the
  * foreground or the background, with the reason added to its output.
  */
-export function casperBashOperations(shell: RuntimeShell | undefined, local: BashOperations = createOwnedBashOperations(), checkChanges?: CheckChangeGuard): BashOperations {
+export function casperBashOperations(shell: RuntimeShell | undefined, local: BashOperations = createOwnedBashOperations(), checkChanges?: CheckChangeGuard, agentGuard = new AgentShellGuard()): BashOperations {
   return {
     async exec(command, cwd, options) {
+      const agentReason = agentGuard.reason(command);
+      if (agentReason) throw new Error(agentReason);
       const checkReason = await checkChanges?.shellReason(command);
       if (checkReason) throw new Error(checkReason);
       const refused = await shell?.approve?.(command, options.signal);
@@ -1282,6 +1292,7 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
             onData(Buffer.from(stalled));
             result = { exitCode: STALLED_EXIT_CODE };
           }
+          agentGuard.finished(command, result.exitCode);
           if (wrapped.id && result.exitCode !== 0 && shell?.refused) {
             const line = await shell.refused(wrapped.id, tail);
             if (line) onData(Buffer.from(`\n${line}\n`));

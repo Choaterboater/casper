@@ -400,7 +400,7 @@ test("local skill commands work without starting an unavailable runtime", async 
 
     expect(fakeRuntime.startOptions?.cwd).toBe(expectedRoot);
     expect(output).toContain("CASPER");
-    expect(output).toContain("> fix this failing test");
+    expect(output).toContain("❯ fix this failing test");
     expect(output).toContain("User request:\nfix this failing test");
     expect(fakeRuntime.startOptions?.systemPromptAppend).toContain("Keep runtime adapters isolated.");
     expect(fakeRuntime.prompts[0]).toContain("intent: fix");

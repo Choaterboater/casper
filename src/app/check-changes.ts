@@ -23,6 +23,7 @@ export function applySessionCheckOverrides(app: CasperApp, model: ProjectModel):
 export function checkChangeOptions(app: CasperApp): CheckChangeOptions {
   return {
     commands: () => app.projectContext ? checkCommands(app.projectContext.model) : {},
+    taskKey: () => app.commandAbort?.signal,
     ask: async (change) => {
       // No truncated approval: the person must see the whole change being approved. Secrets stay hidden.
       const preview = `${change.file}\nOld → new\n--- old\n${change.before}\n+++ new\n${change.after}\n`;

@@ -337,6 +337,8 @@ export type RuntimeEvent =
   | { type: "tool_progress"; toolName: string; toolCallId?: string; text: string }
   /** Diagnostic tool status only: isError=false is not process-exit evidence. */
   | { type: "tool_end"; toolName: string; toolCallId?: string; input?: ToolObservationInput; output?: ToolObservationOutput; isError: boolean;
+      /** Native check guard kept the file and applied a session command instead. */
+      sessionOnlyCheck?: true;
       /** A successful edit's size, from the runtime's patch. */
       lines?: { added: number; removed: number };
       /** A successful edit's unified diff, for the screen only (detailed display and ctrl+t). */

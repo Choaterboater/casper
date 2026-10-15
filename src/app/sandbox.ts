@@ -25,6 +25,7 @@ import { githubLoginChoices, HOST_CHOICES, NO, REACH_CHOICES, SHELL_COMMAND_CHOI
 import { githubLoginCommand, githubRunEnv, LOGIN_FAILED, startsGitOrGh, type GithubLoginCommand } from "../sandbox/github-login";
 import { answerKey, readOnlyCommand, testRunKey } from "../sandbox/read-only";
 import { routineCommand } from "../sandbox/routine";
+import { commandPreview } from "../tui/command-preview";
 
 /**
  * The session's shell sandbox, as the app uses it: the host question, the ask-only fallback for the AI's shell
@@ -88,7 +89,7 @@ export const hostQuestion = (host: string) => `A shell command wants to reach ${
 /** Keep the command's layout (including heredocs), with secrets hidden and a bounded preview. */
 export const shownCommand = (command: string) => {
   const lines = terminalText(hideCommandSecrets(command).text).replace(/\n$/, "").split("\n");
-  return lines.length > 12 ? `${lines.slice(0, 12).join("\n")}\n… ${lines.length - 12} more lines` : lines.join("\n");
+  return commandPreview(lines).join("\n");
 };
 /** The model's last sentence, bounded for display, never terminal controls or a typed secret. */
 const commandReason = (text?: string) => modelReasonSummary(terminalText(hideCommandSecrets(text ?? "").text));

@@ -2,10 +2,10 @@ import { truncateToWidth, wrapTextWithAnsi, type Component } from "@earendil-wor
 import readline from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO } from "../runtime/types";
-import { terminalText, tint } from "./format";
+import { PROMPT_GLYPH, terminalText, tint } from "./format";
 import { renderPanel, type PanelTone } from "./presentation";
 import type { ThemeRole } from "./theme";
-import { TerminalSurface, type AskOrigin, type WorkView } from "./surface";
+import { promptEcho, TerminalSurface, type AskOrigin, type WorkView } from "./surface";
 import { renderEditBox, renderFailureBox, stepRows, type EditedFile, type FailedStep, type StepPart } from "./step-view";
 import type { EntryKind } from "./transcript";
 import type { MenuCommand } from "./commands";
@@ -278,6 +278,12 @@ export class InteractiveTerminal {
         : line.startsWith("@@") ? tint(line, "diffHunk", this.color) : line) : plain;
     this.surface.writeBlock({ render: width => renderPanel(heading, lines, Math.max(1, width - 2), this.color, options.tone ?? "muted")
       .map(row => truncateToWidth(`  ${row}`, width)), invalidate() {} }, "group");
+  }
+
+  /** Command-line and queued requests use exactly the typed request's component and palette. */
+  writePrompt(text: string): void {
+    if (this.surface) this.surface.writeBlock(promptEcho(text, this.color), "group");
+    else this.output.write(`${tint(PROMPT_GLYPH, "accent", this.color, "1")} ${terminalText(text)}\n`);
   }
 
   /** `kind`: how the lines sit among the blocks around them on the rich terminal (plain lines pack together). */

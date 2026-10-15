@@ -98,7 +98,7 @@ test("short screens and a multiline draft yield the update row before prompt, fo
       f.surface.setUpdate(INSTALLED);
       const lines = f.plain();
       expect(lines.at(-1)).toBe(Bun.stripANSI(f.surface.footerLine(80)));
-      expect(lines.at(-1)).toStartWith("ASKING OFF");
+      expect(lines.at(-1)).toContain("asking off");
       expect(lines.length).toBeLessThanOrEqual(rows);
       expect(lines.at(-2)).toMatch(/^─+$/);
       if (rows === 6) expect(lines).toEqual(without);

@@ -98,8 +98,17 @@ for (const choice of ["session", "save"] as const) {
     const command = 'bun -e "console.log(42)"';
     const next = `commands:\n  test: ${JSON.stringify(command)}\n`;
     const changed = write!.execute("override", { path: ".casper/project.yaml", content: next }, undefined, undefined, undefined as never);
-    if (choice === "session") await expect(changed).rejects.toThrow("Session-only check override applied");
-    else await changed;
+    const result = await changed;
+    if (choice === "session") {
+      expect(result.details).toEqual({ sessionOnlyCheck: true });
+      expect(result.content).toContainEqual({ type: "text", text: "– kept .casper/project.yaml as it is: session-only check in use. Use the session-only command; do not try to save the file again this task." });
+      // Retrying either the config or its script never saves or asks again in this task.
+      await write!.execute("retry", { path: ".casper/project.yaml", content: next }, undefined, undefined, undefined as never);
+      const [edit] = guardedFileTools(project.root, guard);
+      await edit!.execute("retry-script", { path: ".casper/quick-test.ts", edits: [{ oldText: "real test", newText: "different test" }] }, undefined, undefined, undefined as never);
+      expect(await project.script()).toContain("real test");
+      expect(boxes).toHaveLength(1);
+    }
     expect(boxes[0]?.[0]).toContain("Old → new");
     expect(boxes[0]?.[0]).toContain("quick-test.ts");
     expect(boxes[0]?.[0]).toContain("console.log(42)");
@@ -121,6 +130,24 @@ for (const choice of ["session", "save"] as const) {
     await verificationTask.close();
   });
 }
+
+test("session-only suppresses concurrent/repeated check saves only until the next task", async () => {
+  let task = {}, boxes = 0;
+  const project = await setup({ commands: () => ({ test: "bun .casper/quick-test.ts" }), taskKey: () => task,
+    ask: async () => { boxes++; await Bun.sleep(5); return boxes === 1 ? "session" : undefined; }, useSessionCommands() {} });
+  const next = "commands:\n  test: bun test\n";
+  const results = await Promise.all([
+    project.call("write", { path: ".casper/project.yaml", content: next }),
+    project.call("write", { path: ".casper/quick-test.ts", content: "skip" }),
+  ]);
+  for (const result of results) expect(result.details).toEqual({ sessionOnlyCheck: true });
+  expect(boxes).toBe(1);
+  expect(await project.config()).toBe(original);
+  expect(await project.script()).toContain("real test");
+  task = {};
+  await expect(project.call("write", { path: ".casper/project.yaml", content: next })).rejects.toThrow("needs your OK");
+  expect(boxes).toBe(2);
+});
 
 test("the real app box declines No, Enter/no answer and noninteractive runs", async () => {
   for (const answer of ["No", undefined]) {
