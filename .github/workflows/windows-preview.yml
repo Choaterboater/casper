@@ -201,8 +201,9 @@ jobs:
     needs: changes
     if: ${{ !cancelled() }}
     runs-on: windows-latest
-    # 18 minutes for the suite, 3 for debugger/evals, plus install and evidence upload headroom.
-    timeout-minutes: 25
+    # 18 minutes for the suite, 3 for the debugger, 6 for evals (the real-grader case alone takes 2-3 minutes on
+    # Windows), plus install and evidence upload headroom.
+    timeout-minutes: 28
     strategy:
       fail-fast: false
       matrix:
@@ -250,7 +251,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Eval bench tests
         if: matrix.part == 1
-        timeout-minutes: 3
+        timeout-minutes: 6
         run: |
           bun run test:evals 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/evals.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

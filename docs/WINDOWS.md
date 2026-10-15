@@ -150,7 +150,8 @@ CI balances the non-terminal suite across six runners using `tests/timings.json`
 (`bun tools/test-shard.ts 6 1` prints part 1). Slow-file weights were raised from test-duration
 totals in green Windows main run `38781548444`; higher existing cross-OS estimates were kept.
 Each runs two files at a time, leaving room
-for their spawned CLIs and servers, with an 18-minute suite step inside a 25-minute job.
+for their spawned CLIs and servers, with an 18-minute suite step inside a 28-minute job. Part 1 also runs the
+real debugger (3 minutes) and the eval tests (6 minutes: the real-grader case alone takes 2-3 minutes on Windows).
 Source tmux/PTY/ConPTY users run in a separate serial job (`bun run test:terminal`, one retry
 per test, a 120 s default per-test limit, and separate `tests/timings-terminal.json`).
 The build/installer runner retains its serial check of the compiled executable's console.

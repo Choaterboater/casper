@@ -256,8 +256,8 @@ test("Linux runs the suite when only docs, the site or the README change, since 
 test("a stuck preview run is cut off in minutes, not at the old 30 to 45 minute job limit, and the evidence is still kept", () => {
   for (const name of ["linux-preview.yml", "macos-preview.yml", "windows-preview.yml", "windows-arm64.yml"]) {
     for (const [jobName, job] of Object.entries(load(name).jobs)) {
-      // macOS and the rebalanced Windows suite allow 25 minutes; other jobs stay at 20 or less.
-      const ceiling = name === "macos-preview.yml" || name === "windows-preview.yml" && jobName === "suite" ? 25 : 20;
+      // macOS allows 25 minutes and the Windows suite 28 (part 1 adds the debugger and evals); other jobs stay at 20 or less.
+      const ceiling = name === "windows-preview.yml" && jobName === "suite" ? 28 : name === "macos-preview.yml" ? 25 : 20;
       expect(job["timeout-minutes"], `${name} ${jobName}`).toBeLessThanOrEqual(ceiling);
     }
   }
