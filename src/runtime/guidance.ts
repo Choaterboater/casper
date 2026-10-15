@@ -6,10 +6,10 @@ import { DEFAULT_COMMAND_LIMIT_SECONDS } from "./background-commands";
 
 /** One hour, as for Casper checks. Shared with native bash; its behavior is unchanged. */
 export const BASH_TIMEOUT_CAP_SECONDS = 3600;
-export const COMMAND_GUIDANCE = `A bash command without a timeout gets ${DEFAULT_COMMAND_LIMIT_SECONDS} seconds; a slow one may then move to the background (its result says so). Give an explicit timeout in seconds, capped at ${BASH_TIMEOUT_CAP_SECONDS}, to wait longer; it is stopped there. After a search times out, narrow its scope rather than retrying the same broad search.`;
-export const SEARCH_GUIDANCE = "Keep repository searches rooted in the current workspace. Prefer the find, grep, and ls tools with explicit paths. Do not scan the filesystem root or unrelated directories to locate a missing project file; treat stale documentation as possible and inspect the current tree. Search outside the workspace only when the user's task requires it.";
-export const LEAN_COMMAND_GUIDANCE = `bash: no timeout means ${DEFAULT_COMMAND_LIMIT_SECONDS}s; slow work may go background (result says). Explicit timeout: seconds, capped at ${BASH_TIMEOUT_CAP_SECONDS}, stopped there. Timed-out search: narrow, don't repeat.`;
-export const LEAN_SEARCH_GUIDANCE = "Search this workspace with find/grep/ls and explicit paths, not / or unrelated folders. Docs may be stale; inspect the tree. Search outside only if the task requires it.";
+export const COMMAND_GUIDANCE = `Bash defaults to ${DEFAULT_COMMAND_LIMIT_SECONDS} seconds; slow work may background (the result says so). Explicit timeouts use seconds, cap at ${BASH_TIMEOUT_CAP_SECONDS}, and stop the command there. Narrow timed-out searches instead of repeating them.`;
+export const SEARCH_GUIDANCE = "Search this workspace with find/grep/ls and explicit paths, not / or unrelated folders unless the task requires it. Docs may be stale; inspect the tree.";
+export const LEAN_COMMAND_GUIDANCE = `Bash: default ${DEFAULT_COMMAND_LIMIT_SECONDS}s; may background (result says). Explicit timeout: seconds, max ${BASH_TIMEOUT_CAP_SECONDS}, then stop. Narrow timed-out searches.`;
+export const LEAN_SEARCH_GUIDANCE = "find/grep/ls: workspace paths, not / or unrelated folders unless required. Docs may be stale; inspect the tree.";
 
 export type GuidanceSetting = "auto" | "off";
 export const LEAN_GUIDANCE_WINDOW = 32_768;

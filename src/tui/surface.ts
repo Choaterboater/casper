@@ -12,6 +12,8 @@ import { typedDuringTask } from "./give-way";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
 import { renderPanel } from "./presentation";
+import { commandPreview } from "./command-preview";
+import { readableFooter } from "./footer-layout";
 import { pickerOptionLines, pickerWindow } from "./picker";
 import { modelReasonLine } from "./model-reason";
 import type { HelperActivity } from "../agents/manager";
@@ -79,8 +81,6 @@ function slashLine(lines: readonly string[], cursorLine: number, cursorCol: numb
 /** The footer status ends with this while Casper waits for a request (src/app/footer.ts). It is the state, so a
  * narrow window cuts the details before it, never the state itself. */
 const IDLE_TAIL = " │ idle";
-/** Leads the idle footer when the whole line fits. */
-const IDLE_HINT = "type / for commands";
 
 type AskOption = { label: string; description?: string };
 
@@ -119,6 +119,7 @@ class PromptEditor extends Editor {
   glyph: () => string = () => PROMPT_GLYPH;
   paintGutter: (text: string) => string = text => text;
   singleLine: () => boolean = () => false;
+  queueHint: () => string | undefined = () => undefined;
   /** Suggestion rows are lifted out of the box; the surface composites them over the transcript. */
   popup: string[] = [];
   private bottom = "";
@@ -160,8 +161,10 @@ class PromptEditor extends Editor {
     const rule = this.borderColor("─".repeat(GUTTER));
     const gutter = " ".repeat(GUTTER);
     this.popup = end === -1 ? [] : lines.slice(end + 1).map(line => truncateToWidth(gutter + line, width));
-    return lines.slice(0, end === -1 ? lines.length : end + 1).map((line, index) =>
-      truncateToWidth((index === 0 || index === end ? rule : index === 1 ? this.paintGutter(this.glyph()) + " " : gutter) + line, width));
+    return lines.slice(0, end === -1 ? lines.length : end + 1).map((line, index) => {
+      if (index === 1 && !this.getText() && this.queueHint()) return truncateToWidth(gutter + this.queueHint()!, width);
+      return truncateToWidth((index === 0 || index === end ? rule : index === 1 ? this.paintGutter(this.glyph()) + " " : gutter) + line, width);
+    });
   }
 }
 
@@ -287,6 +290,7 @@ export class TerminalSurface {
     this.editor.glyph = () => this.pendingAsk || this.pendingLine ? "?" : this.busy ? BUSY_GLYPH : PROMPT_GLYPH;
     this.editor.paintGutter = text => this.busy && !this.pendingAsk && !this.pendingLine ? this.muted(text) : this.accent(text);
     this.editor.singleLine = () => Boolean(this.pendingLine);
+    this.editor.queueHint = () => this.busy && !this.waiting ? this.muted("type to queue a message") : undefined;
     this.editor.onSubmit = value => {
       this.submittedPastes = this.editor.pasted;
       this.editor.pasted = [];
@@ -563,47 +567,28 @@ export class TerminalSurface {
   /** A question, checklist, approval or picker is open: Casper is waiting on the user, not working. */
   private get waiting(): boolean { return Boolean(this.pendingAsk || this.pendingLine || this.slot || this.lending); }
 
-  private footer(width: number): string {
-    const full = this.badge;
-    if (!full) return this.footerText(width);
-    // The badge leads; a window too narrow for it gets the short form of what is on ("ASKING OFF · ALLOW ALL · Ctrl+X"),
-    // cut only in a window narrower than that.
-    const short = ["ASKING OFF", "ALLOW ALL:", "WRITES:", "Ctrl+X"].filter((word) => full.includes(word)).map((word) => word.replace(/:$/, "")).join(" · ");
-    const text = visibleWidth(full) + 1 < width ? full : short || full;
-    const rest = width - visibleWidth(text) - 3;
-    const badge = tint(text, "warning", this.io.color, "1");
-    return rest > 2 ? `${badge}${this.muted(" │ ")}${this.footerText(rest)}` : truncateToWidth(badge, width);
-  }
+  private footer(width: number): string { return this.footerText(width); }
 
   private footerText(width: number): string {
     // The status ends with "idle" when Casper waits for a request; any other state leads the line instead.
     const idle = this.status.endsWith(IDLE_TAIL);
     const details = idle ? this.status.slice(0, -IDLE_TAIL.length) : this.status;
-    // Waiting on the user: no spinner or running timer, so it never looks busy while it needs Enter.
-    if (this.waiting && !this.note) return truncateToWidth(`${this.accent("?")} ${this.accent("waiting for you")}${this.muted(` │ ${details || "Casper"}`)}`, width);
+    const layout = (state: string) => readableFooter(state, details || "Casper", width, this.io.color, this.badge);
+    if (this.waiting && !this.note) return layout(this.accent("? waiting for you"));
     // One state mark: the spinner while working.
     const active = this.busy || this.work !== undefined;
     const state = active ? `${this.accent(SPINNER_FRAMES[this.spinnerFrame])} ` : "";
     // A transient note replaces the status line so it is never truncated away.
-    if (this.note) return truncateToWidth(`${state}${this.accent(this.note)}`, width);
+    if (this.note) return readableFooter(`${state}${this.accent(this.note)}`, "", width, this.io.color, this.badge);
     if (active) {
       // The elapsed time always sits right after the spinner (after the stage once there is one), so a long-running
       // request is measurable at a glance, and the stages lead, so a narrow window truncates the details, not them.
       const waited = this.waitedMs;
       const elapsed = this.activeSince !== undefined ? `${formatElapsed(performance.now() - this.activeSince - waited)}${waited >= 1000 ? ` · waited ${formatElapsed(waited)}` : ""}` : "";
-      // The rail shows while a stage runs. Narrow: only the stage running now and the time, so neither is cut off
-      // and a finished stage (✓) never stands for what is happening.
-      const running = this.steps?.split(" · ").filter(step => !/ (?:✓|skipped)$/.test(step)) ?? [];
-      const steps = !running.length ? undefined : visibleWidth(`${this.steps} · ${elapsed} │ `) + 2 > width ? running.at(-1) : this.steps;
-      const lead = [...(steps ? [steps] : []), ...(elapsed ? [this.muted(elapsed)] : [])].join(this.muted(" · "));
-      return truncateToWidth(`${state}${lead}${this.muted(`${lead ? " │ " : ""}${details || "Casper"}`)}`, width);
+      return layout(`${state}${this.accent("working")}${elapsed ? ` ${this.muted(elapsed.split(" · ")[0]!)}` : ""}`);
     }
     if (!this.status) return truncateToWidth(this.muted("Casper · / for commands"), width);
-    if (!idle) return truncateToWidth(this.muted(this.status), width);
-    // Idle: the hint first when the whole line fits; otherwise the details are cut, never the state at the end.
-    if (visibleWidth(`${IDLE_HINT} │ ${this.status}`) <= width) return this.muted(`${IDLE_HINT} │ ${this.status}`);
-    const room = width - visibleWidth(IDLE_TAIL);
-    return this.muted(room > 3 ? `${truncateToWidth(details, room, "…")}${IDLE_TAIL}` : truncateToWidth(this.status, width));
+    return layout(this.muted("idle"));
   }
 
   /** While work runs (a prompt in flight or tool activity), the footer's state mark, the status row and a running step's
@@ -1083,31 +1068,13 @@ export class TerminalSurface {
       ...(reason ? [this.muted(modelReasonLine(reason, width))] : []),
     ];
     const head = heading.slice(0, headBudget);
-    const contextBudget = Math.max(0, Math.min(shell ? 13 : headBudget, headBudget - head.length,
+    const contextBudget = Math.max(0, Math.min(shell ? 14 : headBudget, headBudget - head.length,
       height - tail.length - count - head.length));
     if (shell) {
-      // Count logical command lines, not wrapped terminal rows. Add any newly omitted preview lines
-      // to the footer already supplied by shownCommand; never repeat that old count unchanged.
-      const footer = /^… (\d+) more lines$/.exec(context.at(-1) ?? "");
-      const priorHidden = Number(footer?.[1] ?? 0);
-      const command = footer ? context.slice(0, -1) : context;
-      const frameStart = head.length;
       const framed = contextBudget >= 3;
       const commandWidth = Math.max(1, width - (framed ? 4 : 0));
-      const bodyBudget = Math.max(0, contextBudget - (framed ? 2 : 0));
-      const wrapped = command.map(line => wrapTextWithAnsi(line, commandWidth));
-      const all = wrapped.flat();
-      if (all.length + (priorHidden ? 1 : 0) <= bodyBudget) {
-        head.push(...all, ...(priorHidden ? [`… ${priorHidden} more lines`] : []));
-      } else if (bodyBudget) {
-        let remaining = bodyBudget - 1, shown = 0;
-        for (const rows of wrapped) {
-          if (rows.length > remaining) { head.push(...rows.slice(0, remaining)); break; }
-          head.push(...rows); remaining -= rows.length; shown++;
-        }
-        head.push(`… ${priorHidden + command.length - shown} more lines`);
-      }
-      const commandRows = head.splice(frameStart);
+      const bodyBudget = Math.max(1, contextBudget - (framed ? 2 : 0));
+      const commandRows = commandPreview(context, bodyBudget, commandWidth).flatMap(line => wrapTextWithAnsi(line, commandWidth));
       head.push(...(framed ? renderPanel("Command", commandRows, width, false, "muted") : commandRows).map(line => dim(line, this.io.color)));
     } else {
       head.push(...context.flatMap(line => wrapTextWithAnsi(this.muted(line), width)).slice(0, contextBudget));

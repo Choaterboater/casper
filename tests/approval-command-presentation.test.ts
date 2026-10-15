@@ -40,11 +40,11 @@ test("multiline commands preserve indentation, blank lines and heredoc boundarie
   expect(shownCommand(command.replaceAll("\n", "\r\n") + "\r\n")).toBe(command);
 });
 
-test("previews show twelve lines then the exact number omitted, including blank lines", () => {
+test("previews keep the head and tail with the exact number omitted, including blank lines", () => {
   const lines = Array.from({ length: 15 }, (_, index) => index === 13 ? "" : `step ${index + 1}`);
   expect(shownCommand(lines.slice(0, 12).join("\n"))).toBe(lines.slice(0, 12).join("\n"));
-  expect(shownCommand(lines.slice(0, 13).join("\n"))).toBe(`${lines.slice(0, 12).join("\n")}\n… 1 more lines`);
-  expect(shownCommand(lines.join("\n"))).toBe(`${lines.slice(0, 12).join("\n")}\n… 3 more lines`);
+  expect(shownCommand(lines.slice(0, 13).join("\n"))).toBe(`${lines.slice(0, 8).join("\n")}\n… 2 more lines\n${lines.slice(10, 13).join("\n")}`);
+  expect(shownCommand(lines.join("\n"))).toBe(`${lines.slice(0, 8).join("\n")}\n… 4 more lines\n${lines.slice(-3).join("\n")}`);
 });
 
 test("both reason and command hide typed secrets and terminal controls", () => {
@@ -123,7 +123,7 @@ test("the rich numbered box dims the labelled model reason after Casper's questi
     const answer = session.terminal.pick(shellQuestion(command, "Check the custom steps."), [...SHELL_COMMAND_CHOICES]);
     expect(await waitUntil(() => Bun.stripANSI(session.screen.output).includes("4. Yes, always"))).toBe(true);
     const visible = Bun.stripANSI(session.screen.output).replaceAll("\r", "");
-    const commandRows = renderPanel("Command", [...command.split("\n").slice(0, 10), "… 5 more lines"], session.screen.writer.columns - 2, false, "muted");
+    const commandRows = renderPanel("Command", [...command.split("\n").slice(0, 8), "… 4 more lines", ...command.split("\n").slice(-3)], session.screen.writer.columns - 2, false, "muted");
     expect(visible).toContain(`  Run this command?\n  The model says: Check the custom steps.\n${commandRows.map(row => `  ${row}`).join("\n")}\n`);
     expect(session.screen.output).toContain(tint("The model says: Check the custom steps.", "muted", true));
     expect(session.screen.output).not.toContain(tint("The model says: Check the custom steps.", "accent", true));

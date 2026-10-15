@@ -39,14 +39,12 @@ export function formatTaskSpend(spent: { tokens: number; cost: number }, priced:
   return `${tokens} · ${billing === "subscription" ? "sub ≈" : ""}${formatCost(spent.cost)}`;
 }
 
-/** The footer's spend: the task while it is the session's only one; after that, the session total too, so a new
- * task never looks like the count reset. Idle shows the session. Cost follows the same rules as formatTaskSpend. */
-export function formatFooterSpend(task: { tokens: number; cost: number }, session: { tokens: number; cost: number }, working: boolean,
+/** One task figure in the footer: cost when priced, tokens otherwise. Session totals live in /status. */
+export function formatFooterSpend(task: { tokens: number; cost: number }, _session: { tokens: number; cost: number }, _working: boolean,
   priced: boolean | undefined, billing?: "subscription" | "per-token"): string {
-  if (!session.tokens) return "";
-  if (session.tokens === task.tokens) return formatTaskSpend(task, priced, billing);
-  const total = formatTaskSpend(session, priced, billing).replace(/^task /, "session ");
-  return working && task.tokens ? `task ${formatTokens(task.tokens)} tok · ${total}` : total;
+  if (!task.tokens && !task.cost) return "";
+  return priced === false || (priced === undefined && task.cost <= 0) ? `task ${formatTokens(task.tokens)} tok`
+    : `task ${billing === "subscription" ? "sub ≈" : ""}${formatCost(task.cost)}`;
 }
 
 /** Per task: says the note at noteAt and again at five times it, and asks at the pause limit, then again at each

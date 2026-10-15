@@ -128,7 +128,7 @@ test("missing Linux programs: the banner is calm and has no install command, /sa
     await f.app.runOnce("Write the notes", f.project);
     const banner = f.text().split("\n").find((line) => line.startsWith(" shell     "))!;
     expect(banner).toBe(" shell     asks before commands that change things · /sandbox for the full sandbox");
-    const header = f.text().split("\n> ")[0]!;
+    const header = f.text().split("\n❯ ")[0]!;
     expect(header).not.toContain("apt install");
     expect(header).not.toContain("missing");
     await f.app.runOnce("/sandbox", f.project);

@@ -133,6 +133,7 @@ export class TaskObservations {
       const kept = input ? Object.fromEntries(Object.entries(input).map(([key, value]) => [key, typeof value === "string" ? value.slice(0, 512) : value])) as ToolObservationInput : undefined;
       this.calls.push({ toolName: event.toolName.slice(0, 80), ...(kept && Object.keys(kept).length ? { input: kept } : {}), status: event.isError ? "error" : "success" });
     }
+    if (event.sessionOnlyCheck) return;
     // Failures can follow partial writes; shell success need not mean any write. Only the
     // workspace snapshot can settle either, so this merely flags that the question is open.
     // A look command (ls, cat, grep, find) or ssh to another machine leaves this folder's files alone.

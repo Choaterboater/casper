@@ -44,6 +44,7 @@ export function emptyLookup(tool: string, text: string): boolean {
 /** Expected lookup misses and designed skips are notes. Permission and parse errors are not. */
 export function outcomeNote(event: ToolEnd): string | undefined {
   const text = event.output?.text ?? "";
+  if (event.sessionOnlyCheck) return "session-only check in use";
   if (emptyLookup(event.toolName, text)) return "nothing found";
   if (event.toolName === "read" && event.isError && /\bENOENT\b|no such file or directory|file not found/i.test(text)) return "path not found";
   if (["read", "grep", "find", "ls"].includes(event.toolName) && /^Skipped as a repeat\b/.test(text.trim())) return "skipped repeated lookup";

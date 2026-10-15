@@ -48,7 +48,10 @@ sets them and removes this line.
 - A session yes for `bun test` covers different project test files and log tails in the same folder; other commands and
   permanent approvals keep exact matching. Command boxes keep Casper's question first; the model's preceding reason follows,
   dimmed and labelled `The model says:`. They preserve line breaks and
-  cap previews at 12 lines with an omitted-line count. Model guidance prefers web/check tools over shell plumbing.
+  use a head/gap/tail preview: about eight head lines, the omitted count, then three tail lines. Pushes, removals, downloads, sudo, installs and redirects in the middle stay visible. Literal project-path environment assignments and safe set prefixes preserve routine/test approvals; existence tests and version-only commands are reads. Model guidance prefers web/check tools over shell plumbing.
+- Coding-agent launches and unowned tmux servers are refused unless the person explicitly asks; builders follow the same rule. Private named servers created this task remain usable.
+- A session-only check change leaves a quiet kept-file note, uses the approved command and does not ask again for check-file edits in that task.
+- The footer keeps one state on the left and project/model/context/one task figure on the right, dropping cost, context, then model in narrow windows. Matching folder/branch names appear once; internal phases and session totals no longer crowd the footer. Empty working prompts say `type to queue a message`, and the first command-line request has the typed request's `❯` and colour.
 
 ### Terminal polish (unreleased)
 

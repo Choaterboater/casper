@@ -81,7 +81,8 @@ test("shrinking a command preview adds newly omitted logical lines to its origin
       expect(lines[2]).toStartWith(`${GLYPHS.corners[0]}─ Command `);
       const preview = lines.filter(line => line.startsWith("│ ")).map(line => line.slice(2, -2).trimEnd());
       const shown = preview.filter(line => /^custom-step-\d+$/.test(line));
-      expect(shown).toEqual(Array.from({ length: shown.length }, (_, index) => `custom-step-${index + 1}`));
+      expect(shown.slice(-3)).toEqual(["custom-step-18", "custom-step-19", "custom-step-20"]);
+      expect(shown.slice(0, -3)).toEqual(Array.from({ length: shown.length - 3 }, (_, index) => `custom-step-${index + 1}`));
       const footers = preview.filter(line => /^… \d+ more lines$/.test(line));
       expect(footers).toEqual([`… ${20 - shown.length} more lines`]);
     }

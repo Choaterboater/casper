@@ -432,6 +432,7 @@ export function formatToolActivity(event: ToolEvent, elapsedMs?: number, fit: To
   const detail = event.isError && event.output?.text
     ? `\n  ${redactPreview(event.output.text).replace(/\s+/g, " ").slice(0, 240)}${event.output.truncated ? " [truncated]" : ""}` : "";
   const note = outcomeNote(event);
+  if (event.sessionOnlyCheck) return `${NOTE_GLYPH} kept ${text || "check file"} as it is: session-only check in use`;
   if (note) return `${NOTE_GLYPH} ${name}${line(` — ${note}${elapsed}`, elapsed)}`;
   const tests = event.input?.check === "test" || (event.input?.command && commandCheck(event.input.command) === "test");
   const summary = event.isError && tests ? testFailureSummary(event.output?.text ?? "") : undefined;

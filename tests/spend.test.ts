@@ -136,6 +136,7 @@ test("at about $5 the task pauses on a numbered question, Stop here first; Enter
   const f = await fixture();
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
   const screen = fakeWriter();
+  screen.writer.columns = 202;
   const app = f.make(input, screen.writer);
   const interactive = app.runInteractive(f.project);
   try {
@@ -148,7 +149,7 @@ test("at about $5 the task pauses on a numbered question, Stop here first; Enter
     // The note comes after the model's words it followed, not above them.
     expect(shown.indexOf("Looking around.")).toBeGreaterThanOrEqual(0);
     expect(shown.lastIndexOf("Looking around.")).toBeLessThan(shown.lastIndexOf("– This task has used $1.20"));
-    expect(shown).toContain("task 2.4k tok · $5.02");
+    expect(shown).toContain("task $5.02");
     expect(shown).toMatch(/❯ 1\. Stop here[^\n]*the work so far is kept/);
     expect(shown).toMatch(/  2\. Keep going[^\n]*asks again at \$10/);
     input.write("\r");
@@ -158,7 +159,7 @@ test("at about $5 the task pauses on a numbered question, Stop here first; Enter
     expect(app.getLastTaskResult()?.spendLimit).toEqual({ spent: 5.02, limit: 5 });
     expect(Bun.stripANSI(screen.output).replace(/\s+/g, " ")).toContain("– Incomplete — stopped at $5.02, the $5 limit for one task (spend.pauseAt)");
     // Idle again after the receipt, so the next request is not kept as a draft.
-    await screen.until(output => output.lastIndexOf("│ idle") > output.lastIndexOf("stopped at $5.02"));
+    await screen.until(output => output.lastIndexOf("idle ") > output.lastIndexOf("stopped at $5.02"));
 
     // Keep going: the tool runs, and nothing is stopped.
     const before = Bun.stripANSI(screen.output).length;
@@ -169,7 +170,7 @@ test("at about $5 the task pauses on a numbered question, Stop here first; Enter
     expect(f.state.reasons[1]).toBeUndefined();
     expect(f.state.toolRan).toBe(1);
     // Idle again before /exit, so it is read as a command and not typed into a running task.
-    await screen.until(output => output.lastIndexOf("│ idle") > output.lastIndexOf("Keep going"));
+    await screen.until(output => output.lastIndexOf("idle ") > output.lastIndexOf("Keep going"));
   } finally {
     input.write("/exit\r");
     await interactive;
@@ -198,12 +199,13 @@ test("a free model's footer shows the task's tokens and no cost, and never pause
   const f = await fixture({ priced: false }, [0, 0]);
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
   const screen = fakeWriter();
+  screen.writer.columns = 202;
   const app = f.make(input, screen.writer);
   const interactive = app.runInteractive(f.project);
   try {
     await screen.until(output => output.includes("idle"));
     input.write("tidy the notes\r");
-    await screen.until(output => output.includes("task 2.4k tok │ idle"));
+    await screen.until(output => output.includes("task 2.4k tok") && output.lastIndexOf("idle ") > output.lastIndexOf("tidy the notes"));
     expect(f.state.toolRan).toBe(1);
     expect(Bun.stripANSI(screen.output)).not.toContain("This task has used");
     expect(Bun.stripANSI(screen.output)).not.toMatch(/task 2\.4k tok · \$/);
@@ -232,16 +234,11 @@ test("a subscription is not charged per token: the footer says sub ≈$, and the
   }
 });
 
-test("the footer keeps the session total, so a new task never looks like a reset", () => {
-  // First task: only the task.
-  expect(formatFooterSpend({ tokens: 48_213, cost: 0.314 }, { tokens: 48_213, cost: 0.314 }, true, true)).toBe("task 48.2k tok · $0.31");
-  // A later task while it works: this task's tokens, then the session's tokens and cost.
-  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 1_100_000, cost: 0.04 }, true, true)).toBe("task 40k tok · session 1.1M tok · $0.04");
-  // Idle: the session only.
-  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 1_100_000, cost: 0.04 }, false, true)).toBe("session 1.1M tok · $0.04");
-  // A free model: tokens only; a subscription: what they would cost.
-  expect(formatFooterSpend({ tokens: 40_000, cost: 0 }, { tokens: 90_000, cost: 0 }, false, false)).toBe("session 90k tok");
-  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 90_000, cost: 0.31 }, false, true, "subscription")).toBe("session 90k tok · sub ≈$0.31");
-  // Nothing spent yet: nothing to show.
+test("the footer shows one task figure, leaving session totals to /status", () => {
+  expect(formatFooterSpend({ tokens: 48_213, cost: 0.314 }, { tokens: 48_213, cost: 0.314 }, true, true)).toBe("task $0.31");
+  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 1_100_000, cost: 0.04 }, true, true)).toBe("task $0.01");
+  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 1_100_000, cost: 0.04 }, false, true)).toBe("task $0.01");
+  expect(formatFooterSpend({ tokens: 40_000, cost: 0 }, { tokens: 90_000, cost: 0 }, false, false)).toBe("task 40k tok");
+  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 90_000, cost: 0.31 }, false, true, "subscription")).toBe("task sub ≈$0.01");
   expect(formatFooterSpend({ tokens: 0, cost: 0 }, { tokens: 0, cost: 0 }, false, true)).toBe("");
 });

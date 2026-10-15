@@ -22,7 +22,7 @@ test("#327 command questions keep Casper's title, dim model reason and safe defa
       const commandAnswer = session.terminal.pick(shellQuestion(command, reason), [...SHELL_COMMAND_CHOICES]);
       await session.screen.until(text => text.slice(plainFrom).includes("4. Yes, always"));
       const visible = Bun.stripANSI(session.screen.output.slice(rawFrom)).replaceAll("\r", "");
-      const commandRows = renderPanel("Command", [...command.split("\n").slice(0, 10), "… 5 more lines"], session.screen.writer.columns - 2, false, "muted");
+      const commandRows = renderPanel("Command", [...command.split("\n").slice(0, 8), "… 4 more lines", ...command.split("\n").slice(-3)], session.screen.writer.columns - 2, false, "muted");
       expect(visible).toContain(`  Run this command?\n  ${MODEL_REASON_PREFIX}${reason}\n${commandRows.map(row => `  ${row}`).join("\n")}\n`);
       expect(visible).not.toContain("custom-tool step-10");
       expect(session.screen.output.slice(rawFrom)).toContain(tint(`${MODEL_REASON_PREFIX}${reason}`, "muted", true));

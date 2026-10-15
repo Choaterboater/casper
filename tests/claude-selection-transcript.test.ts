@@ -135,7 +135,8 @@ test("reported case: the idle status bar keeps folder, direct Sonnet route, effo
       observations: { spent: () => ({ tokens: 0, cost: 0 }) }, spentBefore: { tokens: 0, cost: 0 }, subagents: { runs: () => [] },
       commandActive: false,
     } as unknown as CasperApp);
-    expect(surface.footerLine(200)).toBe("type / for commands │ fixclaude │ anthropic/claude-sonnet-5-5 · high │ ctx 1%~ │ idle");
+    expect(surface.footerLine(200)).toStartWith("idle ");
+    expect(surface.footerLine(200)).toEndWith("fixclaude │ anthropic/claude-sonnet-5-5 · high │ ctx 1%~");
   } finally { surface.close(); }
 });
 

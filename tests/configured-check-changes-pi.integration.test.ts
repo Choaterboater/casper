@@ -19,7 +19,8 @@ for (const choice of ["save", "session", "no"]) {
     expect(result.asked).toHaveLength(1);
     expect(result.asked[0].before).toBe(before);
     expect(result.asked[0].after).toBe("commands:\n  test: bun test\n");
-    expect(result.toolEnds[0].isError).toBe(choice !== "save");
+    expect(result.toolEnds[0].isError).toBe(choice === "no");
+    if (choice === "session") expect(result.toolEnds[0].sessionOnlyCheck).toBe(true);
     expect(result.commands.test).toBe(choice === "no" ? "bun .casper/quick-test.ts" : "bun test");
     expect(await readFile(path.join(setup.project, ".casper/project.yaml"), "utf8")).toBe(choice === "save" ? "commands:\n  test: bun test\n" : before);
   }, 25_000);

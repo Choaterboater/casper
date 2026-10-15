@@ -20,21 +20,22 @@ test("the step rail lists each stage once, in order, with a check mark once it e
   expect(rail.text()).toBeUndefined();
 });
 
-test("while work runs the footer leads with the steps; idle, it shows the plain status", async () => {
+test("while work runs the footer leads with one plain state, never the internal step rail", async () => {
   process.env.TERM = "xterm-256color";
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("project │ fixture/demo │ idle"); session.terminal.start();
     session.terminal.setWork({ rows: [], status: "working" });
     session.terminal.setSteps("checklist ✓ · building");
-    await session.screen.until(output => Bun.stripANSI(output).includes("checklist ✓ · building"));
-    const footer = Bun.stripANSI(session.screen.output).split(/\r?\n/).filter(line => line.includes("checklist ✓ · building")).at(-1)!;
-    expect(footer.indexOf("checklist ✓ · building")).toBeLessThan(footer.indexOf("project"));
+    await session.screen.until(output => Bun.stripANSI(output).includes("working"));
+    const footer = Bun.stripANSI(session.terminal.footerLine(100)!);
+    expect(footer.indexOf("working")).toBeLessThan(footer.indexOf("project"));
+    expect(footer).not.toMatch(/checklist|building|✓/);
     session.terminal.setSteps(undefined); session.terminal.setWork(undefined);
   } finally { session.close(); }
 });
 
-test("the footer timer excludes a question's wait and reports it separately", async () => {
+test("the footer timer excludes a question's wait without adding another phase", async () => {
   process.env.TERM = "xterm-256color";
   const session = interactiveTerminal();
   try {
@@ -51,9 +52,9 @@ test("the footer timer excludes a question's wait and reports it separately", as
     await answered;
     const from = session.screen.output.length;
     session.terminal.setSteps("checklist ✓ · building ✓ · checks");
-    await session.screen.until(output => Bun.stripANSI(output.slice(from)).includes("checks · "));
-    // Work time pauses while waiting; the separate wait remains visible.
-    expect(Bun.stripANSI(session.screen.output.slice(from))).toMatch(/checks · 0s · waited [2-9]s/);
+    await session.screen.until(output => Bun.stripANSI(output.slice(from)).includes("working "));
+    expect(Bun.stripANSI(session.screen.output.slice(from))).toMatch(/working 0s/);
+    expect(Bun.stripANSI(session.screen.output.slice(from))).not.toContain("waited");
     session.terminal.setSteps(undefined);
   } finally { session.close(); }
 }, 15_000);
@@ -74,7 +75,7 @@ test("in a narrow terminal the footer keeps the current stage and the time", asy
     session.input.write("go\r");
     await command;
     session.terminal.setSteps("checklist ✓ · building ✓ · checks");
-    await session.screen.until(output => /checks · \ds │/.test(Bun.stripANSI(output)));
+    await session.screen.until(output => /working \ds/.test(Bun.stripANSI(output)));
     session.terminal.setSteps(undefined);
   } finally { session.close(); }
 }, 15_000);
@@ -93,7 +94,7 @@ test("Enter mid-task shows its note for a moment, then the steps and timer come 
     await session.screen.until(output => output.includes("/undo waits until this task ends"));
     expect(session.terminal.footerLine(100)).toContain("waits until this task ends");
     await Bun.sleep(2600);
-    expect(Bun.stripANSI(session.terminal.footerLine(100)!)).toContain("checklist ✓ · building");
+    expect(Bun.stripANSI(session.terminal.footerLine(100)!)).toContain("working");
     session.terminal.setSteps(undefined);
   } finally { session.close(); }
 }, 15_000);
@@ -152,9 +153,9 @@ test("the elapsed time sits right after the spinner, before and after the first 
     const command = session.terminal.readCommand();
     session.input.write("go\r");
     await command;
-    expect(Bun.stripANSI(session.terminal.footerLine(100)!)).toMatch(/^\S \d+s │ project │ fixture\/demo$/);
+    expect(Bun.stripANSI(session.terminal.footerLine(100)!)).toMatch(/^\S working \d+s +project │ fixture\/demo$/);
     session.terminal.setSteps("building");
-    expect(Bun.stripANSI(session.terminal.footerLine(100)!)).toMatch(/^\S building · \d+s │ project │ fixture\/demo$/);
+    expect(Bun.stripANSI(session.terminal.footerLine(100)!)).toMatch(/^\S working \d+s +project │ fixture\/demo$/);
     session.terminal.setSteps(undefined);
   } finally { session.close(); }
 });
@@ -172,12 +173,12 @@ test("narrow or wide, the footer never shows a finished stage as what is happeni
     session.terminal.setSteps("checklist ✓ · building ✓ · proof ✓");
     for (const width of [30, 34, 100]) {
       expect(footer(width)).not.toContain("✓");
-      expect(footer(width)).toMatch(/^\S \d+s │ project/);
+      expect(footer(width)).toMatch(/^\S working \d+s +project/);
     }
     // A stage runs: narrow shows that one, wide the whole rail.
     session.terminal.setSteps("checklist ✓ · building ✓ · proof ✓ · checks");
-    expect(footer(34)).toMatch(/^\S checks · \d+s │/);
-    expect(footer(100)).toMatch(/^\S checklist ✓ · building ✓ · proof ✓ · checks · \d+s │ project/);
+    expect(footer(34)).toMatch(/^\S working \d+s +project/);
+    expect(footer(100)).not.toMatch(/checklist|building|proof|checks/);
     session.terminal.setSteps(undefined);
   } finally { session.close(); }
 });
@@ -190,11 +191,13 @@ test("idle: the state is never cut off, and the hint shows when the whole line f
     const long = "project/no git │ openrouter/moonshotai/kimi-k2-0905 · auto → high │ ctx 1%~ │ task 1.3k tok · session 3.9k tok · $0.004 │ idle";
     session.terminal.setStatus(long); session.terminal.start();
     const footer = (width: number) => Bun.stripANSI(session.terminal.footerLine(width)!);
-    expect(footer(100)).toEndWith("… │ idle");
+    expect(footer(100)).toStartWith("idle ");
     expect(footer(100).length).toBeLessThanOrEqual(100);
-    expect(footer(40)).toEndWith("… │ idle");
-    expect(footer(160)).toBe(`type / for commands │ ${long}`);
+    expect(footer(40)).toStartWith("idle ");
+    expect(footer(160)).toStartWith("idle ");
+    expect(footer(160)).not.toContain("type / for commands");
     session.terminal.setStatus("project/no git │ fixture/fixture · off │ ctx 1%~ │ idle");
-    expect(footer(100)).toBe("type / for commands │ project/no git │ fixture/fixture · off │ ctx 1%~ │ idle");
+    expect(footer(100)).toStartWith("idle ");
+    expect(footer(100)).toEndWith("project/no git │ fixture/fixture · off │ ctx 1%~");
   } finally { session.close(); }
 });

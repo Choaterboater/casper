@@ -125,6 +125,9 @@ test("session yes matches bun test across project files and different tails, eve
   await shell.approve!(first);
   await shell.approve!(rerun);
   await shell.approve!("bun test tests/d.test.ts 2>&1 | tail -n 10");
+  for (const prefix of ['TMPDIR="$PWD/x"', 'HOME="$PWD/x"', 'GIT_CEILING_DIRECTORIES="$PWD/x"']) await shell.approve!(`${prefix} bun test tests/e.test.ts | tail -20`);
+  await shell.approve!("set -o pipefail; bun test tests/f.test.ts | grep pass");
+  await shell.approve!("set -e; bun test tests/g.test.ts | tail -20");
   expect(asked).toHaveLength(1);
   for (const command of ["bun test ../outside.test.ts", "bun test .env", "bun test > .git/config", "bun test --preload ../outside.ts", "bun test; git commit -m x", "bun test; cat output.txt", "bun test; tail -n 10 other.log", "cat script | bun test", "cd sub && bun test tests/a.test.ts", "npm test tests/a.test.ts", testRunKey(first, where)!]) {
     const count = asked.length;
@@ -174,7 +177,7 @@ test("approval behavior is documented in security, terminal UX, unreleased notes
   for (const file of ["docs/SECURITY.md", "docs/TERMINAL_UX.md", "docs/RELEASE.md", "site/roadmap.html", "docs/adr/0002-deliberate-choices.md"]) {
     const text = await readFile(file, "utf8");
     expect(text).toContain("bun test");
-    expect(text).toMatch(/12(?:-line| lines)/);
+    expect(text).toMatch(/head\/gap\/tail|head.*tail|eight head lines/);
     expect(text).toContain("copy");
   }
 });

@@ -238,12 +238,12 @@ Linux `ps -e` still counts as a read), `date`, `uname`, and git subcommands
 (`git status`, `diff`, `log`, `show`, `grep`, `blame`, `merge-base`, `rev-list`, `show-ref`,
 `for-each-ref`, and individual config reads: `git config <key>`, `--get`, `--global`;
 `--list`/`-l`, keys naming credential/token/password/extraheader or `url.*.insteadof`/`pushinsteadof`, and config writes still ask), each with the options it may
-have, `--version` alone for a few toolchains (`python`, `py`, `node`, `git` ...), and `find ... | xargs wc` (names only, each reaching `wc` whole), joined
+have, `test -d/-f/-e` of a project path, literal `printf`, and `--version`/`-V` alone for any bare program, and `find ... | xargs wc` (names only, each reaching `wc` whole), joined
 by `|`, `&&`, `;`, `2>&1` or `2>/dev/null`. A leading `cd` to a folder in the project counts too (later files are
 read from there; on Windows a Git Bash path such as `/c/Users/me/project` is `C:\Users\me\project`; with `CDPATH` or `BASH_ENV` set, only a
 `./` or full path counts), and a `*` or `?`
 is expanded by Casper the way bash would, each file it picks checked like a named one. Any other option (`git grep -O`,
-`git -c`, `--ext-diff`, `rg --pre`, `find -exec`, `sort --compress-program`), a `VAR=value` start, `$` or `~`, `[`
+`git -c`, `--ext-diff`, `rg --pre`, `find -exec`, `sort --compress-program`), a non-allowlisted `VAR=value` start, other `$` forms or `~`, `[`
 or `{`, a glob that picks a private file or a folder name starting with a dot, `xargs` with anything but `wc`, `find -printf` or a name with a space or quote fed to `xargs`, a
 redirect other than the project writes below, a file outside the project or private (`.env`, `*.env`, `.envrc`,
 keys such as `*.key` and `id_rsa`, credentials and secrets files, `~/.ssh`, `~/.casper`, your `sandbox.denyRead`), also
@@ -281,6 +281,7 @@ be one a plain read could print, so a private file asks. Options are read as the
 a download run through a shell (`curl … | sh`), a new package (`npm install left-pad`, `pip install requests`), `chmod`,
 and anything not on the list. Output redirects (`>`, `>>`, `2>&1`) to literal project files count as routine project
 writes: links resolved, never outside, private or `.git/`, and never after a command that could replace the path.
+Leading literal project-path assignments to TMPDIR/HOME/GIT_CEILING_DIRECTORIES/CI/NO_COLOR, including `$PWD/x`, preserve routines. `set -e` and `set -o pipefail` prefixes and piping tests into read-only filters preserve test-session approvals. Other variables still ask.
 Plain `result=$?` and `exit $name` / `exit N` are routine status plumbing; assignments to shell-control variables,
 other expansions (`$HOME`, `$(…)`), scripts and subshells still ask. Builder checks use their own copy as the project root,
 including copies under `~/.casper/worktrees`; private state and explicit denyRead stay private.
@@ -288,8 +289,7 @@ Off, every command that is not a plain read asks.
 
 The command box always leads with Casper's own question (`Run this command?`). Only the last sentence of the model's reason
 appears below it, labelled `The model says:` and dimmed, never as the approval's authority. It is capped at 100 characters
-then `…` and clipped to one row without wrapping. Multi-line commands keep line breaks; after 12 lines (or fewer in a
-short window) the preview says `… N more lines`, counting all omitted command lines. Secrets and terminal controls stay hidden.
+then `…` and clipped to one row without wrapping. Multi-line commands keep line breaks: capped previews keep about eight head lines, `… N more lines`, then the last three. Consequential middle lines (push, rm/del, curl/wget/irm, sudo, install and redirects) stay below the gap; narrower windows reduce the ordinary head, not the tail or those lines. Secrets and terminal controls stay hidden.
 Enter runs nothing. A run that can't ask refuses it:
 `Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.`
 Your project's own checks, services and dev servers then run with your permissions, as before
@@ -537,7 +537,7 @@ is every fact and the exact way to be asked less for each kind. A mistyped word 
   `/permissions write <folder>` allows one ahead of time). A folder is never offered, and a saved one is not used, when it is, holds or sits inside a protected place.
   A link out of an allowed folder does not carry the allowance with it.
 - **Until you quit.** `/permissions` (in a terminal, not during a task) and `/permissions all` ask `1 Keep asking · 2 Stop asking until I quit`. On 2, the shell's own questions (a command, a host, a write outside the
-  project, another machine) are answered `Yes, for this session` without showing them, builders' included (a host while a builder's command runs too); the footer says `ASKING OFF · /permissions ask`. It lives in memory only, is
+  project, another machine) are answered `Yes, for this session` without showing them, builders' included (a host while a builder's command runs too); the footer says `asking off` in warning colour, with `/permissions ask` only the first time. It lives in memory only, is
   never saved or read from a project file, only your typed command and your answer set it, and `/permissions ask` or quitting ends it. A one-shot or `--json` run
   refuses it (`--no-sandbox` is the flag for one run).
 - **For good.** `sandbox: allowedDomains`, `allowWrite` and `off` in `~/.casper/config.yaml`; `--allow-host`, `--allow-write`, `--allow-reach` and `--no-sandbox` for one run.

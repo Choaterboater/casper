@@ -36,7 +36,7 @@ test("the footer spinner and the status row's spinner animate while work is pres
     expect(moving.length).toBeGreaterThan(1);
     // Elapsed time rides the same footer, right after the spinner. Bun's fake timers freeze Date, so it renders
     // as "0s" here; the assertion proves the wiring, not clock arithmetic.
-    expect(chunks.some(text => SPINNER.some(frame => text.includes(`${frame} 0s │ `)))).toBe(true);
+    expect(chunks.some(text => SPINNER.some(frame => text.includes(`${frame} working 0s`)))).toBe(true);
     // The status row above the prompt spins too, and says Esc stops the work.
     const rowFrames = chunks
       .filter(text => text.includes("Running find · Esc stops"))
@@ -77,7 +77,7 @@ test("a picker open during work (the model picker, sign-in) shows waiting for yo
       view.show({ render: () => ["Pick a model"], invalidate() {} });
       seen = surface.footerLine(80) ?? "";
     });
-    expect(seen).toContain("? waiting for you");
+    expect(seen).toStartWith("? waiting for you");
     expect(spinning(seen)).toBe(false);
     expect(surface.footerLine(80)).not.toContain("waiting for you");
   } finally { surface.close(); }

@@ -188,7 +188,7 @@ test("-- ends option parsing, so a prompt may start with a dash", async () => {
   // binary passes it through. Either way Casper receives exactly one.
   const result = await run([cli, "--", "--", "--bogus", "is", "a", "prompt"], root);
   expect(result.stderr).not.toContain("Unknown option");
-  expect(result.stdout).toContain("> --bogus is a prompt");
+  expect(result.stdout).toContain("❯ --bogus is a prompt");
 }, childTestLimit());
 
 test("parseCliArgs reads leading options only; the rest is the prompt", () => {

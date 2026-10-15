@@ -154,12 +154,12 @@ test("xargs splits names on spaces and quotes: a name that would split, or a lin
   expect(readOnlyCommand("find app | xargs wc -c", at)).toBe(true);
 });
 
-test("--version alone is a read for a few toolchains; nothing else runs that way", () => {
-  for (const line of ["python --version", "python3 --version", "py --version", "python -V", "node --version", "git --version", "java -version"]) {
+test("--version and -V alone are reads for any bare program; extra arguments still ask", () => {
+  for (const line of ["python --version", "python3 --version", "py --version", "python -V", "node --version", "git --version", "java -version", "pip --version", "npm --version", "cargo --version", "ruby --version", "custom-tool -V"]) {
     expect({ line, read: readOnlyCommand(line) }).toEqual({ line, read: true });
   }
-  for (const line of ["python --version x", "python -c 1", "pip --version", "npm --version", "go version", "cargo --version", "./python --version",
-    "python3.12 --version x", "ruby --version", "python -VV x"]) {
+  for (const line of ["python --version x", "python -c 1", "go version", "./python --version",
+    "python3.12 --version x", "python -VV x"]) {
     expect({ line, read: readOnlyCommand(line) }).toEqual({ line, read: false });
   }
 });

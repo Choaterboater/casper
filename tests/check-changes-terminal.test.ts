@@ -35,12 +35,12 @@ test.skipIf(!mux)("real tmux: lone suggestion is 1, arrow-first check approval s
     await mux!.run("send-keys", "-t", "checks", "Down", "Down");
     await wait(screen => screen.includes("❯ 3. Use this command for this session only"));
     await mux!.run("send-keys", "-t", "checks", "Enter");
-    const script = await wait(screen => screen.includes("File unchanged: true") && screen.includes("console.log('skip')"));
-    expect(script).toContain("Active command: bun test");
-    // The original script is still protected after the session command changes.
-    await Bun.sleep(350);
-    await mux!.run("send-keys", "-t", "checks", "Enter");
     const end = await wait(screen => screen.includes("Terminal check complete"));
+    expect(end).toContain("File unchanged: true");
+    expect(end).toContain("Active command: bun test");
+    expect(end).toContain("kept .casper/project.yaml as it is: session-only check in use");
+    expect(end.match(/Change the test check for this project\?/g)).toHaveLength(1);
+    expect(end).not.toContain("Couldn't edit");
     expect(end).toContain("Script change declined");
     expect(await readFile(path.join(root, ".casper/project.yaml"), "utf8")).toBe(original);
     expect(await readFile(path.join(root, ".casper/quick-test.ts"), "utf8")).toContain("real check");

@@ -24,8 +24,7 @@ Both ways make a model request, so they use your provider account.
 The same tool has a third role, `builder`: a helper that edits and runs
 commands in its own copy of the project, whose change lands in your folder when
 it ends. The AI uses it for a big job with separate parts, and can have a
-reviewer check a landed part by its number (`of`). Running reviewers show in the
-footer (`1 reviewer · 2 builders`) and a live row under the AI's words, and the receipt says
+reviewer check a landed part by its number (`of`). Running reviewers show in a live row under the AI's words, and the receipt says
 which landed parts were not reviewed. See
 [CREWS.md](CREWS.md); everything below is about the read-only roles.
 

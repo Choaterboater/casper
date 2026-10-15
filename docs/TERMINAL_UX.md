@@ -291,21 +291,12 @@ instructions favor the answer or action first, numbered human steps when needed,
 and one concrete next action when work remains. Unknown checks, estimates and
 remaining uncertainty stay explicit. This is guidance to the model; a provider's replies may not follow it.
 
-The prompt box keeps a fixed two-column gutter: `❯` while idle, `•` while a
-command is working, `?` while an exclusive line input waits for you. An open choice box replaces the prompt entirely:
+The prompt box keeps a fixed two-column gutter: `❯` while idle (also for the first command-line request), a dim `type to queue a message` on an empty working prompt (a draft keeps its gutter), `?` while an exclusive line input waits for you. An open choice box replaces the prompt entirely:
 there is no empty `?` input row. Typed answers appear inline in the selected Other row; approval comments appear beside No. An open question's
 top rule names who asks, in the box's colour: `── Approval ──` (amber) for Casper's approvals,
 `── Question ──` for the AI's questions and `── Choose ──` for Casper's own pickers. The box never shifts
 horizontally between states, so a draft keeps its wrapping. The footer shows a
-state mark once: the braille spinner while working, `? waiting for you` while a question,
-checklist or approval needs you (with the spinner stopped), and `idle` at its end when Casper waits for a request
-(led by `type / for commands` when the whole line fits; a narrow window cuts the details before `idle`, never
-`idle` itself). Then the folder (never blank: `~` for home, `C:\` or `/` at the top of a drive), with `/branch` only when there is a git branch, then `provider/model · effort` (no other words),
-estimated context occupancy, the current task's tokens and its cost from the model's price
-(`task 48.2k tok · $0.31`; from the second task on, the session's total too, so a new task never
-looks like a reset: `task 40k tok · session 1.1M tok · $0.04` while working, `session 1.1M tok · $0.04` idle; a free model shows tokens only; a subscription sign-in shows
-`sub ≈$0.31`, what the tokens would cost pay-per-token; /usage has the session totals split into
-out, new and cached, `43.7k out · 131k new · 4.9M cached`, the same token format). Update notices have their own
+state on the left: spinner plus `working 1m05s`, `? waiting for you` during a question or picker (no spinner or timer), or `idle`. On the right: folder/branch (the name only once when they match), `provider/model · effort`, estimated context occupancy and one task figure: `task $0.31`, `task sub ≈$0.31` (API-equivalent, not a subscription charge), or `task 48.2k tok` for a free model. Groups use ` │ `; items within a group use ` · `. Narrow windows drop cost first, then context, then model, never wrapping. `asking off` stays in warning colour beside the state, with `/permissions ask` only on first display. Session totals remain in `/status` and `/usage`; /usage splits tokens into out, new and cached. Update notices have their own
 single, right-aligned row just above the prompt, idle or working, in the success colour. After an update is
 installed (including one installed by `casper update` or `/doctor`) it reads `✔ Update installed · restart to use it`.
 A narrow window shortens that to `✔ restart to update`, then hides it rather than cutting or wrapping it.
@@ -316,11 +307,7 @@ folder, model or state. Without an install it says `Casper 0.2.36 is out · casp
 `Casper update ready · casper update` for a checkout); a quiet failure says `update failed · casper update`.
 Plain terminals print one `[update] …` line instead, once per session. **Updates: off** in `/settings`
 (`updates: off`, also legacy `updates: false`) hides the row
-([Configuration](CONFIGURATION.md)). While a stage runs, the task's stages
-lead the footer, each marked ✓ once done, then the elapsed time (right after the spinner, `⠋ 0s │ …`, before the first stage);
-the working time excludes questions and pickers; their time is reported separately as `waited 5m`:
-`⠋ checklist ✓ · building ✓ · checks · 1m05s │ project…`; in a narrow window only the stage running now
-and the time (`⠋ checks · 1m05s │ …`), never a finished one; between stages only the time. When the AI reads, lists or searches a folder outside the project (temp aside), one line under its
+([Configuration](CONFIGURATION.md)). The footer uses one plain phase word, `working`, not the internal checklist/build/check/repair rail. Working time excludes questions and pickers. When the AI reads, lists or searches a folder outside the project (temp aside), one line under its
 steps says where, once per folder: `[read] outside this project: ~/Projects`. Tool lines print paths relative to the project and fit one row:
 narrow, the words go and a path is shortened from the front (`✓ edit · …st_calc.py · +9 -1 · 2.5s`). Each check Casper runs prints one line
 as it finishes (`✓ typecheck · 5.9s`, `✗ test · exit 1 · 2.3s`, `✗ test · timed out after 10m`; a check
@@ -547,7 +534,7 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
   the top of the screen and the previous run's transcript stays in scrollback.
 - While a prompt runs or tool activity is on screen, the footer spinner, the status row and a running
   step's mark animate (braille spinner) so background work is visibly moving, and the
-  footer shows the elapsed time after it (`⠋ 1m35s │ …`); idle has no spinner or timer.
+  footer shows one phase and elapsed time (`⠋ working 1m35s`); idle has no spinner or timer.
 - The old Windows console (conhost: no `WT_SESSION`, `TERM_PROGRAM` or `ConEmuANSI`) has no braille,
   rounded corners or most symbols in its fonts, so every mark is drawn in ASCII there, one column each:
   `|/-\` spinner, square corners, `>` for `❯` and `→`, `+` for `✓`, `x` for `✗`, `*` for `•` and `●`, `o` for `○`,
@@ -755,8 +742,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   same line after its numbered lines.
 - A command approval always starts with Casper's own question (`Run this command?`). Only the last sentence of the model's reason
   follows, dimmed and labelled `The model says:`: at most 100 characters then `…`, clipped to one row without wrapping.
-  Multi-line commands sit in a dim frame and keep their line breaks; after 12 lines (or fewer in a short window),
-  `… N more lines` counts all omitted command lines. Secrets stay hidden. The activity list remains above the box.
+  Multi-line commands sit in a dim frame with a head/gap/tail preview: about eight head lines, `… N more lines`, then the final three. Consequential middle lines (push, remove, download, sudo, install and redirects) stay below the gap; the count includes only omitted command lines. Secrets stay hidden. The activity list remains above the box.
   A session yes for `bun test` covers different project test files and log tails in the same folder; other commands
   and permanent approvals keep exact matching.
 - A list taller than the window shows the rows around the highlighted one, with `… 12 more below`

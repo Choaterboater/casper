@@ -118,7 +118,8 @@ async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boo
 }
 
 const waiting = (question: string) => (output: string) => output.includes(question) && output.slice(output.lastIndexOf(question)).includes("? waiting for you");
-const idleAfter = (marker: string) => (output: string) => output.includes(marker) && /idle\s*$/.test(output.slice(output.lastIndexOf(marker)));
+const isIdle = (output: string) => /(?:^|[\r\n])idle +[^\r\n]*$/.test(output.trimEnd());
+const idleAfter = (marker: string) => (output: string) => output.includes(marker) && isIdle(output.slice(output.lastIndexOf(marker)));
 
 const HINT = "– Big job (this asks for 4 things): /plan first next time to see the steps before any change";
 
@@ -261,7 +262,7 @@ test("using /plan counts as taking the hint, so it does not fade while you plan"
   const hints = () => f.screen.output.split(HINT).length - 1;
   const build = async (count: number) => {
     f.input.write(`${REQUEST}\r`);
-    await f.screen.until((output) => output.split("Built.").length - 1 === count && /idle\s*$/.test(output));
+    await f.screen.until((output) => output.split("Built.").length - 1 === count && isIdle(output));
   };
   try {
     await build(1); await build(2);
@@ -279,7 +280,7 @@ test("/suggestions off plan-first stops the hint for a big vague request", async
   const f = await fixture();
   try {
     f.input.write("/suggestions off plan-first\r");
-    await f.screen.until((output) => /idle\s*$/.test(output) && output.includes("plan-first"));
+    await f.screen.until((output) => isIdle(output) && output.includes("plan-first"));
     f.input.write(`${REQUEST}\r`);
     await f.screen.until(idleAfter("Built."));
     expect(f.screen.output).not.toContain("Big job");

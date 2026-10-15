@@ -21,6 +21,8 @@ export function updateNoteText(app: CasperApp): string | undefined {
   return app.projectContext?.updates === "off" || updateChecksOff(process.env) ? undefined : app.updatedInSession ? "✔ Update installed · restart to use it" : app.updateNote;
 }
 
+const askingHintShown = new WeakSet<CasperApp>();
+
 export function updateFooter(app: CasperApp): void {
   if (!app.projectContext) return;
   app.terminal.setTitle(windowTitle(conversationName(app), app.commandActive));
@@ -30,7 +32,8 @@ export function updateFooter(app: CasperApp): void {
   const writes = (app.mcp?.writesOn({ own: false }) ?? []).filter((server) => !all.includes(server));
   const parts = [...(all.length ? [`ALLOW ALL: ${all.join(", ")}`] : []), ...(writes.length ? [`WRITES: ${writes.join(", ")}`] : [])];
   // `/permissions all` is on: the shell stops asking until you quit. Always shown, first, and it says how to end it.
-  const asking = app.stopAsking ? ["ASKING OFF · /permissions ask"] : [];
+  const asking = app.stopAsking ? [askingHintShown.has(app) ? "asking off" : "asking off · /permissions ask"] : [];
+  if (app.stopAsking) askingHintShown.add(app);
   const mcp = parts.length ? [`${parts.join(" · ")} · ${app.terminal.rich ? "Ctrl+X" : "/mcp writes off"}`] : [];
   app.terminal.setBadge([...asking, ...mcp].join(" · ") || undefined);
   app.terminal.setUpdate(updateNoteText(app));
@@ -51,7 +54,7 @@ export function updateFooter(app: CasperApp): void {
     const shown = formatFooterSpend(spent, session, app.commandActive, status?.priced, status?.billing);
     const task = shown ? ` │ ${shown}` : "";
     // The folder, and "/branch" only when there is one.
-    app.terminal.setStatus(`${project.name || project.root}${project.gitBranch ? `/${project.gitBranch}` : ""} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${task}${buildersText(app)}${app.commandActive ? "" : " │ idle"}`, project.root);
+    app.terminal.setStatus(`${project.name || project.root}${project.gitBranch && project.gitBranch !== project.name ? `/${project.gitBranch}` : ""} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${task}${app.commandActive ? "" : " │ idle"}`, project.root);
   } catch { app.terminal.setStatus("Session status unavailable · /status", app.projectContext.info.root); }
 }
 

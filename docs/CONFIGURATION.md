@@ -304,7 +304,7 @@ start. A project file can't set them.
 `/permissions` prints a short screen: whether Casper is asking, one line per kind (state · how to change it) and what stays protected, then the numbered box
 `Stop asking until you quit?` (`1 Keep asking` first, so Enter changes nothing). `/permissions details` is the full screen: where each permission came from (this
 session, remembered for this project, your config) and every way to be asked less. `/permissions all` (also `allowall` or `allow-all`) is the same box on its own;
-2 stops the shell's own questions until you quit and shows `ASKING OFF` in the footer. `/permissions ask` turns asking back on. A mistyped word is suggested, never run. `/permissions write <folder>` allows a folder outside the project for this project ahead of time, `/permissions forget <folder>`
+2 stops the shell's own questions until you quit and shows `asking off` in the footer. `/permissions ask` turns asking back on. A mistyped word is suggested, never run. `/permissions write <folder>` allows a folder outside the project for this project ahead of time, `/permissions forget <folder>`
 takes it back, and the write box's `4 Yes, always for this project` does the same. Protected places (`~/.ssh`, `~/.casper`, shell start-up files, git's files, your
 home folder itself, system folders) are never offered and never allowed. See [SECURITY.md](SECURITY.md#asking-less).
 
@@ -1074,9 +1074,7 @@ old `updates: true` (or `on`) means `auto`. A change in `/settings` applies from
 
 ### What a task spends
 
-Nothing to set up. The footer shows the current task's tokens and its cost
-(`task 48.2k tok · $0.31`), and from the second task on the session's total as well
-(`session 1.1M tok · $0.04`); a free model shows tokens only. With OpenRouter the cost is what
+Nothing to set up. The footer shows one current-task figure: cost (`task $0.31`, or `task sub ≈$0.31` for a subscription), or tokens for a free model (`task 48.2k tok`). Session totals are in `/status` and `/usage`. With OpenRouter the cost is what
 OpenRouter reports it charged for each response; other providers get the catalog's estimate, not a
 bill. By default a task only gets notes and never stops for money:
 

@@ -450,18 +450,11 @@ function findAllowed(args: readonly string[], place: Place): boolean {
   return (starts.length ? starts : ["."]).every((word) => fileOk(word, place, true));
 }
 
-/** Programs that only print their own version for `--version` (and the python ones for -V, java for -version), before
- * reading any file of the project. Not pip, npm or the like (they load the project's own settings or packages first), and
- * not go, cargo or rustc (a go.mod or rust-toolchain file there can make them fetch and run another toolchain). */
-const VERSION_ONLY: Record<string, readonly string[]> = Object.fromEntries([
-  ...["python", "python3", "py"].map((name) => [name, ["--version", "-V"]]),
-  ...["node", "bun", "deno", "git", "gcc", "clang", "make"].map((name) => [name, ["--version"]]),
-  ["java", ["--version", "-version"]],
-]);
+/** Version-only invocations are reads; arguments that run code or name files still ask. */
 
 /** `python --version`, `node --version`: the program prints its version. */
 function versionOnly(words: readonly string[]): boolean {
-  return words.length === 2 && Object.hasOwn(VERSION_ONLY, words[0]!) && VERSION_ONLY[words[0]!]!.includes(words[1]!);
+  return words.length === 2 && (["--version", "-V"].includes(words[1]!) || words[0] === "java" && words[1] === "-version");
 }
 
 /** `globs`: the words (by place) with an unquoted * or ?. `stdin`: it may read only what is piped in (see allowed). */
@@ -472,6 +465,7 @@ function readerSegment(words: string[], place: Place, globs: ReadonlySet<number>
   // from inside single quotes (safeLine refuses every other one), where it is plain text.
   if (words.some((word) => word.startsWith("~"))) return false;
   if (versionOnly(words)) return true;
+  if (name === "test") return !stdin && globs.size === 0 && args.length === 2 && ["-d", "-f", "-e"].includes(args[0]!) && fileOk(args[1]!, place, false);
   if (name === "ps" && (globs.size || !psReads(args))) return false;
   // `command` without -v/-V executes its operand; only lookup is a read.
   if (name === "command" && (args.length < 2 || !["-v", "-V"].includes(args[0]!))) return false;
@@ -620,7 +614,22 @@ function withoutHarmlessRedirects(text: string): string {
 
 /** One command of a line: its words and text, the words with an unquoted * or ? (undefined when a word mixes one with a
  * quoted part: which of them bash expands can't be told), and the operator after it (&&, ||, | or ;). */
-interface Part { words: string[]; text: string; globs: Set<number> | undefined; after: string | undefined; redirects: string[]; plumbing: boolean }
+interface Part { words: string[]; text: string; globs: Set<number> | undefined; after: string | undefined; redirects: string[]; plumbing: boolean; envPaths: string[] }
+
+const ROUTINE_ENV = /^(?:TMPDIR|HOME|GIT_CEILING_DIRECTORIES|CI|NO_COLOR)=(.*)$/;
+
+/** Expand only a leading allowlisted assignment's literal $PWD path. Never another shell expansion. */
+function literalAssignments(command: string): string {
+  let cursor = 0, result = "";
+  for (const segment of splitShell(command).segments) {
+    const at = command.indexOf(segment.text, cursor);
+    const prefix = /^(?:[ \t]*(?:TMPDIR|HOME|GIT_CEILING_DIRECTORIES|CI|NO_COLOR)=(?:"[^"\n]*"|'[^'\n]*'|[^\s;&|]+)[ \t]+)+/.exec(segment.text)?.[0] ?? "";
+    const replaced = prefix.replace(/=("?)\$PWD(\/[A-Za-z0-9._/-]*)?\1(?=[ \t])/g, (_match, quote: string, suffix: string | undefined) => `=${quote}.${suffix ?? ""}${quote}`);
+    result += command.slice(cursor, at) + replaced + segment.text.slice(prefix.length);
+    cursor = at + segment.text.length;
+  }
+  return result + command.slice(cursor);
+}
 
 /** Only output redirects to one literal path. Everything left over (<, &>, descriptor tricks) still asks. */
 function projectRedirects(text: string): { text: string; files: string[] } {
@@ -654,7 +663,7 @@ function redirectOk(file: string, place: Place): boolean {
 /** The line cut into its commands, or undefined when this check can't read it: a character outside the safe set, a
  * unsupported redirect, a substitution or a background job. Literal output files are checked later in their own cwd. */
 function lineParts(command: string): Part[] | undefined {
-  const safe = safeLine(command);
+  const safe = safeLine(literalAssignments(command));
   if (safe === undefined) return undefined;
   const discarded = withoutHarmlessRedirects(safe).trim();
   // Split the operators first so each redirect is checked in the cwd of its own command.
@@ -692,7 +701,13 @@ function lineParts(command: string): Part[] | undefined {
     }
     const plumbing = /^(?:[A-Za-z_][A-Za-z0-9_]*=\$\?|exit[ \t]+(?:\$[A-Za-z_][A-Za-z0-9_]*|[0-9]+))$/.test(segment.text.trim())
       && !/^(?:PATH|IFS|CDPATH|ENV|BASH_ENV|SHELLOPTS|BASHOPTS|GLOBIGNORE|LANG|LC_[A-Za-z_]+)=/.test(segment.text.trim());
-    parts.push({ words: segment.words, text: segment.text, globs: plumbing ? new Set() : globs, after: operators[at], redirects: redirected[at]?.files ?? [], plumbing });
+    const envPaths: string[] = [];
+    const program = [...segment.words];
+    while (ROUTINE_ENV.test(program[0] ?? "")) envPaths.push(ROUTINE_ENV.exec(program.shift()!)![1]!);
+    if (envPaths.length && globs) globs = new Set([...globs].map(index => index - envPaths.length));
+    const prefix = at < line.segments.length - 1 && (operators[at] === ";" || operators[at] === "&&")
+      && (segment.text.trim() === "set -o pipefail" || segment.text.trim() === "set -e");
+    parts.push({ words: program, text: segment.text, globs: plumbing ? new Set() : globs, after: operators[at], redirects: redirected[at]?.files ?? [], plumbing: plumbing || prefix, envPaths });
   }
   return parts;
 }
@@ -789,9 +804,11 @@ function partReads(parts: readonly Part[], place: Place): { reads: boolean[]; fo
         && folders.every((cwd) => xargsCounts(parts[at - 1]!.words.slice(1), args, { ...place, cwd })));
       continue;
     }
-    reads.push(part.globs !== undefined && folders.every((cwd) => readerSegment(part.words, { ...place, cwd }, part.globs)));
+    reads.push(!part.envPaths.length && (part.words[0] === "set" && part.plumbing || part.globs !== undefined && folders.every((cwd) => readerSegment(part.words, { ...place, cwd }, part.globs))));
   }
-  return { reads, folders: ranIn, redirectsOk: parts.every((part, at) => ranIn[at]!.every((cwd) => part.redirects.every((file) => redirectOk(file, { ...place, cwd })))) };
+  return { reads, folders: ranIn, redirectsOk: parts.every((part, at) => ranIn[at]!.every((cwd) =>
+    part.redirects.every((file) => redirectOk(file, { ...place, cwd })) && part.envPaths.every(file =>
+      Boolean(file) && !/[$~*?\\]/.test(file) && fileOk(file, { ...place, cwd }, false)))) };
 }
 
 /** True when every command on the line only reads files in the project: no redirect (but 2>/dev/null, 2>&1), no
@@ -800,7 +817,7 @@ function partReads(parts: readonly Part[], place: Place): { reads: boolean[]; fo
  * file it picks is checked. `where`: the project folder, or the project, your home and the private places. */
 export function readOnlyCommand(command: string, where?: ReadPlace | string): boolean {
   const parts = lineParts(command);
-  return parts !== undefined && parts.every((part) => part.redirects.length === 0) && partReads(parts, placeOf(where)).reads.every(Boolean);
+  return parts !== undefined && parts.every((part) => part.redirects.length === 0 && part.envPaths.length === 0) && partReads(parts, placeOf(where)).reads.every(Boolean);
 }
 
 /** The line's commands as this check reads them, each with whether it only reads and the folders it may run in (a cd in

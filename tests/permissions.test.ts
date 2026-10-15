@@ -246,7 +246,8 @@ test("answering 2 in the /permissions box stops asking, as /permissions all does
   expect(output).toContain("[permissions] Not asking until you quit");
   expect(output).toContain("Asking is OFF until you quit: shell commands, hosts, writes outside the project and other machines are answered Yes. /permissions ask turns it back on.");
   expect(output.match(/Stop asking until you quit\?\n/g)).toHaveLength(1);
-  expect(badges.some((badge) => badge.includes("ASKING OFF · /permissions ask"))).toBe(true);
+  expect(badges.some((badge) => badge.includes("asking off · /permissions ask"))).toBe(true);
+  expect(badges).toContain("asking off");
 });
 
 test("/permissions all asks 1 Keep asking · 2 Stop asking until I quit; 1 changes nothing, 2 turns it on with a marker, /permissions ask ends it", async () => {
@@ -261,7 +262,7 @@ test("/permissions all asks 1 Keep asking · 2 Stop asking until I quit; 1 chang
   expect(on.output).toContain("[permissions] Not asking until you quit");
   expect(on.output).toContain("Asking is OFF until you quit");
   expect(on.output).toContain("[permissions] Asking is on again.");
-  expect(on.badges.some((badge) => badge.includes("ASKING OFF · /permissions ask"))).toBe(true);
+  expect(on.badges.some((badge) => badge.includes("asking off · /permissions ask"))).toBe(true);
   // It is memory only: a new session starts with asking on, and nothing was written.
   const again = await session(d, ["/permissions"], []);
   expect(again.output).toContain("Asking is on:");
@@ -288,7 +289,9 @@ test("the footer marker says asking is off and how to end it", async () => {
   updateFooter(app);
   app.stopAsking = true;
   updateFooter(app);
-  expect(seen).toEqual([undefined, "ASKING OFF · /permissions ask"]);
+  expect(seen).toEqual([undefined, "asking off · /permissions ask"]);
+  updateFooter(app);
+  expect(seen.at(-1)).toBe("asking off");
   await app.close();
 });
 

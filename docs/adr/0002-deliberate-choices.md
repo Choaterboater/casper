@@ -32,7 +32,7 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
   `ps` groups (`E`, BSD bare `e`, not Linux `-e`) ask. `git rev-list`, `show-ref` and
   `for-each-ref` accept listed read options only; stdin and output-writing options still ask. A session yes for `bun test` covers other project test files and log tails
   in the same folder; non-test and permanent approvals stay exact. Boxes keep Casper's question first, then the dimmed reason
-  labelled `The model says:` (last sentence only, 100 characters plus an ellipsis, one dim row) and a 12-line command preview.
+  labelled `The model says:` (last sentence only, 100 characters plus an ellipsis, one dim row) and a head/gap/tail command preview. Consequential middle lines (push, remove, download, sudo, redirects, install) stay below the gap.
   The shared arrow-first picker defaults to No; typing words is No with direction, never consent.
 - **Why:** it is the owner's call (2026-10-09). The sandbox broke ordinary work (logins, caches, tools outside
   the project), and asking first is the same protection the user has with any other agent.
@@ -57,7 +57,7 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
   `result=$?` and `exit $name` / `exit N` are status plumbing, not permission to expand other variables or run scripts.
   Fetch never prunes or accepts forced/deleting refspecs or local-branch destinations. Builder checks use their own copy,
   including under `~/.casper/worktrees`, without opening private state. A line counts only when every command on
-  it is a read or routine. `src/sandbox/routine.ts`.
+  it is a read or routine. `src/sandbox/routine.ts`. Literal project-path assignments to TMPDIR/HOME/GIT_CEILING_DIRECTORIES/CI/NO_COLOR (including `$PWD/x`), `set -e` and `set -o pipefail` prefixes preserve routines and test-session families. Other variables and expansions still ask. Existence tests, literal printf and bare programs' version-only invocations are reads.
 - **Why:** a box on `npm test` and `git commit` teaches people to press yes without reading.
 - **Same as:** Claude Code's auto mode, which runs routine commands without a prompt and still stops risky ones.
 - **Off switch:** **Routine commands** in `/settings` (`routine_commands: false`); a project file can't set it.
@@ -229,7 +229,7 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
 
 - **What:** AI edit/write of configured checks or their named scripts asks `Change the test check for this project?`,
   with old → new and No first. Save persists; an existing-command replacement may instead be session-only,
-  leaving the file untouched. Both approved command replacements update current-task registries.
+  leaving the file untouched. Both approved command replacements update current-task registries. Session-only is a quiet kept-file note, not a failed edit; further check edits in that task keep the files without another box.
 - **Why:** a slow or failing check is not permission to weaken what checks the work.
 - **Guard rails:** No, Enter, cancellation or no question channel writes nothing; concurrent saves invalidate
   the preview. Shell mutations targeting checks or copying over their parent folder are directed to native
@@ -257,6 +257,14 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
   excludes other sessions. Failures stay out of the transcript, go to update.log, and leave a retry notice.
 - **A finding:** a weaker verification path, an install overlapping task checks, a dirty/non-default/ahead checkout
   being changed, a project controlling the setting, or an automatic restart/reload.
+
+### 15. Agents do not launch agents or touch unrelated tmux servers
+
+- **What:** model guidance and a native shell text guard refuse other coding-agent launches and tmux commands except private `tmux -L <name>` servers successfully started in this task. Builders have the same guard. A new task forgets ownership; an existing socket is not claimed.
+- **Why:** other sessions on the same machine are not part of this task.
+- **Off switch:** the person's explicit request to run the agent or use the other tmux server (not a builder's generated goal). Version-only agent queries are reads. Casper's own picture-generation integration is unchanged.
+- **Guard rails:** this is a command-text guard, not isolation from opaque scripts. The refusal is a plain note, before shell approval or execution.
+- **A finding:** a known direct/wrapped coding-agent invocation runs without the person's request, or an unowned tmux command passes the guard.
 
 ## Consequences
 

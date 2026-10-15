@@ -525,6 +525,7 @@ export class CasperApp {
       announceLongChecks: () => this.onEvent === undefined,
       onToolEnd: event => {
         this.observations.observeToolEnd(event, this.projectContext?.model.commands);
+        if (event.sessionOnlyCheck) return;
         if (["bash", "powershell", "edit", "write"].includes(event.toolName)) this.browser?.invalidate();
         // A shell command's files are unknown, so it marks every running service stale.
         if (event.toolName === "bash" || event.toolName === "powershell") { this.services?.markEdited(); if (this.taskEdits) this.taskEdits.shell = true; }
