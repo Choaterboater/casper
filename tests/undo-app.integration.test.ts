@@ -174,6 +174,114 @@ test("the receipt names only this task's files, not your own earlier edits; the 
   } finally { await made.app.close(); }
 }, 30_000);
 
+for (const operation of ["commit", "amend", "cherry-pick"] as const) test(`a task's ${operation} keeps its changed files on the receipt and in Undo`, async () => {
+  const place = await folder({ git: true });
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: place.project,
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } }).toString().trim();
+  let picked = "";
+  if (operation === "cherry-pick") {
+    const base = git("rev-parse", "HEAD");
+    git("switch", "-qc", "pick-source");
+    await writeFile(path.join(place.project, "notes.py"), "print('two')\n");
+    await writeFile(path.join(place.project, "new.py"), "new = True\n");
+    git("add", "."); git("commit", "-qm", "picked change");
+    picked = git("rev-parse", "HEAD");
+    git("switch", "-qc", "task", base);
+  }
+  const made = makeApp(place, [async (project) => {
+    if (operation === "cherry-pick") git("cherry-pick", picked);
+    else {
+      await writeFile(path.join(project, "notes.py"), "print('two')\n");
+      await writeFile(path.join(project, "new.py"), "new = True\n");
+      git("add", ".");
+      git("commit", ...(operation === "amend" ? ["--amend", "--no-edit"] : ["-qm", "task change"]));
+    }
+  }]);
+  try {
+    await made.app.runOnce("fix the task files", place.project);
+    expect(made.app.getLastTaskResult()!.changedPaths).toEqual(["new.py", "notes.py"]);
+    expect(made.app.getLastTaskResult()!.branchMoved).not.toBe(true);
+    expect(receiptEvent(undefined, made.app.getLastTaskResult()!, 0).changed).toEqual(["new.py", "notes.py"]);
+    await made.app.runOnce("/receipt 1", place.project);
+    expect(made.output()).toContain("new.py");
+    await made.app.runOnce("/diff 1", place.project);
+    expect(made.output()).toContain("+print('two')");
+    const head = git("rev-parse", "HEAD");
+    await made.app.runOnce("/undo 1", place.project);
+    expect(await readFile(path.join(place.project, "notes.py"), "utf8")).toBe("print('one')\n");
+    expect(await readdir(place.project)).not.toContain("new.py");
+    expect(git("rev-parse", "HEAD")).toBe(head); // Undo restores files, never rewrites commits.
+  } finally { await made.app.close(); }
+}, 30_000);
+
+for (const commitRestoration of [false, true]) test(`task-committed files restored to starting bytes still count (restoration committed: ${commitRestoration})`, async () => {
+  const place = await folder({ git: true });
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: place.project,
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } }).toString().trim();
+  const made = makeApp(place, [async (project) => {
+    await writeFile(path.join(project, "notes.py"), "print('two')\n");
+    await writeFile(path.join(project, "new.py"), "new = True\n");
+    git("add", "."); git("commit", "-qm", "task change");
+    await writeFile(path.join(project, "notes.py"), "print('one')\n");
+    await rm(path.join(project, "new.py"));
+    if (commitRestoration) { git("add", "."); git("commit", "-qm", "restore starting bytes"); }
+  }]);
+  try {
+    await made.app.runOnce("change the task files", place.project);
+    const task = made.app.getLastTaskResult()!;
+    expect(task.changedPaths).toEqual(["new.py", "notes.py"]);
+    expect(receiptEvent(undefined, task, 0).changed).toEqual(["new.py", "notes.py"]);
+    expect(task.undo).toEqual({ available: false, reason: "no files changed" });
+    expect(task.branchMoved).not.toBe(true);
+    const from = made.output().length;
+    await made.app.runOnce("/receipt 1", place.project);
+    expect(made.output().slice(from)).toContain("new.py");
+    expect(made.output().slice(from)).toContain("notes.py");
+    expect(await readFile(path.join(place.project, "notes.py"), "utf8")).toBe("print('one')\n");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+for (const restoreStart of [false, true]) test(`a task commit then a nonconflicting same-file merge remains counted and blocked from Undo (restored: ${restoreStart})`, async () => {
+  const place = await folder({ git: true });
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: place.project,
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } }).toString().trim();
+  const original = "task = 0\n\nunchanged = 0\n\nincoming = 0\n";
+  await writeFile(path.join(place.project, "notes.py"), original);
+  git("add", "."); git("commit", "-qm", "base");
+  const base = git("rev-parse", "HEAD");
+  git("switch", "-qc", "incoming");
+  await writeFile(path.join(place.project, "notes.py"), original.replace("incoming = 0", "incoming = 1"));
+  git("add", "."); git("commit", "-qm", "incoming change");
+  git("switch", "-qc", "task", base);
+  const combined = original.replace("task = 0", "task = 1").replace("incoming = 0", "incoming = 1");
+  const made = makeApp(place, [async (project) => {
+    await writeFile(path.join(project, "notes.py"), original.replace("task = 0", "task = 1"));
+    await writeFile(path.join(project, "other.py"), "x = 2\n");
+    git("add", "."); git("commit", "-qm", "task change");
+    git("merge", "--no-edit", "incoming");
+    expect(await readFile(path.join(project, "notes.py"), "utf8")).toBe(combined);
+    if (restoreStart) await writeFile(path.join(project, "notes.py"), original);
+  }]);
+  try {
+    await made.app.runOnce("fix the task files", place.project);
+    const task = made.app.getLastTaskResult()!;
+    expect(task.changedPaths).toEqual(["notes.py", "other.py"]);
+    expect(receiptEvent(undefined, task, 0).changed).toEqual(["notes.py", "other.py"]);
+    expect(task.undo).toMatchObject({ available: true, left: [{ path: "notes.py", why: "git and the task both changed it; Casper cannot safely separate them" }] });
+    const head = git("rev-parse", "HEAD");
+    await made.app.runOnce("/receipt 1", place.project);
+    expect(made.output()).toContain("notes.py");
+    await made.app.runOnce("/undo 1", place.project);
+    expect(await readFile(path.join(place.project, "notes.py"), "utf8")).toBe(restoreStart ? original : combined);
+    expect(await readFile(path.join(place.project, "other.py"), "utf8")).toBe("x = 1\n");
+    expect(made.output()).toContain("notes.py (git and the task both changed it; Casper cannot safely separate them)");
+    await made.app.runOnce("/redo 1", place.project);
+    expect(await readFile(path.join(place.project, "notes.py"), "utf8")).toBe(restoreStart ? original : combined);
+    expect(await readFile(path.join(place.project, "other.py"), "utf8")).toBe("x = 2\n");
+    expect(git("rev-parse", "HEAD")).toBe(head);
+  } finally { await made.app.close(); }
+}, 30_000);
+
 const branchMoveLine = "– The branch moved during this task: changes git brought in are not counted, and undo leaves them alone";
 
 async function movingTask(kind: "fast-forward" | "rebase", options: { count?: number; overlap?: boolean; missingHead?: boolean; restoreStart?: boolean; move?: "merge" | "pull" | "checkout" | "reset" | "switch"; crlf?: boolean } = {}) {

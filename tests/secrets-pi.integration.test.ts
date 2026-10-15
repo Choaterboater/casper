@@ -261,6 +261,7 @@ posixOnly("service logs and a cat of Casper's login file reach the model with th
   expect(sent).not.toContain("DbPassw0rd99");
   expect(sent).not.toContain("tok-live-778899");
   expect(sent).toContain("openrouter");
+  expect(sent).not.toContain("Not run: this command may change a configured check");
   expect(sent).not.toContain(loginKey);
 }, 30_000);
 

@@ -3,7 +3,7 @@
  * /receipt commands. Nothing here calls a model. Undo puts back files in this folder only; it says so each time it
  * can't reach something (secret files, big files, nested repositories, MCP servers, devices).
  */
-import { crlfCheckout, gitMovement, taskHead, projectBlob, GIT_MOVEMENT_UNKNOWN, GIT_OVERLAP, type TaskHead } from "../task/git-movement";
+import { crlfCheckout, gitMovement, headMoved, taskHead, projectBlob, GIT_MOVEMENT_UNKNOWN, GIT_OVERLAP, type TaskHead } from "../task/git-movement";
 import { storedTaskResult } from "./json-events";
 import { undoChangedChoices } from "./safe-choices";
 import type { OutputWriter } from "./commands";
@@ -123,8 +123,14 @@ export class TaskUndo {
     const movement = await gitMovement(start.root, start.head, endHead);
     const blocked: Array<{ path: string; why: string }> = [];
     const gitOnly = new Set<string>();
+    const committedOverlap = new Set<string>();
+    // A committed edit still counts when a later edit restores its starting bytes. Undo remains
+    // snapshot-based: identical ending bytes need no restoration, and HEAD is never rewritten.
+    if ("committed" in movement && task.changedPaths) task.changedPaths = [...new Set([...task.changedPaths,
+      ...[...movement.committed].filter((file) => !task.changedDuringChecks?.includes(file))])].sort();
     let afterSnapshot: UndoSnapshot | undefined;
     if (movement.moved) task.branchMoved = true;
+    else delete task.branchMoved;
     let protectionUnknown = "unavailable" in movement;
     let uncertain = "unavailable" in movement ? movement.unavailable : undefined;
     if (!uncertain && movement.moved && "incoming" in movement && store && "tree" in start.snapshot) {
@@ -136,11 +142,15 @@ export class TaskUndo {
         for (const [file, entry] of movement.incoming) {
           // On Windows git writes text with CR LF (core.autocrlf): those exact bytes are still git's own copy.
           const checkout = await crlfCheckout(start.root, file, entry);
-          if (checkout || await store.matchesHead(file, entry)) gitOnly.add(file);
+          const own = movement.committed.has(file);
+          if (!own && (checkout || await store.matchesHead(file, entry))) gitOnly.add(file);
           else blocked.push({ path: file, why: GIT_OVERLAP });
           // Never import a secret, oversized or otherwise excluded file into the private undo store.
           const excluded = [...start.snapshot.left, ...afterSnapshot.left].some((left) => coveredBy([left.path], file));
           if (!copied.has(file) || excluded || isSecretFile(file)) continue;
+          // The merge blob contains the task's committed work too. Do not overlay it onto the
+          // baseline or erase its path just because the checkout matches that combined blob.
+          if (own) { committedOverlap.add(file); continue; }
           if (entry?.mode === "160000") throw new Error("incoming nested repository");
           const data = entry ? checkout ?? await projectBlob(start.root, entry) : undefined;
           if (data && data.length > HASH_LIMIT) throw new Error("incoming file is too big to copy");
@@ -156,8 +166,8 @@ export class TaskUndo {
       } catch { uncertain = GIT_MOVEMENT_UNKNOWN; }
     }
     if (movement.moved && "incoming" in movement) {
-      const stable = await gitMovement(start.root, endHead, await taskHead(start.root));
-      if ("unavailable" in stable || stable.moved) { protectionUnknown = true; uncertain = GIT_MOVEMENT_UNKNOWN; }
+      const stable = await taskHead(start.root);
+      if (!("head" in stable) || headMoved(endHead, stable)) { protectionUnknown = true; uncertain = GIT_MOVEMENT_UNKNOWN; }
     }
     if (uncertain && ("tree" in start.snapshot || movement.moved)) {
       start.snapshot = { unavailable: uncertain };
@@ -200,6 +210,8 @@ export class TaskUndo {
           if (already) { kept.push(already); return []; }
           return [change.path];
         });
+        for (const file of committedOverlap) if (!paths.includes(file)) paths.push(file);
+        paths.sort();
         // Files the task's own tools edited that no copy holds (ignored, secret), and files the task changed inside a
         // nested repository: undo can't put them back either.
         const edited = (task.observedEdits ?? []).flatMap((file) => {

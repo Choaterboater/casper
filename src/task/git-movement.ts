@@ -1,5 +1,6 @@
 /** Read-only questions about the project's HEAD, separate from Casper's private undo git. */
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -12,7 +13,8 @@ export const GIT_MOVEMENT_UNKNOWN = "Casper cannot separate the task's edits fro
 export const GIT_OVERLAP = "git and the task both changed it; Casper cannot safely separate them";
 export const BRANCH_MOVED_LINE = "– The branch moved during this task: changes git brought in are not counted, and undo leaves them alone";
 
-export type TaskHead = { head: string | null; branch: string | null; prefix: string } | { none: true } | { unavailable: true };
+interface ReflogMark { count: number; digest: string }
+export type TaskHead = { head: string | null; branch: string | null; prefix: string; reflog?: ReflogMark } | { none: true } | { unavailable: true };
 
 async function projectGit(root: string, args: string[]): Promise<Buffer> {
   const env: NodeJS.ProcessEnv = {};
@@ -20,6 +22,19 @@ async function projectGit(root: string, args: string[]): Promise<Buffer> {
   const { stdout } = await exec("git", safeGitArgs(args), { cwd: root, env: { ...env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" },
     encoding: "buffer", timeout: 15_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true });
   return stdout;
+}
+
+/** Bound history reads; an expired, rewritten or over-budget log is never guessed at. */
+async function headLog(root: string): Promise<string[]> {
+  const raw = (await projectGit(root, ["reflog", "show", "-1001", "--format=%H%x00%gs", "-z", "HEAD"])).toString();
+  const fields = raw.split("\0");
+  const records: string[] = [];
+  for (let at = 0; at + 1 < fields.length; at += 2) records.push(`${fields[at]}\0${fields[at + 1]}`);
+  return records;
+}
+function logMark(records: string[]): ReflogMark {
+  const anchor = records.slice(0, 16);
+  return { count: anchor.length, digest: createHash("sha256").update(JSON.stringify(anchor)).digest("hex") };
 }
 
 export async function taskHead(root: string): Promise<TaskHead> {
@@ -35,7 +50,8 @@ export async function taskHead(root: string): Promise<TaskHead> {
     });
     if (head !== null && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(head)) return { unavailable: true };
     const prefix = (await projectGit(root, ["rev-parse", "--show-prefix"])).toString().replace(/\r?\n$/, "");
-    return { head, branch, prefix };
+    const reflog = head === null ? logMark([]) : await headLog(root).then(logMark).catch(() => undefined);
+    return { head, branch, prefix, ...(reflog ? { reflog } : {}) };
   } catch (error) {
     return /not a git repository/i.test(String((error as { stderr?: Buffer }).stderr ?? "")) ? { none: true } : { unavailable: true };
   }
@@ -53,7 +69,7 @@ async function entries(root: string, state: Extract<TaskHead, { head: string | n
   return tree;
 }
 
-export type GitMovement = { moved: boolean; incoming: Map<string, TreeEntry | undefined> } | { unavailable: string; moved: boolean };
+export type GitMovement = { moved: boolean; incoming: Map<string, TreeEntry | undefined>; committed: Set<string> } | { unavailable: string; moved: boolean };
 
 export function headMoved(before: TaskHead, after: TaskHead): boolean {
   return "head" in before && "head" in after && (before.head !== after.head || before.branch !== after.branch);
@@ -61,19 +77,48 @@ export function headMoved(before: TaskHead, after: TaskHead): boolean {
 
 export async function gitMovement(root: string, before: TaskHead, after: TaskHead): Promise<GitMovement> {
   const moved = headMoved(before, after);
-  if ("none" in before && "none" in after) return { moved: false, incoming: new Map() };
+  if ("none" in before && "none" in after) return { moved: false, incoming: new Map(), committed: new Set() };
   if (!("head" in before) || !("head" in after) || before.prefix !== after.prefix || (before.head && !after.head)) {
     return { unavailable: GIT_MOVEMENT_UNKNOWN, moved };
   }
-  if (!moved) return { moved: false, incoming: new Map() };
+  if (!moved && before.reflog?.digest === after.reflog?.digest) return { moved: false, incoming: new Map(), committed: new Set() };
   try {
-    const [oldTree, newTree] = await Promise.all([entries(root, before), entries(root, after)]);
     const incoming = new Map<string, TreeEntry | undefined>();
-    for (const file of new Set([...oldTree.keys(), ...newTree.keys()])) {
-      const old = oldTree.get(file), next = newTree.get(file);
-      if (old?.sha !== next?.sha || old?.mode !== next?.mode) incoming.set(file, next);
+    // Keep path provenance even when a later merge's blob includes both contributions, or the
+    // task subsequently restores the starting bytes. A final tree comparison loses that history.
+    const committed = new Set<string>();
+    // A commit (including amend) and a cherry-pick are the task's work, not an incoming branch.
+    // Read HEAD's actual transitions, not ancestry: amend replaces a commit, and cherry-pick creates
+    // a new one. Checking the retained suffix also catches expired/rewritten reflogs.
+    const records = await headLog(root);
+    if (!before.reflog || !after.reflog || logMark(records).digest !== after.reflog.digest) throw new Error("unreadable reflog");
+    const matches: number[] = [];
+    for (let index = before.reflog.count ? 0 : records.length; index <= records.length; index++) {
+      if (logMark(records.slice(index, index + before.reflog.count)).digest === before.reflog.digest) matches.push(index);
     }
-    return { moved: true, incoming };
+    if (matches.length !== 1 || matches[0]! > 1000) throw new Error("changed or ambiguous reflog");
+    const count = matches[0]!;
+    let previous = before;
+    let incomingMove = false;
+    for (const record of records.slice(0, count).reverse()) {
+      const [head, action = ""] = record.split("\0");
+      if (!head || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(head)) throw new Error("unreadable reflog entry");
+      const next = { ...after, head };
+      const own = /^(?:commit(?: \((?:initial|amend)\))?|cherry-pick): /.test(action);
+      if (!own) incomingMove = true;
+      const [oldTree, newTree] = await Promise.all([entries(root, previous), entries(root, next)]);
+      for (const file of new Set([...oldTree.keys(), ...newTree.keys()])) {
+        const old = oldTree.get(file), entry = newTree.get(file);
+        if (old?.sha !== entry?.sha || old?.mode !== entry?.mode) {
+          if (own) committed.add(file);
+          else incoming.set(file, entry);
+        }
+      }
+      previous = next;
+    }
+    if (previous.head !== after.head) throw new Error("missing HEAD transition");
+    // A branch can change without a new reflog record (e.g. branch -m); it is still a move.
+    return { moved: incomingMove || before.branch !== after.branch, incoming, committed };
   } catch { return { unavailable: GIT_MOVEMENT_UNKNOWN, moved: true }; }
 }
 

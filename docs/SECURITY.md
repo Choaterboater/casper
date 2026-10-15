@@ -235,7 +235,8 @@ questions until you quit. Commands that only read files in the
 project don't ask at all: a short list of programs (`ls`, `cat`, `head`, `grep`, `rg`, `find`, `wc`, `sort` and the
 like), `command -v`, `type`, `which`, `ps` (not environment-printing `E` option groups or BSD bare words containing `e`;
 Linux `ps -e` still counts as a read), `date`, `uname`, and git subcommands
-(`git status`, `diff`, `log`, `show`, `grep`, `blame`, `merge-base`, and individual config reads: `git config <key>`, `--get`, `--global`;
+(`git status`, `diff`, `log`, `show`, `grep`, `blame`, `merge-base`, `rev-list`, `show-ref`,
+`for-each-ref`, and individual config reads: `git config <key>`, `--get`, `--global`;
 `--list`/`-l`, keys naming credential/token/password/extraheader or `url.*.insteadof`/`pushinsteadof`, and config writes still ask), each with the options it may
 have, `--version` alone for a few toolchains (`python`, `py`, `node`, `git` ...), and `find ... | xargs wc` (names only, each reaching `wc` whole), joined
 by `|`, `&&`, `;`, `2>&1` or `2>/dev/null`. A leading `cd` to a folder in the project counts too (later files are
@@ -247,6 +248,15 @@ or `{`, a glob that picks a private file or a folder name starting with a dot, `
 redirect other than the project writes below, a file outside the project or private (`.env`, `*.env`, `.envrc`,
 keys such as `*.key` and `id_rsa`, credentials and secrets files, `~/.ssh`, `~/.casper`, your `sandbox.denyRead`), also
 named through git (`git show HEAD:.env`), a link that leads to one, or a search of a folder that holds one asks as usual.
+
+Revision/ref queries accept only their listed read options: `rev-list --count origin/main..HEAD`,
+`rev-list --left-right --count A...B`, `show-ref --verify` and `for-each-ref --format=...` are reads.
+`--stdin`, `show-ref --exclude-existing` (also stdin), output-writing options and unknown options ask.
+Model guidance prefers `read` or plain reads such as `wc -c` and `tail` for tiny reads; interpreter
+scripts are for computation, not printing a log or file size.
+
+Configured check rewrites have a separate old → new approval, or a command-only session override that
+leaves the file untouched. See [Changing configured checks](VERIFICATION.md#changing-configured-checks).
 
 Routine work doesn't ask either, as in Claude Code's auto mode (**Routine commands** in `/settings`, on; it writes
 `routine_commands: false` when you turn it off, and a project file can't set it): `git add` (not `-f`), `commit` (`--amend` too),

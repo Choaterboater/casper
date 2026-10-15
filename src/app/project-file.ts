@@ -1,12 +1,13 @@
 /** .casper/project.yaml after a task: Casper reads it again only as it read or wrote it itself. A task may rewrite the
- * file (the AI's edit is the project's to keep), but the session goes on with the checks and settings it started with
- * until Casper starts again; Casper's own writes for you (Remember, /verify add, more time) and /undo count as yours. */
+ * file (the AI's edit is the project's to keep), but only explicitly approved command replacements apply now; other
+ * checks and settings wait for a restart. Casper's own writes (Remember, /verify add, more time) and /undo count as yours. */
 
 import type { CasperApp } from "../app";
 import type { ProjectContext } from "../project/context";
 import { projectFileDigest } from "../project/context";
 import { terminalText } from "../tui/format";
 import { activeThemeName, findTheme, themeNote, useTheme } from "../tui/theme";
+import { applySessionCheckOverrides } from "./check-changes";
 
 export const PROJECT_FILE_CHANGED = "[project] .casper/project.yaml changed in a task; restart Casper to use it\n";
 const NONE = "none";
@@ -23,6 +24,7 @@ export async function reloadProject(app: CasperApp, options: { own?: boolean } =
   if (!context) return false;
   const fresh = await app.loadProjectContextFn(context.info);
   if (app.trustedProjectFiles.has(fresh.projectFile ?? NONE)) {
+    applySessionCheckOverrides(app, fresh.model);
     app.projectContext = fresh;
     followTheme(app, context.theme);
     return true;

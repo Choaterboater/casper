@@ -337,8 +337,9 @@ implied: `/plan` plans one request, it is not a mode.
 
 ### Suggested next steps and plan first
 
-After an interactive receipt, the row under it can offer a next step from slot 3 on (1 and 2 stay for
-Undo and Show diff): `Next: 3 Add a test that proves this bug stays fixed (uses tokens)`. Each step's
+After an interactive receipt, the row under it starts suggestions at 1 when there is no diff or
+undo: `Next: 1 Add a test that proves this bug stays fixed (uses tokens)`. With diff or undo offered,
+1 stays Show diff, 2 stays Undo, and other steps start at 3. Each step's
 reason is on its own line, and a step that saves something shows the exact text it will write
 (`saves verify.test: uv run pytest in .casper/project.yaml`). Nothing waits: a lone number on the empty
 prompt picks the step, and anything else you type is simply your next request. Casper's rules are local

@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { lstat, readdir, readFile, readlink, realpath } from "node:fs/promises";
 import path from "node:path";
 import { isTestPath } from "./proof";
+import { splitShell } from "../sandbox/remote";
+import { isOutside } from "../platform/inside";
 
 /**
  * What the test command means, as far as the project's files define it: the package.json scripts it runs, the
@@ -10,8 +12,9 @@ import { isTestPath } from "./proof";
  * file). A change that rewrites these makes the command
  * test something else, so its pass is not the user's own test passing (the proof and the acceptance check skip).
  * Label → digest of that part's text; a part that is absent is left out.
+ * includeNamedTests is for write-time approval: include explicitly named test files and missing script paths too.
  */
-export async function testDefinition(root: string, command: string): Promise<Map<string, string>> {
+export async function testDefinition(root: string, command: string, includeNamedTests = false, platform: NodeJS.Platform = process.platform): Promise<Map<string, string>> {
   const parts = new Map<string, string>();
   const put = (label: string, text: string | undefined) => { if (text !== undefined) parts.set(label, digest(text)); };
   // The command and the text of every package.json script it runs: the files they name are part of the definition.
@@ -36,7 +39,7 @@ export async function testDefinition(root: string, command: string): Promise<Map
   for (const file of RUNNER_FILES) put(file, await readText(root, file));
   // pytest loads every conftest.py on the way to the tests (src/conftest.py in a src layout); one in a test folder is the tests.
   for (const file of await conftestFiles(root)) put(file, await readText(root, file));
-  const commands = texts.flatMap((text) => text.split(/&&|\|\||[;|&\n]/)).map((part) => part.trim().split(/\s+/).filter(Boolean));
+  const commands = texts.flatMap((text) => splitShell(text, platform === "win32").segments.map((segment) => segment.words));
   if (commands.some((words) => ["make", "gmake"].includes(program(words)))) {
     // Names as listed, so a case-insensitive disk does not read one Makefile under three names.
     const names = new Set(await readdir(root).catch(() => [] as string[]));
@@ -51,10 +54,15 @@ export async function testDefinition(root: string, command: string): Promise<Map
   // sum.js) are what the tests look at.
   for (const words of commands) {
     for (const word of namedFiles(words)) {
-      const relative = unquote(word).replace(/^\.\//, "");
-      if (!relative || relative.startsWith("-") || relative.includes("://") || path.isAbsolute(relative) || relative.split(/[\\/]/).includes("..") || isTestPath(relative)) continue;
+      // Bun accepts quoted Windows-relative script paths on every host; POSIX sh/node do not.
+      const windowsPaths = platform === "win32" || path.posix.basename(program(words).replaceAll("\\", "/")).replace(/\.exe$/i, "") === "bun";
+      const named = windowsPaths ? unquote(word).replaceAll("\\", "/") : unquote(word);
+      if (path.win32.isAbsolute(named) && !path.isAbsolute(named)) continue;
+      const relative = (path.isAbsolute(named) ? path.relative(root, named) : named.replace(/^\.\//, "")).split(path.sep).join("/");
+      if (!relative || relative.startsWith("-") || relative.includes("://") || isOutside(relative) || relative.split(/[\\/]/).includes("..") || (!includeNamedTests && isTestPath(relative))) continue;
       const stats = await lstat(path.join(root, relative)).catch(() => undefined);
-      if (!stats || stats.isDirectory()) continue;
+      if (!stats) { if (includeNamedTests) put(relative, "missing"); continue; }
+      if (stats.isDirectory()) continue;
       put(relative, await readText(root, relative));
     }
   }
@@ -86,7 +94,7 @@ function namedFiles(words: readonly string[]): string[] {
   if (name === undefined) return [];
   const found: string[] = [];
   if (/[\\/.]/.test(name)) found.push(name);
-  const base = path.basename(name).replace(/\.exe$/i, "");
+  const base = path.posix.basename(name.replaceAll("\\", "/")).replace(/\.exe$/i, "");
   const interpreter = INTERPRETERS.has(base);
   if (interpreter) {
     let index = at + 1;
@@ -204,7 +212,7 @@ async function linkIdentity(root: string, file: string): Promise<string> {
   const destination = await readlink(file).catch(() => undefined);
   if (destination === undefined) return "link:unreadable";
   const [base, real] = await Promise.all([realpath(root).catch(() => undefined), realpath(file).catch(() => undefined)]);
-  const inside = base !== undefined && real !== undefined && real.startsWith(base + path.sep);
+  const inside = base !== undefined && real !== undefined && !isOutside(path.relative(base, real));
   const stats = inside ? await lstat(real).catch(() => undefined) : undefined;
   if (!real || !stats?.isFile() || stats.size > 1024 * 1024) return `link:${destination}:unread`;
   const text = await readFile(real, "utf8").catch(() => undefined);
@@ -221,4 +229,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// Runner bytes matter: CRLF can change shell execution, so line-ending edits remain definition changes.
 function digest(text: string): string { return createHash("sha256").update(text).digest("hex"); }

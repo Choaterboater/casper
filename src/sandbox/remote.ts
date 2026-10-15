@@ -33,8 +33,9 @@ export interface ShellLine {
   simple: boolean;
 }
 
-/** Split a shell line into commands and words. Quotes are respected; anything unusual makes it not simple. */
-export function splitShell(text: string): ShellLine {
+/** Split a shell line into commands and words. Quotes are respected; anything unusual makes it not simple.
+ * Configured checks use cmd.exe on Windows, where backslashes are path separators, not shell escapes. */
+export function splitShell(text: string, windowsPaths = false): ShellLine {
   const segments: ShellSegment[] = [];
   let words: string[] = [];
   let current = "";
@@ -56,14 +57,19 @@ export function splitShell(text: string): ShellLine {
       else if (quote === "\"" && (char === "`" || (char === "$" && text[index + 1] === "("))) { simple = false; current += char; }
       // As bash reads it: inside double quotes a backslash escapes only $ ` " \ and a newline, and stays otherwise
       // ("..\.ssh" stays ..\.ssh, which Git Bash on Windows reads as a path).
-      else if (char === "\\" && quote === "\"" && index + 1 < text.length && "$`\"\\\n".includes(text[index + 1]!)) { index++; if (text[index] !== "\n") current += text[index]; }
+      else if (!windowsPaths && char === "\\" && quote === "\"" && index + 1 < text.length && "$`\"\\\n".includes(text[index + 1]!)) { index++; if (text[index] !== "\n") current += text[index]; }
       else current += char;
       continue;
     }
     if (char === "'" || char === "\"") { quote = char; started = true; continue; }
-    if (char === "\\" && index + 1 < text.length) {
+    if (!windowsPaths && char === "\\" && index + 1 < text.length) {
       if (text[index + 1] === "\n") { index++; continue; }
       current += text[++index]; started = true; continue;
+    }
+    // Redirection operators (>|, >&, <&, &>) are not pipes or background jobs.
+    if ((char === "|" && text[index - 1] === ">")
+      || (char === "&" && (text[index - 1] === ">" || text[index - 1] === "<" || text[index + 1] === ">"))) {
+      current += char; started = true; continue;
     }
     if (char === "\n" || char === ";" || char === "|" || char === "&") {
       simple = false;
@@ -88,7 +94,7 @@ export function splitShell(text: string): ShellLine {
 }
 
 /** Words that run the next command: sudo, env, timeout ... and VAR=value assignments. */
-function commandStart(words: string[]): number {
+export function commandStart(words: string[]): number {
   let index = 0;
   for (let guard = 0; guard < 16 && index < words.length; guard++) {
     const word = words[index]!;

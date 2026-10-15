@@ -225,7 +225,8 @@ test("a check that was already failing before the change is named as such; in th
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(home); await mkdir(path.join(project, ".casper"), { recursive: true });
   await writeFile(path.join(project, "calc.py"), "def add(a, b):\n    return a - b\n");
-  await writeFile(path.join(project, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(checkCommand("exit:1"))}\nverification:\n  mode: auto\n`);
+  // Inline failure is portable to the proof copy; an outside fixture script cannot be imported there.
+  await writeFile(path.join(project, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(`"${process.execPath}" -e "process.exit(1)" -- fixture`)}\nverification:\n  mode: auto\n`);
   let prompts = 0;
   const runtime: AgentRuntime = {
     async start() {

@@ -131,6 +131,15 @@ test("check advice is said once: in casper_check, not again in every task's text
   expect(preamble).toContain("Do not list the covered ones");
 });
 
+test("full and lean guidance use native/plain reads rather than interpreter scripts for tiny reads", () => {
+  for (const prompt of [DEFAULT_SYSTEM_PROMPT_APPEND, LEAN_SYSTEM_PROMPT_APPEND]) {
+    expect(prompt).toContain("scripts only to compute");
+    expect(prompt).toContain("read");
+    expect(prompt).toContain("wc");
+    expect(prompt).toContain("tail");
+  }
+});
+
 test("lean fixed guidance is well below full, with the same tools and schemas", async () => {
   const task = "Add a sum function to src/math.ts";
   const full = await firstRequest(task);

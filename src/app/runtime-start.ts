@@ -27,6 +27,7 @@ import { projectPrivatePaths } from "./wiring";
 import { severalModelsMessage } from "./model-words";
 import { BackgroundCommands } from "../runtime/background-commands";
 import { STALL_SECONDS } from "../runtime/stalled-commands";
+import { checkChangeOptions } from "./check-changes";
 
 /** One adapter-construction owner, shared by auth and session startup. */
 export function acquireRuntime(app: CasperApp): Promise<AgentRuntime> {
@@ -53,6 +54,7 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
       app.session = await app.runtime.start({
         cwd: context.info.root,
         tools: app.runtimeTools,
+        checkChanges: checkChangeOptions(app),
         afterFileEdit: async (file, signal) => {
           observeEdit(app, file);
           const reports = await app.lsp!.afterEdit(file, signal);

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { definitionChanges, testDefinition } from "../src/verify/test-definition";
 import { removeTempDir } from "./support/temp-dir";
+import { checkInputs } from "../src/task/check-inputs";
 
 const made: string[] = [];
 afterEach(async () => { for (const dir of made.splice(0)) await removeTempDir(dir); });
@@ -51,6 +52,42 @@ test("a script file the command names counts; a test file it names is the tests 
   expect(await changed(root, "./run-tests.sh", { "run-tests.sh": "exit 0\n" })).toEqual(["run-tests.sh"]);
   const tests = await project({});
   expect(await changed(tests, "sh tests/check.sh", {})).toEqual([]);
+});
+
+test("Windows-relative runner paths track the executed file and report a portable label on any OS", async () => {
+  const root = await project({ "scripts/check.ts": "process.exit(1);\r\n" });
+  expect(await changed(root, 'bun run ".\\scripts\\check.ts"', { "scripts/check.ts": "process.exit(0);\r\n" })).toEqual(["scripts/check.ts"]);
+  const tests = await project({ "tests/check.ts": "process.exit(1);\r\n" });
+  expect(await changed(tests, 'bun run ".\\tests\\check.ts"', { "tests/check.ts": "process.exit(0);\r\n" })).toEqual([]);
+});
+
+test("CRLF-to-LF edits remain runner definition changes because shell execution can differ", async () => {
+  const root = await project({ "scripts/check.sh": "exit 0\r\n" });
+  expect(await changed(root, "sh scripts/check.sh", { "scripts/check.sh": "exit 0\n" })).toEqual(["scripts/check.sh"]);
+});
+
+test("unquoted Windows check paths retain separators rather than being parsed as bash escapes", async () => {
+  const root = await project({ "scripts/check.ts": "process.exit(1);\r\n" });
+  const command = 'bun run .\\scripts\\check.ts';
+  const before = await testDefinition(root, command, false, "win32");
+  await put(root, "scripts/check.ts", "process.exit(0);\r\n");
+  expect(definitionChanges(before, await testDefinition(root, command, false, "win32"))).toEqual(["scripts/check.ts"]);
+  expect(await checkInputs(root, command, "win32")).toEqual(["./scripts/check.ts"]);
+});
+
+test.skipIf(process.platform === "win32")("POSIX non-Bun runners keep literal backslashes in their named inputs", async () => {
+  const root = await project({});
+  // Missing path labels exercise metadata without creating a Windows-invalid filename on any host.
+  const command = 'sh "scripts\\check.sh"';
+  expect([...(await testDefinition(root, command, true, "linux")).keys()]).toEqual(["scripts\\check.sh"]);
+  expect(await checkInputs(root, command, "linux")).toEqual(["scripts\\check.sh"]);
+});
+
+test("proof inputs normalize quoted Windows separators without hiding absolute or parent paths", async () => {
+  const root = await project({});
+  expect(await checkInputs(root, 'bun run ".\\.casper\\quick test.ts"')).toEqual(["./.casper/quick test.ts"]);
+  expect(await checkInputs(root, 'bun "C:\\fixture\\check.ts"')).toEqual(["C:/fixture/check.ts"]);
+  expect(await checkInputs(root, 'bun "..\\check.ts"')).toEqual(["../check.ts"]);
 });
 
 test("files named inside the package.json script count: a script file, a --config file, the Makefile it runs", async () => {

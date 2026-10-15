@@ -32,8 +32,10 @@ apply messages and receipts are unchanged.
 ## The AI splits big jobs itself
 
 This works the way Claude Code's agent tool and omp's task tool do: the main AI
-decides when a job has independent parts, and starts a builder for each one
-with its `delegate` tool. Nothing asks you first.
+decides when a job has substantial independent parts (several files each, in different areas),
+and starts a builder for each one with its `delegate` tool. Small or coupled work stays with
+one Casper, rather than paying for builders and reviewers for tiny parts. This is model guidance,
+not a keyword complexity classifier or a hard file-count gate. Nothing asks you first.
 
 1. Each builder gets its own copy of your folder as it is now: your unsaved
    and new files are in it, and so is what the AI and earlier builders changed
@@ -111,7 +113,8 @@ nothing leaves no copy.
 
 **Steer it with words.** "run a crew", "use a crew", "do this as a crew",
 "split this up", "use builders" or "do these in parallel" in a request adds one
-line to that task asking the AI to split the work across builders. Words about
+line to that task asking the AI to split only substantial independent parts across builders;
+small or coupled work still stays with one Casper. Words about
 crews themselves ("the crew list", "run the crew tests") don't count.
 "no helpers" or "by yourself" means no builders for that request.
 

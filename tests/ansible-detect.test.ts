@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { detectAnsible, readPlaybook } from "../src/network/ansible";
+import { detectAnsible, readPlaybook, readProjectPlaybook } from "../src/network/ansible";
 import { networkFixture, writeProjectFile, type NetworkFixture } from "./support/network-fakes";
 
 let fixture: NetworkFixture | undefined;
@@ -47,6 +47,22 @@ test("YAML without hosts: is not a playbook, and a project with no Ansible gives
   await writeProjectFile(fixture, "config.yml", "- name: not a play\n  value: 1\n");
   await writeProjectFile(fixture, "vars.yml", "vlans: [10, 20]\n");
   expect(await detectAnsible(fixture.root)).toBeUndefined();
+});
+
+test("bundled assets and sample playbooks do not make an application an Ansible project", async () => {
+  fixture = await networkFixture();
+  for (const file of [
+    "src/network/assets/junos_commit_check.yml", "src/deep/assets/site.yml", "assets/site.yml",
+    "src/bundled/site.yml", "tests/fixtures/site.yml", "samples/site.yml", "templates/junos/site.yml",
+  ]) await writeProjectFile(fixture, file, JUNOS_RENDER);
+  expect(await detectAnsible(fixture.root)).toBeUndefined();
+  expect((await readProjectPlaybook(fixture.root, "src/network/assets/junos_commit_check.yml")).renderOnly).toBe(true);
+  // Do not exclude src wholesale: a project's real playbooks still count.
+  await writeProjectFile(fixture, "src/automation/site.yml", ARUBA_SITE);
+  const found = await detectAnsible(fixture.root);
+  expect(found?.playbooks.map((playbook) => playbook.file)).toEqual(["src/automation/site.yml"]);
+  expect(found?.frameworks).toEqual(["aoscx"]);
+  expect(Object.keys(found?.checks ?? {})).toEqual(["aruba-syntax"]);
 });
 
 test("a playbook linked from outside the project is never read", async () => {

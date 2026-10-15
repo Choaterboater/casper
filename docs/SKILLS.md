@@ -58,13 +58,15 @@ before a change.
   - or a looser word ("mist", "junos", "central", "cx", "display set", "commit check") together
     with a network word such as site, ap, switch, device, inventory, token, api, rest, python,
     script, netconf, rpc or playbook;
-  - or a change request (add, fix, test, set up) with a network word in a project whose Python
-    packages include the SDK (`mistapi`, `pycentral`, `pyaoscx`, `pyclearpass`, `junos-eznc`,
-    `ncclient`), or an Ansible collection Casper already detects.
+  - SDKs (`mistapi`, `pycentral`, `pyaoscx`, `pyclearpass`, `junos-eznc`, `ncclient`) and
+    detected Ansible collections boost an already matching change request; the project's stack
+    alone never selects a skill. Generic words such as config, token, python or script need a
+    product/subject match too.
 - Examples: "list APs per site in Mist" picks the Mist skill; "commit confirmed on an MX" picks
   Junos; "Central device inventory" picks both Central skills (each says how to tell which Central
   you have). "fix the css", "add a mist effect to the landing page css" and "fix the central
-  logging config" pick nothing.
+  logging config" pick nothing. A discussion of `ps` options and `git config` credential keys
+  picks no networking skill, even in a Junos/Ansible project.
 
 ## See them, stop them, turn them off
 

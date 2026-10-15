@@ -47,7 +47,7 @@ export function builderSteer(request: string): BuilderSteer {
 
 /** The one line the task's text gets for a steer (only when builders are offered). */
 export function builderSteerLine(steer: BuilderSteer): string | undefined {
-  if (steer === "split") return "Split this job: give each independent part to a builder (delegate, role builder) at the same time, with separate files each; do the rest yourself.";
+  if (steer === "split") return "Split only substantial independent parts (several files each, different areas) among builders at the same time, with separate files; keep small or coupled work with one Casper.";
   if (steer === "solo") return "Do this yourself: no builders this time.";
   return undefined;
 }

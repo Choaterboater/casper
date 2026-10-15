@@ -72,11 +72,27 @@ A task that moves HEAD or switches branches gets one receipt line:
 – The branch moved during this task: changes git brought in are not counted, and undo leaves them alone
 ```
 
-The change list and `/diff` exclude files changed between the old and new HEAD whose final bytes match the
-new committed version (including incoming additions and deletions). Files the task also edited remain;
+The change list and `/diff` exclude incoming branch changes whose final bytes match the new committed
+version (including incoming additions and deletions). Commits made during the task, including amend and
+cherry-pick, remain the task's work: their changed files count even with a clean working tree or a later
+restore to the starting bytes. HEAD reflog transitions distinguish these from incoming movement; an
+unreadable or ambiguous history reports uncertainty instead of guessing. Files the task also edited remain;
 for paths git touched, the diff starts at the new HEAD, not the old folder copy. Undo leaves overlapping
 files with a plain reason. If Casper cannot read the branch baseline, it reports changes as unknown and
 refuses Undo rather than guessing. Normal tasks and non-git folders are unchanged. See [Undo](UNDO.md).
+
+## Changing configured checks
+
+The AI cannot silently replace the project's configured checks or the scripts they name. Native
+edit/write asks **Change the test check for this project?**, with the old → new text and No first.
+An approved saved command replacement takes effect for the current task too. For a replacement of an
+existing command, **Use this command for this session only** updates the active check registries without
+writing the file; it ends when this Casper session closes. Script rewrites need an explicit save.
+No, Enter, cancellation or a run that cannot ask leaves the file unchanged. Unrelated project settings
+remain ordinary edits. Shell commands targeting a possible check rewrite (including directory copies)
+are refused and directed to native edit/write so the exact change can be shown. Plain reads and copying
+checks to unrelated files are not rewrites; other shell permission rules still apply. This text guard is
+not an operating-system sandbox against opaque scripts. User-issued setup commands keep their own flows.
 
 ## Verification modes
 
@@ -543,7 +559,12 @@ you may add test files" is still a code change.
 1. **Copy.** Before the model starts, Casper copies the workspace (copy-on-write where the file
    system allows). `.git`, `.casper`, `node_modules`, `.venv` (and `venv` when it holds a
    `pyvenv.cfg`) and Python caches are left out; `node_modules` and the virtual environment are
-   linked back in. Runs in the copies set `UV_NO_SYNC=1`, so `uv run` never changes your linked
+   linked back in. Literal in-project files named by the test command or its package scripts are
+   included even under gitignored `.casper/` (for example `.casper/quick-test.ts`), without copying
+   sibling state. Private/outside inputs, linked inputs and excluded state cannot be imported;
+   absolute script paths are unsupported because they could execute live workspace code. The receipt
+   explains the unavailable comparison. Dynamic paths and imported dependencies are not inferred.
+   Runs in the copies set `UV_NO_SYNC=1`, so `uv run` never changes your linked
    `.venv`. When code (not tests) changed during a plan turn, the copy would already hold that
    change, so there is none: the receipt says Casper could not compare. Code the AI changes while
    it looks at the page screenshots is part of the change.
@@ -567,7 +588,9 @@ has none), pytest settings, any `conftest.py` outside the test folders, the Make
 script or `--config` file that the command or those scripts name outside the tests),
 its pass is not your tests passing: Casper does not compare, and the receipt says
 `the test command's definition changed in this task (package.json scripts.test)`. The independent
-acceptance check is not run either, for the same reason.
+acceptance check is not run either, for the same reason. Named inputs and receipt labels use portable
+separators for Windows checks and Bun's cross-platform Windows-relative paths; the executed command
+stays unchanged. CRLF runner edits still count: line endings can change shell execution.
 
 An unproven change is not verified: its outcome is `not_verified` (`--require-verification` exits
 3). A change Casper could not compare keeps its check result and says why. Test-only, docs-only or

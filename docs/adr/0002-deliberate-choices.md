@@ -29,7 +29,8 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
   session · 4 Yes, always for this project`) before a command that is neither a plain read nor routine work (item 2).
   `src/sandbox/manager.ts` (`SandboxKind` `default`). Individual public config reads, command lookup and process/system
   information count as reads; config listings, credential/token/password/extraheader and URL rewrite keys, and environment-output
-  `ps` groups (`E`, BSD bare `e`, not Linux `-e`) ask. A session yes for `bun test` covers other project test files and log tails
+  `ps` groups (`E`, BSD bare `e`, not Linux `-e`) ask. `git rev-list`, `show-ref` and
+  `for-each-ref` accept listed read options only; stdin and output-writing options still ask. A session yes for `bun test` covers other project test files and log tails
   in the same folder; non-test and permanent approvals stay exact. Boxes keep Casper's question first, then the dimmed reason
   labelled `The model says:` (last sentence only, 100 characters plus an ellipsis, one dim row) and a 12-line command preview.
   The shared arrow-first picker defaults to No; typing words is No with direction, never consent.
@@ -223,6 +224,19 @@ Each choice below stays as it is. Reviewers read this list before flagging permi
   A project or project-selected profile cannot set this switch; compaction resets the checkpoint epoch.
 - **A finding:** recent rounds or observable references hidden; old stubs rewritten; original results overwritten;
   mask decisions leaking across branches; a project changing the switch; new masks created while off.
+
+### 13. Changing the project's checks needs its own answer
+
+- **What:** AI edit/write of configured checks or their named scripts asks `Change the test check for this project?`,
+  with old → new and No first. Save persists; an existing-command replacement may instead be session-only,
+  leaving the file untouched. Both approved command replacements update current-task registries.
+- **Why:** a slow or failing check is not permission to weaken what checks the work.
+- **Guard rails:** No, Enter, cancellation or no question channel writes nothing; concurrent saves invalidate
+  the preview. Shell mutations targeting checks or copying over their parent folder are directed to native
+  edit/write; reading a check or copying it to an unrelated file is not a rewrite. This is a text guard,
+  not isolation from opaque scripts. Unrelated settings and user-issued setup flows keep their normal behavior.
+- **A finding:** a native configured-check rewrite persists without its answer, or a session-only choice writes
+  the file or fails to update the active check command.
 
 ## Consequences
 

@@ -15,17 +15,20 @@ test("slots 1 and 2 are Show diff and Undo (1, the safe one, only shows); other 
   const row = buildNextRow({ undo, diff, more: [{ label: "Add a test that proves the fix", command: "/suggestion prove-fix", note: "uses tokens" }] })!;
   expect(row.line).toBe("Next: 1 Show diff · 2 Undo · 3 Add a test that proves the fix (uses tokens)");
   expect([...row.keys]).toEqual([["1", "/diff"], ["2", "/undo"], ["3", "/suggestion prove-fix"]]);
-  // Without undo the numbers do not move: the same key always means the same step.
-  expect(buildNextRow({ more: [{ label: "Open the page", command: "/pages" }] })!.line).toBe("Next: 3 Open the page");
+  // With no diff or undo, suggestions start at 1; a lone suggestion never appears as 3.
+  const lone = buildNextRow({ more: [{ label: "Open the page", command: "/pages" }] })!;
+  expect(lone.line).toBe("Next: 1 Open the page");
+  expect([...lone.keys]).toEqual([["1", "/pages"]]);
+  expect(buildNextRow({ undo, more: [{ label: "Open the page", command: "/pages" }] })!.line).toBe("Next: 2 Undo · 3 Open the page");
   expect(buildNextRow({})).toBeUndefined();
   // At most up to 9: one key picks one step.
-  expect(buildNextRow({ more: Array.from({ length: 9 }, (_, i) => ({ label: `s${i}`, command: `/s${i}` })) })!.keys.size).toBe(7);
+  expect(buildNextRow({ more: Array.from({ length: 9 }, (_, i) => ({ label: `s${i}`, command: `/s${i}` })) })!.keys.size).toBe(9);
 });
 
 test("a step's reason and the hint print under the row, one line each, with the step's number", () => {
   const row = buildNextRow({ more: [{ label: "Remember uv run pytest", command: "/suggestion remember-test", note: "free",
     why: "saves verify.test: uv run pytest\u001b[2J in .casper/project.yaml" }], hint: "A number picks one" })!;
-  expect(row.line).toBe("Next: 3 Remember uv run pytest (free)\n  3: saves verify.test: uv run pytest [2J in .casper/project.yaml\n  A number picks one");
+  expect(row.line).toBe("Next: 1 Remember uv run pytest (free)\n  1: saves verify.test: uv run pytest [2J in .casper/project.yaml\n  A number picks one");
 });
 
 function plainTerminal() {
@@ -54,6 +57,17 @@ test("plain terminal: after the row, a line that is just its number runs that st
     const third = terminal.readCommand();
     input.write("fix the other test too\n");
     expect(await third).toBe("fix the other test too");
+  } finally { terminal.close(); input.destroy(); }
+});
+
+test("a lone suggestion's visible 1 dispatches its command, not a hidden slot 3", async () => {
+  const { input, terminal } = plainTerminal();
+  try {
+    terminal.start();
+    terminal.offerNext(buildNextRow({ more: [{ label: "Save junos-syntax", command: "/verify add junos-syntax" }] }));
+    const first = terminal.readCommand();
+    input.write("1\n");
+    expect(await first).toBe("/verify add junos-syntax");
   } finally { terminal.close(); input.destroy(); }
 });
 

@@ -83,6 +83,22 @@ describe("after-receipt rules", () => {
     expect(rules.afterReceipt(context({ changedPaths: ["site.yml"] }, "Add VLAN 30 to the access switches"))).toEqual([]);
   });
 
+  test("found Ansible checks are suggested only for changes to their playbooks, not arbitrary YAML", () => {
+    const found: ProjectModel = { ...project(), foundChecks: {
+      "aruba-syntax": { kind: "offline", preset: "ansible-syntax", playbooks: ["site.yml"], after: "each-change" },
+      "junos-render": { kind: "offline", preset: "ansible-render", playbooks: ["checks/render.yml"], after: "each-change" },
+    } };
+    for (const file of ["src/network/assets/junos_commit_check.yml", "src/bundled/example.yml", "config.yml", "tests/fixtures/site.yml"]) {
+      expect(rules.afterReceipt(context({ changedPaths: [file] }, "Update the YAML data", { project: found }))).toEqual([]);
+    }
+    const choices = rules.afterReceipt(context({ changedPaths: ["checks\\render.yml"] }, "Update the Junos playbook", { project: found }));
+    expect(choices).toHaveLength(1);
+    expect(choices[0]?.action).toMatchObject({ kind: "save-check", name: "junos-render" });
+    const row = formatSuggestionRow(choices);
+    expect(row.keys.map(({ key }) => key)).toEqual([1]);
+    expect(row.lines[1]).toStartWith("  1 Save junos-render:");
+  });
+
   test("one-shot and --json runs get no suggestions", () => {
     expect(rules.afterReceipt(context({ verification: passed, proof: unproven }, undefined, { interactive: false }))).toEqual([]);
   });

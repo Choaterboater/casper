@@ -4,6 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { parentsStayInside } from "../platform/files";
 import { isOutside } from "../platform/inside";
+import { classifyPath, resolveToolPath, type PathContext } from "../platform/project-paths";
+import { isSecretFile } from "../secrets/files";
+import { checkInputs } from "../task/check-inputs";
 import type { ProjectCommand } from "../project/model";
 import type { TreeChanges } from "../task/changes";
 import { runCommandCheck } from "./command";
@@ -123,7 +126,7 @@ interface Limits { fileLimit: number; byteLimit: number }
 
 /** Copy a tree (copy-on-write where the file system supports it), without skipped directories.
  * Symlinks are recreated, never followed. Returns where dependency directories were. */
-async function cloneTree(source: string, destination: string, limits: Limits, signal?: AbortSignal): Promise<string[]> {
+async function cloneTree(source: string, destination: string, limits: Limits, signal?: AbortSignal, inputs: readonly string[] = []): Promise<string[]> {
   const links: string[] = [];
   let files = 0;
   let bytes = 0;
@@ -134,12 +137,15 @@ async function cloneTree(source: string, destination: string, limits: Limits, si
     await mkdir(path.join(destination, relative), { recursive: true });
     for (const entry of await readdir(path.join(source, relative), { withFileTypes: true })) {
       const next = relative ? `${relative}/${entry.name}` : entry.name;
+      // Only specifically named check inputs may cross the .casper exclusion, never its state siblings.
+      if (next.split("/").includes(".casper") && !inputs.some((input) => input === next || input.startsWith(`${next}/`))) continue;
       const from = path.join(source, next);
       const to = path.join(destination, next);
       if (entry.isDirectory()) {
         const environment = entry.name === "venv" && Boolean(await lstat(path.join(from, "pyvenv.cfg")).catch(() => undefined));
         if (Object.hasOwn(LINKED, entry.name) && (entry.name !== "venv" || environment)) links.push(next);
-        if (!Object.hasOwn(SKIPPED, entry.name) && !environment) pending.push(next);
+        const namedInput = entry.name === ".casper" && inputs.some((input) => input.startsWith(`${next}/`));
+        if ((!Object.hasOwn(SKIPPED, entry.name) || namedInput) && !environment) pending.push(next);
       } else if (entry.isSymbolicLink()) {
         // A dependency location that is a link (node_modules -> ../deps) is linked again in each copy, since its text may not resolve there.
         if (Object.hasOwn(LINKED, entry.name) && (entry.name !== "venv" || await lstat(path.join(from, "pyvenv.cfg")).then(() => true, () => false))) links.push(next);
@@ -177,6 +183,29 @@ async function linkDependency(root: string, tree: string, relative: string): Pro
   await symlink(target, path.join(tree, relative), "dir");
 }
 
+/** Resolve named inputs before copying anything. The file-tool private/outside rules apply here too;
+ * no credential, VCS/dependency state, or path through a link is imported to make a proof run. */
+async function safeInputs(root: string, command: string, context: Omit<PathContext, "root">): Promise<string[]> {
+  const inputs: string[] = [];
+  for (const named of await checkInputs(root, command)) {
+    const absolute = resolveToolPath(named, root, context.home);
+    const relative = path.relative(root, absolute).split(path.sep).join("/");
+    const kind = classifyPath(absolute, { ...context, root }, false);
+    if (isOutside(relative) || kind !== "inside") throw new Error(`a check input is ${kind === "inside" ? "outside the project" : kind}; Casper will not copy it`);
+    if (isSecretFile(relative) || relative.split("/").some((part) => part !== ".casper" && Object.hasOwn(SKIPPED, part))) {
+      throw new Error("a check input is private or excluded state; Casper will not copy it");
+    }
+    if (!await parentsStayInside(root, relative) || (await lstat(absolute).catch(() => undefined))?.isSymbolicLink()) {
+      throw new Error("a check input goes through a link; Casper will not copy it");
+    }
+    // Changing cwd does not redirect an absolute script's imports to the copy. Refuse these
+    // (including package-script inputs) rather than silently execute the live workspace.
+    if (path.isAbsolute(named) || path.win32.isAbsolute(named)) throw new Error("absolute check input paths are unsupported in proof copies; use a project-relative path");
+    inputs.push(relative);
+  }
+  return inputs;
+}
+
 /** The workspace as it was before the model's request, kept to rebuild it "without the change". */
 export class ChangeBaseline {
   private constructor(
@@ -185,15 +214,20 @@ export class ChangeBaseline {
     private readonly limits: Limits,
     /** Where dependency directories were at capture: linked from the workspace, never copied. */
     private readonly links: readonly string[],
+    private readonly inputs: readonly string[],
+    private readonly pathContext: Omit<PathContext, "root">,
   ) {}
 
   /** Throws when the workspace cannot be copied (too large, unreadable). */
-  static async capture(root: string, options: { scratch?: string; fileLimit?: number; byteLimit?: number; signal?: AbortSignal } = {}): Promise<ChangeBaseline> {
+  static async capture(root: string, options: { scratch?: string; fileLimit?: number; byteLimit?: number; signal?: AbortSignal;
+    command?: string; pathContext?: Omit<PathContext, "root"> } = {}): Promise<ChangeBaseline> {
     const limits = { fileLimit: options.fileLimit ?? FILE_LIMIT, byteLimit: options.byteLimit ?? BYTE_LIMIT };
     const scratch = await mkdtemp(path.join(options.scratch ?? os.tmpdir(), "casper-baseline-"));
     try {
-      const links = await cloneTree(root, path.join(scratch, "before"), limits, options.signal);
-      return new ChangeBaseline(scratch, path.join(scratch, "before"), limits, links);
+      const context = options.pathContext ?? {};
+      const inputs = await safeInputs(root, options.command ?? "", context);
+      const links = await cloneTree(root, path.join(scratch, "before"), limits, options.signal, inputs);
+      return new ChangeBaseline(scratch, path.join(scratch, "before"), limits, links, inputs, context);
     } catch (error) {
       await rm(scratch, { recursive: true, force: true });
       throw error;
@@ -215,12 +249,16 @@ export class ChangeBaseline {
       onCleanupFailure: options.onCleanupFailure, env: await copyEnv(options.root, cwd, this.links) });
     const copies = await mkdtemp(path.join(this.scratch, "compare-"));
     try {
+      const inputs = await safeInputs(options.root, command, this.pathContext);
+      if (inputs.some((input) => input.split("/").includes(".casper") && !this.inputs.includes(input))) {
+        throw new Error("the check names an excluded input not captured before the change; Casper has no baseline copy of it");
+      }
       const linkDependencies = async (tree: string, links: readonly string[]) => {
         for (const relative of links) await linkDependency(options.root, tree, relative);
       };
       // Without the change: the tree from before, with the tests as they are now.
       const without = path.join(copies, "without");
-      await cloneTree(this.tree, without, this.limits, options.signal);
+      await cloneTree(this.tree, without, this.limits, options.signal, this.inputs);
       for (const relative of tests) {
         const from = path.join(options.root, relative);
         const to = path.join(without, relative);
@@ -242,7 +280,7 @@ export class ChangeBaseline {
       if (result.status === "pass") return { status: "unproven", check, command, testsChanged: tests.length > 0, without: evidence };
       // A copy that cannot run the tests at all would look like proof: the current code must pass there too.
       const current = path.join(copies, "with");
-      await linkDependencies(current, await cloneTree(options.root, current, this.limits, options.signal));
+      await linkDependencies(current, await cloneTree(options.root, current, this.limits, options.signal, this.inputs));
       const control = await run(current);
       if (control.status !== "pass") return { status: "unavailable", check, reason: `${check} does not pass in a copy of the workspace, so Casper cannot compare with and without the change` };
       return { status: "proven", check, command, testsChanged: tests.length > 0, without: evidence };
@@ -260,7 +298,8 @@ export class ChangeBaseline {
     const copies = await mkdtemp(path.join(this.scratch, "before-"));
     try {
       const tree = path.join(copies, "before");
-      await cloneTree(this.tree, tree, this.limits, options.signal);
+      await safeInputs(options.root, options.command, this.pathContext);
+      await cloneTree(this.tree, tree, this.limits, options.signal, this.inputs);
       for (const relative of this.links) await linkDependency(options.root, tree, relative);
       const result = await runCommandCheck({ name: options.check, command: options.command, cwd: tree, timeoutMs: options.timeoutMs,
         signal: options.signal, env: await copyEnv(options.root, tree, this.links) });
