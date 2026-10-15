@@ -6,6 +6,7 @@ import { evaluateAcceptance, gradePreparedEval, hiddenPaths, prepareEvalTask, pr
 import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeStartOptions } from "../src/runtime/types";
 import { BENCHMARK_PACKS, EVAL_TASKS, packTasks } from "../evals/tasks";
 import { removeTempDir } from "./support/temp-dir";
+import { candidateTypecheck } from "./support/eval-typecheck";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -177,8 +178,9 @@ test("a task that needs TypeScript gets a working `bun run typecheck` in the can
   for (const task of typed) {
     const workdir = await prepareWorkdir(task, repoRoot);
     cleanup.push(() => removeTempDir(workdir));
-    const run = Bun.spawnSync([process.execPath, "run", "typecheck"], { cwd: workdir, stdout: "pipe", stderr: "pipe" });
-    expect({ task: task.id, exit: run.exitCode, output: `${run.stdout}${run.stderr}`.slice(-300) }).toMatchObject({ task: task.id, exit: 0 });
+    const home = await owned("eval-typecheck-home-");
+    const run = await candidateTypecheck(workdir, home, repoRoot);
+    expect({ task: task.id, exit: run.exitCode, output: run.output }).toMatchObject({ task: task.id, exit: 0 });
   }
 });
 
