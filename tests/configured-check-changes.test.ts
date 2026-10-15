@@ -133,13 +133,22 @@ for (const choice of ["session", "save"] as const) {
 
 test("session-only suppresses concurrent/repeated check saves only until the next task", async () => {
   let task = {}, boxes = 0;
+  const asked = Promise.withResolvers<void>(), answer = Promise.withResolvers<void>();
   const project = await setup({ commands: () => ({ test: "bun .casper/quick-test.ts" }), taskKey: () => task,
-    ask: async () => { boxes++; await Bun.sleep(5); return boxes === 1 ? "session" : undefined; }, useSessionCommands() {} });
+    ask: async change => {
+      if (++boxes !== 1) return undefined;
+      expect(change.sessionCommands).toEqual({ test: "bun test" });
+      asked.resolve(); await answer.promise;
+      return "session";
+    }, useSessionCommands() {} });
   const next = "commands:\n  test: bun test\n";
-  const results = await Promise.all([
-    project.call("write", { path: ".casper/project.yaml", content: next }),
-    project.call("write", { path: ".casper/quick-test.ts", content: "skip" }),
-  ]);
+  const command = project.call("write", { path: ".casper/project.yaml", content: next });
+  // Native writes mkdir before entering the guard's queue: Promise.all's array order is not arrival order.
+  // Hold the command's approval open, then start the competing script save before granting session-only.
+  await asked.promise;
+  const script = project.call("write", { path: ".casper/quick-test.ts", content: "skip" });
+  answer.resolve();
+  const results = await Promise.all([command, script]);
   for (const result of results) expect(result.details).toEqual({ sessionOnlyCheck: true });
   expect(boxes).toBe(1);
   expect(await project.config()).toBe(original);

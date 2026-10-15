@@ -1,4 +1,5 @@
-import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { spawnSync } from "node:child_process";
+import { cleanEnv } from "../../support/env";
 import { createHash } from "node:crypto";
 import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -23,9 +24,12 @@ async function launcherExists(file: string): Promise<boolean> {
   return stat(file).then(details => details.isFile() && details.size > 0, () => false);
 }
 
+export interface LauncherBuild { status: number | null; signal?: string | null; error?: Error; stdout?: string; stderr?: string }
+
 /** Fixture-only seams let every host test Windows build failures and competing publishers. */
 export async function buildSharedLauncher(exe: string, options: {
-  compile?: (outfile: string, cwd: string) => SpawnSyncReturns<string>;
+  entrypoint?: string;
+  compile?: (outfile: string, cwd: string) => LauncherBuild | Promise<LauncherBuild>;
   publish?: (from: string, to: string) => Promise<void>;
   scratchRoot?: string;
 } = {}): Promise<string> {
@@ -35,11 +39,18 @@ export async function buildSharedLauncher(exe: string, options: {
     // Bun may leave .bun-build runtime files: keep all compile output out of the repository.
     const scratch = await mkdtemp(path.join(options.scratchRoot ?? os.tmpdir(), "casper-launcher-build-"));
     const building = path.join(scratch, "launcher.exe");
-    let built: SpawnSyncReturns<string> | undefined;
+    let built: LauncherBuild | undefined;
     try {
-      built = options.compile ? options.compile(building, scratch) : spawnSync(process.execPath,
-        ["build", "--compile", LAUNCHER, "--outfile", building],
-        { cwd: scratch, encoding: "utf8", windowsHide: true, timeout: 60_000 });
+      if (options.compile) built = await options.compile(building, scratch);
+      else {
+        // A sync Bun compile can stop a test worker from servicing its own deadlines on a loaded Windows host.
+        const child = Bun.spawn([process.execPath, "build", "--compile", "--no-compile-autoload-dotenv", "--no-compile-autoload-bunfig",
+          options.entrypoint ?? LAUNCHER, "--outfile", building], {
+          cwd: scratch, env: cleanEnv({ HOME: scratch }), stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 60_000, killSignal: "SIGKILL",
+        });
+        const [stdout, stderr, status] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+        built = { status, signal: child.signalCode, stdout, stderr };
+      }
       if (built.status !== 0 || built.signal || built.error) throw new Error("compile failed");
       if (!await launcherExists(building)) throw new Error("compile produced no nonempty launcher");
       // Publish atomically without replacing another worker's (possibly running) executable.
