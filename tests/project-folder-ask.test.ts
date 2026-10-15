@@ -305,7 +305,7 @@ test("/project <name> once the conversation started says the command to use", as
   } finally { await app.close(); await removeTree(root); }
 });
 
-test("/project <name> that isn't there offers Make it, and choice 2 goes on to the /new questions in this folder", async () => {
+test("/project <name> that isn't there offers Make it, and choice 2 makes it here as an empty project, with no kind question", async () => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-folder-missing-")));
   const home = path.join(root, "home");
   const work = path.join(root, "work");
@@ -319,8 +319,9 @@ test("/project <name> that isn't there offers Make it, and choice 2 goes on to t
     harness.input.write("/project sample-tools\r");
     await harness.until(text => Bun.stripANSI(text).includes("Make it?"));
     harness.input.write("2");
-    await harness.until(text => Bun.stripANSI(text).includes("What are you building?"));
-    harness.input.write("\x1b");
+    await harness.until(text => /Working in\s+\S*sample-tools/.test(Bun.stripANSI(text)));
+    expect(Bun.stripANSI(harness.output())).toMatch(/sample-tools\s+· empty folder/);
+    expect(Bun.stripANSI(harness.output())).not.toContain("What are you building?");
     // The question ended: the last status is idle again, not "waiting for you".
     await harness.until(text => { const plain = Bun.stripANSI(text); return plain.lastIndexOf("idle") > plain.lastIndexOf("waiting for you"); });
   } finally {

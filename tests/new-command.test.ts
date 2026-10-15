@@ -14,7 +14,7 @@ afterEach(async () => { await fakes?.cleanup(); fakes = undefined; });
 
 test("parseNewArgs: only the exact forms are the command; anything else stays a prompt", () => {
   expect(parseNewArgs([])).toEqual({ list: false });
-  expect(parseNewArgs(["mist-aps"])).toEqual({ name: "mist-aps", list: false });
+  expect(parseNewArgs(["mist-aps"])).toEqual({ template: "empty", name: "mist-aps", list: false });
   expect(parseNewArgs(["python-cli", "mist-aps"])).toEqual({ template: "python-cli", name: "mist-aps", list: false });
   expect(parseNewArgs(["--list"])).toEqual({ list: true });
   expect(parseNewArgs(["ideas", "for", "the", "app"])).toBeNull();

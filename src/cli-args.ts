@@ -317,10 +317,11 @@ export function parseNewArgs(rest: readonly string[]): NewCommand | null {
   }
   // A lone kind word is the kind ("casper new web-app"); Casper asks for the name, or uses the kind's usual one.
   if (rest.length === 1 && (getTemplate(rest[0]!)?.manifest.ready || rest[0] === EMPTY_TEMPLATE)) return { template: rest[0]!, list: false };
+  // A lone name is an empty project of that name, with no question: Casper opens there and you say what to build.
   if (rest.length === 1) {
     const name = rest[0]!;
     if (!validName(name)) throw new UsageError(NAME_RULE);
-    return { name, list: false };
+    return { template: EMPTY_TEMPLATE, name, list: false };
   }
   if (rest.length === 2 && (getTemplate(rest[0]!) || rest[0] === EMPTY_TEMPLATE)) {
     const [template, name] = rest as [string, string];

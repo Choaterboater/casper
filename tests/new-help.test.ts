@@ -23,7 +23,7 @@ test("the casper new help line names every kind, and both helps use it", () => {
 test("a lone kind word is the kind, not a project named after it", () => {
   expect(parseNewArgs(["web-app"])).toEqual({ template: "web-app", list: false });
   expect(parseNewArgs(["empty"])).toEqual({ template: "empty", list: false });
-  expect(parseNewArgs(["mist-aps"])).toEqual({ name: "mist-aps", list: false });
+  expect(parseNewArgs(["mist-aps"])).toEqual({ template: "empty", name: "mist-aps", list: false });
   // At a terminal Casper asks only for the name.
   expect(terminalNewProject(parseCliArgs(["new", "web-app"]), true)).toEqual({ template: "web-app", list: false });
 });
